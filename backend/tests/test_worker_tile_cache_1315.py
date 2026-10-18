@@ -132,7 +132,7 @@ def test_worker_bootstrap_initializes_redis_backed_tile_cache(
     asyncio.run(bootstrap(app=None))
 
     assert isinstance(cache_provider.get_tile_cache(), TileCacheProvider), (
-        "fix(#1315): the worker must end bootstrap with the Redis-backed tile "
+        "The worker must end bootstrap with the Redis-backed tile "
         "cache live, or every post-swap MVT purge is a silent no-op."
     )
 
@@ -319,7 +319,7 @@ async def test_worker_purge_evicts_tiles_another_process_cached(
     await invalidate_tile_cache_for_table(swapped)
 
     assert await api_cache.get(swapped, 3, 1, 2) is None, (
-        "fix(#1315): the worker's post-swap purge must evict the tiles the API "
+        "The worker's post-swap purge must evict the tiles the API "
         "process cached for the swapped table"
     )
     assert await api_cache.get(untouched, 3, 1, 2) == b"other-dataset-mvt", (
@@ -402,7 +402,7 @@ def test_bootstrap_initializes_the_tile_cache():
     from app.platform.extensions import bootstrap as bootstrap_module
 
     assert "init_tile_cache(" in inspect.getsource(bootstrap_module.bootstrap), (
-        "fix(#1315): bootstrap() must own init_tile_cache() so the API and the "
+        "bootstrap() must own init_tile_cache() so the API and the "
         "worker cannot drift into different tile-cache states again."
     )
 
@@ -417,6 +417,6 @@ def test_api_lifespan_does_not_init_the_tile_cache_directly():
     from app.api import main as main_module
 
     assert "init_tile_cache(" not in inspect.getsource(main_module.lifespan), (
-        "WORK-01 / fix(#1315): the lifespan must not call init_tile_cache() "
+        "The lifespan must not call init_tile_cache() "
         "directly -- bootstrap() is the single source of truth."
     )

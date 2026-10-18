@@ -122,7 +122,7 @@ async def s3_cog(client, test_db_session, real_s3_storage):
     admin_id = await get_user_id(test_db_session, "admin")
     record = Record(
         title=f"S3 COG {uuid.uuid4().hex[:6]}",
-        summary="COG for the fix(#1540) P1 wire test",
+        summary="COG for the S3 HEAD wire test",
         theme_category=["test"],
         visibility="public",
         record_status="published",

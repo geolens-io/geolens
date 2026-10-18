@@ -78,7 +78,7 @@ describe('getExpressionSafeOpacity', () => {
     expect(getExpressionSafeOpacity({ 'line-opacity': 0.5 }, 'line', 0.4)).toBe(0.2);
   });
 
-  it('fix(#394) ST-03: multiplies expression-valued opacity by the master slider', () => {
+  it('multiplies expression-valued opacity by the master slider', () => {
     const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.75];
 
     expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4))

@@ -180,7 +180,7 @@ class TestParseTextOgrinfo:
         assert result["srid"] is None
 
     def test_non_spatial_layer_reports_no_geometry(self):
-        """fix(#2031): `Geometry: None` is a sentinel, not a type."""
+        """`Geometry: None` is a sentinel, not a type."""
         output = "Layer name: attrs\nGeometry: None\nFeature Count: 3\n"
         assert _parse_text_ogrinfo(output)["geometry_type"] is None
 
@@ -1055,7 +1055,7 @@ class TestIsUnopenableSourceStderr:
 
 
 class TestOgrinfoOneLineOpenFailure:
-    """fix(#2036): ogrinfo reports an unopenable source in one line of its
+    """ogrinfo reports an unopenable source in one line of its
     own rather than ogr2ogr's driver enumeration, so the reason for it is
     the friendly sentence and not ``ogrinfo failed (exit 1)``.
     """
@@ -1276,7 +1276,7 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert "!" in str(exc_info.value)
 
     def test_sec_fu_04_a_d9_line_registers_the_value_for_exact_scrub(self) -> None:
-        """fix(#1770 P3, `core/service_tokens.py`/`ogr.py`).
+        """An Authorization line in the D9 wire format registers its value.
 
         `register_credential_secret` (`core/service_tokens.py`) is only
         called from `build_credential_header` -- the whole reason the
@@ -1285,16 +1285,16 @@ class TestSecFu04SanitizeAuthorizationToken:
         separator, what a modern job actually carries), this function
         validates the line and returns it unchanged without ever calling
         that builder: `_legacy_bearer_line` above is the only branch that
-        does, for the pre-#1770 bare-token shape. So the registry stayed
-        empty for the whole worker service-import path on the format every
-        current job actually uses, and only the two explicit
+        does, for the legacy bare-token shape. Without the registration the
+        registry would stay empty for the whole worker service-import path on
+        the format every current job actually uses, and only the two explicit
         `scrub_secret_from_exception` calls covered exceptions -- an
         ordinary log line calling `_scrub_text` directly was not covered at
         all. Counterfactual: remove the `register_credential_secret(...)`
         call from `_sanitize_authorization_token` and the secret below
         survives `_scrub_text` untouched.
 
-        fix(#1844): that call registers the LINE now, not the value -- see
+        That call registers the LINE, not the value -- see
         `test_sec_fu_04_registration_expands_to_every_wire_shape` below for
         the shapes only the line expands to. A named API key's own value is
         the tail of its own line, so this test reads the same either way.
@@ -1328,15 +1328,15 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert "never-sanitized" in rendered
 
     def test_sec_fu_04_registration_expands_to_every_wire_shape(self) -> None:
-        """fix(#1844): register the LINE, because only a line expands.
+        """Register the LINE, because only a line expands.
 
         `_secret_variants` (`core/url_redaction.py`) derives the bare token,
         the basic blob and the decoded `user:pass` cleartext from a secret
-        that CONTAINS `": "`, and from nothing else. The worker used to register the
-        VALUE (`Bearer <tok>` / `Basic <blob>`) to keep the header NAME out of
-        the registry, which meant the worker -- the one process that spends
-        the credential against a hostile origin -- registered a shape the
-        expansion could not open. So an origin echoing the bare token back in
+        that CONTAINS `": "`, and from nothing else. Registering the VALUE
+        (`Bearer <tok>` / `Basic <blob>`) to keep the header NAME out of the
+        registry would mean the worker -- the one process that spends the
+        credential against a hostile origin -- registers a shape the
+        expansion cannot open. So an origin echoing the bare token back in
         a URL path, or naming the basic username in its own error text
         ("authentication failed for user ..."), passed the exact-value scrub
         untouched, and only the two explicit `scrub_secret_from_exception`
@@ -1412,12 +1412,12 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert "CCCCCCCCCCCCCCCC" in rendered
 
     def test_sec_fu_04_a_refused_short_bearer_registers_nothing(self) -> None:
-        """fix(#1844): a line this function REFUSES is not a secret.
+        """A line this function REFUSES is not a secret.
 
-        Registration used to run above the bearer grammar checks, so a refused
-        line still seeded the registry. `Authorization: Bearer e` seeded the
+        Registering above the bearer grammar checks would let a refused
+        line seed the registry. `Authorization: Bearer e` would seed the
         one-character variant `e`, and every later `_scrub_text` in the same
-        job then replaced every "e" in every log line with the redaction
+        job then replace every "e" in every log line with the redaction
         marker -- destroying the diagnostic exactly when something upstream
         had let a malformed credential through.
         """
@@ -1487,15 +1487,15 @@ class TestSecFu04SanitizeAuthorizationToken:
     def test_sec_fu_04_a_valid_short_basic_pair_still_expands_to_both_halves(
         self,
     ) -> None:
-        """fix(#1844): no length floor on a derived variant.
+        """No length floor on a derived variant.
 
-        Added one and it was wrong. `credential_input_rejection_reason`
+        A floor would be wrong. `credential_input_rejection_reason`
         (`core/service_tokens.py`) accepts any nonempty printable username or
         password with no minimum, so a one-character half is a VALID credential
         a user can really configure, not a malformed one -- and a floor decides
-        which valid credentials stop being scrubbed. A Basic password of
-        `admin` had exactly this regression: `authentication failed for user
-        admin` stopped being redacted out of worker logs and the persisted
+        which valid credentials stop being scrubbed. With a floor, a Basic
+        password of `admin` would stop `authentication failed for user
+        admin` being redacted out of worker logs and the persisted
         exception text.
 
         Over-scrubbing a short secret is the deliberate trade-off documented on

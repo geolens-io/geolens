@@ -90,7 +90,7 @@ describe('formatGsd', () => {
     expect(formatGsd(2000, { isGeographic: false }, 'en-US')).toBe('2.0 km');
   });
 
-  it('fix(#569): geographic-CRS gsd renders arc units with approx ground distance, not meters', () => {
+  it('geographic-CRS gsd renders arc units with approx ground distance, not meters', () => {
     // 60 arc-seconds = 1/60 degree — previously rendered "2 cm"
     const label = formatGsd(1 / 60, { isGeographic: true }, 'en-US');
     expect(label).toContain('60″');
@@ -101,7 +101,7 @@ describe('formatGsd', () => {
     expect(formatGsd(2, { isGeographic: true }, 'en-US')).toContain('2°');
   });
 
-  it('fix(#588): sub-arcsecond pixels keep their precision instead of rounding to 0\u2033', () => {
+  it('sub-arcsecond pixels keep their precision instead of rounding to 0\u2033', () => {
     // ~30 cm EPSG:4326 imagery ≈ 0.0097 arc-seconds — a fixed 1-decimal
     // format rendered this as '0″ (≈30 cm)'.
     const label = formatGsd(0.3 / 111_320, { isGeographic: true }, 'en-US');

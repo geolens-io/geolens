@@ -193,7 +193,7 @@ describe('BuilderRail', () => {
   });
 });
 
-describe('fix(#783) — focus restoration on panel close', () => {
+describe('focus restoration on panel close', () => {
   it('returns focus to the rail button when the close button dismisses the panel', async () => {
     render(<RailHarness />);
     const historyButton = screen.getByRole('button', { name: 'History' });
@@ -219,7 +219,7 @@ describe('fix(#783) — focus restoration on panel close', () => {
   });
 });
 
-describe('fix(#788 item 5) — named aside landmarks', () => {
+describe('named aside landmarks', () => {
   it('names the icon rail and the expanded panel', () => {
     render(<RailHarness />);
     expect(

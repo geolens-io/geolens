@@ -559,11 +559,9 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         "the source is a bare local path the page walker wrote (#1846). Takes "
         "the SERVICE env for the same reason run_ogr2ogr_service does: the "
         "service branch exists to use WFS and OAPIF, which the vector variant "
-        "skips. fix(#1857 item 3): this used to be the one site with no env "
-        "helper at all, recorded here as None, because modules/catalog/ may "
-        "not import app.processing.* (test_layering.py) and that is where the "
-        "helpers lived. They live in app/platform/gdal_env.py now, so the "
-        "site is credited rather than excused",
+        "skips. modules/catalog/ may not import app.processing.* "
+        "(test_layering.py), so this site takes its env helper from "
+        "app/platform/gdal_env.py",
     ),
 }
 

@@ -1130,7 +1130,7 @@ class TestCogDownloadRedirect:
 
 
 class TestOptionalRequestBodyIsOmitted:
-    """fix(#1277 review): an omitted body must not reach httpx as UNSET.
+    """An omitted body must not reach httpx as UNSET.
 
     openapi-python-client emits ``else: _kwargs["json"] = body`` for an
     optional request body. The ``else`` is right for an explicit ``None`` — a
@@ -1339,12 +1339,10 @@ class TestPythonRoundTrip:
         sdk = GeolensClient(base_url="http://test", bearer_token=token)
         _wire_asgi_transport(sdk, app)
 
-        # fix(#1666): this used to need an explicit body=None. The endpoint
-        # declared `keywords` as an optional list BODY on a GET, so the generated
-        # _get_kwargs unconditionally set _kwargs["json"] = body and httpx could
-        # not serialize the SDK's UNSET sentinel. `keywords` is a query parameter
-        # now, the generated function takes no body at all, and the call is
-        # simply the call.
+        # `keywords` is a query parameter, so the generated function takes no
+        # body and needs no explicit body=None (an optional list BODY on a GET
+        # would make _get_kwargs set _kwargs["json"] to the UNSET sentinel,
+        # which httpx cannot serialize).
         resp = await search_datasets_endpoint_search_datasets_get.asyncio_detailed(
             client=sdk.client,
         )

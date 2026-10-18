@@ -91,7 +91,7 @@ def test_the_api_entrypoint_installs_it_on_the_engine():
     src = inspect.getsource(api_main.install_api_query_deadline)
     assert "install_api_statement_timeout(engine)" in src
     assert "from app.core.db import engine" in src, (
-        "fix(#909): the engine must be late-bound or the fixture's patch is lost"
+        "The engine must be late-bound or the fixture's patch is lost"
     )
 
     module_src = inspect.getsource(api_main)

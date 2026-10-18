@@ -171,7 +171,7 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(result.current.savedLayerBaseline.some((l) => l.id === 'created-layer-id')).toBe(true);
   });
 
-  it('fix(#545): first layer on a fresh empty map does NOT mark the map dirty (no false unsaved-changes prompt)', () => {
+  it('first layer on a fresh empty map does NOT mark the map dirty (no false unsaved-changes prompt)', () => {
     const { result, mutate } = renderBuilderLayers(makeMapData([]));
 
     act(() => {
@@ -186,7 +186,7 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
-  it('fix(#554 codex P2): two adds resolving in one batch on a fresh map still mark dirty (second add renumbers the first)', () => {
+  it('two adds resolving in one batch on a fresh map still mark dirty (second add renumbers the first)', () => {
     const { result, mutate } = renderBuilderLayers(makeMapData([]));
 
     act(() => {
@@ -208,7 +208,7 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  it('fix(#545)/WR-02: add onto a map with existing layers STILL marks dirty (sibling renumber is unpersisted)', () => {
+  it('add onto a map with existing layers STILL marks dirty (sibling renumber is unpersisted)', () => {
     const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
     const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
 
@@ -262,7 +262,7 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     expect(ids.indexOf('child-layer-id')).toBe(ids.indexOf('group-1') + 1);
   });
 
-  it('Test E2: fix(#394) LM-01/B-021 — kebab Add-to-group splices into the group block and renumbers', () => {
+  it('Test E2: kebab Add-to-group splices into the group block and renumbers', () => {
     // The loose row starts ABOVE the group: before the fix it kept its array
     // position and only gained parent_group_id, so hydrateFolderGroupLayers
     // re-anchored the whole group at the old position after save+reload.

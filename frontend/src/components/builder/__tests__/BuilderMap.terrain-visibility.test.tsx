@@ -468,7 +468,7 @@ describe('BuilderMap #1128: small-DEM coverage reads the layer extent, not the t
   });
 });
 
-describe('BuilderMap style.load token gate (fix(#845 Codex P2 r5 on #848))', () => {
+describe('BuilderMap style.load token gate', () => {
   beforeEach(() => {
     mapState.reset();
     vi.mocked(applyBasemapConfigToMap).mockClear();

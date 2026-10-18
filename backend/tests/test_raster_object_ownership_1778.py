@@ -737,7 +737,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "vectors/{dataset_id}/quicklook_256.png, written after the vector "
         "dataset row is committed, so delete_dataset's vectors/ prefix reap "
-        "owns it (fix(#430 BA-17))",
+        "owns it",
     ),
     ("processing/ingest/service.py", "save_upload_file"): (
         2,

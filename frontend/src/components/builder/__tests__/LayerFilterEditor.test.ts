@@ -619,7 +619,7 @@ describe('LayerFilterEditor - B-001 / FL-01: multi-condition round-trip', () => 
 // ---------------------------------------------------------------------------
 // Numeric in_list per-entry NaN guard
 // ---------------------------------------------------------------------------
-describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
+describe('numeric in_list per-entry validation', () => {
   it('drops non-numeric entries instead of emitting a mixed-type literal', () => {
     const conditions = [{ id: '1', field: 'population', operator: 'in_list', value: '1,abc,3' }];
     const result = buildFilterExpression(conditions, columns, 'all');

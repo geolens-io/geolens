@@ -71,7 +71,7 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.current_version = 1
     ds.source_url = None
     ds.quality_statement = None
-    # feat(#1218): source-origin & refresh state. A bare MagicMock returns a
+    # source-origin & refresh state. A bare MagicMock returns a
     # MagicMock for any attribute never set, which DatasetResponse rejects, so
     # every new dataset column has to be pinned here explicitly.
     ds.origin_uri = None
@@ -83,9 +83,9 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.schema_drift_status = None
     ds.retention_column = None
     ds.retention_days = None
-    # fix(#1372): _build_raster_metadata reads this into the tile URL's `v=`.
+    # _build_raster_metadata reads this into the tile URL's `v=`.
     ds.tile_cache_version = 1
-    # fix(#2007): and this into its `pv=`.
+    # And this into its `pv=`.
     ds.publication_version = 0
 
     ds.record = MagicMock()
@@ -99,7 +99,7 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.record.updated_at = datetime(2026, 1, 2)
     ds.record.record_status = "published"
     ds.record.license = None
-    # feat(#1472): see the note above — an unset attribute yields a MagicMock,
+    # See the note above — an unset attribute yields a MagicMock,
     # which DatasetResponse.attribution (str | None) rejects.
     ds.record.attribution = None
     ds.record.source_organization = None
@@ -432,7 +432,7 @@ class TestVrtSourcesEndpoint:
         would run for real against a None user_roles and raise. The filtering
         behavior itself is covered by tests/test_vrt_source_authz_1172.py.
 
-        fix(#435): the endpoint now batch-loads member datasets in one query instead
+        The endpoint batch-loads member datasets in one query instead
         of calling `get_dataset()` per row, so stub `_load_source_datasets` too. These
         tests point a blanket `db.execute` mock at the raw-SQL result, which the
         batch loader would otherwise read as "no member datasets exist".
@@ -857,21 +857,15 @@ class TestSearchEnrichmentVrt:
 
 
 class TestDatasetDetailSessionIsolation:
-    """fix(#1436): get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
+    """get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
 
-    Regression guard, revised after codex review. The raster asset,
-    VRT source-count, and dataset-asset fetches were originally gathered via
-    ``asyncio.gather`` against the caller's ``db`` while a comment claimed
-    they ran "in parallel" — false (AsyncSession is not safe for concurrent
-    use, so asyncpg's per-connection execute lock silently serialized them
-    anyway). The first fix gave each branch its own short-lived
-    ``async_session()``, matching the pattern search/router.py and
-    stac/router.py use for their gather sites — but codex review flagged that
-    pattern here as a nested pool checkout while the caller's own connection
-    is held for the rest of the request, which the default (non-external-
-    pooler) connection pool cannot absorb under moderate concurrency. The
-    fetches now run sequentially on the caller's own session instead: no
-    extra checkout, no false "parallel" claim, no shared-session concurrency.
+    The raster asset, VRT source-count, and dataset-asset fetches run
+    sequentially on the caller's own session. ``asyncio.gather`` on one
+    ``AsyncSession`` is unsafe (asyncpg's per-connection execute lock
+    serializes the calls anyway), and a short-lived ``async_session()`` per
+    branch would be a nested pool checkout while the caller's connection is
+    held for the rest of the request, which the default (non-external-pooler)
+    connection pool cannot absorb under moderate concurrency.
     """
 
     @pytest.mark.anyio

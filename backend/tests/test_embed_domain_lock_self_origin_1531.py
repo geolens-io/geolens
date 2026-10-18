@@ -100,7 +100,7 @@ def _self_origin_is_configured(monkeypatch):
 
     async def _fake_get_configured_public_app_url(db, **kwargs):
         assert not kwargs, (
-            "fix(#1531/#1548 r9): _resolve_self_origins must pass nothing but the "
+            "_resolve_self_origins must pass nothing but the "
             "session. A request-derived origin is one every caller satisfies, "
             "which would make the allowlist vacuous."
         )

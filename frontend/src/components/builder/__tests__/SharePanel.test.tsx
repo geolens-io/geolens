@@ -1310,7 +1310,7 @@ describe('P2-01 explicit create-embed-token for public-only embeds', () => {
 /*  boundary before mutating                                           */
 /* ------------------------------------------------------------------ */
 
-describe('fix(#778) public-boundary visibility confirmation', () => {
+describe('public-boundary visibility confirmation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

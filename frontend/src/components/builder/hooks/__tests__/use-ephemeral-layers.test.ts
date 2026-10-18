@@ -178,7 +178,7 @@ describe('useEphemeralLayers', () => {
   });
 });
 
-describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
+describe('overlay survives style reloads', () => {
   it('re-adds the overlay on style.load without re-zooming', () => {
     const map = createMockMap();
     const ref = { current: map as unknown as MaplibreMap };
@@ -206,7 +206,7 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
     expect(map.fitBoundsCalls).toHaveLength(1);
   });
 
-  it('fix(#533 follow-up): retries on idle when the style is transiently not loaded', () => {
+  it('retries on idle when the style is transiently not loaded', () => {
     const map = createMockMap();
     // Reproduce the cold-load pickup race: style transiently reports
     // not-loaded and the initial style.load has already fired (so the
@@ -236,7 +236,7 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
     expect(map.fitBoundsCalls[0].bounds).toEqual([[-1, -1], [1, 1]]);
   });
 
-  it('fix(#533 follow-up): unsubscribes the idle handler on dismiss', () => {
+  it('unsubscribes the idle handler on dismiss', () => {
     const map = createMockMap();
     map.styleLoaded = false;
     const ref = { current: map as unknown as MaplibreMap };

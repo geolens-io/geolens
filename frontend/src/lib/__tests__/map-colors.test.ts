@@ -85,7 +85,7 @@ describe('MAP_COLORS design-token parity', () => {
     expect(MAP_COLORS.default.stroke).toBe(oklchToSrgbHex(readOklchToken(root, '--primary-700')));
   });
 
-  it('keeps the globe export backdrop synchronized with --map-space (fix(#1479))', () => {
+  it('keeps the globe export backdrop synchronized with --map-space', () => {
     // Captures composite the WebGL canvas onto a 2D context, which cannot read
     // a CSS token, so the globe void's color exists twice. This pins the copy.
     expect(MAP_COLORS.exportImage.globeBackground).toBe(

@@ -59,10 +59,10 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.stagingFileUnavailable',
   'This service requires authentication. Provide an access token and try again.':
     'errors.serviceRequiresAuth',
-  // fix(#1746): the ArcGIS-specific wording of the same auth-required refusal
-  // (ArcGISTokenError path in backend/app/modules/catalog/sources/router.py)
-  // was unmapped and fell through to the generic 403 "Access denied", hiding
-  // that a token was the fix.
+  // The ArcGIS-specific wording of the same auth-required refusal
+  // (ArcGISTokenError path in backend/app/modules/catalog/sources/router.py).
+  // Unmapped it falls through to the generic 403 "Access denied", hiding that
+  // a token is the fix.
   'This service requires authentication. Provide a valid ArcGIS token and try again.':
     'errors.serviceRequiresAuth',
   'Could not reach the service. Check the URL and try again.':
@@ -90,14 +90,14 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Tile service unavailable': 'errors.serviceUnavailable',
   'Export temporarily unavailable': 'errors.serviceUnavailable',
   'Task queue unavailable, please retry': 'errors.serviceUnavailable',
-  // fix(#790): the sandbox advisory lock (geolens:ai-sql:<user>) is SHARED
+  // The sandbox advisory lock (geolens:ai-sql:<user>) is SHARED
   // between analysis previews and AI chat data queries — one expensive read
-  // per user across both, deliberately. Unmapped this 429 collapsed to the
-  // generic rateLimited fallback, so a busy chat query refused an analysis
-  // preview with no hint that another feature was holding the budget. The
+  // per user across both, deliberately. Unmapped this 429 collapses to the
+  // generic rateLimited fallback, so a busy chat query refuses an analysis
+  // preview with no hint that another feature is holding the budget. The
   // locale copy names both sides, because either can be the holder.
   'Another data query is already running for this user': 'errors.sharedQueryBusy',
-  // fix(#1285): the refresh door's refusal taxonomy (backend
+  // The refresh door's refusal taxonomy (backend
   // router_refresh.py). Each literal below is stable, considered UX copy on
   // the backend side rather than diagnostic prose, so mapping by exact text
   // follows the table's existing convention. Distinct wordings that describe
@@ -120,7 +120,7 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshReviewSuperseded',
   "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
     'errors.refreshOriginChanged',
-  // fix(#1768): the re-upload commit door's own `origin_changed`. Same code,
+  // The re-upload commit door's own `origin_changed`. Same code,
   // different literal and a different key, because the two refusals describe
   // different windows: the refresh one is "between your click and the queue",
   // this one is "between the upload you staged and the commit you just
@@ -130,8 +130,7 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.reuploadOriginChanged',
   'This dataset is backed by a registered table in this instance, which needs no service credential. Send the request without a token.':
     'errors.refreshCredentialNotApplicable',
-  // fix(#1332): the STAC door's wordings of the same taxonomy states,
-  // introduced by #1326 after this table was written.
+  // The STAC door's wordings of the same taxonomy states.
   'This dataset was not imported from a STAC item, so there is no item to re-resolve.':
     'errors.refreshNotApplicable',
   "This dataset's source binding does not record the STAC item its asset was published in, so GeoLens cannot ask the catalog where that asset is now. Re-import it from the STAC catalog to record one.":
@@ -146,14 +145,14 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshCredentialStoreUnavailable',
 };
 
-// fix(#1390): the VRT source-compatibility 422 (`validate_sources` in
+// The VRT source-compatibility 422 (`validate_sources` in
 // backend/app/processing/raster/validation.py) returns an array of
 // SourceValidationError objects (source_id/code/message/field/severity) —
 // a different shape from the Pydantic loc/type/ctx array `validationDescriptor`
-// below expects, so every VAL code fell through to the generic
+// below expects, so every VAL code falls through to the generic
 // `errors.validationFailed` string. Keyed by the backend's stable `code`
-// literal, mirroring the refresh-refusal taxonomy convention (#1285/#1332)
-// of one user-facing key per backend code rather than per call site.
+// literal, mirroring the refresh-refusal taxonomy convention of
+// one user-facing key per backend code rather than per call site.
 const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   crs_mismatch: 'errors.sourceValidationCrsMismatch',
   crs_unverified: 'errors.sourceValidationCrsUnverified',
@@ -340,13 +339,13 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // The analysis blast-radius refusals (#693 mask cap, #694/#701 source caps)
-  // and the CORS wildcard guard (#689) put the whole point of those changes in
+  // The analysis blast-radius refusals (mask cap, source caps)
+  // and the CORS wildcard guard put what the user needs in
   // the server's prose: the limit, and the way out. Unmapped they collapse to
   // the generic 422 string, so the user is told their input is invalid with no
   // hint that size is the problem. The limits arrive comma-grouped from
   // Python's `{n:,}`, so strip that before re-formatting for the active locale.
-  // fix(#718): the operation name in the source-size message is deliberately
+  // The operation name in the source-size message is deliberately
   // dropped rather than interpolated — translating it would mean reaching into
   // the builder namespace from here, and the user just picked the operation.
   const sourceTooLarge = message.match(
@@ -369,7 +368,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // fix(#2032): the commit doors' srid_override refusal. The code the caller
+  // The commit doors' srid_override refusal. The code the caller
   // typed is the whole message; the spatial_ref_sys mechanics are diagnostic.
   const unknownSrid = message.match(
     /^srid_override (\d+) is not a known coordinate system/i,
@@ -409,17 +408,17 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // fix(#1285): the refresh door's SSRF refusal appends the validator's own
+  // The refresh door's SSRF refusal appends the validator's own
   // exception text after the colon, which is diagnostic detail (resolved IP,
   // blocked range) rather than something a non-admin reader should see.
   // Anchored on the fixed prefix only; the dynamic suffix is dropped.
-  // fix(#1332): the STAC door words the same refusal around its item URL.
+  // The STAC door words the same refusal around its item URL.
   if (/^This dataset's stored (?:source URL|STAC item URL) is not reachable:/i.test(message)) {
     return { key: 'errors.refreshSourceUrlBlocked' };
   }
 
-  // fix(#774): the four analysis 4xx literals #718 didn't map. Without these
-  // the 429 collapsed to generic rate-limit advice (wrong — it is the user's
+  // The four analysis 4xx literals not covered above. Without these
+  // the 429 collapses to generic rate-limit advice (wrong — it is the user's
   // OWN job holding the one-per-user slot) and the three 422s to "values are
   // invalid".
   if (/^An analysis job is already running/i.test(message)) {
@@ -441,8 +440,8 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // fix(#931): the backend names the offending maps precisely so a human can go
-  // and fix them, and unmapped that list fell through to the generic 422 —
+  // The backend names the offending maps precisely so a human can go
+  // and fix them, and unmapped that list falls through to the generic 422 —
   // which drops exactly the part that makes the refusal actionable.
   // `s` (dotAll) because a map name may legally contain a
   // newline — `MapCreate.name` is length-bounded and NFC-normalized, nothing
@@ -582,7 +581,7 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         },
       };
     }
-    // fix(#1285): invalid_service_token's message is the token POLICY, not
+    // invalid_service_token's message is the token POLICY, not
     // the token — the backend names the allowed alphabet dynamically per
     // service type (base64url vs. the wider ArcGIS query-param vocabulary),
     // so it can't be a static key the way the other refresh refusals are.
@@ -664,21 +663,18 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       };
     }
 
-    // --- Lane A3 (service-auth wave, #1755 item 4): appended as its own
-    // block, ahead of the generic string-message fallback below rather than
-    // interleaved with the codes above, so this merges cleanly onto lane
-    // A2's changes elsewhere in this function. `service_token_required`'s
-    // body carries an English diagnostic sentence aimed at an API client;
-    // `SourceRefreshAction.tsx` intercepts the code before this module ever
-    // sees it and renders its own inline credential prompt instead, but this
-    // entry keeps the mapping correct for any other caller of
-    // `classifyApiError` that reaches this code without that special case.
-    // fix(#2031): keyed on the code, so rewording the server's sentence cannot
+    // Keyed on the code, so rewording the server's sentence cannot
     // drop a re-upload user to raw English prose.
     if (value.code === 'geometry_loss') {
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
+    // `service_token_required`'s body carries an English diagnostic sentence
+    // aimed at an API client; `SourceRefreshAction.tsx` intercepts the code
+    // before this module ever sees it and renders its own inline credential
+    // prompt instead, but this entry keeps the mapping correct for any other
+    // caller of `classifyApiError` that reaches this code without that
+    // special case.
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }

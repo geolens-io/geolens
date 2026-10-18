@@ -22,7 +22,7 @@ INIT_TEST_DB_SCRIPT = ROOT / "scripts" / "init-test-db.sh"
 
 requires_docker_cli = pytest.mark.skipif(
     shutil.which("docker") is None,
-    reason="docker CLI is not installed in this image (fix(#1745))",
+    reason="docker CLI is not installed in this image",
 )
 
 

@@ -217,7 +217,7 @@ beforeEach(() => {
   mockPatchMapLayersMutateAsync.mockResolvedValue({});
 });
 
-describe('fix(#1854): an unsaved camera move is unsaved work', () => {
+describe('an unsaved camera move is unsaved work', () => {
   it('marks the map dirty when the camera pans away from the saved view', () => {
     const { hook, moveTo } = render(savedMap());
     expect(hook.result.current.hasUnsavedChanges).toBe(false);
@@ -293,7 +293,7 @@ describe('fix(#1854): an unsaved camera move is unsaved work', () => {
   });
 });
 
-describe('fix(#1854): the dirty check mirrors the persisted precision', () => {
+describe('the dirty check mirrors the persisted precision', () => {
   // The save payload and the clean check share ONE normalizer
   // (builder-camera.ts), so the comparison grid IS the persisted grid: noise
   // finer than the stored value cannot dirty, and anything the store would
@@ -374,7 +374,7 @@ describe('fix(#1854): the dirty check mirrors the persisted precision', () => {
   });
 });
 
-describe('fix(#1854): a camera sample belongs to the map it was taken on', () => {
+describe('a camera sample belongs to the map it was taken on', () => {
   // A direct /maps/:id navigation keeps this hook and the MapGL instance
   // mounted, and nothing repositions the instance, so the previous map's view
   // is still on screen. It is nobody's edit on the map now being shown.

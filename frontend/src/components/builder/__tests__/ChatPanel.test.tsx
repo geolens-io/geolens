@@ -99,7 +99,7 @@ describe('ChatPanel', () => {
     sessionStorage.clear();
   });
 
-  it('fix(#832): suggestion chip shows the plain layer name but inserts the raw mention payload', async () => {
+  it('suggestion chip shows the plain layer name but inserts the raw mention payload', async () => {
     const user = userEvent.setup();
     renderPanel({
       layers: [makeLayer({ display_name: 'Some Layer', dataset_geometry_type: 'Point' })],
@@ -116,7 +116,7 @@ describe('ChatPanel', () => {
     expect(input.value).toBe('Color "@[Some Layer]" using a field');
   });
 
-  it('fix(#832): a layer name containing "]" survives intact in the chip label (PR #853 review)', async () => {
+  it('a layer name containing "]" survives intact in the chip label', async () => {
     const user = userEvent.setup();
     renderPanel({
       layers: [makeLayer({ display_name: 'Zone A] B', dataset_geometry_type: 'Point' })],
@@ -934,7 +934,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  it('fix(#392): set_data_driven_style falls back to the layer render_mode when the action omits it, keeping heatmap-* paint', async () => {
+  it('set_data_driven_style falls back to the layer render_mode when the action omits it, keeping heatmap-* paint', async () => {
     const weightExpr = ['interpolate', ['linear'], ['get', 'magnitude'], 0, 0, 10, 1];
     // Action OMITS render_mode; the layer is already in heatmap mode. Without the
     // layer-render_mode fallback the heatmap-* keys are stripped as invalid-for-circle
@@ -981,7 +981,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  it('fix(#392): non-streaming fallback records only applied actions — a rejected action shows no "Applied"/Undo', async () => {
+  it('non-streaming fallback records only applied actions — a rejected action shows no "Applied"/Undo', async () => {
     // Stream throws generically (no actions applied) -> non-streaming fallback fires.
     // eslint-disable-next-line require-yield
     mockStreamChat.mockImplementation(async function* () {
@@ -1034,7 +1034,7 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('Made it red')).not.toBeInTheDocument();
   });
 
-  it('fix(#392): set_style preserves builder _outline-* keys on a polygon (backend allowlist accepts them)', async () => {
+  it('set_style preserves builder _outline-* keys on a polygon (backend allowlist accepts them)', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
         event: 'actions',

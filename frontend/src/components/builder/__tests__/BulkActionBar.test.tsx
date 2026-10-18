@@ -204,7 +204,7 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
     expect(groupItem.textContent).toContain('Only ungrouped layers can be grouped');
   });
 
-  it('Test 6: Group menuitem is enabled when a loose raster layer is in selection (fix(#585))', () => {
+  it('Test 6: Group menuitem is enabled when a loose raster layer is in selection', () => {
     render(
       <BulkActionBar
         {...makeProps({

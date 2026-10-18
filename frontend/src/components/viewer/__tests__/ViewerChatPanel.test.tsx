@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 
 describe('ViewerChatPanel', () => {
-  it('fix(#542): shows a dismissible query-result badge when the overlay is active', async () => {
+  it('shows a dismissible query-result badge when the overlay is active', async () => {
     setAvailable(true);
     const handleDismissEphemeral = vi.fn();
     mockEphemeral.mockReturnValue({

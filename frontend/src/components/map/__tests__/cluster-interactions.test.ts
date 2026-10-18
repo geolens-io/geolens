@@ -46,7 +46,7 @@ describe('cluster interactions', () => {
     });
   });
 
-  it('fix(#584): omits absent optional keys from visibleFields so the popup never renders them as "--"', () => {
+  it('omits absent optional keys from visibleFields so the popup never renders them as "--"', () => {
     const feature = {
       properties: { point_count: 42 },
       geometry: { type: 'Point', coordinates: [0, 0] },
@@ -102,7 +102,7 @@ describe('cluster interactions', () => {
     }));
   });
 
-  it('fix(#893): recentres without zooming when expansion zoom is already the current zoom', async () => {
+  it('recentres without zooming when expansion zoom is already the current zoom', async () => {
     // z22 with cluster_max_zoom=22 clamps expansion_zoom to the zoom the
     // cluster is drawn at, and the map is at MapLibre's own ceiling, so no
     // zoom can split it. Centring is the whole available response.
@@ -125,7 +125,7 @@ describe('cluster interactions', () => {
     });
   });
 
-  it('fix(#893): never eases backwards when a stale parent tile reports a shallower expansion zoom', async () => {
+  it('never eases backwards when a stale parent tile reports a shallower expansion zoom', async () => {
     // An overzoomed parent cluster tile still drawn while its replacement loads
     // carries the expansion zoom of the level it was cut at. Honouring it would
     // throw the user out of the view they were zooming into.
@@ -144,7 +144,7 @@ describe('cluster interactions', () => {
     expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 20 }));
   });
 
-  it('fix(#893): the no-expansion-hint fallback still steps forward and stops at the ceiling', async () => {
+  it('the no-expansion-hint fallback still steps forward and stops at the ceiling', async () => {
     const deep = {
       getSource: vi.fn(() => undefined),
       getZoom: vi.fn(() => CLUSTER_ZOOM_CEILING),
@@ -169,7 +169,7 @@ describe('cluster interactions', () => {
     );
   });
 
-  it('fix(#893): a failed GeoJSON expansion lookup falls back without losing ground', async () => {
+  it('a failed GeoJSON expansion lookup falls back without losing ground', async () => {
     const getClusterExpansionZoom = vi.fn((
       _clusterId: number,
       callback: (error: Error | null, zoom: number) => void,

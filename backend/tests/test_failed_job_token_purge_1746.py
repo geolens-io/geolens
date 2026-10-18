@@ -447,7 +447,7 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         table_name = f"ds_cleanup_{uuid.uuid4().hex[:12]}"
         record = Record(
             title="Cleanup Failure Reupload",
-            summary="fix(#1755 item 11) fixture",
+            summary="Failed-job token purge fixture",
             visibility="private",
             record_status="published",
             created_by=admin_id,

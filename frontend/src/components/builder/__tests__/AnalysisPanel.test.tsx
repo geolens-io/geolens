@@ -1342,7 +1342,7 @@ describe('AnalysisPanel', () => {
     }
   });
 
-  it('resets the dissolve group field when the source layer changes (fix(#680))', async () => {
+  it('resets the dissolve group field when the source layer changes', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer, datasetLayer2]);
 
@@ -2645,7 +2645,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
   });
 });
 
-describe('AnalysisPanel spatial join (feat(#953))', () => {
+describe('AnalysisPanel spatial join', () => {
   beforeEach(() => {
     useAnalysisJobStore.setState({ job: null });
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
@@ -2857,7 +2857,7 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
   });
 });
 
-describe('AnalysisPanel select by location (feat(#955))', () => {
+describe('AnalysisPanel select by location', () => {
   beforeEach(() => {
     useAnalysisJobStore.setState({ job: null });
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
@@ -2993,7 +2993,7 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
   });
 });
 
-describe('AnalysisPanel intersect (feat(#956))', () => {
+describe('AnalysisPanel intersect', () => {
   beforeEach(() => {
     useAnalysisJobStore.setState({ job: null });
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });

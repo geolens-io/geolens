@@ -121,7 +121,7 @@ describe('useViewerTokens refresh policy (fix #890)', () => {
     expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2);
   });
 
-  it('re-mints on the visible edge when the sig has expired (the fix(#755) hook path)', async () => {
+  it('re-mints on the visible edge when the sig has expired (the hook path)', async () => {
     // An already-expired sig, i.e. the tab-return case the burst came from.
     mockedGetTileTokensBatch.mockResolvedValue(batchResponse(-60));
     const { result } = renderHook(() => {

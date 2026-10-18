@@ -138,7 +138,7 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
     expect(setTiles).toHaveBeenCalledTimes(1);
   });
 
-  it('fix(#584): popup visible_fields ride cols= and the reload is re-issued via refreshTiles on a macrotask', () => {
+  it('popup visible_fields ride cols= and the reload is re-issued via refreshTiles on a macrotask', () => {
     vi.useFakeTimers();
     try {
       const map = createMockMap();

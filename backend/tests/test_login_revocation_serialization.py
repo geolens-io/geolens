@@ -326,7 +326,7 @@ class TestTheSerializationPointsStillExist:
                 f"{rel}: the pending last_login_at write must precede "
                 "create_access_token. Its version re-SELECT is what flushes "
                 "that write into a concurrent revocation's owner-row lock "
-                "queue (fix(#1459)); minting first lets the login read a "
+                "queue; minting first lets the login read a "
                 "token_version the revocation is about to bump."
             )
 
@@ -348,7 +348,7 @@ class TestTheSerializationPointsStillExist:
             "query rather than off an already-loaded User row. That query is "
             "what the pending last_login_at write autoflushes into, and the "
             "autoflush is what puts a login behind a concurrent revocation's "
-            "owner-row lock (fix(#1459)). The comment on it calls it 'a safe "
+            "owner-row lock. The comment on it calls it 'a safe "
             "extra query', which marks it as an optimisation target; it is "
             "not one, and removing it opens a revocation-bypass window."
         )

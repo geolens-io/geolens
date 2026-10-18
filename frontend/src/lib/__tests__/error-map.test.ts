@@ -55,9 +55,9 @@ describe('API error localization boundary', () => {
     );
   });
 
-  // fix(#1746): the ArcGIS-worded auth-required refusal (ArcGISTokenError
-  // path) previously fell through to the generic 403 "Access denied" because
-  // only the WFS/OGC wording of the same refusal was mapped.
+  // The ArcGIS-worded auth-required refusal (ArcGISTokenError
+  // path) maps to the same key as the WFS/OGC wording, not the generic 403
+  // "Access denied".
   it('maps the ArcGIS-worded auth-required refusal to the same key as the generic one', () => {
     expect(
       classifyApiError(
@@ -197,7 +197,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshReviewSuperseded' });
   });
 
-  // fix(#1768): the re-upload commit door returns the SAME `origin_changed`
+  // The re-upload commit door returns the SAME `origin_changed`
   // code as the refresh door with different copy, so the two must land on
   // different keys — a shared key would tell a user replacing a file that a
   // refresh was queued.
@@ -227,7 +227,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshOriginChanged' });
   });
 
-  // fix(#2031): keyed on the code, so a reworded server sentence still maps.
+  // Keyed on the code, so a reworded server sentence still maps.
   it('maps the re-upload geometry-loss refusal by its code', () => {
     expect(
       classifyApiError(
@@ -240,7 +240,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.reuploadGeometryLoss' });
   });
 
-  // fix(#2032): a plain 422 detail string, so without the matcher it lands on
+  // A plain 422 detail string, so without the matcher it lands on
   // the generic "values are invalid" and the code the user typed is lost.
   it('maps the commit doors srid_override refusal and keeps the code', () => {
     expect(
@@ -434,7 +434,7 @@ describe('API error localization boundary', () => {
     ).toBe(
       "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
     );
-    // fix(#1332): the STAC door words the same refusal around its item URL.
+    // The STAC door words the same refusal around its item URL.
     expect(
       translateApiErrorDetail(
         "This dataset's stored STAC item URL is not reachable: DNS resolved to a private address",
@@ -629,7 +629,7 @@ describe('API error localization boundary', () => {
     expect(rendered).toContain('Credentialed requests');
   });
 
-  it('fix(#774): maps the four analysis 4xx literals #718 missed', () => {
+  it('maps the four analysis 4xx literals the first mapping pass missed', () => {
     expect(
       classifyApiError(
         'An analysis job is already running; wait for it to finish',
@@ -650,9 +650,9 @@ describe('API error localization boundary', () => {
     });
   });
 
-  // fix(#790): the sandbox advisory lock is shared between analysis previews
-  // and AI chat data queries. Unmapped, this 429 collapsed to the generic
-  // rate-limit fallback, so a busy chat query refused an analysis preview
+  // The sandbox advisory lock is shared between analysis previews
+  // and AI chat data queries. Unmapped, this 429 collapses to the generic
+  // rate-limit fallback, so a busy chat query refuses an analysis preview
   // without ever naming the feature holding the shared budget.
   it('names the other feature when the shared query lock refuses a preview', () => {
     expect(
@@ -672,7 +672,7 @@ describe('API error localization boundary', () => {
     ).toBe('The submitted values are invalid.');
   });
 
-  // fix(#931): the backend names the offending maps precisely so a human can go
+  // The backend names the offending maps precisely so a human can go
   // and fix them; unmapped, that list fell through to the generic 422 string.
   it('surfaces the maps a visibility change would strand', () => {
     expect(

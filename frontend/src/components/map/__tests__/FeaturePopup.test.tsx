@@ -137,7 +137,7 @@ describe('FeaturePopup', () => {
     expect(screen.queryByText('NYC')).not.toBeInTheDocument();
   });
 
-  it('fix(#584): renders configured fields absent from tile properties as "--" instead of dropping them', () => {
+  it('renders configured fields absent from tile properties as "--" instead of dropping them', () => {
     // ST_AsMVT omits null-valued properties from the tile, so a configured
     // field can be missing from `properties` on the clicked feature.
     const features: FeatureInfo[] = [
@@ -154,7 +154,7 @@ describe('FeaturePopup', () => {
     expect(cells[3]).toHaveTextContent('--');
   });
 
-  it('fix(#584): hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
+  it('hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
     // A reupload/rename can strand old names in visible_fields;
     // those stay hidden, while schema-present-but-null fields render '--'.
     const features: FeatureInfo[] = [
@@ -176,7 +176,7 @@ describe('FeaturePopup', () => {
     expect(screen.queryByText('Stale Removed Column')).not.toBeInTheDocument();
   });
 
-  it('fix(#584): empty properties on a dataset WITH columns show the zoom hint, not "No attributes"', () => {
+  it('empty properties on a dataset WITH columns show the zoom hint, not "No attributes"', () => {
     // z<10 tiles strip attribute columns unless opted in via cols= — the
     // all-fields default opts nothing in, so properties arrive empty.
     const features: FeatureInfo[] = [
@@ -191,7 +191,7 @@ describe('FeaturePopup', () => {
     expect(screen.getByText('No attributes at this zoom')).toBeInTheDocument();
   });
 
-  it('fix(#586): all-null feature clicked ABOVE the attribute budget shows "No attributes", not the zoom hint', () => {
+  it('all-null feature clicked ABOVE the attribute budget shows "No attributes", not the zoom hint', () => {
     // At z>=10 tiles carry every column; an empty property set means the
     // values genuinely are all null — zooming cannot reveal anything.
     const features: FeatureInfo[] = [
@@ -247,7 +247,7 @@ describe('FeaturePopup', () => {
     expect(cells[3]).toHaveTextContent('1');
   });
 
-  it('fix(#1627): renders an object-valued property as its JSON text, not [object Object]', () => {
+  it('renders an object-valued property as its JSON text, not [object Object]', () => {
     const features: FeatureInfo[] = [
       makeFeature({
         properties: { metadata: { source: 'survey', accuracy: 5 } },

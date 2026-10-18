@@ -137,7 +137,7 @@ function renderCombined(mapData: MapResponse, mapId = 'map-1') {
   return { ...out, mutate, removeMutate };
 }
 
-describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', () => {
+describe('duplicate-layer-on-save: Save-diff baseline sync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetThumbnailDebounceForTests();
@@ -244,7 +244,7 @@ describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', ()
  * Counterfactual: with the `remove` half of the bridge taken out, both tests
  * below see `diff.removed` carry the deleted id.
  */
-describe('fix(#1778): delete prunes the Save-diff baseline on an already-dirty map', () => {
+describe('delete prunes the Save-diff baseline on an already-dirty map', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetThumbnailDebounceForTests();

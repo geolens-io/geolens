@@ -278,7 +278,7 @@ describe('Phase 1044-02 — MapBuilderPage drag aria-live region (POL-23)', () =
   });
 });
 
-describe('fix(#785) — DndContext translated announcements', () => {
+describe('DndContext translated announcements', () => {
   it('wires the accessibility prop (source pin)', () => {
     // Without it, dnd-kit's DEFAULT announcements fire — hardcoded English
     // built from the draggable id, i.e. "Picked up draggable item <uuid>…".

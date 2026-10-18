@@ -807,7 +807,7 @@ describe('useBuilderSave', () => {
     expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
   });
 
-  it('fix(#756): keeps the dirty flag when an edit lands while the save is in flight', async () => {
+  it('keeps the dirty flag when an edit lands while the save is in flight', async () => {
     // The added-layer PATCH is handleSave's first await; deferring it holds
     // the save in flight while the test lands an edit.
     let resolvePatch!: (v: unknown) => void;
@@ -877,7 +877,7 @@ describe('useBuilderSave', () => {
     expect(setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
   });
 
-  it('fix(#756): still clears the dirty flag when nothing changed during the save', async () => {
+  it('still clears the dirty flag when nothing changed during the save', async () => {
     const setHasUnsavedChanges = vi.fn();
     const state = makeSaveState({
       localLayers: [makeLayer()],
@@ -2357,7 +2357,7 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
-    it('backs thumbnail and OG crops with the globe space color (fix(#1479))', async () => {
+    it('backs thumbnail and OG crops with the globe space color', async () => {
       // The WebGL canvas is transparent where a ray missed the planet, so a
       // crop with nothing under it hands the encoder alpha and the sphere
       // lands on whatever it substitutes — white for PNG, black for JPEG.
@@ -2392,7 +2392,7 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
-    it('leaves mercator crops unpainted (fix(#1479))', async () => {
+    it('leaves mercator crops unpainted', async () => {
       // A mercator map fills its own canvas edge to edge, so a backdrop would
       // be dead paint and any color drift behind it would be invisible.
       vi.useFakeTimers();
@@ -2735,7 +2735,7 @@ describe('useBuilderSave', () => {
       expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
     });
 
-    it('paints the space color under the map band only (fix(#1479))', () => {
+    it('paints the space color under the map band only', () => {
       // The chrome bands keep the white fill: exportImage.text is #0a0a0a, so
       // darkening the whole sheet would take the title and legend with it.
       const mockMap = createMockMap({ loaded: true, globeSpace: true });
@@ -2764,7 +2764,7 @@ describe('useBuilderSave', () => {
         .toBeLessThan(sheet!.ctx.drawImage.mock.invocationCallOrder[0]);
     });
 
-    it('leaves a mercator export sheet white (fix(#1479))', () => {
+    it('leaves a mercator export sheet white', () => {
       const mockMap = createMockMap({ loaded: true });
       const state = makeSaveState({
         mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],

@@ -89,13 +89,13 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
         "that expired, so refusing the call because it did not resolve makes "
         "the dead session permanent — the user cannot clear it and the browser "
         "keeps replaying it. The handler is not fail-open in effect: it falls "
-        "back to the refresh cookie and then a body token (fix(#1446)) and "
+        "back to the refresh cookie and then a body token and "
         "raises its own 401 when NOTHING presented resolves, so an entirely "
         "credential-less caller is still refused. See app/modules/auth/router.py.",
     ),
     "app.modules.catalog.features.router.get_features_geojson_z_endpoint": (
         CAPABILITY,
-        "Accepts X-Embed-Token as an independent capability (fix(#390)). The "
+        "Accepts X-Embed-Token as an independent capability. The "
         "embed branch runs first; reject_unresolvable_credentials is applied on "
         "the `not embed_ok` path, so a stale bearer alongside a VALID embed "
         "token is served and the same bearer alongside an invalid or absent one "
@@ -103,7 +103,7 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
     ),
     "app.modules.catalog.maps.router_sharing.get_shared_map_endpoint": (
         CAPABILITY,
-        "Accepts X-Embed-Token to widen the layer scope (fix(#394) SH-01). "
+        "Accepts X-Embed-Token to widen the layer scope. "
         "get_shared_map now reports whether that capability authorized anything, "
         "and the handler applies the rule when it did not. The share token in "
         "the path selects the map but does not vouch for a dead session bearer, "
@@ -111,7 +111,7 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
     ),
     "app.processing.tiles.router.get_tile_tokens_batch": (
         CAPABILITY,
-        "Accepts X-Embed-Token as a per-dataset fallback (fix(#394) SH-04). The "
+        "Accepts X-Embed-Token as a per-dataset fallback. The "
         "capability authorizes a SCOPE, so whether it authorized THIS request is "
         "only known after the id loop; the rule is applied after it when nothing "
         "in the batch was authorized by the token.",
@@ -979,7 +979,7 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
                 ), (
                     f"{method} {path} gained a credential security requirement. "
                     "The 401 response must be documented WITHOUT marking these "
-                    "public operations as authenticated (fix(#430))."
+                    "public operations as authenticated."
                 )
 
     assert checked > 0, (

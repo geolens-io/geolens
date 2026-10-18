@@ -267,7 +267,7 @@ class TestTheGenerationIsTransactional:
             "platform/cache/revocation.py reached the cache: "
             f"{sorted(set(reached))}. A cached generation can be stale-low, "
             "which makes a revoked entry compare equal and be served; that is "
-            "the defect fix(#1778 codex r4) removed by reading the database."
+            "the defect that reading the database avoids."
         )
 
         # And it still answers, from the database.

@@ -419,7 +419,7 @@ describe('ViewerMap basemap config runtime', () => {
     });
   });
 
-  it('passes the saved projection to MapGL for cold-mount application (feat(#845))', () => {
+  it('passes the saved projection to MapGL for cold-mount application', () => {
     const globe = renderViewer({ ...BASEMAP_CONFIG, projection: 'globe' });
     expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'globe');
 

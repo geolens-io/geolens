@@ -73,7 +73,7 @@ describe('AnalysisJobWatcher', () => {
     registerAnalysisAddToMap(null, null);
   });
 
-  it('fix(#793 review): a completed job clears the remembered form title for its map', async () => {
+  it('a completed job clears the remembered form title for its map', async () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
@@ -90,7 +90,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.distance).toBe('500');
   });
 
-  it('fix(#793 review): a FAILED job keeps the remembered title for the retry', async () => {
+  it('a FAILED job keeps the remembered title for the retry', async () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
@@ -105,7 +105,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
   });
 
-  it('fix(#793 review): a title edited after the run started is not cleared', async () => {
+  it('a title edited after the run started is not cleared', async () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
@@ -121,7 +121,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('My next run');
   });
 
-  it('fix(#793 review): a disowned draft reusing the run name survives completion', async () => {
+  it('a disowned draft reusing the run name survives completion', async () => {
     // Title equality is NOT ownership: the next draft may deliberately reuse
     // the same permitted, non-unique dataset name.
     useAnalysisFormStore.getState().save('m1', {
@@ -138,7 +138,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
   });
 
-  it('fix(#793 review): a swept (404) job also clears the remembered title', async () => {
+  it('a swept (404) job also clears the remembered title', async () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
@@ -826,7 +826,7 @@ describe('AnalysisJobWatcher', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('keeps tracking through a transient failure (fix(#682) review)', () => {
+  it('keeps tracking through a transient failure', () => {
     // A 5xx or dropped connection after a reload must not discard the job:
     // polling continues, so tracking recovers on the next good response.
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'x', mapId: null } });
@@ -837,7 +837,7 @@ describe('AnalysisJobWatcher', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('keeps tracking a long-running job — no client staleness rule (fix(#682) review)', () => {
+  it('keeps tracking a long-running job — no client staleness rule', () => {
     // Deliberately mirrors the API's cap, which also has no staleness window.
     // Dropping a job on elapsed time loses its completion notification for
     // good, and the endpoint would still refuse a replacement anyway.
