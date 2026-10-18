@@ -30,9 +30,9 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        {/* Grid so cards sit 2-up below lg (where the rail unstacks to full width)
-            and 1-up inside the 300px rail at lg+, keeping the section compact. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+        {/* The card is full width below md and half width from md, so cards go
+            2-up only where the card is wide enough. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-2">
           {uniqueItems.map((item) => (
             <Link
               key={item.id}
