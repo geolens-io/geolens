@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-10-18
+
 ### Added
 
 - API keys can be created with an expiry from the web app. Both the key
@@ -6062,7 +6064,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.25.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.26.0...HEAD
+[1.26.0]: https://github.com/geolens-io/geolens/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/geolens-io/geolens/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/geolens-io/geolens/compare/v1.24.0...v1.25.0
 [1.24.0]: https://github.com/geolens-io/geolens/compare/v1.23.1...v1.24.0
