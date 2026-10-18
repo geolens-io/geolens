@@ -75,5 +75,4 @@ async def send_verification_email(
         data={"to": to_email},
     )
 
-    # DIRECTLY call send_email — NOT notify() (which routes to admin sinks).
     await send_email(notification)

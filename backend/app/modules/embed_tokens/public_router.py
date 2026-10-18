@@ -48,10 +48,9 @@ async def embed_frame_policy(
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
     """
     if not token:
-        # No embed token present -- a plain share view or public embed
-        # without domain locking. Framing stays open (matches the behavior
-        # before domain locking); fail-closed 'none' is reserved for a token
-        # that IS present but invalid/revoked/expired. Private data stays
+        # No embed token: a plain share view or a public embed without domain
+        # locking, so framing stays open. Fail-closed 'none' is reserved for a
+        # token that is present but invalid/revoked/expired. Private data stays
         # protected at the tile layer (X-Embed-Token validation).
         frame_ancestors = ""
     else:

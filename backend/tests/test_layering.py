@@ -1271,8 +1271,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_sharing.py": 435,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
-    "backend/app/modules/admin/router_operations.py": 332,
-    "backend/app/modules/settings/router_public.py": 175,
+    "backend/app/modules/admin/router_operations.py": 330,
+    "backend/app/modules/settings/router_public.py": 174,
 }
 
 
@@ -1375,9 +1375,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/validation.py": 1206,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
-    "backend/app/modules/auth/oauth/service.py": 1150,
+    "backend/app/modules/auth/oauth/service.py": 1130,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1028,
+    "backend/app/modules/admin/service.py": 1014,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1566,
@@ -1416,7 +1416,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
-    "backend/app/modules/embed_tokens/service.py": 1016,
+    "backend/app/modules/embed_tokens/service.py": 988,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

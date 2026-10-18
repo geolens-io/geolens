@@ -1,11 +1,10 @@
-"""Fernet encryption for secrets GeoLens stores at rest: covers
-``OAuthProvider.client_secret_encrypted`` and ``.idp_certificate``.
+"""Fernet encryption for secrets GeoLens stores at rest
+(``OAuthProvider.client_secret_encrypted`` and ``.idp_certificate``).
 
-Keys are read in this order: ``SECRET_ENCRYPTION_KEY``, then
-``_PREVIOUS``, then a key derived from ``JWT_SECRET_KEY`` via HKDF. Writes
-use the first key; reads try each in turn — so a dedicated key can be set
-without breaking old ciphertexts, and the JWT secret can then rotate freely
-(#1871).
+Keys are tried in this order: ``SECRET_ENCRYPTION_KEY``, then ``_PREVIOUS``,
+then a key derived from ``JWT_SECRET_KEY`` via HKDF. Writes use the first key
+and reads try each, so a dedicated key can be set without breaking old
+ciphertexts, and the JWT secret can then rotate freely.
 
 ``decrypt_secret``/``rotate_secret`` raise
 ``cryptography.fernet.InvalidToken`` when no configured key opens the value.
@@ -45,8 +44,8 @@ def _get_fernet() -> MultiFernet:
         )
         if configured is not None
     ]
-    # The JWT-derived key stays last forever. It is the only key
-    # that opens a ciphertext written before a dedicated key was configured.
+    # The JWT-derived key stays last: it is the only key that opens a
+    # ciphertext written before a dedicated key was configured.
     keys.append(_jwt_derived_fernet())
     return MultiFernet(keys)
 

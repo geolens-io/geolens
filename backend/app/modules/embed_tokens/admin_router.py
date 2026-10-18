@@ -33,9 +33,8 @@ router = APIRouter(
 )
 
 
-# Dual-shape decorator -- trailing-slash is canonical (in OpenAPI); no-slash
-# is a hidden alias closing the 404 regression from redirect_slashes=False
-# (api/main.py).
+# Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
+# because api/main.py sets redirect_slashes=False.
 @router.get("", response_model=AdminEmbedTokenListResponse, include_in_schema=False)
 @router.get("/", response_model=AdminEmbedTokenListResponse)
 async def list_all_embed_tokens(
@@ -49,8 +48,8 @@ async def list_all_embed_tokens(
     db: AsyncSession = Depends(get_db),
 ) -> AdminEmbedTokenListResponse:
     """List basic embed-token inventory across maps; no quota or domain-policy controls (admin only)."""
-    # Pass the request-scoped tenant so a tenant-A admin
-    # cannot enumerate tenant-B tokens. Inert (None) in single_tenant.
+    # Pass the request-scoped tenant so a tenant-A admin cannot enumerate
+    # tenant-B tokens. Inert (None) in single_tenant.
     from app.core.db.tenant_session import current_tenant_var
 
     request_tenant = current_tenant_var.get()
@@ -82,7 +81,6 @@ async def list_all_embed_tokens(
     return AdminEmbedTokenListResponse(tokens=tokens, total=total)
 
 
-# Dual-shape decorator — see GET / above.
 @router.post("/bulk-revoke", response_model=BulkRevokeResponse, include_in_schema=False)
 @router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
 async def bulk_revoke(
@@ -100,7 +98,7 @@ async def bulk_revoke(
     filter_tenant_id = (
         uuid.UUID(request_tenant) if is_multi_tenant() and request_tenant else None
     )
-    # The maps' rows first, which re-check the admin, before any token or
+    # Lock the maps' rows (which re-checks the admin) before any token or
     # cache-denial write.
     maps = select(EmbedToken.map_id).where(
         EmbedToken.id.in_(body.token_ids), EmbedToken.is_active.is_(True)

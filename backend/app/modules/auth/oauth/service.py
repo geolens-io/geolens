@@ -195,8 +195,8 @@ def _credential_destination_changed(
         discovery_url = values.get("discovery_url")
         if isinstance(discovery_url, str) and discovery_url:
             active = {"discovery_url": _url_origin(discovery_url)}
-            # Historical mixed GitHub rows used discovery for token exchange but
-            # still sent the access token to their explicit identity endpoint.
+            # Legacy mixed GitHub rows use discovery for token exchange but
+            # still send the access token to their explicit identity endpoint.
             if values.get("provider_type") == "github":
                 userinfo_url = values.get("userinfo_url")
                 if isinstance(userinfo_url, str) and userinfo_url:
@@ -309,8 +309,7 @@ async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
     """Return True if *user* holds the manage_settings capability.
 
     Used for break-glass exemptions in the SSO domain-enforcement paths.
-    Lazy-imports to avoid circular dependencies (mirrors the pattern used in
-    the auth/router.py domain gate).
+    Lazy-imports to avoid circular dependencies.
     """
     from app.modules.auth.permissions import (
         MANAGE_SETTINGS,
@@ -397,7 +396,7 @@ async def create_provider(
     normalized = normalize_provider_create(data)
     is_saml = normalized["provider_type"] == "saml"
 
-    # NOT-NULL placeholder strings for SAML rows (DB columns require non-null).
+    # The client columns are NOT NULL, so SAML rows carry placeholder strings.
     client_id_value = normalized["client_id"] if not is_saml else "saml-no-client-id"
     raw_client_secret = normalized.get("client_secret")
     client_secret_value = (
@@ -406,11 +405,6 @@ async def create_provider(
         else encrypt_secret("saml-no-client-secret")
     )
 
-    # GitHub auto-populate: fill in GitHub's fixed endpoints when the admin
-    # left them blank — GitHub is plain OAuth2 (no
-    # discovery), so these fields can't come from a discovery_url fetch.
-    # Scope defaults to GITHUB_DEFAULT_SCOPE only when the admin sent the
-    # schema default ("openid profile email"), which isn't useful for GitHub.
     provider = OAuthProvider(
         slug=normalized["slug"],
         display_name=normalized["display_name"],
@@ -421,8 +415,8 @@ async def create_provider(
         authorize_url=normalized["authorize_url"],
         token_url=normalized["token_url"],
         userinfo_url=normalized["userinfo_url"],
-        # SAML fields: idp_certificate is Fernet-encrypted;
-        # the other 3 are plaintext (entity IDs and a public URL — not credentials).
+        # idp_certificate is Fernet-encrypted; the other 3 SAML fields are
+        # plaintext (entity IDs and a public URL, not credentials).
         idp_entity_id=normalized["idp_entity_id"],
         idp_sso_url=normalized["idp_sso_url"],
         idp_certificate=(
@@ -482,7 +476,7 @@ async def lock_enabled_providers(db: AsyncSession) -> list[uuid.UUID]:
 
     Serializes the three SSO lockout guards (password-disable, provider-disable,
     provider-delete) at the Postgres row-lock level, closing the check-then-act
-    race without a global advisory lock (see git 898048b2).
+    race without a global advisory lock.
 
     Caller MUST invoke this BEFORE reading ``password_login_enabled`` so a
     concurrent password-disable is serialized rather than read stale.
@@ -527,7 +521,6 @@ async def update_provider(
         if raw_secret is not None:
             provider.client_secret_encrypted = encrypt_secret(raw_secret)
 
-    # idp_certificate handled the same way.
     if "idp_certificate" in update_data:
         raw_cert = update_data.pop("idp_certificate")
         if raw_cert is not None:
@@ -554,8 +547,8 @@ async def _resolve_github_identity(
 
     GitHub's /user endpoint omits email when private, and even when present it
     may be unverified. Fetches /user/emails and accepts ONLY the entry that is
-    BOTH primary AND verified — the only address that can't be used
-    for account-takeover via an attacker-added unverified email. Raises
+    BOTH primary AND verified, the only address that can't be used for
+    account takeover via an attacker-added unverified email. Raises
     ValueError if none exists, which router.py's broad except turns into an
     oauth_failed redirect.
 
@@ -600,7 +593,6 @@ async def _resolve_github_identity(
     if not github_id:
         raise ValueError("GitHub /user response missing id")
 
-    # Select ONLY the entry that is both primary AND verified.
     primary_verified = next(
         (
             entry
@@ -626,7 +618,6 @@ async def _resolve_github_identity(
     }
 
 
-# OAuth user find-or-create.
 def _generate_username(display_name: str | None, email: str | None) -> str:
     if email:
         return email.split("@")[0]
@@ -668,8 +659,8 @@ async def _reconcile_mapped_role(
     """Re-apply ``group_role_mapping`` on a returning user's login.
 
     Without this the mapping would only run at JIT creation, and removing
-    someone from the IdP group would never demote them. Four preconditions, all load-bearing,
-    must hold before a role is touched:
+    someone from the IdP group would never demote them. Four preconditions,
+    all load-bearing, must hold before a role is touched:
 
     * ``is_enterprise()`` — group mapping is an enterprise capability.
     * mapping is NON-EMPTY — with none configured, GeoLens is the system of
@@ -681,11 +672,11 @@ async def _reconcile_mapped_role(
     * account is OAuth-provisioned — a local account merely linked by verified
       email keeps the roles a GeoLens admin gave it.
 
-    Goes through
-    ``AdminService.set_role_from_identity_provider`` rather than assigning
-    ``user.roles`` directly, so it inherits the admin-lifecycle advisory lock,
-    the last-admin rule, and the ``key_epoch`` bump (#821) — without which an
-    API key minted as a viewer would silently gain admin on the next login.
+    Goes through ``AdminService.set_role_from_identity_provider`` rather than
+    assigning ``user.roles`` directly, so it inherits the admin-lifecycle
+    advisory lock, the last-admin rule, and the ``key_epoch`` bump, without
+    which an API key minted as a viewer would silently gain admin on the next
+    login.
 
     Every outcome is recorded: a structured log line, an
     ``oauth.role.changed`` audit row on a move, and
@@ -730,9 +721,8 @@ async def _reconcile_mapped_role(
     await db.flush()
     await db.refresh(user, attribute_names=["roles"])
 
-    # Roles as captured UNDER the lock, not before it —
-    # two concurrent callbacks racing this must not both describe a
-    # transition that already happened.
+    # Roles as captured UNDER the lock, so two concurrent callbacks don't both
+    # describe a transition that already happened.
     previous = outcome.previous_roles
 
     if not outcome.applied:
@@ -764,8 +754,8 @@ async def _reconcile_mapped_role(
         return
 
     if not outcome.changed:
-        # Already at the mapped role — the second of two
-        # concurrent callbacks landing here after the first already applied it.
+        # Already at the mapped role: the second of two concurrent callbacks
+        # lands here after the first applied it.
         return
 
     logger.info(
@@ -817,9 +807,9 @@ def oauth_account_subject(
 
     For Azure multitenant Microsoft the bare ``sub`` is not globally unique
     across tenants, so two users in different tenants sharing a ``sub`` would
-    collide on ``(provider_id, subject)`` — a cross-tenant account takeover.
+    collide on ``(provider_id, subject)``: a cross-tenant account takeover.
     Prefixes with tenant id for multitenant Microsoft; every other provider
-    keeps the bare ``sub`` (geolens#303).
+    keeps the bare ``sub``.
     """
     sub = str(userinfo.get("sub", ""))
     if is_azure_multitenant(provider_type, discovery_url):
@@ -842,7 +832,7 @@ def verify_azure_multitenant_issuer(
     ``{tenantid}`` via a validator), so this verifies ``iss`` matches the
     tenant-substituted template against the token's own ``tid``. Rejects a
     token whose ``iss``/``tid`` disagree, since the account key is derived
-    from ``tid:sub``. No-op for non-multitenant providers (geolens#303).
+    from ``tid:sub``. No-op for non-multitenant providers.
     """
     if not is_azure_multitenant(provider_type, discovery_url):
         return
@@ -871,11 +861,11 @@ async def find_or_create_oauth_user(
     Raises ``OAuthAccountInactiveError`` rather than return an account that
     is not active, so no caller issues it a session.
 
-    Steps 1 and 2 both yield an EXISTING account and both
-    call ``_reconcile_mapped_role``; step 3 sets the role inline via
-    ``_resolve_role``. Any new return path for an existing user must add the
-    reconcile call too — reconciliation once lived on step 1 alone, which left
-    a first-time cross-provider link carrying its old role for the session.
+    Steps 1 and 2 both yield an EXISTING account and both call
+    ``_reconcile_mapped_role``; step 3 sets the role inline via
+    ``_resolve_role``. Any return path for an existing user needs the
+    reconcile call, or a first-time cross-provider link keeps its old role for
+    the session.
     """
     subject = oauth_account_subject(
         provider.provider_type, provider.discovery_url, userinfo
@@ -883,7 +873,6 @@ async def find_or_create_oauth_user(
     email = userinfo.get("email")
     display_name = userinfo.get("name")
 
-    # Extract groups using provider's group_claim
     groups: list[str] | None = None
     if provider.group_claim:
         groups = userinfo.get(provider.group_claim)
@@ -898,30 +887,28 @@ async def find_or_create_oauth_user(
         )
     )
     existing_link = result.scalar_one_or_none()
-    # No legacy bare-sub fallback for Microsoft multitenant (geolens#303): a
-    # bare-sub match can't prove same-tenant and would reintroduce the
-    # cross-tenant collision the tid: prefix prevents.
+    # No legacy bare-sub fallback for Microsoft multitenant: a bare-sub match
+    # can't prove same-tenant and would reintroduce the cross-tenant collision
+    # the tid: prefix prevents.
     if existing_link is not None:
         returning_user = existing_link.user
         if not returning_user.is_active or returning_user.status != "active":
             raise OAuthAccountInactiveError("The linked account is not active.")
 
-        # The domain check also applies to RETURNING users, so a returning
-        # user with an omitted email claim can't bypass it; it falls back to
-        # the stored User.email.
+        # The domain check also applies to RETURNING users, falling back to the
+        # stored User.email so an omitted email claim can't bypass it. The
+        # break-glass exemption below is for RETURNING manage_settings admins
+        # only; a NEW (JIT) identity has no principal yet and must satisfy the
+        # allowlist.
         #
-        # The break-glass exemption below is for RETURNING manage_settings
-        # admins only; a NEW (JIT) identity has no principal yet and must
-        # satisfy the allowlist.
-        #
-        # Prefer the IdP email claim ONLY when verified — an
-        # unverified caller-controlled claim must not satisfy the allowlist
-        # for a returning user whose stored email is disallowed.
+        # Prefer the IdP email claim ONLY when verified: an unverified
+        # caller-controlled claim must not satisfy the allowlist for a
+        # returning user whose stored email is disallowed.
         claim_trusted = email is not None and userinfo.get("email_verified") is True
         check_email = email if claim_trusted else returning_user.email
         if check_email is None:
-            # No claim and no stored email — cannot enforce; log a warning so
-            # operators can investigate IdP misconfiguration.
+            # No claim and no stored email: cannot enforce, so warn operators
+            # to investigate IdP misconfiguration.
             logger.warning(
                 "OAuth login: domain enforcement skipped — no email claim and no stored email",
                 provider=provider.slug,
@@ -942,10 +929,10 @@ async def find_or_create_oauth_user(
                     user_id=str(returning_user.id),
                 )
 
-        # Converge pre-JIT accounts missing email_verified. Only
-        # when the IdP asserts verification for the SAME stored address, and
-        # only for OAuth-provisioned users — never flips a local account's
-        # own verification state via a link.
+        # Converge pre-JIT accounts missing email_verified, only when the IdP
+        # asserts verification for the SAME stored address and only for
+        # OAuth-provisioned users: a link never flips a local account's own
+        # verification state.
         if (
             claim_trusted
             and not returning_user.email_verified
@@ -966,15 +953,14 @@ async def find_or_create_oauth_user(
         )
         return returning_user
 
-    # Domain check for NEW (JIT) identities. Fires
-    # BEFORE the email_verified collision guard and BEFORE provisioning
-    # (TOCTOU-free). Empty allowlist -> always allowed. No break-glass: a
-    # NEW identity has no established principal to exempt.
+    # Domain check for NEW (JIT) identities. Fires BEFORE the email_verified
+    # collision guard and BEFORE provisioning (TOCTOU-free). Empty allowlist
+    # -> always allowed. No break-glass: a NEW identity has no established
+    # principal to exempt.
     #
-    # A NON-EMPTY allowlist with no email claim must reject
-    # (not silently provision email=None) — a no-email claim would otherwise
-    # be an accidental allowlist bypass. Empty allowlist still provisions
-    # as before.
+    # A NON-EMPTY allowlist with no email claim must reject (not silently
+    # provision email=None), or a no-email claim would be an accidental
+    # allowlist bypass.
     domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
     if domains:
         if not email:
@@ -982,9 +968,9 @@ async def find_or_create_oauth_user(
                 "OAuth identity has no email claim; cannot verify against the "
                 "allowed_email_domains allowlist."
             )
-        # An allowed domain only satisfies the allowlist if
-        # the email is VERIFIED — otherwise a caller-controlled claim could
-        # assert an allowed address, pass here, then have the email-match step below drop the
+        # An allowed domain only satisfies the allowlist if the email is
+        # VERIFIED: otherwise a caller-controlled claim could assert an allowed
+        # address, pass here, then have the email-match step below drop the
         # unverified email and provision anyway (bypassing the allowlist).
         if userinfo.get("email_verified") is not True:
             raise OAuthEmailUnverifiedError(
@@ -998,12 +984,12 @@ async def find_or_create_oauth_user(
     # Empty allowlist → is_email_allowed(email, []) returns True for any email,
     # so no additional check is needed; a no-email new user still provisions.
 
-    # Step 2: Check email match (case-insensitive)
-    # Only honor email-match auto-link when the IdP marked email
-    # verified — otherwise an attacker who registers victim@example.com at a
-    # permissive IdP could inherit that local GeoLens account. Unverified +
-    # colliding email refuses the login entirely; unverified + no collision
-    # drops the email and falls through to step 3.
+    # Step 2: Check email match (case-insensitive). Only honor email-match
+    # auto-link when the IdP marked email verified: otherwise an attacker who
+    # registers victim@example.com at a permissive IdP could inherit that local
+    # GeoLens account. Unverified + colliding email refuses the login
+    # entirely; unverified + no collision drops the email and falls through to
+    # step 3.
     email_verified = userinfo.get("email_verified") is True
     if email and email_verified:
         result = await db.execute(
@@ -1023,7 +1009,6 @@ async def find_or_create_oauth_user(
                 raise OAuthAccountInactiveError(
                     "The account with this email is not active."
                 )
-            # Link OAuth account to existing user
             link = OAuthAccount(
                 provider_id=provider.id,
                 user_id=existing_user.id,
@@ -1031,11 +1016,10 @@ async def find_or_create_oauth_user(
             )
             db.add(link)
             await db.flush()
-            # The other return path yielding an EXISTING
-            # account, so it needs the same reconciliation — otherwise a
-            # first-time cross-provider link keeps the first provider's role
-            # for the session. A LOCAL account linked here still keeps the
-            # roles its GeoLens admin gave it (helper's own preconditions).
+            # The other return path yielding an EXISTING account, so it needs
+            # the same reconciliation. A LOCAL account linked here still keeps
+            # the roles its GeoLens admin gave it (the helper's own
+            # preconditions).
             await _reconcile_mapped_role(db, provider, existing_user, groups)
             logger.info(
                 "OAuth login: linked to existing user by email",
@@ -1070,10 +1054,10 @@ async def find_or_create_oauth_user(
         )
         email = None
 
-    # The self-serve-registration switch gates new-account creation
-    # too, placed AFTER domain/email checks so a refusal here can't be used
-    # to probe which gate an identity trips. Cache-bypass: reads committed
-    # state so a just-disabled registration isn't overruled by a stale value.
+    # The self-serve-registration switch gates new-account creation too,
+    # placed AFTER domain/email checks so a refusal here can't be used to
+    # probe which gate an identity trips. Cache-bypass: reads committed state
+    # so a just-disabled registration isn't overruled by a stale value.
     if not await REGISTRATION_ENABLED.get_uncached(db):
         raise OAuthRegistrationDisabledError(
             "Self-serve registration is disabled, so a new account cannot be "
@@ -1086,7 +1070,6 @@ async def find_or_create_oauth_user(
     base_username = _generate_username(display_name, email)
     username = base_username
 
-    # Handle username collision: check if username exists, append suffix
     for _ in range(5):
         result = await db.execute(
             select(User).where(func.lower(User.username) == func.lower(username))
@@ -1095,9 +1078,9 @@ async def find_or_create_oauth_user(
             break
         username = f"{base_username}_{secrets.token_hex(4)}"
 
-    # Enterprise applies IdP group->role via _resolve_role(); community
-    # uses default_role (defense-in-depth for legacy rows with
-    # group_role_mapping populated before the schema gate shipped).
+    # Enterprise applies IdP group->role via _resolve_role(); community uses
+    # default_role (defense in depth for rows whose group_role_mapping
+    # predates the schema gate).
     if is_enterprise():
         role_name = _resolve_role(
             groups, provider.group_role_mapping, provider.default_role
@@ -1112,15 +1095,13 @@ async def find_or_create_oauth_user(
         auth_provider="oauth",
         status="active",
         is_active=True,
-        # Persists the IdP's assertion rather than the model
-        # default (False), which left every SSO user unverified. Both halves
-        # of the AND are load-bearing — no email means nothing verified.
+        # Persists the IdP's assertion. Both halves of the AND are
+        # load-bearing: no email means nothing verified.
         email_verified=email is not None and email_verified,
     )
     db.add(new_user)
     await db.flush()
 
-    # Assign role
     role_result = await db.execute(select(Role).where(Role.name == role_name))
     role = role_result.scalar_one_or_none()
     if role is None:
@@ -1129,7 +1110,6 @@ async def find_or_create_oauth_user(
         role = role_result.scalar_one()
     db.add(UserRole(user_id=new_user.id, role_id=role.id))
 
-    # Create OAuth account link
     link = OAuthAccount(
         provider_id=provider.id,
         user_id=new_user.id,

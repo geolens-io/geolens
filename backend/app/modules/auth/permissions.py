@@ -1,8 +1,7 @@
 """Granular permissions: capability constants, default role matrix, and effective permissions.
 
-Provides the foundation for capability-based access control. Each role has a set of
-boolean capabilities. The default matrix preserves current behavior (viewer=view+export,
-editor=+upload+edit+create, admin=all). Admins can customize via PersistentConfig.
+Each role has a set of boolean capabilities. ``DEFAULT_ROLE_PERMISSIONS`` is
+the default matrix; admins can customize it via PersistentConfig.
 """
 
 from __future__ import annotations
@@ -107,19 +106,12 @@ def validate_permission_matrix(matrix: Any) -> None:
             )
 
 
-# ---------------------------------------------------------------------------
-# Role resolution
-# ---------------------------------------------------------------------------
-
-
 async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
     """Get the set of role names for a user.
 
-    Replaces the per-router ``_get_user_roles()`` duplicates. Lives here rather
-    than in ``catalog.authorization`` (its home until this move) because the
-    query reads the auth-owned ``Role``/``UserRole`` tables and touches nothing
-    catalog; ``catalog.authorization`` re-exports it so its callers are
-    unaffected.
+    Lives here rather than in ``catalog.authorization`` because the query
+    reads the auth-owned ``Role``/``UserRole`` tables and touches nothing
+    catalog; ``catalog.authorization`` wraps it for its callers.
     """
     result = await db.execute(_role_names(user.id))
     return {row[0] for row in result.all()}
@@ -173,18 +165,11 @@ def admitted_capabilities(
     return db.info.get(_ADMITTED_CAPABILITIES, {}).get(user_id, (frozenset(), {}))
 
 
-# ---------------------------------------------------------------------------
-# Effective permissions (DB override merged with defaults)
-# ---------------------------------------------------------------------------
-
-
 async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> bool:
     """Return True if *user* holds *capability* via any of their assigned roles.
 
     Used for break-glass exemptions (e.g. the manage_settings bypass of the
-    email-domain gate). Resolves roles via get_user_roles and checks the
-    effective permission matrix; does NOT add DB code to domain_validation.py
-    (DB-free by contract). *user* may be any object with a ``.id`` UUID
+    email-domain gate). *user* may be any object with a ``.id`` UUID
     attribute (User ORM or Identity).
     """
     roles = await get_user_roles(db, user)
@@ -202,19 +187,18 @@ async def get_effective_permissions(db: AsyncSession) -> dict[str, dict[str, boo
 
     stored: dict = await ROLE_PERMISSIONS.get(db)
 
-    # Deep merge: start from defaults, overlay stored values
     result: dict[str, dict[str, bool]] = copy.deepcopy(DEFAULT_ROLE_PERMISSIONS)
     for role, caps in stored.items():
         if role not in result:
-            # Custom role added by admin -- take as-is
+            # A custom role starts with every capability off.
             result[role] = {cap: False for cap in ALL_CAPABILITIES}
         if isinstance(caps, dict):
             result[role].update(caps)
 
-    # Defense in depth for rows written before this invariant existed (or by a
-    # privileged/manual DB operation): the tenant-editable matrix is never an
-    # authority source for fleet control. Permission extensions may still grant
-    # manage_tenants out-of-band after this baseline matrix is resolved.
+    # Defense in depth for rows that predate validation or came from a manual
+    # DB write: the tenant-editable matrix is never an authority for fleet
+    # control. Permission extensions may still grant manage_tenants
+    # out-of-band after this baseline matrix is resolved.
     for caps in result.values():
         caps[MANAGE_TENANTS] = False
 

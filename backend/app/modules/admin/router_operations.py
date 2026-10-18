@@ -161,9 +161,8 @@ async def list_api_keys(
     total = (
         await db.execute(select(func.count()).select_from(stmt.subquery()))
     ).scalar_one()
-    # Without ORDER BY, the planner-chosen page could shift between
-    # refetches. created_at DESC alone ties for same-timestamp keys across
-    # separate per-page queries; id DESC breaks the tie deterministically.
+    # A total order keeps pages stable across refetches; id DESC breaks
+    # same-timestamp created_at ties.
     stmt = stmt.order_by(ApiKey.created_at.desc(), ApiKey.id.desc())
     keys = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
     return AdminApiKeyListResponse(

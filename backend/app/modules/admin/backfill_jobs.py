@@ -46,23 +46,22 @@ from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Generic error text for a failed run. The exception itself goes to the log —
+# Generic error text for a failed run. The exception itself goes to the log:
 # it can carry provider payloads, asyncpg internals and file paths, and the
-# job row is readable through /jobs/{id} (same reasoning the inline
-# route applied to its 502 body).
+# job row is readable through /jobs/{id}.
 BACKFILL_FAILED_MESSAGE = FixedReason(
     "Embedding backfill failed. See server logs for details.", code="backfill_failed"
 )
 
-# The row read sits inside the guarded exit, so a run that never
-# claimed the row reaches it — and "could not record its outcome" would then
-# describe work that never began.
 CANCELLED_MESSAGE = FixedReason(
     "Embedding backfill was cancelled by a worker shutdown. Records it had "
     "already reached carry their new vectors and the rest are unchanged; "
     "re-run to finish the remainder.",
     code="backfill_worker_shutdown",
 )
+# The row read sits inside the guarded exit, so a run that never claimed the
+# row reaches it too, where "could not record its outcome" would describe work
+# that never began.
 START_FAILED_MESSAGE = FixedReason(
     "Embedding backfill could not start. Nothing was changed; re-run it.",
     code="backfill_start_failed",
@@ -72,16 +71,16 @@ SETTLE_FAILED_MESSAGE = FixedReason(
     code="backfill_settle_failed",
 )
 
-# Audit outcome for a run whose fate could not be written to its job row —
-# another actor settled the row first. It is terminal (the operation is over and
-# the trail says so) but it deliberately does not claim the run succeeded or
-# failed, because on this path the worker no longer owns that answer.
+# Audit outcome for a run whose fate could not be written to its job row:
+# another actor settled the row first. It is terminal (the operation is over
+# and the trail says so) but deliberately claims neither success nor failure,
+# because on this path the worker no longer owns that answer.
 UNRESOLVED_OUTCOME = "unresolved"
 
 
-# Must stay byte-identical to the predicate of
-# `uq_ingest_jobs_active_embedding_backfill` (migration 0050) — the index is
-# the guard, this query is only the friendly half producing a readable 409.
+# Must match the predicate of `uq_ingest_jobs_active_embedding_backfill`
+# (migration 0050) exactly: the index is the guard, and this query is only the
+# friendly half producing a readable 409.
 SLOT_HOLDING_STATUSES = ACTIVE_STATUSES
 
 # Key under the run's ``embedding_backfill`` metadata holding how many records
@@ -242,17 +241,17 @@ async def _emit_outcome_audit(
     row; this half runs after the queue hop, so actor/IP ride along as task
     kwargs to keep the pair readable as one operation.
     """
-    # A run's state lives in two places — job row and audit trail —
-    # written by independent paths. Every path that TERMINATES a run must write
-    # both, and the audit must describe the row's actual final state, not the
-    # one this worker intended (see `_emit_terminal_audit`).
+    # A run's state lives in two places, job row and audit trail, written by
+    # independent paths. Every path that TERMINATES a run must write both, and
+    # the audit must describe the row's actual final state, not the one this
+    # worker intended (see `_emit_terminal_audit`).
     from app.modules.audit.service import AuditEvent, audit_emit_durable
 
     try:
-        # One operation, one terminal entry, DATABASE-decided which —
-        # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). The poll
-        # and sweeper can both legitimately close this run (check-then-insert),
-        # so the race's IntegrityError is contained by `audit_emit_durable`.
+        # One operation, one terminal entry, and the DATABASE decides which
+        # (`uq_audit_logs_terminal_embedding_backfill`, migration 0051). The
+        # poll and sweeper can both legitimately close this run, so the race's
+        # IntegrityError is contained by `audit_emit_durable`.
         await audit_emit_durable(
             AuditEvent(
                 user_id=uuid.UUID(user_id) if user_id else None,
@@ -280,10 +279,10 @@ async def _emit_outcome_audit(
 class _TerminalState:
     """What this run decided, and how much of that decision has been recorded.
 
-    Every way this task can end funnels through :func:`_settle`,
-    and this record is what makes that safe — it knows whether the terminal
-    row write has already landed, so recovery never overwrites a committed
-    outcome and never skips one still missing.
+    Every way this task can end funnels through :func:`_settle`, and this
+    record is what makes that safe: it knows whether the terminal row write
+    has already landed, so recovery never overwrites a committed outcome and
+    never skips one still missing.
     """
 
     status: str | None = None  # job row status: "complete" | "failed"
@@ -297,11 +296,9 @@ class _TerminalState:
     row_attempted: bool = False
     row_applied: bool = False
     audited: bool = False
-    # The live status the row was OBSERVED in. Every recovery path
-    # here was built around `running` (fence, heartbeat, sweeper), so a run
-    # whose claim commit was lost sat invisible in `pending` until stale
-    # cleanup. Recovery terminalizes from whatever state it finds, not the
-    # one it expected.
+    # The live status the row was OBSERVED in. A run whose claim commit was
+    # lost is still `pending`, so recovery terminalizes from whatever state it
+    # finds, not the one it expected.
     expected_status: str = "running"
 
     def decide_complete(self, result: dict[str, int]) -> None:
@@ -397,10 +394,10 @@ async def _settle(
 async def _release_caller_transaction(session: AsyncSession, job_id: str) -> None:
     """Let go of the transaction we are recovering FROM, before taking its locks.
 
-    A cancellation during ``session.commit()`` can leave the
-    caller's transaction open and still holding the job row's lock, so a fresh
-    recovery session's UPDATE would block on it until the caller's own timeout
-    — leaving the row ``running`` and the slot held until the stale sweep.
+    A cancellation during ``session.commit()`` can leave the caller's
+    transaction open and still holding the job row's lock, so a fresh recovery
+    session's UPDATE would block on it until the caller's own timeout, leaving
+    the row ``running`` and the slot held until the stale sweep.
 
     Bounded separately from the caller's timeout so a wedged rollback can't
     consume the whole budget; escalates to ``invalidate()`` (drops the
@@ -439,10 +436,10 @@ async def _recover_unsettled(
 ) -> None:
     """Finish whatever :func:`_settle` did not — by READING the row, not guessing.
 
-    An in-process "did I write it" flag can't tell apart two causes
-    of "my fenced update matched nothing" — someone else settled the row, or I
-    settled it and never heard back (ack lost to a cancellation or dropped
-    connection during ``commit()``). Only the row itself can, so read it.
+    An in-process "did I write it" flag can't tell apart two causes of "my
+    fenced update matched nothing": someone else settled the row, or I settled
+    it and never heard back (ack lost to a cancellation or dropped connection
+    during ``commit()``). Only the row itself can, so read it.
 
     Rule: **the audit describes the row.** If the row's terminal status
     matches this run's decided outcome, that outcome is recorded (whoever's
@@ -459,15 +456,13 @@ async def _recover_unsettled(
     async with async_session() as fresh:
         observed = await fresh.get(IngestJob, job_uuid)
         if observed is not None and observed.status in TERMINAL_STATUSES:
-            # Settled already — trail must describe what the row says, whoever
-            # wrote it.
-            #
-            # Status-matching suffices HERE because this worker
-            # already took delivery. `complete` has exactly one producer (this
-            # attempt's fenced `_finalize`), so a match proves authorship;
-            # `failed` has several, but all share the same outcome and differ
-            # only in `error_code`, and `worker_cancelled` is the conservative
-            # one where they diverge.
+            # Settled already: the trail must describe what the row says,
+            # whoever wrote it. Status-matching suffices HERE because this
+            # worker already took delivery. `complete` has exactly one producer
+            # (this attempt's fenced `_finalize`), so a match proves
+            # authorship; `failed` has several, but all share the same outcome
+            # and differ only in `error_code`, and `worker_cancelled` is the
+            # conservative one where they diverge.
             state.row_attempted = True
             state.row_applied = observed.status == state.status
             if not state.row_applied:
@@ -483,9 +478,9 @@ async def _recover_unsettled(
             state.row_attempted = True
             state.row_applied = False
         else:
-            # Still live: the terminal write genuinely never landed, so this
-            # run still owes one — from whatever state the row is actually in,
-            # which after a lost claim commit is `pending`, not `running`.
+            # Still live: the terminal write never landed, so this run still
+            # owes one, from whatever state the row is actually in (after a
+            # lost claim commit, `pending`, not `running`).
             state.row_attempted = False
             state.expected_status = observed.status
             # `_finalize` REPLACES user_metadata, so it starts from the row's
@@ -541,24 +536,22 @@ async def settle_undispatched_run(
 ) -> None:
     """Settle a run that was committed but never reliably queued.
 
-    ``defer_with_orphan_guard`` catches ``Exception``, so a
-    cancellation during dispatch walks past it and the route's
-    ``DeferFailed`` handler, leaving the row ``pending`` with no worker
-    coming — and since the unique index counts ``pending`` and ``running``
-    alike, it blocks every later backfill just as effectively as a stuck
-    running one.
+    ``defer_with_orphan_guard`` catches ``Exception``, so a cancellation
+    during dispatch walks past it and the route's ``DeferFailed`` handler,
+    leaving the row ``pending`` with no worker coming. Since the unique index
+    counts ``pending`` and ``running`` alike, that blocks every later backfill
+    just as a stuck running one would.
 
-    Fenced on ``pending`` so it cannot overwrite a run a worker picked up
-    after all — dispatch may have reached the queue before the cancellation
-    landed.
+    Fenced on ``pending`` so it cannot overwrite a run a worker picked up after
+    all: dispatch may have reached the queue before the cancellation landed.
 
     The row and its audit trail commit together, so a commit that loses its
     acknowledgement under the cancellation that triggered it leaves both
     written or neither, and nothing is left to reconcile.
 
-    ``caller_session`` is released first, because a cancellation
-    that landed inside that session's own commit leaves it holding the job
-    row's lock, and the fenced write below would then block on it.
+    ``caller_session`` is released first, because a cancellation that landed
+    inside that session's own commit leaves it holding the job row's lock, and
+    the fenced write below would then block on it.
     """
     if caller_session is not None:
         await _release_caller_transaction(caller_session, audit_context["job_id"])
@@ -642,9 +635,9 @@ async def run_embedding_backfill(
     from app.core.db import async_session
     from app.processing.embeddings.backfill import backfill_embeddings
 
-    # Every `return` below closes the audit trail — the route already
-    # committed a "requested" entry, so a path that skips a terminal one
-    # leaves the operation looking perpetually in flight.
+    # Every `return` below closes the audit trail: the route already committed
+    # a "requested" entry, so a path that skips a terminal one leaves the
+    # operation looking perpetually in flight.
     audit_context: dict[str, Any] = {
         "user_id": user_id,
         "ip_address": ip_address,
@@ -657,10 +650,9 @@ async def run_embedding_backfill(
         job_id, attempt_id, task_label="embedding backfill"
     )
     if resolved is None:
-        # A tokenless legacy delivery that could not adopt the row. Unreachable
-        # today (the route always sends an attempt id) but stays covered: a
-        # silently-dropped run here is what a future dispatch change would
-        # turn live, with no signal that it had.
+        # A tokenless legacy delivery that could not adopt the row. The route
+        # always sends an attempt id, but a run dropped here must still leave
+        # a signal.
         await _emit_outcome_audit(
             **audit_context,
             outcome=UNRESOLVED_OUTCOME,
@@ -680,16 +672,16 @@ async def run_embedding_backfill(
             job = await session.get(IngestJob, job_uuid)
             if job is not None:
                 metadata = dict(job.user_metadata or {})
-            # The claim is INSIDE the guarded region — its own
-            # commit is a lost-acknowledgement window too. A shutdown
-            # cancelling `pending`->`running` mid-commit can apply it without
-            # returning; with the claim outside, recovery never ran and the
-            # row stayed `running`, holding the slot until the stale sweep.
+            # The claim is INSIDE the guarded region: its own commit is a
+            # lost-acknowledgement window too. A shutdown cancelling
+            # `pending`->`running` mid-commit can apply it without returning,
+            # and the row would stay `running`, holding the slot until the
+            # stale sweep.
             heartbeat = await claim_job_attempt_and_start_heartbeat(
                 session, job_uuid, attempt_uuid
             )
             if heartbeat is None:
-                # The row was not `pending` under this attempt — the
+                # The row was not `pending` under this attempt: the
                 # stale-pending reaper got there first, or a retry rotated the
                 # token. This worker never took the run.
                 logger.warning(
@@ -702,13 +694,13 @@ async def run_embedding_backfill(
                 )
                 return
 
-            # The stop signal reads off the JOB ROW, not
-            # procrastinate's abort flag — the DB CAS is the cancel design's
-            # correctness mechanism, and it also covers sweep settles. Polled
-            # once per batch, so a lost queue-abort still stops the run
-            # within one batch of provider spend. Same session on purpose:
-            # the loop commits per batch and READ COMMITTED shows each new
-            # statement the latest committed status either way.
+            # The stop signal reads off the JOB ROW, not procrastinate's abort
+            # flag: the DB CAS is the cancel design's correctness mechanism,
+            # and it also covers sweep settles. Polled once per batch, so a
+            # lost queue-abort still stops the run within one batch of
+            # provider spend. Same session on purpose: the loop commits per
+            # batch and READ COMMITTED shows each new statement the latest
+            # committed status either way.
             async def _job_still_running() -> bool:
                 current = await session.scalar(
                     select(IngestJob.status).where(
@@ -740,10 +732,10 @@ async def run_embedding_backfill(
                 )
             else:
                 if result["errors"] and not result["created"]:
-                    # `backfill_embeddings` swallows per-record
-                    # provider errors and returns counts instead of raising,
-                    # so a run where EVERY embedding failed would otherwise be
-                    # stamped `complete` — zero coverage reported as success.
+                    # `backfill_embeddings` swallows per-record provider
+                    # errors and returns counts instead of raising, so a run
+                    # where EVERY embedding failed would otherwise be stamped
+                    # `complete`: zero coverage reported as success.
                     logger.error(
                         "embedding_backfill_all_records_failed",
                         job_id=job_id,
@@ -775,21 +767,20 @@ async def run_embedding_backfill(
                 audit_context=audit_context,
             )
         except BaseException as exc:
-            # THE guarded exit — one, not one per exception type. Reached by
-            # cancellation, by a failure of the terminal write itself, and by
-            # anything else that unwinds past a claimed job.
-            #
+            # THE guarded exit, one rather than one per exception type.
+            # Reached by cancellation, by a failure of the terminal write
+            # itself, and by anything else that unwinds past a claimed job.
             # Catching only `CancelledError` would let an `Exception` raised
             # INSIDE the terminal write escape, leaving the row `running` and
             # the slot held until the 60-minute sweep.
             #
             # `_settle` is idempotent and `state` records how far it got, so
-            # this never rewrites a committed outcome — a shutdown after
+            # this never rewrites a committed outcome: a shutdown after
             # `complete` landed emits the COMPLETED audit, not a contradiction.
             cancelled = isinstance(exc, asyncio.CancelledError)
-            # How far it got outranks what ended it. No
-            # heartbeat handle means nothing past the claim ran, so a
-            # cancellation there did not leave half a run behind.
+            # How far it got outranks what ended it. No heartbeat handle means
+            # nothing past the claim ran, so a cancellation there did not leave
+            # half a run behind.
             if heartbeat is None:
                 event, error_code = "embedding_backfill_start_failed", "start_failed"
                 message = START_FAILED_MESSAGE
@@ -890,8 +881,8 @@ def _run_summary(job: IngestJob) -> BackfillRunSummary:
     metadata = job.user_metadata or {}
     error_code = _backfill_meta(job).get("error_code")
     # `complete` with rejections is not a clean success, same as the job
-    # status. `rows_processed` counts what
-    # the run reached, rejections included, so the history needs both numbers.
+    # status. `rows_processed` counts what the run reached, rejections
+    # included, so the history needs both numbers.
     failed = metadata.get("rows_failed")
     return BackfillRunSummary(
         job_id=job.id,
@@ -911,9 +902,9 @@ def _estimate(
     if job is None or job.started_at is None or job.completed_at is None:
         return None
     seconds = (job.completed_at - job.started_at).total_seconds()
-    # Rate against every record WALKED (created+errors+skipped),
-    # matching missing_records/total_records' population; rows_processed
-    # alone (created+errors) would inflate the estimate on records with no
+    # Rate against every record WALKED (created+errors+skipped), matching
+    # missing_records/total_records' population; rows_processed alone
+    # (created+errors) would inflate the estimate on records with no
     # embeddable text.
     walked = _walked_record_count(_backfill_meta(job).get("result"))
     denominator = walked if walked is not None else job.rows_processed or 0
@@ -929,9 +920,9 @@ def _estimate(
 def _walked_record_count(result: object) -> int | None:
     """Records a backfill run walked: embeddable ones plus skipped ones.
 
-    Returns ``None`` on a shape older than #2047 or otherwise unrecognised,
-    so the caller can fall back to ``rows_processed`` rather than divide by
-    a wrong number silently.
+    Returns ``None`` on a result without all three counts, so the caller can
+    fall back to ``rows_processed`` rather than divide by a wrong number
+    silently.
     """
     if not isinstance(result, dict):
         return None

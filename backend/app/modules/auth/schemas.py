@@ -26,9 +26,9 @@ def validate_role_name(value: object) -> str:
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    # Required-but-nullable, not optional — omitting `default=`
-    # keeps it in OpenAPI's `required` list so generated SDKs don't get an
-    # `Unset`/absent shape the server never emits.
+    # Required-but-nullable, not optional: omitting `default=` keeps it in
+    # OpenAPI's `required` list so generated SDKs don't get an `Unset`/absent
+    # shape the server never emits.
     refresh_token: str | None = Field(
         description=(
             "Opaque token used to obtain a new access token. Always present for "
@@ -61,21 +61,17 @@ class UserCreate(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        # Note on the min_length=8 floor: Pydantic evaluates Field constraints
-        # (BEFORE) @field_validator(mode="after"). Keeping min_length=8 here
-        # provides a fast-fail floor that avoids the database round-trip for
-        # trivially short passwords. The canonical policy (default: 12 chars
-        # + 3-of-4 class diversity) is enforced by validate_password below.
-        # Both errors are 422; the field-level message fires first when the
-        # password is < 8 chars.
+        # min_length=8 is a fast-fail floor: Field constraints run before
+        # @field_validator(mode="after"), and validate_password below enforces
+        # the full policy (default 12 chars + 3-of-4 classes). Both errors are
+        # 422; the field-level one fires first under 8 chars.
         description=(
             "Plaintext password (policy: min 12 chars, 3+ character classes, "
             "at most 72 bytes UTF-8)"
         ),
-        # Deliberately no json_schema_extra example — a published
-        # example password (Rule 3) leaked a fake-but-plausible credential into
-        # openapi.json and both SDKs; no example beats one that invites
-        # copy-paste.
+        # Deliberately no json_schema_extra example (Rule 3): a published
+        # example password lands in openapi.json and both SDKs, and no example
+        # beats one that invites copy-paste.
     )
     email: EmailStr | None = Field(
         default=None,
@@ -219,9 +215,9 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    # Stays required — only the body as a whole is optional (route
-    # signature `RefreshRequest | None = None`). Defaulting this field would
-    # make `{}` a valid body the server can't do anything with.
+    # Stays required: only the body as a whole is optional (route signature
+    # `RefreshRequest | None = None`). Defaulting this field would make `{}` a
+    # valid body the server can't do anything with.
     refresh_token: str = Field(max_length=512)
 
 
@@ -232,7 +228,7 @@ class PermissionsResponse(BaseModel):
 
 
 def validate_future_expiry(value: AwareDatetime | None) -> AwareDatetime | None:
-    """Reject an ``expires_at`` that is not in the future (#821).
+    """Reject an ``expires_at`` that is not in the future.
 
     Shared by the self-service and admin key-mint request schemas so both
     surfaces refuse to mint an already-expired key.

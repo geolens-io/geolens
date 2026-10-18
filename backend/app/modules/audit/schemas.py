@@ -25,8 +25,7 @@ class AuditLogResponse(BaseModel):
 
     id: uuid.UUID
     # Nullable (FK ondelete='SET NULL'): a hard-deleted user's audit rows
-    # survive with user_id=None. Non-nullable typing raised a
-    # ValidationError serializing those rows.
+    # survive with user_id=None.
     user_id: uuid.UUID | None
     username: str | None = None
     action: str
@@ -44,9 +43,6 @@ class AuditLogResponse(BaseModel):
 class AuditLogListResponse(BaseModel):
     logs: list[AuditLogResponse]
     total: int
-
-
-# Column DDL feed response models.
 
 
 class ColumnDdlEntry(BaseModel):

@@ -57,8 +57,9 @@ def job_status_filters(status: str | None) -> list[Any]:
     """WHERE clauses for the job list's ``status`` value.
 
     ``awaiting_review`` is a filter value only, not a stored status, and holds
-    until the accepting run succeeds, since a failed one gives the acceptance back. A job
-    whose held run is gone, as when its dataset was deleted, stays a failure.
+    until the accepting run succeeds, since a failed one gives the acceptance
+    back. A job whose held run is gone, as when its dataset was deleted, stays
+    a failure.
     """
     from app.platform.jobs.models import IngestJob
     from app.platform.refresh.models import DatasetRefreshRun

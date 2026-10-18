@@ -1,33 +1,27 @@
 """Per-user upload and storage quota enforcement service.
 
-Core check is authoritative for community and enterprise editions. The
-EntitlementPort enforce_limit calls are an additive cloud seam:
-in OSS/Enterprise the DefaultEntitlementPort is grant-all and never raises.
+The core check is authoritative for community and enterprise editions. The
+EntitlementPort ``enforce_limit`` calls are an additive cloud seam; in
+OSS/Enterprise the DefaultEntitlementPort is grant-all and never raises.
 
-Ownerless datasets (policy, #1293): every seam here resolves the billed
-identity from ``catalog.records.created_by``, which is nullable. A NULL
-``created_by`` is EXEMPT from quota accounting everywhere -- deliberate
-policy, not an accident of the SQL. This is a LIVE state, not only
-pre-0019 legacy: ``created_by`` is ``ON DELETE SET NULL``, so hard-deleting
-a user orphans their datasets while the datasets keep serving.
+Ownerless datasets: every seam here resolves the billed identity from
+``catalog.records.created_by``, which is nullable. A NULL ``created_by`` is
+EXEMPT from quota accounting everywhere, by policy. It is a live state:
+``created_by`` is ``ON DELETE SET NULL``, so hard-deleting a user orphans
+their datasets while the datasets keep serving.
 
-The exemption is one mechanism, not six special cases:
-``get_user_quota_usage`` filters ``created_by = :user_id``, and ``= NULL``
-is never true, so it returns zero usage for a NULL identity; every other
-function here reads usage through that one aggregate and inherits the
-answer.
+The exemption is one mechanism: ``get_user_quota_usage`` filters
+``created_by = :user_id``, which is never true for NULL, so a NULL identity
+reads zero usage and every other function inherits that through the one
+aggregate. It is not an early return: the count cap can never refuse a NULL
+owner, but the BYTE cap still weighs the incoming amount on its own, so one
+oversized file is still refused.
 
-Scope, precisely, so nobody "simplifies" it into an early return: usage
-reads zero (not a seam short-circuit), and the count cap can never refuse
-a NULL owner. The BYTE cap still measures the INCOMING amount on its own
-for a NULL owner though -- nothing accumulates, but one oversized single
-file is still refused. An early return would drop that.
-
-Chosen over refusing mutation (no ownership-assignment surface exists, so
-a refusal has no remedy) or billing the admin pool (misattributes storage
-to whichever operator happens to be listed). Durable fix is ownership
-adoption, tracked by #998; ``TestOwnerlessDatasetsAreExemptAtEverySeam``
-in ``backend/tests/test_raster_replace_1221.py`` has to change with it.
+Chosen over refusing mutation (no ownership-assignment surface exists, so a
+refusal has no remedy) or billing the admin pool (misattributes storage to
+whichever operator happens to be listed). The durable fix is ownership
+adoption (#998); ``TestOwnerlessDatasetsAreExemptAtEverySeam`` in
+``backend/tests/test_raster_replace_1221.py`` pins the current policy.
 """
 
 from __future__ import annotations
@@ -61,22 +55,16 @@ async def get_user_quota_usage(
     size; only dataset record types are counted (maps/services/collections
     excluded).
 
-    Byte-coverage caveat: ``bytes_used`` sums ONLY those assets, so in
-    practice it's raster files, unpacked tilesets and point cloud files --
-    vector/``table``
-    datasets are PostGIS-resident and ``vrt_dataset`` is definition-only, so
-    they contribute 0. The dataset-COUNT cap is the cross-type fence instead,
-    and ``check_upload_quota`` still gates each upload on the actual
-    incoming ``file.size``. A true cross-type storage total is deferred to
-    the metered/per-tenant (cloud) quota work.
+    ``bytes_used`` sums ONLY those assets, so in practice raster files,
+    unpacked tilesets and point cloud files: vector/``table`` datasets are
+    PostGIS-resident and ``vrt_dataset`` is definition-only, so they
+    contribute 0. The dataset-COUNT cap is the cross-type fence instead, and
+    ``check_upload_quota`` still gates each upload on its incoming size. A
+    true cross-type storage total is deferred to the metered/per-tenant
+    (cloud) quota work.
 
-    This is where the ownerless-dataset exemption physically lives (see
-    module docstring): ``created_by = :user_id`` is never true for NULL, so
-    a NULL ``user_id`` reads zero and every other seam inherits that
-    through this function.
-
-    user_id is bound via SQLAlchemy parameterisation, never
-    string-formatted into the SQL text.
+    The ownerless-dataset exemption lives here (see the module docstring): a
+    NULL ``user_id`` reads zero.
     """
     sql = text(
         """
@@ -124,10 +112,10 @@ async def get_user_quota_usage_bulk(
 
     Calling `get_user_quota_usage()` once per row would run a three-table
     aggregate plus two persistent-config reads for each of the 200 rows on an
-    admin user-list page: 600 queries, growing with the catalog.
+    admin user-list page: 600 queries.
 
-    Users with no records are absent from the aggregate; they get a zeroed usage
-    row so callers can index the result unconditionally.
+    Users with no records get a zeroed usage row, so callers can index the
+    result unconditionally.
     """
     storage_cap = int(await MAX_STORAGE_BYTES_PER_USER.get(db))
     count_cap = int(await MAX_DATASETS_PER_USER.get(db))
@@ -196,20 +184,17 @@ async def check_upload_quota(
 
     Call this BEFORE creating an ingest job or staging the file.
 
-    ``request`` is optional so a worker re-check charges the same
-    policy the door applied rather than forking a byte-cap copy. It reaches
-    only ``enforce_limit``, which forwards a dimension and a count.
+    ``request`` is optional so a worker re-check charges the same policy the
+    door applied. It reaches only ``enforce_limit``, which forwards a
+    dimension and a count.
 
-    Raises HTTPException 413 if the byte cap is exceeded.
-    Raises HTTPException 422 if the dataset-count cap is exceeded.
-    Never raises when either cap is 0 (the default unlimited config).
-
-    After the core checks, calls enforce_limit as the EntitlementPort cloud
-    extension seam.  In OSS/Enterprise the seam is a no-op.
+    Raises HTTPException 413 if the byte cap is exceeded, 422 if the
+    dataset-count cap is. Never raises when either cap is 0 (the default
+    unlimited config). After the core checks, calls the EntitlementPort
+    ``enforce_limit`` seam, a no-op in OSS/Enterprise.
     """
     usage = await get_user_quota_usage(db, user_id)
 
-    # Byte cap enforcement (CORE, no entitlement port required)
     if (
         usage.storage_cap > 0
         and (usage.bytes_used + incoming_bytes) > usage.storage_cap
@@ -222,7 +207,6 @@ async def check_upload_quota(
             ),
         )
 
-    # Dataset-count cap enforcement (CORE)
     if usage.count_cap > 0 and usage.dataset_count >= usage.count_cap:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -232,7 +216,6 @@ async def check_upload_quota(
             ),
         )
 
-    # EntitlementPort cloud extension seam (OSS/Enterprise = no-op)
     await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
 
@@ -247,16 +230,14 @@ async def check_replacement_quota(
 ) -> None:
     """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
 
-    ``check_upload_quota`` is creation-shaped (refuses at
-    ``dataset_count >= count_cap``, charges the incoming file on top of
-    existing usage). Both are wrong for a replacement -- the count check
-    would lock out an owner already at their limit even though replacing
-    creates no new dataset -- so: no count check, and the byte check
-    credits what the replacement SUPERSEDES (the ``data`` row in
-    ``dataset_assets``, not the raster asset -- they diverge for a
-    STAC-imported dataset, which has an asset but no counted row, and
-    crediting that would admit an overshoot). Archived originals are NOT
-    credited: a replacement doesn't supersede them.
+    ``check_upload_quota`` is creation-shaped: it refuses at
+    ``dataset_count >= count_cap``, which would lock out an owner at their
+    limit though replacing creates no dataset, and charges the incoming file
+    on top of existing usage. So there is no count check, and the byte check
+    credits what the replacement SUPERSEDES: the ``data`` row in
+    ``dataset_assets``, not the raster asset (a STAC-imported dataset has an
+    asset but no counted row, and crediting that would admit an overshoot).
+    Archived originals are NOT credited: a replacement doesn't supersede them.
 
     Nor is a COG a VRT may still read: the publish keeps it, charged, so
     crediting it here could admit a replacement the publish then refuses.
@@ -269,14 +250,11 @@ async def check_replacement_quota(
     advisory lock, against the real converted size. Shared by both reupload
     doors and every record type.
 
-    Identity is the dataset's OWNER, not the requester -- an admin replacing
-    someone else's dataset must be checked against the same identity the
-    worker later reserves against (``dataset.record.created_by``), or the two
-    authorities could disagree.
-
-    ``owner_id`` may be None for an ownerless dataset and passes straight
-    through unchanged (module docstring's exemption policy), same route
-    ``reserve_storage_bytes`` uses at publish time.
+    Identity is the dataset's OWNER, not the requester: an admin replacing
+    someone else's dataset is checked against the identity the worker later
+    reserves against (``dataset.record.created_by``), so the two authorities
+    agree. ``owner_id`` is None for an ownerless dataset (see the module
+    docstring's exemption policy).
     """
     usage = await get_user_quota_usage(db, owner_id)
     counted = await db.scalar(
@@ -319,21 +297,19 @@ class DatasetQuotaExceededError(Exception):
 async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> None:
     """Atomically reserve a dataset-count slot for ``user_id``.
 
-    ``check_upload_quota`` runs at upload time, but the ``Record`` row it
-    counts is created later by the ingest worker, so N concurrent uploads
-    could all pass the pre-check and overshoot the cap. This is the
-    authoritative check: call inside the SAME transaction that inserts the
-    new ``Record`` row. Takes a per-user transaction-scoped advisory lock
-    and recounts, so concurrent creations for one user serialize. Lock
-    releases automatically at commit/rollback.
+    ``check_upload_quota`` runs at upload time, but the ingest worker
+    creates the ``Record`` row it counts later, so N concurrent uploads could
+    all pass the pre-check and overshoot the cap. This is the authoritative
+    check: call inside the SAME transaction that inserts the new ``Record``
+    row. Takes a per-user transaction-scoped advisory lock and recounts, so
+    concurrent creations for one user serialize.
 
     No-op when the cap is 0 (default unlimited).
 
     ``user_id`` is nullable like every other seam here, though no current
-    caller passes None -- a Record always has an authenticated uploader.
-    Should an adoption/re-ingest path reach it, the module docstring's
-    ownerless policy applies unchanged: a NULL identity counts as zero,
-    below every positive cap.
+    caller passes None (a Record always has an authenticated uploader). The
+    module docstring's ownerless policy applies: a NULL identity counts as
+    zero, below every positive cap.
     """
     cap = await MAX_DATASETS_PER_USER.get(db)
     if cap <= 0:
@@ -375,10 +351,9 @@ async def reserve_storage_bytes(
 
     No-op when the cap is 0 (default unlimited).
 
-    ``user_id`` is None for an ownerless dataset (the replacement path
-    passes ``record.created_by`` through unchanged) -- see the module
-    docstring's exemption policy; the recount still reads zero, so
-    ``incoming_bytes`` alone is still weighed against the cap.
+    ``user_id`` is None for an ownerless dataset (the replacement path passes
+    ``record.created_by`` through unchanged): the recount reads zero, so
+    ``incoming_bytes`` alone is weighed against the cap.
     """
     cap = await MAX_STORAGE_BYTES_PER_USER.get(db)
     if cap <= 0:

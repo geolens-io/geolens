@@ -90,12 +90,6 @@ require_settings_admin = require_mode_permission(
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
-# PUT/RESET handlers below end with
-# `return await get_all_settings(...)` to capture side-effects (rebuild
-# rollback, validator coercion, request-derived public_app_url/public_api_url
-# — NOT stored in AppSetting) without duplicating get_all_settings's body.
-
-
 def _validate_setting(key: str, value: object) -> object:
     """Run permission and custom validators for a setting key. Returns validated value."""
     if key == "role_permissions":
@@ -213,14 +207,14 @@ async def _probe_embedding_dims_for_model(
 ) -> int:
     """Ask the provider for the natural output width of an explicitly named model.
 
-    ``probe_embedding_dimensions`` resolves the model from
-    PersistentConfig, so it can only probe an ALREADY-published model.
-    ``update_settings`` needs the width of the model it's about to publish,
-    before anything commits, so the name is passed in rather than read back.
+    ``probe_embedding_dimensions`` resolves the model from PersistentConfig,
+    so it can only probe an ALREADY-published model. ``update_settings`` needs
+    the width of the model it's about to publish, before anything commits, so
+    the name is passed in rather than read back.
 
-    The endpoint comes from ``requested`` too — everything the
-    probe resolves must describe the configuration being published, not the
-    one being replaced.
+    The endpoint comes from ``requested`` too: everything the probe resolves
+    must describe the configuration being published, not the one being
+    replaced.
 
     Raises:
         EmbeddingUnavailableError: no embedding provider is configured, or the
@@ -236,11 +230,10 @@ async def _probe_embedding_dims_for_model(
         )
 
     provider_ext = get_embedding_provider("openai_compatible")
-    # dimensions=None discovers the model's natural width.
-    # `model` has no fallback to the runtime default on purpose: this path is
-    # only reached when the request names embedding_model, and the default IS
-    # the committed EMBEDDING_MODEL — falling back would probe the model
-    # being replaced.
+    # dimensions=None discovers the model's natural width. `model` has no
+    # fallback to the runtime default on purpose: this path is only reached
+    # when the request names embedding_model, and the default IS the committed
+    # EMBEDDING_MODEL, so falling back would probe the model being replaced.
     vectors = await provider_ext.embed(
         texts=["dimension probe"],
         model=model,
@@ -387,10 +380,8 @@ async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[Non
         ) from exc
 
 
-# Dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
+# because api/main.py sets redirect_slashes=False.
 @router.get("/all", response_model=SettingsAllResponse, include_in_schema=False)
 @router.get("/all/", response_model=SettingsAllResponse)
 async def get_all_settings(
@@ -404,7 +395,6 @@ async def get_all_settings(
     env_only = _is_env_only()
     enterprise = is_enterprise()
 
-    # Bulk-fetch all DB overrides in one query (key + value)
     result = await db.execute(select(AppSetting.key, AppSetting.value))
     db_settings: dict[str, object] = {}
     for row in result.all():
@@ -424,7 +414,6 @@ async def get_all_settings(
 
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
-        # Hide enterprise-only tabs in community edition
         if not enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
             continue
         if cfg.key == "public_app_url":
@@ -432,10 +421,9 @@ async def get_all_settings(
         elif cfg.key == "public_api_url":
             value = await get_public_api_url(db, request=request)
         elif not env_only and cfg.key in db_settings:
-            # In ENV_ONLY_CONFIG mode, PersistentConfig.get short-
-            # circuits to env_default and DB rows are dead data at runtime.
-            # Resolving from db_settings here would surface stale overrides
-            # that are NOT in effect; show the effective env_default instead.
+            # In ENV_ONLY_CONFIG mode PersistentConfig.get short-circuits to
+            # env_default and DB rows are dead data, so resolving from
+            # db_settings would surface stale overrides that are NOT in effect.
             value = db_settings[cfg.key]
         elif cfg in (LLM_MODEL, LLM_MODEL_LIGHT):
             value = await cfg.default_for(db, provider)
@@ -465,7 +453,6 @@ async def get_all_settings(
     return SettingsAllResponse(env_only=env_only, tabs=tabs)
 
 
-# Dual-shape decorator — see /all above.
 @router.get(
     "/enterprise-tabs",
     response_model=EnterpriseTabsResponse,
@@ -474,8 +461,8 @@ async def get_all_settings(
 @router.get(
     "/enterprise-tabs/",
     response_model=EnterpriseTabsResponse,
-    # Neutral summary replacing the auto-derived "Get Enterprise Only Tabs" banned public-copy id;
-    # operationId/path unchanged.
+    # Neutral summary: the auto-derived "Get Enterprise Only Tabs" label is
+    # banned public copy; operationId and path unchanged.
     summary="List restricted settings tabs",
 )
 async def get_enterprise_only_tabs(
@@ -492,8 +479,7 @@ async def get_enterprise_only_tabs(
     return EnterpriseTabsResponse(tabs=sorted(ENTERPRISE_ONLY_TABS))
 
 
-# Dual-shape decorator — see /all above. The empty
-# path "" registers PUT /settings (prefix-only, no trailing slash).
+# The empty path "" registers PUT /settings (prefix-only, no trailing slash).
 @router.put("", response_model=SettingsAllResponse, include_in_schema=False)
 @router.put(
     "/",
@@ -503,7 +489,7 @@ async def get_enterprise_only_tabs(
         503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
     },
 )
-@limiter.limit("30/minute")  # rate-limit settings mutations per client IP
+@limiter.limit("30/minute")
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
@@ -579,14 +565,12 @@ async def update_settings(
                     registry_map["embedding_dims"],
                 )
 
-        # Lockout guard: refuse to disable password login when zero
-        # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
-        # the apply loop so nothing persists on rejection.
-        #
-        # Row-locks the enabled providers (FOR UPDATE) so a concurrent
-        # provider-disable/delete is serialized against this check — the two can
-        # no longer both pass and together remove the last provider. See
-        # oauth_service.lock_enabled_providers.
+        # Lockout guard: refuse to disable password login when zero enabled
+        # OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE the
+        # apply loop so nothing persists on rejection. Row-locks the enabled
+        # providers (FOR UPDATE) so a concurrent provider-disable/delete is
+        # serialized against this check and the two can't together remove the
+        # last provider. See oauth_service.lock_enabled_providers.
         if disables_password_login:
             await _refuse_password_lockout(db, _PUT_LOCKOUT_DETAIL, lock_rows=True)
 
@@ -620,13 +604,12 @@ async def update_settings(
                 **provider_model_kwargs(registry_map[key], snapshot),
             )
 
-        # Single commit for all setting writes
         await db.commit()
 
         # set(commit=False) defers side effects (cache invalidation, _on_change
         # hooks, rate-limit warm) so a rollback can't leave process-local state
-        # diverged from the DB. Apply them as one step now the batch is durable;
-        # a per-key loop let a reader see some keys new and the rest cached old.
+        # diverged from the DB. Apply them as one step now the batch is durable,
+        # so no reader sees some keys new and the rest cached old.
         await apply_side_effects_batch(
             [(registry_map[key], value) for key, value in validated_settings.items()]
         )
@@ -647,14 +630,13 @@ async def update_settings(
                 ),
             )
 
-    # The second get_all_settings() call is INTENTIONAL — this
-    # handler can persist values the request body doesn't name: auto-detected
-    # embedding_dims (#1529), a rebuild rollback (above), and validator
-    # coercion from .set(). See the module comment near the top of the file.
+    # Re-read through get_all_settings() on purpose: this handler can persist
+    # values the request body doesn't name (auto-detected embedding_dims, a
+    # rebuild rollback, validator coercion from .set()), and the response also
+    # carries the request-derived public URLs.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-# Dual-shape decorator — see /all above.
 @router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
 @router.post(
     "/reset/",
@@ -759,14 +741,12 @@ async def reset_settings(
                 ),
             )
 
-    # Intentional second SELECT — cfg.reset() writes
-    # env_default to AppSetting; re-read captures the post-reset state, which
-    # may differ if a derivation (public_app_url/public_api_url) runs at
-    # response-build time in get_all_settings.
+    # Re-read on purpose, as in update_settings: the post-reset state can
+    # differ from the request where a derivation (public_app_url/public_api_url)
+    # runs at response-build time in get_all_settings.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-# Dual-shape decorator — see /all above.
 @router.get(
     "/api-key-status",
     response_model=ApiKeyStatusResponse,
@@ -784,7 +764,6 @@ async def get_api_key_status(
     )
 
 
-# Dual-shape decorator — see /all above.
 @router.post(
     "/detect-embedding-dims",
     response_model=DetectEmbeddingDimsResponse,
@@ -820,7 +799,6 @@ async def detect_embedding_dims(
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
 
-# Dual-shape decorator — see /all above.
 @router.get(
     "/notifications/status",
     response_model=NotificationStatusResponse,
@@ -843,7 +821,6 @@ async def get_notification_status(
     )
 
 
-# Dual-shape decorator — see /all above.
 @router.post(
     "/notifications/test",
     response_model=NotificationTestResponse,
@@ -867,7 +844,6 @@ async def send_test_notification(
     """
     from app.platform.extensions.protocols import Notification
 
-    # Canned test payload — generic enough for both SMTP and webhook channels.
     test_notification = Notification(
         event_type="test",
         subject="GeoLens test notification",
@@ -883,7 +859,6 @@ async def send_test_notification(
             message="Notifications are disabled (NOTIFICATIONS_ENABLED=false).",
         )
 
-    # Determine which channels are configured.
     channel_fns: list[tuple[str, object]] = []
     if app_settings.smtp_host:
         channel_fns.append(("smtp", send_email))
@@ -897,7 +872,6 @@ async def send_test_notification(
             message="No notification channel is configured.",
         )
 
-    # Invoke each channel individually and collect per-channel results.
     results: list[NotificationTestChannelResult] = []
     any_ok = False
 
@@ -939,14 +913,13 @@ async def send_test_notification(
             ip_address=get_client_ip(request),
         ),
     )
-    # Persist the audit row (M2): this endpoint's session isn't auto-committed,
-    # so without an explicit commit the test-send audit is lost.
+    # This endpoint's session isn't auto-committed, so without an explicit
+    # commit the test-send audit row is lost.
     await db.commit()
 
     return NotificationTestResponse(sent=any_ok, channels=results, message=message)
 
 
-# Dual-shape decorator — see /all above.
 @router.get("/config-mode", response_model=ConfigModeResponse, include_in_schema=False)
 @router.get("/config-mode/", response_model=ConfigModeResponse)
 async def get_config_mode() -> ConfigModeResponse:
@@ -954,11 +927,10 @@ async def get_config_mode() -> ConfigModeResponse:
     return ConfigModeResponse(env_only=_is_env_only())
 
 
-# Audit-log redaction allowlist. SECRET_FIELDS
-# is authoritative for diffing old_values (includes the internal
-# ``client_secret_encrypted`` column); SECRET_BODY_FIELDS is the user-input
-# subset a request body can submit — ``client_secret_encrypted`` is excluded
-# since it can never appear there.
+# Audit-log redaction lists. SECRET_FIELDS is authoritative for diffing
+# old_values (includes the internal ``client_secret_encrypted`` column);
+# SECRET_BODY_FIELDS is the user-input subset a request body can submit, so
+# ``client_secret_encrypted`` is excluded.
 SECRET_FIELDS = {"idp_certificate", "client_secret_encrypted", "client_secret"}
 SECRET_BODY_FIELDS = {"idp_certificate", "client_secret"}
 
@@ -987,7 +959,6 @@ def _snapshot_provider(provider) -> dict:
     }
 
 
-# Dual-shape decorator — see /all above.
 @router.get(
     "/oauth-providers",
     response_model=list[OAuthProviderResponse],
@@ -1005,7 +976,6 @@ async def list_oauth_providers(
     return [OAuthProviderResponse.model_validate(p) for p in providers]
 
 
-# Dual-shape decorator — see /all above.
 @router.post(
     "/oauth-providers",
     response_model=OAuthProviderResponse,
@@ -1057,9 +1027,7 @@ async def create_oauth_provider(
         "idp_sso_url": body.idp_sso_url,
         "sp_entity_id": body.sp_entity_id,
     }
-    # Mark presence (NOT value) of secrets — iterate only over user-input
-    # field names since SECRET_BODY_FIELDS excludes the internal
-    # client_secret_encrypted column.
+    # Mark the presence (NOT the value) of submitted secrets.
     if body.client_secret:
         created_state["client_secret"] = "<redacted>"
     if body.idp_certificate:
@@ -1108,12 +1076,9 @@ async def update_oauth_provider(
     if not is_enterprise() and provider.provider_type == "saml":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    # Lockout guard mirroring update_settings, applied to the provider
-    # PATCH side — when password_login_enabled is False and this update would
-    # disable the last enabled provider (excluding the target), refuse before
-    # any persist.
-    #
-    # Row-locks the enabled providers FIRST, before reading
+    # Lockout guard mirroring update_settings: when password_login_enabled is
+    # False and this update would disable the last enabled provider, refuse
+    # before any persist. Row-locks the enabled providers FIRST, before reading
     # password_login_enabled, so a concurrent password-disable can't flip the
     # flag between read and write; counting from the locked set keeps the
     # decision consistent. See oauth_service.lock_enabled_providers.
@@ -1147,11 +1112,11 @@ async def update_oauth_provider(
     except IntegrityError as exc:
         await _refuse_duplicate_slug(db, exc, body.slug)
 
-    # Build the changes diff. SECRET_FIELDS membership flips any matching
-    # field to <redacted>/<redacted>, protecting against a future old_values
-    # addition that accidentally includes a secret. New values come from
-    # __dict__ (not getattr) to avoid a deferred lazy-load on community DBs
-    # missing SAML columns.
+    # SECRET_FIELDS membership flips any matching field to
+    # <redacted>/<redacted>, guarding against an old_values field that
+    # includes a secret. _snapshot_provider reads only attributes the default
+    # SELECT loads, avoiding a deferred lazy-load on community DBs missing SAML
+    # columns.
     changes: dict[str, dict] = {}
     new_snapshot = _snapshot_provider(provider)
     for field, old in old_values.items():
@@ -1162,8 +1127,8 @@ async def update_oauth_provider(
             else:
                 changes[field] = {"old": old, "new": new}
 
-    # Detect secret-field changes via the body (they're not in old_values —
-    # we never log secret old values, even pre-redaction). Iterate ONLY over
+    # Detect secret-field changes via the body: they're not in old_values,
+    # since secret old values are never logged, even pre-redaction. Only
     # user-input names: client_secret_encrypted never appears in
     # body.model_dump().
     body_dict = body.model_dump(exclude_unset=True)
@@ -1210,14 +1175,10 @@ async def delete_oauth_provider(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
 
-    # Lockout guard for delete, same policy as the update guard above
-    # — deleting the last enabled SSO provider while password login is
-    # disabled would lock everyone out. Only applies when the target is
+    # Lockout guard for delete, same policy and serialization as the update
+    # guard above: deleting the last enabled SSO provider while password login
+    # is disabled would lock everyone out. Only applies when the target is
     # currently enabled.
-    #
-    # Row-locks the enabled providers FIRST and counts from the locked set,
-    # same serialization as the update guard. See
-    # oauth_service.lock_enabled_providers.
     if provider.enabled:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
         # Cache-bypass read (see update_oauth_provider): observe the committed
@@ -1246,9 +1207,8 @@ async def delete_oauth_provider(
         "idp_sso_url": provider.__dict__.get("idp_sso_url"),
         "sp_entity_id": provider.__dict__.get("sp_entity_id"),
     }
-    # Mark presence of secrets — use SECRET_FIELDS allowlist here because the
-    # snapshot reads from the existing provider row (which DOES carry the
-    # internal client_secret_encrypted column, unlike the body-input loop).
+    # Mark the presence of stored secrets; the existing row carries the
+    # internal client_secret_encrypted column.
     if provider.client_secret_encrypted:
         deleted_state["client_secret"] = "<redacted>"
     if provider.__dict__.get("idp_certificate"):
@@ -1270,7 +1230,6 @@ async def delete_oauth_provider(
     await db.commit()
 
 
-# Dual-shape decorator — see /all above.
 @public_router.get(
     "/tile-config", response_model=TileConfigResponse, include_in_schema=False
 )
@@ -1280,14 +1239,13 @@ async def get_tile_config(
     db: AsyncSession = Depends(get_db),
 ) -> TileConfigResponse:
     """Return tile delivery configuration (public, no auth required)."""
-    # Not the resolver. This field's only consumer is share-URL
-    # generation (frontend/src/lib/public-urls.ts), and a resolver-INFERRED
-    # value (an ``/api``-stripped PUBLIC_API_URL, or request headers) is not
-    # the origin a browser presents when it loads the embed shell — handing
-    # either to the share builder produces /m/ and /card links pointing at a
-    # host that doesn't serve them. get_shareable_app_url instead returns the
-    # middleware-validated ``tenant_public_origin`` for a hosted tenant, or
-    # falls back to the explicit fleet setting; null when neither exists.
+    # Not the resolver. This field's only consumer is share-URL generation
+    # (frontend/src/lib/public-urls.ts), and a resolver-INFERRED value (an
+    # ``/api``-stripped PUBLIC_API_URL, or request headers) is not the origin a
+    # browser presents when it loads the embed shell, so /m/ and /card links
+    # would point at a host that doesn't serve them. get_shareable_app_url
+    # returns the middleware-validated ``tenant_public_origin`` for a hosted
+    # tenant, or the explicit fleet setting; null when neither exists.
     public_app_url = await get_shareable_app_url(db, request=request)
     public_api_url = await get_public_api_url(db, request=request)
     tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)

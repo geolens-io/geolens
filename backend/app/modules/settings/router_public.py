@@ -43,9 +43,8 @@ def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
 @router.get(
     "/edition/",
     response_model=EditionInfoResponse,
-    # fix(scripts/deployed_surface_gate.json#edition_info_op): neutral summary — the
-    # auto-derived "Edition Info" label is a banned public-copy id; operationId/path
-    # unchanged.
+    # Neutral summary: the auto-derived "Edition Info" label is banned public
+    # copy (scripts/deployed_surface_gate.json); operationId and path unchanged.
     summary="Get runtime capabilities",
 )
 async def edition_info() -> EditionInfoResponse:
@@ -76,12 +75,12 @@ async def get_feature_flags(
 
 
 @router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
-# privacy_url rides this endpoint even though its PersistentConfig
-# lives on the "general" tab — GET /settings/branding/ is already the one
-# public, pre-auth config bundle (login/register need it before a session
-# exists). Re-checks the shape here rather than trusting the admin-write or
-# boot validator: a row written before either existed must not reach the
-# login page as an unvalidated <a href>.
+# privacy_url rides this endpoint though its PersistentConfig lives on the
+# "general" tab: GET /settings/branding/ is the one public, pre-auth config
+# bundle (login/register need it before a session exists). The shape is
+# re-checked here rather than trusting the admin-write or boot validator, so a
+# row written before either existed never reaches the login page as an
+# unvalidated <a href>.
 @router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),
