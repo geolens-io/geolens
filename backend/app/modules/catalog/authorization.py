@@ -69,7 +69,7 @@ class DatasetVisibility(str, enum.Enum):
     """Controls who can see a dataset."""
 
     PUBLIC = "public"
-    # fix(#930): internal mirrors MapVisibility — any signed-in user, on a
+    # Internal mirrors MapVisibility — any signed-in user, on a
     # published record. It was already accepted by the API Literal and written
     # by `geolens apply`, but had no branch in the permission layer.
     INTERNAL = "internal"
@@ -177,7 +177,7 @@ async def check_datasets_access_bulk(
 ) -> dict[uuid.UUID, Any]:
     """Load and authorize multiple datasets in a small, constant number of queries.
 
-    fix(#1298): batch sibling of ``check_dataset_access`` — one SELECT
+    Batch sibling of ``check_dataset_access`` — one SELECT
     plus one ``apply_visibility_filter`` pass, replacing a per-id loop
     that cost ~1000 queries for a 500-id VRT request. Same visibility
     seam as ``_accessible_dataset_ids``, same 404 as the scalar path.
@@ -238,7 +238,7 @@ async def _can_access_dataset_id(
     )
 
 
-# fix(#1097): every provenance param naming a dataset, mapped to
+# Every provenance param naming a dataset, mapped to
 # what describes it and must drop with it. A new dataset-id param must
 # add a row here — test_every_dataset_id_param_is_redactable enforces it.
 _DATASET_ID_PARAMS: dict[str, tuple[str, ...]] = {
@@ -255,7 +255,7 @@ async def visible_derived_from(
 ) -> dict | None:
     """The provenance reference, with every dataset id in it access-checked.
 
-    feat(#765): omitted, not stubbed — a requester must not be able to tell
+    Omitted, not stubbed — a requester must not be able to tell
     "not derived from anything" from "derived from something you cannot see".
     Every id in ``_DATASET_ID_PARAMS`` (not just the source) is checked and
     dropped on its own if denied, since a public output can be derived from
@@ -286,12 +286,12 @@ async def visible_derived_from(
     return {**derived_from, "params": params}
 
 
-# fix(#1103): never the dataset's id — _DATASET_ID_PARAMS already redacts
+# Never the dataset's id — _DATASET_ID_PARAMS already redacts
 # that; putting it in the prose would route around it.
 #
-# fix(#1108): never edit the prose span-by-span — three rounds
-# each forged a span-boundary attack. Binary rule: full prose if every
-# referenced dataset is accessible, else this constant, never a byte of it.
+# Never edit the prose span-by-span, because span boundaries can be forged.
+# Binary rule: full prose if every referenced dataset is accessible, else
+# this constant, never a byte of it.
 _REDACTED_SUMMARY = "Derived from another dataset."
 
 
@@ -379,10 +379,10 @@ async def visible_lineage_summaries(
 ) -> dict[uuid.UUID, str | None]:
     """Lineage prose per record, with unreachable datasets' titles redacted.
 
-    fix(#1103): ``lineage_summary`` was served raw to every viewer, even
-    though the sentence can name a PRIVATE mask/join layer's title —
-    the disclosure ``visible_derived_from`` prevents, reaching here
-    through an unredacted channel.
+    Served raw, ``lineage_summary`` would hand any viewer the title of a
+    PRIVATE mask/join layer the sentence names — the disclosure
+    ``visible_derived_from`` prevents, reaching here through an
+    unredacted channel.
 
     All-or-nothing per requester (see _REDACTED_SUMMARY): a viewer who
     can open every referenced dataset gets the sentence verbatim, else
