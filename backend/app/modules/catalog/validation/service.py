@@ -112,7 +112,7 @@ async def validate_record(
                 AttributeMetadata.dataset_id == dataset.id,
                 AttributeMetadata.is_current == True,  # noqa: E712
                 AttributeMetadata.description.is_(None),
-                AttributeMetadata.semantic_role != "geometry",
+                AttributeMetadata.semantic_role.is_distinct_from("geometry"),
             )
         )
         if attr_without_desc and attr_without_desc > 0:
