@@ -26,13 +26,9 @@ import attributeTableSrc from '@/components/dataset/AttributeTable.tsx?raw';
 // ── DOM render gate ─────────────────────────────────────────────────
 import { render, screen } from '@/test/test-utils';
 import { vi } from 'vitest';
-import { AttributeTable, features } from '@/components/dataset/AttributeTable';
+import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
-
-// ── #1407 sortFn auto-detection regression lock ─────────────────────────────
-import { renderHook } from '@testing-library/react';
-import { useTable, type ColumnDef } from '@tanstack/react-table';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetRows: vi.fn(),
@@ -84,12 +80,22 @@ describe('GLUX-002: AttributeTable filter input accessible name', () => {
     expect(rowsPerPage.closest('.flex-wrap.gap-x-3')).not.toBeNull();
   });
 
-  it('sizes the row spacer with min-height so a short table is not clipped to its header', () => {
+  // A second scroll container between the region and the table grows to the
+  // rendered rows, so it clips the virtualized rows below it and takes the
+  // sticky header and horizontal scrollbar with it.
+  it('scrolls the table in one focusable, named region with no nested scroll container', () => {
     render(<AttributeTable datasetId="test-ds" />);
-    const scrollBox = screen.getByRole('table').closest<HTMLElement>('.max-h-\\[60vh\\]');
-    const spacer = scrollBox?.firstElementChild as HTMLElement;
-    expect(spacer.style.minHeight).not.toBe('');
-    expect(spacer.style.height).toBe('');
+    const region = screen.getByRole('region', { name: 'Feature attributes' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(region).toHaveClass('overflow-auto');
+    expect(screen.getByRole('table').parentElement).toBe(region);
+  });
+
+  it('labels headers and the Columns menu with the bare column name', () => {
+    render(<AttributeTable datasetId="test-ds" />);
+    const header = screen.getByRole('columnheader', { name: /title/ });
+    expect(header).toHaveTextContent(/^title\s*text$/);
+    expect(header).not.toHaveTextContent('(text)');
   });
 });
 
@@ -174,77 +180,7 @@ describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
 
   it('E-51: an open cell edit closes when the row set changes', () => {
     expect(attributeTableSrc).toMatch(
-      /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[datasetId, cursor, activeFilters, pageSize\]\)/,
+      /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[datasetId, cursor, activeFilters, sort, pageSize\]\)/,
     );
-  });
-});
-
-// ── #1407 sortFn auto-detection regression lock ──────────────────────────────
-// AttributeTable builds its columns dynamically from the dataset's Postgres
-// column list and never sets a per-column sortFn, so sorting depends on
-// react-table v9's runtime auto-detection (column_getAutoSortFn, which samples
-// each column's first 10 values) resolving to a sortFn *name* that is actually
-// registered in the `features` object exported by AttributeTable.tsx. A gap
-// there doesn't fail typecheck or build — a column with an unregistered
-// auto-detected name silently falls back to the `basic` comparator (or a
-// dev-only console.warn), which is exactly the kind of regression the v8→v9
-// migration needed live verification for. This exercises the real
-// useTable()/features config end-to-end against synthetic rows shaped like
-// the Postgres column families the table actually renders — no mocking of
-// react-table itself.
-describe('#1407: react-table v9 sortFn auto-detection for dynamic columns', () => {
-  function useSortedColumn(data: Array<{ value: unknown }>) {
-    const columns: ColumnDef<typeof features, { value: unknown }>[] = [
-      { accessorKey: 'value', header: 'value' },
-    ];
-    return useTable(
-      {
-        features,
-        data,
-        columns,
-        state: { sorting: [{ id: 'value', desc: false }], columnVisibility: {} },
-        onSortingChange: () => {},
-        onColumnVisibilityChange: () => {},
-      },
-      (state) => state,
-    );
-  }
-
-  it('sorts a numeric column ascending via the auto-detected basic sortFn', () => {
-    const { result } = renderHook(() =>
-      useSortedColumn([{ value: 30 }, { value: 5 }, { value: 100 }]),
-    );
-    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
-    expect(sorted).toEqual([5, 30, 100]);
-  });
-
-  it('sorts a text column via the auto-detected text sortFn', () => {
-    const { result } = renderHook(() =>
-      useSortedColumn([{ value: 'cherry' }, { value: 'Apple' }, { value: 'banana' }]),
-    );
-    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
-    expect(sorted).toEqual(['Apple', 'banana', 'cherry']);
-  });
-
-  // The API serializes timestamp columns as ISO-8601 strings, never real Date
-  // instances (JSON has no Date type), so column_getAutoSortFn's `[object
-  // Date]` check never matches them — they auto-detect as 'alphanumeric', not
-  // 'datetime'. That's unchanged from v8 (same heuristic). What matters here
-  // is that zero-padded same-format ISO strings still sort chronologically
-  // under the alphanumeric comparator, and that 'alphanumeric' is registered.
-  it('sorts an ISO-timestamp-string column chronologically via the auto-detected alphanumeric sortFn', () => {
-    const { result } = renderHook(() =>
-      useSortedColumn([
-        { value: '2026-03-01T00:00:00' },
-        { value: '2024-01-01T00:00:00' },
-        { value: '2025-06-15T00:00:00' },
-      ]),
-    );
-    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
-    expect(sorted).toEqual([
-      '2024-01-01T00:00:00',
-      '2025-06-15T00:00:00',
-      '2026-03-01T00:00:00',
-    ]);
   });
 });

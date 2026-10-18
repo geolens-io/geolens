@@ -32,9 +32,10 @@ describe('queryKeys factory', () => {
     });
 
     it('rows includes all params', () => {
-      expect(queryKeys.datasets.rows('abc', 50, 0)).toEqual(['dataset-rows', 'abc', 50, 0, undefined]);
+      expect(queryKeys.datasets.rows('abc', 50, 0)).toEqual(['dataset-rows', 'abc', 50, 0, undefined, undefined]);
       const filters = { name: 'x' };
-      expect(queryKeys.datasets.rows('abc', 50, 0, filters)).toEqual(['dataset-rows', 'abc', 50, 0, filters]);
+      const sort = { column: 'name', desc: true };
+      expect(queryKeys.datasets.rows('abc', 50, 0, filters, sort)).toEqual(['dataset-rows', 'abc', 50, 0, filters, sort]);
     });
 
     it('history includes skip and limit', () => {

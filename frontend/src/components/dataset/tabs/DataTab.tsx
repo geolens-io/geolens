@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
@@ -11,45 +11,82 @@ interface DataTabProps {
   onToggleExpand?: () => void;
 }
 
+/**
+ * Document offset of the element's top edge. Banners, previews and wrapped
+ * titles above the tab move it, so it is re-read whenever the page resizes.
+ */
+function useDocumentTop(ref: React.RefObject<HTMLElement | null>): number | null {
+  const [top, setTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(document.body);
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [ref]);
+  return top;
+}
+
 export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }: DataTabProps) {
   const { t } = useTranslation('dataset');
   const [compact, setCompact] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const top = useDocumentTop(rootRef);
 
-  const toolbar = (
-    <div className="flex items-center justify-between py-1.5 shrink-0">
-      <span role="heading" aria-level={2} className="text-sm font-medium">{t('page.attributeData')}</span>
-      <div className="flex items-center gap-1">
+  const actions = (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0"
+        onClick={() => setCompact((v) => !v)}
+        aria-label={compact ? t('data.switchComfortable') : t('data.switchCompact')}
+        title={compact ? t('data.comfortable') : t('data.compact')}
+      >
+        {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
+      </Button>
+      {onToggleExpand && (
         <Button
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0"
-          onClick={() => setCompact((v) => !v)}
-          aria-label={compact ? t('data.switchComfortable') : t('data.switchCompact')}
-          title={compact ? t('data.comfortable') : t('data.compact')}
+          onClick={onToggleExpand}
+          aria-label={expanded ? t('data.collapseTable') : t('data.expandTable')}
         >
-          {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
+          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </Button>
-        {onToggleExpand && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={onToggleExpand}
-            aria-label={expanded ? t('data.collapseTable') : t('data.expandTable')}
-          >
-            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          </Button>
-        )}
-      </div>
-    </div>
+      )}
+    </>
   );
 
+  // The tab takes the viewport height left below it at the top of the page,
+  // so the table box and its pagination fit without page scroll; the
+  // expanded view fills that height. The floor keeps a usable table on short
+  // viewports.
+  const fill = top == null ? undefined : `max(20rem, calc(100dvh - ${top}px - 1rem))`;
   return (
-    <div className={expanded ? 'flex flex-col h-[calc(100vh-10rem)]' : undefined}>
-      {toolbar}
-      <div className={expanded ? 'flex-1 overflow-y-auto min-h-0' : undefined}>
-        <AttributeTable datasetId={datasetId} canEdit={canEdit} compact={compact} />
-      </div>
+    <div
+      ref={rootRef}
+      className="flex flex-col"
+      style={expanded ? { height: fill } : { maxHeight: fill }}
+    >
+      <AttributeTable
+        datasetId={datasetId}
+        canEdit={canEdit}
+        compact={compact}
+        heading={
+          <span role="heading" aria-level={2} className="text-sm font-medium">
+            {t('page.attributeData')}
+          </span>
+        }
+        actions={actions}
+      />
     </div>
   );
 }

@@ -4,28 +4,39 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * `bare` renders the `<table>` alone, for a caller that supplies its own
+ * scroll region; `aria-label` then names the table instead of the region.
+ */
 function Table({
   className,
-  "aria-label": ariaLabel = "Scrollable table",
+  "aria-label": ariaLabel,
   containerFocusable = true,
+  bare = false,
   ...props
 }: React.ComponentProps<"table"> & {
   "aria-label"?: string
   containerFocusable?: boolean
+  bare?: boolean
 }) {
+  const table = (
+    <table
+      data-slot="table"
+      className={cn("w-full caption-bottom text-sm", className)}
+      aria-label={bare ? ariaLabel : undefined}
+      {...props}
+    />
+  )
+  if (bare) return table
   return (
     <div
       data-slot="table-container"
       className="relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       tabIndex={containerFocusable ? 0 : undefined} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable when it overflows
       role="region"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? "Scrollable table"}
     >
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props}
-      />
+      {table}
     </div>
   )
 }

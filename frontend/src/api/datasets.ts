@@ -50,13 +50,27 @@ export async function getDataset(id: string): Promise<DatasetResponse> {
   return apiFetch<DatasetResponse>(`/datasets/${encodeURIComponent(id)}`);
 }
 
+export interface DatasetRowsSort {
+  column: string;
+  desc: boolean;
+}
+
 export async function getDatasetRows(
   id: string,
-  params: { limit?: number; after?: number; filters?: Record<string, string> } = {},
+  params: {
+    limit?: number;
+    after?: number;
+    filters?: Record<string, string>;
+    sort?: DatasetRowsSort;
+  } = {},
 ): Promise<DatasetRowsResponse> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.after !== undefined) query.set('after', String(params.after));
+  if (params.sort) {
+    query.set('sort', params.sort.column);
+    query.set('order', params.sort.desc ? 'desc' : 'asc');
+  }
   if (params.filters) {
     for (const [col, value] of Object.entries(params.filters)) {
       if (value) query.set(`filter[${col}]`, value);

@@ -31,6 +31,49 @@ test.describe('Dataset Detail', () => {
     datasetTitle = ds.title;
   });
 
+  // The table scrolls in one box on both axes. A nested scroll container used
+  // to clip the bottom rows, carry the sticky header away, and push the
+  // horizontal scrollbar below the fold.
+  test('attribute table keeps its header and last row in view when scrolled to the bottom', async ({
+    page,
+  }) => {
+    const res = await fetch(`${BASE_URL}/api/datasets/?limit=100`, {
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+    });
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    const multiPage = (data.datasets ?? data.items ?? data).find(
+      (ds: any) => ds.record_type === 'vector_dataset' && (ds.feature_count ?? 0) > 50,
+    );
+    test.skip(!multiPage, 'needs a vector dataset with more than one 50-row page');
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/datasets/${multiPage.id}`);
+    await page.getByRole('tab', { name: 'Data', exact: true }).click();
+
+    const region = page.getByRole('region', { name: 'Feature attributes' });
+    await expect(region.locator('tbody tr[data-index="0"]')).toBeVisible({ timeout: 15_000 });
+    // The box and its pagination fit the viewport without scrolling the page.
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    await region.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+
+    const lastRow = region.locator('tbody tr[data-index="49"]');
+    await expect(lastRow).toBeVisible();
+    const box = await region.boundingBox();
+    const rowBox = await lastRow.boundingBox();
+    const headerBox = await region.getByRole('row').first().boundingBox();
+    expect(box && rowBox && headerBox).toBeTruthy();
+    const bottom = box!.y + box!.height;
+    expect(rowBox!.y).toBeGreaterThanOrEqual(box!.y);
+    expect(rowBox!.y + rowBox!.height).toBeLessThanOrEqual(bottom + 1);
+    expect(headerBox!.y).toBeGreaterThanOrEqual(box!.y - 1);
+    expect(headerBox!.y + headerBox!.height).toBeLessThanOrEqual(rowBox!.y);
+  });
+
   test('map renders, attribute table loads, export triggers download', async ({
     page,
   }) => {

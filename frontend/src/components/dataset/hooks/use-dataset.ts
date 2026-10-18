@@ -23,6 +23,7 @@ import {
   updateAttribute,
   validateDataset,
 } from '@/api/datasets';
+import type { DatasetRowsSort } from '@/api/datasets';
 import { cancelJob } from '@/api/ingest';
 import type {
   CreateDatasetRequest,
@@ -71,10 +72,16 @@ export function useDataset(
   });
 }
 
-export function useDatasetRows(id: string, limit: number, cursor: number, filters?: Record<string, string>) {
+export function useDatasetRows(
+  id: string,
+  limit: number,
+  cursor: number,
+  filters?: Record<string, string>,
+  sort?: DatasetRowsSort,
+) {
   return useQuery({
-    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters),
-    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters }),
+    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort),
+    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort }),
     enabled: !!id,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
