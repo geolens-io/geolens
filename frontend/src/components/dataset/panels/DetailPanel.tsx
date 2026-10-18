@@ -154,7 +154,8 @@ export function DetailPanel(props: DetailPanelProps) {
         <TabsContent value="data" className="space-y-6">
           <DataTab
             datasetId={dataset.id}
-            canEdit={canEditData}
+            // Feature writes refuse a dataset without geometry.
+            canEdit={canEditData && dataset.geometry_type != null}
             expanded={isTableExpanded}
             onToggleExpand={onToggleTableExpand}
           />

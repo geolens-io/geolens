@@ -14,7 +14,11 @@ function makeRefreshWatch(): DatasetRefreshWatch {
 
 vi.mock('@/components/dataset/tabs/OverviewTab', () => ({ OverviewTab: () => null }));
 vi.mock('@/components/dataset/tabs/MetadataTab', () => ({ MetadataTab: () => null }));
-vi.mock('@/components/dataset/tabs/DataTab', () => ({ DataTab: () => null }));
+vi.mock('@/components/dataset/tabs/DataTab', () => ({
+  DataTab: ({ canEdit }: { canEdit?: boolean }) => (
+    <div data-testid="data-tab" data-can-edit={String(Boolean(canEdit))} />
+  ),
+}));
 vi.mock('@/components/dataset/tabs/StructureTab', () => ({ StructureTab: () => null }));
 vi.mock('@/components/dataset/tabs/AccessTab', () => ({ AccessTab: () => null }));
 vi.mock('@/components/dataset/SourcePanel', () => ({
@@ -179,4 +183,26 @@ it('withholds the refresh action from a reader who cannot edit, even with a reso
   );
 
   expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'false');
+});
+
+it.each<[RecordType, string | null, boolean]>([
+  ['vector_dataset', 'Point', true],
+  ['table', null, false],
+])('lets the Data tab edit a %s only when it has geometry', (recordType, geometryType, editable) => {
+  render(
+    <DetailPanel
+      dataset={{ ...makeDataset(recordType), geometry_type: geometryType }}
+      canEdit
+      capabilities={buildDatasetEditCapabilities({ isEditor: true })}
+      activeTab="data"
+      onTabChange={vi.fn()}
+      resolveDraftValue={() => ''}
+      stagePendingDraft={vi.fn()}
+      handleDraftDirtyChange={vi.fn()}
+      onNavigateToValidationField={vi.fn()}
+      refreshWatch={makeRefreshWatch()}
+    />,
+  );
+
+  expect(screen.getByTestId('data-tab')).toHaveAttribute('data-can-edit', String(editable));
 });
