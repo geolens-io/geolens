@@ -1018,7 +1018,7 @@ export function MapBuilderPage() {
     };
   }, [layers.ephemeralResult, layers.handleDismissEphemeral, canSaveDataset, handleSaveAnalysisPreview, handleSaveChatPreview]);
 
-  // ux(#772): stack-row kebab "Analyze this layer" — the same handoff path the
+  // Stack-row kebab "Analyze this layer" — the same handoff path the
   // chat preview uses, so the panel opens (or remounts, via the prefill nonce
   // key) targeting exactly this layer even when the row isn't selected.
   const handleAnalyzeLayer = useCallback((layerId: string) => {
@@ -1043,7 +1043,7 @@ export function MapBuilderPage() {
     mapId: id,
     layers: layers.localLayers,
     layersMapId: layers.layersMapId,
-    // ux(#772): the stack's selected row, so the Analysis panel can open
+    // The stack's selected row, so the Analysis panel can open
     // targeting it instead of the first eligible layer.
     selectedLayerId: layers.expandedLayerId,
     layerActions: layers.chatLayerActions,
@@ -1113,7 +1113,7 @@ export function MapBuilderPage() {
         })
       : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
-  // ux(#776): the Add Data dialog stays open for repeated adds, so the
+  // The Add Data dialog stays open for repeated adds, so the
   // "open the editor on the new layer" step is DEFERRED — opening it per-add
   // would stack the flyout behind the still-open dialog. The last added
   // layer's id waits here until the dialog closes.
@@ -2276,7 +2276,7 @@ export function MapBuilderPage() {
           dialogs.setShowAddData(open);
           if (!open) {
             dialogs.setAddDataInitialQuery('');
-            // ux(#776): the deferred editor-open — once per dialog session,
+            // The deferred editor-open — once per dialog session,
             // on the most recently added layer.
             if (pendingEditorLayerIdRef.current) {
               handleSelectLayer(pendingEditorLayerIdRef.current);

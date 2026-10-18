@@ -62,7 +62,7 @@ interface IconSubProps {
   styleHints?: StyleHints;
   swatch?: LegendSwatch | null;
   ramp?: LegendRamp | null;
-  /** ux(#840): render multi-color fills as hard-stop bands instead of a smooth ramp. */
+  /** Render multi-color fills as hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }
 
@@ -79,7 +79,7 @@ export function isDiscreteColorStyle(facts: LegendFacts | null): boolean {
   return facts?.classes?.some((classes) => classes.mode === 'categorical') ?? false;
 }
 
-// ux(#840): bands inside the existing glyph, not separate chips — keeps the
+// Bands inside the existing glyph, not separate chips — keeps the
 // geometry-type cue and the 22px row cell untouched. Cap at 4 bands; beyond
 // that 14px slivers are unreadable and the row subtitle carries the count.
 const MAX_DISCRETE_BANDS = 4;
@@ -234,7 +234,7 @@ export function ColorizedGeometryIcon({
   swatch?: LegendSwatch | null;
   /** A heatmap's colour ramp, drawn at its own stops. */
   ramp?: LegendRamp | null;
-  /** ux(#840): true for categorical styles — hard-stop bands instead of a smooth ramp. */
+  /** True for categorical styles — hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }) {
   if (layerType === 'vrt') return <Layers className="h-3.5 w-3.5 text-muted-foreground" />;

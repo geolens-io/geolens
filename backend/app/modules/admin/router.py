@@ -1278,8 +1278,8 @@ async def _queue_backfill_run(
                 "operation_id": operation_id,
             }
         }
-        # ux(#698), as analysis does: a pending job that says "queued" reads as
-        # waiting rather than as a job with nothing to say for itself.
+        # As analysis does: a pending job that says "queued" reads as waiting
+        # rather than as a job with nothing to say for itself.
         job.current_step = "queued"
         await audit_emit(
             db,

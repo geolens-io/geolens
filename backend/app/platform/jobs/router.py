@@ -373,7 +373,7 @@ _UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
         "This service import requires fresh credentials. Start the import "
         "again to re-authenticate.",
     ),
-    # ux(#698): analysis jobs carry file_path="" and are not replayable
+    # Analysis jobs carry file_path="" and are not replayable
     # anyway — the drawn clip mask is never persisted.
     (
         "analysis",

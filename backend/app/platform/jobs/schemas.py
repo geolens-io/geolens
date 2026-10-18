@@ -102,8 +102,8 @@ class JobStatusResponse(BaseModel):
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     current_step: (
         Literal[
-            # ux(#698): stamped at creation so a pending job reads as queued,
-            # not as having nothing to say. Analysis today; any producer may set it.
+            # Stamped at creation so a pending job reads as queued, not as
+            # having nothing to say. Analysis today; any producer may set it.
             "queued",
             # The URL import's server-side download, before the
             # file is staged and previewable.

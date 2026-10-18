@@ -50,7 +50,9 @@ PLANNING_NOTE_RE = re.compile(
 # `fix(site#86)`, `fix(review #1800 round 3)`). It carries its own issue
 # number, so the anchor rule below never applies.
 PROVENANCE_RE = re.compile(
-    r"\b(?:fix|feat|refactor|perf|chore|test)\([^()\n]*#\d+[^()\n]*\)"
+    r"\b(?:fix|feat|refactor|perf|chore|test|docs|ci|build|style|revert|ux)"
+    r"\([^()\n]*#\d+[^()\n]*\)",
+    re.IGNORECASE,
 )
 
 # What makes a marker scoped: an issue, PR or advisory id a reader can look up.
