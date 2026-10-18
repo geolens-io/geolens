@@ -538,6 +538,165 @@ def test_every_marker_sits_above_a_construct_its_own_rule_reports_at() -> None:
     )
 
 
+_SQL = "py/sql-injection"
+_PATH = "py/path-injection"
+_HASH = "py/weak-sensitive-data-hashing"
+_URL = "py/incomplete-url-substring-sanitization"
+
+# (path, rule, enclosing function or None, fragment of the reported line). The
+# function narrows the search where the same line repeats in one module.
+DISMISSED_SITES = (
+    (
+        "backend/app/modules/catalog/datasets/domain/column_stats.py",
+        _SQL,
+        None,
+        'f"SELECT DISTINCT {expr} AS val "',
+    ),
+    (
+        "backend/app/modules/catalog/datasets/domain/column_stats.py",
+        _SQL,
+        None,
+        'f"SELECT COUNT({col_q}), COUNT(DISTINCT {col_q}) "',
+    ),
+    (
+        "backend/app/modules/catalog/datasets/domain/column_stats.py",
+        _SQL,
+        None,
+        'f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "',
+    ),
+    (
+        "backend/app/platform/sandbox/executor.py",
+        _SQL,
+        None,
+        "statement = text(sql).bindparams(*binds)",
+    ),
+    (
+        "backend/app/platform/sandbox/executor.py",
+        _SQL,
+        None,
+        "_limited_sql(sql, fetch_limit, max_result_bytes, token, weights)",
+    ),
+    *(
+        ("backend/app/modules/catalog/layers/service.py", _SQL, fn, "text(ddl)")
+        for fn in (
+            "create_layer",
+            "add_column",
+            "rename_column",
+            "alter_column_type",
+            "drop_column",
+        )
+    ),
+    (
+        "backend/app/modules/catalog/features/service.py",
+        _SQL,
+        "update_feature",
+        "text(sql).bindparams(**params)",
+    ),
+    (
+        "backend/app/modules/catalog/features/retention.py",
+        _SQL,
+        None,
+        'session.scalar(text(sql), {"cutoff": cutoff})',
+    ),
+    (
+        "backend/app/platform/storage/local.py",
+        _PATH,
+        None,
+        "(self.base_dir / key).resolve()",
+    ),
+    ("backend/app/platform/storage/local.py", _PATH, None, "os.scandir(root)"),
+    (
+        "backend/app/platform/storage/local.py",
+        _PATH,
+        "_keys_in_order",
+        "parent.exists()",
+    ),
+    (
+        "backend/app/platform/storage/local.py",
+        _PATH,
+        None,
+        'parent.glob(resolved_prefix.name + "*")',
+    ),
+    (
+        "backend/app/modules/auth/dependencies.py",
+        _HASH,
+        None,
+        "hashlib.sha256(api_key.encode())",
+    ),
+    ("cli/geolens_cli/auth.py", _HASH, None, "hashlib.sha256(bearer_token.encode())"),
+    (
+        "backend/tests/test_csp_sec020.py",
+        "py/bad-tag-filter",
+        None,
+        r're.search(r"<script>\s*\S", html)',
+    ),
+    (
+        "backend/tests/test_embed_framing_csp.py",
+        _URL,
+        None,
+        '"https://partner.example" in csp, (',
+    ),
+    (
+        "backend/tests/test_embed_framing_csp.py",
+        _URL,
+        None,
+        '"https://other.example" in csp, (',
+    ),
+    (
+        "backend/tests/test_embed_framing_csp.py",
+        _URL,
+        None,
+        '"https://embed.example.com" in csp, (',
+    ),
+    (
+        "backend/tests/test_oauth_github_provider.py",
+        _URL,
+        None,
+        'any("api.github.com" in u for u in called_urls)',
+    ),
+)
+
+
+def _search_span(source: str, function: str | None) -> tuple[int, int]:
+    """1-based inclusive line span to search: the named function, or the module."""
+    if function is None:
+        return 1, len(source.splitlines())
+    spans = [
+        (node.lineno, node.end_lineno or node.lineno)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name == function
+    ]
+    assert len(spans) == 1, (
+        f"expected one function named {function}, found {len(spans)}"
+    )
+    return spans[0]
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "rule", "function", "anchor"),
+    DISMISSED_SITES,
+    ids=[
+        f"{path.rsplit('/', 1)[-1]}:{anchor[:40]}"
+        for path, _, _, anchor in DISMISSED_SITES
+    ],
+)
+def test_every_dismissed_site_keeps_its_marker(
+    rel_path: str, rule: str, function: str | None, anchor: str
+) -> None:
+    """CodeQL reports these sites and they were dismissed by hand, so each needs its marker in source."""
+    source = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    lines = source.splitlines()
+    first, last = _search_span(source, function)
+    hits = [n for n in range(first, last + 1) if anchor in lines[n - 1]]
+    assert len(hits) == 1, f"{rel_path}: {anchor!r} found on lines {hits}, expected one"
+    above = lines[hits[0] - 2].strip()
+    match = ANY_MARKER_RE.search(above)
+    assert above.startswith("#") and match and match.group(1).lower() == rule, (
+        f"{rel_path}:{hits[0]} needs `# codeql[{rule}]` directly above, found {above!r}"
+    )
+
+
 def _codeql_workflow() -> dict:
     return yaml.safe_load(CODEQL_WORKFLOW.read_text(encoding="utf-8"))
 
