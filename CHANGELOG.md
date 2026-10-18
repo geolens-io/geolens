@@ -112,8 +112,8 @@ and releases use semantic versioning.
   delete rows right away first shows how many and asks to confirm. While
   retention reads a column, the schema editor and the column routes refuse to
   rename, retype or remove it, or to give another column its name, with a 409
-  `retention_column_in_use`; turn retention off or move it first. (#3110,
-  #3150)
+  `retention_column_in_use`; turn retention off or move it first.
+  (#3110, #3150)
 - Append-only dataset keys, for an integration that only adds features, such
   as a webhook posting device positions. Tick "Add features only" when
   creating a key on the dataset's Access tab, or send
@@ -254,15 +254,16 @@ and releases use semantic versioning.
 - `scripts/seed-showcase.py` builds the Restless Earth map on a fresh
   install. Binding its earthquakes dataset to the USGS service ended with
   "Review the detected changes before publication", because the seed didn't
-  echo the preview's `review_fingerprint`. It does now for that service (#3099)
+  echo the preview's `review_fingerprint`. It does now for that service
+  re-bind. File replacements still wait for review. (#3099)
 - The dataset page's Similar datasets list leaves out weak matches.
   `GET /datasets/{id}/related/` returns only neighbours with a similarity of
   0.5 or more, where it returned 0.3 or more. The response shape is
   unchanged. (#3147)
 - On the Overview tab, Similar datasets and Used in maps moved from the
   sidebar to a full-width row below the summary and fields, so a long
-  sidebar no longer leaves an empty band under the main column.
-  re-bind. File replacements still wait for review. (#3147)
+  sidebar no longer leaves an empty band under the main column. (#3147)
+
 ### Security
 
 - Anonymous raster tile and tile token requests can no longer tell a private
