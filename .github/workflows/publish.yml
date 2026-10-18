@@ -74,7 +74,8 @@ jobs:
                   [ .[]
                     | select(.event == "push" or .event == "merge_group" or .event == "schedule")
                     | select(.head_branch == "main" or ((.head_branch // "") | startswith("gh-readonly-queue/main/")))
-                    | select(.event != "schedule" or .status == "completed") ]
+                    | select(.event != "schedule" or .status == "completed")
+                    | .path |= sub("@.*$"; "") ]
                   | group_by([.path, .event]) | map(max_by(.created_at)) as $latest
                   | {
                       red: [$latest[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | line],

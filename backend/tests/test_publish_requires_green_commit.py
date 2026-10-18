@@ -126,6 +126,12 @@ def test_green_commit_publishes(tmp_path):
     assert f"repos/example/repo/actions/runs?head_sha={SHA}" in args
 
 
+def test_run_paths_with_a_ref_suffix_still_match(tmp_path):
+    runs = [{**run, "path": f"{run['path']}@main"} for run in GREEN]
+    proc, _ = _gate(tmp_path, runs)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 def test_red_codeql_run_blocks_and_is_listed(tmp_path):
     runs = [_run(CI), _run(CODEQL, conclusion="failure")]
     proc, _ = _gate(tmp_path, runs)
