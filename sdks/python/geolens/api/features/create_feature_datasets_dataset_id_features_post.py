@@ -194,9 +194,12 @@ def sync_detailed(
 
     Through an append-only dataset key, every created feature, single or in a
     FeatureCollection, is answered with its `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`, since the stored row can
-    hold values the key didn't send. A repeat through one matches only that
-    key's own creates, applies nothing and answers the same way.
+    `properties`, and null `table_id` and `tile_cache_version`, since the
+    stored row can hold values the key didn't send and the others move with
+    other writers. A repeat through one matches only that key's own creates,
+    applies nothing and answers the same way. If the feature was deleted or
+    the dataset's data replaced, the repeat gets 409 `feature_gone` with no
+    `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
@@ -277,9 +280,12 @@ def sync(
 
     Through an append-only dataset key, every created feature, single or in a
     FeatureCollection, is answered with its `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`, since the stored row can
-    hold values the key didn't send. A repeat through one matches only that
-    key's own creates, applies nothing and answers the same way.
+    `properties`, and null `table_id` and `tile_cache_version`, since the
+    stored row can hold values the key didn't send and the others move with
+    other writers. A repeat through one matches only that key's own creates,
+    applies nothing and answers the same way. If the feature was deleted or
+    the dataset's data replaced, the repeat gets 409 `feature_gone` with no
+    `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
@@ -354,9 +360,12 @@ async def asyncio_detailed(
 
     Through an append-only dataset key, every created feature, single or in a
     FeatureCollection, is answered with its `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`, since the stored row can
-    hold values the key didn't send. A repeat through one matches only that
-    key's own creates, applies nothing and answers the same way.
+    `properties`, and null `table_id` and `tile_cache_version`, since the
+    stored row can hold values the key didn't send and the others move with
+    other writers. A repeat through one matches only that key's own creates,
+    applies nothing and answers the same way. If the feature was deleted or
+    the dataset's data replaced, the repeat gets 409 `feature_gone` with no
+    `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
@@ -435,9 +444,12 @@ async def asyncio(
 
     Through an append-only dataset key, every created feature, single or in a
     FeatureCollection, is answered with its `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`, since the stored row can
-    hold values the key didn't send. A repeat through one matches only that
-    key's own creates, applies nothing and answers the same way.
+    `properties`, and null `table_id` and `tile_cache_version`, since the
+    stored row can hold values the key didn't send and the others move with
+    other writers. A repeat through one matches only that key's own creates,
+    applies nothing and answers the same way. If the feature was deleted or
+    the dataset's data replaced, the repeat gets 409 `feature_gone` with no
+    `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named

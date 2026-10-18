@@ -1363,14 +1363,12 @@ async def test_an_append_key_create_answers_with_the_id_alone(
     by_session = await client.post(url, json=body, headers=headers)
     assert "server default" in by_session.text
 
-    resp = await client.post(url, json=body, headers={"X-Api-Key": raw_key})
-    assert resp.status_code == 201, resp.text
-    feature = resp.json()
-    assert (feature["geometry"], feature["properties"]) == (None, {})
-    assert feature["tile_cache_version"] is None
-    assert "server default" not in resp.text
-    stored = await client.get(f"{url}{feature['id']}", headers=headers)
-    assert stored.json()["properties"]["name"] == "sent"
+    for create_url in (url, url.rstrip("/")):
+        resp = await client.post(create_url, json=body, headers={"X-Api-Key": raw_key})
+        assert resp.status_code == 201, resp.text
+        assert resp.json() == _id_alone(resp.json()["id"])
+        stored = await client.get(f"{url}{resp.json()['id']}", headers=headers)
+        assert stored.json()["properties"]["name"] == "sent"
 
 
 async def test_an_append_key_collection_create_answers_with_ids_alone(
@@ -1387,10 +1385,127 @@ async def test_an_append_key_collection_create_answers_with_ids_alone(
     )
     assert resp.status_code == 201, resp.text
     collection = resp.json()
-    assert collection["tile_cache_version"] is None
+    assert (collection["table_id"], collection["tile_cache_version"]) == (None, None)
     assert "server default" not in resp.text
     assert len(collection["features"]) == 2
     for feature in collection["features"]:
         assert isinstance(feature["id"], int)
-        assert (feature["geometry"], feature["properties"]) == (None, {})
-        assert feature["tile_cache_version"] is None
+        assert feature == _id_alone(feature["id"])
+
+
+def _id_alone(gid: int) -> dict:
+    """Everything an append-only key may learn from a successful create."""
+    return {
+        "type": "Feature",
+        "id": gid,
+        "geometry": None,
+        "properties": {},
+        "table_id": None,
+        "tile_cache_version": None,
+    }
+
+
+async def _tile_version(test_db_session, dataset) -> int | None:
+    await test_db_session.commit()
+    return (
+        await test_db_session.execute(
+            text("SELECT tile_cache_version FROM catalog.datasets WHERE id = :id"),
+            {"id": dataset.id},
+        )
+    ).scalar_one()
+
+
+@pytest.mark.parametrize("alias", ["features/", "features"])
+async def test_append_key_retries_answer_alike_whatever_happens_between(
+    client: AsyncClient, owner, datasets, alias
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/{alias}"
+    body = {"geometry": POINT, "properties": {"name": "sent"}}
+    sent = {"X-Api-Key": raw_key, "Idempotency-Key": "device-1:t1"}
+    first = await client.post(url, json=body, headers=sent)
+    assert first.status_code == 201, first.text
+    gid = first.json()["id"]
+    assert first.json() == _id_alone(gid)
+
+    for attempt in (None, "1", "3", "2"):
+        # Another writer moves the tile version and adds a row in between.
+        other = await client.post(
+            f"/datasets/{bound.id}/features/",
+            json={"geometry": POINT_2, "properties": {"name": "unrelated"}},
+            headers=headers,
+        )
+        assert other.status_code == 201, other.text
+        retry_headers = (
+            sent if attempt is None else {**sent, "Idempotency-Attempt": attempt}
+        )
+        resp = await client.post(
+            url,
+            json={"geometry": POINT_2, "properties": {"name": f"attempt {attempt}"}},
+            headers=retry_headers,
+        )
+        assert resp.status_code == 201, (attempt, resp.text)
+        assert resp.json() == _id_alone(gid), attempt
+    stored = await client.get(f"/datasets/{bound.id}/features/{gid}", headers=headers)
+    assert stored.json()["properties"]["name"] == "sent"
+
+
+async def test_append_key_retries_of_gone_features_show_and_move_nothing(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/features/"
+    body = {"geometry": POINT, "properties": {"name": "sent"}}
+    made = {}
+    for key in ("deleted", "replaced"):
+        resp = await client.post(
+            url, json=body, headers={"X-Api-Key": raw_key, "Idempotency-Key": key}
+        )
+        assert resp.status_code == 201, resp.text
+        made[key] = resp.json()["id"]
+
+    deleted = await client.delete(f"{url}{made['deleted']}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+    deleted_answer = await client.post(
+        url, json=body, headers={"X-Api-Key": raw_key, "Idempotency-Key": "deleted"}
+    )
+
+    # Replace the table, as an overwrite outside GeoLens would.
+    table = bound.table_name
+    await test_db_session.execute(text(f'DROP TABLE "data"."{table}"'))
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE "data"."{table}" (gid SERIAL PRIMARY KEY, '
+            "geom geometry(Point, 4326), geom_4326 geometry(Geometry, 4326), "
+            "name TEXT)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'GRANT SELECT ON "data"."{table}" TO geolens_reader')
+    )
+    await test_db_session.commit()
+    before = await _tile_version(test_db_session, bound)
+
+    answers = [deleted_answer]
+    for key in ("deleted", "replaced", "replaced", "replaced"):
+        answers.append(
+            await client.post(
+                url,
+                json=body,
+                headers={
+                    "X-Api-Key": raw_key,
+                    "Idempotency-Key": key,
+                    "Idempotency-Attempt": "2",
+                },
+            )
+        )
+    for resp in answers:
+        assert resp.status_code == 409, resp.text
+        assert set(resp.json()["detail"]) == {"code", "message"}, resp.text
+        assert resp.json()["detail"]["code"] == "feature_gone"
+    assert len({resp.text for resp in answers}) == 1
+    assert await _tile_version(test_db_session, bound) == before

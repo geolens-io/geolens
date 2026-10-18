@@ -219,12 +219,10 @@ def _written_feature(
 
     ``masked`` is for an append-only key, which may not read features: the
     stored row can hold defaults and values the caller never sent, and the
-    tile version moves with other writers, so only the id is kept.
+    tile version and table id move with other writers, so only the id is kept.
     """
     if masked:
-        return GeoJSONFeatureWrite(
-            id=row["gid"], geometry=None, properties={}, table_id=str(table_oid)
-        )
+        return GeoJSONFeatureWrite(id=row["gid"], geometry=None, properties={})
     return GeoJSONFeatureWrite(
         id=row["gid"],
         geometry=row["geometry"],
@@ -411,7 +409,7 @@ async def _create_features(
         features=[
             _written_feature(row, tile_version, table_oid, masked) for row in rows
         ],
-        table_id=str(table_oid),
+        table_id=None if masked else str(table_oid),
         tile_cache_version=None if masked else tile_version,
     )
     return JSONResponse(
@@ -534,16 +532,20 @@ async def _settle_repeat(
     attempt was applied. The feature is written before the catalog rows are
     taken, the order every other feature write uses. For an ``append_only``
     caller, which may neither read nor change features, the answer is the
-    feature's id with no geometry, properties or tile cache version, and
-    nothing is applied.
+    feature's id alone and nothing is applied. Its feature being deleted and
+    its table being replaced get the same bare 409, and neither rolls the tile
+    version: a probe must not show, or move, what other writers did.
     """
     row = await get_feature_by_id(db, dataset.table_name, keyed.gid)
-    if keyed.table_oid != await current_table_oid(db, dataset.table_name):
+    replaced = keyed.table_oid != await current_table_oid(db, dataset.table_name)
+    if append_only:
+        if replaced or row is None:
+            raise _feature_gone()
+        return _Repeat(row, None, False, keyed.id, attempt, None, masked=True)
+    if replaced:
         raise _feature_gone(await _roll_tile_generation(db, dataset))
     if row is None:
         raise _feature_gone()
-    if append_only:
-        return _Repeat(row, None, False, keyed.id, attempt, None, masked=True)
     if attempt <= keyed.attempt:
         return _Repeat(row, None, False, keyed.id, attempt, None)
     # The row is taken before the version is read, so a writer still in flight
@@ -1107,9 +1109,12 @@ async def create_feature(
 
     Through an append-only dataset key, every created feature, single or in a
     FeatureCollection, is answered with its `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`, since the stored row can
-    hold values the key didn't send. A repeat through one matches only that
-    key's own creates, applies nothing and answers the same way.
+    `properties`, and null `table_id` and `tile_cache_version`, since the
+    stored row can hold values the key didn't send and the others move with
+    other writers. A repeat through one matches only that key's own creates,
+    applies nothing and answers the same way. If the feature was deleted or
+    the dataset's data replaced, the repeat gets 409 `feature_gone` with no
+    `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
