@@ -491,7 +491,7 @@ def _write_findings(
         "",
         "- **Per-tenant data schemas** (`data_t_{tenant_id}`)",
         "  are the isolation boundary for geospatial data in `multi_tenant` mode.",
-        "- **Shard promote/rebalance** uses this ceiling to decide when",
+        "- **Shard promote/rebalance** will use this ceiling to decide when",
         "  a shard needs to be split. The `shard_id` column on `catalog.tenants` (migration",
         "  `0007_tenant_data_schemas`) is the routing map entry point.",
         "- This benchmark must be re-run on the production SKU BEFORE the",
