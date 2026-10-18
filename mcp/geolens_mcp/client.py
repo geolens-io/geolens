@@ -242,7 +242,7 @@ class GeoLensReadOnlyAPI:
     Trailing slashes are load-bearing (the API runs ``redirect_slashes=False``):
     the two ``/{id}`` detail routes must have NO trailing slash.
 
-    "Read-only" is semantic, not method-shaped: ``query`` (#565) POSTs to the
+    "Read-only" is semantic, not method-shaped: ``query`` POSTs to the
     sandbox SQL endpoint, which executes inside a READ ONLY transaction.
     """
 
@@ -286,10 +286,8 @@ class GeoLensReadOnlyAPI:
         return self._request("GET", path, params=params or {})
 
     def _post(self, path: str, json: dict[str, Any]) -> Any:
-        # The package's first write-shaped transport method. It
-        # exists for POST routes that are reads semantically (the sandbox
-        # query endpoint); the server stays read-only in effect because the
-        # backend executes these inside a READ ONLY transaction.
+        # For POST routes that are reads semantically (the sandbox query
+        # endpoint); the backend runs them in a READ ONLY transaction.
         return self._request("POST", path, json=json)
 
     def search_datasets(self, query: str, limit: int = 10, offset: int = 0) -> Any:

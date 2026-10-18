@@ -9,7 +9,7 @@ identical bug, packing ``(None, str(self.file).encode(), 'text/plain')``
 instead of a real file) and ``refresh.py``'s job poller and ProblemDetail
 parsing, rather than re-implementing either.
 
-gh#1739: the only supported way to replace an uploaded dataset's data from a
+This is the only supported way to replace an uploaded dataset's data from a
 local file. A dataset whose data comes from a server-stored source binding
 is refreshed with ``geolens refresh`` instead; that endpoint pulls from the
 stored origin and takes no file.
@@ -27,9 +27,7 @@ from . import publish as _publish
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk, long_request_timeout
 from .refresh import _problem_detail, review_reason_sentence
 
-#: Upload returns 201 Created (ReuploadResponse). Cited:
-#: sdks/python/geolens/api/datasets_reupload/
-#:   reupload_dataset_datasets_dataset_id_reupload_post.py
+#: Upload returns 201 Created (ReuploadResponse).
 UPLOAD_OK_STATUS = 201
 
 #: Preview returns 200 OK (ReuploadPreviewResponse).
@@ -54,16 +52,11 @@ class ReplaceRequestError(Exception):
     code: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Multipart upload (same workaround as publish.upload_file)
-# ---------------------------------------------------------------------------
-
-
 def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     """Upload a replacement file via the SDK-owned httpx client.
 
     The multipart payload is built directly on the SDK's httpx client so the
-    file streams from disk. OCCLI-06: the client comes from
+    file streams from disk. The client comes from
     ``client.get_httpx_client()``, never a direct ``httpx`` construction.
 
     The backend saves and validates the
@@ -88,11 +81,6 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
         headers=raw.headers,
         parsed=parsed,
     )
-
-
-# ---------------------------------------------------------------------------
-# Dataset pre-fetch (origin and record_type gates, checked before upload)
-# ---------------------------------------------------------------------------
 
 
 def fetch_dataset(client: Any, dataset_id: UUID) -> Any:
@@ -174,16 +162,11 @@ def captured_origin_kind(dataset: Any) -> Optional[str]:
     the field from — down to "a kind this CLI recognizes, or nothing". A kind
     the server added after this build is deliberately dropped rather than
     forwarded: the server would 422 a value its own enum does not carry, and
-    turning a stale CLI into a hard failure is worse than leaving the flow at
-    its pre-#1768 behaviour.
+    turning a stale CLI into a hard failure is worse than skipping the origin
+    check.
     """
     origin = getattr(dataset, "origin", None)
     return origin if origin in KNOWN_ORIGIN_KINDS else None
-
-
-# ---------------------------------------------------------------------------
-# Request builders
-# ---------------------------------------------------------------------------
 
 
 def _build_model(model: Any, kwargs: dict[str, Any], needs: str) -> Any:
@@ -238,8 +221,8 @@ def build_commit_request(
     swap this commit queues would rebind it to ``upload`` and sever it. An
     origin the CLI could not classify (``None``, or a kind the server added
     after this build) is left UNSET rather than guessed: the server treats an
-    absent value as "no condition", which is the pre-#1768 behaviour and the
-    right answer when the client has no captured origin to assert.
+    absent value as "no condition", which is the right answer when the client
+    has no captured origin to assert.
     """
     from geolens.models.reupload_commit_request import ReuploadCommitRequest
     from geolens.types import UNSET
@@ -254,11 +237,6 @@ def build_commit_request(
     if review_fingerprint:
         kwargs["review_fingerprint"] = review_fingerprint
     return _build_model(ReuploadCommitRequest, kwargs, "confirming a reviewed replacement")
-
-
-# ---------------------------------------------------------------------------
-# Preview inspection
-# ---------------------------------------------------------------------------
 
 
 def layer_summaries(preview: Any) -> list[dict[str, Any]]:
@@ -370,10 +348,6 @@ def multi_layer_refusal_message(layers: list[dict[str, Any]]) -> str:
         lines
     )
 
-
-# ---------------------------------------------------------------------------
-# Error mapping
-# ---------------------------------------------------------------------------
 
 _REFUSAL_MESSAGES: dict[str, str] = {
     # The reverse of refresh.py's `refresh_not_applicable`: this dataset's

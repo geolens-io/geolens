@@ -48,7 +48,7 @@ class Formatter:
 
         Used by commands that need to render rich primitives (tables, trees)
         beyond the success/error/info/json/debug message helpers — e.g.,
-        Plan 03 (scan) renders a rich.Table for human output.
+        the scan command renders a rich.Table for human output.
         """
         return self._stdout
 

@@ -9,9 +9,8 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 try:
-    # BUG-031: report the CLI's OWN distribution (`geolens-cli`), not the
-    # `geolens` SDK dependency — the two version ranges may diverge at
-    # install time (`pip install -U geolens` bumps only the SDK).
+    # Report the CLI's own distribution (`geolens-cli`), not the `geolens` SDK
+    # dependency: `pip install -U geolens` bumps only the SDK.
     __version__ = _pkg_version("geolens-cli")
 except PackageNotFoundError:
     # Local dev tree before `pip install -e .` — fall back to a sentinel.

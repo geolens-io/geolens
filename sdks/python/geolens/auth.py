@@ -9,7 +9,7 @@ backend/app/modules/auth/dependencies.py):
     header X-API-Key  > JWT Bearer (Authorization)  > anonymous
 
 The query-parameter `?api_key=<key>` fallback that the backend supports for
-browser/embed contexts is NOT exposed by this SDK wrapper (D-11). Use one
+browser/embed contexts is NOT exposed by this SDK wrapper. Use one
 of the two header modes via the constructor or the set_* helpers.
 """
 

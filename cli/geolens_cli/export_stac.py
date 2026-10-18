@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """STAC export — fetch a STAC API 1.0 item for a raster dataset and render it.
 
-Hand-maintained — NOT regenerated. Pure SDK pass-through (D-25, D-28). The
+Hand-maintained — NOT regenerated. Pure SDK pass-through. The
 backend at ``backend/app/standards/stac/router.py`` already produces
 conformant STAC API 1.0; the CLI is a pretty-printer. Vector datasets are
-rejected pre-flight (D-26) so users see a clear message rather than a
+rejected pre-flight so users see a clear message rather than a
 confusing 404 or 422 from ``GET /stac/items/{id}``.
 
-OCCLI-06 invariant: zero direct ``httpx`` / ``requests`` imports here —
+Invariant: zero direct ``httpx`` / ``requests`` imports here —
 every HTTP call goes through the generated SDK functions.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from ._sdk_helpers import call_sdk, unwrap
 def fetch_record_type(client: Any, dataset_id: str) -> str:
     """Pre-flight check: return the dataset's ``record_type``.
 
-    Per D-26: STAC export is raster-only. We GET ``/datasets/{id}`` first
+    STAC export is raster-only. We GET ``/datasets/{id}`` first
     to avoid a confusing error from ``/stac/items/{id}`` when the dataset
     is vector-typed.
 
@@ -111,7 +111,7 @@ def fetch_stac_item(client: Any, dataset_id: str) -> dict:
 def render_stac_json(item: dict, *, compact: bool = False) -> str:
     """Format a STAC dict as JSON.
 
-    Default (D-27): pretty-printed, ``indent=2``, sorted keys, trailing
+    Default: pretty-printed, ``indent=2``, sorted keys, trailing
     newline — produces diff-stable output.
 
     Compact: single-line JSON with no whitespace separators — for piping
@@ -126,7 +126,7 @@ def write_stac_to_file(item: dict, path: Path, *, compact: bool = False) -> None
     """Atomically write the rendered STAC JSON to ``path``.
 
     Mode 0o644 — STAC payloads are not secrets. The atomic ``tempfile +
-    os.replace`` write prevents half-written files on Ctrl+C (D-27).
+    os.replace`` write prevents half-written files on Ctrl+C.
     """
     _config.atomic_write_text(
         path,
@@ -136,7 +136,7 @@ def write_stac_to_file(item: dict, path: Path, *, compact: bool = False) -> None
 
 
 def vector_rejection_message(record_type: str) -> str:
-    """User-facing rejection message for non-raster datasets (D-26)."""
+    """User-facing rejection message for non-raster datasets."""
     return (
         "STAC export is supported for raster datasets only — "
         f"got record_type={record_type}"

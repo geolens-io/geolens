@@ -11,7 +11,7 @@
  *     header X-API-Key  >  JWT Bearer (Authorization)  >  anonymous
  *
  * The query-parameter `?api_key=<key>` fallback that the backend supports
- * for browser/embed contexts is NOT exposed by this SDK wrapper (D-11).
+ * for browser/embed contexts is NOT exposed by this SDK wrapper.
  *
  * Two ways to use the client this returns, both supported:
  *

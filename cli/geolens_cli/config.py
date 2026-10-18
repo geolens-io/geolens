@@ -3,8 +3,7 @@
 
 Hand-maintained — NOT regenerated. config.toml stores the active instance
 URL and username; credentials.toml stores tokens (only when --no-keyring
-is set or the keyring is unavailable). Per CONTEXT.md D-11, tokens NEVER
-appear in config.toml.
+is set or the keyring is unavailable). Tokens never appear in config.toml.
 """
 from __future__ import annotations
 
@@ -63,7 +62,7 @@ def load_config() -> AppConfig:
 def write_default_instance(instance: str, username: Optional[str]) -> None:
     """Write the active instance URL + username to config.toml.
 
-    Does NOT write tokens (D-11). Tokens go to keyring or credentials.toml.
+    Does NOT write tokens. Tokens go to keyring or credentials.toml.
     """
     section: dict[str, str] = {"instance": instance}
     if username is not None:
@@ -81,7 +80,7 @@ def atomic_write_text(
 ) -> None:
     """Write content to path atomically with the given file mode.
 
-    Per RESEARCH Pattern 4: tempfile in same dir + chmod + os.replace.
+    Writes a tempfile in the same dir, chmods it, then os.replace()s it.
 
     Args:
         path: Destination file path.
@@ -91,7 +90,6 @@ def atomic_write_text(
             Use this only for SECRET files (e.g. credentials.toml). For
             non-secret outputs (e.g. ``geolens export stac -o file``), leave
             this False so the parent directory's mode is not changed.
-            (BUG-014)
     """
     if tighten_parent:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -130,14 +128,14 @@ def normalize_instance_url(url: str) -> str:
     Performs, in order:
       * strip surrounding whitespace and trailing slashes;
       * reject non-http(s) schemes via ValueError;
-      * auto-append the required ``/api`` path prefix when missing (GAP-019),
+      * auto-append the required ``/api`` path prefix when missing,
         idempotently — a URL that already ends in ``/api`` (or has ``/api/``
         somewhere mid-path) is left untouched so existing ``/api``-suffixed
         configs keep resolving.
 
     Both ``geolens login`` (store side) and ``active_instance()`` (lookup side)
     route through this one function so a trailing-slash or missing-``/api``
-    variant resolves to the same canonical key (BUG-033).
+    variant resolves to the same canonical key.
     """
     url = url.strip()
     if not url:
@@ -153,7 +151,7 @@ def normalize_instance_url(url: str) -> str:
 def _has_api_prefix(url: str) -> bool:
     """Return True if ``url`` already carries the ``/api`` path prefix.
 
-    Idempotency guard for GAP-019: matches a trailing ``/api`` segment or an
+    Idempotency guard: matches a trailing ``/api`` segment or an
     ``/api/`` segment anywhere in the path so we never double-append.
     """
     from urllib.parse import urlsplit
