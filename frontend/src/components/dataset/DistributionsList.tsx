@@ -59,9 +59,14 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
   other: 'other',
 };
 
-/** Saved name for a row's download: the dataset title for an export, the row's own name otherwise. */
+/** Saved name for a row's download: the dataset title for a generated export, the row's own name otherwise. */
 function distributionFilename(distribution: DistributionResponse, datasetTitle?: string): string {
-  if (datasetTitle && distribution.distribution_type === 'download' && isExportFormat(distribution.format)) {
+  if (
+    datasetTitle &&
+    distribution.auto_generated &&
+    distribution.distribution_type === 'download' &&
+    isExportFormat(distribution.format)
+  ) {
     return exportFilename(datasetTitle, distribution.format);
   }
   const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');

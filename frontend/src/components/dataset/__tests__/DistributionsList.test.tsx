@@ -257,6 +257,30 @@ describe('DistributionsList', () => {
       );
     });
 
+    it('keeps a manual row named after itself even when its format matches an export', async () => {
+      const user = userEvent.setup();
+      mockAuthenticatedDownload.mockResolvedValue(undefined);
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [{
+            ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
+            id: 'manual-shp',
+            auto_generated: false,
+            format: 'shp',
+            title: 'Raw roads',
+            url: '/datasets/1/files/roads.shp',
+          }],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      render(<DistributionsList recordId="record-1" datasetTitle="Manhattan Building Heights" />);
+
+      await user.click(screen.getByRole('button', { name: 'Download' }));
+
+      expect(mockAuthenticatedDownload).toHaveBeenCalledWith(expect.any(String), 'Raw roads.shp');
+    });
+
     it.each([
       ['with the dataset title', 'Manhattan Building Heights', /FROM 'Manhattan Building Heights\.parquet'/],
       ['with the row title when no dataset title is given', undefined, /FROM 'GeoParquet Download\.parquet'/],
