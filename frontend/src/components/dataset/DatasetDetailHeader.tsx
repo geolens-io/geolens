@@ -114,8 +114,8 @@ export function DatasetDetailHeader({
         </Breadcrumb>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4">
-        <div className="min-w-0 md:flex-1">
+      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-2 xl:gap-4">
+        <div className="min-w-0 xl:flex-1">
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight break-words">
             {isTitleEditable ? (
               <InlineEdit
@@ -138,7 +138,7 @@ export function DatasetDetailHeader({
         </div>
 
         {(leadingContent || primary.length > 0 || overflow.length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap xl:flex-nowrap xl:shrink-0">
             {leadingContent}
             {primary.map((action) => (
               <Button
