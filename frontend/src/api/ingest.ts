@@ -446,7 +446,9 @@ function reportPresignFailure(stage: string, filename: string, err: unknown): vo
  *
  * The flow runs outside any TanStack mutation, so each step reports its own
  * failure through reportNetworkError; otherwise a job staged by step 1 and
- * abandoned by a step-2/3 failure would leave nothing to report.
+ * abandoned by a step-2/3 failure would leave nothing to report. The exception
+ * is a part that uploads without an exposed ETag: `uploadChunks` throws that
+ * unreported.
  */
 export async function uploadPresigned(
   file: File,

@@ -48,7 +48,8 @@ const DEFAULT_MAX_RETRIES = 3;
  *    above. Derived from the largest part (PART_SIZE_UPPER_BOUND_BYTES, matching
  *    the backend's multipart PART_SIZE) at the backend's credited minimum
  *    upload rate (MIN_UPLOAD_RATE_BYTES_PER_SEC): 10 MiB / 32 KiB/s = 320s,
- *    with a 1.5x margin (≈480s) for rate variance and retry backoff.
+ *    with a 1.5x margin (≈480s) for rate variance. It runs per attempt, so
+ *    retry backoff falls outside it.
  */
 const INACTIVITY_TIMEOUT_MS = 60_000;
 const PART_SIZE_UPPER_BOUND_BYTES = 10 * 1024 * 1024; // 10 MiB — backend PART_SIZE
@@ -263,7 +264,8 @@ export async function uploadChunks(
       } catch (err) {
         // A caller-initiated abort is terminal and not worth reporting.
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
-        // Already reported above; re-throw once retries are out.
+        // A non-retriable HTTP status (already reported above) or a missing
+        // ETag (not reported): re-throw.
         if (err instanceof UploadHttpError) throw err;
         // A network-layer error (TypeError) or timeout (UploadTimeoutError) is
         // retriable.

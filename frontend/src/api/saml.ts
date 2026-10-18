@@ -6,9 +6,8 @@
  * (`/settings/oauth-providers/...`). This module provides typed wrappers plus
  * the SAML-specific metadata fetch.
  *
- * The CRUD wrappers re-export the OAuth wrappers in `./settings` under
- * SAML-prefixed names; don't duplicate the fetch logic. The update wrapper
- * resolves to HTTP PUT (`@router.put` in settings/router.py, not PATCH).
+ * The CRUD wrappers call `apiFetch` directly against those endpoints. The update
+ * wrapper resolves to HTTP PUT (`@router.put` in settings/router.py, not PATCH).
  *
  * `idp_certificate` is write-only at rest (Fernet-encrypted) and omitted from
  * `OAuthProviderResponse`; clients never read it back. The other SAML fields
@@ -77,11 +76,10 @@ export async function listSamlProviders(): Promise<SamlProviderConfig[]> {
     }));
 }
 
-// CRUD goes through the same endpoints as OAuth. The OAuth-typed wrappers in
-// settings.ts narrow `provider_type` and require `client_id` / `client_secret`,
-// which excludes the SAML shape, so they are wrapped here with SAML types and a
-// single `as never` cast at the boundary. The wire shape is identical (see
-// auth/oauth/schemas.py). The update wrapper resolves to HTTP PUT.
+// CRUD goes through the same endpoints as OAuth, but these call `apiFetch`
+// directly: the OAuth-typed wrappers in settings.ts narrow `provider_type` and
+// require `client_id` / `client_secret`, which excludes the SAML shape. The
+// wire shape is identical (see auth/oauth/schemas.py).
 export async function createSamlProvider(
   data: SamlProviderCreateData,
 ): Promise<SamlProviderConfig> {

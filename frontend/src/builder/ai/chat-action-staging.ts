@@ -4,8 +4,9 @@
  * Wraps the CALLER'S `dispatch` handler; it never calls `dispatchLayerAction`
  * itself. Pending destructive actions stay in a React state buffer until the
  * user accepts or rejects them. Accepting flushes them through `dispatch` in
- * push order; rejecting clears the buffer with zero map mutations, so the map
- * is byte-equal to its pre-prompt state and no snapshot/restore is needed.
+ * push order; rejecting clears the buffer without dispatching, so staged
+ * actions never touch the map and need no snapshot/restore. Non-destructive
+ * actions dispatch directly and are not undone by a rejection.
  *
  * `BuilderActionSource` is not widened: no `'ai-pending'` or `'ai-committed'`
  * source values exist.
@@ -32,8 +33,8 @@ interface ChatActionStaging {
    */
   acceptAll(): Promise<void>;
   /**
-   * Clear the buffer without calling dispatch. Map state is byte-equal to
-   * pre-prompt after this call.
+   * Clear the buffer without calling dispatch. Actions already dispatched
+   * directly are not undone.
    */
   rejectAll(): void;
   /**
