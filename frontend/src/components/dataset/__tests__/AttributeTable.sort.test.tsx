@@ -129,13 +129,16 @@ describe('AttributeTable server-side sort', () => {
     );
   });
 
-  it('drops a sort the server refuses, such as one on a column a schema edit removed', async () => {
+  it.each([
+    ['a sort column the server no longer lists', 'Invalid sort column'],
+    ['a live column dropped or retyped outside GeoLens', 'Invalid filter parameters'],
+  ])('drops a sort the server refuses: %s', async (_case, detail) => {
     const user = userEvent.setup();
     render(<AttributeTable datasetId="ds-1" />);
     const popButton = await screen.findByRole('button', { name: /pop/ });
 
     getDatasetRows.mockImplementation(async (_id: string, params: { sort?: unknown }) => {
-      if (params.sort) throw new ApiError('Bad request', 400, 'Invalid sort column');
+      if (params.sort) throw new ApiError('Bad request', 400, detail);
       return {
         columns,
         rows: [{ gid: 1, pop: 10, meta: null }],

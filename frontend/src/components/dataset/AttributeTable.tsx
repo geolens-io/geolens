@@ -244,14 +244,11 @@ export function AttributeTable({
     activeFilters,
     sort,
   );
-  // A schema edit can drop or retype the sorted column. The server then
-  // refuses the sort, so fall back to unsorted rows instead of a dead error.
-  if (
-    sort
-    && error instanceof ApiError
-    && error.status === 400
-    && error.body === 'Invalid sort column'
-  ) {
+  // A schema edit, in GeoLens or on a live table, can drop or retype the sorted
+  // column, and the server reports that as a 400 whose text depends on where it
+  // failed. Fall back to unsorted rows; a 400 that persists without the sort is
+  // shown as usual.
+  if (sort && error instanceof ApiError && error.status === 400) {
     setSorting([]);
   }
 
