@@ -201,8 +201,8 @@ async def create_map_endpoint(
 @router.get(
     "/",
     response_model=MapListResponse,
-    # fix(getgeolens.com#86 review): read-gated (visibility filtering inside
-    # list_maps), not write-gated — see get_map_endpoint below.
+    # Read-gated (visibility filtering inside list_maps), not write-gated —
+    # see get_map_endpoint below.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def list_maps_endpoint(
@@ -375,9 +375,9 @@ async def import_map_style_endpoint(
 @router.get(
     "/{map_id}",
     response_model=MapResponse,
-    # fix(getgeolens.com#86 review): read-gated, not write-gated, so the
-    # router's default 403 misdescribes this route's cause. Same override
-    # on every other read-gated GET in this file.
+    # Read-gated, not write-gated, so the router's default 403 misdescribes
+    # this route's cause. Same override on every other read-gated GET in this
+    # file.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_map_endpoint(

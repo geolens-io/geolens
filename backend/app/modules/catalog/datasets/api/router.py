@@ -121,8 +121,8 @@ router = APIRouter(
 @router.get(
     "/",
     response_model=DatasetListResponse,
-    # fix(getgeolens.com#86): read-gated (visibility filtering inside
-    # get_datasets_list), not write-gated -- see get_single_dataset below.
+    # Read-gated (visibility filtering inside get_datasets_list), not
+    # write-gated -- see get_single_dataset below.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def list_all_datasets(
@@ -179,9 +179,9 @@ async def create_empty_dataset_endpoint(
 @router.get(
     "/{dataset_id}",
     response_model=DatasetResponse,
-    # fix(getgeolens.com#86): read-gated (check_dataset_access_or_anonymous
-    # below), not write-gated -- same override on every other read-gated
-    # GET in this file (quicklook, history, refresh-runs).
+    # Read-gated (check_dataset_access_or_anonymous below), not write-gated
+    # -- same override on every other read-gated GET in this file (quicklook,
+    # history, refresh-runs).
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_single_dataset(

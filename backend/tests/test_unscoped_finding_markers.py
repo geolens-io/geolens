@@ -126,6 +126,8 @@ class TestDetector:
             "# fix(#1234): scope the fetch.\nx = 1\n",
             "# Scoped (fix(#1234 review round 2)) by the caller.\nx = 1\n",
             'def f():\n    """feat(#88): a new door."""\n',
+            "# fix(getgeolens.com#86 review): read-gated.\nx = 1\n",
+            "# fix(geolens-io/site#12): keep the header.\nx = 1\n",
         ],
     )
     def test_a_provenance_prefix_fails_even_though_it_is_anchored(self, source):
@@ -155,6 +157,7 @@ class TestCommentText:
             ("a.ts", "foo(); /* fix(#123): workaround */"),
             ("a.yml", "retries: 3  # GAP-001 bounds it"),
             ("a.sh", 'echo "done" # BKP-01'),
+            ("backend/alembic/script.py.mako", "${imports}  # BKP-01"),
             ("a.sql", "SELECT 1; -- BKP-01"),
             ("a.html", "<p>x</p> <!-- CR-03 -->"),
             ("a.svg", '<svg width="1"><!-- CR-03 --></svg>'),

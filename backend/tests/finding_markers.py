@@ -46,9 +46,12 @@ PLANNING_NOTE_RE = re.compile(
     r"|\b[\w-]*(?:PLAN|RESEARCH)\.md\b|\b[A-Z0-9][\w-]*-FOLLOWUP\b"
 )
 
-# A commit-style provenance prefix (`fix(#1234):`, `feat(#88 review)`). It
-# carries its own issue number, so the anchor rule below never applies.
-PROVENANCE_RE = re.compile(r"\b(?:fix|feat|refactor|perf|chore|test)\(#\d+[^)\n]*\)")
+# A commit-style provenance prefix (`fix(#1234):`, `feat(#88 review)`,
+# `fix(site#86)`). It carries its own issue number, so the anchor rule below
+# never applies.
+PROVENANCE_RE = re.compile(
+    r"\b(?:fix|feat|refactor|perf|chore|test)\((?:[\w.-]+(?:/[\w.-]+)?)?#\d+[^)\n]*\)"
+)
 
 # What makes a marker scoped: an issue, PR or advisory id a reader can look up.
 # Two digits minimum, so `Pitfall #5` and a `#1f2937` colour do not count.
@@ -407,7 +410,7 @@ _C_STYLE = _Syntax(re.compile(r"(?<!:)//"), ("/*", "*/"), "'\"`")
 _COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
     (
         re.compile(
-            r"\.(sh|ya?ml|toml|conf|ini)$"
+            r"\.(sh|ya?ml|toml|conf|ini|mako)$"
             r"|(^|/)(Dockerfile[^/]*|Makefile|CODEOWNERS|\.env[^/]*\.example"
             r"|\.(git|docker)ignore)$"
         ),
