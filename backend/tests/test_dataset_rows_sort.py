@@ -219,6 +219,23 @@ TYPED_COLUMNS = [
         "timestamptz",
         ["2024-02-01 00:00+00", "2024-01-01 00:00+00", None, "2024-02-01 00:00+00"],
     ),
+    # Values asyncpg doesn't hand back unchanged: PostgreSQL orders 1 year as
+    # 360 days, offsets can carry seconds, and Python's largest date and
+    # datetime are re-encoded as infinity.
+    ("ivy", "interval", "interval", ["1 year", "361 days", "366 days", "-1 year"]),
+    (
+        "tzs",
+        "time with time zone",
+        "timetz",
+        ["12:00:00+05:30:15", "06:29:50+00", None, "06:29:40+00"],
+    ),
+    ("dmax", "date", "date", ["9999-12-31", "2024-01-01", None, "infinity"]),
+    (
+        "tmax",
+        "timestamp without time zone",
+        "timestamp",
+        ["9999-12-31 23:59:59.999999", "2024-01-01", None, "infinity"],
+    ),
 ]
 
 

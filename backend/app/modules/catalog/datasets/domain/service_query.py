@@ -387,16 +387,24 @@ def sortable_columns(column_info: list[dict]) -> list[str]:
     ]
 
 
-def _sorted_keyset(col: str, *, descending: bool, anchor_is_null: bool) -> str:
+# The cursor row's sort value, read inside the page query. Quoted uppercase
+# names can't collide with a projected column, which is always lowercase.
+_ANCHOR_CTE = '"Anchor"'
+_ANCHOR = '"Anchor"."V"'
+
+
+def _sorted_keyset(col: str, *, descending: bool) -> str:
     """Predicate for rows after the cursor row in (col, gid), NULLs last.
 
-    ``:anchor`` binds the cursor row's sort value, read beforehand.
+    The cursor row's value stays in PostgreSQL and is compared in the
+    column's own type; a Python round trip changes some values (a year of
+    interval, second-resolution offsets, the largest dates).
     """
-    if anchor_is_null:
-        return f"{col} IS NULL AND gid > :after_gid"
     op = "<" if descending else ">"
     return (
-        f"{col} IS NULL OR {col} {op} :anchor OR ({col} = :anchor AND gid > :after_gid)"
+        f"gid > 0 AND ({_ANCHOR} IS NULL AND {col} IS NULL AND gid > :after_gid"
+        f" OR {_ANCHOR} IS NOT NULL AND ({col} IS NULL OR {col} {op} {_ANCHOR}"
+        f" OR ({col} = {_ANCHOR} AND gid > :after_gid)))"
     )
 
 
@@ -440,35 +448,24 @@ async def _select_rows(
     sort_col: str | None,
     descending: bool,
 ) -> list[dict]:
-    """Run the page query; a sorted page continues from the cursor row's value."""
+    """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
     # could never be a cursor, since `after` starts at 0 and can't go negative.
     keyset = "gid > :after_gid"
-    anchor: dict[str, object] = {}
     order_sql = "gid"
+    with_sql = join_sql = ""
     if sort_col is not None:
         direction = "DESC" if descending else "ASC"
         order_sql = f"{sort_col} {direction} NULLS LAST, gid"
         if after_gid:
-            found = (
-                await db.execute(
-                    text(
-                        # codeql[py/sql-injection]
-                        f"SELECT {sort_col} FROM {table_ref} WHERE gid = :g"
-                    ).bindparams(g=after_gid)
-                )
-            ).first()
-            if found is None:
-                # The cursor row was deleted since the last page, so there is
-                # no position to continue from.
-                return []
-            keyset = "gid > 0 AND ({})".format(
-                _sorted_keyset(
-                    sort_col, descending=descending, anchor_is_null=found[0] is None
-                )
+            # A cursor row deleted since the last page leaves the CTE empty, so
+            # the join returns an empty page.
+            with_sql = (
+                f'WITH {_ANCHOR_CTE} AS (SELECT {sort_col} AS "V"'
+                f" FROM {table_ref} WHERE gid = :after_gid) "
             )
-            if found[0] is not None:
-                anchor["anchor"] = found[0]
+            join_sql = f" CROSS JOIN {_ANCHOR_CTE}"
+            keyset = _sorted_keyset(sort_col, descending=descending)
     where_sql, bind_params = _build_where_filters(
         filters,
         valid_columns={c["name"] for c in cols},
@@ -479,8 +476,8 @@ async def _select_rows(
     result = await db.execute(
         text(
             # codeql[py/sql-injection]
-            f"SELECT {select_sql} FROM {table_ref}{where_sql} ORDER BY {order_sql} LIMIT :limit"
-        ).bindparams(**bind_params, **anchor)
+            f"{with_sql}SELECT {select_sql} FROM {table_ref}{join_sql}{where_sql} ORDER BY {order_sql} LIMIT :limit"
+        ).bindparams(**bind_params)
     )
     return [
         {key: _json_safe(value) for key, value in row._mapping.items()}
