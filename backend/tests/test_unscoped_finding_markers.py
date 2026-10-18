@@ -40,42 +40,19 @@ class TestTree:
         assert modules >= fm.MIN_SCANNED_MODULES
         assert units >= fm.MIN_SCANNED_UNITS
 
-    def test_debt_entries_name_modules_that_exist(self):
-        missing = [
-            module
-            for module in fm.UNANCHORED_MARKER_DEBT
-            if not (fm.APP_ROOT / module).is_file()
-        ]
-        assert not missing, (
-            "UNANCHORED_MARKER_DEBT names modules that are gone; delete these "
-            f"entries in {DETECTOR_ENTRY}: {missing}"
-        )
-
     def test_collapsed_scan_fails_instead_of_passing_empty(self, tmp_path):
         problems = fm.check(tmp_path)
         assert problems, "an empty tree must fail the floors, not pass clean"
 
     def test_a_new_marker_fails_the_gate(self, monkeypatch, tmp_path):
         (tmp_path / "probe.py").write_text("# ZZTEST-01: no anchor here.\nX = 1\n")
-        self._without_floors(monkeypatch, {})
+        self._without_floors(monkeypatch)
         assert any("ZZTEST-01" in problem for problem in fm.check(tmp_path))
 
-    def test_a_second_marker_on_a_debt_line_fails(self, monkeypatch, tmp_path):
-        (tmp_path / "probe.py").write_text("# CLOUD-02 / ZZNEW-01: one line.\nX = 1\n")
-        self._without_floors(monkeypatch, {"probe.py": 1})
-        problems = fm.check(tmp_path)
-        assert any("2 unanchored finding markers, 1 recorded" in p for p in problems)
-
-    def test_a_fixed_marker_must_lower_its_debt_entry(self, monkeypatch, tmp_path):
-        self._without_floors(monkeypatch, {"gone.py": 3})
-        problems = fm.check(tmp_path)
-        assert any("Lower the UNANCHORED_MARKER_DEBT entry to 0" in p for p in problems)
-
     @staticmethod
-    def _without_floors(monkeypatch, debt: dict[str, int]) -> None:
+    def _without_floors(monkeypatch) -> None:
         monkeypatch.setattr(fm, "MIN_SCANNED_MODULES", 0)
         monkeypatch.setattr(fm, "MIN_SCANNED_UNITS", 0)
-        monkeypatch.setattr(fm, "UNANCHORED_MARKER_DEBT", debt)
 
 
 class TestDetector:
@@ -88,6 +65,13 @@ class TestDetector:
             'def f():\n    """Do a thing (PERF-005)."""\n',
             'X = 1\n"""Attribute doc for COLD-02."""\n',
             "# T-1214-17 / PERF-N5 / IA-P0-01 are all the same shape.\nx = 1\n",
+            "# Resolution order (Phase 1184 seam).\nx = 1\n",
+            "# Pitfall 11 again.\nx = 1\n",
+            "# Lane B owns this module.\nx = 1\n",
+            '"""Bypasses the cache (RESEARCH.md section 1)."""\n',
+            "# Per 1140-01-PLAN.md, keep the lock.\nx = 1\n",
+            "# Same shape as the SEC-FOLLOWUP note.\nx = 1\n",
+            "# Tracked as quick-260417.\nx = 1\n",
         ],
     )
     def test_reports_a_bare_marker(self, source):
@@ -96,8 +80,8 @@ class TestDetector:
     @pytest.mark.parametrize(
         "source",
         [
-            "# fix(#1234) SEC-002: the token is never persisted.\nx = 1\n",
-            "# fix(#1234): scope the fetch.\n# SEC-002 holds while internal.\nx = 1\n",
+            "# SEC-002 (#1234): the token is never persisted.\nx = 1\n",
+            "# Scope the fetch, see #1234.\n# SEC-002 holds while internal.\nx = 1\n",
             "# SEC-002 holds while internal.\n# See #1234 for the constraint.\nx = 1\n",
             "# GH-1302 recorded the ordering, and MVT-04 is the same bug.\nx = 1\n",
         ],
@@ -122,6 +106,8 @@ class TestDetector:
             "# The link schema requires `method` to match ^[A-Z]+$.\nx = 1\n",
             "# NIST SP 800-53 AU-5 asks for an alert; AU-5(4) is waived.\nx = 1\n",
             "# Keys 0..N-1 were already persisted when key N failed.\nx = 1\n",
+            "# Phase 1: validate the SQL. Phase 2 runs it.\nx = 1\n",
+            "# See AGENTS.md and .github/ADR-002.md for the rules (#1218).\nx = 1\n",
         ],
     )
     def test_legitimate_text_does_not_trip(self, source):
@@ -130,7 +116,18 @@ class TestDetector:
     def test_agent_tag_is_a_marker(self):
         tag = "pony" + "tail:"
         assert fm.scan_module("m.py", f"# {tag} skipped the retry loop\nx = 1\n")
-        assert not fm.scan_module("m.py", f"# fix(#99) {tag} one retry is enough\n")
+        assert not fm.scan_module("m.py", f"# {tag} one retry is enough (#99)\n")
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "# fix(#1234): scope the fetch.\nx = 1\n",
+            "# Scoped (fix(#1234 review round 2)) by the caller.\nx = 1\n",
+            'def f():\n    """feat(#88): a new door."""\n',
+        ],
+    )
+    def test_a_provenance_prefix_fails_even_though_it_is_anchored(self, source):
+        assert fm.scan_module("m.py", source)
 
     @pytest.mark.parametrize(
         "source",

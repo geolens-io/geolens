@@ -249,8 +249,8 @@ class DefaultAnthropicProvider:
     ):
         raise NotImplementedError(
             "DefaultAnthropicProvider.stream() not implemented in community "
-            "edition; use complete() (Phase 226 D-03 — true LLM-token "
-            "streaming is deferred to a follow-up phase)."
+            "edition; use complete(). Token-by-token streaming is not "
+            "implemented."
         )
 
     # Explicit keyword-only signature, matching

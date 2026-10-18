@@ -112,7 +112,7 @@ def sync_detailed(
 
     Validates sources synchronously, then defers VRT assembly to an async task.
     Returns a job_id for polling. Validation + queuing logic lives in
-    ``ingest.service.create_vrt_job`` (K5 extraction).
+    ``ingest.service.create_vrt_job``.
 
     Args:
         body (VrtCreateRequest):
@@ -147,7 +147,7 @@ def sync(
 
     Validates sources synchronously, then defers VRT assembly to an async task.
     Returns a job_id for polling. Validation + queuing logic lives in
-    ``ingest.service.create_vrt_job`` (K5 extraction).
+    ``ingest.service.create_vrt_job``.
 
     Args:
         body (VrtCreateRequest):
@@ -177,7 +177,7 @@ async def asyncio_detailed(
 
     Validates sources synchronously, then defers VRT assembly to an async task.
     Returns a job_id for polling. Validation + queuing logic lives in
-    ``ingest.service.create_vrt_job`` (K5 extraction).
+    ``ingest.service.create_vrt_job``.
 
     Args:
         body (VrtCreateRequest):
@@ -210,7 +210,7 @@ async def asyncio(
 
     Validates sources synchronously, then defers VRT assembly to an async task.
     Returns a job_id for polling. Validation + queuing logic lives in
-    ``ingest.service.create_vrt_job`` (K5 extraction).
+    ``ingest.service.create_vrt_job``.
 
     Args:
         body (VrtCreateRequest):

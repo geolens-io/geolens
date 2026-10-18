@@ -47581,7 +47581,7 @@
     },
     "/ingest/vrt/create": {
       "post": {
-        "description": "Create a VRT dataset by combining existing raster datasets.\n\nValidates sources synchronously, then defers VRT assembly to an async task.\nReturns a job_id for polling. Validation + queuing logic lives in\n``ingest.service.create_vrt_job`` (K5 extraction).",
+        "description": "Create a VRT dataset by combining existing raster datasets.\n\nValidates sources synchronously, then defers VRT assembly to an async task.\nReturns a job_id for polling. Validation + queuing logic lives in\n``ingest.service.create_vrt_job``.",
         "operationId": "create_vrt_ingest_vrt_create_post",
         "requestBody": {
           "content": {

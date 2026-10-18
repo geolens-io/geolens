@@ -1369,7 +1369,7 @@ async def create_vrt(
 
     Validates sources synchronously, then defers VRT assembly to an async task.
     Returns a job_id for polling. Validation + queuing logic lives in
-    ``ingest.service.create_vrt_job`` (K5 extraction).
+    ``ingest.service.create_vrt_job``.
     """
     # A non-admin may not create a public VRT dataset when the
     # restrict_public_visibility instance setting is on.

@@ -3,9 +3,9 @@
 Rejects requests whose body exceeds the configured maximum (413), via
 stream byte counting on Content-Length or chunked Transfer-Encoding.
 
-BUG-007: the limit is resolved PER-REQUEST from cached PersistentConfig,
-not the boot-time env value, so a raised UPLOAD_MAX_SIZE_MB takes effect
-without a restart. GAP-001: per-route cap — only POST /ingest/upload and
+The limit is resolved PER-REQUEST from cached PersistentConfig, not the
+boot-time env value, so a raised UPLOAD_MAX_SIZE_MB takes effect without
+a restart. The cap is per route: only POST /ingest/upload and
 POST /datasets/{id}/reupload get UPLOAD_MAX_SIZE_MB (500 MB); GeoJSON
 feature mutations get a 1 MB pre-decode cap; everything else gets
 DEFAULT_BODY_LIMIT_BYTES (10 MB). Every deployment strips the app's
@@ -34,7 +34,7 @@ _LIMIT_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
 # (e.g. during lifespan startup before the pool is initialised).
 _FALLBACK_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 
-# GAP-001: small default cap for non-upload routes (protects JSON/form endpoints
+# Small default cap for non-upload routes (protects JSON/form endpoints
 # from large-body DoS while leaving file-upload paths unrestricted).
 DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -47,7 +47,7 @@ FEATURE_WRITE_BODY_LIMIT_BYTES = 1 * 1024 * 1024  # 1 MB
 def _too_large_response(max_bytes: int) -> JSONResponse:
     """Build the 413 response in the app-wide RFC 7807 ProblemDetail shape.
 
-    GAP-032: fires before ``register_error_handlers`` installs the shared
+    This fires before ``register_error_handlers`` installs the shared
     handlers, so it builds the ProblemDetail body itself — mirror that
     shape (`type/title/status/detail`, `application/problem+json`) so SDKs
     parse 413 like every other error.
@@ -94,7 +94,7 @@ def _is_uuid(value: str) -> bool:
 def _is_upload_route(path: str, method: str = "POST") -> bool:
     """Return True only for the two POST endpoints that receive file BYTES.
 
-    GAP-001: only these two stream a multipart file body and need the
+    Only these two stream a multipart file body and need the
     large UPLOAD_MAX_SIZE_MB limit; everything else gets
     DEFAULT_BODY_LIMIT_BYTES:
 
@@ -162,7 +162,7 @@ def _is_feature_write_route(path: str, method: str) -> bool:
 def _get_upload_limit(route_override: int | None = None) -> int:
     """Return the effective upload limit in bytes.
 
-    Resolution order (Phase 1184 seam):
+    Resolution order:
         1. route_override  — per-route cap (non-upload routes supply DEFAULT_BODY_LIMIT_BYTES)
         2. cached config   — PersistentConfig UPLOAD_MAX_SIZE_MB (30 s TTL)
         3. fallback        — _FALLBACK_LIMIT_BYTES (boot-time env default)
@@ -215,11 +215,11 @@ async def _refresh_limit_cache() -> int:
 class RequestBodyLimitMiddleware:
     """Enforce body size limit on both Content-Length and chunked-encoding requests.
 
-    The limit is resolved per-request from the cached PersistentConfig value
-    (BUG-007).  ``max_bytes`` passed at construction is used only as the
+    The limit is resolved per-request from the cached PersistentConfig
+    value. ``max_bytes`` passed at construction is used only as the
     initial fallback until the first async cache refresh completes.
 
-    GAP-001: upload and reupload routes get the full UPLOAD_MAX_SIZE_MB limit;
+    Upload and reupload routes get the full UPLOAD_MAX_SIZE_MB limit;
     GeoJSON feature writes get FEATURE_WRITE_BODY_LIMIT_BYTES; other routes get
     DEFAULT_BODY_LIMIT_BYTES (10 MB).
     """

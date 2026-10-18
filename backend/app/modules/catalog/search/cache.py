@@ -31,7 +31,7 @@ EndpointKind = Literal["search", "facets"]
 def is_anon_cacheable(user: Identity | None) -> bool:
     """True if ``user`` should use the anon cache: ``user is None`` and the
     tenant cache context is available. API-key-authed users with empty role
-    sets are NOT anon and must bypass the cache (RESEARCH.md §1)."""
+    sets are NOT anon and must bypass the cache."""
     return user is None and tenant_cache_context_available()
 
 
