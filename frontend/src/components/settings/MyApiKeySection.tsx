@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from '@/components/admin/ApiKeyRevealDialog';
+import { ApiKeyScopeBadge } from '@/components/admin/ApiKeyScopeBadge';
 import { ApiKeyScopeSelect } from '@/components/admin/ApiKeyScopeSelect';
 import { ApiKeyExpirySelect } from '@/components/admin/ApiKeyExpirySelect';
 
@@ -177,21 +178,7 @@ export function MyApiKeySection() {
                   </Badge>
                   {/* A read-only key is a different credential in
                       practice; the list has to say which one you are holding. */}
-                  {key.scope === 'read_only' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('admin:apiKeys.scopeReadOnly')}
-                    </Badge>
-                  )}
-                  {key.scope === 'dataset_write' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('admin:apiKeys.scopeDatasetWrite')}
-                    </Badge>
-                  )}
-                  {key.scope === 'dataset_append' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('admin:apiKeys.scopeDatasetAppend')}
-                    </Badge>
-                  )}
+                  <ApiKeyScopeBadge scope={key.scope} />
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

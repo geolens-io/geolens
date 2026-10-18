@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from './ApiKeyRevealDialog';
+import { ApiKeyScopeBadge } from './ApiKeyScopeBadge';
 import { ApiKeyScopeSelect } from './ApiKeyScopeSelect';
 import { ApiKeyExpirySelect } from './ApiKeyExpirySelect';
 import { Badge } from '@/components/ui/badge';
@@ -215,21 +216,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   )}
                   {/* An admin auditing another user's keys needs to
                       see which of them can write. */}
-                  {key.scope === 'read_only' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('apiKeys.scopeReadOnly')}
-                    </Badge>
-                  )}
-                  {key.scope === 'dataset_write' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('apiKeys.scopeDatasetWrite')}
-                    </Badge>
-                  )}
-                  {key.scope === 'dataset_append' && (
-                    <Badge variant="secondary" className="px-1.5">
-                      {t('apiKeys.scopeDatasetAppend')}
-                    </Badge>
-                  )}
+                  <ApiKeyScopeBadge scope={key.scope} />
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

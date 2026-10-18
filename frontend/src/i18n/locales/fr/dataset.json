@@ -1252,8 +1252,7 @@
     "revokeKey": "Révoquer {{name}}",
     "appendOnly": "Ajout d'entités uniquement",
     "appendOnlyHint": "La clé ne peut pas lire, modifier ni supprimer d'entités.",
-    "kindAppend": "Ajout uniquement",
-    "kindReadWrite": "Lecture et écriture"
+    "kindAppend": "Ajout uniquement"
   },
   "retention": {
     "title": "Rétention",

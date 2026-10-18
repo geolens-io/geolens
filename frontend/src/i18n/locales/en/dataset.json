@@ -1252,8 +1252,7 @@
     "revokeKey": "Revoke {{name}}",
     "appendOnly": "Add features only",
     "appendOnlyHint": "The key can't read, change or delete features.",
-    "kindAppend": "Add only",
-    "kindReadWrite": "Read and write"
+    "kindAppend": "Add only"
   },
   "retention": {
     "title": "Retention",

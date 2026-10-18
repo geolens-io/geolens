@@ -179,9 +179,8 @@ describe('DatasetWriteKeys', () => {
 
     const tracker = (await screen.findByText('Tracker')).closest('li') as HTMLElement;
     expect(within(tracker).getByText('Add only')).toBeInTheDocument();
-    expect(within(tracker).queryByText('Read and write')).not.toBeInTheDocument();
     const webhook = screen.getByText('Survey webhook').closest('li') as HTMLElement;
-    expect(within(webhook).getByText('Read and write')).toBeInTheDocument();
+    expect(within(webhook).queryByText('Add only')).not.toBeInTheDocument();
   });
 
   it('revokes a key after confirmation', async () => {

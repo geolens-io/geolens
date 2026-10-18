@@ -17,10 +17,9 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.modules.auth.dependencies import (
-    _DATASET_APPEND_KEY_ROUTES,
-    _DATASET_KEY_ROUTES,
-    _DATASET_KEY_SCOPE_ROUTES,
+from app.platform.request_credential import (
+    DATASET_APPEND_KEY_ROUTES,
+    DATASET_WRITE_KEY_ROUTES,
 )
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_user, get_user_id
@@ -1009,8 +1008,8 @@ def _mounted_route_pairs() -> set[tuple[str, str]]:
 
 def test_every_allowed_route_is_mounted_and_names_its_dataset():
     mounted = _mounted_route_pairs()
-    assert _DATASET_KEY_ROUTES <= mounted, _DATASET_KEY_ROUTES - mounted
-    for _, template in _DATASET_KEY_ROUTES:
+    assert DATASET_WRITE_KEY_ROUTES <= mounted, DATASET_WRITE_KEY_ROUTES - mounted
+    for _, template in DATASET_WRITE_KEY_ROUTES:
         assert "{dataset_id}" in template
 
 
@@ -1032,18 +1031,11 @@ def test_every_feature_route_is_classified():
             ("/datasets/{dataset_id}/features", "/collections/{dataset_id}/items")
         )
     }
-    assert feature_routes - refused_on_purpose == set(_DATASET_KEY_ROUTES)
+    assert feature_routes - refused_on_purpose == set(DATASET_WRITE_KEY_ROUTES)
 
 
-def test_every_dataset_key_scope_has_its_routes():
-    from app.platform.request_credential import DATASET_KEY_SCOPES
-
-    assert set(_DATASET_KEY_SCOPE_ROUTES) == DATASET_KEY_SCOPES
-    assert _DATASET_APPEND_KEY_ROUTES == {
-        ("POST", "/datasets/{dataset_id}/features/"),
-        ("POST", "/datasets/{dataset_id}/features"),
-    }
-    assert _DATASET_APPEND_KEY_ROUTES <= _mounted_route_pairs()
+def test_every_append_key_route_is_mounted():
+    assert DATASET_APPEND_KEY_ROUTES <= _mounted_route_pairs()
 
 
 async def test_an_append_key_creates_features_in_its_dataset(

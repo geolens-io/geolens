@@ -61,7 +61,6 @@ export function DatasetWriteKeys({
   const { t } = useTranslation('dataset');
   const expiryLabelId = useId();
   const appendOnlyId = useId();
-  const appendOnlyHintId = useId();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const { data: keys, isLoading, isError } = useDatasetApiKeys(datasetId);
   const createKey = useCreateDatasetApiKey(datasetId);
@@ -165,12 +164,12 @@ export function DatasetWriteKeys({
                 checked={appendOnly}
                 onCheckedChange={(v) => setAppendOnly(v === true)}
                 disabled={createKey.isPending}
-                aria-describedby={appendOnlyHintId}
+                aria-describedby={`${appendOnlyId}-hint`}
                 className="mt-0.5"
               />
               <div className="space-y-0.5">
                 <Label htmlFor={appendOnlyId} className="text-sm">{t('writeKeys.appendOnly')}</Label>
-                <p id={appendOnlyHintId} className="text-xs text-muted-foreground">
+                <p id={`${appendOnlyId}-hint`} className="text-xs text-muted-foreground">
                   {t('writeKeys.appendOnlyHint')}
                 </p>
               </div>
@@ -208,11 +207,11 @@ export function DatasetWriteKeys({
                       {key.fingerprint && (
                         <code className="text-xs text-muted-foreground">{key.fingerprint}</code>
                       )}
-                      <Badge variant="secondary" className="px-1.5">
-                        {key.scope === 'dataset_append'
-                          ? t('writeKeys.kindAppend')
-                          : t('writeKeys.kindReadWrite')}
-                      </Badge>
+                      {key.scope === 'dataset_append' && (
+                        <Badge variant="secondary" className="px-1.5">
+                          {t('writeKeys.kindAppend')}
+                        </Badge>
+                      )}
                       {expired ? (
                         <Badge className={`px-1.5 ${semanticBadgeColors.destructive}`}>
                           {t('admin:apiKeys.expired')}

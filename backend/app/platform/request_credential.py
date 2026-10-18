@@ -2,7 +2,8 @@
 
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
-same request, and to nothing else.
+same request, and to nothing else. Also the routes each dataset-bound key
+scope may call.
 """
 
 from __future__ import annotations
@@ -14,8 +15,47 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _SESSION_KEY = "geolens.api_key_credential"
 
+# The only routes a dataset_write key authenticates, as exact (METHOD, route
+# template) pairs: reading and writing features of the dataset each template
+# names in its ``dataset_id`` path parameter. Templates are FastAPI route
+# templates, including the generated no-slash aliases.
+DATASET_WRITE_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/datasets/{dataset_id}/features/"),
+        ("GET", "/datasets/{dataset_id}/features"),
+        ("POST", "/datasets/{dataset_id}/features/"),
+        ("POST", "/datasets/{dataset_id}/features"),
+        ("POST", "/datasets/{dataset_id}/features/dry-run/"),
+        ("POST", "/datasets/{dataset_id}/features/dry-run"),
+        ("GET", "/datasets/{dataset_id}/features/{gid}"),
+        ("PUT", "/datasets/{dataset_id}/features/{gid}"),
+        ("PATCH", "/datasets/{dataset_id}/features/{gid}"),
+        ("DELETE", "/datasets/{dataset_id}/features/{gid}"),
+        ("GET", "/datasets/{dataset_id}/features.geojson"),
+        ("GET", "/collections/{dataset_id}/items"),
+        ("GET", "/collections/{dataset_id}/items/"),
+        ("GET", "/collections/{dataset_id}/items/{feature_id}"),
+    }
+)
+
+# A dataset_append key only creates features, one or a FeatureCollection at a
+# time, so a leaked one can neither read the dataset back nor change it.
+DATASET_APPEND_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/datasets/{dataset_id}/features/"),
+        ("POST", "/datasets/{dataset_id}/features"),
+    }
+)
+
+# The routes each dataset key scope authenticates; any other request treats
+# the key as invalid.
+DATASET_KEY_SCOPE_ROUTES: dict[str, frozenset[tuple[str, str]]] = {
+    "dataset_write": DATASET_WRITE_KEY_ROUTES,
+    "dataset_append": DATASET_APPEND_KEY_ROUTES,
+}
+
 # Scopes whose keys are bound to the one dataset in ``api_keys.dataset_id``.
-DATASET_KEY_SCOPES: frozenset[str] = frozenset({"dataset_write", "dataset_append"})
+DATASET_KEY_SCOPES: frozenset[str] = frozenset(DATASET_KEY_SCOPE_ROUTES)
 
 
 @dataclass(frozen=True, slots=True)

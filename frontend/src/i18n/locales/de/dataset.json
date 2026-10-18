@@ -1252,8 +1252,7 @@
     "revokeKey": "{{name}} widerrufen",
     "appendOnly": "Nur Features hinzufügen",
     "appendOnlyHint": "Der Schlüssel kann keine Features lesen, ändern oder löschen.",
-    "kindAppend": "Nur hinzufügen",
-    "kindReadWrite": "Lesen und schreiben"
+    "kindAppend": "Nur hinzufügen"
   },
   "retention": {
     "title": "Aufbewahrung",
