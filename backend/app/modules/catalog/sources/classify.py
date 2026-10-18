@@ -5,9 +5,9 @@ A layer is 'raster' iff adapter_type == 'stac', geometry_type contains
 'type' starts with 'image/'. Everything else, including geometry_type=None
 (the default for OGC API and WFS probes), is 'vector'.
 
-The OGC API and WFS adapters call this when building each layer dict, so
-every LayerInfo carries a 'kind' instead of downstream code re-deriving it
-from geometry_type.
+The OGC API adapter and the ArcGIS probe builder call this for each layer
+(WFS layers are always 'vector'), so every LayerInfo carries a 'kind'
+instead of downstream code re-deriving it from geometry_type.
 """
 
 from __future__ import annotations
