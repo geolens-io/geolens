@@ -386,7 +386,7 @@ def check_openapi(openapi_path: Path = OPENAPI_PATH) -> list[str]:
 # test, generated SDK code mirrors openapi.json, and Markdown is prose.
 _REPO_SKIP_RE = re.compile(
     r"^backend/app/|(^|/)(tests?|__tests__|e2e)/|\.(test|spec)\.[cm]?[jt]sx?$"
-    r"|(^|/)(test_[^/]*|conftest)\.py$|^sdks/python/geolens/(api|models)/"
+    r"|(^|/)(test_[^/]*|[^/]*_test|conftest)\.py$|^sdks/python/geolens/(api|models)/"
     r"|^sdks/typescript/src/client/|api\.generated\.ts$"
 )
 

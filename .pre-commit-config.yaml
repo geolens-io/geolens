@@ -119,7 +119,6 @@ repos:
         language: system
         entry: python3 backend/tests/finding_markers.py
         pass_filenames: false
-        files: '^(backend/(app/|alembic/|scripts/|[^/]+$|tests/(finding_markers|test_(unscoped|openapi)_finding_markers)\.py)|cli/|mcp/|scripts/|frontend/|sdks/|examples/|db/|infra/|\.github/|[^/]+$)'
 
       - id: no-agent-tag-markers
         name: "AGENTS.md — remove agent tags"

@@ -199,6 +199,7 @@ class TestRepoTree:
             "frontend/src/a.test.ts": "// GAP-001\n",
             "cli/tests/test_m.py": "# GAP-001\n",
             "cli/tests/helpers.py": "# GAP-001\n",
+            "cli/arcgis_test.py": "# GAP-001\n",
             "e2e/fixtures/seed.ts": "// GAP-001\n",
             "docs/notes.md": "GAP-001\n",
             "backend/app/m.py": "# GAP-001\n",
@@ -222,9 +223,13 @@ class TestRepoTree:
 
     def test_the_hook_runs_for_every_scanned_file(self):
         hook = {hook["id"]: hook for hook in _local_hooks()}[HOOK_ID]
-        files = re.compile(hook["files"])
-        missed = [rel for rel, _ in fm.repo_files() if not files.search(rel)]
-        assert not missed, f"{HOOK_ID} files: does not match {missed}"
+        assert not hook.get("types") and not hook.get("types_or")
+        files = re.compile(hook.get("files", ""))
+        exclude = re.compile(hook.get("exclude", "^$"))
+        # A path in a directory that does not exist yet must trigger it too.
+        paths = [rel for rel, _ in fm.repo_files()] + ["newdir/settings.toml"]
+        missed = [p for p in paths if not files.search(p) or exclude.search(p)]
+        assert not missed, f"{HOOK_ID} does not run for {missed}"
 
     def test_an_unlisted_tree_is_fatal(self, tmp_path):
         with pytest.raises(fm.MarkerScanError, match="could not list"):
