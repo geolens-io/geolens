@@ -1160,7 +1160,8 @@ async def test_an_append_key_never_reaches_a_feature_its_user_made_elsewhere(
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["id"] != made.json()["id"]
-    assert resp.json()["properties"]["name"] == "via key"
+    made_by_key = await client.get(f"{url}{resp.json()['id']}", headers=headers)
+    assert made_by_key.json()["properties"]["name"] == "via key"
     kept = await client.get(f"{url}{made.json()['id']}", headers=headers)
     assert kept.json()["properties"]["name"] == "owner's"
 
@@ -1336,3 +1337,60 @@ async def test_no_sent_key_matches_an_append_keys_stored_key(
         headers={**headers, "Idempotency-Key": f"api-key {data['id']}:{digest}"},
     )
     assert resp.status_code == 422, resp.text
+
+
+async def _add_defaulted_column(test_db_session, dataset) -> None:
+    await test_db_session.execute(
+        text(
+            f"ALTER TABLE data.{dataset.table_name} "
+            "ADD COLUMN note TEXT DEFAULT 'server default'"
+        )
+    )
+    await test_db_session.commit()
+
+
+async def test_an_append_key_create_answers_with_the_id_alone(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    bound = datasets[0]
+    await _add_defaulted_column(test_db_session, bound)
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/features/"
+    body = {"geometry": POINT, "properties": {"name": "sent"}}
+
+    # A session create shows what the stored row holds beyond the body.
+    by_session = await client.post(url, json=body, headers=headers)
+    assert "server default" in by_session.text
+
+    resp = await client.post(url, json=body, headers={"X-Api-Key": raw_key})
+    assert resp.status_code == 201, resp.text
+    feature = resp.json()
+    assert (feature["geometry"], feature["properties"]) == (None, {})
+    assert feature["tile_cache_version"] is None
+    assert "server default" not in resp.text
+    stored = await client.get(f"{url}{feature['id']}", headers=headers)
+    assert stored.json()["properties"]["name"] == "sent"
+
+
+async def test_an_append_key_collection_create_answers_with_ids_alone(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    bound = datasets[0]
+    await _add_defaulted_column(test_db_session, bound)
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json=_collection("a", "b"),
+        headers={"X-Api-Key": raw_key},
+    )
+    assert resp.status_code == 201, resp.text
+    collection = resp.json()
+    assert collection["tile_cache_version"] is None
+    assert "server default" not in resp.text
+    assert len(collection["features"]) == 2
+    for feature in collection["features"]:
+        assert isinstance(feature["id"], int)
+        assert (feature["geometry"], feature["properties"]) == (None, {})
+        assert feature["tile_cache_version"] is None

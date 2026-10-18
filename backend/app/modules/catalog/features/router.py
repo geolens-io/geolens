@@ -212,16 +212,32 @@ async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
     await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
 
-def _created_feature_response(
-    row: dict, tile_version: int | None, table_oid: int | None
-) -> JSONResponse:
-    feature = GeoJSONFeatureWrite(
+def _written_feature(
+    row: dict, tile_version: int | None, table_oid: int | None, masked: bool
+) -> GeoJSONFeatureWrite:
+    """A written feature as a create answers with it.
+
+    ``masked`` is for an append-only key, which may not read features: the
+    stored row can hold defaults and values the caller never sent, and the
+    tile version moves with other writers, so only the id is kept.
+    """
+    if masked:
+        return GeoJSONFeatureWrite(
+            id=row["gid"], geometry=None, properties={}, table_id=str(table_oid)
+        )
+    return GeoJSONFeatureWrite(
         id=row["gid"],
         geometry=row["geometry"],
         properties=row["properties"],
         table_id=str(table_oid),
         tile_cache_version=tile_version,
     )
+
+
+def _created_feature_response(
+    row: dict, tile_version: int | None, table_oid: int | None, masked: bool
+) -> JSONResponse:
+    feature = _written_feature(row, tile_version, table_oid, masked)
     return JSONResponse(
         content=feature.model_dump(mode="json"),
         status_code=status.HTTP_201_CREATED,
@@ -390,19 +406,13 @@ async def _create_features(
         count=len(gids),
         user_id=str(user.id),
     )
+    masked = is_append_only(db)
     written = GeoJSONFeatureCollectionWrite(
         features=[
-            GeoJSONFeatureWrite(
-                id=row["gid"],
-                geometry=row["geometry"],
-                properties=row["properties"],
-                table_id=str(table_oid),
-                tile_cache_version=tile_version,
-            )
-            for row in rows
+            _written_feature(row, tile_version, table_oid, masked) for row in rows
         ],
         table_id=str(table_oid),
-        tile_cache_version=tile_version,
+        tile_cache_version=None if masked else tile_version,
     )
     return JSONResponse(
         content=written.model_dump(mode="json"),
@@ -500,7 +510,7 @@ class _Repeat(NamedTuple):
     key_id: uuid.UUID
     attempt: int
     row_xmin: int | None
-    # Answer with no tile_cache_version, which would show later writes.
+    # An append-only key's answer, the feature's id alone.
     masked: bool = False
 
 
@@ -533,7 +543,6 @@ async def _settle_repeat(
     if row is None:
         raise _feature_gone()
     if append_only:
-        row = {"gid": keyed.gid, "geometry": None, "properties": {}}
         return _Repeat(row, None, False, keyed.id, attempt, None, masked=True)
     if attempt <= keyed.attempt:
         return _Repeat(row, None, False, keyed.id, attempt, None)
@@ -611,15 +620,13 @@ async def _finish_repeat(
             ),
         )
         tile_version = await record_live_data_write(db, dataset)
-    elif repeat.masked:
-        tile_version = None
     else:
         await db.refresh(dataset, ["tile_cache_version"])
         tile_version = dataset.tile_cache_version
     # Ends the transaction, so the locks go before the answer does.
     await db.commit()
 
-    return _created_feature_response(repeat.row, tile_version, table_oid)
+    return _created_feature_response(repeat.row, tile_version, table_oid, repeat.masked)
 
 
 # A typed object, not a binary body: the generated Python client parses any
@@ -1096,10 +1103,13 @@ async def create_feature(
     the feature it created has been deleted since, or the dataset's data has
     been replaced by a reupload or an overwrite, the repeat is refused with 409
     rather than creating another. Without the key every request inserts, and
-    an attempt number sent without one is ignored. Through an append-only
-    dataset key, a repeat matches only that key's own creates, applies
-    nothing, and answers with the feature's `id`, a null `geometry`, empty
-    `properties` and a null `tile_cache_version`.
+    an attempt number sent without one is ignored.
+
+    Through an append-only dataset key, every created feature, single or in a
+    FeatureCollection, is answered with its `id`, a null `geometry`, empty
+    `properties` and a null `tile_cache_version`, since the stored row can
+    hold values the key didn't send. A repeat through one matches only that
+    key's own creates, applies nothing and answers the same way.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
@@ -1301,7 +1311,7 @@ async def _create(
         user_id=str(user.id),
     )
 
-    return _created_feature_response(row, tile_version, table_oid)
+    return _created_feature_response(row, tile_version, table_oid, is_append_only(db))
 
 
 @features_router.put(

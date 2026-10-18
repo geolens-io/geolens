@@ -99,10 +99,12 @@ and releases use semantic versioning.
   deletes, answers it as an invalid key, so a leaked key can't read the
   dataset back or rewrite it. Otherwise it follows the dataset write key's
   rules: it expires within 365 days, acts as the user who minted it and
-  writes while dataset editing is off. An `Idempotency-Key` sent with an
-  append-only key only matches creates made with that same key, and a repeat
-  through it applies nothing and answers with only the feature's `id`, a null
-  `geometry`, empty `properties` and a null `tile_cache_version`. The create
+  writes while dataset editing is off. Its creates, and their repeats, answer
+  with each feature's `id`, a null `geometry`, empty `properties` and a null
+  `tile_cache_version`, since a stored row can hold defaults and values the
+  key didn't send. An `Idempotency-Key` sent with an append-only key only
+  matches creates made with that same key, and a repeat through it applies
+  nothing. The create
   request gains an optional `scope` (`dataset_write`, the default, or
   `dataset_append`), `scope` in key listings can read `dataset_append`, and
   the key lists mark these keys "Add only" or "One dataset, add only".
