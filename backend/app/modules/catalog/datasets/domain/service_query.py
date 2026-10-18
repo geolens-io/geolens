@@ -324,9 +324,39 @@ async def get_dataset_detail(
 _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 
 
-# PostgreSQL has no btree ordering for json or xml, so ORDER BY fails on them.
-# An ARRAY's element type isn't in column_info, so arrays count as unsortable.
-_UNSORTABLE_TYPES = frozenset({"json", "xml", "ARRAY"})
+# information_schema data_type values with a btree ordering. Anything else
+# (json, xml, geometric types, ARRAY with its element type hidden) can't be
+# sorted on.
+_SORTABLE_TYPES = frozenset(
+    {
+        "smallint",
+        "integer",
+        "bigint",
+        "numeric",
+        "real",
+        "double precision",
+        "money",
+        "character varying",
+        "character",
+        "text",
+        "date",
+        "timestamp without time zone",
+        "timestamp with time zone",
+        "time without time zone",
+        "time with time zone",
+        "interval",
+        "boolean",
+        "uuid",
+        "inet",
+        "cidr",
+        "macaddr",
+        "macaddr8",
+        "jsonb",
+        "bytea",
+        "bit",
+        "bit varying",
+    }
+)
 
 
 class InvalidSortColumn(ValueError):
@@ -357,7 +387,7 @@ def sortable_columns(column_info: list[dict]) -> list[str]:
     return [
         c["name"]
         for c in _projected_columns(column_info)
-        if c.get("type") not in _UNSORTABLE_TYPES
+        if c.get("type") in _SORTABLE_TYPES
     ]
 
 
