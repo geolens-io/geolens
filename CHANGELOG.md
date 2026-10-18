@@ -14,7 +14,7 @@ and releases use semantic versioning.
   1 year (the default stays Never), and each key in the list shows when it
   expires. A key past its expiry is marked Expired, because it no longer
   authenticates. The API already accepted `expires_at`, so nothing changes for
-  API callers.
+  API callers. (#3101)
 - `POST /datasets/{dataset_id}/features/` also takes a GeoJSON
   FeatureCollection of up to 1,000 features and inserts them in one
   transaction. Either every feature is written or none is. A feature refused
@@ -29,24 +29,26 @@ and releases use semantic versioning.
   as before. In the generated SDKs the create call now takes
   `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
   shapes, so TypeScript callers that read `id` from the result narrow it
-  first.
+  first. (#3106)
 - The dataset page's Data tab can delete rows. When the table is editable,
   each row has a checkbox and the header selects the whole page; a Delete
   action asks for confirmation, stating the count, and deletes the selected
   rows in one request. There is no undo. Rows without a geometry, which the map
   can't select, can be deleted this way. The selection covers one page and
-  clears when the page, sort or filter changes.
+  clears when the page, sort or filter changes, or when the dataset's table is
+  replaced. A table dataset without geometry stays read-only in the Data tab,
+  since feature writes refuse it. (#3148)
 - `POST /datasets/{dataset_id}/features/delete/` deletes up to 1,000 features
-  by gid, sent as `{"gids": [...]}`, in one transaction. Either every listed
-  feature is deleted or none is: a gid that doesn't exist gets a 404 with
-  `detail.code` `feature_not_found` and the missing ids in `detail.gids`. It
-  takes the checks and the optional `table_id` that a single
+  by gid, sent as `{"gids": [...]}` with JSON integers, in one transaction.
+  Either every listed feature is deleted or none is: a gid that doesn't exist
+  gets a 404 with `detail.code` `feature_not_found` and the missing ids in
+  `detail.gids`. It takes the checks and the optional `table_id` that a single
   `DELETE /datasets/{dataset_id}/features/{gid}` takes, so a stale `table_id`
   gets the same 409 `dataset_replaced`. It answers 200 with `deleted` and
   `tile_cache_version`, rolls the tile cache once and writes one
   `feature.bulk_delete` audit entry. A `dataset_write` key may call it on its
   own dataset; an append-only key can't. `GET /datasets/{dataset_id}/rows/`
-  now returns the `table_id` its rows were read from.
+  now returns the `table_id` its rows were read from. (#3148)
 - `POST /datasets/{dataset_id}/features/dry-run/` checks a feature create
   without writing it, so an integration can verify a webhook destination
   without leaving a test feature behind. It takes the body the create route
@@ -70,11 +72,11 @@ and releases use semantic versioning.
   included, so a dry run can consume sequence values and stored ids may have
   gaps. A `dataset_write` key may dry-run its own dataset, as it may write it.
   The create route and its SDK methods are unchanged; the SDKs gain a separate
-  dry-run method.
+  dry-run method. (#3123)
 - The Create Dataset dialog offers a Timestamp column type. It creates the
   same `timestamp with time zone` column as adding a timestamp column to an
   existing dataset, and `POST /datasets/create/` now accepts `timestamp` as a
-  column type.
+  column type. (#3104)
 - Dataset write keys: an API key bound to one dataset that can read and write
   that dataset's features and nothing else, so a webhook that edits a dataset
   no longer needs a key with its owner's full access. The key's feature writes
@@ -95,7 +97,7 @@ and releases use semantic versioning.
   `dataset_id`, `scope` can now read `dataset_write`, and the key lists in
   Settings and on the admin user page mark these keys "One dataset". Migration 0084 adds
   `api_keys.dataset_id`; its downgrade refuses while an active dataset write
-  key exists.
+  key exists. (#3112)
 - A feature dataset can keep only its last N days of rows, judged by one of
   its date or timestamp columns. Set it under Structure > Retention, or with
   `PUT /datasets/{id}/retention/`. An hourly worker run deletes older rows in
@@ -105,7 +107,7 @@ and releases use semantic versioning.
   extent, and a run cut short before that is finished by the next one. Rows
   with no value in the column are kept, and a timestamp without time zone is
   read as UTC. Retention is off by default. Saving a setting that would
-  delete rows right away first shows how many and asks to confirm.
+  delete rows right away first shows how many and asks to confirm. (#3110)
 - Append-only dataset keys, for an integration that only adds features, such
   as a webhook posting device positions. Tick "Add features only" when
   creating a key on the dataset's Access tab, or send
@@ -129,7 +131,24 @@ and releases use semantic versioning.
   `dataset_append`), `scope` in key listings can read `dataset_append`, and
   the key lists mark these keys "Add only" or "One dataset, add only".
   Migration 0086 widens the scope checks; its downgrade refuses while an
-  active append-only key exists.
+  active append-only key exists. (#3144)
+- `GET /datasets/{dataset_id}/rows/` takes `sort` (a column name) and `order`
+  (`asc` or `desc`) and sorts every row of the dataset, not only the loaded
+  page. NULLs come last in both directions, ties break on `gid`, and `after`
+  and `next_cursor` keep their meaning with or without a sort. A column the
+  endpoint can't sort by answers 400 and an invalid `order` answers 422. The
+  response gains `sortable_columns`, the columns that endpoint accepts for
+  `sort`: integer, numeric, floating point, character, text, date, time,
+  timestamp, interval, boolean, uuid, inet, cidr and bytea columns. A sort on
+  a column with no index scans the table for every page. A sorted page
+  continues after the cursor row's current value, so an edit to that row
+  between two page loads can repeat or skip rows, and a page after a deleted
+  cursor row is empty. The Data tab's column headers now sort through this
+  parameter and offer a sort button only for the columns listed. Both SDKs
+  gain the two parameters and the new response field. (#3143)
+- The dataset page header has a Download menu with the dataset's export
+  formats (CSV only for a table), next to the existing "Download COG" for
+  rasters. (#3142)
 
 ### Fixed
 
@@ -137,31 +156,35 @@ and releases use semantic versioning.
   (`!` to `~`), up to 128 characters, instead of only letters, digits and
   `._:-`. Timestamps with `+00:00`, base64 values and the quoted form of the
   IETF draft no longer get a 422. The key is still compared exactly as sent.
+  (#3116)
 - Deleting a feature so that no remaining row has a geometry now clears the
   dataset's stored extent, even when rows without a geometry remain. The
   extent used to keep the deleted features' bounds, so spatial search and
-  published bounds still matched them.
+  published bounds still matched them. (#3110)
 - The dataset page header shows catalog status and visibility in one badge,
   such as "Catalog: Published · Private", so a published dataset that only
-  some people can see no longer reads as public.
+  some people can see no longer reads as public. (#3102)
 - The dataset page no longer scrolls sideways on a phone-width screen. A long
   table name in the header and the URL in the "Connect with" code block now
-  truncate, and their copy buttons stay visible.
+  truncate, and their copy buttons stay visible. (#3108)
 - A dataset made with Create Dataset accepts dates in feature writes. It
   stored its column types in upper case (`DATE`), which the write path didn't
   recognise, so `POST /datasets/{id}/features/` with a date value got a 400.
+  (#3104)
 - The Create Dataset dialog fits short windows. The title, column list and Add
   Column button scroll while the Cancel and Create Dataset buttons stay in view,
   and Add Column scrolls the new row into view and focuses its name field.
+  (#3115)
 - Closing the Create Dataset dialog with Escape, an outside click, the close
   button or the new Cancel button asks before throwing away what you entered.
-  An empty form and a successful create still close straight away.
+  An empty form and a successful create still close straight away. (#3104)
 - The documented `CSP_SCRIPT_SRC_EXTRA` value for Cloudflare Web Analytics is
   the host, `https://static.cloudflareinsights.com`. The 1.25.0 notes gave the
   file URL `https://static.cloudflareinsights.com/beacon.min.js`, but
   Cloudflare loads a versioned path under it, which a CSP source naming one
   file doesn't match, so the browser blocked the beacon and logged a CSP error
   on every page. Installs that set the file URL should switch to the host.
+  (#3094)
 - GeoParquet exports keep answering byte ranges with `206` after the cached
   export expires, as long as the data hasn't changed. A cached export is
   reused for a minute, and a ranged request that arrived after that and
@@ -171,7 +194,7 @@ and releases use semantic versioning.
   length and ETag again, without building it, when the stored copy is the
   only version that URL has served, since DuckDB reads ranges only after a
   HEAD gives it a length. GeoParquet exports now read rows in `gid` order, so
-  unchanged data always produces the same file.
+  unchanged data always produces the same file. (#3103)
 - This applies only where the export's bytes can't change without its cache
   key changing: a GeoParquet export, with no `where` filter, of a table
   GeoLens owns. A registered PostGIS table can change outside GeoLens, a
@@ -180,11 +203,60 @@ and releases use semantic versioning.
   storage order. Those exports behave as before: a rebuild answers a range
   with the whole file, and a HEAD after the cache expires reports no length.
   A request whose `If-Range` names the current ETag still gets its range, and
-  upgrading GeoLens starts every export cache afresh.
+  upgrading GeoLens starts every export cache afresh. (#3103)
 - When the export cache can't store a build, the download it sends instead
   carries `Accept-Ranges: none` and no ETag, so clients don't try to resume
-  it.
+  it. (#3103)
 
+- The Data tab scrolls in one box. The table used to sit inside two scroll
+  boxes, so rows went blank past about the 25th when a page was scrolled to
+  its end, the header scrolled away and the horizontal scrollbar sat below
+  the visible area, out of reach on a table with many columns. The header
+  stays pinned, and headers show the column name with a short type and the
+  full type on hover. (#3143)
+- `GET /datasets/{dataset_id}/rows/` answered 500 for a dataset with a `bit`
+  or `bit varying` column, or a `bytea` value that isn't valid UTF-8. `bit`
+  values now come back as text such as `"1010"`. `bytea` values come back as
+  `\x` hex strings, the form the features API uses. A `bytea` value that
+  happened to be valid UTF-8 used to come back decoded as text, so clients
+  that read it that way need to decode the hex. (#3143)
+- The dataset page header keeps its actions on one row beside the title when
+  there is room, including with the chat panel open, and "Used in maps" shows
+  full titles. Signed-out visitors no longer see "This section is
+  read-only". "Re-Upload" reads "Re-upload". (#3142)
+- The dataset map preview draws no extent outline for a dataset that spans
+  the whole world, where it showed as vertical lines on each copy of the
+  world. On a map 640px wide or less the attribution starts folded; it still
+  includes the MapLibre credit. (#3142)
+- The Metadata tab uses real plurals instead of "issue(s)", "warning(s)",
+  "map(s)" and "attribute(s)", lists validation issues once instead of three
+  times, shows "Not set" for an empty Update Frequency or Sensitivity, and
+  shows the chosen Theme Categories as chips. The attribute-description
+  warning counted too few attributes: it skipped any attribute with no
+  semantic role, and now counts them. (#3142)
+- The Source tab hides Last checked, Health, Freshness, Drift and the
+  scheduled-sync card for a dataset with no remote source, such as an upload
+  or a dataset drawn in the app. (#3142)
+- The Access tab lists "Who can access this dataset" first and shows each
+  download as one compact row. The separate "Download another format" picker
+  is gone, and its DuckDB snippet sits under the GeoParquet row. A download
+  saves under the dataset's name with the real extension, so a shapefile
+  saves as `<title>.zip` instead of `Shapefile Download.shp`. (#3142)
+- The Spanish admin status banner said "Todos los sistemas operativos" ("all
+  operating systems") when every service was healthy. It now says "Todos los
+  sistemas funcionan correctamente". (#3109)
+- `scripts/seed-showcase.py` builds the Restless Earth map on a fresh
+  install. Binding its earthquakes dataset to the USGS service ended with
+  "Review the detected changes before publication", because the seed didn't
+  echo the preview's `review_fingerprint`. It does now for that service (#3099)
+- The dataset page's Similar datasets list leaves out weak matches.
+  `GET /datasets/{id}/related/` returns only neighbours with a similarity of
+  0.5 or more, where it returned 0.3 or more. The response shape is
+  unchanged. (#3147)
+- On the Overview tab, Similar datasets and Used in maps moved from the
+  sidebar to a full-width row below the summary and fields, so a long
+  sidebar no longer leaves an empty band under the main column.
+  re-bind. File replacements still wait for review. (#3147)
 ### Security
 
 - Anonymous raster tile and tile token requests can no longer tell a private
@@ -202,7 +274,7 @@ and releases use semantic versioning.
   resolve still answers 401. A tile signature with non-ASCII characters is
   refused like any other invalid signature on the vector, cluster and raster
   routes, where it failed with 500 for a dataset that exists. The raster tile
-  route now documents its 403 response, so generated clients parse it.
+  route now documents its 403 response, so generated clients parse it. (#3105)
 - A VRT's extent covers only the member rasters the requester can read.
   Every surface that showed or matched a VRT by its stored extent spanned all
   of its members, which showed where a member hidden from the requester lies,
@@ -223,21 +295,32 @@ and releases use semantic versioning.
   tiles are refused, because a member is no longer visible to everyone who
   can see the VRT, carries no `bounds`, with or without a stored raster
   asset. The AI assistant's dataset search, generated map
-  viewports and metadata prompts leave VRT extents out.
+  viewports and metadata prompts leave VRT extents out. (#3107)
 - A CQL2 filter on OGC API Records that uses the `geometry` queryable outside
   a spatial predicate or `IS NULL` (for example `geometry = POINT(1 2)`,
   `IN`, `BETWEEN` or `LIKE`) answers 400 "Invalid CQL2 expression" instead of
-  comparing stored coordinates.
+  comparing stored coordinates. (#3107)
 
 ### Upgrade notes
 
+- Migrations 0084, 0085 and 0086 run on upgrade. 0084 adds nullable
+  `api_keys.dataset_id`, 0085 adds three columns for dataset retention to
+  `catalog.datasets` (nothing is deleted until a retention setting is saved),
+  and 0086 widens the API key scope checks. All three are additive and none
+  needs a backfill. 0085 gives up after 5 seconds waiting for its table lock
+  rather than queueing behind other writes, so re-run the upgrade if it
+  reports a lock timeout. The downgrades of 0084 and 0086 refuse while an
+  active dataset write or append-only key exists. (#3112, #3110, #3144)
+- `GET /datasets/{dataset_id}/rows/` returns `bytea` values as `\x` hex
+  strings. A client that read a UTF-8 `bytea` value as text must decode the
+  hex. (#3143)
 - Anonymous requests for a non-public raster tile or tile token answer 404
   instead of 401. A client that read that 401 as a cue to sign in needs
   another signal, such as the dataset's own 404. Requests carrying an expired
-  or invalid credential still answer 401.
+  or invalid credential still answer 401. (#3105)
 - Overlay authors: `EXTENSION_API_VERSION` is now 18. `ProcessingPort` gained
   the required `vrts_beyond_member_audience`, which the tile-token endpoints
-  call once for all the mosaics they mint.
+  call once for all the mosaics they mint. (#3107)
 
 ## [1.25.1] - 2026-10-16
 
