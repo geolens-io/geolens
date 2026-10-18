@@ -611,13 +611,12 @@ def login(
         api_key = _read_secret_from_stdin()
 
     if api_key:
-        # AppState.sdk() prefers a stored bearer token over an
-        # API key (main.py's own D-35 precedence), so a stale JWT (or a
-        # leftover GEOLENS_TOKEN env var) left over from an earlier login
-        # would silently outrank the API key this call just stored — every
-        # command would use the old credential with no error. Evict the
-        # other credential types for this instance first so the one just
-        # stored is the only one that can be resolved.
+        # A stale JWT from an earlier login must not outrank the API key
+        # this call stores, so replace_credentials() marks the key as the
+        # active kind and evicts the other stored credential types for this
+        # instance. GEOLENS_TOKEN is an environment override that login
+        # cannot evict: while it is set, AppState.sdk() uses it ahead of the
+        # stored key.
         #
         # replace_credentials() stores the new
         # credential BEFORE evicting the others — see its docstring

@@ -1186,9 +1186,9 @@ def replace_credentials(
     established (a corrupt FILE can itself be holding a competing bearer
     value, invisible to a keyring-only check), so any carve-out that
     tolerated it would rest on information that cannot be known.
-    ``whoami``/``status``/every other read-only command stay tolerant (a
-    corrupt file only surfaces there when the file was genuinely the last
-    thing to try -- see ``AppState.sdk()``); ``logout`` also refuses;
+    Read-only commands resolve through ``resolve_active_credential()``,
+    which reads the marker first, so a corrupt file stops them too unless
+    ``GEOLENS_TOKEN`` is set; ``logout`` also refuses;
     ``try_refresh()``'s own marker write stays non-fatal -- a different
     function, refreshing an ALREADY-trusted session rather than deciding
     what to trust next.
