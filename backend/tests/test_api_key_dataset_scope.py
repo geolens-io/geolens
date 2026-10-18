@@ -1282,6 +1282,8 @@ async def test_an_append_key_retry_shows_nothing_written_since(
         assert resp.json()["id"] == gid
         assert "owner edit" not in resp.text
         assert (resp.json()["geometry"], resp.json()["properties"]) == (None, {})
+        assert resp.json()["tile_cache_version"] is None
+        assert "x-geolens-tile-cache-version" not in resp.headers
 
 
 async def test_two_append_keys_never_share_an_idempotency_key(

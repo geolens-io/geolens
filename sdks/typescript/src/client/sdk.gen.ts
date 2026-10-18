@@ -2484,8 +2484,8 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
  * rather than creating another. Without the key every request inserts, and
  * an attempt number sent without one is ignored. Through an append-only
  * dataset key, a repeat matches only that key's own creates, applies
- * nothing, and answers with the feature's `id`, a null `geometry` and empty
- * `properties`.
+ * nothing, and answers with the feature's `id`, a null `geometry`, empty
+ * `properties` and a null `tile_cache_version`.
  *
  * A GeoJSON FeatureCollection body inserts up to 1,000 features in one
  * transaction: all of them or none. A feature the schema refuses is named

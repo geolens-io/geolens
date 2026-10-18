@@ -500,6 +500,8 @@ class _Repeat(NamedTuple):
     key_id: uuid.UUID
     attempt: int
     row_xmin: int | None
+    # Answer with no tile_cache_version, which would show later writes.
+    masked: bool = False
 
 
 async def _settle_repeat(
@@ -522,7 +524,8 @@ async def _settle_repeat(
     attempt was applied. The feature is written before the catalog rows are
     taken, the order every other feature write uses. For an ``append_only``
     caller, which may neither read nor change features, the answer is the
-    feature's id with no geometry or properties, and nothing is applied.
+    feature's id with no geometry, properties or tile cache version, and
+    nothing is applied.
     """
     row = await get_feature_by_id(db, dataset.table_name, keyed.gid)
     if keyed.table_oid != await current_table_oid(db, dataset.table_name):
@@ -531,7 +534,7 @@ async def _settle_repeat(
         raise _feature_gone()
     if append_only:
         row = {"gid": keyed.gid, "geometry": None, "properties": {}}
-        return _Repeat(row, None, False, keyed.id, attempt, None)
+        return _Repeat(row, None, False, keyed.id, attempt, None, masked=True)
     if attempt <= keyed.attempt:
         return _Repeat(row, None, False, keyed.id, attempt, None)
     # The row is taken before the version is read, so a writer still in flight
@@ -608,6 +611,8 @@ async def _finish_repeat(
             ),
         )
         tile_version = await record_live_data_write(db, dataset)
+    elif repeat.masked:
+        tile_version = None
     else:
         await db.refresh(dataset, ["tile_cache_version"])
         tile_version = dataset.tile_cache_version
@@ -1093,8 +1098,8 @@ async def create_feature(
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored. Through an append-only
     dataset key, a repeat matches only that key's own creates, applies
-    nothing, and answers with the feature's `id`, a null `geometry` and empty
-    `properties`.
+    nothing, and answers with the feature's `id`, a null `geometry`, empty
+    `properties` and a null `tile_cache_version`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
