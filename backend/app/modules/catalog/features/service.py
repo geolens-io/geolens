@@ -1263,11 +1263,15 @@ async def delete_features(
     the transaction, so the caller must roll it back.
     """
     wanted = list(dict.fromkeys(gids))
+    # A gid outside bigint can match no row, and binding it would fail. The
+    # bigint array lets an int4 gid column report a larger gid as missing.
+    bindable = [gid for gid in wanted if -(2**63) <= gid < 2**63]
     result = await db.execute(
         text(
             f"DELETE FROM {get_catalog_port().quote_table(table_name)} "
-            f"WHERE gid = ANY(:gids) RETURNING gid, {_PRIOR_BOUNDS_COLS}"
-        ).bindparams(gids=wanted)
+            f"WHERE gid = ANY(CAST(:gids AS bigint[])) "
+            f"RETURNING gid, {_PRIOR_BOUNDS_COLS}"
+        ).bindparams(gids=bindable)
     )
     removed = {row.gid: _prior_bounds_from_row(row) for row in result}
     missing = [gid for gid in wanted if gid not in removed]

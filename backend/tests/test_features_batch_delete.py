@@ -159,6 +159,21 @@ async def test_a_missing_gid_deletes_nothing_and_is_named(
     assert await _audit_actions(test_db_session, point_layer) == []
 
 
+async def test_a_gid_past_the_integer_range_is_reported_missing(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+):
+    gids = await _add_points(client, admin_auth_header, point_layer)
+    out_of_range = [2**31, 10**20]
+
+    resp = await _delete(
+        client, point_layer, admin_auth_header, [gids[0], *out_of_range]
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"]["gids"] == out_of_range
+    assert await _gids(test_db_session, point_layer) == gids
+
+
 async def test_more_than_the_cap_is_refused(
     client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
 ):

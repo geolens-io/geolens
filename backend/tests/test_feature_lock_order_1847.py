@@ -635,7 +635,7 @@ class TestFeatureWriteErrorClassification:
 
 
 class TestEveryWriteHandlerGoesThroughTheGuard:
-    """The refresh is inside the DBAPIError classification at all four sites."""
+    """The refresh is inside the DBAPIError classification at every write site."""
 
     HANDLERS = {
         # The create route and its dry run share this body.
@@ -643,6 +643,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
         "replace_single_feature",
         "patch_single_feature",
         "delete_single_feature",
+        "delete_features_batch",
     }
     # Reaching either of these from a handler bypasses the classification, so
     # a lock conflict escapes as a 503 rather than the retryable 409.
@@ -731,6 +732,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
             "replace_single_feature",
             "patch_single_feature",
             "delete_single_feature",
+            "delete_features_batch",
         }
         seen = set()
         for node in ast.walk(tree):

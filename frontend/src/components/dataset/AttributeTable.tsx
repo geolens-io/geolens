@@ -827,6 +827,7 @@ export function AttributeTable({
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
+              disabled={deleteFeatures.isPending}
               onClick={() => {
                 handleDeleteRows();
                 setDeleteConfirmOpen(false);
