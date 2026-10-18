@@ -7,6 +7,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 // The seed script creates "Admin 0 Countries (10m)" and "Reefs (10m)".
 let datasetTitle: string;
 let datasetId: string;
+let multiPageId: string | undefined;
 
 async function openAdminCountriesDataset(page: Page) {
   await page.goto(`/datasets/${datasetId}`);
@@ -17,10 +18,14 @@ test.describe('Dataset Detail', () => {
   test.beforeAll(async () => {
     const token = getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
-    const res = await fetch(`${BASE_URL}/api/datasets/?limit=10`, { headers });
+    const res = await fetch(`${BASE_URL}/api/datasets/?limit=100`, { headers });
     expect(res.ok).toBe(true);
     const data = await res.json();
-    const datasets = data.datasets ?? data.items ?? data;
+    const all = data.datasets ?? data.items ?? data;
+    multiPageId = all.find(
+      (ds: any) => ds.record_type === 'vector_dataset' && (ds.feature_count ?? 0) > 50,
+    )?.id;
+    const datasets = all.slice(0, 10);
     // Prefer a seeded dataset with many features (not a tiny upload test artifact)
     const vector = datasets
       .filter((ds: any) => ds.record_type === 'vector_dataset')
@@ -37,18 +42,10 @@ test.describe('Dataset Detail', () => {
   test('attribute table keeps its header and last row in view when scrolled to the bottom', async ({
     page,
   }) => {
-    const res = await fetch(`${BASE_URL}/api/datasets/?limit=100`, {
-      headers: { Authorization: `Bearer ${getAuthToken()}` },
-    });
-    expect(res.ok).toBe(true);
-    const data = await res.json();
-    const multiPage = (data.datasets ?? data.items ?? data).find(
-      (ds: any) => ds.record_type === 'vector_dataset' && (ds.feature_count ?? 0) > 50,
-    );
-    test.skip(!multiPage, 'needs a vector dataset with more than one 50-row page');
+    test.skip(!multiPageId, 'needs a vector dataset with more than one 50-row page');
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/datasets/${multiPage.id}`);
+    await page.goto(`/datasets/${multiPageId}`);
     await page.getByRole('tab', { name: 'Data', exact: true }).click();
 
     const region = page.getByRole('region', { name: 'Feature attributes' });

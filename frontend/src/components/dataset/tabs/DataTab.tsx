@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
-import { useAuthStore } from '@/stores/auth-store';
 import { Maximize2, Minimize2, AlignJustify, List } from 'lucide-react';
 
 interface DataTabProps {
@@ -14,7 +13,7 @@ interface DataTabProps {
 
 /**
  * Document offset of the element's top edge. Banners, previews and wrapped
- * titles above the tab move it, so it is re-read whenever the page resizes.
+ * titles above the tab move it, so it is re-read whenever the body resizes.
  */
 function useDocumentTop(ref: React.RefObject<HTMLElement | null>): number | null {
   const [top, setTop] = useState<number | null>(null);
@@ -25,11 +24,7 @@ function useDocumentTop(ref: React.RefObject<HTMLElement | null>): number | null
     update();
     const observer = new ResizeObserver(update);
     observer.observe(document.body);
-    window.addEventListener('resize', update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-    };
+    return () => observer.disconnect();
   }, [ref]);
   return top;
 }
@@ -39,9 +34,6 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   const [compact, setCompact] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const top = useDocumentTop(rootRef);
-  // Signed-in readers get the fixed Ask AI launcher (bottom-10, about 40px
-  // tall) over the page's bottom-right corner, where the Next button sits.
-  const bottomGap = useAuthStore((s) => s.token != null) ? '5.5rem' : '1rem';
 
   const actions = (
     <>
@@ -71,9 +63,12 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
 
   // The tab takes the viewport height left below it at the top of the page,
   // so the table box and its pagination fit without page scroll; the
-  // expanded view fills that height. The floor keeps a usable table on short
-  // viewports.
-  const fill = top == null ? undefined : `max(20rem, calc(100dvh - ${top}px - ${bottomGap}))`;
+  // expanded view fills that height. A floating launcher such as Ask AI
+  // publishes the bottom space it covers as --floating-dock-inset. The floor
+  // keeps a usable table on short viewports.
+  const fill = top == null
+    ? undefined
+    : `max(20rem, calc(100dvh - ${top}px - var(--floating-dock-inset, 1rem)))`;
   return (
     <div
       ref={rootRef}

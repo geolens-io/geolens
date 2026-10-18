@@ -46,6 +46,7 @@ describe('AttributeTable server-side sort', () => {
       ],
       next_cursor: (params.after ?? 0) + 2,
       approximate_total: 6,
+      sortable_columns: ['gid', 'pop'],
     }));
   });
 
@@ -86,10 +87,23 @@ describe('AttributeTable server-side sort', () => {
     expect(popHeader).toHaveAttribute('aria-sort', 'descending');
   });
 
-  it('offers no sort on a column the server cannot order', async () => {
+  it('offers no sort on a column the server does not list as sortable', async () => {
     render(<AttributeTable datasetId="ds-1" />);
     const metaHeader = await screen.findByRole('columnheader', { name: /meta/ });
     expect(metaHeader).not.toHaveAttribute('aria-sort');
     expect(screen.queryByRole('button', { name: /meta/ })).toBeNull();
+  });
+
+  it('offers no sort at all when the server does not list sortable columns', async () => {
+    getDatasetRows.mockResolvedValue({
+      columns,
+      rows: [{ gid: 1, pop: 10, meta: null }],
+      next_cursor: null,
+      approximate_total: 1,
+    });
+    render(<AttributeTable datasetId="ds-1" />);
+    const popHeader = await screen.findByRole('columnheader', { name: /pop/ });
+    expect(popHeader).not.toHaveAttribute('aria-sort');
+    expect(screen.queryByRole('button', { name: /pop/ })).toBeNull();
   });
 });

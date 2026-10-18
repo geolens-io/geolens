@@ -22,8 +22,8 @@ import {
   listAttributes,
   updateAttribute,
   validateDataset,
+  type DatasetRowsSort,
 } from '@/api/datasets';
-import type { DatasetRowsSort } from '@/api/datasets';
 import { cancelJob } from '@/api/ingest';
 import type {
   CreateDatasetRequest,

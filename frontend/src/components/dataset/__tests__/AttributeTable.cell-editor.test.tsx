@@ -26,7 +26,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { act } from '@testing-library/react';
+import { act, fireEvent } from '@testing-library/react';
 import { render, screen } from '@/test/test-utils';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
@@ -101,6 +101,26 @@ describe('fix(#1628): inline cell editor survives an unrelated re-render', () =>
     // just the symptom.
     expect(afterRerender).toBe(editor);
     expect(afterRerender).toHaveValue('250');
+  });
+
+  // fireEvent skips the focus change a real click makes, so the editor's own
+  // blur-commit can't close it and only the row-set change is under test.
+  it('closes an open cell editor when the page changes', async () => {
+    vi.mocked(useDatasetRows).mockReturnValue({
+      data: { ...ROWS_RESPONSE, next_cursor: 1 },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRows>);
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1628" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+    expect(screen.getByRole('textbox', { name: 'Edit population for feature 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(screen.queryByRole('textbox', { name: 'Edit population for feature 1' })).toBeNull();
   });
 
   // A rejected value stays in the box to be

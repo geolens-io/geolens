@@ -18,7 +18,7 @@ import { DEFAULT_ROWS_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -45,17 +45,6 @@ const NON_EDITABLE_COLUMNS = new Set(['gid', 'geom']);
 /** Columns that are not filterable */
 const NON_FILTERABLE_COLUMNS = new Set(['geom', 'geom_4326']);
 
-// The rows endpoint projects only these columns and rejects a sort on any other.
-const GEOMETRY_COLUMNS = new Set(['geom', 'geom_4326', 'wkb_geometry']);
-const UNSORTABLE_TYPES = new Set(['USER-DEFINED', 'json', 'xml']);
-const PROJECTED_NAME = /^[a-z0-9_]+$/;
-
-function isSortable(col: { name: string; type: string }): boolean {
-  return PROJECTED_NAME.test(col.name)
-    && !GEOMETRY_COLUMNS.has(col.name)
-    && !UNSORTABLE_TYPES.has(col.type);
-}
-
 /** PostgreSQL's own short names for the verbose information_schema types. */
 const SHORT_TYPES: Record<string, string> = {
   'character varying': 'varchar',
@@ -72,9 +61,8 @@ const SHORT_TYPES: Record<string, string> = {
   'time without time zone': 'time',
 };
 
-function shortType(col: { name: string; type: string }): string {
-  if (GEOMETRY_COLUMNS.has(col.name)) return 'geometry';
-  return SHORT_TYPES[col.type] ?? col.type.toLowerCase();
+function shortType(type: string): string {
+  return SHORT_TYPES[type] ?? type.toLowerCase();
 }
 
 interface EditingCell {
@@ -189,8 +177,8 @@ export function AttributeTable({
   actions,
 }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
-  const [cursor, setCursor] = useState(0);
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
+  const cursor = cursorHistory[cursorHistory.length - 1];
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   // Scroll container ref used by the row virtualizer.
@@ -235,22 +223,18 @@ export function AttributeTable({
   const [pagedScope, setPagedScope] = useState(pagingScope);
   if (pagedScope !== pagingScope) {
     setPagedScope(pagingScope);
-    setCursor(0);
     setCursorHistory([0]);
   }
 
-  // An open cell editor survives a page/filter/sort/page-size
-  // change; if the edited row leaves the result set the in-progress edit
-  // silently vanishes. Close it (and clear any error) when the row set moves.
+  // When the row set moves (page, filter, sort, page size), an open cell
+  // editor would silently lose its in-progress edit as the row leaves, so
+  // close it and clear any error. The new rows start at the top; keep the
+  // horizontal position.
   useEffect(() => {
     setEditingCell(null);
     setEditError(null);
-  }, [datasetId, cursor, activeFilters, sort, pageSize]);
-
-  // A new page or order starts at its first row; keep the horizontal position.
-  useEffect(() => {
     if (parentRef.current) parentRef.current.scrollTop = 0;
-  }, [cursor, activeFilters, sort, pageSize]);
+  }, [datasetId, cursor, activeFilters, sort, pageSize]);
 
   const { data, isLoading, isFetching, isError } = useDatasetRows(
     datasetId,
@@ -343,30 +327,28 @@ export function AttributeTable({
   const handleNextPage = useCallback(() => {
     if (data?.next_cursor != null) {
       setCursorHistory((prev) => [...prev, data.next_cursor!]);
-      setCursor(data.next_cursor!);
     }
   }, [data?.next_cursor]);
 
   const handlePreviousPage = useCallback(() => {
-    setCursorHistory((prev) => {
-      if (prev.length <= 1) return prev;
-      const newHistory = prev.slice(0, -1);
-      setCursor(newHistory[newHistory.length - 1]);
-      return newHistory;
-    });
+    setCursorHistory((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)));
   }, []);
-
-  const columnsByName = useMemo(
-    () => new Map((data?.columns ?? []).map((col) => [col.name, col])),
-    [data?.columns],
-  );
 
   const columns = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
     if (!data?.columns) return [];
+    // An API without the field offers no sorting rather than a failing one.
+    const sortable = new Set(data.sortable_columns ?? []);
     return data.columns.map((col) => ({
       accessorKey: col.name,
-      header: col.name,
-      enableSorting: isSortable(col),
+      header: () => (
+        <>
+          {col.name}
+          <span className="font-normal text-muted-foreground/70" title={col.type}>
+            {shortType(col.type)}
+          </span>
+        </>
+      ),
+      enableSorting: sortable.has(col.name),
       cell: (info) => {
         const {
           editingCell: currentEdit,
@@ -434,13 +416,13 @@ export function AttributeTable({
         return cellValue;
       },
     }));
-    // The column list and `t` ONLY. Every other input the renderer
-    // needs comes from cellRenderRef, because adding any of them back here
-    // remounts every cell — and with it any open editor — whenever they change.
+    // The column lists and `t` ONLY. Every other input the renderer needs
+    // comes from cellRenderRef, because adding any of them back here remounts
+    // every cell — and with it any open editor — whenever they change.
     // `t` is safe to keep: react-i18next caches its useSyncExternalStore
     // snapshot and only hands back a new `t` on a language change, which is a
     // legitimate reason to rebuild the columns.
-  }, [data?.columns, t]);
+  }, [data?.columns, data?.sortable_columns, t]);
 
   const table = useTable(
     {
@@ -600,7 +582,7 @@ export function AttributeTable({
         tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable
         className="relative min-h-0 overflow-auto rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
-        <Table bare className="w-max">
+        <table data-slot="table" className="w-max caption-bottom text-sm">
           <TableHeader className="sticky top-0 z-10 bg-muted">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -615,17 +597,6 @@ export function AttributeTable({
                       : canSort
                         ? 'none'
                         : undefined;
-                  const col = columnsByName.get(header.column.id);
-                  const label = (
-                    <>
-                      <table.FlexRender header={header} />
-                      {col ? (
-                        <span className="font-normal text-muted-foreground/70" title={col.type}>
-                          {shortType(col)}
-                        </span>
-                      ) : null}
-                    </>
-                  );
                   return (
                   <TableHead key={header.id} aria-sort={ariaSort} className="normal-case">
                     {header.isPlaceholder ? null : canSort ? (
@@ -634,7 +605,7 @@ export function AttributeTable({
                         className="flex items-center gap-1.5 hover:text-foreground"
                         onClick={header.column.getToggleSortingHandler()}
                       >
-                        {label}
+                        <table.FlexRender header={header} />
                         {sorted === 'asc' ? (
                           <ArrowUp className="h-3 w-3" />
                         ) : sorted === 'desc' ? (
@@ -644,7 +615,9 @@ export function AttributeTable({
                         )}
                       </button>
                     ) : (
-                      <span className="flex items-center gap-1.5">{label}</span>
+                      <span className="flex items-center gap-1.5">
+                        <table.FlexRender header={header} />
+                      </span>
                     )}
                   </TableHead>
                   );
@@ -706,7 +679,7 @@ export function AttributeTable({
               </>
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       {/* Pagination */}
@@ -726,7 +699,6 @@ export function AttributeTable({
               value={String(pageSize)}
               onValueChange={(val) => {
                 setPageSize(Number(val));
-                setCursor(0);
                 setCursorHistory([0]);
               }}
             >
