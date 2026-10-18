@@ -154,6 +154,10 @@ async def get_dataset_rows_endpoint(
             filters[col_name] = value
 
     table_name = dataset.table_name
+    # Read before the rows: each statement takes its own snapshot, so a table
+    # swapped in between can only make a later write's table_id check refuse,
+    # never label old rows with the new table's id.
+    table_oid = await current_table_oid(db, table_name)
     try:
         rows, approx_total, columns, next_cursor = await get_dataset_rows(
             db,
@@ -181,8 +185,6 @@ async def get_dataset_rows_endpoint(
             )
         raise
 
-    # Still inside the transaction that read the rows, so it names their table.
-    table_oid = await current_table_oid(db, table_name)
     return DatasetRowsResponse(
         rows=rows,
         approximate_total=approx_total,
