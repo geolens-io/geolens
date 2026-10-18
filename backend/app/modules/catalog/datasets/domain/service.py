@@ -46,6 +46,7 @@ from app.modules.catalog.datasets.domain.service_previous_version import (
     drop_previous_version,
 )
 from app.modules.catalog.datasets.domain.service_query import (
+    InvalidSortColumn,
     get_dataset,
     get_dataset_detail,
     get_dataset_rows,
@@ -71,6 +72,7 @@ __all__ = [
     "reap_managed_storage",
     "DatasetTitleMismatchError",
     "DependentVrtError",
+    "InvalidSortColumn",
     "PREVIEW_FEATURE_CAP",
     "PreviousVersionRefused",
     "admit_restore",

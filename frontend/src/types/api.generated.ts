@@ -2950,7 +2950,8 @@ export interface paths {
          * Get Dataset Rows Endpoint
          * @description Get keyset-paginated rows from a dataset's data table.
          *
-         *     Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+         *     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+         *     fetch the next page, with or without ``sort``.
          *     Supports column filtering via query params: ``filter[column_name]=value``.
          */
         get: operations["get_dataset_rows_endpoint_datasets__dataset_id__rows__get"];
@@ -29902,6 +29903,10 @@ export interface operations {
             query?: {
                 limit?: number;
                 after?: number;
+                /** @description Column to order rows by, then by gid. NULLs sort last in both directions. An unknown or unsortable column returns 400. */
+                sort?: string | null;
+                /** @description Sort direction; applies only with `sort`. */
+                order?: "asc" | "desc";
             };
             header?: never;
             path: {

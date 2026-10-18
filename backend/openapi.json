@@ -43886,7 +43886,7 @@
     },
     "/datasets/{dataset_id}/rows/": {
       "get": {
-        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (gid) to fetch the next page.\nSupports column filtering via query params: ``filter[column_name]=value``.",
+        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.",
         "operationId": "get_dataset_rows_endpoint_datasets__dataset_id__rows__get",
         "parameters": [
           {
@@ -43920,6 +43920,40 @@
               "minimum": 0,
               "title": "After",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Column to order rows by, then by gid. NULLs sort last in both directions. An unknown or unsortable column returns 400.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Column to order rows by, then by gid. NULLs sort last in both directions. An unknown or unsortable column returns 400.",
+              "title": "Sort"
+            }
+          },
+          {
+            "description": "Sort direction; applies only with `sort`.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Sort direction; applies only with `sort`.",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],

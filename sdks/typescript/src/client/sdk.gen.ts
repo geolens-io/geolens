@@ -3144,7 +3144,8 @@ export const reuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPost = <ThrowOn
  *
  * Get keyset-paginated rows from a dataset's data table.
  *
- * Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+ * Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+ * fetch the next page, with or without ``sort``.
  * Supports column filtering via query params: ``filter[column_name]=value``.
  */
 export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError extends boolean = false>(options: Options<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData, ThrowOnError>): RequestResult<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError> => (options.client ?? client).get<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError>({

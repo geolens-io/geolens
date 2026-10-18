@@ -409,6 +409,9 @@ from .get_collection_items_collections_dataset_id_items_get_response_202 import 
 from .get_collection_queryables_collections_dataset_id_queryables_get_response_202 import (
     GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202,
 )
+from .get_dataset_rows_endpoint_datasets_dataset_id_rows_get_order import (
+    GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder,
+)
 from .get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get_response_200 import (
     GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200,
 )
@@ -1226,6 +1229,7 @@ __all__ = (
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink",
     "GetCollectionItemsCollectionsDatasetIdItemsGetResponse202",
     "GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202",
+    "GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder",
     "GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200",
     "GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItem",
     "GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200FeaturesItemGeometryType0",

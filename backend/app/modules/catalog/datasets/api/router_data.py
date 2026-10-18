@@ -1,6 +1,7 @@
 """Dataset data access endpoints: rows, validate, related, maps, and publication status."""
 
 import uuid
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -42,6 +43,7 @@ from app.modules.catalog.records.inherited import (
     inherited_keyword_disclosure_warning,
 )
 from app.modules.catalog.datasets.domain.service import (
+    InvalidSortColumn,
     get_dataset,
     get_dataset_rows,
     get_related_datasets,
@@ -110,12 +112,23 @@ async def get_dataset_rows_endpoint(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
+    sort: str | None = Query(
+        None,
+        description=(
+            "Column to order rows by, then by gid. NULLs sort last in both"
+            " directions. An unknown or unsortable column returns 400."
+        ),
+    ),
+    order: Literal["asc", "desc"] = Query(
+        "asc", description="Sort direction; applies only with `sort`."
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
     """Get keyset-paginated rows from a dataset's data table.
 
-    Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+    Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+    fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     """
     dataset = await get_dataset(db, dataset_id)
@@ -146,6 +159,13 @@ async def get_dataset_rows_endpoint(
             after_gid=after,
             column_info=dataset.column_info,
             filters=filters if filters else None,
+            sort=sort,
+            descending=order == "desc",
+        )
+    except InvalidSortColumn:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid sort column",
         )
     except DBAPIError as exc:
         # Only a caller-caused error is a 400; connection loss,

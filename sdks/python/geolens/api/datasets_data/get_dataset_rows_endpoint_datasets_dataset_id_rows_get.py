@@ -9,6 +9,9 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.dataset_rows_response import DatasetRowsResponse
+from ...models.get_dataset_rows_endpoint_datasets_dataset_id_rows_get_order import (
+    GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -19,6 +22,8 @@ def _get_kwargs(
     *,
     limit: int | Unset = 50,
     after: int | Unset = 0,
+    sort: None | str | Unset = UNSET,
+    order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -26,6 +31,19 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["after"] = after
+
+    json_sort: None | str | Unset
+    if isinstance(sort, Unset):
+        json_sort = UNSET
+    else:
+        json_sort = sort
+    params["sort"] = json_sort
+
+    json_order: str | Unset = UNSET
+    if not isinstance(order, Unset):
+        json_order = order
+
+    params["order"] = json_order
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -116,18 +134,25 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
     after: int | Unset = 0,
+    sort: None | str | Unset = UNSET,
+    order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
      Get keyset-paginated rows from a dataset's data table.
 
-    Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+    Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+    fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
 
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
         after (int | Unset):  Default: 0.
+        sort (None | str | Unset): Column to order rows by, then by gid. NULLs sort last in both
+            directions. An unknown or unsortable column returns 400.
+        order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
+            applies only with `sort`. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -141,6 +166,8 @@ def sync_detailed(
         dataset_id=dataset_id,
         limit=limit,
         after=after,
+        sort=sort,
+        order=order,
     )
 
     response = client.get_httpx_client().request(
@@ -156,18 +183,25 @@ def sync(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
     after: int | Unset = 0,
+    sort: None | str | Unset = UNSET,
+    order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
      Get keyset-paginated rows from a dataset's data table.
 
-    Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+    Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+    fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
 
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
         after (int | Unset):  Default: 0.
+        sort (None | str | Unset): Column to order rows by, then by gid. NULLs sort last in both
+            directions. An unknown or unsortable column returns 400.
+        order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
+            applies only with `sort`. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -182,6 +216,8 @@ def sync(
         client=client,
         limit=limit,
         after=after,
+        sort=sort,
+        order=order,
     ).parsed
 
 
@@ -191,18 +227,25 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
     after: int | Unset = 0,
+    sort: None | str | Unset = UNSET,
+    order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
      Get keyset-paginated rows from a dataset's data table.
 
-    Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+    Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+    fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
 
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
         after (int | Unset):  Default: 0.
+        sort (None | str | Unset): Column to order rows by, then by gid. NULLs sort last in both
+            directions. An unknown or unsortable column returns 400.
+        order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
+            applies only with `sort`. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -216,6 +259,8 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         limit=limit,
         after=after,
+        sort=sort,
+        order=order,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -229,18 +274,25 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
     after: int | Unset = 0,
+    sort: None | str | Unset = UNSET,
+    order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
      Get keyset-paginated rows from a dataset's data table.
 
-    Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
+    Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
+    fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
 
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
         after (int | Unset):  Default: 0.
+        sort (None | str | Unset): Column to order rows by, then by gid. NULLs sort last in both
+            directions. An unknown or unsortable column returns 400.
+        order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
+            applies only with `sort`. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -256,5 +308,7 @@ async def asyncio(
             client=client,
             limit=limit,
             after=after,
+            sort=sort,
+            order=order,
         )
     ).parsed

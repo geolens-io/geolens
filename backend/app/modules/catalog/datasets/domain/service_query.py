@@ -49,6 +49,7 @@ __all__ = [
     "get_datasets_list",
     "get_dataset_detail",
     "get_dataset_rows",
+    "InvalidSortColumn",
 ]
 
 
@@ -322,26 +323,65 @@ async def get_dataset_detail(
 _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 
 
-def _build_select_cols(column_info: list[dict]) -> list[str]:
-    """Return the non-geometry columns to project, with `gid` always present.
+# PostgreSQL has no btree ordering for these types, so ORDER BY fails on them.
+_UNSORTABLE_TYPES = frozenset({"json", "xml"})
 
-    Names are emitted quoted. Membership is still decided on the
-    bare name, so quote at emission rather than in the list.
+
+class InvalidSortColumn(ValueError):
+    """The requested sort column is not a sortable column of the dataset."""
+
+
+def _projected_columns(column_info: list[dict]) -> list[dict]:
+    """Return the column_info entries to project, with `gid` always present."""
+    projected = [
+        c
+        for c in column_info
+        if SAFE_TABLE_NAME_RE.match(c["name"])
+        and c.get("type") != "USER-DEFINED"
+        and c["name"] not in _GEOM_COLUMN_NAMES
+    ]
+    if not any(c["name"] == "gid" for c in projected):
+        projected.insert(0, {"name": "gid", "type": "integer"})
+    return projected
+
+
+def _build_select_cols(column_info: list[dict]) -> list[str]:
+    """Return the quoted non-geometry columns to project, `gid` always present."""
+    return [_safe_column_ref(c["name"]) for c in _projected_columns(column_info)]
+
+
+def _build_sort(
+    column_info: list[dict], sort: str, *, descending: bool, table_ref: str
+) -> tuple[str, str]:
+    """Return (keyset predicate, ORDER BY) for a page sorted on ``sort``.
+
+    Order is (column, gid) with NULLs last in both directions. The cursor is
+    still the last row's gid: the predicate reads that row's sort value back
+    from the table, so pages stay globally ordered without the cursor carrying
+    a typed value. A cursor row deleted between pages yields an empty page.
+
+    Raises InvalidSortColumn when ``sort`` is not a projected, orderable column.
     """
-    select_cols: list[str] = []
-    has_gid = False
-    for c in column_info:
-        name = c["name"]
-        if not SAFE_TABLE_NAME_RE.match(name):
-            continue
-        if c.get("type") == "USER-DEFINED" or name in _GEOM_COLUMN_NAMES:
-            continue
-        select_cols.append(_safe_column_ref(name))
-        if name == "gid":
-            has_gid = True
-    if not has_gid:
-        select_cols.insert(0, _safe_column_ref("gid"))
-    return select_cols
+    sortable = {
+        c["name"]: c["name"]
+        for c in _projected_columns(column_info)
+        if c.get("type") not in _UNSORTABLE_TYPES
+    }
+    # The identifier comes from column_info, never from the caller's string.
+    name = sortable.get(sort)
+    if name is None:
+        raise InvalidSortColumn(sort)
+    col = _safe_column_ref(name)
+    op = "<" if descending else ">"
+    anchor = f"(SELECT {col} FROM {table_ref} WHERE gid = :after_gid)"
+    keyset = (
+        f"EXISTS (SELECT 1 FROM {table_ref} WHERE gid = :after_gid) AND"
+        f" CASE WHEN {anchor} IS NULL THEN {col} IS NULL AND gid > :after_gid"
+        f" ELSE {col} IS NULL OR {col} {op} {anchor}"
+        f" OR ({col} = {anchor} AND gid > :after_gid) END"
+    )
+    direction = "DESC" if descending else "ASC"
+    return keyset, f"{col} {direction} NULLS LAST, gid"
 
 
 def _build_where_filters(
@@ -350,10 +390,18 @@ def _build_where_filters(
     *,
     after_gid: int,
     limit: int,
+    keyset: str | None = "gid > :after_gid",
 ) -> tuple[str, dict[str, object]]:
-    """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters."""
-    where_clauses: list[str] = ["gid > :after_gid"]
-    bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
+    """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
+
+    ``keyset`` is the predicate selecting rows after ``after_gid``; None means
+    the first page of a sorted read, which has no predicate.
+    """
+    where_clauses: list[str] = []
+    bind_params: dict[str, object] = {"limit": limit}
+    if keyset is not None:
+        where_clauses.append(f"({keyset})")
+        bind_params["after_gid"] = after_gid
     for col_name, search_term in (filters or {}).items():
         if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
@@ -365,6 +413,8 @@ def _build_where_filters(
             f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
         )
         bind_params[param_key] = f"%{search_term}%"
+    if not where_clauses:
+        return "", bind_params
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
 
@@ -376,6 +426,8 @@ async def get_dataset_rows(
     after_gid: int = 0,
     column_info: list[dict] | None = None,
     filters: dict[str, str] | None = None,
+    sort: str | None = None,
+    descending: bool = False,
 ) -> tuple[list[dict], int, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
@@ -386,6 +438,9 @@ async def get_dataset_rows(
 
     ``filters`` is a dict of {column_name: search_term} for ILIKE filtering.
     Column names are validated against column_info to prevent injection.
+
+    ``sort`` orders by that column, then gid; ``after_gid`` is still the last
+    row's gid. Raises InvalidSortColumn for a column that cannot be sorted.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
@@ -400,18 +455,28 @@ async def get_dataset_rows(
     cols = column_info or []
     select_cols = _build_select_cols(cols)
     select_sql = ", ".join(select_cols) if select_cols else "*"
+    keyset: str | None = "gid > :after_gid"
+    order_sql = "gid"
+    if sort is not None:
+        keyset, order_sql = _build_sort(
+            cols, sort, descending=descending, table_ref=_table_ref
+        )
+        if not after_gid:
+            keyset = None
     where_sql, bind_params = _build_where_filters(
         filters,
         valid_columns={c["name"] for c in cols},
         after_gid=after_gid,
         limit=limit,
+        keyset=keyset,
     )
 
     try:
         result = await db.execute(
             text(
+                # codeql[py/sql-injection]
                 f"SELECT {select_sql} FROM {_table_ref}{where_sql}"
-                " ORDER BY gid LIMIT :limit"
+                f" ORDER BY {order_sql} LIMIT :limit"
             ).bindparams(**bind_params)
         )
         rows = [dict(row._mapping) for row in result.all()]

@@ -21902,6 +21902,18 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
          * After
          */
         after?: number;
+        /**
+         * Sort
+         *
+         * Column to order rows by, then by gid. NULLs sort last in both directions. An unknown or unsortable column returns 400.
+         */
+        sort?: string | null;
+        /**
+         * Order
+         *
+         * Sort direction; applies only with `sort`.
+         */
+        order?: 'asc' | 'desc';
     };
     url: '/datasets/{dataset_id}/rows/';
 };
