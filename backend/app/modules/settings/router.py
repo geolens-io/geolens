@@ -608,8 +608,8 @@ async def update_settings(
 
         # set(commit=False) defers side effects (cache invalidation, _on_change
         # hooks, rate-limit warm) so a rollback can't leave process-local state
-        # diverged from the DB. Apply them as one step now the batch is durable,
-        # so no reader sees some keys new and the rest cached old.
+        # diverged from the DB. Apply them in one eviction now the batch is
+        # durable, so the cache never holds a partly evicted batch.
         await apply_side_effects_batch(
             [(registry_map[key], value) for key, value in validated_settings.items()]
         )

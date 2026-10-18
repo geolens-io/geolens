@@ -658,8 +658,8 @@ async def create_api_key_for_user(
     SAML-to-local conversion, NOT logout) invalidates it. Minting requires an
     active owner.
 
-    ``scope="read_only"`` mints a key that authenticates only
-    GET/HEAD/OPTIONS. The default matches the column default.
+    ``scope="read_only"`` mints a key limited to reads (see
+    ``_read_only_key_may_call``). The default matches the column default.
 
     ``scope="dataset_write"`` and ``scope="dataset_append"`` require
     ``dataset_id`` and other scopes forbid it; the caller must already have

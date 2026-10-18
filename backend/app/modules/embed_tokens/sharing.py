@@ -27,9 +27,9 @@ async def get_active_allowed_origins(
     when the token has none recorded -- the public-map path turns this into
     a per-token CSP ``frame-ancestors``, so the two are not interchangeable.
 
-    ``expires_at IS NULL`` is admitted explicitly: in Postgres ``NULL > now()``
-    is NULL, so a non-expiring (community default) token would fall out and
-    framing would break.
+    The ``expires_at IS NULL`` arm is defensive: the column is NOT NULL, and
+    ``NULL > now()`` is NULL in Postgres, so without it a NULL expiry would
+    drop out and break framing.
     """
     stmt = (
         select(EmbedToken.allowed_origins)

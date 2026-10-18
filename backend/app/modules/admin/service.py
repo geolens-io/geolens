@@ -930,11 +930,11 @@ class AdminService:
             )
 
         missing_records = total_records - embedded_records
-        # Records carrying vectors, but none the active CONFIGURATION can use
-        # ("configuration", not "model"). The non-force backfill selects on "no
-        # active-model row" rather than "no row at all", so Generate Missing
-        # re-embeds these without touching records the current model already
-        # covers; superseded rows are left in place (storage cost only).
+        # Records carrying vectors, but none the active configuration can use.
+        # The non-force backfill selects records with no usable embedding for
+        # that configuration rather than no row at all, so Generate Missing
+        # re-embeds these without touching covered records; superseded rows
+        # are left in place (storage cost only).
         stale_records = any_model_records - embedded_records
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0

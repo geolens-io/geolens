@@ -14,8 +14,8 @@ The exemption is one mechanism: ``get_user_quota_usage`` filters
 ``created_by = :user_id``, which is never true for NULL, so a NULL identity
 reads zero usage and every other function inherits that through the one
 aggregate. It is not an early return: the count cap can never refuse a NULL
-owner, but the BYTE cap still weighs the incoming amount on its own, so one
-oversized file is still refused.
+owner, but the byte cap still weighs the incoming amount (net of what a
+replacement supersedes), so one oversized new file is still refused.
 
 Chosen over refusing mutation (no ownership-assignment surface exists, so a
 refusal has no remedy) or billing the admin pool (misattributes storage to

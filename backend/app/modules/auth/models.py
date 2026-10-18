@@ -110,8 +110,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
-    # Set to True by redeem_verification_token() on a verification-link click;
-    # new users start unverified.
+    # Defaults to False; redeem_verification_token() sets it on a
+    # verification-link click.
     email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
@@ -224,9 +224,9 @@ class ApiKey(Base):
     # (password/role change, SAML-to-local, NOT logout), keys minted before
     # the bump stop resolving.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Least-privilege machine credentials. "read_only" authenticates
-    # GET/HEAD/OPTIONS only and is refused elsewhere at the resolution
-    # chokepoint (_resolve_api_key).
+    # Least-privilege machine credentials. A "read_only" key is limited to
+    # reads (see _read_only_key_may_call) and refused elsewhere at the
+    # resolution chokepoint (_resolve_api_key).
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )

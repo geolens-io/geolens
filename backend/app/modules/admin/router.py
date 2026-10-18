@@ -665,9 +665,9 @@ async def convert_saml_to_local(
     try:
         await db.commit()
     except Exception:  # broad: commit can fail with diverse asyncpg/transaction errors; log and bubble for handler
-        # The service mutations and audit row were written but the commit
-        # failed, so nothing persisted. Logged so operators can reconcile
-        # against client-side state.
+        # A failed commit may still have landed (a lost acknowledgement), so
+        # whether the conversion and its audit row persisted is unknown.
+        # Logged so operators can reconcile against the database.
         logger.exception(
             "convert_saml_to_local commit failed",
             user_id=str(user_id),
