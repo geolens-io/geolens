@@ -324,9 +324,10 @@ async def get_dataset_detail(
 _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 
 
-# information_schema data_type values with a btree ordering. Anything else
-# (json, xml, geometric types, ARRAY with its element type hidden) can't be
-# sorted on.
+# information_schema data_type values with a btree ordering whose values
+# asyncpg reads back and binds again as the next page's anchor. Anything else
+# can't be sorted on: no ordering (json, xml, geometric types), an anchor that
+# doesn't bind back (jsonb, money, macaddr), or a hidden element type (ARRAY).
 _SORTABLE_TYPES = frozenset(
     {
         "smallint",
@@ -335,7 +336,6 @@ _SORTABLE_TYPES = frozenset(
         "numeric",
         "real",
         "double precision",
-        "money",
         "character varying",
         "character",
         "text",
@@ -349,12 +349,7 @@ _SORTABLE_TYPES = frozenset(
         "uuid",
         "inet",
         "cidr",
-        "macaddr",
-        "macaddr8",
-        "jsonb",
         "bytea",
-        "bit",
-        "bit varying",
     }
 )
 
