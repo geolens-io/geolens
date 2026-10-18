@@ -413,10 +413,10 @@ _COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
         ),
         _Syntax(re.compile(r"(?<!\S)#"), None, "'\""),
     ),
-    (re.compile(r"\.([cm]?js|tsx?|ql|jsonc)$"), _C_STYLE),
+    (re.compile(r"\.([cm]?[jt]sx?|ql|jsonc)$"), _C_STYLE),
     (re.compile(r"\.css$"), _Syntax(None, ("/*", "*/"), "'\"")),
     (re.compile(r"\.sql$"), _Syntax(re.compile(r"--"), ("/*", "*/"), "'")),
-    (re.compile(r"\.html$"), _Syntax(None, ("<!--", "-->"), "")),
+    (re.compile(r"\.(html|svg)$"), _Syntax(None, ("<!--", "-->"), "")),
 )
 
 

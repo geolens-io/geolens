@@ -157,6 +157,9 @@ class TestCommentText:
             ("a.sh", 'echo "done" # BKP-01'),
             ("a.sql", "SELECT 1; -- BKP-01"),
             ("a.html", "<p>x</p> <!-- CR-03 -->"),
+            ("a.svg", '<svg width="1"><!-- CR-03 --></svg>'),
+            ("a.jsx", "const x = 1; // SEC-002"),
+            ("a.mts", "const x = 1; // SEC-002"),
         ],
     )
     def test_a_comment_after_code_is_read(self, path, line):
