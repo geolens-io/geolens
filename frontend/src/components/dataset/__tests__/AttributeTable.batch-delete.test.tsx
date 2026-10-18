@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor, within } from '@/test/test-utils';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, render, screen, waitFor, within } from '@/test/test-utils';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { ApiError } from '@/api/client';
 
@@ -181,6 +182,29 @@ describe('AttributeTable batch delete', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Feature attributes' })).toHaveFocus(),
+    );
+  });
+
+  it('closes the confirmation when the selected rows are gone', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AttributeTable datasetId="ds-1" canEdit />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole('checkbox', { name: 'Select row 2' }));
+    await user.click(screen.getByRole('button', { name: 'Delete 1 row' }));
+    await screen.findByRole('alertdialog');
+
+    // Someone else deleted row 2.
+    getDatasetRows.mockImplementation(async () => page(0, [1, 3, 4]));
+    await act(() => queryClient.invalidateQueries());
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(deleteFeatures).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.getByRole('region', { name: 'Feature attributes' })).toHaveFocus(),
     );

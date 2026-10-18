@@ -294,6 +294,9 @@ export function AttributeTable({
     [selection, pageGids],
   );
   const selectable = canEdit && pageGids.length > 0;
+  // A refetch can drop every selected row, e.g. deleted by someone else,
+  // while the confirmation is open; there is then nothing to confirm.
+  if (deleteConfirmOpen && selectedGids.length === 0) setDeleteConfirmOpen(false);
 
   const toggleRow = useCallback((gid: number, checked: boolean) => {
     setSelection((prev) => {
@@ -817,8 +820,8 @@ export function AttributeTable({
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent
           onCloseAutoFocus={(event) => {
-            // The opener is disabled during the delete and gone after it.
-            if (!deleteConfirmedRef.current) return;
+            // The opener is disabled during a delete and gone once nothing is selected.
+            if (!deleteConfirmedRef.current && selectedGids.length > 0) return;
             deleteConfirmedRef.current = false;
             event.preventDefault();
             parentRef.current?.focus();
