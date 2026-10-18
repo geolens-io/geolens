@@ -108,6 +108,13 @@ describe('DatasetWriteKeys', () => {
     ).toBeInTheDocument();
   });
 
+  it('describes both kinds of key', async () => {
+    mockList.mockResolvedValue([]);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
+    expect(await screen.findByText(/An add-only key can only add features\./)).toBeInTheDocument();
+    expect(screen.getByText(/A write key reads and writes this dataset's features/)).toBeInTheDocument();
+  });
+
   it('says so when the dataset has no keys', async () => {
     mockList.mockResolvedValue([]);
     render(<DatasetWriteKeys datasetId="ds-1" canCreate />);

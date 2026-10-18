@@ -1239,7 +1239,7 @@
   },
   "writeKeys": {
     "title": "Schreibschlüssel",
-    "description": "Ein Schreibschlüssel kann die Features dieses Datensatzes lesen und schreiben und sonst nichts, etwa für einen Webhook oder ein Skript, das ihn bearbeitet. Er funktioniert auch, wenn die Bearbeitung von Datensätzen für die Website ausgeschaltet ist. Senden Sie ihn im Header X-Api-Key. Er handelt im Namen der Person, die ihn erstellt hat, und kann nicht mehr schreiben, wenn diese Person hier ihre Bearbeitungsrechte verliert.",
+    "description": "Ein Schreibschlüssel liest und schreibt die Features dieses Datensatzes und sonst nichts, etwa für einen Webhook oder ein Skript, das ihn bearbeitet. Ein Schlüssel zum reinen Hinzufügen kann nur Features hinzufügen. Beide funktionieren auch, wenn die Bearbeitung von Datensätzen für die Website ausgeschaltet ist. Senden Sie ihn im Header X-Api-Key. Er handelt im Namen der Person, die ihn erstellt hat, und kann nicht mehr schreiben, wenn diese Person hier ihre Bearbeitungsrechte verliert.",
     "createKey": "Schreibschlüssel erstellen",
     "createUnavailable": "Sie können diese Schlüssel prüfen und widerrufen. Zum Erstellen sind Bearbeitungsrechte für einen Datensatz mit Geometriespalte nötig.",
     "expiresIn": "Gültig für",
