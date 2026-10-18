@@ -1257,7 +1257,7 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert _sanitize(None) is None
 
     def test_sec_fu_04_only_the_bearer_branch_names_a_character(self):
-        """fix(#1746): the message is policy-only for every other method.
+        """The message is policy-only for every other method.
 
         This exception becomes `IngestJob.error_message`, a log record, a
         notification reason and the exception the queue records. Naming a
