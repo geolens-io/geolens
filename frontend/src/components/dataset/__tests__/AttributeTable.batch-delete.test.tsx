@@ -125,6 +125,24 @@ describe('AttributeTable batch delete', () => {
     ));
   });
 
+  it('drops the selection when the page comes back from a replacement table', async () => {
+    deleteFeatures.mockRejectedValue(
+      new ApiError('conflict', 409, { code: 'dataset_replaced', tile_cache_version: 9 }),
+    );
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1" canEdit />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select row 2' }));
+    // The replacement reuses gids 1-3, so a kept selection would target its rows.
+    getDatasetRows.mockImplementation(async () => ({ ...page(0, [1, 2, 3]), table_id: '5555' }));
+    await user.click(screen.getByRole('button', { name: 'Delete 1 row' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Select row 2' })).not.toBeChecked(),
+    );
+    expect(screen.queryByRole('button', { name: 'Delete 1 row' })).not.toBeInTheDocument();
+  });
+
   it('reports rows that no longer exist and refetches the page', async () => {
     deleteFeatures.mockRejectedValue(
       new ApiError('not found', 404, { code: 'feature_not_found', gids: [2], message: 'x' }),

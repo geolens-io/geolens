@@ -272,9 +272,12 @@ export function AttributeTable({
     setSorting([]);
   }
 
-  // A selection belongs to one page of one query. Like paging above, it is
-  // reset during render so no frame offers to delete rows from the old page.
-  const selectionScope = JSON.stringify([datasetId, authIdentity, pagingScope, pageSize, cursor]);
+  // A selection belongs to one page of one query against one table, since a
+  // replacement table reuses gids. Like paging above, it is reset during
+  // render so no frame offers to delete rows the user did not select.
+  const selectionScope = JSON.stringify([
+    datasetId, authIdentity, pagingScope, pageSize, cursor, data?.table_id,
+  ]);
   const [selectedScope, setSelectedScope] = useState(selectionScope);
   if (selectedScope !== selectionScope) {
     setSelectedScope(selectionScope);
