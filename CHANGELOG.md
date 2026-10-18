@@ -93,8 +93,9 @@ and releases use semantic versioning.
   as a webhook posting device positions. Tick "Add features only" when
   creating a key on the dataset's Access tab, or send
   `"scope": "dataset_append"` to `POST /datasets/{dataset_id}/api-keys`. The
-  key authenticates only `POST /datasets/{dataset_id}/features/` on its
-  dataset, for one feature or a FeatureCollection. Every other route,
+  key authenticates only `POST /datasets/{dataset_id}/features/` (with or
+  without the trailing slash) on its dataset, for one feature or a
+  FeatureCollection. Every other route,
   including the dataset's feature reads, exports, dry runs, updates and
   deletes, answers it as an invalid key, so a leaked key can't read the
   dataset back or rewrite it. Otherwise it follows the dataset write key's
