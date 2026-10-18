@@ -67,9 +67,9 @@ const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as 
 // (see _list_carry_columns on why they are still CARRIED). _NON_GROUPABLE_TYPES
 // rejects json and xml as group keys. Both pickers share the rule.
 const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-// Mirrors MAX_IDENTIFIER_LENGTH in backend/app/platform/analysis_sql.py:
-// PostgreSQL's NAMEDATALEN - 1. Safe as a character count because
-// SAFE_COLUMN_RE has already restricted these names to ASCII.
+// Mirrors MAX_IDENTIFIER_LENGTH (PostgreSQL's NAMEDATALEN - 1) in
+// backend/app/platform/analysis_sql/spatial_join.py. Safe as a character count
+// because SAFE_COLUMN_RE has already restricted these names to ASCII.
 const MAX_IDENTIFIER_LENGTH = 63;
 const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
 // The app turns focus refetching off globally; these queries need it.
