@@ -91,16 +91,15 @@ def _georeferencing(info: dict) -> dict:
 def _geotransform(item: dict) -> dict:
     """``res_x``/``res_y``/``is_rotated`` from a Titiler-generated STAC item.
 
-    fix(#1375): ``/cog/stac``'s ``proj:transform`` (rio-stac's 9-element
+    ``/cog/stac``'s ``proj:transform`` (rio-stac's 9-element
     affine) is the same six numbers ``raster/cog.py`` reads off
     ``rasterio``'s ``src.transform`` locally, fed to the same
     ``pixel_size_from_affine``. Elements 1/3 (``transform.b``/``.d``) set
     ``is_rotated``.
 
-    fix(#1375): resolution is the pixel VECTORS' lengths, not
+    Resolution is the pixel VECTORS' lengths, not
     elements 0/4 alone — those understate a rotated raster by 13% at 30°
-    (see ``pixel_size_from_affine``); the local path had the same bug and
-    was fixed alongside this one.
+    (see ``pixel_size_from_affine``), which the local path accounts for too.
 
     ``/cog/validate`` was rejected as the endpoint: it reports the same
     ``(transform.a, transform.e)`` pair but no ``b``/``d``, so it can't
@@ -238,7 +237,7 @@ async def fetch_cog_info(
             except Exception:  # broad: stats optional, Titiler payload shape varies
                 pass
 
-            # fix(#1375): with_raster/with_eo are OFF — their defaults make
+            # with_raster/with_eo are OFF — their defaults make
             # this a PIXEL read (rio-stac downsamples to compute per-band
             # stats, which fetch_cog_info already gets from /cog/statistics).
             # Measured on the pinned 2.2.1 image, 2048x2048 3-band COG:

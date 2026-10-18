@@ -38,10 +38,10 @@ async def bulk_check_dataset_access(
 ) -> set[uuid.UUID]:
     """Return the subset of dataset_ids the user can access. Single round-trip.
 
-    fix(#929): routes through apply_visibility_filter (not an inline
+    Routes through apply_visibility_filter (not an inline
     policy mirror) so an overlay permission extension's decision, creator
-    exemption included, is honored on map-attach paths. Unlike the old
-    mirror, an id matching no dataset is never reported accessible.
+    exemption included, is honored on map-attach paths. An id matching no
+    dataset is never reported accessible.
     """
     if not dataset_ids:
         return set()
@@ -245,7 +245,7 @@ async def add_layer(
         paint=paint,
         layout=layout,
         layer_type=resolved_layer_type,
-        # fix(#430): dialog-added layers POST no display_name; persist the dataset
+        # Dialog-added layers POST no display_name; persist the dataset
         # title so API consumers don't see null.
         display_name=body.display_name or (meta.title if meta else None),
         filter=body.filter,

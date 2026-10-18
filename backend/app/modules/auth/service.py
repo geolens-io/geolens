@@ -216,7 +216,7 @@ class AuthService:
                     > datetime.now(UTC)
                     - timedelta(seconds=settings.refresh_rotation_grace_seconds),
                 ),
-                # fix(#1455): revocation horizon, checked at use time so it
+                # Revocation horizon, checked at use time so it
                 # covers rows revoke_all_tokens couldn't see when it ran (DB
                 # clock on both sides, so skew-free).
                 or_(
@@ -506,14 +506,14 @@ class AuthService:
         transaction (e.g. change_password, where the password hash and audit
         row must land in the same commit).
 
-        bump_key_epoch (fix(#821)) also bumps User.key_epoch, invalidating
+        bump_key_epoch also bumps User.key_epoch, invalidating
         every API key minted before the bump. Default False so plain logout
         never kills long-lived API keys; pass True only from security-event
         callers.
 
         Returns the new token_version value.
         """
-        # fix(#1446): take the owner-row lock BEFORE revoking, matching
+        # Take the owner-row lock BEFORE revoking, matching
         # rotate_refresh_token — a concurrent rotation must either finish
         # before this UPDATE's snapshot (so its replacement is caught) or
         # block here and find its own row already revoked.
@@ -534,7 +534,7 @@ class AuthService:
         # 2. Atomically increment token_version (and key_epoch, if requested,
         #    in the same UPDATE) so prior access JWTs/API keys are rejected.
         #
-        #    fix(#1455): stamp the revocation horizon in the same UPDATE.
+        #    Stamp the revocation horizon in the same UPDATE.
         #    Step 1 only revokes what its own snapshot sees, so a rotation
         #    committing its replacement just after that snapshot survives —
         #    the horizon is a predicate evaluated at USE time, the only shape
@@ -642,7 +642,7 @@ class ApiKeyTargetUserNotFoundError(LookupError):
 class ApiKeyTargetUserInactiveError(ValueError):
     """The target user is not active, so an API key must not be minted.
 
-    fix(#821): a key minted for a pending account would be blocked by the
+    A key minted for a pending account would be blocked by the
     resolution-time status check while pending, then gain the approved
     role's privileges at approval. Refusing the mint closes that door early
     (approve_user's key_epoch bump is belt-and-suspenders for keys that
@@ -663,12 +663,12 @@ async def create_api_key_for_user(
     The raw key is only available at creation time. Flushes but does
     NOT commit — caller controls the transaction.
 
-    fix(#821): ``expires_at=None`` mints a non-expiring key (legacy
+    ``expires_at=None`` mints a non-expiring key (legacy
     behavior); the key snapshots the owner's key_epoch so a later security
     event (password/role change, SAML-to-local conversion — NOT logout)
     invalidates it. Minting requires an active owner.
 
-    fix(#875): ``scope="read_only"`` mints a key that authenticates only
+    ``scope="read_only"`` mints a key that authenticates only
     GET/HEAD/OPTIONS. Default matches the column default.
 
     ``scope="dataset_write"`` requires ``dataset_id`` and other scopes forbid

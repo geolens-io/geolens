@@ -27,7 +27,7 @@ def credential_for_read(
 ) -> ServiceCredential | None:
     """The credential a read of *url* may carry, or None for an anonymous one.
 
-    fix(#1764): ``make_safe_client(credential_header=...)`` guards REDIRECT
+    ``make_safe_client(credential_header=...)`` guards REDIRECT
     hops. An item document names its own self link and its assets, both
     fetched as fresh first-hop requests no redirect hook ever sees, so
     without this the catalog's key goes wherever the document points.
@@ -100,7 +100,7 @@ def _url_contradicts_identity(
     base) and the post-redirect fetch URL (the base when self link is
     absent), since both steer where relative asset hrefs resolve.
 
-    fix(#1266): a body whose id/collection are right while its self link
+    A body whose id/collection are right while its self link
     addresses a different item would otherwise resolve that item's relative
     assets and persist its URL — the next refresh would then derive its
     expected identity from the wrong URL and quietly walk to another scene.
@@ -123,7 +123,7 @@ def states_verifiable_identity(
 ) -> bool:
     """Whether a refresh could tell this item from another one.
 
-    fix(#1266): a binding written before ``item_id`` was recorded, whose
+    A binding written before ``item_id`` was recorded, whose
     catalog publishes permalink-style URLs that state no identity either,
     has nothing to check the first answer against — a re-pointed permalink
     would be adopted and its unrelated id recorded as durable truth,
@@ -148,7 +148,7 @@ def _contradicts_stored_identity(
 ) -> bool:
     """Whether this document says it is something OTHER than what was asked for.
 
-    fix(#1266): a stored URL that redirects (a catalog that collapsed a
+    A stored URL that redirects (a catalog that collapsed a
     scene into a mosaic, a bucket serving a default document) hands back a
     perfectly valid but wrong item; without this check the asset chooser's
     last resort would publish a stranger's asset as this dataset's raster.
@@ -159,7 +159,7 @@ def _contradicts_stored_identity(
     available (a pre-``item_id`` binding on a non-standard catalog has
     nothing to check). Where both sides state a value they must agree.
 
-    fix(#1266): ``expected_item_id`` comes from the binding first, URL only
+    ``expected_item_id`` comes from the binding first, URL only
     as fallback — otherwise a canonical URL later serving a different item
     of the same collection would pass. Every refresh writes the id back, so
     one refresh is enough to gain a durable identity to check against.

@@ -63,7 +63,7 @@ class BasemapEntry(BaseModel):
         # (e.g. https://tiles.openfreemap.org/styles/bright)
         if "/styles/" in v:
             return v
-        # feat(pmtiles): a single static PMTiles archive, addressed directly
+        # A single static PMTiles archive, addressed directly
         # (no style JSON, no tile server) -- bare (https://....pmtiles) or
         # scheme-prefixed (pmtiles://https://....pmtiles), matching MapLibre's
         # `pmtiles://` protocol and frontend/src/lib/basemap-utils.ts. The
@@ -187,7 +187,7 @@ class FeatureFlagsResponse(BaseModel):
 
     enable_dataset_editing: bool = False
     require_metadata_for_publish: bool = False
-    # feat(#1691): when true, only admins may set `visibility: public`; the
+    # When true, only admins may set `visibility: public`; the
     # frontend uses it to hide/disable the Public option for non-admins.
     restrict_public_visibility: bool = False
 
@@ -463,9 +463,9 @@ def _normalize_absolute_url(v: Any) -> str:
 
 
 def validate_public_app_url(v: Any) -> str:
-    """fix(#1555): one rule, both entry points.
+    """One rule, both entry points.
 
-    This validator and ``is_usable_public_origin`` each held half of what
+    This validator and ``is_usable_public_origin`` each cover half of what
     makes a public app URL usable, so an env ``PUBLIC_APP_URL`` (which skips
     this function) could accept ``https://maps.example.com/api``, while a
     persisted value (which skips the shape rule) could store

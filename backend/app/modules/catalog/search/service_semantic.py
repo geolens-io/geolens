@@ -30,20 +30,20 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 
 
 # TTL LRU cache for query embeddings, keyed on (tenant-scoped text, model,
-# config fingerprint). fix(#1546): the fingerprint is load-bearing, not
-# decoration — omitting it lets a config change serve a stale-space vector.
+# config fingerprint). The fingerprint is load-bearing, not
+# decoration: omitting it lets a config change serve a stale-space vector.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
-# fix(#448): above this many stored embeddings the exact vector arm (a full
+# Above this many stored embeddings the exact vector arm (a full
 # cosine scan) gives way to a nearest-first window.
 _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 
-# fix(#1855): above the row gate results and facets take the same window, so
+# Above the row gate results and facets take the same window, so
 # a first page of any size agrees with the facet counts.
 _APPROXIMATE_CANDIDATE_WINDOW = 200
 
-# fix(#625): search-as-you-type spent one paid embedding call per keystroke
+# Search-as-you-type would spend one paid embedding call per keystroke
 # prefix ("u", "us", "usa"), each missing the 0.7 cutoff and falling back to FTS
 # anyway; the 300s cache can't help, every prefix is a distinct key. Shorter
 # queries skip the vector path entirely.
@@ -81,9 +81,9 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
-# fix(#1903): coordinates the SPA's unordered results/facets pair so only
+# Coordinates the SPA's unordered results/facets pair so only
 # one request pays the rate-limit token; keyed on (client, tenant, text),
-# single-use, bounded by TTL + LRU. fix(#2018): a configured shared store
+# single-use, bounded by TTL + LRU. A configured shared store
 # answers first, so this is the fallback for one that does not answer, and
 # the pairing window is that store's, not a second copy of it.
 _QUERY_CLAIM_TTL_SECONDS = float(CLAIM_TTL_SECONDS)
@@ -92,7 +92,7 @@ _query_claims: "OrderedDict[tuple[str, str], tuple[str, float]]" = OrderedDict()
 
 
 def _query_claim_key(client_key: str, text: str) -> tuple[str, str] | None:
-    """fix(#1903): a tuple, not an f-string join -- ``client_key`` is an IPv6
+    """A tuple, not an f-string join -- ``client_key`` is an IPv6
     address, which contains ``:`` too, so a joined string lets one /64
     holder's query text collide with a neighbour's address.
 
@@ -109,7 +109,7 @@ def _query_claim_key(client_key: str, text: str) -> tuple[str, str] | None:
 def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
     """True when the OTHER route already claimed this (client, text); consumes it.
 
-    Read-only otherwise -- it never creates a claim. fix(#1903): claiming
+    Read-only otherwise -- it never creates a claim. Claiming
     must not be a side effect of the rate-limit pre-check, which runs for a
     request the bucket goes on to reject too; only ``record_paired_query_
     claim``, called from a handler that is provably running (the rate limit
@@ -120,11 +120,11 @@ def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
         return False
     store = get_shared_claim_store()
     if store is not None and store.consume(key, route):
-        # fix(#2018): a redeemed claim takes any local entry with it, so one
+        # A redeemed claim takes any local entry with it, so one
         # left over from an earlier outage cannot fund a second exemption.
         _query_claims.pop(key, None)
         return True
-    # fix(#2018): a store "no key" is not authoritative over a claim the
+    # A store "no key" is not authoritative over a claim the
     # fallback wrote while the store was unreachable: that claim can outlive
     # the cooldown, and it was never published for the store to answer for.
     claimed = _query_claims.get(key)
@@ -156,7 +156,7 @@ def _query_claims_clear() -> None:
     _query_claims.clear()
 
 
-# fix(#448): the provider default timeout (130s) is sized for backfill; a hung
+# The provider default timeout (130s) is sized for backfill; a hung
 # provider must not hold a search request, and resolve_semantic_arm degrades to
 # FTS on any error. wait_for keeps CatalogPort overlays source-compatible.
 _QUERY_EMBED_TIMEOUT_SECONDS = 8.0
@@ -173,7 +173,7 @@ async def _embed_with_deadline(
     )
 
 
-# fix(#1903): coalesces concurrent embeds for one cache key into a single
+# Coalesces concurrent embeds for one cache key into a single
 # provider call, since a rate-limit exemption can be granted before either
 # half of a paired request finishes embedding. Only used when the config is
 # fully pinned (see generate_embedding); waiters shield so cancelling one
@@ -211,7 +211,7 @@ async def generate_embedding(
     Memoized in the TTL LRU cache above. ``config`` is normally pre-resolved
     once per search request by the caller; omit it to resolve here.
 
-    fix(#1546): the first three config fields are handed to the PROVIDER,
+    The first three config fields are handed to the PROVIDER,
     not just used to key the cache, so a settings change mid-call can't
     vector under one config while caching/ranking against another's rows.
     """
@@ -235,7 +235,7 @@ async def generate_embedding(
 
     await release_connection(session)
     if not model_name or not dimensions:
-        # fix(#1903): mirrors generate_embeddings_batch's own session-read
+        # Mirrors generate_embeddings_batch's own session-read
         # gate (processing/embeddings/service.py) exactly, since a shared
         # task can outlive this request's session -- only a call THAT gate
         # would also treat as fully pinned may be shared; this one runs
@@ -346,7 +346,7 @@ async def resolve_query_embedding(
         return None
 
     try:
-        # fix(#1546): the query vector and the row filter come from ONE reading
+        # The query vector and the row filter come from ONE reading
         # of the configuration, resolved under the fallback guard.
         config = await get_catalog_port().resolve_embedding_config(session)
         if config is None:

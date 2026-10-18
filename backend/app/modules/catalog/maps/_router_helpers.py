@@ -110,7 +110,7 @@ def _build_layer_response(
         dataset_name=meta.get("dataset_name", ""),
         dataset_geometry_type=meta.get("geometry_type"),
         dataset_table_name=meta.get("table_name", ""),
-        # fix(#1112): RFC 7946 §5.2 bbox (west > east on a crossing) — the
+        # RFC 7946 §5.2 bbox (west > east on a crossing) — the
         # builder fit paths unwrap it past 180, while normalizeRasterBounds
         # re-spans it at the source boundary (an inverted pair matches no tile).
         dataset_extent_bbox=extent_to_bbox(meta.get("extent")),

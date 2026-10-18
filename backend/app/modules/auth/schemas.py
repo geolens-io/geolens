@@ -26,7 +26,7 @@ def validate_role_name(value: object) -> str:
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    # fix(#1446): required-but-nullable, not optional — omitting `default=`
+    # Required-but-nullable, not optional — omitting `default=`
     # keeps it in OpenAPI's `required` list so generated SDKs don't get an
     # `Unset`/absent shape the server never emits.
     refresh_token: str | None = Field(
@@ -72,7 +72,7 @@ class UserCreate(BaseModel):
             "Plaintext password (policy: min 12 chars, 3+ character classes, "
             "at most 72 bytes UTF-8)"
         ),
-        # fix(#1715): deliberately no json_schema_extra example — a published
+        # Deliberately no json_schema_extra example — a published
         # example password (Rule 3) leaked a fake-but-plausible credential into
         # openapi.json and both SDKs; no example beats one that invites
         # copy-paste.
@@ -219,7 +219,7 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    # fix(#1446): stays required — only the body as a whole is optional (route
+    # Stays required — only the body as a whole is optional (route
     # signature `RefreshRequest | None = None`). Defaulting this field would
     # make `{}` a valid body the server can't do anything with.
     refresh_token: str = Field(max_length=512)

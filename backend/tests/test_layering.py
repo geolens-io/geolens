@@ -1290,12 +1290,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/service_items.py": 777,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1138,
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1135,
     # ArcGIS identity enumeration and bounded verification share this adapter.
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
-    "backend/app/modules/catalog/sources/router.py": 1735,
+    "backend/app/modules/catalog/sources/router.py": 1734,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2093,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1335,7 +1335,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1369,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1368,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1356,7 +1356,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1657,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1655,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
@@ -1376,7 +1376,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1150,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1029,
+    "backend/app/modules/admin/service.py": 1028,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1566,

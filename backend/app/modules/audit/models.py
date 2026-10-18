@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 
-# fix(#1889): the sign-in settle finaliser's ON CONFLICT names this index, so
+# The sign-in settle finaliser's ON CONFLICT names this index, so
 # the key and the predicate are read from here by the model and by the write.
 # Migration 0059 is the source of truth for the DDL.
 ARCGIS_SIGNIN_SETTLE_INDEX = "uq_audit_logs_arcgis_signin_attempt"
@@ -49,7 +49,7 @@ class AuditLog(Base):
             },
         ),
         Index("ix_catalog_audit_logs_tenant_id", "tenant_id"),
-        # fix(#1550): one terminal entry per embedding backfill run,
+        # One terminal entry per embedding backfill run,
         # enforced by the database (three actors -- worker, status poll,
         # stale sweeper -- can legitimately close the same run, and a
         # read-before-write check races the same way the job row's did).

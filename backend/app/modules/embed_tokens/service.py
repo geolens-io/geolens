@@ -54,7 +54,7 @@ logger = structlog.stdlib.get_logger(__name__)
 # closed, and the direction to be wrong in.
 EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS = 300
 
-# fix(#1778): bounds how long a worker that took no traffic during a
+# Bounds how long a worker that took no traffic during a
 # Redis outage can keep trusting a stale positive -- it never observes the
 # revocation generation change, so it trusts a cached entry until this TTL
 # expires. Lower = shorter exposure, more DB reads; see
@@ -74,13 +74,13 @@ def _embed_token_cache_key(token_hash: str) -> str:
 async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> None:
     """Stamp a denial over each revoked token's validation-cache entry.
 
-    Best-effort: a cache failure must not break the revocation (the DB row
-    is authoritative). Also bumps the cluster-wide revocation generation in
-    the SAME transaction as the caller's is_active flip (fix(#1778) codex
-    r3/r4) -- that is what lets a worker cut off from Redis during the
-    outage still see the revocation once it reads the generation. The bump
-    is NOT wrapped in its own try/except: a failure there must poison the
-    caller's transaction, not let the revocation commit without it.
+    Best-effort: a cache failure must not break the revocation (the DB row is
+    authoritative). Also bumps the cluster-wide revocation generation in the
+    SAME transaction as the caller's is_active flip -- that is what lets a
+    worker cut off from Redis during the outage still see the revocation once
+    it reads the generation. The bump is NOT wrapped in its own try/except: a
+    failure there must poison the caller's transaction, not let the revocation
+    commit without it.
     """
     if not token_hashes:
         return
@@ -88,7 +88,7 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
     try:
         cache = get_cache()
         for token_hash in token_hashes:
-            # fix(#1778): set_authoritative, not set -- a positive
+            # set_authoritative, not set -- a positive
             # entry stuck in the in-memory fallback during a Redis outage
             # must not survive a denial written after Redis recovers.
             await cache.set_authoritative(
@@ -118,9 +118,9 @@ _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 def _is_localhost_origin(origin: str) -> bool:
     """Is this origin one that only reaches the machine it is opened on?
 
-    fix(#1555): loopback is a RANGE (127.0.0.0/8, ::1), not just
-    127.0.0.1 -- treating it as a single address let http://127.0.0.2 read
-    as a routable public origin and made a domain lock enforceable when it
+    Loopback is a RANGE (127.0.0.0/8, ::1), not just
+    127.0.0.1 -- treating it as a single address would let http://127.0.0.2 read
+    as a routable public origin and make a domain lock enforceable when it
     should not be. See is_loopback_host (app/core/public_urls.py) and the
     frontend mirror isLoopbackHostname.
     """
@@ -168,7 +168,7 @@ def extract_request_origin(request: Request) -> str | None:
 async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     """Return the normalized origins that ARE this GeoLens deployment.
 
-    fix(#1531): every candidate is server-derived, never reconstructed from
+    Every candidate is server-derived, never reconstructed from
     the caller's own Origin/Referer -- that would make every origin "self"
     and the allowlist vacuous. Sources: the configured PUBLIC_APP_URL (via
     get_configured_public_app_url, not get_public_app_url, whose fallbacks
@@ -188,7 +188,7 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
             except ValueError:
                 pass
 
-    # fix(#1548): fails CLOSED on lookup errors like every other
+    # Fails CLOSED on lookup errors like every other
     # denial here -- an authorization helper must not turn a 60s-cache DB
     # miss into a 500 on the tile path.
     try:
@@ -199,7 +199,7 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     if app_url is None:
         return origins
 
-    # fix(#1548): shape-check BEFORE normalization, since
+    # Shape-check BEFORE normalization, since
     # normalization hides the problem -- it prepends https:// to any
     # schemeless value, so a misconfigured `ftp://maps.example.com` would
     # otherwise look like a plausible non-loopback origin and issue a lock
@@ -221,7 +221,7 @@ async def _request_origin_is_allowed(
 ) -> bool:
     """Single reader for an embed token's domain lock.
 
-    fix(#1531): a domain-locked embed's own API calls (tiles/features) run
+    A domain-locked embed's own API calls (tiles/features) run
     from inside the /m/{token} iframe, so they carry the SHELL's own
     origin, never the embedder's -- the embedder's origin is only visible
     on the iframe's navigation, which frame-ancestors
@@ -259,7 +259,7 @@ async def _request_origin_is_allowed(
     if origin in self_origins:
         return True
 
-    # fix(#1548): compose ships a `PUBLIC_APP_URL:-http://localhost:8080`
+    # Compose ships a `PUBLIC_APP_URL:-http://localhost:8080`
     # default and .env.example leaves it commented out, so an unconfigured
     # self-hoster resolves a self-origin of localhost and every
     # domain-locked embed stays empty. Not inferred from
@@ -295,7 +295,7 @@ async def assert_domain_lock_is_enforceable(
 ) -> None:
     """Refuse to issue a domain lock this deployment could never enforce.
 
-    fix(#1548): the embed shell's own API calls carry the
+    The embed shell's own API calls carry the
     SHELL's origin (see _request_origin_is_allowed), which comes from
     configuration (PUBLIC_APP_URL) -- and compose's
     `:-http://localhost:8080` default plus a commented-out .env.example
@@ -382,7 +382,7 @@ def build_embed_frame_ancestors(
 class EmbedScopeNotVisibleError(Exception):
     """The minter cannot currently see every dataset the map is scoped to.
 
-    fix(#1860): distinct from this module's ValueError refusals so the
+    Distinct from this module's ValueError refusals so the
     router can answer with 403 (matching the maps router's shape for "you
     can't use these datasets") rather than the 400 licensing-refusal shape.
     """
@@ -415,7 +415,7 @@ async def create_embed_token(
     if not is_enterprise() and (expires_in_days != 30 or bool(allowed_origins)):
         raise ValueError(ADVANCED_SHARING_ERROR)
 
-    # fix(#1860): order is load-bearing. _deny_revoked_embed_tokens writes a
+    # Order is load-bearing. _deny_revoked_embed_tokens writes a
     # cache denial that is NOT rolled back with this transaction, so scope
     # must be checked and the mint accepted/refused BEFORE any revoke -- a
     # refusal raised after revoking would leave the caller's still-valid
@@ -583,7 +583,7 @@ async def get_active_embed_token(
 ) -> EmbedToken | None:
     """Load the active token a write targets, or None if there is none.
 
-    fix(#1548): shared by the router's initial 404 check and
+    Shared by the router's initial 404 check and
     update_embed_token's write-time check, so "which token does this PATCH
     mean" cannot drift between them.
     """
@@ -664,7 +664,7 @@ async def resolve_embed_scope_for_map(
         return set()
 
     # Domain-locking check — shares ONE policy reader with
-    # validate_embed_token_access so the two cannot drift (fix(#1531)).
+    # validate_embed_token_access so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, token.allowed_origins):
         return set()
 
@@ -700,13 +700,13 @@ async def validate_embed_token_access(
     cache = get_cache()
     token: EmbedToken | None = None
 
-    # fix(#1778): read the revocation generation before the cache so
+    # Read the revocation generation before the cache so
     # a hit can be compared in one round-trip (see platform/cache/revocation.py
     # for why a process-local answer isn't enough).
     generation = await current_revocation_generation(db)
-    # fix(#1778): an unreadable counter yields a SENTINEL rather than
-    # a generation; two sentinel-stamped entries used to compare EQUAL, so a
-    # positive cached while the counter was down stayed trusted through a
+    # An unreadable counter yields a SENTINEL rather than
+    # a generation; two sentinel-stamped entries would compare EQUAL, so a
+    # positive cached while the counter was down would stay trusted through a
     # later revocation. When unusable, the cache is skipped entirely in both
     # directions -- every validation costs a DB read instead.
     generation_usable = is_usable_generation(generation)
@@ -717,7 +717,7 @@ async def validate_embed_token_access(
     if cached is not None and not cached.get("is_valid", False):
         return False
 
-    # fix(#1778): an entry stamped with an older generation than the
+    # An entry stamped with an older generation than the
     # DB's current one is not evidence about the token now -- this is what
     # makes a revoke performed while this worker couldn't reach Redis visible
     # to it. An entry with no stamp (pre-upgrade) fails the same way: costs a
@@ -781,7 +781,7 @@ async def validate_embed_token_access(
         cache_ttl = int(
             min(EMBED_TOKEN_POSITIVE_TTL_SECONDS, max(0, seconds_until_expiry))
         )
-        # fix(#1778): only publish an entry that carries a generation a
+        # Only publish an entry that carries a generation a
         # future reader can actually check it against.
         if generation_usable:
             await cache.set_if_absent(
@@ -794,7 +794,7 @@ async def validate_embed_token_access(
                     "created_by": str(token.created_by) if token.created_by else None,
                     "expires_at": token.expires_at.isoformat(),
                     "tenant_id": str(token.tenant_id) if token.tenant_id else None,
-                    # generation this decision was made under (fix(#1778) r3).
+                    # The generation this decision was made under.
                     "generation": generation,
                 },
                 ttl=cache_ttl,
@@ -802,7 +802,7 @@ async def validate_embed_token_access(
             )
 
     # Domain-locking check, before dataset scope. Shares ONE reader with
-    # resolve_embed_scope_for_map (fix(#1531)) so the two cannot drift.
+    # resolve_embed_scope_for_map so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, allowed_origins):
         return False
 
@@ -864,7 +864,7 @@ async def validate_embed_token_access(
         # last_used_at bump). Every caller today is read-only, but that
         # could change.
         #
-        # fix(#1436): fired detached, not awaited -- access is
+        # Fired detached, not awaited -- access is
         # already decided, so the bump is pure telemetry that must never
         # delay or fail it. A burst of simultaneous cache-miss bumps could
         # contend for the side pool, and even a bounded await here would
@@ -878,7 +878,7 @@ async def validate_embed_token_access(
     return True
 
 
-# fix(#1436): strong refs for detached usage-bump tasks -- see
+# Strong refs for detached usage-bump tasks -- see
 # validate_embed_token_access for why they're fired this way.
 _usage_bump_tasks: set[asyncio.Task] = set()
 

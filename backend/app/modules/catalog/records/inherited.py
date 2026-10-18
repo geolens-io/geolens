@@ -164,7 +164,7 @@ async def disclosed_inherited_keywords(
     """Inherited keywords readable, at the record's CURRENT state, by someone
     who cannot open the source. Empty when there is nothing to warn about.
 
-    fix(#1178): gated on ``actor``'s access to the SOURCE — otherwise an
+    Gated on ``actor``'s access to the SOURCE — otherwise an
     output owner who lost source access could add a guessed keyword, PATCH
     their record, and read the warning as confirmation the guess exists
     there. No source access means no warning either, or that would disclose
@@ -202,7 +202,7 @@ async def inherited_keyword_disclosure_warning(
 ) -> str | None:
     """The advisory warning every resolved-state audience writer emits, or None.
 
-    fix(#1178): one shared helper, called AFTER state resolves — an inline
+    One shared helper, called AFTER state resolves — an inline
     check in ``update_user_metadata`` alone missed ``set_target_status``,
     letting a draft public output publish with no warning. Creation-time
     writers are not callers (nothing can be analysis-derived yet); ``actor``

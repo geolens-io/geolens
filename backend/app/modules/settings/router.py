@@ -213,12 +213,12 @@ async def _probe_embedding_dims_for_model(
 ) -> int:
     """Ask the provider for the natural output width of an explicitly named model.
 
-    fix(#1529): ``probe_embedding_dimensions`` resolves the model from
+    ``probe_embedding_dimensions`` resolves the model from
     PersistentConfig, so it can only probe an ALREADY-published model.
     ``update_settings`` needs the width of the model it's about to publish,
     before anything commits, so the name is passed in rather than read back.
 
-    fix(#1538): the endpoint comes from ``requested`` too — everything the
+    The endpoint comes from ``requested`` too — everything the
     probe resolves must describe the configuration being published, not the
     one being replaced.
 
@@ -474,8 +474,7 @@ async def get_all_settings(
 @router.get(
     "/enterprise-tabs/",
     response_model=EnterpriseTabsResponse,
-    # fix(scripts/deployed_surface_gate.json#enterprise_tabs_op): neutral summary
-    # replacing the auto-derived "Get Enterprise Only Tabs" banned public-copy id;
+    # Neutral summary replacing the auto-derived "Get Enterprise Only Tabs" banned public-copy id;
     # operationId/path unchanged.
     summary="List restricted settings tabs",
 )
@@ -1281,7 +1280,7 @@ async def get_tile_config(
     db: AsyncSession = Depends(get_db),
 ) -> TileConfigResponse:
     """Return tile delivery configuration (public, no auth required)."""
-    # fix(#1548): not the resolver. This field's only consumer is share-URL
+    # Not the resolver. This field's only consumer is share-URL
     # generation (frontend/src/lib/public-urls.ts), and a resolver-INFERRED
     # value (an ``/api``-stripped PUBLIC_API_URL, or request headers) is not
     # the origin a browser presents when it loads the embed shell — handing

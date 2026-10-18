@@ -58,7 +58,7 @@ from app.modules.catalog.sources.stac_resolve_taxonomy import (
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1266): datasets.origin_uri is String(2000); the import model's 4096
+# datasets.origin_uri is String(2000); the import model's 4096
 # cap (right for JSONB origin_ref) is too loose here and would let a long
 # href pass this gate then abort the success transaction on commit.
 _MAX_STORED_URI_CHARS = 2000
@@ -73,11 +73,11 @@ def _bound_asset_key(
     ``asset_key`` by name, or the asset whose href still equals the stored
     one (also recovers the key for a pre-``asset_key`` import).
 
-    fix(#1266): no third way. Falling back to ``pick_data_asset`` for a
+    No third way. Falling back to ``pick_data_asset`` for a
     keyless binding whose href has moved would silently switch which asset
     is served and report it as a successful refresh.
 
-    fix(#1331): checks ``is not None``, not truthiness — ``""`` is a legal
+    Checks ``is not None``, not truthiness — ``""`` is a legal
     asset key and must not be treated as no key recorded.
     """
     if asset_key is not None and isinstance(assets.get(asset_key), dict):
@@ -111,7 +111,7 @@ def _identity_refusal(
     item steers the asset); and, when nothing trustworthy states the
     collection, does the body affirm it.
 
-    fix(#1266): that last check closes the permalink case — a non-standard
+    That last check closes the permalink case — a non-standard
     item URL states no collection, so a permalink re-pointed at another
     collection's same-id item, with a body that omits `collection`, would
     otherwise have nothing to contradict it and the bound key would select
@@ -177,7 +177,7 @@ async def _resolve_from_item(
     ``repair_nodata`` asks for a nodata-only backfill when the asset did
     not move. The caller sets it only while its stored value is missing.
 
-    fix(#1764): the two reads this gate makes of its own go to addresses THIS
+    The two reads this gate makes of its own go to addresses THIS
     DOCUMENT named, so each is gated on ``catalog_origin`` — the self link
     is dropped rather than fetched off-origin, and an off-origin asset is
     probed anonymously, which is the ordinary shape for a catalog whose
@@ -195,11 +195,11 @@ async def _resolve_from_item(
     assets = item["assets"]
     key = _bound_asset_key(assets, asset_href=asset_href, asset_key=asset_key)
     if key is None:
-        # fix(#1266): a binding that recorded its key knows which entry
+        # A binding that recorded its key knows which entry
         # disappeared, so its absence reports as removed even if the item
         # publishes something the import rule would have picked. A keyless
         # binding cannot tell removal from ambiguity, so it falls through.
-        # fix(#1331): `is not None`, not truthiness — `""` is a recorded key.
+        # `is not None`, not truthiness — `""` is a recorded key.
         if asset_key is not None:
             return _ASSET_GONE
         # An item with no usable data asset has lost the asset (`missing`).
@@ -209,14 +209,14 @@ async def _resolve_from_item(
             return _ASSET_GONE
         return _ASSET_UNIDENTIFIED
 
-    # fix(#1266): the item's own address is the base for its relative hrefs.
+    # The item's own address is the base for its relative hrefs.
     # On the search path the document arrived inside a FeatureCollection, so
     # the request URL is the /search endpoint — resolving a relative href
     # against that composes a path under the search URL, a different and
     # possibly live object. STAC's reading is the item's own location; the
     # requested URL is only the fallback for catalogs with no self link.
     #
-    # fix(#1266): the self link is settled once, before use, because it
+    # The self link is settled once, before use, because it
     # steers both the asset-href base and the stored pointer — validating
     # only on the way to storage would let an item advertising a login page
     # have a COG resolved under that page's path and persisted as the asset.
@@ -231,11 +231,11 @@ async def _resolve_from_item(
         catalog_origin=catalog_origin,
     )
 
-    # fix(#1266): `item_base` is the item's own fetch URL on the direct path
+    # `item_base` is the item's own fetch URL on the direct path
     # and nothing on the search path (there the request URL addresses the
     # query, not the item) — with no trustworthy item URL a relative href
     # cannot be resolved at all.
-    # fix(#1266): one binding, one document — the asset is read from whatever
+    # One binding, one document — the asset is read from whatever
     # document supplied the adopted self href, never a different document's
     # href stored beside it.
     describing = self_document if self_document is not None else item
@@ -261,13 +261,13 @@ async def _resolve_from_item(
     # unresolvable.
     resolved_item_href = self_href or fallback_item_href
 
-    # fix(#1764): ANONYMOUS, always. Titiler serves this href out of process
+    # ANONYMOUS, always. Titiler serves this href out of process
     # and cannot carry a request-only credential, so a probe that used one
     # would report `healthy` for tiles that stay unreadable. The verdict has
     # to answer the question the tiler will ask.
     probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
-        # fix(#1266): refused, not merely reported — this is a fact about
+        # Refused, not merely reported — this is a fact about
         # GeoLens (the SSRF guard won't fetch this address, at the first hop
         # or down a redirect chain), unlike other probe verdicts which are
         # facts about the origin. The tile path hands a stored asset_uri to
@@ -277,7 +277,7 @@ async def _resolve_from_item(
 
     metadata: dict[str, Any] | None = None
     if href != asset_href:
-        # fix(#1266): re-read only when the href moved — a re-tiled scene can
+        # Re-read only when the href moved — a re-tiled scene can
         # change band count/dtype/nodata/stats, which the tile proxy builds
         # bidx/rescale/nodata from, so a stale description can render wrong.
         # An object replaced in place at an unchanged URL needs no re-read.
@@ -288,12 +288,12 @@ async def _resolve_from_item(
             await validate_url_for_ssrf(href)
         except SSRFError:
             return _ASSET_BLOCKED
-        # feat(#1764): Titiler fetches this URL itself, in another process,
+        # Titiler fetches this URL itself, in another process,
         # so a credentialed asset that MOVED reads as unreadable rather than
         # re-describing. Carrying a key to the tiler is overlay work.
         metadata = await fetch_cog_info(href)
         if metadata is None or metadata.get("not_geotiff"):
-            # fix(#1266): the probe may have already settled this — 404/410
+            # The probe may have already settled this — 404/410
             # is conclusively gone, so keep that verdict rather than replace
             # it with an inconclusive one. Pointer is not adopted either way.
             if probed.health == MISSING:
@@ -309,7 +309,7 @@ async def _resolve_from_item(
         href, moved=href != asset_href, repair_nodata=repair_nodata
     )
 
-    # fix(#1266): properties/bbox read from the same document as the asset —
+    # The properties/bbox are read from the same document as the asset —
     # a canonical document that supersedes the representation supersedes its
     # projection too.
     properties = describing.get("properties")
@@ -328,7 +328,7 @@ async def _resolve_from_item(
         # resolved since identity is already settled and the href match
         # will find it again.
         asset_key=storable_asset_key(key),
-        # feat(#1692): from the same document as the href, so the refresh
+        # From the same document as the href, so the refresh
         # advertises what the publisher currently declares.
         asset_media_type=storable_media_type(describing["assets"][key].get("type")),
         asset_metadata=metadata,
@@ -351,7 +351,7 @@ async def _trustworthy_self_href(
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     """``(pointer to store, base for relative hrefs, the document at it)``.
 
-    fix(#1266): two values because the self link plays two roles that can
+    Two values because the self link plays two roles that can
     name different URLs under a redirect — the POINTER is the publisher's
     declared canonical address, the BASE is the address the document was
     actually served from (what relative hrefs resolve against). Settled
@@ -362,7 +362,7 @@ async def _trustworthy_self_href(
     serve this item (a 200 from an auth wall doesn't count); does the
     document it serves still carry the bound asset.
 
-    fix(#1266): the document comes back paired with the pointer so a refresh
+    The document comes back paired with the pointer so a refresh
     never stores one document's pointer beside another document's href —
     one binding, one document.
 
@@ -374,7 +374,7 @@ async def _trustworthy_self_href(
     if self_href is None:
         return None, None, None
     if self_href == fallback and fallback_is_live:
-        # fix(#1266): only on the direct path — the search path is reached
+        # Only on the direct path — the search path is reached
         # because the stored pointer 404s, so a searched feature advertising
         # that same stale URL must still be checked, not skipped.
         # No base returned: this is the caller-requested URL, not
@@ -385,7 +385,7 @@ async def _trustworthy_self_href(
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         return None, None, None
-    # fix(#1764): a self link off the catalog's origin is DROPPED, whether or
+    # A self link off the catalog's origin is DROPPED, whether or
     # not THIS refresh carries a credential. It becomes the stored pointer,
     # which is the origin every later refresh sends its credential to, so an
     # anonymous one adopting it moves that anchor. Unconditional, like the two
@@ -416,7 +416,7 @@ async def _trustworthy_self_href(
         return None, None, None
     replacement_asset = document.get("assets", {}).get(asset_key)
     if not isinstance(replacement_asset, dict) or (
-        # fix(#1266): present is not usable — a keyed empty object gives the
+        # Present is not usable — a keyed empty object gives the
         # next refresh no href to resolve.
         storable_href(replacement_asset.get("href"), final_url) is None
     ):
@@ -430,7 +430,7 @@ async def _trustworthy_self_href(
 def _horizontal_bbox(stated: Any) -> list[float] | None:
     """``[west, south, east, north]`` from a STAC bbox, or None.
 
-    fix(#1266): a bbox may be 6 values (minx, miny, minz, maxx, maxy, maxz);
+    A bbox may be 6 values (minx, miny, minz, maxx, maxy, maxz);
     taking the first four would read elevation as east and longitude as
     north. Horizontal pair is at indices 0,1,3,4 in the 3D form, 0,1,2,3 in
     the 2D one.

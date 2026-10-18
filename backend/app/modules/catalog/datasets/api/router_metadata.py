@@ -59,7 +59,7 @@ router = APIRouter(
 @router.get(
     "/{dataset_id}/versions/",
     response_model=DatasetVersionListResponse,
-    # fix(getgeolens.com#86): read-gated (check_dataset_access_or_anonymous
+    # Read-gated (check_dataset_access_or_anonymous
     # below), not write-gated -- see datasets/api/router.py:get_single_dataset.
     responses={403: FORBIDDEN_RESPONSE},
 )
@@ -199,7 +199,7 @@ async def update_attribute_endpoint(
         # exclude_unset, not exclude_none, so an explicit null clears the field
         updates = body.model_dump(exclude_unset=True)
         if updates:
-            # fix(#1847): the pair before the attribute row, the order every
+            # The pair before the attribute row, the order every
             # column DDL holds; attribute-first is an ABBA against them.
             await lock_catalog_rows_for_write(db, dataset)
             attr = await update_attribute(db, attribute_id, **updates)
@@ -259,7 +259,7 @@ async def reset_attribute_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Attribute not found"
         )
     try:
-        # fix(#1847): data table, then the pair, then the attribute row: every
+        # Data table, then the pair, then the attribute row: every
         # column DDL holds its ALTER TABLE before it takes the pair.
         examples = await sample_example_values(
             db, dataset.table_name, attr.field_name, attr.data_type
@@ -325,7 +325,7 @@ async def get_column_values(
     # Visibility check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have a synthetic table_name with no
+    # Raster/VRT datasets have a synthetic table_name with no
     # backing data.<table>, so a column query would raise
     # UndefinedTableError -> 500. Return a fast 404 first instead.
     if not capabilities(dataset.record.record_type).feature_table:
@@ -465,7 +465,7 @@ async def create_dataset_relationship(
 
     from app.modules.catalog.datasets.domain.models import Dataset
 
-    # fix(#315): accept either a Dataset.id (list/create responses) or the
+    # Accept either a Dataset.id (list/create responses) or the
     # underlying record_id (the original input contract).
     target_result = await db.execute(
         select(Dataset).where(Dataset.id == body.target_dataset_id)
@@ -496,7 +496,7 @@ async def create_dataset_relationship(
     await lock_dataset_rows_for_write(db, dataset, also=target_dataset)
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
-    # fix(#315): FK columns store catalog.records.id, but the response
+    # FK columns store catalog.records.id, but the response
     # carries dereferenceable Dataset.id so /collections/{id} resolves
     # them, matching the LIST path (_visible_relationships).
     return DatasetRelationshipResponse(

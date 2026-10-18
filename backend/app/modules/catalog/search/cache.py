@@ -82,8 +82,8 @@ def build_cache_key(
 
     ``default=str`` silently swallows non-determinism outside date/UUID —
     audit ``SearchFilters`` when adding fields. ``semantic_enabled`` is keyed
-    so facets match the results' candidate set (fix(#1855)); ``public_app_url``
-    is keyed because raster_tiles hrefs use the app origin (fix(#315)).
+    so facets match the results' candidate set; ``public_app_url``
+    is keyed because raster_tiles hrefs use the app origin.
     ``filters.keywords`` order is preserved — do NOT sort it here.
     """
     payload: dict[str, object] = {

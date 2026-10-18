@@ -189,7 +189,7 @@ async def create_user(
     """Create a new user with the specified role (admin only)."""
     # Enforce allowed_email_domains on admin-create. Break-glass:
     # the requesting admin is exempt when they hold manage_settings (see the
-    # shared gate, fix(#836)).
+    # shared gate).
     from app.modules.auth.domain_policy import (
         enforce_email_domain_gate,
     )
@@ -961,8 +961,8 @@ def _ai_status(
 
 
 # Dual-shape decorator — see /users above.
-# fix(#627): exclude_unset so the `probe` field appears ONLY when the caller
-# opted in — the default response keeps its exact pre-probe JSON shape.
+# exclude_unset so the `probe` field appears ONLY when the caller
+# opted in; the default response keeps its probe-less JSON shape.
 # Safe because _ai_status passes every other field explicitly.
 @router.get(
     "/ai-status",
@@ -977,7 +977,7 @@ def _ai_status(
     response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
 )
-# fix(#627): probe=true spends real provider quota and can hold a worker for
+# probe=true spends real provider quota and can hold a worker for
 # the probe timeout — same 30/minute cap as the PATCH sibling; plain status
 # reads share it too, but dashboards fetch far less than 30/minute.
 @limiter.limit("30/minute")
@@ -1020,7 +1020,7 @@ async def get_ai_status(
 
 
 # Dual-shape decorator — see /users above.
-# fix(#627): exclude_unset for shape parity with GET (probe is never set here).
+# exclude_unset for shape parity with GET (probe is never set here).
 @router.patch(
     "/ai-status",
     response_model=AIStatusResponse,
@@ -1242,8 +1242,8 @@ async def _queue_backfill_run(
 
     requester = str(requested_by) if requested_by is not None else None
 
-    # fix(#1542): retrying after a 504 could start a second regenerate (a
-    # second DELETE on the force path); #1519's pre-flight guards don't see
+    # Retrying after a 504 could start a second regenerate (a
+    # second DELETE on the force path); the pre-flight guards don't see
     # concurrent runs. This SELECT is the FRIENDLY half — the real guard is
     # the partial unique index from migration 0050, since a check-then-insert
     # is a TOCTOU the database must serialize, not the application.
@@ -1318,7 +1318,7 @@ async def _queue_backfill_run(
             detected_by="unique_index",
         )
     except BaseException:
-        # fix(#1556 review): ANY failure of that commit can be a lost
+        # ANY failure of that commit can be a lost
         # acknowledgement, not only a cancellation, and one that never landed
         # matches no row — so the fenced cleanup is right for the whole class.
         if pending_job_id is not None:
@@ -1387,7 +1387,7 @@ async def _queue_backfill_run(
                 )
         raise
     except asyncio.CancelledError:
-        # fix(#1550): the orphan guard catches `Exception`, so cancellation here
+        # The orphan guard catches `Exception`, so cancellation here
         # bypasses it and `DeferFailed` above. Cleanup is fenced on `pending`
         # and shielded, and the cancellation is re-raised so shutdown still works.
         await _settle_undispatched_backfill(

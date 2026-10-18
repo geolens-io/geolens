@@ -143,9 +143,9 @@ _MAX_STYLE_DICT_BYTES = (
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
 # How many style-import warnings the summary reports individually before it
-# starts counting instead (fix(#1778)).
+# starts counting instead.
 _MAX_IMPORT_WARNINGS = 100
-# fix(#1778): the raw `layers` array isn't the logical layer
+# The raw `layers` array isn't the logical layer
 # count — a GeoLens export emits up to 4 style layers per logical one
 # (companions), so this bound is 4 * _MAX_LAYERS_PER_MAP + 200 headroom.
 _MAX_STYLE_DOCUMENT_LAYERS = 4 * _MAX_LAYERS_PER_MAP + 200
@@ -171,9 +171,9 @@ def _validate_style_dict(v: dict | None) -> dict | None:
 def _validate_filter_field(v: list | None) -> list | None:
     """Bound a layer filter's nesting and size, then normalize its grammar.
 
-    fix(#1778): `filter` was the one open JSONB column missing the size
-    cap (the cap above only covers dicts) — a 20000-clause filter stored
-    2.5 MB of JSONB, re-serialized on every export and builder load.
+    `filter` needs its own size cap (the cap above only covers dicts); an
+    unbounded filter would store megabytes of JSONB, re-serialized on every
+    export and builder load.
 
     `validate_filter` runs first since it carries the nesting bound;
     size-checking an unbounded filter first would RecursionError instead
@@ -187,12 +187,12 @@ def _validate_filter_field(v: list | None) -> list | None:
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     """Size-cap a paint/layout dict, then shape-check any legacy ``stops``.
 
-    fix(#1069): paint/layout were bounded only by serialized size, so a
-    structurally nonsense value (``{"fill-pattern": {"stops": 1}}``)
-    persisted and later 500'd whatever serializer descended into it.
+    A size cap alone would let a structurally nonsense value
+    (``{"fill-pattern": {"stops": 1}}``) persist and later 500 whatever
+    serializer descended into it.
 
     ``stops`` only, and only as a direct property value (not inside an
-    expression operand, fix(#1109)) — the legacy shape (a list of
+    expression operand) — the legacy shape (a list of
     ``[input, output]`` pairs) needs no per-property allowlist to check.
 
     ``style_config`` keeps just the size cap: its own ``stops`` shape
@@ -906,7 +906,7 @@ class MapUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_unique_layer_ids(self) -> "MapUpdate":
-        # fix(#430): a full-replace repeating an id would
+        # A full-replace repeating an id would
         # silently collapse entries in the by-id reconcile (second
         # overwrites first); mirrors PATCH's duplicate-id rejection.
         if self.layers is not None:
@@ -970,15 +970,15 @@ class MapLayerResponse(BaseModel):
     # edits, column DDL, tile_columns changes, AND reupload) instead of
     # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None
-    # fix(#1963): the counter the signed tile scope binds. The saved-map style
+    # The counter the signed tile scope binds. The saved-map style
     # document is a tile-signature minter, so it needs the same version the
     # tile route verifies against.
     publication_version: int | None = None
-    # fix(#430): dataset visibility/status so the builder can badge a layer whose
+    # Dataset visibility/status so the builder can badge a layer whose
     # dataset is hidden from a public/shared map's anonymous audience.
     dataset_visibility: str | None = None
     dataset_status: str | None = None
-    # feat(#1472): the dataset's required credit line, so the viewer can put it
+    # The dataset's required credit line, so the viewer can put it
     # in MapLibre's attribution control alongside the basemap's.
     dataset_attribution: str | None = None
 
@@ -1031,7 +1031,7 @@ class MapStyleImportSummary(BaseModel):
     layers_imported: int = 0
     layers_skipped: int = 0
     warnings: list[MapStyleImportWarning] = Field(default_factory=list)
-    # fix(#1778): a document can carry an unbounded number of unmatched
+    # A document can carry an unbounded number of unmatched
     # sources, each serialized into the 201 response as a DOM node. Keep
     # the first _MAX_IMPORT_WARNINGS and count the rest.
     warnings_truncated: int = Field(
@@ -1098,9 +1098,9 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre sources object keyed by source id",
     )
-    # fix(#1672): the spec allows both the base-URL string and array form,
-    # but GET .../style.json always emits array — a string-only field made
-    # exported styles fail import with 422 (couldn't round-trip).
+    # The spec allows both the base-URL string and array form,
+    # but GET .../style.json always emits array — a string-only field would
+    # make exported styles fail import with 422 (no round-trip).
     sprite: (
         Annotated[str, StringConstraints(max_length=2000)] | list[MapSpriteEntry] | None
     ) = Field(
@@ -1115,7 +1115,7 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre terrain config (source + exaggeration)",
     )
-    # fix(#1778): bounds the raw document before anything walks it —
+    # Bounds the raw document before anything walks it —
     # _MAX_LAYERS_PER_MAP here would wrongly refuse a >50-polygon export
     # (the logical limit applies after companion classification instead).
     layers: list[dict] | None = Field(
@@ -1154,7 +1154,7 @@ class MapSummaryResponse(BaseModel):
     description: str | None
     visibility: MapVisibility
     thumbnail_url: str | None = None
-    # fix(#1005): the thumbnail's cache version, separate from the map's edit
+    # The thumbnail's cache version, separate from the map's edit
     # timestamp. Null for maps whose thumbnail predates the column; the card
     # falls back to `updated_at` so it keeps a stable version either way.
     thumbnail_updated_at: datetime | None = None
@@ -1223,7 +1223,7 @@ class SharedLayerResponse(BaseModel):
     # Dataset content version for the `_v=` tile cache-buster
     # (viewer parity with MapLayerResponse.tile_version).
     tile_version: int | None = None
-    # feat(#1472): viewer parity with MapLayerResponse.dataset_attribution. The
+    # Viewer parity with MapLayerResponse.dataset_attribution. The
     # shared/embed viewer is the surface a license's display obligation most
     # needs to reach, since it is the one shown to people outside the instance.
     dataset_attribution: str | None = None
@@ -1250,9 +1250,9 @@ class SharedMapResponse(BaseModel):
 
 
 class ShareTokenRequest(BaseModel):
-    # fix(#435): `AwareDatetime`, not bare `datetime` — Pydantic accepts a
-    # naive ISO string, and comparing it to an aware datetime below raised
-    # TypeError (500) instead of AwareDatetime's clean 422.
+    # `AwareDatetime`, not bare `datetime` — Pydantic accepts a
+    # naive ISO string, and comparing it to an aware datetime below would
+    # raise TypeError (500) instead of AwareDatetime's clean 422.
     expires_at: AwareDatetime | None = Field(
         default=None,
         description=(
@@ -1277,10 +1277,10 @@ class ShareTokenRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_enterprise_controls(self):
-        # fix(#435): the edition boundary was enforced only by the two
-        # route handlers, so a direct service caller could bypass it.
-        # Guard at the schema too, mirroring `EmbedTokenCreate`. ``None`` stays
-        # valid: Community can still clear an existing expiration.
+        # The route handlers enforce the edition boundary, so a direct
+        # service caller could bypass it. Guard at the schema too, mirroring
+        # `EmbedTokenCreate`. ``None`` stays valid: Community can still clear
+        # an existing expiration.
         if self.expires_at is not None and self.expires_in_days is not None:
             raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
         if self.expires_at is not None and not is_enterprise():

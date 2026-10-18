@@ -1,6 +1,6 @@
 """Re-resolve a STAC dataset's binding against the catalog that published it.
 
-feat(#1266)/ADR-002 A10. A STAC dataset holds no bytes, only a POINTER an
+ADR-002 A10 (#1266). A STAC dataset holds no bytes, only a POINTER an
 upstream publisher can move. #1222 taught GeoLens to NOTICE that (404/410 ->
 ``missing``) but not to act; this module is the acting half — every function
 here is a network read that returns facts, never writes to the DB. The
@@ -81,12 +81,12 @@ async def resolve_stac_binding(
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
 
-    feat(#1764): the refresh door stashes ``credential`` for one attempt and
+    The refresh door stashes ``credential`` for one attempt and
     the worker claims it once. ``catalog_origin`` is the catalog origin it
     was given for; a read the item document steers elsewhere is made
     anonymously (``credential_for_read``). Defaults to the stored item URL's
     origin, which is what the door validated and cannot drift, since an
-    off-origin self link is no longer adopted.
+    off-origin self link is never adopted.
 
     ``repair_nodata`` reaches both paths below, direct and by-search.
     """
@@ -96,7 +96,7 @@ async def resolve_stac_binding(
     # of the URL for datasets imported before it was recorded — only ever a
     # reading of the stored href, never a guess.
     #
-    # fix(#1266): `collection` is optional on a binding, and every
+    # `collection` is optional on a binding, and every
     # collection comparison here is skipped when absent — so a stored
     # `/collections/A/items/x` that later redirects to `/collections/B/...`
     # would rebind to B's keyed asset unless the URL's own collection stands

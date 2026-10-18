@@ -232,9 +232,9 @@ class DistributionUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: str | None) -> str | None:
-        # fix(#458): the update path skipped the HTTP(S) validation the
-        # create path enforces, letting javascript:/file:// strings re-enter
-        # the DCAT/STAC feeds as accessURL/downloadURL.
+        # Same HTTP(S) validation as the create path; otherwise
+        # javascript:/file:// strings could re-enter the DCAT/STAC feeds as
+        # accessURL/downloadURL.
         if v is not None:
             HttpUrl(v)
         return v

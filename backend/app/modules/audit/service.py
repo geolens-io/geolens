@@ -149,7 +149,7 @@ def _apply_filters(
     if snapshot_at is not None:
         query = query.where(AuditLog.created_at <= snapshot_at)
     if search is not None:
-        # ADMIN-02 (Phase 279/M-02, fixed T-1): rewrite ILIKE to
+        # Rewrite ILIKE to
         # lower(catalog.immutable_unaccent(...)).like so the planner uses
         # ix_audit_logs_action_trgm / ix_users_username_trgm, which are built
         # on that exact schema-qualified expression. Bare ILIKE, or
@@ -173,7 +173,7 @@ def _apply_filters(
         # resource_type stays ILIKE -- it is a fixed enum-like string column with
         # low cardinality and no trigram index; the optimizer handles it with the
         # existing composite index on (resource_type) when present.
-        # WR-02: escape %, _, and \\ so admin searches for literal special chars
+        # Escape %, _, and \\ so admin searches for literal special chars
         # return the correct rows rather than acting as wildcards.
         search_filter = (
             action_match
@@ -278,15 +278,14 @@ async def log_action(
     """Create an audit log entry. Does NOT commit -- caller's transaction handles it.
 
     ``user_id=None`` is structurally accepted (nullable FK: ON DELETE SET
-    NULL, SAML-JIT, KNOWN-01 anonymous-download closure).
+    NULL, SAML-JIT, anonymous downloads).
 
-    fix(#1491): ``details`` is normalized through ``jsonable_encoder`` first,
+    ``details`` is normalized through ``jsonable_encoder`` first,
     since the JSONB column has no ``json_serializer`` registered and stdlib
-    ``json.dumps`` cannot take a ``date``/``UUID``/``Decimal`` (#1484). #1489
-    fixed the two call sites that could produce one and guarded against new
-    ones; this makes the row itself unable to carry the fault, so
-    ``audit_emit()``'s savepoint becomes a second line of defence rather
-    than the only one. ``None`` is preserved as SQL NULL -- an absent
+    ``json.dumps`` cannot take a ``date``/``UUID``/``Decimal``. Normalizing
+    here makes the row itself unable to carry the fault, so
+    ``audit_emit()``'s savepoint is a second line of defence rather than the
+    only one. ``None`` is preserved as SQL NULL -- an absent
     payload and an empty one are different rows.
     """
     entry = AuditLog(
@@ -321,13 +320,13 @@ async def query_audit_logs(
     `sort`/`order` say otherwise (must be a key of _audit_sort_columns() /
     one of asc/desc; anything else raises ValueError).
 
-    fix(#1204): sorting stops here -- the CSV/JSON export runs through
+    Sorting stops here -- the CSV/JSON export runs through
     stream_audit_logs, a separate cursor-based generator with its own
     created_at DESC ordering, deliberately left alone (see the export
     endpoint's docstring in router.py).
 
     Uses ``COUNT(*) OVER ()`` so the total rides along with the filtered
-    slice in one round trip instead of a sibling count query (PERF-4).
+    slice in one round trip instead of a sibling count query.
     """
     # Call _apply_filters directly with keyword args (not **unpack of a dict)
     # so mypy preserves the per-parameter type narrowing — unpacking a
@@ -345,7 +344,7 @@ async def query_audit_logs(
         snapshot_at=snapshot_at,
         search=search,
     )
-    # fix(#1204): a dedicated alias, not the bare User entity, so this
+    # A dedicated alias, not the bare User entity, so this
     # ORDER BY join can never interact with the `users` reference
     # _apply_filters already has in its username search.
     #
@@ -436,7 +435,7 @@ async def resolve_resource_names(
     return names
 
 
-# SEC-FU-08: Column DDL action strings emitted by the column-DDL endpoints
+# Column DDL action strings emitted by the column-DDL endpoints
 # (backend/app/modules/catalog/layers/router.py). These 4 values are the canonical
 # set; do NOT add new strings here without also updating the router audit_emit calls.
 _COLUMN_DDL_ACTIONS = (
@@ -456,8 +455,8 @@ async def query_column_ddl_history(
 ) -> tuple[list[AuditLog], int]:
     """Return column-DDL audit history for a single dataset.
 
-    SEC-FU-08: filters to the 4 column-DDL action strings emitted by the
-    column-DDL endpoints (Phase 1061 SEC-S03), ordered by created_at DESC.
+    Filters to the 4 column-DDL action strings emitted by the column-DDL
+    endpoints, ordered by created_at DESC.
     Returns (rows, total_count), matching query_audit_logs's shape for
     consistent pagination at the router layer. Eager-loads AuditLog.user
     (already lazy="joined") so the actor username needs no N+1. No schema

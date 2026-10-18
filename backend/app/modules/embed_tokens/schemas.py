@@ -13,7 +13,7 @@ ADVANCED_SHARING_ERROR = "Advanced sharing controls are not enabled for this dep
 
 def _normalize_origin(origin: str) -> str:
     normalized = origin.strip().lower().rstrip("/")
-    # fix(#1548): a backslash is an origin-confusion primitive --
+    # A backslash is an origin-confusion primitive --
     # 'https://maps.example.com\\@evil.com' parses to a different host here
     # than in a browser. Refused for the same reason as
     # is_usable_public_origin (app/core/public_urls.py).
@@ -31,14 +31,14 @@ def _normalize_origin(origin: str) -> str:
         raise ValueError(f"Invalid origin: {origin}")
 
     scheme = parsed.scheme or "https"
-    # fix(#1548): host comes from parsed.hostname, not sliced out
-    # of netloc -- netloc carries userinfo, so 'https://u:p@host' used to be
-    # stored verbatim, leaking credentials into any CSP header built from it.
+    # Host comes from parsed.hostname, not sliced out
+    # of netloc -- netloc carries userinfo, so storing 'https://u:p@host' verbatim
+    # would leak credentials into any CSP header built from it.
     # hostname also strips IPv6 brackets (e.g. '::1'), producing an invalid
     # CSP source ('http://::1:8080'); RFC 3986/CSP3 require them bracketed,
     # so they're added back below.
     host = parsed.hostname or ""
-    # fix(#1548): non-ASCII hosts are REFUSED, not converted --
+    # Non-ASCII hosts are REFUSED, not converted --
     # Python's idna codec is IDNA2003 (faß.de -> fass.de) while browsers use
     # WHATWG/UTS #46 (xn--fa-hia.de), so converting here would produce a
     # near-match that silently denies every request.
@@ -47,7 +47,7 @@ def _normalize_origin(origin: str) -> str:
             f"Invalid origin: {origin}. An internationalized domain must be "
             "given in its punycode (xn--) form, which is what browsers send."
         )
-    # fix(#1548): host must already be spelled the way a browser
+    # Host must already be spelled the way a browser
     # serializes it (e.g. compressed IPv6, no leading zeros) or the stored
     # origin can never match the shell's Origin header.
     host_problem = canonical_host_error(host)

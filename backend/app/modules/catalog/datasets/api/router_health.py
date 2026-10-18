@@ -98,7 +98,7 @@ async def _stac_probe_targets(
 ) -> tuple[str | None, str | None]:
     """Resolve what a STAC probe would contact, on the request's DB session.
 
-    fix(#1271): split from the probing itself so the handler can
+    Split from the probing itself so the handler can
     release its pooled connection before the outbound wait — target
     resolution is the only part that needs the database.
     """
@@ -147,7 +147,7 @@ async def _probe_stac_targets(
 def _service_probe_target(dataset: Dataset) -> str:
     """The URL a service probe contacts. Reachability is all it can claim.
 
-    fix(#1746): ArcGIS answers several conditions with HTTP 200 and an
+    ArcGIS answers several conditions with HTTP 200 and an
     error envelope, so :func:`probe_arcgis_origin` parses codes 498/499
     (auth refusals) from the ``/query`` operation the worker actually
     reads, not the layer document. A DROPPED LAYER still reads as
@@ -202,7 +202,7 @@ async def check_source_health(
             },
         )
 
-    # fix(#1271): the probe awaits a third-party host, and a reupload can
+    # The probe awaits a third-party host, and a reupload can
     # commit a new origin binding in that window. Persisting through the
     # ORM instance would write the OLD origin's verdict onto the new
     # binding, permanently if a service became an upload (uploads 409
@@ -221,19 +221,19 @@ async def check_source_health(
     else:
         asset_uri = item_href = None
         service_target = _service_probe_target(dataset)
-        # fix(#1746): read while the session is still live -- the ORM
+        # Read while the session is still live -- the ORM
         # instance is dead after the rollback below, and the probe branch
         # needs to know whether this origin speaks ArcGIS error envelopes.
         service_type = (dataset.origin_ref or {}).get("service_type")
 
-    # fix(#1271): release the pooled connection BEFORE the outbound wait.
+    # Release the pooled connection BEFORE the outbound wait.
     # The probe can take 10s against a slow origin, and a session held
     # across it pins a pool slot -- a dozen concurrent probes would starve
     # every other database-backed request. The conditional UPDATE below
     # opens its own fresh transaction.
     await db.rollback()
 
-    # feat(#1268): timed around the outbound wait only, not the handler --
+    # Timed around the outbound wait only, not the handler --
     # the duration an operator cares about is the origin's, and folding
     # database work in would blur the one number that says "this source
     # got slow".
@@ -241,7 +241,7 @@ async def check_source_health(
     if origin == "stac":
         result = await _probe_stac_targets(asset_uri, item_href)
     else:
-        # fix(#1746): ArcGIS answers an auth refusal with HTTP 200 and an
+        # ArcGIS answers an auth refusal with HTTP 200 and an
         # error envelope, which a status-code probe reads as healthy, so
         # the probe is chosen by service type, same as the refresh door.
         result = await probe_service_origin(service_target, service_type)
@@ -277,7 +277,7 @@ async def check_source_health(
             Dataset.source_format.is_not_distinct_from(bound_format),
         )
         .values(**values)
-        # fix(#1271): the response reports what the row actually holds
+        # The response reports what the row actually holds
         # after this write, not a pre-probe snapshot -- a concurrent probe
         # may have committed a newer contact time that this outcome leaves
         # in place.
@@ -306,7 +306,7 @@ async def check_source_health(
             },
         )
 
-    # fix(#1271): GET /datasets/ serves these fields from a 60s cache, so
+    # GET /datasets/ serves these fields from a 60s cache, so
     # without this the list keeps reporting pre-probe state. After the
     # rowcount check: a discarded verdict changed nothing.
     await invalidate_catalog_cache()

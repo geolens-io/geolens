@@ -68,7 +68,7 @@ def _qtable(table_name: str, *, schema: str | None = None) -> str:
 def _sql_quote_ident(name: str) -> str:
     """Return a safely double-quoted SQL identifier for use inside text().
 
-    fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
+    Colons are backslash-escaped because SQLAlchemy ``text()``
     parses ``:name`` as a bind parameter even inside double-quoted
     identifiers. Only valid inside ``text()``.
     """
@@ -105,7 +105,7 @@ async def get_distinct_values(
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
     table_ref = _qtable(table_name)
-    # fix(#458): quote so a reserved-word column name (desc, order,
+    # Quote so a reserved-word column name (desc, order,
     # user) doesn't 500 the query.
     col_q = _sql_quote_ident(column_name)
 

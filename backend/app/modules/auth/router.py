@@ -101,7 +101,7 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-# fix(#1496): the browser cookie flow is negotiated via two request headers
+# The browser cookie flow is negotiated via two request headers
 # that the spec named only in prose, so generated SDKs/docs couldn't express
 # them. These parameters are DECLARED, not consumed — enforcement stays in
 # cookies.py, which reads the headers off the Request directly. Drift is
@@ -142,7 +142,7 @@ async def login(
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
-    # fix(#1496): declared for the contract, read via wants_cookie_auth below.
+    # Declared for the contract, read via wants_cookie_auth below.
     auth_mode: str | None = Header(
         default=None,
         alias=AUTH_MODE_HEADER,
@@ -161,7 +161,7 @@ async def login(
         audit_emit,
     )
 
-    # fix(#1230): OAuth2PasswordRequestForm applies no length
+    # OAuth2PasswordRequestForm applies no length
     # limit to username, so an unauthenticated caller could otherwise persist
     # an unbounded string in JSONB on every failed attempt (storage
     # exhaustion). Bound it to User.username's own column width (String(150))
@@ -169,7 +169,7 @@ async def login(
     attempted_username = form_data.username[:150]
 
     async def _audit_login_failure(reason: str, *, user_id: uuid.UUID | None) -> None:
-        """fix(#1230): audit every denial path, not just bad credentials —
+        """Audit every denial path, not just bad credentials —
         pending/deactivated accounts, disallowed email domain, and
         password-login-disabled. Never includes the submitted password."""
         await audit_emit(
@@ -224,7 +224,7 @@ async def login(
 
     # Enforce allowed_email_domains on password login. Null-email
     # skip, get_uncached cache-bypass, and the manage_settings break-glass all
-    # live in the shared gate (fix(#836)).
+    # live in the shared gate.
     if user is not None:
         try:
             await enforce_email_domain_gate(db, user.email, break_glass_user=user)
@@ -265,7 +265,7 @@ async def login(
         user.id, expire_days=expire_days, family_id=family_id
     )
 
-    # fix(#1230): password-login success audit row, mirroring oauth.login.success.
+    # Password-login success audit row, mirroring oauth.login.success.
     await audit_emit(
         db,
         AuditEvent(
@@ -412,7 +412,7 @@ async def refresh(
     body: RefreshRequest | None = None,
     _session: None = Depends(_resolve_refresh_session),
     db: AsyncSession = Depends(get_db),
-    # fix(#1496): declared for the contract, read via wants_cookie_auth /
+    # Declared for the contract, read via wants_cookie_auth /
     # enforce_csrf below.
     auth_mode: str | None = Header(
         default=None,
@@ -938,7 +938,7 @@ async def logout_current_session(
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     request: Request,
-    # fix(#1518): the ONE fail-open exception. Every other anonymous-capable
+    # The ONE fail-open exception. Every other anonymous-capable
     # handler 401s a supplied-but-unresolvable credential; logout must not,
     # since the credential being discarded is often the one that expired.
     # See get_optional_user_fail_open's docstring and FAIL_OPEN_ALLOWLIST in
@@ -947,7 +947,7 @@ async def logout(
     identity: Identity | None = Depends(get_optional_user_fail_open),
     body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    # fix(#1496): declared for the contract, read via enforce_csrf below. No
+    # Declared for the contract, read via enforce_csrf below. No
     # auth-mode parameter here: unlike login/refresh, logout never calls
     # wants_cookie_auth — it accepts the refresh cookie and clears both
     # cookies unconditionally.
@@ -976,7 +976,7 @@ async def logout(
     service = AuthService(db)
     user_id: uuid.UUID | None = identity.id if identity is not None else None
     if user_id is None:
-        # fix(#1446): fall back to a presented refresh token when the access
+        # Fall back to a presented refresh token when the access
         # token has aged out, so logout doesn't 401 while a multi-day refresh
         # credential stays valid. Two transports — cookie (same-origin) and
         # body token (split-origin, pre-GH-1302 flow) — since topology decides
@@ -986,7 +986,7 @@ async def logout(
         cookie_token = read_refresh_cookie(request)
         if cookie_token is not None:
             enforce_csrf(request)
-        # fix(#1446): try every presented credential, cookie first. Unlike
+        # Try every presented credential, cookie first. Unlike
         # /auth/refresh (cookie is authoritative), logout is best-effort
         # revocation — a dead cookie must not shadow a live body token (a
         # split-origin install can hold both). Failing leaves the session alive.
@@ -1005,8 +1005,8 @@ async def logout(
             headers={"WWW-Authenticate": "Bearer"},
         )
     # commit=False: fold the token revocation and the audit row into one
-    # transaction, mirroring change_password below (fix(#1230): logout was
-    # the third gap in the "wrong password, right password, logout" trail).
+    # transaction, mirroring change_password below, so logout joins the
+    # login-failure and login-success audit trail.
     await service.revoke_all_tokens(user_id, commit=False)
     await audit_emit(
         db,
@@ -1123,7 +1123,7 @@ async def config(
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     landing_first = await LANDING_FIRST.get(db)
     banner_enabled = await BANNER_ENABLED.get(db)
-    # fix(#553): this endpoint is unauthenticated — never expose staged
+    # This endpoint is unauthenticated — never expose staged
     # (disabled) announcement text
     banner_text = await BANNER_TEXT.get(db) if banner_enabled else ""
     banner_color = await BANNER_COLOR.get(db)
@@ -1419,7 +1419,7 @@ async def change_password(
     # JWTs for this user are invalidated on their next request, forcing
     # re-auth on every other device.
     #
-    # fix(#821): bump_key_epoch=True — a password change is a credential
+    # bump_key_epoch=True — a password change is a credential
     # reset, so previously minted API keys are invalidated too (unlike plain
     # logout, which leaves API keys alone).
     #

@@ -32,7 +32,7 @@ def _searched_feature(
     endpoint that ignores the filters hands back a page of the catalog, so
     both filters are re-checked against the response.
 
-    fix(#1266): the collection must be AFFIRMED, not merely not contradicted.
+    The collection must be AFFIRMED, not merely not contradicted.
     An item id is unique only within its collection, so an endpoint honouring
     ``ids`` while ignoring ``collections`` can legitimately return a same-id
     item elsewhere, and a feature omitting ``collection`` would otherwise
@@ -82,15 +82,15 @@ async def _resolve_by_search(
         ),
     )
     if not result.ok:
-        # fix(#1266): a search that couldn't be carried out establishes
+        # A search that couldn't be carried out establishes
         # nothing and must not report `missing` — the item may simply have
         # moved, which is the whole reason the search exists.
         if result.health == MISSING:
-            # fix(#1266): "no search endpoint here" is not a fact about this
+            # "no search endpoint here" is not a fact about this
             # item, so the item's own 404 stays the last word with its own
             # detail, not the search endpoint's not_found.
             return _WITHDRAWN
-        # fix(#1266): contacted=True regardless of the search's own flag —
+        # contacted=True regardless of the search's own flag —
         # this function is only reached because the item itself answered
         # 404/410, so the origin demonstrably responded; a search failing
         # before the wire must not erase that prior contact.
@@ -99,7 +99,7 @@ async def _resolve_by_search(
         document, item_id=wanted_id, collection_id=collection_id or ""
     )
     if feature is None:
-        # fix(#1266): an empty result is authoritative (`missing`). A
+        # An empty result is authoritative (`missing`). A
         # non-empty result that doesn't match means the endpoint isn't
         # honouring the filters (limit:1 means an unrelated row is all it
         # had room to return) and establishes nothing about this item.

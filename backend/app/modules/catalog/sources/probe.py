@@ -51,7 +51,7 @@ def _looks_like_wfs(url: str) -> bool:
 class ServiceCredentialUnusable(Exception):
     """A header-auth adapter could not compose the credential it was given.
 
-    fix(#1746): raised only after every adapter has had its turn — the
+    Raised only after every adapter has had its turn — the
     probe DETERMINES the service type, so judging the credential from the
     URL alone up front would reject a working ArcGIS token (percent-encoded
     into a query, legitimately holding characters the header charset
@@ -62,7 +62,7 @@ class ServiceCredentialUnusable(Exception):
 
     def __init__(self, policy: str, *, code: str = INVALID_SERVICE_TOKEN_CODE):
         self.policy = policy
-        # fix(#1746): invalid_service_token = value can't become a
+        # invalid_service_token = value can't become a
         # header; unsupported_auth_method = the service can't carry the
         # method at all (same code the doors return up front).
         self.code = code
@@ -136,14 +136,14 @@ def _build_arcgis_response(
 def _arcgis_carries(credential: ServiceCredential | None) -> None:
     """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
 
-    fix(#1746): `url_query_token` answers None for basic/named-API-key
+    `url_query_token` answers None for basic/named-API-key
     credentials, since neither fits a query param. Unchecked, the fallback
-    path silently became an ANONYMOUS ArcGIS probe that told the caller
+    path would silently become an ANONYMOUS ArcGIS probe that told the caller
     their credential worked, only for preview to then refuse it.
 
-    fix(#1746): the ONLY place this is answered, and after detection —
-    the door used to answer it from URL text alone, which wrongly refused a
-    WFS at `/FeatureServer/wfs` a credential it does support. Module-level
+    The ONLY place this is answered, and after detection — answering from
+    URL text alone would wrongly refuse a WFS at `/FeatureServer/wfs` a
+    credential it does support. Module-level
     rather than nested in `detect_service_type` so that function stays
     inside its complexity budget.
     """
@@ -171,18 +171,18 @@ async def detect_service_type(
 
     Raises ServiceNotRecognized if no probe succeeds.
 
-    fix(#1746): one credential reaches all three adapters, and each presents
+    One credential reaches all three adapters, and each presents
     it the way its own service takes one. The two header-auth adapters compose
     a header from it; the ArcGIS branch takes the bare token and nothing else.
     """
-    # fix(#1746): ArcGIS only fits a bearer token (percent-encoded
+    # ArcGIS only fits a bearer token (percent-encoded
     # into the URL query); the other two methods simply can't be presented
     # here, and the origin's 401 is the honest answer.
     token = url_query_token(credential)
     looks_arcgis = _looks_like_arcgis(url)
     looks_wfs = _looks_like_wfs(url)
 
-    # fix(#1746): recorded rather than raised, so the ArcGIS branch below
+    # Recorded rather than raised, so the ArcGIS branch below
     # still gets its turn with the same credential.
     refusals: list[str] = []
 
@@ -190,8 +190,8 @@ async def detect_service_type(
         try:
             return await probe(url, client, credential=credential)
         except SSRFError:
-            # fix(#1858): caught FIRST — SSRFError subclasses ValueError, so
-            # without this clause a refused redirect hop was recorded as a
+            # Caught FIRST — SSRFError subclasses ValueError, so
+            # without this clause a refused redirect hop would be recorded as a
             # credential refusal, leaking the redirect-chosen hostname into
             # the 422 body/audit reason and skipping probe_service_url's
             # ssrf_blocked handler. Same fix as #1840 in adapters/arcgis.py.
@@ -208,11 +208,11 @@ async def detect_service_type(
     async def _arcgis_probe(base: str) -> dict | None:
         """Probe ArcGIS, and let a token challenge identify it too.
 
-        fix(#1746): a 499/498 challenge in the response body proves this
+        A 499/498 challenge in the response body proves this
         endpoint IS ArcGIS, so the credential's method must be judged
         against it before the challenge is reported — otherwise a
-        keyword-free protected endpoint gave a basic/named-key caller a
-        403 "provide a valid token" while other ArcGIS branches gave 422
+        keyword-free protected endpoint would give a basic/named-key caller a
+        403 "provide a valid token" while other ArcGIS branches give 422
         `unsupported_auth_method` for the same problem. Re-raised unchanged
         for bearer and credential-free probes, where it's the true answer.
         """
@@ -224,14 +224,12 @@ async def detect_service_type(
 
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:
-        logger.info(
-            "URL pattern matches ArcGIS", url=redact_url_credentials(url)
-        )  # fix(#430)
+        logger.info("URL pattern matches ArcGIS", url=redact_url_credentials(url))
         base_url, layer_id = normalize_arcgis_url(url)
         result = await _arcgis_probe(base_url)
         if result is not None:
             _arcgis_carries(credential)
-            # feat(C2): currentVersion came back with the service document,
+            # The currentVersion came back with the service document,
             # so count queries know the token transport without rediscovering
             # it from a 499.
             enriched = await enrich_arcgis_feature_counts(
@@ -248,9 +246,7 @@ async def detect_service_type(
 
     # Fast path: WFS URL pattern
     if not looks_arcgis and looks_wfs:
-        logger.info(
-            "URL pattern matches WFS", url=redact_url_credentials(url)
-        )  # fix(#430)
+        logger.info("URL pattern matches WFS", url=redact_url_credentials(url))
         result = await _header_auth_probe(probe_wfs)
         if result is not None:
             # No enrichment — layers already have geometry_type=None,
@@ -259,7 +255,7 @@ async def detect_service_type(
         # Fast-path failed — fall through to slow path
 
     # Slow path: OGC API probe first, then WFS, then ArcGIS
-    logger.info("Trying all probes", url=redact_url_credentials(url))  # fix(#430)
+    logger.info("Trying all probes", url=redact_url_credentials(url))
 
     # Try OGC API Features landing page probe
     ogcapi_result = await _header_auth_probe(probe_ogcapi)
@@ -279,7 +275,7 @@ async def detect_service_type(
     arcgis_result = await _arcgis_probe(base_url)
     if arcgis_result is not None:
         _arcgis_carries(credential)
-        # feat(C2): same as the fast path above.
+        # Same as the fast path above.
         enriched = await enrich_arcgis_feature_counts(
             base_url,
             arcgis_result["layers"],

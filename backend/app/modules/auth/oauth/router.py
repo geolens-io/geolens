@@ -60,8 +60,8 @@ router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSE
 class _SSRFSafeOAuth2Client(AsyncOAuth2Client):
     """Authlib's HTTP client, with the transport decided here and not by a caller.
 
-    fix(#1861): the app class below installed the IP-pinning transport in
-    ``_get_session`` alone, which covers discovery and JWKS but NOT the token
+    The app class below installs the IP-pinning transport in
+    ``_get_session``, which covers discovery and JWKS but NOT the token
     exchange or userinfo fetch (built via ``_get_oauth_client``) — the two
     requests carrying the client secret and access token. All four hooks
     construct ``self.client_cls``, so this is the single place that reaches
@@ -116,7 +116,7 @@ def _endpoint_refused(
 ) -> HTTPException:
     """Log the operator-facing detail and return the refusal for the caller to raise.
 
-    fix(#1861): one helper for both sources (provider row and discovery
+    One helper for both sources (provider row and discovery
     document), so they can't drift into different status codes/disclosure.
     The response names no host — these routes are unauthenticated; the
     operator log gets the provider, endpoint, and hostname.
@@ -137,7 +137,7 @@ def _endpoint_refused(
 def _loggable_hostname(url: str) -> str | None:
     """The hostname for the operator log, or None when the URL will not parse.
 
-    fix(#1861): urlparse rejects a malformed authority with
+    ``urlparse`` rejects a malformed authority with
     ValueError before validate_url_for_ssrf's own checks run, so parsing it
     again here would raise inside the handler — replacing the sanitized 503
     with an unhandled 500 on an unauthenticated route. None reads as
@@ -181,7 +181,7 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
     async def load_server_metadata(self) -> dict:
         """Validate the endpoints the discovery document supplies, once.
 
-        fix(#1861): this is the policy half, deciding whether an address is
+        This is the policy half, deciding whether an address is
         one this deployment will talk to at all. The pinning transport on
         _SSRFSafeOAuth2Client is the enforcement half: it re-resolves at
         connect time, so a document that passes here and rebinds afterwards
@@ -265,7 +265,7 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
         )
 
     # Validate every persisted endpoint before decrypting the client secret,
-    # covering legacy rows and CRUD/config-import writes. fix(#1861): covers
+    # covering legacy rows and CRUD/config-import writes. This covers
     # only the four row columns; a discovery-URL provider is checked in
     # _SSRFSafeOAuth2App.load_server_metadata instead. Either way every
     # Authlib session then connects through the IP-pinning transport, closing

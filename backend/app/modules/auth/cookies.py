@@ -49,11 +49,11 @@ def refresh_cookie_path(request: Request) -> str:
     upload/export traffic — it can't leak through hot-path logs or proxies,
     and can't be replayed outside this router.
 
-    fix(#1446): was ``/auth/refresh``, too tight — RFC 6265 path-matching
-    meant the browser never sent the cookie to ``/auth/logout``, so
-    cookie-authenticated logout (revoking a session whose access token
-    already expired) couldn't fire. Widened to the whole auth router; still
-    never touches the data plane.
+    Scoped to the whole auth router rather than ``/auth/refresh``: RFC 6265
+    path-matching would keep the browser from sending the cookie to
+    ``/auth/logout``, so cookie-authenticated logout (revoking a session whose
+    access token already expired) couldn't fire. It still never touches the
+    data plane.
     """
     root_path = request.scope.get("root_path", "").rstrip("/")
     return f"{root_path}/auth"
@@ -228,7 +228,7 @@ def cookie_values(request: Request, name: str) -> list[str]:
 def read_refresh_cookie(request: Request) -> str | None:
     """The refresh cookie's value, or None when absent or not trustworthy.
 
-    fix(#1446): refuses DUPLICATE cookies of this name — an attacker on a
+    Refuses DUPLICATE cookies of this name — an attacker on a
     sibling subdomain with their own valid refresh token can add a
     parent-``Domain`` cookie of the same name; the browser sends both, a
     parser keeps one, and the victim's refresh could rotate the attacker's
@@ -265,7 +265,7 @@ def _origin_parts(url: str) -> tuple[str, str, int | None] | None:
     if not parts.scheme or not host:
         return None
     scheme = parts.scheme.lower()
-    # fix(#1446): EFFECTIVE port. A URL that spells out its default port
+    # EFFECTIVE port. A URL that spells out its default port
     # ("https://example.com:443") is the same origin as one that omits it, but
     # a raw string comparison called that a mismatch.
     effective = port if port is not None else {"https": 443, "http": 80}.get(scheme)
@@ -275,7 +275,7 @@ def _origin_parts(url: str) -> tuple[str, str, int | None] | None:
 def api_path_is_cookie_scoped(request: Request, api_url: str) -> bool:
     """Whether *api_url*'s path is the mount point this cookie is scoped under.
 
-    fix(#1446): same origin is necessary but not sufficient — ``root_path``
+    Same origin is necessary but not sufficient — ``root_path``
     is fixed at ``/api``, so the cookie is always scoped to ``/api/auth``,
     while ``PUBLIC_API_URL``/``FRONTEND_API_BASE_URL`` accept any path form.
     A deployment mounted elsewhere would get a cookie the browser never
@@ -297,8 +297,8 @@ def is_same_origin(url_a: str, url_b: str) -> bool:
     cookie is scoped to the host the browser used to reach the API, so it's
     only usable when the SPA lives on that same origin.
 
-    fix(#1446): both sides are the deployment's CONFIGURED public URLs, not
-    the live request's host — deriving from the request broke under any
+    Both sides are the deployment's CONFIGURED public URLs, not
+    the live request's host — deriving from the request breaks under any
     proxy that rewrites Host (the Vite dev proxy's ``changeOrigin`` replaces
     Host and keeps the real host only in ``X-Forwarded-Host``), which
     reported a false mismatch and silently reverted dev to fragment delivery.
@@ -324,8 +324,8 @@ def enforce_csrf(request: Request) -> None:
     can't read doesn't depend on it, and is directly exercisable by a plain
     HTTP client with no preflight to simulate.
     """
-    # fix(#1778): the same duplicate-cookie refusal read_refresh_cookie has
-    # had since #1446, applied to the CSRF cookie. A sibling subdomain can
+    # The same duplicate-cookie refusal read_refresh_cookie applies,
+    # applied to the CSRF cookie. A sibling subdomain can
     # CHOOSE its value: set geolens_csrf=KNOWN with a parent Domain, and the
     # browser sends two geolens_csrf cookies. Starlette keeps the last
     # occurrence, and a freshly-set Domain cookie sharing Path=/ sorts after

@@ -38,33 +38,33 @@ class StacResolution:
     detail: str | None = None
     contacted: bool = True
     item_href: str | None = None
-    # fix(#1266): written back with the binding, so a dataset whose catalog
+    # Written back with the binding, so a dataset whose catalog
     # states no identity in its URLs still accumulates one to check against.
     item_id: str | None = None
-    # fix(#1266): a binding imported with collection=null has none of its
+    # A binding imported with collection=null has none of its
     # own, so the stored item URL stands in; reporting it back lets the
     # binding learn it and be checked against a stored value thereafter.
     collection_id: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
-    # feat(#1692): repairs the served dataset_assets row's media_type on
+    # Repairs the served dataset_assets row's media_type on
     # every successful refresh, bounded by storable_media_type at the gate.
     asset_media_type: str | None = None
-    # fix(#1266): a moved asset is not the same asset — re-tiling can change
+    # A moved asset is not the same asset — re-tiling can change
     # band count/dtype/nodata/stats, which the tile proxy builds
     # bidx/rescale/nodata from. Populated only when the href moved.
     asset_metadata: dict[str, Any] | None = None
-    # fix(#1266): read from the item when nothing better is available,
+    # Read from the item when nothing better is available,
     # matching where import reads it.
     #
-    # fix(#1334): reconciled with the probe's own CRS when one ran (see
+    # Reconciled with the probe's own CRS when one ran (see
     # reconcile_epsg) — the item's declaration is the publisher's claim,
     # asset_metadata (when populated) is Titiler's ground truth from
     # opening the current bytes. This field is the single authoritative
     # value once a probe has run; asset_metadata["epsg"] stays the raw
     # probe reading beside it.
     epsg: int | None = None
-    # fix(#1266): a publisher who re-tiles/crops updates the item's bbox;
+    # A publisher who re-tiles/crops updates the item's bbox;
     # carried from the same document as the asset so the two describe the
     # same object. None when the item states none — not a claim it changed.
     bbox: list[float] | None = None

@@ -27,9 +27,9 @@ async def get_facet_counts(
     """Return multi-group facet counts over the query's candidate set.
 
     Returns dict with keys: record_type, keywords, source_organization, srid,
-    collections. The candidate set is the one /search/datasets/ counts
-    (fix(#1855)), minus the result-only filters: record_type is never applied,
-    so the type counts cover every type.
+    collections. The candidate set is the one /search/datasets/ counts, minus
+    the result-only filters: record_type is never applied, so the type counts
+    cover every type.
     """
     candidates = await select_candidates(
         session,

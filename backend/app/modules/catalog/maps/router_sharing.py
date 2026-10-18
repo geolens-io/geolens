@@ -164,7 +164,7 @@ async def get_shared_map_endpoint(
         embed_token=embed_token,
         request=request,
     )
-    # fix(#1518): 404/410 arms are exempt from the credential
+    # 404/410 arms are exempt from the credential
     # rule — the share token addresses the resource, identity only widens
     # which layers come back, so a dead credential can't change these answers.
     if result is None:
@@ -216,7 +216,7 @@ async def visibility_check_endpoint(
 @router.get(
     "/{map_id}/style.json",
     responses={
-        # fix(#1672): 200 schema stays open — a hand-typed mirror drifts
+        # 200 schema stays open — a hand-typed mirror drifts
         # (#1670). One pinned shape: sprite is always the array form,
         # matching what /maps/import accepts.
         200: {
@@ -233,7 +233,7 @@ async def visibility_check_endpoint(
                 "application/json": {
                     "schema": {
                         "type": "object",
-                        # fix(#1672): without this, openapi-typescript
+                        # Without this, openapi-typescript
                         # renders the open object as Record<string, never> and
                         # TS consumers cannot touch any style property.
                         "additionalProperties": True,

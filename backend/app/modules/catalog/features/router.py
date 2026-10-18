@@ -122,7 +122,7 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 def _require_feature_table(dataset) -> None:
     """Reject feature writes to datasets with no writable feature geometry.
 
-    fix(#458): mirrors the read handlers' 404 on raster/VRT datasets
+    Mirrors the read handlers' 404 on raster/VRT datasets
     (else 500 on a missing `data.<table>`). Also rejects tabular datasets
     (`geometry_type is None`), whose table has no `geom`/`geom_4326` column
     (#463).
@@ -146,9 +146,9 @@ _TABLE_UNAVAILABLE = "Dataset table is temporarily unavailable."
 def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     """Classify a DB error raised by a feature write.
 
-    fix(#458): feature values bind raw, so classify by SQLSTATE instead of
+    Feature values bind raw, so classify by SQLSTATE instead of
     an unhandled 500 (400 caller fault, missing table 503, unrecognized
-    state a real 500). fix(#1847): a lock conflict raises
+    state a real 500). A lock conflict raises
     ``CatalogLockConflict``, mapped in ``app/api/main.py``.
     """
     if is_lock_conflict(exc):
@@ -673,7 +673,7 @@ async def get_features_geojson_z_endpoint(
     Supplied credentials that are expired or revoked receive 401 so clients can
     refresh them. Requests without credentials use the anonymous access path.
     """
-    # fix(#1518): evaluated FIRST, above the dataset lookup, so the
+    # Evaluated FIRST, above the dataset lookup, so the
     # capability rule covers every later exit rather than just one — the
     # token validates against the path's dataset_id, so nothing is lost by
     # asking before the lookup. This handler's deferring dependency means
@@ -687,7 +687,7 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        # fix(#390, resequenced by #1518): no capability authorized this
+        # No capability authorized this
         # request, so a supplied credential that failed to resolve gets 401
         # rather than the anonymous path's 404.
         reject_unresolvable_credentials(request, user)
@@ -702,7 +702,7 @@ async def get_features_geojson_z_endpoint(
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # Raster/VRT datasets have no backing PostGIS feature table —
     # a feature query would raise UndefinedTableError -> 500 (and hold a DB
     # connection). Fast 404 before any feature query is attempted.
     if not capabilities(dataset.record.record_type).feature_table:
@@ -796,7 +796,7 @@ async def list_features(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # Raster/VRT datasets have no backing PostGIS feature table —
     # fast 404 before any query. The ProgrammingError->503 catch below stays
     # a backstop for genuinely-missing tables on non-raster datasets.
     if not capabilities(dataset.record.record_type).feature_table:
@@ -841,14 +841,14 @@ async def list_features(
             cached_feature_count=dataset.feature_count,
         )
     except ValueError as e:
-        # fix(#1778): an unparseable property-filter value is the caller's bug,
+        # An unparseable property-filter value is the caller's bug,
         # rejected before the query runs.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except DBAPIError as exc:
-        # fix(#1778): a type-shaped sqlstate with a property filter active is
+        # A type-shaped sqlstate with a property filter active is
         # the filter value, not an outage — reporting it as a retryable 503
         # sent clients into a pointless retry loop. Catches DBAPIError, not
         # just ProgrammingError/OperationalError: asyncpg reports a value it
@@ -896,7 +896,7 @@ async def list_features(
         },
     ]
 
-    # fix(#1778): `next` follows the over-fetched row, not the count —
+    # `next` follows the over-fetched row, not the count —
     # numberMatched may be the planner's estimate, and an estimate at or
     # below `offset + limit` would otherwise drop the link on a full page.
     if page.has_more:
@@ -974,7 +974,7 @@ async def get_single_feature(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # Raster/VRT datasets have no backing PostGIS feature table —
     # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a
     # DoS reachable by any authenticated user). Fast 404 before any query.
     if not capabilities(dataset.record.record_type).feature_table:
@@ -1198,7 +1198,7 @@ async def _create(
                     body.geometry.model_dump(),
                     body.properties,
                     dataset.column_info or [],
-                    # fix(#430): generic for created datasets — see effective_geometry_type
+                    # Generic for created datasets — see effective_geometry_type
                     await effective_geometry_type(db, dataset),
                     dataset_srid=dataset.srid,
                 )
@@ -1245,7 +1245,7 @@ async def _create(
             db, dataset, user, dataset_id, body, repeat, keyed.table_oid
         )
 
-    # fix(#1778): one row added, at a known envelope. No table scan when that
+    # One row added, at a known envelope. No table scan when that
     # envelope is already inside the stored extent.
     await _refresh_metadata_guarded(
         db,
@@ -1331,7 +1331,7 @@ async def replace_single_feature(
             body.geometry.model_dump(),
             body.properties,
             dataset.column_info or [],
-            # fix(#430): generic for created datasets — see effective_geometry_type
+            # Generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
@@ -1356,7 +1356,7 @@ async def replace_single_feature(
 
     row = written.feature
 
-    # fix(#1778): row count unchanged; the extent is unchanged too when both
+    # Row count unchanged; the extent is unchanged too when both
     # the old and new envelope sit strictly inside it. The old envelope comes
     # back from the UPDATE that overwrote it.
     await _refresh_metadata_guarded(
@@ -1447,7 +1447,7 @@ async def patch_single_feature(
             body.geometry.model_dump() if body.geometry else None,
             body.properties,
             dataset.column_info or [],
-            # fix(#430): generic for created datasets — see effective_geometry_type
+            # Generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
@@ -1474,7 +1474,7 @@ async def patch_single_feature(
 
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
-        # fix(#1778): same reasoning as replace.
+        # Same reasoning as replace.
         await _refresh_metadata_guarded(
             db,
             dataset,
@@ -1485,7 +1485,7 @@ async def patch_single_feature(
             ],
         )
     else:
-        # fix(#1847): nothing to recompute, but the lines below still dirty
+        # Nothing to recompute, but the lines below still dirty
         # both rows, so the pair has to be taken in the house order first.
         await _lock_catalog_rows_guarded(db, dataset)
     dataset.record.updated_by = user.id
@@ -1568,7 +1568,7 @@ async def delete_single_feature(
 
     try:
         await _hold_table(db, dataset, table_id)
-        # fix(#1778): the DELETE returns the envelope it removed, so the
+        # The DELETE returns the envelope it removed, so the
         # metadata refresh reasons about the version actually deleted.
         prior_bounds = await delete_feature(db, dataset.table_name, gid)
     except ValueError as e:
@@ -1585,7 +1585,7 @@ async def delete_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    # fix(#1778): one row removed. A row strictly inside the stored extent was
+    # One row removed. A row strictly inside the stored extent was
     # not defining any side of it, so the extent cannot shrink.
     await _refresh_metadata_guarded(
         db, dataset, count_delta=-1, touched_bounds=[prior_bounds]

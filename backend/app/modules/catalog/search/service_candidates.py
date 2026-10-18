@@ -1,6 +1,6 @@
 """Candidate selection shared by dataset search and facet counts.
 
-fix(#1855): the results and facets endpoints must agree on which records a
+The results and facets endpoints must agree on which records a
 query matches, so both build their candidate set through ``select_candidates``.
 """
 

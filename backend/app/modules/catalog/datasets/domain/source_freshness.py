@@ -1,6 +1,6 @@
 """Source freshness: how a dataset's last refresh compares to its cadence.
 
-feat(#1224): a pure read-side computation over ``records.update_frequency``
+A pure read-side computation over ``records.update_frequency``
 and ``datasets.last_refreshed_at`` (#1218), never persisted (ADR-002
 Decision 2: a stored copy of a live-derived value can only disagree
 with its inputs). Always ``source_`` prefixed, never bare "freshness" --

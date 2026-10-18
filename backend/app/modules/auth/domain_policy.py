@@ -1,6 +1,6 @@
 """HTTP-surface enforcement of the ``allowed_email_domains`` allowlist.
 
-fix(#836): consolidates a fetch-check-403 block duplicated across four HTTP
+The one fetch-check-403 gate shared by four HTTP
 endpoints. OAuth-service call sites keep their own flow — they raise
 ``OAuthDomainNotAllowedError`` into the SSO redirect and add verified-claim
 trust rules with no HTTP analogue. Kept separate from ``domain_validation.py``

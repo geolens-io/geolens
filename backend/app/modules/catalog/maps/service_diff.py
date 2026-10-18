@@ -150,9 +150,7 @@ async def apply_layer_diff(
     layers_result = await session.execute(
         select(MapLayer)
         .where(MapLayer.map_id == map_id)
-        .order_by(
-            MapLayer.sort_order, MapLayer.id
-        )  # fix(#430): deterministic tie-break
+        .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}

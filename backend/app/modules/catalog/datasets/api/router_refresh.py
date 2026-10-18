@@ -1,10 +1,9 @@
 """One-request refresh of a dataset from its stored origin binding.
 
-feat(#1220) / ADR-002 Decisions 5a, 5b, 5c and 6. Re-pulling a service
-dataset used to mean walking the re-upload dialog (restating the URL,
-layer, etc. the catalog already knows -- a chance to state it
-differently and silently re-point the dataset). This door reads the
-pointer instead: the request body carries no URL, type, or layer, only
+ADR-002 Decisions 5a, 5b, 5c and 6 (#1220). Re-pulling a service dataset through
+the re-upload dialog means restating the URL, layer, etc. the catalog
+already knows, a chance to state it differently and silently re-point the
+dataset. This door reads the pointer instead: the request body carries no URL, type, or layer, only
 an optional transient credential (see ``platform/refresh/credentials.py``).
 
 Separate module rather than more of ``router_reupload.py`` (already the
@@ -14,7 +13,7 @@ and worker dispatch machinery IS deliberately the same
 (``create_pending_run``, with a dedicated verified-refresh task name) -- a
 second admission path is how the two doors end up with different rules.
 
-feat(#1265) added a second execution strategy behind that same
+A second execution strategy sits behind that same
 machinery: one endpoint, one Rule 1 gate, one admission function, one
 run ledger, varying only the binding unpacked and the task deferred.
 Registered PostGIS differs most (no URL, no SSRF check, no credential)
@@ -229,15 +228,15 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
             # identifier that nothing reads and the next reader would trust.
             layer_name="",
         )
-    # fix(#1277): layer_id must carry the identity here too -- setting it
-    # None was a real bug, not tidiness. `build_gdal_source` ignores
+    # layer_id must carry the identity here too; setting it to None would
+    # respell the binding. `build_gdal_source` ignores
     # layer_id for WFS/OGC API, but the worker ALSO composes the stored
     # pointer as `base/layer_id`, same as the import path (probe.py sets
     # `layer_id = layer["name"]` for these services), so passing None
-    # rewrote origin_uri/source_url to the bare base on every refresh --
-    # silently respelling a verified-unchanged binding. Visible damage:
-    # the duplicate-source guard matches on origin_uri, so a re-import of
-    # the same layer stopped looking like a duplicate after one refresh.
+    # would rewrite origin_uri/source_url to the bare base on every refresh,
+    # silently respelling a verified-unchanged binding. The duplicate-source
+    # guard matches on origin_uri, so a re-import of the same layer would
+    # stop looking like a duplicate after one refresh.
     return _ServiceOrigin(
         source_format=stored_format or "",
         service_label=service_label,
@@ -250,11 +249,11 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
 def _service_token_required() -> HTTPException:
     """The one 422 both refusal paths raise, so the wording cannot fork.
 
-    fix(#1746): the message used to name only the deprecated `token`
-    field (a bearer credential), but a WFS/OGC API origin last pulled
-    with a username/password or API key is marked by the same flag, so
-    following that advice couldn't authenticate it. Code unchanged: a
-    client keying on it is answering the same question.
+    The message names the structured ``auth`` field as well as the
+    deprecated `token` field (a bearer credential), because a WFS/OGC API
+    origin last pulled with a username/password or API key is marked by the
+    same flag, and `token` alone couldn't authenticate it. The code is
+    stable: a client keying on it is answering the same question.
     """
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -279,7 +278,7 @@ async def _recheck_service_token_after_reservation(
 ) -> None:
     """Catch a marker that APPEARED while the refresh was being reserved.
 
-    fix(#1746): a race the pre-reservation guard can't close -- an
+    A race the pre-reservation guard can't close -- an
     authenticated re-upload of the same origin can mark the dataset
     inside the reservation window, after a token-less refresh already
     read it unmarked, sending dispatch token-less into the worker
@@ -315,13 +314,13 @@ async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     ORM instance in the session -- anything the caller loaded earlier
     and still needs (including ``user``) must be re-read first.
 
-    fix(#1746): refusing here, naming the field that fixes it, beats
+    Refusing here, naming the field that fixes it, beats
     dispatching a token-less refresh that 202s and fails in the worker.
     The marker alone isn't proof (the worker can't observe a challenge,
     so ``auth_required`` just means the last pull used a token, even if
     the service was public), so where possible the door asks the origin.
 
-    fix(#1755): ArcGIS is asked, at the same ``<layer>/query`` resource
+    ArcGIS is asked, at the same ``<layer>/query`` resource
     the worker fetches (499/498 = token required/rejected); a healthy
     answer means a false marker costs one probe, never a refusal. WFS
     and OGC API Features are refused outright, no probe: their
@@ -350,7 +349,7 @@ async def _require_service_token_if_marked(db, dataset, dataset_id, token):
         # simply lets the worker try.
         return dataset
 
-    # fix(#1746): release the pooled connection BEFORE the outbound wait,
+    # Release the pooled connection BEFORE the outbound wait,
     # same as `check_source_health` -- a session held across a slow
     # origin's probe pins a pool connection, and enough concurrent
     # marked refreshes would starve other requests. Nothing is written
@@ -654,7 +653,7 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
     if not states_verifiable_identity(
         item_href=item_href, item_id=item_id, collection_id=collection_id
     ):
-        # fix(#1266): refused here rather than discovered by
+        # Refused here rather than discovered by
         # the worker, so the caller learns immediately and no run row is
         # spent. A binding written before the item id was recorded, whose
         # catalog publishes item URLs that state no identity either, gives a
@@ -701,19 +700,19 @@ async def _dispatch_stac_refresh(
     the reservation exists. What differs is only what is unpacked and which
     task is deferred.
 
-    feat(#1764): ``token`` is the composed header line for a protected
+    ``token`` is the composed header line for a protected
     catalog, staged through the same single-use store the service path uses.
     """
     candidate = _resolve_stac_origin(dataset)
 
-    # feat(#1764): the WFS/OGC API rule, for its reason — the marker means
+    # The WFS/OGC API rule, for its reason — the marker means
     # the last successful refresh used a credential, so a token-less one
     # collects a 401 and reports a live dataset as inaccessible. No probe.
     marked_before = service_auth_required(dataset.origin_ref)
     if not token and marked_before:
         raise _service_token_required()
 
-    # fix(#1764): a credential is anchored on the catalog URL the caller
+    # A credential is anchored on the catalog URL the caller
     # submitted at import, the one value on the binding the catalog never
     # chose. A binding from before that was recorded has no anchor, and
     # falling back to the stored item pointer would let a document from that
@@ -827,7 +826,7 @@ async def _dispatch_stac_refresh(
             },
         )
 
-    # feat(#1764): the binding can be identical and the answer still
+    # The binding can be identical and the answer still
     # different — a credentialed refresh that finished inside the reservation
     # window marks the dataset without moving its origin, so the check above
     # passes and only this one notices. Same helper the service path uses.
@@ -840,7 +839,7 @@ async def _dispatch_stac_refresh(
     # job list renders, and the item id is the only name this operation has.
     job.source_filename = dataset.source_filename
     if token:
-        # feat(#1764): a boolean, never the credential — the same marker the
+        # A boolean, never the credential — the same marker the
         # service door writes, recording that this attempt's credential was
         # request-scoped and a retry cannot reproduce the authenticated read.
         job.user_metadata = {**(job.user_metadata or {}), "service_auth_required": True}
@@ -979,7 +978,7 @@ async def refresh_dataset(
     caller with write access can still publish deliberately.
     """
     body = request or DatasetRefreshRequest()
-    # feat(#1746): the structured credential is what the service layer takes;
+    # The structured credential is what the service layer takes;
     # `body.token` is its deprecated bearer spelling.
     credential = service_credential_from_request(body.auth, body.token)
 
@@ -998,14 +997,14 @@ async def refresh_dataset(
     # can't carry -- before any origin is contacted or row written, so a
     # bad credential never probes, reserves, or stashes.
     #
-    # fix(#1746): AFTER the write-access gate, never before it -- this
+    # AFTER the write-access gate, never before it -- this
     # reads `dataset.source_format`, so a refusal running first would
     # answer 422 for a dataset the caller may not touch, leaking its
     # existence and source family ahead of the visibility check.
     service_token = wire_credential(credential, service_format=dataset.source_format)
 
-    # `classify_origin` is the same pure derivation ADR-002 Decision 2
-    # keeps for the API's `origin` field, so this dispatch can't disagree
+    # `classify_origin` is the same pure derivation the API's `origin`
+    # field keeps, so this dispatch can't disagree
     # with it. Unnamed kinds fall through to the service path, whose
     # resolver answers `refresh_not_applicable` for originless kinds.
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
@@ -1057,7 +1056,7 @@ async def refresh_dataset(
     # answer for both -- the re-upload door's guard talks about a file
     # swap and would answer a refresh with advice about a different feature.
     #
-    # fix(#1277): this read is a PRE-CHECK, not what gets dispatched --
+    # This read is a PRE-CHECK, not what gets dispatched --
     # it answers cheap refusals before the admission index and supplies
     # a URL to validate outside the reservation window. The binding the
     # worker actually gets is read again below, after the reservation.
@@ -1078,7 +1077,7 @@ async def refresh_dataset(
             detail=f"This dataset's stored source URL is not reachable: {exc}",
         ) from exc
 
-    # fix(#1746): placed after the postgis/stac early returns (never fires
+    # Placed after the postgis/stac early returns (never fires
     # for a non-service origin) and after the SSRF block, since its
     # ArcGIS branch FETCHES the stored URL as a token-less probe. Still
     # before `create_pending_run`, so a refusal here burns no run row.
@@ -1095,7 +1094,7 @@ async def refresh_dataset(
     # sync lazy load inside a coroutine raises MissingGreenlet rather
     # than re-querying.
     user_id = user.id
-    # fix(#1746): what the PRE-CHECK saw, so the post-reservation recheck
+    # What the PRE-CHECK saw, so the post-reservation recheck
     # can tell a marker that appeared in the window apart from one this
     # guard already adjudicated. Read before the guard, since its ArcGIS
     # path re-reads the row.
@@ -1121,13 +1120,13 @@ async def refresh_dataset(
             },
         )
 
-    # fix(#1277): THE ORDERING. This handler used to snapshot the
-    # binding then reserve; an in-flight re-upload finishing in between
-    # (commit swap, restamp `origin_ref`) left the admission index
-    # seeing no active run, so the worker would re-fetch the OLD origin
-    # and quietly undo a re-upload that had already succeeded.
+    # THE ORDERING. Snapshotting the binding and then reserving would let
+    # an in-flight re-upload finishing in between (commit swap, restamp
+    # `origin_ref`) leave the admission index seeing no active run, so the
+    # worker would re-fetch the OLD origin and quietly undo a re-upload that
+    # had already succeeded.
     #
-    # Fix: read the dispatched binding only once the reservation exists.
+    # So the dispatched binding is read only once the reservation exists.
     # The swap and `record_refresh_success` commit in ONE
     # transaction, so a non-active run implies its swap is already
     # committed and visible (READ COMMITTED) -- either the other refresh
@@ -1207,7 +1206,7 @@ async def refresh_dataset(
             },
         )
 
-    # fix(#1746): the binding can be identical and the answer still
+    # The binding can be identical and the answer still
     # different. An authenticated re-upload that landed inside the reservation
     # window marks the dataset without moving its origin, so the check above
     # passes and only this one notices.
@@ -1215,7 +1214,7 @@ async def refresh_dataset(
         db, dataset, service_token, marked_before=marked_before
     )
 
-    # fix(#1277): read after the reservation too -- an unchanged binding
+    # Read after the reservation too -- an unchanged binding
     # does NOT mean unchanged dispatch state. A re-upload of the same
     # URL/layer leaves origin_ref identical while writing a new job, and
     # `object_id_field` (ArcGIS's paging order key) carried forward
@@ -1237,7 +1236,7 @@ async def refresh_dataset(
             fingerprint=accepted_fingerprint,
         )
 
-    # fix(#1277): the credential is judged by the policy the WORKER will
+    # The credential is judged by the policy the WORKER will
     # apply, selected by the dispatched binding's service type -- done
     # HERE too, after the re-read, since the request model can't know
     # the service type and the pre-check binding isn't guaranteed to be

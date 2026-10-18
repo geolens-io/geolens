@@ -117,9 +117,10 @@ async def _propagate_record_write(
 ) -> None:
     """Keep downstream surfaces coherent after a record sub-resource write.
 
-    fix(#458): busts the catalog cache and re-embeds on keyword change,
-    like the top-level metadata PATCH; best-effort, post-commit. fix(#458): when db/user/details are passed, also emits a metadata.edit
-    audit event against the backing dataset, if there is one.
+    Busts the catalog cache and re-embeds on keyword change,
+    like the top-level metadata PATCH; best-effort, post-commit. When
+    db/user/details are passed, also emits a metadata.edit audit event
+    against the backing dataset, if there is one.
     """
     try:
         await invalidate_catalog_cache()
@@ -238,7 +239,7 @@ async def _check_record_ownership(
     """Verify the user owns the record or is an admin. Raises 404/403.
 
     Returns the fetched Record so callers can reuse it without a second
-    query. fix(#458): gates on read-visibility first, so a record the
+    query. Gates on read-visibility first, so a record the
     caller can't even see 404s (no existence leak) rather than 403.
     """
     await _check_record_read_access(db, record_id, user)
@@ -439,7 +440,7 @@ async def update_contact_endpoint(
     record = await _check_record_ownership(db, record_id, user)
     try:
         await _touch_record(db, record, user)
-        # fix(#458): exclude_unset, not exclude_none — an explicitly-set
+        # exclude_unset, not exclude_none — an explicitly-set
         # null clears the field (the dataset contract); the schema already
         # 422s nulls on non-clearable fields.
         contact = await update_contact(
@@ -548,7 +549,7 @@ async def list_keywords_endpoint(
         await count_keywords(db, record_id),
     )
 
-    # feat(#1070): derive the inherited set from derived_from at read time.
+    # Derive the inherited set from derived_from at read time.
     # Gated exactly like the derived_from reference itself: a requester who
     # cannot access the source gets all-false flags, so the flags cannot tell
     # them "derived from something you cannot see" (#765's rule).
@@ -568,7 +569,7 @@ async def list_keywords_endpoint(
                             select(Dataset.id).where(Dataset.record_id == record_id)
                         )
                     ).scalar_one_or_none()
-                    # fix(#1070): the counterfactual collapses the
+                    # The counterfactual collapses the
                     # derived audience to "the owner", turning the gap into an
                     # oracle for whether that named owner holds a grant on a
                     # restricted source — so honor the overrides only for the
@@ -693,7 +694,7 @@ async def list_distributions_endpoint(
         await list_distributions(db, record_id, skip=skip, limit=limit),
         await count_distributions(db, record_id),
     )
-    # fix(#2007): the Connect panel copies the vector template out of this
+    # The Connect panel copies the vector template out of this
     # endpoint, so republish it at the dataset's counter like every feed does.
     counter = await record_publication_version(db, record_id)
     return DistributionListResponse(
@@ -707,7 +708,7 @@ async def list_distributions_endpoint(
     )
 
 
-# fix(#1383): reachable only from concurrent writes to one record's primary
+# Reachable only from concurrent writes to one record's primary
 # flag — the service demotes the incumbent first, so a lone caller never gets
 # here — and a retry succeeds because the winner is settled by then.
 _PRIMARY_CONFLICT_DETAIL = "Another distribution was concurrently marked primary; retry"
@@ -794,7 +795,7 @@ async def update_distribution_endpoint(
     record = await _check_record_ownership(db, record_id, user)
     try:
         await _touch_record(db, record, user)
-        # fix(#458): exclude_unset, not exclude_none — see update_contact.
+        # exclude_unset, not exclude_none — see update_contact.
         dist = await update_distribution(
             db, distribution_id, record_id, **body.model_dump(exclude_unset=True)
         )
@@ -855,7 +856,7 @@ async def delete_distribution_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
         )
     except IntegrityError:
-        # fix(#1383): deleting the primary hands the flag back to the generated
+        # Deleting the primary hands the flag back to the generated
         # default, and a write that claimed it concurrently gets there first.
         # No other constraint on this table is reachable from a delete, so the
         # detail is stated rather than sniffed. A retry succeeds: the flag is

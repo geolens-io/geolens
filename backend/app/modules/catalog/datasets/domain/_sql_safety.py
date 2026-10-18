@@ -36,7 +36,7 @@ def _safe_table_ref(table_name: str, schema: str = "data") -> str:
 def _safe_column_ref(name: str) -> str:
     """Return a double-quoted column identifier for use inside ``text()``.
 
-    fix(#1778): quotes so a reserved-word column name (``desc``, ``order`` --
+    Quotes so a reserved-word column name (``desc``, ``order`` --
     routine ogr2ogr/DBF output) doesn't break the SQL. Embedded quotes are
     doubled; colons are backslash-escaped since SQLAlchemy ``text()`` reads
     ``:name`` as a bind parameter even inside a quoted identifier. Not a

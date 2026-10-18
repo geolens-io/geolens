@@ -50,7 +50,7 @@ def _encode_url_for_gdal(url: str) -> str:
     """Percent-encode URL paths so GDAL/libcurl accepts ArcGIS service names."""
     parts = urlsplit(url)
     encoded_path = quote(parts.path, safe="/%:@!$&'()*+,;=")
-    # fix(#1770): caller's own submitted URL, not a third-party href;
+    # The caller's own submitted URL, not a third-party href;
     # bounded by request-body size limits and Pydantic validation.
     pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
     encoded_query = urlencode(pairs)
@@ -59,7 +59,7 @@ def _encode_url_for_gdal(url: str) -> str:
     )
 
 
-# fix(#1746): prefix selects the auth format since run_service_preview
+# Prefix selects the auth format since run_service_preview
 # holds a composed GDAL source string, not a stored format.
 _GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
 
@@ -67,7 +67,7 @@ _GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
 class _Localised(NamedTuple):
     """What to run ogrinfo against, and what to report regardless of it.
 
-    fix(#1746): reported_name/total must NOT come from ogrinfo — pointed
+    reported_name/total must NOT come from ogrinfo — pointed
     at a scratch file, the GeoJSON driver reports the temp filename and
     sample count instead of the real collection name/total.
     """
@@ -89,7 +89,7 @@ async def _localise_protected_oapif(
 ) -> _Localised:
     """Read a protected OGC API collection locally, and describe the file.
 
-    fix(#1746): GDAL_HTTP_HEADER_FILE is process-global and OAPIF paging
+    GDAL_HTTP_HEADER_FILE is process-global and OAPIF paging
     follows a `next` link the origin chooses, so a same-origin first page
     could hand the credential to an origin named on page two — GDAL 3.10.3
     has no way to scope it (measured, see `platform/service_items`). Pages
@@ -111,10 +111,10 @@ async def _localise_protected_oapif(
             ),
             staging_dir=ensure_staging_ready(settings.upload_staging_dir),
             feature_limit=sample_limit,
-            # fix(#1746): the preview's budget covers the page
-            # walk as well as ogrinfo now. It used to run before the clock
-            # started, and the client's timeout is per inactivity, so a service
-            # answering slowly forever held the API request open indefinitely.
+            # The preview's budget covers the page walk as well as ogrinfo.
+            # The client's timeout is per inactivity, so without a deadline a
+            # service answering slowly forever would hold the API request open
+            # indefinitely.
             deadline=deadline,
         )
     except ItemFetchFailedError as exc:
@@ -201,7 +201,7 @@ def build_gdal_source(
             raise ValueError("ArcGIS layer preview requires a layer ID")
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
-        # fix(#1359): omitting outFields returns only the display field,
+        # Omitting outFields returns only the display field,
         # dropping every other column. urlencode renders `*` as `%2A`,
         # which ArcGIS decodes back correctly.
         params: dict[str, str | int] = {
@@ -242,7 +242,7 @@ def build_gdal_source(
                 params["f"] = "geojson"
                 source_driver = "GeoJSON"
             params["objectIds"] = ",".join(str(value) for value in object_ids)
-        # feat(C2): kept as a query param — GDAL only reads credentials from
+        # Kept as a query param — GDAL only reads credentials from
         # GDAL_HTTP_HEADER_FILE, whose charset rejects the `+`/`/` a real
         # ArcGIS token can contain. Exposure (argv, GDAL error text) is
         # bounded: run_ogr2ogr_service redacts it and #1753 purges the job row.
@@ -282,7 +282,7 @@ async def run_service_preview(
         "sample_rows": [],
     }
 
-    # fix(#1746): protected OAPIF collections are localised here, not
+    # Protected OAPIF collections are localised here, not
     # read by GDAL directly — see _localise_protected_oapif for why.
     deadline = time.monotonic() + timeout
     localised = await _localise_protected_oapif(
@@ -292,7 +292,7 @@ async def run_service_preview(
     layer_name = localised.layer_name
     credential = localised.credential
     items_path = localised.items_path
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): service branch driver is pinned by the
+    # Service branch driver is pinned by the
     # WFS:/OAPIF:/ESRIJSON: prefix; localised branch swaps in a bare staging
     # path, so `-if GeoJSON` is forced — _walk_pages guarantees those bytes
     # really are JSON, so naming the driver here is a true claim, not a guess.
@@ -319,7 +319,7 @@ async def run_service_preview(
     )
 
     header_file_path: str | None = None
-    # fix(#1746): kept in scope for the finally/error paths below —
+    # Kept in scope for the finally/error paths below —
     # pattern-based redactors can't see a credential in a header line, only
     # the exact value can scrub an echoed one.
     header_line: str | None = None
@@ -334,7 +334,7 @@ async def run_service_preview(
             if credential is not None and (
                 gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
             ):
-                # fix(#1746): judge inputs before composing the header line —
+                # Judge inputs before composing the header line —
                 # judging the composed line would reject every basic credential
                 # (it contains a space and colon), and would let a WFS token with
                 # `+`/`/` preview clean then fail at commit.
@@ -351,12 +351,12 @@ async def run_service_preview(
                 pair = build_credential_header(credential)
 
             if pair is not None:
-                # fix(#1746): checked before the header file exists, since
+                # Checked before the header file exists, since
                 # GDAL applies it to endpoints the service's own description
                 # advertises. Checked again in the worker: the document can
                 # change between preview and the import it leads to.
                 try:
-                    # fix(#1828): a credentialed WFS never reaches GDAL without a
+                    # A credentialed WFS never reaches GDAL without a
                     # layer, since GDAL opened layerless reads every layer's schema.
                     require_wfs_layer(
                         layer_name,
@@ -366,12 +366,12 @@ async def run_service_preview(
                     await assert_endpoints_stay_on_origin(
                         _service_url(gdal_source),
                         service_format=_gdal_source_format(gdal_source),
-                        # fix(#1746): same line the worker will hand GDAL, so
+                        # Same line the worker will hand GDAL, so
                         # a protected service answers with the document GDAL will
                         # act on rather than a 401.
                         credential_line=credential_header_line(pair),
                         collection=layer_name or None,
-                        # fix(#1746): inside the preview's budget — the
+                        # Inside the preview's budget — the
                         # client's per-inactivity timeout let a service trickling
                         # a 32 MiB doc hold the request open before ogrinfo ran.
                         deadline=deadline,
@@ -395,14 +395,14 @@ async def run_service_preview(
                 # so the env var carries a path, not the secret; unlinked in the
                 # finally below.
                 #
-                # fix(#1746): the line comes from the shared joiner alone — no
+                # The line comes from the shared joiner alone — no
                 # prefix composed here, so a finished basic credential can't
                 # collide with a hardcoded "Authorization: Bearer " prefix and
                 # produce a working-looking string that 401s at the origin.
                 header_line = credential_header_line(pair)
                 import tempfile
 
-                # fix(#1746): name the directory explicitly, not the container
+                # Name the directory explicitly, not the container
                 # tmpfs default — gdal_header_dir() is 0700 under /tmp (private
                 # to this container, gone on restart, swept at boot and on the
                 # API's periodic cadence), so a header orphaned by a SIGKILL
@@ -426,7 +426,7 @@ async def run_service_preview(
                 # trailing slash) must keep the credential or the service 401s.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
-            # fix(#1746): computed here so it accounts for budget already
+            # Computed here so it accounts for budget already
             # spent (page walk, endpoint check). Floored so a preflight that used
             # the whole budget still fails via the ordinary timeout, not an
             # arithmetic edge.
@@ -470,7 +470,7 @@ async def run_service_preview(
     # GDAL can exit 0 after a request fails, so a refusal fails the preview too.
     if proc.returncode != 0 or egress.refused:
         error_msg = stderr.decode().strip() if stderr else "unknown error"
-        # fix(#1746): a credential GDAL echoes back in stderr prose isn't a
+        # A credential GDAL echoes back in stderr prose isn't a
         # URL shape or a KEY name, so redact_url_credentials and the log
         # processor both miss it. scrub_secret_value holds the exact value
         # instead, applied before the log and the exception are built so
@@ -501,7 +501,7 @@ async def run_service_preview(
     try:
         data = json.loads(stdout.decode())
     except (ValueError, UnicodeDecodeError):
-        # fix(#1746): a JSONDecodeError carries the document it failed to
+        # A JSONDecodeError carries the document it failed to
         # parse, which is GDAL output too. This refusal names no part of it;
         # `from None` keeps the chained original from carrying it either.
         logger.error(
@@ -552,7 +552,7 @@ async def run_service_preview(
     result = {
         "srid": srid,
         "geometry_type": geometry_type,
-        # fix(#1746): for a localised collection these come from the
+        # For a localised collection these come from the
         # request/service, not ogrinfo, which is describing a scratch file.
         "layer_name": localised.reported_name or layer.get("name", layer_name),
         "feature_count": (

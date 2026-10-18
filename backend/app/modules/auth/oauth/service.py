@@ -344,7 +344,7 @@ class OAuthDomainNotAllowedError(Exception):
 
 
 class OAuthRegistrationDisabledError(Exception):
-    """fix(#1778): raised when an unknown OAuth identity would be provisioned
+    """Raised when an unknown OAuth identity would be provisioned
     while self-serve registration is switched off.
 
     Only NEW identities are refused — a returning user with an existing
@@ -665,10 +665,10 @@ async def _reconcile_mapped_role(
     user: User,
     groups: list[str] | None,
 ) -> None:
-    """fix(#1778): re-apply ``group_role_mapping`` on a returning user's login.
+    """Re-apply ``group_role_mapping`` on a returning user's login.
 
-    Previously the mapping only ran at JIT creation, so removing someone from
-    the IdP group never demoted them. Four preconditions, all load-bearing,
+    Without this the mapping would only run at JIT creation, and removing
+    someone from the IdP group would never demote them. Four preconditions, all load-bearing,
     must hold before a role is touched:
 
     * ``is_enterprise()`` — group mapping is an enterprise capability.
@@ -681,7 +681,7 @@ async def _reconcile_mapped_role(
     * account is OAuth-provisioned — a local account merely linked by verified
       email keeps the roles a GeoLens admin gave it.
 
-    fix(#1778): goes through
+    Goes through
     ``AdminService.set_role_from_identity_provider`` rather than assigning
     ``user.roles`` directly, so it inherits the admin-lifecycle advisory lock,
     the last-admin rule, and the ``key_epoch`` bump (#821) — without which an
@@ -730,7 +730,7 @@ async def _reconcile_mapped_role(
     await db.flush()
     await db.refresh(user, attribute_names=["roles"])
 
-    # fix(#1778): roles as captured UNDER the lock, not before it —
+    # Roles as captured UNDER the lock, not before it —
     # two concurrent callbacks racing this must not both describe a
     # transition that already happened.
     previous = outcome.previous_roles
@@ -764,7 +764,7 @@ async def _reconcile_mapped_role(
         return
 
     if not outcome.changed:
-        # fix(#1778): already at the mapped role — the second of two
+        # Already at the mapped role — the second of two
         # concurrent callbacks landing here after the first already applied it.
         return
 
@@ -871,7 +871,7 @@ async def find_or_create_oauth_user(
     Raises ``OAuthAccountInactiveError`` rather than return an account that
     is not active, so no caller issues it a session.
 
-    fix(#1778): steps 1 and 2 both yield an EXISTING account and both
+    Steps 1 and 2 both yield an EXISTING account and both
     call ``_reconcile_mapped_role``; step 3 sets the role inline via
     ``_resolve_role``. Any new return path for an existing user must add the
     reconcile call too — reconciliation once lived on step 1 alone, which left
@@ -942,7 +942,7 @@ async def find_or_create_oauth_user(
                     user_id=str(returning_user.id),
                 )
 
-        # fix(#623): converge pre-JIT accounts missing email_verified. Only
+        # Converge pre-JIT accounts missing email_verified. Only
         # when the IdP asserts verification for the SAME stored address, and
         # only for OAuth-provisioned users — never flips a local account's
         # own verification state via a link.
@@ -1031,7 +1031,7 @@ async def find_or_create_oauth_user(
             )
             db.add(link)
             await db.flush()
-            # fix(#1778): the other return path yielding an EXISTING
+            # The other return path yielding an EXISTING
             # account, so it needs the same reconciliation — otherwise a
             # first-time cross-provider link keeps the first provider's role
             # for the session. A LOCAL account linked here still keeps the
@@ -1070,7 +1070,7 @@ async def find_or_create_oauth_user(
         )
         email = None
 
-    # fix(#1778): self-serve-registration switch gates new-account creation
+    # The self-serve-registration switch gates new-account creation
     # too, placed AFTER domain/email checks so a refusal here can't be used
     # to probe which gate an identity trips. Cache-bypass: reads committed
     # state so a just-disabled registration isn't overruled by a stale value.
@@ -1112,7 +1112,7 @@ async def find_or_create_oauth_user(
         auth_provider="oauth",
         status="active",
         is_active=True,
-        # fix(#623): persists the IdP's assertion rather than the model
+        # Persists the IdP's assertion rather than the model
         # default (False), which left every SSO user unverified. Both halves
         # of the AND are load-bearing — no email means nothing verified.
         email_verified=email is not None and email_verified,

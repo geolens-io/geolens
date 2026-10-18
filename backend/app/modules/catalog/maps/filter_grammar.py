@@ -22,7 +22,7 @@ _COMBINATORS = {"all", "any"}
 # Legacy MapLibre feature-filter pseudo-fields resolved by the renderer itself,
 # NOT read from feature properties — they must NOT be rewritten to ["get", ...].
 _LEGACY_PSEUDO_FIELDS = {"$type", "$id"}
-# fix(#1778): real filters nest single digits (`all`/`!` cost one level each);
+# Real filters nest single digits (`all`/`!` cost one level each);
 # past this the validator raises FilterValidationError; the bound exists so
 # `_normalize_node`/`json.dumps` never reach Python's recursion limit, whose
 # RecursionError (not ValueError) Pydantic can't turn into a 422.

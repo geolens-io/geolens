@@ -27,7 +27,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plaintext password against a stored hash.
 
-    fix(#1778): an input longer than bcrypt's 72-byte limit is a NON-MATCH,
+    An input longer than bcrypt's 72-byte limit is a NON-MATCH,
     not an exception — pwdlib's BcryptHasher raises ValueError rather than
     truncating, and unvalidated callers (POST /auth/login, whose form schema
     has no length cap) turned that into an uncaught 500 that also skipped
@@ -72,7 +72,7 @@ class LocalAuthProvider:
         Raises AuthenticationError on any failure (wrong user, wrong password,
         or deactivated account).
         """
-        # fix(#1715): a locking read, not a bare SELECT. An admin
+        # A locking read, not a bare SELECT. An admin
         # reset holds FOR UPDATE on this row while writing the new hash and
         # revoking credentials; without a lock here, a login reading the row
         # before that commit could verify the STALE hash and then mint
@@ -84,7 +84,7 @@ class LocalAuthProvider:
         # FOR NO KEY UPDATE, not FOR SHARE: the login handler's
         # last_login_at UPDATE needs it — under FOR SHARE, two concurrent
         # logins would each try to upgrade and deadlock (Postgres aborts
-        # one, fix(#1715)). Taking the write-compatible mode up
+        # one). Taking the write-compatible mode up
         # front serializes them instead, without blocking FOR KEY SHARE
         # (this request's own refresh_tokens insert), and still conflicts
         # with the reset's FOR UPDATE, which is what it must serialize
@@ -107,10 +107,9 @@ class LocalAuthProvider:
             raise AuthenticationError("Invalid credentials")
 
         if user.password_hash is None:
-            # fix(#1230): OAuth-only users have no local password
-            # hash; `user.password_hash or ""` used to hand pwdlib an empty
-            # string, raising uncaught UnknownHashError (500, and skipping
-            # the login.failure audit). Still verify against the dummy hash
+            # OAuth-only users have no local password hash, and handing pwdlib
+            # an empty string would raise an uncaught UnknownHashError (500,
+            # skipping the login.failure audit). Still verify against the dummy hash
             # for timing-attack parity, then always fail.
             await verify_password_async(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")

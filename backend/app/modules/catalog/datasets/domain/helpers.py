@@ -94,10 +94,10 @@ def _build_raster_metadata(
             key = resolve_current_storage_key(raster_asset.asset_uri)
             s3_uri = f"s3://{settings.s3_bucket}/{key}"
 
-    # fix(#821): ?api_key= is deprecated, but desktop GIS XYZ tile clients
+    # ?api_key= is deprecated, but desktop GIS XYZ tile clients
     # can't send headers -- this placeholder is the sanctioned remaining use.
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    # fix(#1372, #2007): nginx keys raster_cache on `v` and `pv`, so a replace
+    # nginx keys raster_cache on `v` and `pv`, so a replace
     # or a publication transition rolls the cache. connect URL stays
     # unversioned: copied once into GIS tools, a frozen pair pins staleness.
     tile_url_meta = tile_url_path + tile_template_query(
@@ -167,7 +167,7 @@ def dataset_to_response(
 ) -> DatasetResponse:
     """Convert a Dataset ORM object to a DatasetResponse schema.
 
-    fix(#1316): ``can_view_provenance`` gates ``origin_uri``/``origin_ref`` --
+    ``can_view_provenance`` gates ``origin_uri``/``origin_ref`` --
     owner/admin see the raw pointer, everyone else gets it nulled. Callers
     resolve it via ``can_view_dataset_provenance`` in ``authorization.py``;
     it defaults to False so a forgetful call site redacts rather than leaks.
@@ -234,7 +234,7 @@ def dataset_to_response(
         else None
     )
 
-    # feat(#1218/#1224): resolved once -- serves as `origin` below and gates
+    # Resolved once -- serves as `origin` below and gates
     # source freshness, so the badge and freshness chip can't disagree.
     origin = classify_origin(dataset.source_format, record_type)
 
@@ -251,8 +251,8 @@ def dataset_to_response(
         n_dims=dataset.n_dims,
         z_min=dataset.z_min,
         z_max=dataset.z_max,
-        # fix(#1004): RFC 7946 §5.2 spec bbox (west > east on a seam crossing),
-        # not the flattened span form. fix(#1112): mirrored by
+        # RFC 7946 §5.2 spec bbox (west > east on a seam crossing),
+        # not the flattened span form. Mirrored by
         # dataset_extent_bbox in maps/_router_helpers.py for the same reason;
         # pinned by tests/test_antimeridian_extent.py.
         extent_bbox=extent_to_bbox(shown_extent(record, dataset.id, vrt_extents)),
@@ -277,10 +277,10 @@ def dataset_to_response(
         original_srid=dataset.original_srid,
         current_version=dataset.current_version,
         source_url=dataset.source_url,
-        # feat(#1218): origin is COMPUTED here, not stored -- it's fully
+        # Origin is COMPUTED here, not stored -- it's fully
         # determined by source_format and record_type, so all callers agree.
         origin=origin,
-        # feat(#1316): raw pointers are owner-or-admin only; every other
+        # Raw pointers are owner-or-admin only; every other
         # reader keeps `origin` (above) and the freshness/health fields below.
         origin_uri=dataset.origin_uri if can_view_provenance else None,
         origin_ref=dataset.origin_ref if can_view_provenance else None,
@@ -291,7 +291,7 @@ def dataset_to_response(
         source_health=project_unknown(dataset.source_health),
         source_health_detail=dataset.source_health_detail,
         schema_drift_status=project_unknown(dataset.schema_drift_status),
-        # feat(#1224): clock read lives here so compute_source_freshness stays
+        # Clock read lives here so compute_source_freshness stays
         # a total function of its arguments, testable without freezing time.
         source_freshness=compute_source_freshness(
             dataset.last_refreshed_at,
@@ -309,12 +309,12 @@ def dataset_to_response(
         last_edited_at=last_edited.timestamp,
         collections=collections,
         record_status=record.record_status,
-        # fix(#1103): passed in already access-checked -- an analysis output's
+        # Passed in already access-checked -- an analysis output's
         # lineage sentence names datasets it was built from, and reading
         # record.lineage_summary here instead leaked them past the requester
         # check. Guarded by tests/test_analysis_provenance.py.
         lineage_summary=lineage_summary,
-        # feat(#765): passed in already access-checked (via visible_derived_from);
+        # Passed in already access-checked (via visible_derived_from);
         # not read off the record, since list builders share this function and
         # would need a per-row check to emit it safely.
         derived_from=derived_from,
@@ -338,7 +338,7 @@ def dataset_to_response(
 async def dataset_geom_is_generic(db, table_name: str) -> bool:
     """True when the active tenant table's ``geom`` is generic GEOMETRY.
 
-    fix(#430): mirrors features/service.py::_geom_column_is_generic (kept
+    Mirrors features/service.py::_geom_column_is_generic (kept
     here since features already imports from datasets). Keep both in sync.
     """
     from app.core.db.tenant_schema import tenant_data_schema

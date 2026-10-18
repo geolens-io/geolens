@@ -47,7 +47,7 @@ def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
     Returns (version_string, layers_list); each layer dict has keys: name,
     title, crs.
 
-    fix(#1770): accepts `bytes` too — `ET.fromstring` honours an embedded
+    Accepts `bytes` too — `ET.fromstring` honours an embedded
     `<?xml encoding="..."?>` declaration on bytes, avoiding a fight with a
     decode this function already did.
     """
@@ -91,15 +91,15 @@ def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
 def build_capabilities_url(url: str) -> str:
     """Build a GetCapabilities URL, preserving existing query params.
 
-    fix(#1770): every caller reaches this with `url` capped upstream, never
+    Every caller reaches this with `url` capped upstream, never
     a value read from a third-party response — the periodic health check
     passes `origin_ref["url"]`, JSONB persisted from a probe/preview
     submission already capped at 2048 chars (~350 fields of `a=1&`). That is
     what makes `# parse_qs: unbounded` correct here, matching
-    `preview.py::_encode_url_for_gdal`'s exemption for the same reason — a
-    `max_num_fields` bound was tried once and wrongly assumed
-    `_header_auth_probe` was the only caller, letting a `ValueError` reach
-    the health-check route as a bare 500.
+    `preview.py::_encode_url_for_gdal`'s exemption for the same reason. A
+    `max_num_fields` bound would raise a `ValueError` that callers other than
+    `_header_auth_probe` don't expect, reaching the health-check route as a
+    bare 500.
     """
     parsed = urlparse(url)
     existing_params = parse_qs(parsed.query)  # parse_qs: unbounded
@@ -123,13 +123,13 @@ async def probe_wfs(
     Fetches GetCapabilities and parses the response. Returns a dict with
     service_type and layers, or None if not a WFS service.
 
-    fix(#1746): the credential becomes a header HERE, keeping
+    The credential becomes a header HERE, keeping
     ``build_credential_header`` the tree's only producer of one. A
     ValueError from the builder is unreachable over HTTP (the probe door
     already judged the inputs) and is caught here for the in-process caller
     that skipped it.
 
-    fix(#1770): the whole function runs under ``DEFAULT_CHECK_TIMEOUT``,
+    The whole function runs under ``DEFAULT_CHECK_TIMEOUT``,
     same reasoning as ``probe_ogcapi``.
     """
     try:
@@ -148,7 +148,7 @@ async def _probe_wfs_within_deadline(
     capabilities_url = build_capabilities_url(url)
     request_headers = {}
     if credential is not None:
-        # fix(#1746): a ValueError from the builder propagates rather than
+        # A ValueError from the builder propagates rather than
         # becoming "not a WFS service" — another adapter may claim the same
         # URL and carry the value a different way (e.g. an ArcGIS token,
         # percent-encoded into a query, legitimately outside the header
@@ -160,7 +160,7 @@ async def _probe_wfs_within_deadline(
             request_headers[pair[0]] = pair[1]
 
     try:
-        # fix(#1770): bounded read; `EndpointCheckFailedError` joins the
+        # Bounded read; `EndpointCheckFailedError` joins the
         # two httpx types already caught — whatever the cause, this
         # degrades to "not a WFS service" the same way.
         body, response_headers = await bounded_probe_read(
@@ -171,7 +171,7 @@ async def _probe_wfs_within_deadline(
         httpx.TransportError,
         EndpointCheckFailedError,
     ) as exc:
-        # fix(#1770): this request can carry a credential header; the
+        # This request can carry a credential header; the
         # exception text quotes the full request URL, so it must be
         # redacted before logging.
         logger.debug("WFS probe failed for %s: %s", url, redact_exception_text(exc))

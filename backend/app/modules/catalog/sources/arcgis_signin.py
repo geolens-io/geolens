@@ -73,7 +73,7 @@ _ACCOUNT_KEY_INFO = b"account-digest-key"
 # to the end only helps the origin waste API memory.
 _MAX_RESPONSE_BYTES = 256 * 1024
 
-# fix(#1758): deadline is per phase, not the whole sign-in, so a
+# Deadline is per phase, not the whole sign-in, so a
 # cancellation can't land mid ledger/audit write and 500 without recording
 # the outcome. httpx per-phase timeouts back DNS resolution; sum = 45s.
 _DISCOVERY_DEADLINE_SECONDS = 20.0
@@ -86,10 +86,10 @@ SIGNIN_REJECTED = "arcgis_signin_rejected"
 SSO_ACCOUNT = "arcgis_sso_account"
 SSRF_REFUSED = "ssrf_refused"
 NETWORK_ERROR = "network_error"
-# fix(#1758): not an ArcGIS outcome. GeoLens refuses before the
+# Not an ArcGIS outcome. GeoLens refuses before the
 # password leaves the process, so it discloses nothing about the account.
 NOT_HTTPS = "arcgis_portal_not_https"
-# fix(#1758): likewise. A host nobody can canonicalize cannot be
+# Likewise. A host nobody can canonicalize cannot be
 # bucketed, and an unbucketable host is an unlimited one.
 HOST_INVALID = "arcgis_portal_host_invalid"
 
@@ -151,16 +151,16 @@ AUDIT_PORTAL_NOT_HTTPS = "portal_not_https"
 AUDIT_HOST_INVALID = "portal_host_invalid"
 AUDIT_TOKEN_SERVICE_NOT_HTTPS = "token_service_not_https"
 AUDIT_TOKEN_SERVICE_REDIRECT = "token_service_redirect"
-# fix(#1758): discovery runs before a credential exists, so its
+# Discovery runs before a credential exists, so its
 # failures are uncounted (`network_error` to the caller) — an unreachable
 # portal must not spend a real account's attempt budget.
 AUDIT_DISCOVERY_UNREACHABLE = "discovery_unreachable"
 AUDIT_DISCOVERY_TIMEOUT = "discovery_timeout"
-# fix(#1758): a NOTE on the sign-in's outcome, not a result itself
+# A NOTE on the sign-in's outcome, not a result itself
 # — the attempt proceeds against the conventional endpoint. Records that
 # the portal tried to redirect the password somewhere untrusted.
 AUDIT_DISCOVERY_UNTRUSTED_DELEGATE = "discovery_untrusted_delegate"
-# fix(#1775, audit): cancellation-only outcome (worker shutdown; a client
+# Cancellation-only outcome (worker shutdown; a client
 # disconnect never reaches here on pinned Starlette 1.6.0). The attempt is
 # reserved BEFORE the POST, so no cancellation makes it free either way.
 AUDIT_CANCELLED = "cancelled"
@@ -269,7 +269,7 @@ def _timed_out() -> ArcGISSignInError:
 
 
 def _redirected() -> ArcGISSignInError:
-    """fix(#1758): token service answered with a 3xx.
+    """Token service answered with a 3xx.
 
     Counted as an attempt, not a refusal, since the credential was already
     on the wire. Never follow it: httpx replays the form body on a 307/308
@@ -287,7 +287,7 @@ def _redirected() -> ArcGISSignInError:
 
 
 def _invalid_host() -> ArcGISSignInError:
-    """fix(#1758): the portal host does not canonicalize.
+    """The portal host does not canonicalize.
 
     Refused before anything is on the wire — every limit here is keyed on
     the host, and a host with no single spelling can't be counted.
@@ -302,7 +302,7 @@ def _invalid_host() -> ArcGISSignInError:
 
 
 def _not_https(message: str, audit_result: str) -> ArcGISSignInError:
-    """fix(#1758): refuse to POST a password over cleartext.
+    """Refuse to POST a password over cleartext.
 
     ``validate_url_for_ssrf`` allows http for reads, but a password in the
     request body over http hands it to anyone on the path. Checked for
@@ -384,7 +384,7 @@ def _numeric_ipv4(host: str) -> str | None:
 def canonical_host(raw: str) -> str:
     """One spelling per destination, for hashing, locking and comparing.
 
-    fix(#1758): host-keyed limits need one bucket per destination.
+    Host-keyed limits need one bucket per destination.
     IDNA/ASCII form, case, a trailing root dot, and IPv4/IPv6 literal
     shorthand (e.g. ``127.1``) can all name the same origin differently.
 
@@ -417,7 +417,7 @@ def canonical_host(raw: str) -> str:
 def _canonical_url(raw: str | httpx.URL) -> httpx.URL:
     """One normalized ``httpx.URL``, host included.
 
-    fix(#1758): scope must come from ``httpx.URL`` itself, since
+    Scope must come from ``httpx.URL`` itself, since
     it removes dot segments, lowercases scheme/host, decodes percent-
     encoding and applies IDNA — ``urlsplit`` does none of that and kept
     ``/a/../sharing/rest`` verbatim while httpx sent it to ``/sharing/rest``,
@@ -430,13 +430,13 @@ def _canonical_url(raw: str | httpx.URL) -> httpx.URL:
     not compared, so the hashed address is the address contacted.
     """
     url = raw if isinstance(raw, httpx.URL) else httpx.URL(raw)
-    # fix(#1758): httpx decodes `%2e` to `.` in the exposed path,
+    # httpx decodes `%2e` to `.` in the exposed path,
     # but removes dot segments before that decode, so `/a/%2e%2e/sharing`
     # survives as `/a/../sharing`. Re-parsing the decoded form fixes it.
     #
-    # fix(#1758): iterate to a FIXED POINT, not N passes — 10-deep
-    # encoding bypassed the old 4-pass cap, hit the wire as `%252e%252e`, and
-    # a proxy+ArcGIS decoded it to `..` between them. Bound = input length,
+    # Iterate to a FIXED POINT, not N passes — a fixed pass cap can be
+    # bypassed by deeper encoding, which hits the wire as `%252e%252e` and
+    # gets decoded to `..` between a proxy and ArcGIS. Bound = input length,
     # since each effective pass strictly shortens the path.
     for _ in range(len(url.path) + 1):
         reparsed = httpx.URL(f"{url.scheme}://{url.netloc.decode()}{url.path}")
@@ -449,15 +449,15 @@ def _canonical_url(raw: str | httpx.URL) -> httpx.URL:
 def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
     """THE canonicalizer. Every URL in this module goes through this one.
 
-    fix(#1758): refused, not repaired — a URL still holding
+    Refused, not repaired — a URL still holding
     ``..``, an empty segment, a query, fragment or userinfo after
     normalization has an ambiguous scope, and the conventional endpoint is
     always available instead.
 
-    fix(#1758): "every URL" is the point — the portal URL, its
-    advertised token service, and the composed fallback used to each get
-    their own normalization (e.g. a separate ``urlsplit`` path that missed
-    percent-encoded dot segments), giving one endpoint several scopes.
+    "every URL" is the point — the portal URL, its advertised token service
+    and the composed fallback must not each get their own normalization
+    (e.g. a separate ``urlsplit`` path that misses percent-encoded dot
+    segments), which would give one endpoint several scopes.
     """
     try:
         url = _canonical_url(raw)
@@ -465,7 +465,7 @@ def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
         return None
     if url.query or url.fragment or url.userinfo:
         return None
-    # fix(#1758): whatever survives the fixed point could still be
+    # Whatever survives the fixed point could still be
     # decoded downstream. `%2e`/`%2f`/`%5c` change what path is addressed,
     # so a stable form keeping one — or an incomplete escape — is refused.
     stable_path = url.path
@@ -483,10 +483,10 @@ def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
         # `/\\sharing` with `/sharing` under two scopes.
         return None
     if url.port == 0:
-        # fix(#1758): port 0 addresses nothing but is FALSEY, so
-        # scope derivation read "no port" and filed those failures under
-        # the real :443 bucket — 3 against a victim's username exhausted
-        # that account's cluster-global budget and 429'd every tenant.
+        # Port 0 addresses nothing but is FALSEY, so scope derivation would
+        # read "no port" and file those failures under the real :443 bucket,
+        # where 3 against a victim's username exhaust that account's
+        # cluster-global budget and 429 every tenant.
         return None
     # segments[0] is "" before a leading slash on any absolute path — the
     # only legitimate empty one. A bare root path "/" is that one segment.
@@ -501,10 +501,10 @@ def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
 def canonical_token_service_scope(url: str | httpx.URL) -> str:
     """The identity every sign-in limit is keyed on: ``host:port/webadaptor``.
 
-    fix(#1758): host alone isn't the account store — two Enterprise
+    Host alone isn't the account store — two Enterprise
     portals can share a hostname and differ only by port or web-adaptor
     path, as independent installations with independent user directories,
-    so host-only keying let attempts against one exhaust/serialize the other.
+    so host-only keying would let attempts against one exhaust/serialize the other.
 
     Port is always made explicit from the scheme; path keeps its case
     (server-sensitive) but drops a trailing ``/generateToken``. The
@@ -579,7 +579,7 @@ def _account_digest_key() -> bytes:
 def signin_account_key(host: str, username: str) -> str:
     """A stable, non-reversible handle for the ArcGIS account being signed into.
 
-    fix(#1758): keyed to the ARCGIS account, not the GeoLens user —
+    Keyed to the ARCGIS account, not the GeoLens user —
     Esri locks after 5 failed sign-ins per account in 15 minutes, so two
     GeoLens users at 3 attempts each would otherwise total 6 against one
     colleague's account. Both the counter and the advisory lock use this.
@@ -599,11 +599,11 @@ def signin_account_key(host: str, username: str) -> str:
 def signin_user_key(user_id: object, scope: str) -> str:
     """A keyed handle for the CALLER half of the budget, and its destination.
 
-    fix(#1775): budget counts from the ledger, not ``audit_logs`` — under
+    Budget counts from the ledger, not ``audit_logs`` — under
     reserve-then-settle the audit row is written only after the POST, so a
     cancelled request would undercount there.
 
-    fix(#1758): keyed and length-prefixed like
+    Keyed and length-prefixed like
     :func:`signin_account_key`, under the same derived key, because
     ``arcgis_signin_attempts`` sits outside the tenant RLS boundary and must
     hold no plaintext caller/tenant identifier.
@@ -640,7 +640,7 @@ def _rest_base(portal: httpx.URL) -> httpx.URL:
     rejoin, not pattern-match — a URL regex is a ReDoS surface on
     caller-controlled input.
 
-    fix(#1758): takes the ``httpx.URL`` :func:`usable_service_url`
+    Takes the ``httpx.URL`` :func:`usable_service_url`
     already produced rather than re-parsing the string — its own prior
     ``urlsplit`` resolved no percent-encoded dot segments, so
     ``/a/%2e%2e`` and ``/b/%2e%2e`` gave one destination two scopes.
@@ -666,14 +666,14 @@ async def _fetch_json(
 
     ``None`` covers anything unusable: a page instead of a document, a body
     too large, or a compressed one. Streamed with a byte cap on RAW
-    transport bytes (fix(#1758)) rather than ``response.json()``,
+    transport bytes rather than ``response.json()``,
     so a compressed body can't expand past the cap inside the decoder.
 
     ``data`` is form-encoded by httpx (percent-escaped), so a password
     can't smuggle a field separator — no extra character policy needed.
 
     ``follow_redirects`` is a PER-REQUEST override on the shared safe
-    client (fix(#1758)), not a second client — ``make_safe_client``
+    client, not a second client — ``make_safe_client``
     is the only sanctioned constructor and a second one would lose the
     guard transport and trip the Rule 2 hook. The credential POST passes
     ``False``; see :func:`_redirected`.
@@ -683,7 +683,7 @@ async def _fetch_json(
         method,
         url,
         data=data,
-        # fix(#1758): `identity` — nothing here benefits from
+        # `identity` — nothing here benefits from
         # compression, and a compressed body is a decoder bomb risk.
         headers={"Accept": "application/json", "Accept-Encoding": "identity"},
         follow_redirects=follow_redirects,
@@ -708,10 +708,10 @@ async def _fetch_json(
         try:
             return response.status_code, json.loads(raw)
         except (ValueError, RecursionError):
-            # fix(#1858): `RecursionError` joins `ValueError` — nested JSON
+            # `RecursionError` joins `ValueError` — nested JSON
             # can hit CPython's stack limit (~120k levels measured on 3.14)
             # before the `_MAX_RESPONSE_BYTES` cap (~131k levels) does. As a
-            # `RuntimeError`, it used to escape into the transport handler
+            # `RuntimeError`, it would escape into the transport handler
             # as `unreachable`, mislabeling a portal that answered fine;
             # `unreadable_response` is correct here.
             return response.status_code, None
@@ -723,16 +723,14 @@ _ARCGIS_ONLINE_DOMAIN = "arcgis.com"
 def _is_trusted_delegate(portal: str, delegate: str) -> bool:
     """Whether *portal* may hand the password to *delegate*.
 
-    fix(#1758): ``tokenServicesUrl`` used to be followed to any
-    https+SSRF-clean host, making discovery a credential redirect vector.
+    Following ``tokenServicesUrl`` to any https+SSRF-clean host would make
+    discovery a credential redirect vector, and "portal host minus its
+    leftmost label" is a public-suffix bug in disguise: for ``agency.co.uk``
+    it yields ``co.uk``, so ``attacker.co.uk`` reads as a sibling. No
+    string-only rule fixes that without a public-suffix list, which this
+    module won't carry.
 
-    fix(#1758): the replacement ("portal host minus its leftmost
-    label") was a public-suffix bug in disguise — for ``agency.co.uk`` it
-    yields ``co.uk``, so ``attacker.co.uk`` read as a sibling. No string-only
-    rule fixes that without a public-suffix list, which this module won't
-    carry.
-
-    Bound is now decidable from the two strings alone: same host, a
+    The bound is decidable from the two strings alone: same host, a
     subdomain of the portal host, or anything under ``arcgis.com`` (where
     ArcGIS Online delegates). A sibling Enterprise federation host falls
     back to the portal's own ``generateToken`` — the same fallback every
@@ -763,7 +761,7 @@ async def _discover_token_service(
     A transport-level discovery failure falls back to the conventional URL
     rather than failing here, giving sign-in one failure path to classify.
 
-    fix(#1758): discovery GET never follows redirects — any 3xx
+    Discovery GET never follows redirects — any 3xx
     falls back. An https-to-http hop would hand the discovery document to
     anyone on the path, and a rewritten response could name an attacker's
     https token service that passes every later check. Not following at
@@ -772,7 +770,7 @@ async def _discover_token_service(
     Returns the URL to POST to and, when the portal named a delegate this
     instance won't follow, a note for the audit row.
     """
-    # fix(#1758): composed from the canonical portal and put through
+    # Composed from the canonical portal and put through
     # the same function every other URL here takes, so the endpoint a caller
     # falls back to cannot be a spelling of its own.
     fallback = usable_service_url(f"{rest_base}/generateToken")
@@ -785,7 +783,7 @@ async def _discover_token_service(
     except httpx.HTTPError:
         return fallback, None
     except SSRFError:
-        # fix(#1758): `_revalidate_redirect` fires on every
+        # `_revalidate_redirect` fires on every
         # response, so a 3xx with a private/unresolvable Location raises
         # before the status can be read — same case as the 3xx branch
         # below: fall back rather than report `ssrf_refused` for a portal
@@ -807,7 +805,7 @@ async def _discover_token_service(
     candidate = candidate.strip()
     if not candidate or len(candidate) > 2048:
         return fallback, None
-    # fix(#1758): normalized ONCE, here, into the object the POST is
+    # Normalized ONCE, here, into the object the POST is
     # later sent with, so the scope, the delegate check and the destination
     # are all readings of one value rather than three parses of a string.
     normalized = usable_service_url(candidate)
@@ -816,7 +814,7 @@ async def _discover_token_service(
         # itself after normalization, is no more usable than an absent one,
         # and the conventional URL is what the portal would have meant.
         return fallback, None
-    # fix(#1758): delegate check FIRST — it's the only pure one
+    # Delegate check FIRST — it's the only pure one
     # of the three. Checking https/resolving before delegate-trust turned
     # an untrusted-but-private/unresolvable candidate into `ssrf_refused`
     # or a network error, instead of the same clean fallback any other
@@ -939,7 +937,7 @@ def _minted_from(payload: Any) -> MintedToken:
 class PortalSignIn:
     """One portal, resolved to its token service and ready to be signed in to.
 
-    fix(#1758): two phases because the LIMITS need it — discovery
+    Two phases because the LIMITS need it — discovery
     is credential-free and answers "which host receives this password",
     with every lock/budget keyed on that host, not the address the caller
     typed. Otherwise a caller with a wildcard domain could point a hundred
@@ -966,7 +964,7 @@ class PortalSignIn:
         #: is what tells an operator the portal tried.
         self.discovery_note = discovery_note
         #: The URL the credential POST goes to, already normalized. Held as
-        #: an ``httpx.URL`` (fix(#1758)) because that is what the
+        #: an ``httpx.URL`` because that is what the
         #: scope was derived from, so the two cannot diverge.
         self.token_service = token_service
         #: The canonical ``host:port/webadaptor`` of the destination that
@@ -983,7 +981,7 @@ class PortalSignIn:
         body is the password, so a foreign traceback with frame locals is a
         leak. Nothing is chained either, for the same reason.
 
-        fix(#1758): deadline is HERE, around the network call, not
+        Deadline is HERE, around the network call, not
         the caller's whole block — what runs after is the ledger insert and
         audit commit, and a cancellation there leaves a failed transaction
         with the outcome unrecorded. Outcome decided inside the scope,
@@ -1032,7 +1030,7 @@ class PortalSignIn:
                 follow_redirects=False,
             )
         except SSRFError:
-            # fix(#1758): the safe client's per-hop hook fires on
+            # The safe client's per-hop hook fires on
             # every response, so a 3xx with a private Location raises here
             # before the status is seen. Left to the outer handler this
             # would record `ssrf_blocked` (excluded from budget) — wrong
@@ -1061,7 +1059,7 @@ async def _resolve_token_service(
     unreachable portal spend a real account's lockout budget.
     """
     try:
-        # fix(#1758): the caller's URL takes the same road as every
+        # The caller's URL takes the same road as every
         # other URL in this module, and it takes it FIRST. Before the SSRF
         # check, so neither refusal costs a DNS lookup, and long before
         # anything is on the wire.
@@ -1110,10 +1108,10 @@ async def _resolve_token_service(
 async def open_portal_signin(portal_url: str) -> AsyncIterator[PortalSignIn]:
     """Resolve a portal's token service and hold the client open for the mint.
 
-    fix(#1758): deadline covers DISCOVERY only; the yield is
-    outside it. It used to span the caller's block too, so a cancellation
-    could land in the ledger insert or audit commit between phases, leaving
-    a failed transaction and a 500 with nothing recorded — a sign-in that
+    Deadline covers DISCOVERY only; the yield is
+    outside it. Spanning the caller's block too would let a cancellation
+    land in the ledger insert or audit commit between phases, leaving a
+    failed transaction and a 500 with nothing recorded — a sign-in that
     reached the wire without spending its budget. The mint carries its own
     deadline for the same reason. Only ``TimeoutError`` is converted here;
     anything else the caller raises inside the block passes through
@@ -1132,7 +1130,6 @@ async def open_portal_signin(portal_url: str) -> AsyncIterator[PortalSignIn]:
         yield PortalSignIn(client, token_service, scope, rest_base, note)
 
 
-# fix(#1758): the in-flight guard that used to live here was a
+# The in-flight guard is a PostgreSQL advisory lock next to the route, not a
 # process-local set, which is worth nothing on an install that runs two
-# uvicorn workers. It is now a PostgreSQL advisory lock next to the route,
-# because the shared state a stock install has is the database.
+# uvicorn workers; the shared state a stock install has is the database.

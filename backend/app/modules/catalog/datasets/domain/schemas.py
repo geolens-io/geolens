@@ -26,12 +26,12 @@ from app.modules.catalog.sources.schemas import (
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 from app.platform.dataset_origin import OriginKind
 
-# fix(#1755): the shared rule, not a second copy of it. Every request
+# The shared rule, not a second copy of it. Every request
 # model carrying a service-credential token judges it by this one function.
 from app.platform.service_auth import _validate_safe_token
 
 
-# feat(#1222): built from the probe's own closed vocabulary, not retyped,
+# Built from the probe's own closed vocabulary, not retyped,
 # so the two cannot drift. The wording matters: it tells a client author
 # this is an enumerated code, not a message to show verbatim.
 SOURCE_HEALTH_DETAIL_DESCRIPTION = (
@@ -479,7 +479,7 @@ class DatasetResponse(BaseModel):
         max_length=2000,
         description="URL the data was originally fetched from",
     )
-    # feat(#1218): read-only source-origin & refresh state. Every field below
+    # Read-only source-origin & refresh state. Every field below
     # is system-managed -- none accepted by PATCH /datasets/{id}/metadata.
     origin: str | None = Field(
         default=None,
@@ -540,7 +540,7 @@ class DatasetResponse(BaseModel):
             "schema diff; 'unknown' until a refresh has run."
         ),
     )
-    # feat(#1224): computed at read time from last_refreshed_at, the record's
+    # Computed at read time from last_refreshed_at, the record's
     # update_frequency, and origin. Not stored — see domain/source_freshness.py.
     source_freshness: str = Field(
         default="unknown",
@@ -717,7 +717,7 @@ class BulkDeleteResultItem(BaseModel):
     dataset_id: uuid.UUID
     status: str  # "deleted" | "error"
     detail: str | None = None
-    # fix(#1847): carries the same code the single-delete 409 does, so a
+    # Carries the same code the single-delete 409 does, so a
     # client sees one code regardless of endpoint. None for prose-only errors.
     code: str | None = None
 
@@ -754,7 +754,7 @@ class DatasetMeta(BaseModel):
         description="Access level: private, restricted, internal, or public",
     )
     license: str | None = Field(default=None, max_length=1000)
-    # feat(#1472): 5000, not the 1000 its neighbours use -- a 1000-char bound
+    # 5000, not the 1000 its neighbours use -- a 1000-char bound
     # would reject a manifest value the ingest tail writes straight to the
     # column (ManifestMetadata.attribution is NonEmptyString5000).
     attribution: str | None = Field(
@@ -869,7 +869,7 @@ class DatasetMeta(BaseModel):
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
-    # fix(#1472): attribution is the one field here that reaches an HTML
+    # Attribution is the one field here that reaches an HTML
     # render context (MapLibre's attribution control assigns it to
     # innerHTML), so it must stay markup-free. See reject_html_markup.
     @field_validator("attribution")
@@ -911,7 +911,7 @@ class SchemaDiff(BaseModel):
     )
     row_count_old: int | None
     row_count_new: int | None
-    # fix(#1746): nullable, but still REQUIRED -- `None` is the answer when
+    # Nullable, but still REQUIRED -- `None` is the answer when
     # either count is unknown; a client need not distinguish "absent" from
     # "unknown" too.
     row_count_delta: int | None = Field(
@@ -950,7 +950,7 @@ class ReuploadPreviewResponse(BaseModel):
     sample_rows: list[dict[str, Any]]
     layer_name: str
     schema_diff: SchemaDiff
-    # GPKG-01 Phase 1058: multi-layer support fields
+    # Multi-layer support fields
     all_layers: list[dict[str, Any]] | None = None
     previous_source_layer: str | None = None
     review_reasons: list[ReviewReason] = Field(
@@ -982,7 +982,7 @@ class ReuploadServicePreviewRequest(BaseModel):
     )
     _validate_token = field_validator("token")(_validate_safe_token)
     object_id_field: str | None = Field(default=None, max_length=200)
-    # feat(#1746): must stay LAST, like every model with this field. The
+    # Must stay LAST, like every model with this field. The
     # generated Python SDK gives each field a positional slot in declaration
     # order; inserting `auth` earlier would shift `object_id_field`'s slot
     # and send an existing positional caller's OID string as `auth`, a 422.
@@ -994,7 +994,7 @@ class ReuploadServicePreviewRequest(BaseModel):
 
 
 class ReuploadPreviewRequest(BaseModel):
-    # GPKG-01 Phase 1058: optional layer_name for multi-layer file sources
+    # Optional layer_name for multi-layer file sources
     layer_name: str | None = Field(default=None, max_length=500)
     srid_override: int | None = Field(
         default=None,
@@ -1024,7 +1024,7 @@ class ReuploadCommitRequest(BaseModel):
         default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
     )
     _validate_token = field_validator("token")(_validate_safe_token)
-    # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
+    # User-chosen layer for multi-layer GPKG files
     layer_name: str | None = Field(default=None, max_length=500)
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
@@ -1219,7 +1219,7 @@ class VrtSourceListResponse(BaseModel):
 class VrtSourceHealth(BaseModel):
     dataset_id: uuid.UUID
     title: str
-    # feat(#1221): `stale` means the member's raster was replaced after the
+    # `stale` means the member's raster was replaced after the
     # parent VRT was last built -- the fix is a regenerate, not anything on
     # the source. Distinct from `inaccessible`, about the member itself.
     status: Literal["healthy", "missing", "inaccessible", "stale"]
@@ -1404,9 +1404,9 @@ class IngestionResult(BaseModel):
 
 
 # Operation-scoped request fields -> the only operation that reads them,
-# actually dropped by the request validators (fix(#682): a stray
-# mask_dataset_id sent alongside buffer/centroid could otherwise 404/422 the
-# request or fail the job). fix(#955): values are tuples because a param can
+# actually dropped by the request validators (a stray mask_dataset_id sent
+# alongside buffer/centroid could otherwise 404/422 the request or fail the
+# job). Values are tuples because a param can
 # belong to more than one operation -- select_by_location shares
 # `mask`/`mask_dataset_id` with clip rather than re-spelling them.
 _ANALYSIS_PARAM_OWNERS = {
@@ -1438,7 +1438,7 @@ _JOIN_FILTER_DESCRIPTION = (
 )
 
 # Operations whose geometry comes from a drawn mask or a mask layer, exactly
-# one of the two. fix(#956): intersect is deliberately NOT here -- it takes
+# one of the two. Intersect is deliberately NOT here -- it takes
 # a LAYER only, since a drawn polygon has no attributes to overlay with.
 MASK_OPERATIONS = ("clip", "select_by_location")
 
@@ -1468,7 +1468,7 @@ def _require_analysis_params(request: Any) -> None:
         raise ValueError(
             f"{request.operation} requires exactly one of mask or mask_dataset_id"
         )
-    # fix(#956): layer only, and required. `mask` is not an intersect param,
+    # Layer only, and required. `mask` is not an intersect param,
     # so _drop_params_for_other_operations already discarded any drawn one;
     # this just insists on the layer that replaces it.
     if request.operation == "intersect" and request.mask_dataset_id is None:

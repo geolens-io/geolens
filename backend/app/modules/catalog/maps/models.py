@@ -102,7 +102,7 @@ class Map(Base):
     # Preview thumbnail — storage key (e.g. "maps/thumbnails/{id}.jpg")
     thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # fix(#1005): thumbnail's own cache version, split from `updated_at`
+    # The thumbnail's own cache version, split from `updated_at`
     # — a lazy backfill (a read, not an edit) shouldn't bump the edit
     # timestamp. Nullable; frontend falls back to `updated_at` for old rows.
     thumbnail_updated_at: Mapped[datetime | None] = mapped_column(

@@ -18,7 +18,7 @@ from app.modules.catalog.search.service import SearchFilters
 _ALLOWED_RECORD_TYPES = frozenset(RECORD_TYPES)
 _ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
 
-# fix(#687): page-size ceiling for offset-paged routes (SearchQueryParams),
+# Page-size ceiling for offset-paged routes (SearchQueryParams),
 # lower than the keyset-paged `ogc_items_max_page_size` (#665). An over-limit
 # request is CLAMPED, never rejected — OGC Core fc-limit-response-1(C).
 _MAX_PAGE_SIZE = 200
@@ -125,7 +125,7 @@ class SearchQueryParams(BaseModel):
     @field_validator("limit")
     @classmethod
     def _clamp_limit(cls, value: int) -> int:
-        """fix(#687): clamp here, not per-handler, so the echoed ``self``/``next``
+        """Clamp here, not per-handler, so the echoed ``self``/``next``
         links match the executed query for both consumers of this model."""
         return min(value, _MAX_PAGE_SIZE)
 

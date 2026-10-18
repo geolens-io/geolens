@@ -60,7 +60,7 @@ class Record(Base):
             "temporal_start IS NULL OR temporal_end IS NULL OR temporal_start <= temporal_end",
             name="chk_temporal_ordering",
         ),
-        # fix(#892): typmod widened from POLYGON to generic Geometry so a
+        # Generic Geometry rather than POLYGON typmod so a
         # seam-crossing extent can be a two-ring MULTIPOLYGON; this constraint
         # keeps the type guard, deliberately narrow (caught a real POINT 500).
         CheckConstraint(
@@ -68,7 +68,7 @@ class Record(Base):
             "GeometryType(spatial_extent) IN ('POLYGON', 'MULTIPOLYGON')",
             name="chk_records_spatial_extent_type",
         ),
-        # fix(#892): known ceiling -- a seam-crossing MULTIPOLYGON's GiST bbox
+        # Known ceiling -- a seam-crossing MULTIPOLYGON's GiST bbox
         # is -180..180, degrading this index to a full scan for those rows
         # only; make_bbox_filter()'s ST_Intersects recheck keeps results right.
         Index(
@@ -108,7 +108,7 @@ class Record(Base):
             "updated_by",
             postgresql_where=text("updated_by IS NOT NULL"),
         ),
-        # Migration 0010 (H-07) is the DDL source of truth; declared here so
+        # Migration 0010 is the DDL source of truth; declared here so
         # alembic check sees them. postgresql_ops keeps the operator class
         # outside the expression so alembic's index compare can match it.
         Index(
@@ -125,7 +125,7 @@ class Record(Base):
                 "lower(catalog.immutable_unaccent(coalesce(summary, '')))": "gin_trgm_ops"
             },
         ),
-        # D-1: functional GIN on the simple-regconfig tsvector for non-English
+        # Functional GIN on the simple-regconfig tsvector for non-English
         # search; migration 0001_baseline is the DDL source of truth,
         # declared here so alembic check doesn't propose dropping it.
         #
@@ -150,7 +150,7 @@ class Record(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     license: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # feat(#1472): credit line a source's terms require at render time.
+    # Credit line a source's terms require at render time.
     # Distinct from license (the terms) and source_organization (a facet).
     attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Entity that published/provided the data (used in facets/search).
@@ -170,7 +170,7 @@ class Record(Base):
         # idx_records_spatial_extent, else GeoAlchemy2 auto-creates a
         # duplicate (breaks create_all()).
         #
-        # fix(#892): plain Geometry (not POLYGON) so a seam-crossing extent
+        # Plain Geometry (not POLYGON) so a seam-crossing extent
         # can be a two-ring MULTIPOLYGON per RFC 7946 §5.2;
         # chk_records_spatial_extent_type below still rejects a point/line.
         Geometry(srid=4326, spatial_index=False),
@@ -204,7 +204,7 @@ class Record(Base):
         nullable=True,
     )
 
-    # feat(#765): provenance for a record produced FROM another record --
+    # Provenance for a record produced FROM another record --
     # {dataset_id, operation, params, created_at}. Deliberately not an FK:
     # the reference must survive the source dataset being deleted.
     derived_from: Mapped[dict | None] = mapped_column(
@@ -221,7 +221,7 @@ class Record(Base):
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # Dormant tenant_id — nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -330,10 +330,11 @@ class RecordTranslation(Base):
 
 
 def _stamp_published_at(mapper, connection, target: "Record") -> None:
-    """fix(#430): stamp published_at when a record is INSERTED as published.
+    """Stamp published_at when a record is INSERTED as published.
 
-    No ingest path wrote published_at, so uploads showed published with
-    published_at=NULL. This hook covers every creation site centrally; the
+    Ingest paths don't write published_at, so without this hook uploads would
+    show published with published_at=NULL. It covers every creation site
+    centrally; the
     draft->published transition path (_apply_record_status_change) already
     stamps it, so no before_update hook is needed.
     """
@@ -348,7 +349,7 @@ class Dataset(Base):
     __tablename__ = "datasets"
     __table_args__ = (
         CheckConstraint(
-            # fix(#430): 'GEOMETRY' = generic mixed-geometry sentinel stored
+            # 'GEOMETRY' = generic mixed-geometry sentinel stored
             # by create_empty_dataset. Migration 0011 is the source of truth.
             "geometry_type IS NULL OR UPPER(geometry_type) IN ("
             "'POINT', 'LINESTRING', 'POLYGON', "
@@ -375,7 +376,7 @@ class Dataset(Base):
             "original_srid IS NULL OR original_srid > 0",
             name="chk_datasets_original_srid_positive",
         ),
-        # feat(#1218): NULL is the only spelling of "never determined" --
+        # NULL is the only spelling of "never determined" --
         # 'unknown' is deliberately out of both value sets; the API projects
         # NULL to "unknown" at the response boundary. Migration 0036 is truth.
         CheckConstraint(
@@ -393,14 +394,14 @@ class Dataset(Base):
             "AND (retention_days IS NULL OR retention_days BETWEEN 1 AND 3650)",
             name="chk_datasets_retention",
         ),
-        # feat(#1218): backs the duplicate-source guard (ADR-002 Decision 6,
-        # re-keyed from source_url to origin_uri). Partial: most rows NULL.
+        # Backs the duplicate-source guard, keyed on
+        # origin_uri. Partial: most rows NULL.
         Index(
             "ix_datasets_origin_uri",
             "origin_uri",
             postgresql_where=text("origin_uri IS NOT NULL"),
         ),
-        # perf(#1324): backs origin_ref-keyed duplicate-source guards in
+        # Backs origin_ref-keyed duplicate-source guards in
         # sources/router.py and stac_router.py. Migration 0040 is the DDL
         # source of truth.
         #
@@ -425,7 +426,7 @@ class Dataset(Base):
             postgresql_using="hash",
             postgresql_where=text("(origin_ref ->> 'asset_href'::text) IS NOT NULL"),
         ),
-        # perf(#1324): required for the two indexes above to be used at all
+        # Required for the two indexes above to be used at all
         # -- both guards query `(origin_ref match) OR (origin_ref incomplete
         # AND source_url = ...)`, and postgres only bitmap-scans an OR when
         # every disjunct has an index path. See migration 0040 for EXPLAIN.
@@ -530,7 +531,7 @@ class Dataset(Base):
     )
     # last_refreshed_at = last committed successful swap, NOT last attempt.
     # last_checked_at = "we contacted the origin at all" (success or
-    # failure). Deliberately no last_verified_at (ADR-002 Decision 3).
+    # failure). Deliberately no last_verified_at.
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -548,7 +549,7 @@ class Dataset(Base):
     # commits, so drift has no live inputs to recompute from.
     schema_drift_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # Dormant tenant_id — nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -574,7 +575,7 @@ class Dataset(Base):
         String(32), nullable=True
     )
 
-    # fix(#525): URL-keyed tile cache-buster. current_version only bumps on
+    # URL-keyed tile cache-buster. current_version only bumps on
     # reupload, so non-versioning content mutations (feature edits, column
     # DDL) bump this instead, rolling CDN/browser caches the Valkey purge
     # can't reach.
@@ -582,7 +583,7 @@ class Dataset(Base):
         Integer, server_default="1", default=1
     )
 
-    # fix(#1963): the counter a signed tile scope binds. Rolls on publication
+    # The counter a signed tile scope binds. Rolls on publication
     # status and visibility transitions ONLY, so a signature survives an
     # ordinary edit but not the state change that granted it.
     publication_version: Mapped[int] = mapped_column(
@@ -699,7 +700,7 @@ class RecordKeyword(Base):
             text("to_tsvector('english'::regconfig, keyword)"),
             postgresql_using="gin",
         ),
-        # Trigram GIN added in migration 0010 (H-07) — declared on the model
+        # Trigram GIN added in migration 0010 — declared on the model
         # so alembic check sees it; the migration is the source of truth.
         Index(
             "ix_record_keywords_keyword_trgm",
@@ -754,7 +755,7 @@ class RecordDistribution(Base):
             "'webApp', 'offlineAccess', 'vector_tiles')",
             name="chk_distribution_type",
         ),
-        # fix(#1383): at most one primary distribution per record. Write
+        # At most one primary distribution per record. Write
         # paths demote the incumbent, but the API isn't the only writer and
         # `is_primary` is read as "THE primary" downstream. Partial index.
         Index(
@@ -847,7 +848,7 @@ class AttributeMetadata(Base):
 class DatasetGrant(Base):
     __tablename__ = "dataset_grants"
     __table_args__ = (
-        # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
+        # Trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_dataset_grants_role_id", "role_id"),
         {"schema": "catalog"},
     )
@@ -899,9 +900,9 @@ class DatasetRelationship(Base):
 class RetiredTableName(Base):
     """A physical table name that must never be handed out again.
 
-    fix(#1443): ``generate_table_name`` collides only against live rows, so
-    deleting a dataset used to hand its table name to the next dataset with
-    that title. The tile router caches table_name -> dataset metadata and
+    ``generate_table_name`` collides only against live rows, so
+    deleting a dataset would otherwise hand its table name to the next dataset
+    with that title. The tile router caches table_name -> dataset metadata and
     authorizes off that snapshot, so a stale cache entry could then leak the
     successor's rows under the deleted dataset's visibility. Retiring the
     name removes the precondition.
@@ -920,7 +921,7 @@ class RetiredTableName(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     table_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # Dormant tenant_id — nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -929,7 +930,7 @@ class RetiredTableName(Base):
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
-    # fix(#1456): relation identity + owner id, captured inside the delete
+    # Relation identity + owner id, captured inside the delete
     # transaction since both sources die in it. Nothing reads them yet --
     # they exist for a later ownership-aware re-registration.
     #
@@ -938,7 +939,7 @@ class RetiredTableName(Base):
     # oids). previous_owner_id is the durable half.
     relation_oid: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Not a foreign key: retain-forever means a CASCADE FK would erase
-    # tombstones on user deletion and re-arm GH-1443 for their freed names.
+    # tombstones on user deletion and re-arm the stale-cache leak for their freed names.
     previous_owner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -950,7 +951,7 @@ class RetiredTableName(Base):
 class DetachedRelation(Base):
     """A relation GeoLens released its claim on while it was still standing.
 
-    fix(#1456): :class:`RetiredTableName` only covers deletes that FREE a
+    :class:`RetiredTableName` only covers deletes that FREE a
     name. A detach leaves the table standing and writes no tombstone, so if
     the operator later drops it, the name goes free unrecorded. Separate
     table rather than a flag on retired_table_names, because that table's
@@ -968,7 +969,7 @@ class DetachedRelation(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     table_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # Dormant tenant_id — nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

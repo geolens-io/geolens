@@ -54,7 +54,7 @@ _ICON_ATTRIBUTE_NAMESPACES = frozenset(
 )
 
 MAX_ICON_BYTES = 512 * 1024
-# fix(#1428): compressed size says nothing about decoded size. Two caps:
+# Compressed size says nothing about decoded size. Two caps:
 # MAX_ICON_DIMENSION bounds new uploads (product); MAX_RENDER_PIXELS bounds
 # decode cost on already-stored icons (memory) — area, not dimensions.
 MAX_ICON_DIMENSION = 1024
@@ -67,9 +67,9 @@ _PATH_TOKEN_RE = re.compile(
     r"[MmZzLlHhVvCcQqSsTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?"
 )
 SPRITE_CELL_SIZE = 24
-# fix(#1428): bounds concurrent reads/resident bytes during
+# Bounds concurrent reads/resident bytes during
 # compositing — the catalog has no size limit, so 8 icons at
-# MAX_ICON_BYTES (4 MiB) still beats the serial read it replaced.
+# MAX_ICON_BYTES (4 MiB) still beats a serial read.
 _SPRITE_RENDER_BATCH = 8
 
 
@@ -181,7 +181,7 @@ def validate_icon_upload(
         raise ValueError("Icon file is too large")
     media_type = _media_type_from_upload(filename, content_type)
     if media_type == "image/png":
-        # fix(#1428): verify() consumes the image object, so read .size first.
+        # verify() consumes the image object, so read .size first.
         # Image.open is lazy — that costs an IHDR parse and no pixel decode.
         try:
             image = Image.open(BytesIO(content))
@@ -285,7 +285,7 @@ async def _load_icon_catalog(
 ) -> tuple[list[MapIconResponse], list[MapIconAsset]]:
     """The icon catalog, as sprite responses plus the uploaded rows behind them.
 
-    fix(#1428): the sheet render needs those rows, and this is the
+    The sheet render needs those rows, and this is the
     query that already loads all of them. Re-reading by id costs a second
     query with a bind parameter per icon — past 32k uploads, more parameters
     than the driver accepts, on a route with no auth.
@@ -313,7 +313,7 @@ async def create_icon_asset(
 ) -> MapIconAsset:
     """Store one uploaded icon and the row that names it.
 
-    fix(#1778): ``publication`` is the rollback ledger — the row
+    ``publication`` is the rollback ledger — the row
     is flushed here, the route commits, so a failure between them would
     leave orphan bytes; this records the key, the caller commits. The
     key is physical (= logical): icons are deliberately global (see
@@ -325,14 +325,14 @@ async def create_icon_asset(
     icon_id = uuid.uuid4()
     extension = SUPPORTED_MEDIA_TYPES[media_type]
     slug = f"{base_slug}-{str(icon_id)[:8]}"
-    # fix(#1621): deliberately global, outside tenants/<id>/ — rows are
+    # Deliberately global, outside tenants/<id>/ — rows are
     # fleet-wide too (no tenant_id/RLS, global slug); per-tenant keys would
     # 500 other tenants' sprite builds.
     # test_icon_storage_keys_stay_global_under_tenant_context enforces this.
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted. For PNG this is the original bytes unchanged.
-    # fix(#1778): recorded before the write, like the image
+    # Recorded before the write, like the image
     # handlers — a PUT can land and still fail the client, so a fresh,
     # never-reused key means rollback is either real cleanup or a no-op.
     if publication is not None:
@@ -615,7 +615,7 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
     try:
         if media_type == "image/png":
             source = Image.open(BytesIO(content))
-            # fix(#1428): .size comes off the header, convert()
+            # .size comes off the header, convert()
             # allocates — refuse between them, before Pillow's own bomb
             # threshold (~7x higher) is even reached.
             if source.width * source.height > MAX_RENDER_PIXELS:
@@ -635,7 +635,7 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
         ValueError,
         IndexError,
         SyntaxError,
-        # fix(#1428): past ~179M px Pillow refuses from open() itself, before
+        # Past ~179M px Pillow refuses from open() itself, before
         # MAX_RENDER_PIXELS can measure anything; degrade the cell, don't 500.
         Image.DecompressionBombError,
     ):
@@ -769,7 +769,7 @@ def _encode_sprite_png(sheet: Image.Image) -> bytes:
 async def _render_sprite_png(
     icons: list[MapIconResponse], uploaded: list[MapIconAsset]
 ) -> bytes:
-    """Composite the sheet. Takes rows, not a session — fix(#1428): every cell is
+    """Composite the sheet. Takes rows, not a session: every cell is
     drawn in a worker thread, and an ``AsyncSession`` cannot be used from one."""
     if not icons:
         return _blank_png(SPRITE_CELL_SIZE)
@@ -779,13 +779,13 @@ async def _render_sprite_png(
         (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
         (0, 0, 0, 0),
     )
-    # fix(#1428): a batch at a time, so neither the read fan-out
-    # nor resident bytes scale with the catalog — the whole-catalog gather
-    # this replaced held every blob until the last one landed.
+    # A batch at a time, so neither the read fan-out
+    # nor resident bytes scale with the catalog; a whole-catalog gather would
+    # hold every blob until the last one landed.
     for start in range(0, len(icons), _SPRITE_RENDER_BATCH):
         batch = icons[start : start + _SPRITE_RENDER_BATCH]
         payloads = await _load_icon_payloads(batch, assets)
-        # fix(#1428): decode and resample are CPU-bound and scale with the stored
+        # Decode and resample are CPU-bound and scale with the stored
         # icons' pixel count. Off the loop, so one large icon stalls a thread
         # instead of every other request in flight.
         await run_in_thread_draining(_paste_icon_cells, sheet, start, batch, payloads)

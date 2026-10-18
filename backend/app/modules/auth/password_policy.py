@@ -6,7 +6,7 @@ password entry point:
   - POST /auth/change-password/
   - POST /admin/users/          (admin create)
   - POST /admin/users/{id}/convert-saml-to-local/
-  - POST /admin/users/{id}/reset-password/   (feat(#1715), admin reset)
+  - POST /admin/users/{id}/reset-password/   (admin reset)
 
 Policy (defaults, configurable via env):
   - Minimum length: 12 characters  (PASSWORD_MIN_LENGTH)
@@ -19,7 +19,7 @@ A denylist (breached passwords) is not implemented.
 
 from __future__ import annotations
 
-# fix(#1715): bcrypt hashes at most 72 bytes, and pwdlib's
+# Bcrypt hashes at most 72 bytes, and pwdlib's
 # BcryptHasher raises ValueError rather than truncating. Every entry point
 # above accepts up to 256 characters, so enforcing this here (before
 # hashing) gives one refusal shape instead of an unhandled 500/409 downstream.

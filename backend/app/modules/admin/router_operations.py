@@ -63,8 +63,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    # fix(#1778): a pending/suspended/deactivated
-    # target user raises 409; the published contract omitted it.
+    # A pending/suspended/deactivated target user raises 409.
     responses={409: CONFLICT_RESPONSE},
 )
 @limiter.limit("30/minute")
@@ -100,7 +99,7 @@ async def create_api_key(
             detail="User not found",
         ) from exc
     except ApiKeyTargetUserInactiveError as exc:
-        # fix(#821): pending/suspended/deactivated owners cannot receive keys —
+        # Pending/suspended/deactivated owners cannot receive keys:
         # a pre-approval key must not wake up privileged.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -162,9 +161,9 @@ async def list_api_keys(
     total = (
         await db.execute(select(func.count()).select_from(stmt.subquery()))
     ).scalar_one()
-    # fix(#1778): without ORDER BY, the planner-chosen page could shift between
-    # refetches. fix(#1805): created_at DESC alone ties for same-timestamp keys
-    # across separate per-page queries; id DESC breaks the tie deterministically.
+    # Without ORDER BY, the planner-chosen page could shift between
+    # refetches. created_at DESC alone ties for same-timestamp keys across
+    # separate per-page queries; id DESC breaks the tie deterministically.
     stmt = stmt.order_by(ApiKey.created_at.desc(), ApiKey.id.desc())
     keys = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
     return AdminApiKeyListResponse(

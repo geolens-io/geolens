@@ -229,7 +229,7 @@ async def add_datasets_to_collection(
     )
     existing_ids = {row[0] for row in existing_result.all()}
 
-    # fix(#430): dedupe request ids or a repeated pair violates the composite PK -> 500.
+    # Dedupe request ids or a repeated pair violates the composite PK -> 500.
     new_ids = [did for did in dict.fromkeys(dataset_ids) if did not in existing_ids]
     for dataset_id in new_ids:
         session.add(
@@ -291,7 +291,7 @@ async def get_collection_datasets(
     total_result = await session.execute(count_stmt)
     total = total_result.scalar_one()
 
-    # fix(#1778): sort_order and added_at both default/tie within a batch
+    # sort_order and added_at both default/tie within a batch
     # INSERT, so OFFSET/LIMIT paging needs a third column; dataset_id is
     # unique per collection's rows.
     paginated_stmt = (
@@ -342,7 +342,7 @@ async def batch_collection_extents(
     if not collection_ids:
         return {}
 
-    # fix(#886): bbox aggregated in two longitude domains so a collection
+    # Bbox aggregated in two longitude domains so a collection
     # spanning the antimeridian keeps the narrower range instead of folding
     # to a global bbox.
     stmt = (
@@ -366,7 +366,7 @@ async def batch_collection_extents(
     extents: dict[uuid.UUID, dict] = {}
     for row in rows:
         extents[row.collection_id] = {
-            # fix(#1006): RFC 7946 §5.2 form (west > east on a crossing),
+            # RFC 7946 §5.2 form (west > east on a crossing),
             # matching the sibling per-dataset extent_bbox so BBoxPreview's
             # crossing guard sees one contract from both fields.
             "extent_bbox": rollup_bbox(row[1:7]),

@@ -126,7 +126,7 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
 class IdentityRoleOutcome:
     """What ``set_role_from_identity_provider`` did.
 
-    fix(#1778): three states, since the caller audits each differently:
+    Three states, since the caller audits each differently:
 
     * ``applied=False`` -- the last-admin rule refused the demotion.
     * ``applied=True, changed=False`` -- role already matched; nothing to
@@ -310,7 +310,7 @@ class AdminService:
         return user
 
     async def reset_user_password(self, user_id: uuid.UUID, password: str) -> User:
-        """Set another account's password (feat(#1715)), revoking its credentials.
+        """Set another account's password, revoking its credentials.
 
         Mirrors change_password's aftermath: revoke_all_tokens with
         bump_key_epoch=True, so every outstanding JWT, refresh row and API key
@@ -421,7 +421,7 @@ class AdminService:
     ) -> bool:
         """Replace a user's role with new_role_name in the current transaction.
 
-        Returns whether the roles actually CHANGED (fix(#1778)): the caller
+        Returns whether the roles actually CHANGED: the caller
         needs to tell "applied" from "was already correct", since an
         IdP-driven caller only emits an audit event for a real change.
 
@@ -435,7 +435,7 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
-        # fix(#821): an idempotent resubmission of the user's current role
+        # An idempotent resubmission of the user's current role
         # (e.g. a reconciliation-tool PATCH) is not a security event — skip
         # the delete/recreate and the key_epoch bump so API keys survive.
         # Queried explicitly rather than via user.roles to avoid depending on
@@ -458,7 +458,7 @@ class AdminService:
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
 
-        # fix(#821): bump key_epoch so API keys minted under the old role stop
+        # Bump key_epoch so API keys minted under the old role stop
         # resolving — applies to promotion too, since a key must not silently
         # change privilege level. token_version is NOT bumped: JWTs are
         # short-lived and role checks read live DB roles per request.
@@ -472,7 +472,7 @@ class AdminService:
     ) -> IdentityRoleOutcome:
         """Apply an IdP-mapped role. False when the last-admin rule refused it.
 
-        fix(#1778): the public seam for two invariants OAuth reconciliation
+        This is the public seam for two invariants OAuth reconciliation
         (``_reconcile_mapped_role`` in modules/auth/oauth/service.py) must not
         skip: the last-admin rule, and the ``key_epoch`` bump (#821) so a role
         change actually revokes stale-privilege API keys. Calls the same
@@ -541,7 +541,7 @@ class AdminService:
         Never touched: users.id, user_roles, api_keys, share_tokens,
         audit_logs and last_login_at.
         """
-        # fix(#1715): FOR UPDATE, matching the reset and the login -- this
+        # FOR UPDATE, matching the reset and the login: this
         # rotates credentials and must not read/decide/write from a snapshot
         # another writer can invalidate underneath it.
         result = await self.db.execute(
@@ -585,10 +585,9 @@ class AdminService:
 
         # Forces re-authentication rather than leaving an
         # outstanding SAML JWT valid until natural expiry, and SAML-era
-        # refresh tokens unusable afterwards. bump_key_epoch=True (fix(#821))
+        # refresh tokens unusable afterwards. bump_key_epoch=True
         # also stops pre-conversion API keys.
         #
-        # fix(#1455): one call replacing two inline UPDATEs that had drifted;
         # commit=False folds it into the caller's transaction.
         await AuthService(self.db).revoke_all_tokens(
             user_id, commit=False, bump_key_epoch=True
@@ -714,7 +713,7 @@ class AdminService:
         user.status = "active"
         user.is_active = True
 
-        # fix(#821): approval assigns the account's authority, so bump
+        # Approval assigns the account's authority, so bump
         # key_epoch — any key that existed while pending (legacy/manual rows;
         # minting for non-active users is now refused) must not wake up with
         # the approved role's privileges. Race-free: the row is locked above.
@@ -883,14 +882,14 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics for the ACTIVE embedding model.
 
-        fix(#1503): scoped to the current model name — `record_embeddings` is
+        Scoped to the current model name; `record_embeddings` is
         keyed `(record_id, model_name)`, and semantic search only reads rows
         matching the active model. Counting every row regardless of model
         showed 100% coverage after a model swap while search matched nothing.
         When the active model can't be resolved, the sentinel name matches no
         row, so coverage reads 0 -- deliberate, since search is equally unusable.
 
-        fix(#1546): same argument, one value out -- a row with the active model
+        The same holds for the configuration stamp: a row with the active model
         name but another CONFIGURATION's stamp is a different vector space, so
         counting it would show the same false-healthy coverage.
 
@@ -939,7 +938,7 @@ class AdminService:
 
         missing_records = total_records - embedded_records
         # Records carrying vectors, but none the active CONFIGURATION can use
-        # (fix(#1546): "configuration", not "model"). fix(#1506): the
+        # ("configuration", not "model"). The
         # non-force backfill selects on "no active-model row" rather than "no
         # row at all", so Generate Missing re-embeds these without touching
         # records the current model already covers; superseded rows are left

@@ -16,7 +16,7 @@ class OGCRasterBand(BaseModel):
 
     name: str | None = None
     data_type: str | None = None
-    # fix(#1805): band_info is a raw JSONB column not schema-constrained at
+    # band_info is a raw JSONB column not schema-constrained at
     # the DB layer, and service_records.py passes bi["nodata"] through
     # verbatim — unlike the TOP-LEVEL RasterAsset.nodata column (Text), a
     # band's nodata sentinel can be an int or float, so str-only 422'd here.
@@ -24,7 +24,7 @@ class OGCRasterBand(BaseModel):
     statistics: dict | None = None
     description: str | None = None
 
-    # fix(#1805): FastAPI's response serialization fills every declared
+    # FastAPI's response serialization fills every declared
     # field's default (None) here regardless of whether the raw dict had the
     # key, collapsing "band lacks nodata" (unavailable) and "nodata: null"
     # (confirmed absent) into the same wire shape. model_fields_set still
@@ -88,7 +88,7 @@ class OGCRecordProperties(BaseModel):
     time: dict
     lineage: str | None = None
     update_frequency: str | None = None
-    # feat(#1224): computed from the dataset's last_refreshed_at against
+    # Computed from the dataset's last_refreshed_at against
     # update_frequency above, gated on origin; never stored. See
     # datasets/domain/source_freshness.py.
     source_freshness: str = Field(
@@ -131,7 +131,7 @@ class OGCRecordProperties(BaseModel):
         ),
     )
     gsd: float | None = None
-    # fix(#1805): gsd is a lossy min(abs(res_x), abs(res_y)) — two sources
+    # The gsd is a lossy min(abs(res_x), abs(res_y)) — two sources
     # with different per-axis resolution can share one gsd, so the client
     # can't replicate _check_grid_alignment (res_x/res_y independently) from
     # gsd alone.
@@ -147,7 +147,7 @@ class OGCRecordProperties(BaseModel):
     vrt_type: str | None = None
     source_count: int | None = None
     dataset_count: int | None = None
-    # fix(#1805): these three are emitted by service_records.py; without a
+    # These three are emitted by service_records.py; without a
     # declaration here, /search/datasets (validated through
     # OGCFeatureCollectionResponse, unlike the raw-dict OGC/STAC routers)
     # silently strips them.

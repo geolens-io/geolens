@@ -123,14 +123,14 @@ class User(Base):
     token_version: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
-    # fix(#821): API-key revocation primitive, separate from token_version.
+    # API-key revocation primitive, separate from token_version.
     # Bumped only on security events (password/role change, SAML-to-local),
     # NOT logout, so long-lived API keys (CI, MCP, tile URLs) survive a web
     # sign-out. Keys snapshot this at mint and stop resolving on mismatch.
     key_epoch: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
-    # fix(#1455): revocation horizon — every session credential issued at or
+    # Revocation horizon — every session credential issued at or
     # before this instant is dead, regardless of its own state. token_version
     # and the refresh-row UPDATE only revoke what one statement's snapshot
     # sees, which can't express "everything issued up to now"; this covers a
@@ -217,16 +217,16 @@ class ApiKey(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
-    # fix(#821): optional expiry. NULL preserves the pre-0029 forever-key
-    # behavior; at resolution an expired key fails exactly like an invalid one.
+    # Optional expiry. NULL means a non-expiring key; at resolution an expired
+    # key fails exactly like an invalid one.
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # fix(#821): snapshot of owner's key_epoch at mint. When key_epoch is
+    # Snapshot of owner's key_epoch at mint. When key_epoch is
     # bumped (password/role change, SAML-to-local — NOT logout), keys minted
     # before the bump stop resolving. Migration 0029 backfilled existing keys.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
-    # fix(#875): least-privilege machine credentials. "read_only"
+    # Least-privilege machine credentials. "read_only"
     # authenticates GET/HEAD/OPTIONS only, refused elsewhere at the
     # resolution chokepoint (_resolve_api_key). server_default backfills
     # pre-0032 keys as "full" (no behavior change).

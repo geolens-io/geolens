@@ -45,7 +45,7 @@ def _get_fernet() -> MultiFernet:
         )
         if configured is not None
     ]
-    # fix(#1871): the JWT-derived key stays last forever. It is the only key
+    # The JWT-derived key stays last forever. It is the only key
     # that opens a ciphertext written before a dedicated key was configured.
     keys.append(_jwt_derived_fernet())
     return MultiFernet(keys)

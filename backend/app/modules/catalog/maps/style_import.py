@@ -29,15 +29,15 @@ from app.modules.catalog.maps.style_sanitizers import (
 STYLE_VERSION = 8
 GEOLENS_SPRITE_ID = "geolens"
 DEFAULT_ARROW_BASE_SIZE = 14
-# fix(#1626): master `layer.opacity` folds into a per-feature paint key on
+# Master `layer.opacity` folds into a per-feature paint key on
 # export, for the two types maplibre-gl v6 gave a `-layer-opacity` to (see
 # `_fold_master_opacity` in style_json).
 FOLDED_OPACITY_KEYS: dict[str, str] = {"fill": "fill-opacity", "line": "line-opacity"}
-# fix(#1631): per-feature opacity the builder renders when stored
+# The per-feature opacity the builder renders when stored
 # paint carries none. Must mirror OPACITY_DEFAULTS in shared.ts, or the
 # export fold starts from spec default 1, rendering brighter than the app.
 BUILDER_FEATURE_OPACITY_DEFAULTS: dict[str, float] = {"fill": 0.3, "line": 1.0}
-# fix(#1778): zoom range the builder substitutes when a layout
+# Zoom range the builder substitutes when a layout
 # has none, mirroring map-sync.ts. Also imported by style_json for
 # export, so both directions of the round trip stay in step.
 BUILDER_MIN_ZOOM = 0
@@ -47,7 +47,7 @@ BUILDER_MAX_ZOOM = 22
 class MapStyleImportLayerLimitError(ValueError):
     """A style document that resolves to more layers than one map may hold.
 
-    fix(#1778): a ValueError subclass so the existing broad
+    A ValueError subclass so the existing broad
     ``except ValueError`` keeps working, but a distinct type so the import
     route can answer 422 for it (matching the sibling layer-carrying
     schemas) instead of the generic 400 for a malformed document.
@@ -293,16 +293,16 @@ def _restore_master_opacity(
 ) -> float:
     """Recover ``layer.opacity`` for an imported primary layer, un-folding ``paint``.
 
-    fix(#1626): export folds master opacity into ``*-opacity`` (v6's
+    Export folds master opacity into ``*-opacity`` (v6's
     ``*-layer-opacity`` aborts style load on maplibre-gl < 6), keeping the
     un-folded value in ``metadata.geolens.feature_opacity`` to undo on import.
 
-    fix(#1625): a v6-authored style may carry ``*-layer-opacity`` instead —
+    A v6-authored style may carry ``*-layer-opacity`` instead —
     a number maps onto the master column; an expression is dropped with a warning.
     """
-    # fix(#1778): `float(x or 1)` turned a legitimate 0.0 into 1.0, so a
-    # fully-transparent layer came back fully opaque; read the master the
-    # same explicit way the per-feature reads below do.
+    # `float(x or 1)` would turn a legitimate 0.0 into 1.0, so a
+    # fully-transparent layer would come back fully opaque; read the master
+    # the same explicit way the per-feature reads below do.
     master = finite_number(geolens.get("opacity", 1))
     opacity = 1.0 if master is None else master
     layer_type = style_layer.get("type")
@@ -353,7 +353,7 @@ def _restore_zoom_range(
     ``clean_layout`` strips underscore keys). Import must mirror that or
     a zoom-limited map silently draws at all zooms on re-import.
 
-    fix(#1778): a restored minimum at or above the effective
+    A restored minimum at or above the effective
     maximum is clamped with a warning — MapLibre's visible band is
     ``[minzoom, maxzoom)``, and the builder can't render past
     ``BUILDER_MAX_ZOOM`` to honor a minimum written past it.
@@ -402,8 +402,8 @@ def _restore_zoom_range(
 def _popup_config_from_import(geolens: dict[str, Any]) -> dict[str, Any] | None:
     """Recover ``popup_config`` from the layer's GeoLens metadata.
 
-    fix(#1778): export half is new too, so nothing needs compatibility
-    tolerance beyond a hand-edited document. A malformed value is dropped
+    Nothing needs compatibility tolerance beyond a hand-edited document.
+    A malformed value is dropped
     rather than raised — a ValidationError would 400 the whole import, and
     losing one layer's popup settings isn't worth refusing it.
     """
@@ -547,7 +547,7 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         )
         summary.layers_imported += 1
 
-    # fix(#1778): count belongs to logical layers, not the raw
+    # Count belongs to logical layers, not the raw
     # `layers` array — an export emits companions per primary, so import
     # and save must refuse at the same number apply_layer_diff compares.
     if len(imported_layers) > _MAX_LAYERS_PER_MAP:

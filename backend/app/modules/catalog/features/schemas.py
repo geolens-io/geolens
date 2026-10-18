@@ -24,7 +24,7 @@ def inline_json_schema(model: type[BaseModel]) -> dict:
     """``model_json_schema()`` with local ``$defs`` inlined.
 
     Route ``responses=`` embed schemas verbatim in the exported OpenAPI doc,
-    where pydantic's ``#/$defs/...`` pointers dangle. fix(#569): only safe
+    where pydantic's ``#/$defs/...`` pointers dangle. Only safe
     for non-recursive models; a recursive one raises instead of looping.
     """
     schema = model.model_json_schema()

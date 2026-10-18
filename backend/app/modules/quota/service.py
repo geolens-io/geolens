@@ -122,10 +122,9 @@ async def get_user_quota_usage_bulk(
 ) -> dict[uuid.UUID, UserQuotaUsage]:
     """Return quota usage for many users in one aggregate plus one cap read.
 
-    fix(#435): the admin user list called `get_user_quota_usage()` once per row —
-    200 rows per page, each running its own three-table aggregate, plus two
-    persistent-config reads. That is 600 queries to render one admin page, and it
-    grows with the catalog.
+    Calling `get_user_quota_usage()` once per row would run a three-table
+    aggregate plus two persistent-config reads for each of the 200 rows on an
+    admin user-list page: 600 queries, growing with the catalog.
 
     Users with no records are absent from the aggregate; they get a zeroed usage
     row so callers can index the result unconditionally.
@@ -197,7 +196,7 @@ async def check_upload_quota(
 
     Call this BEFORE creating an ingest job or staging the file.
 
-    fix(#1710): ``request`` is optional so a worker re-check charges the same
+    ``request`` is optional so a worker re-check charges the same
     policy the door applied rather than forking a byte-cap copy. It reaches
     only ``enforce_limit``, which forwards a dimension and a count.
 
@@ -308,7 +307,7 @@ async def check_replacement_quota(
 
 
 class DatasetQuotaExceededError(Exception):
-    """Dataset-count cap exceeded at Record-creation time (fix(#302)).
+    """Dataset-count cap exceeded at Record-creation time.
 
     Plain exception rather than HTTPException because the authoritative
     check runs inside the ingest worker, where there is no HTTP response
@@ -318,7 +317,7 @@ class DatasetQuotaExceededError(Exception):
 
 
 async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> None:
-    """Atomically reserve a dataset-count slot for ``user_id`` (fix(#302)).
+    """Atomically reserve a dataset-count slot for ``user_id``.
 
     ``check_upload_quota`` runs at upload time, but the ``Record`` row it
     counts is created later by the ingest worker, so N concurrent uploads

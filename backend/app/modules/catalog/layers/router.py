@@ -41,7 +41,7 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 
 async def _invalidate_tiles(table_name: str) -> None:
-    """fix(#458): column DDL changes the attribute set embedded in vector
+    """Column DDL changes the attribute set embedded in vector
     tiles, so purge cached tiles post-commit — same treatment as the
     feature-edit path (features/router.py) and the reupload swap."""
     tile_cache = get_tile_cache()
@@ -63,7 +63,7 @@ def _require_data_table(dataset) -> None:
 async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
     """Roll back and map a DDL DB error to the right status. Never returns.
 
-    fix(#458): classify by SQLSTATE like the feature-write path — a bad
+    Classify by SQLSTATE like the feature-write path — a bad
     request is a 400, an outage a 503 — since add/rename/drop only pre-mapped
     ValueError.
     """
@@ -73,7 +73,7 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
         )
-    # fix(#1847): the SQLSTATE goes to the log, not the response. Interpolating
+    # The SQLSTATE goes to the log, not the response. Interpolating
     # `exc.orig` published the driver exception and its message to the caller.
     logger.warning(
         "layer.ddl failed", action=action, sqlstate=sqlstate(exc), exc_info=exc
@@ -295,7 +295,7 @@ async def alter_column_type_endpoint(
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # fix(#458): route through the shared classifier like add/rename/
+        # Route through the shared classifier like add/rename/
         # drop, so a lock timeout or connection failure during ALTER TYPE is a
         # 503, while cast failures ("abc" → integer) stay 400 with the message.
         await _raise_ddl_db_error(db, exc, "Type change")

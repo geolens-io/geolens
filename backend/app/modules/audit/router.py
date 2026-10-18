@@ -71,14 +71,14 @@ FORMAT_HANDLERS: dict[str, str] = {
     "json": "application/json",
 }
 _EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
-# fix(#620): rows buffered per resource-name lookup batch. Bounds export
+# Rows buffered per resource-name lookup batch. Bounds export
 # memory while amortizing name resolution to a few IN queries per chunk.
 _EXPORT_NAME_CHUNK_ROWS = 500
 
 
-# fix(#1778): one shared rule (core/csv_safety.py) with the admin user
-# export and the dataset CSV export -- the third writer had no hardening
-# at all, which is what a private copy per writer costs.
+# One shared rule (core/csv_safety.py) with the admin user
+# export and the dataset CSV export -- one rule instead of a private copy
+# per writer.
 _safe_csv_cell = escape_csv_formula
 
 
@@ -152,7 +152,7 @@ class _AuditExportStream:
     async def _named_logs(self):
         """Yield ``(log, resource_name)`` with names batch-resolved per chunk.
 
-        fix(#620): name lookups run on their own session -- the log stream
+        Name lookups run on their own session -- the log stream
         holds a server-side cursor that can't execute other statements
         mid-iteration. Buffering _EXPORT_NAME_CHUNK_ROWS rows bounds memory.
         """
@@ -192,8 +192,8 @@ class _AuditExportStream:
                     "resource_id",
                     "ip_address",
                     "details",
-                    # fix(#620): appended last so positional CSV consumers
-                    # of the previous layout keep working.
+                    # Appended last so positional CSV consumers
+                    # of the earlier column layout keep working.
                     "resource_name",
                 ]
             )
@@ -244,7 +244,7 @@ class _AuditExportStream:
                     if row_count >= self.max_rows:
                         break
                     row = {
-                        # fix(#1248): the row's own PK, so an archive can be
+                        # The row's own PK, so an archive can be
                         # checked against the rows a retention run is about
                         # to delete -- without it, scripts/audit_retention.sh
                         # can't tell two same-sized slices from different
@@ -353,8 +353,7 @@ async def list_audit_logs(
             "The CSV file, or a JSON file when the format is json", "text/csv"
         )
     },
-    # fix(scripts/deployed_surface_gate.json#export_audit_op): neutral summary
-    # replacing the auto-derived "Export Audit Logs" banned public-copy id;
+    # Neutral summary replacing the auto-derived "Export Audit Logs" banned public-copy id;
     # operationId/path unchanged.
     summary="Download audit records",
 )
@@ -373,7 +372,7 @@ async def export_audit_logs(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Export up to 100,000 audit log rows as CSV or JSON, newest first."""
-    # fix(#1204): no sort/order here, deliberately -- the list endpoint is
+    # No sort/order here, deliberately -- the list endpoint is
     # sortable and shares this export's filter params, so the omission reads
     # like an oversight. It isn't: the export streams through
     # stream_audit_logs (own created_at DESC, distinct from the list's
@@ -499,7 +498,7 @@ async def get_column_ddl_feed(
         )
 
     # Owner-or-admin gate, matching the column-DDL write endpoints this feed
-    # reports on fix(#458).
+    # reports on.
     await port.check_dataset_write_access(db, dataset, dataset_id, user)
 
     # Preserves the old `offset` param while new clients converge on the

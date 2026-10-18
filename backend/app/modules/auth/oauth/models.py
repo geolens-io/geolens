@@ -48,7 +48,7 @@ class OAuthProvider(Base):
     authorize_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     token_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     userinfo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # fix(#435): core-owned columns — core migration 0008_oauth_saml_columns
+    # Core-owned columns — core migration 0008_oauth_saml_columns
     # adds all four (IF NOT EXISTS, so enterprise's e002 stays a no-op); NULL
     # for OSS providers. deferred_group="saml" lets the SAML router undefer
     # all four together, out of the default SELECT.
