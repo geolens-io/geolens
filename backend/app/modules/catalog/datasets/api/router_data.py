@@ -42,7 +42,7 @@ from app.modules.catalog.maps.schemas import MapListResponse
 from app.modules.catalog.records.inherited import (
     inherited_keyword_disclosure_warning,
 )
-from app.modules.catalog.features.idempotency import current_table_oid
+from app.modules.catalog.features.service import current_table_oid
 from app.modules.catalog.datasets.domain.service import (
     InvalidSortColumn,
     get_dataset,

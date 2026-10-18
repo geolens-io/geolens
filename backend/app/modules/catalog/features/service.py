@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
 from app.core.geo import seam_extent_wkt_for_table
+from app.modules.catalog.features.idempotency import (  # noqa: F401 - façade for other domains
+    current_table_oid,
+)
 from app.platform.extensions import get_catalog_port
 
 if TYPE_CHECKING:
