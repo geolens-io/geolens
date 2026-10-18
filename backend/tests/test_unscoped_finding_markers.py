@@ -259,6 +259,23 @@ class TestRepoTree:
         missed = [p for p in paths if not files.search(p) or exclude.search(p)]
         assert not missed, f"{HOOK_ID} does not run for {missed}"
 
+    def test_main_reports_a_marker_outside_backend_app(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """The hook runs main(), so main() itself must reach the repo scan."""
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "a.sh").write_text("# BKP-01: keep the volume.\n")
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        scan = fm.scan_repo
+        monkeypatch.setattr(fm, "scan_repo", lambda root=None: scan(tmp_path))
+        monkeypatch.setattr(fm, "MIN_REPO_FILES", 1)
+        monkeypatch.setattr(fm, "check", lambda: [])
+        monkeypatch.setattr(fm, "check_openapi", lambda: [])
+
+        assert fm.main() == 1
+        assert "scripts/a.sh:1 (comment) BKP-01" in capsys.readouterr().out
+
     def test_an_unlisted_tree_is_fatal(self, tmp_path):
         with pytest.raises(fm.MarkerScanError, match="could not list"):
             fm.scan_repo(tmp_path)
