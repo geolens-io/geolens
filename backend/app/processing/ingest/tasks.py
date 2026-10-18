@@ -1,7 +1,7 @@
 """Procrastinate task definitions for async file ingestion.
 
-This module re-exports all task functions and shared helpers from the
-workflow-specific sub-modules so that existing imports continue to work:
+Re-exports the task functions and shared helpers from the workflow
+sub-modules:
 
     from app.processing.ingest.tasks import ingest_file, task_app
 """
@@ -24,10 +24,9 @@ from app.processing.ingest.tasks_staging import (  # noqa: F401
     _ingest_vector_into_staging,
 )
 
-# async_session is deliberately NOT re-exported here. A module-scope
-# `from app.core.db import async_session` snapshots the dev-DB factory past the
-# test fixture's rebinding of app.core.db; late-bind at call scope instead
-# (test_layering.py enforces this).
+# async_session is not re-exported: a module-scope import snapshots the dev-DB
+# factory past the test fixture's rebinding of app.core.db (test_layering.py
+# enforces call-scope binding).
 from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
 from app.platform.storage import get_storage  # noqa: F401
 from app.processing.embeddings.helpers import defer_embedding  # noqa: F401

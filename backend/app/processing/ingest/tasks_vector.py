@@ -120,31 +120,21 @@ async def _service_import_heartbeat_tick(
     """One heartbeat write: open a session, advance progress, commit, close.
 
     Returns ``False`` when the caller's loop must stop (job vanished, or
-    moved off the step this heartbeat belongs to), ``True`` otherwise. Split
-    out of ``_heartbeat_service_import_progress`` so that function can
-    ``shield`` the whole tick from cancellation — see its
-    docstring.
+    moved off the step this heartbeat belongs to), ``True`` otherwise. A
+    separate function so the caller can ``shield`` the whole tick.
 
-    Passes ``lock_timeout``/``statement_timeout`` INTO
-    ``_job_phase_session`` (``lock_and_statement_timeout_ms``) rather than
-    setting them after entering it, so they also cover the SELECT the
-    helper runs internally — a SELECT can itself stall behind a lock the
-    later UPDATE would never see. A blocked commit then raises inside
-    Postgres within seconds; ``_job_phase_session``'s rollback-and-reraise
-    releases the connection normally rather than leaving the caller to
-    choose between waiting forever or abandoning it.
+    The timeouts go into ``_job_phase_session`` rather than being set after
+    entering it, so they also cover the helper's own SELECT, which can stall
+    behind a lock the later UPDATE would never see. A blocked commit then
+    raises inside Postgres within seconds and the helper's rollback releases
+    the connection.
 
-    The earlier SELECT is a snapshot, not a lock. If this
-    tick's own connection then stalls for a reason the DB timeout doesn't
-    catch (e.g. before it reaches Postgres) past the caller's cancellation
-    drain, the caller moves on while this shielded tick keeps running in
-    the background — meanwhile ``_finalize_ingest`` could commit
-    ``status="complete"`` or a retry could rotate ``attempt_id``. So the
-    UPDATE below re-checks every fact atomically in its own WHERE clause
-    (same attempt still owns the row, still "running"/"ogr2ogr", and
-    CURRENT progress still below what's about to be written) instead of
-    trusting the earlier read. Zero rows affected means the job moved on:
-    log and do nothing.
+    The SELECT is a snapshot, not a lock. A tick that stalls past the
+    caller's drain (say, before reaching Postgres) keeps running in the
+    background while ``_finalize_ingest`` may commit ``complete`` or a retry
+    may rotate ``attempt_id``. So the UPDATE re-checks every fact in its
+    WHERE clause (same attempt, still "running"/"ogr2ogr", progress still
+    below the new value); zero rows means the job moved on.
     """
     _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
     async with _job_phase_session(
@@ -199,24 +189,18 @@ async def _heartbeat_service_import_progress(
 ) -> None:
     """Advance service-ingest progress while GDAL loads remote features.
 
-    Each tick runs under ``asyncio.shield`` so the caller's
-    ``.cancel()`` can only land at the ``asyncio.sleep`` below, never
-    mid-connect/write/close on the tick's own session. Without this, a
-    cancel landing inside asyncpg's connection teardown left the
-    connection outliving its coroutine, surfacing later against unrelated
-    work as ``ConnectionError: unexpected connection_lost() call``.
-    Shielding costs at most one tick's worth of extra shutdown latency.
+    Each tick runs under ``asyncio.shield`` so the caller's ``.cancel()``
+    can only land at the ``asyncio.sleep``, never mid-connect/write/close on
+    the tick's own session. A cancel inside asyncpg's connection teardown
+    leaves the connection outliving its coroutine, surfacing later against
+    unrelated work as ``ConnectionError: unexpected connection_lost()
+    call``. Shielding costs at most one tick of extra shutdown latency.
 
-    The ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``
-    drain that lets a shielded tick finish is a SAFETY NET, not the
-    primary bound — that's the tick's own DB-side ``lock_timeout``/
-    ``statement_timeout`` (see ``_service_import_heartbeat_tick``), which
-    resolves the common case well inside this window. The drain timeout
-    only covers what a DB-side timeout can't: a connection stuck before it
-    ever reaches Postgres. The tick still isn't cancelled on that rarer
-    timeout — the caller just moves on while it finishes in the
-    background — since the heartbeat write is best-effort progress UI
-    sugar the import's own result never reads back.
+    The tick's DB-side timeouts are the primary bound; the
+    ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS`` drain only covers a
+    connection stuck before it reaches Postgres. Even then the tick is not
+    cancelled: the caller moves on while it finishes in the background,
+    since the import's result never reads the progress back.
     """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
@@ -433,13 +417,9 @@ async def ingest_file(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
-        # ----------------------------------------------------------------- #
-        # The first phase uses a short-lived session to load the job, mark it running,
-        # validate it, detect CRS, and generate the
-        # table name. Snapshot values needed for phase 2 into local
-        # variables so the ogr2ogr subprocess can run without a session
-        # held open.
-        # ----------------------------------------------------------------- #
+        # Phase 1: load the job, mark it running, validate it, detect the CRS
+        # and generate the table name, snapshotting what phase 2 needs so
+        # ogr2ogr runs with no session open.
         async with _job_phase_session(
             job_uuid, phase="phase1", attempt_id=attempt_uuid
         ) as (session, job):
@@ -453,7 +433,6 @@ async def ingest_file(
             if heartbeat_task is None:
                 return
 
-            # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
 
             file_path = await resolve_file_path(file_path, job_id)
@@ -473,7 +452,6 @@ async def ingest_file(
                 final_status = "failed"
                 return
 
-            # Check for user-supplied metadata from commit step
             um = job.user_metadata or {}
             srid_override = um.get("srid_override")
             layer_name = um.get("layer_name")
@@ -487,8 +465,8 @@ async def ingest_file(
             geometry_type = info.get("geometry_type")
             has_geometry = geometry_type is not None
 
-            # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
-            # Non-spatial files don't need CRS at all
+            # CSV and GeoJSON default to EPSG:4326; non-spatial files need no
+            # CRS.
             from app.processing.ingest.tasks_common import ASSUMES_4326_SUFFIXES
 
             assumes_4326 = file_path.lower().endswith(ASSUMES_4326_SUFFIXES)
@@ -526,38 +504,28 @@ async def ingest_file(
                 }
                 await session.commit()
 
-        # ----------------------------------------------------------------- #
-        # ogr2ogr subprocess — NO session open. ogr2ogr writes to PostgreSQL
-        # via its own libpq connection (db_conn_str), independent of the
-        # SQLAlchemy session. Holding a session open across this subprocess
-        # can corrupt SQLAlchemy's greenlet bridge.
-        # ----------------------------------------------------------------- #
+        # No session open: ogr2ogr writes through its own libpq connection,
+        # and a session held across the subprocess can corrupt SQLAlchemy's
+        # greenlet bridge.
         db_conn_str = build_pg_conn_str()
 
-        # Check for user-specified geometry columns (override)
-        # Lowercase column names: ogr2ogr lowercases them in PostGIS.
-        # The individual column values are re-derived inside
-        # ``_detect_and_override_geometry`` from ``um``, so we only need
-        # the boolean here to gate the import-as-non-spatial branch.
+        # User-specified geometry columns. ``_detect_and_override_geometry``
+        # re-derives the column values from ``um``; only the flag is needed.
         user_wants_geom = bool(
             ((um.get("x_column") or "") and (um.get("y_column") or ""))
             or (um.get("geom_column") or "")
         )
 
-        # When user specifies geometry columns, import as non-spatial
-        # then construct geometry post-import. This ensures the override
-        # works even for CSVs where GDAL would auto-detect geometry.
+        # With an override, import as non-spatial and construct geometry
+        # afterwards, so it holds even where GDAL would auto-detect geometry.
         ogr_geometry_type = None if user_wants_geom else geometry_type
         effective_srid = _resolve_effective_srid(
             detected_srid=srid,
             srid_override=srid_override,
         )
 
-        # Write current_step="ogr2ogr" before the long subprocess so the UI
-        # sees the transition even if ogr2ogr hangs. A brief session avoids
-        # holding a session open across run_ogr2ogr,
-        # but the progress write must commit so it cannot be lost on
-        # rollback if ogr2ogr raises.
+        # Committed before the long subprocess so the UI sees the transition
+        # even if ogr2ogr hangs or raises.
         async with _job_phase_session(
             job_uuid, phase="progress_write_ogr2ogr", attempt_id=attempt_uuid
         ) as (
@@ -602,11 +570,9 @@ async def ingest_file(
             job.current_step = "finalize"
             job.progress = 0.7
 
-            # 3a. Rename any source column that collides with a GeoLens-internal
-            #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
-            #     the user-geometry-override and _finalize_ingest steps so that
-            #     construct_point_geometry / add_4326_column cannot clash with a
-            #     source attribute of the same name.
+            # 3a. Rename source columns that collide with GeoLens-internal
+            #     names (gid, geom, geometry, geom_4326, fid, ogc_fid), before
+            #     the geometry override and _finalize_ingest add theirs.
             from app.processing.ingest.metadata import rename_reserved_columns
 
             reserved_renames = await rename_reserved_columns(
@@ -619,8 +585,8 @@ async def ingest_file(
 
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-            # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
-            #     the source column list from ogrinfo (stored in info["columns"]).
+            # 3b. Shapefile-only: DBF 10-char truncation collisions, from the
+            #     ogrinfo column list.
             if source_format == "shapefile":
                 from app.processing.ingest.metadata import (
                     detect_dbf_truncation_collisions,
@@ -685,8 +651,8 @@ async def ingest_file(
                     original_srid=srid,
                     user_metadata=um,
                     attempt_id=attempt_uuid,
-                    # No file_hash — it is computed on the
-                    # re-upload path only, and the allowlist omits absent keys.
+                    # No file_hash: only the re-upload path computes it, and the
+                    # allowlist omits absent keys.
                     origin_ref={"filename": source_filename},
                     archive_from=file_path,
                 )
@@ -740,16 +706,14 @@ async def ingest_file(
                         task="ingest_file",
                     )
         except DBAPIError as write_failure:
-            # The budget covers the helper's own load, so
-            # an expiry there arrives here. Swallowed for the reason the helper
-            # swallows its UPDATE's: the cause below is the task's outcome.
+            # The budget covers the helper's own load, so an expiry there
+            # arrives here. Swallowed: the cause below is the task's outcome.
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="ingest_file"
             )
         finally:
-            # The `finally` reapers gate on THIS
-            # variable, so every exit from this handler sets it — the bounded
-            # error write above can raise past a positional assignment.
+            # The `finally` reapers gate on this, and the bounded error write
+            # above can raise past a positional assignment.
             final_status = "failed"
         raise
     finally:
@@ -759,11 +723,8 @@ async def ingest_file(
             await _drop_attempt_staging_table(staging_table_name)
         # Unknown ownership keeps shared input for a later retention pass.
         is_fan_out_child = True
-        # The presigned staging key, swept below.
         owned_staging_key: str | None = None
         try:
-            # Route through _job_phase_session. The helper
-            # yields the IngestJob row directly, so we just check user_metadata.
             async with _job_phase_session(
                 job_uuid, phase="cleanup_check", attempt_id=attempt_uuid
             ) as (
@@ -800,8 +761,8 @@ async def ingest_file(
 @task_app.task(
     queue="ingest",
     retry=0,
-    # The context is how the task learns its own queue-row id, so
-    # a terminal failure can strip the raw token out of its own kwargs.
+    # The context gives the task its own queue-row id, so a terminal failure
+    # can strip the raw token out of its own kwargs.
     pass_context=True,
     aliases=["app.ingest.tasks.ingest_service"],
 )
@@ -829,9 +790,8 @@ async def ingest_service(
     metadata, samples); create Dataset record; compute quality score;
     update job to complete.
 
-    The session uses the same two-phase split as ``ingest_file`` —
-    closed before the ogr2ogr subprocess runs, reopened for finalization,
-    so the SQLAlchemy greenlet bridge never has to survive across it.
+    The session uses the same two-phase split as ``ingest_file``: closed
+    before the ogr2ogr subprocess, reopened for finalization.
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
     from app.platform.security import (
@@ -843,10 +803,9 @@ async def ingest_service(
     from app.processing.ingest.service import generate_table_name
     from app.platform.refresh.credentials import resolve_worker_credential
 
-    # Revalidate source_url at fetch time as defense in depth.
-    # The route-level check at commit_import covers the preview→commit
-    # TOCTOU, but manifest-path jobs skip that route entirely. This
-    # second check ensures all service-URL fetches see fresh DNS.
+    # Revalidated at fetch time: the commit route's check covers the
+    # preview-to-commit TOCTOU, but manifest jobs skip that route, and every
+    # service fetch should see fresh DNS.
     try:
         await validate_url_for_ssrf(source_url)
     except SSRFError as exc:
@@ -865,19 +824,14 @@ async def ingest_service(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
-        # The first phase uses a short-lived session to load the job, mark it running,
-        # generate the table name, and snapshot values needed for phase 2.
+        # Phase 1: load the job, mark it running, generate the table name and
+        # snapshot what phase 2 needs.
         async with _job_phase_session(
             job_uuid, phase="phase1", attempt_id=attempt_uuid
         ) as (session, job):
             if job is None:
                 return
 
-            # Mirror ingest_file's progress writes so the polling UI shows
-            # step transitions for service
-            # ingests too. The service path has the same step boundaries as
-            # the file path (validating -> ogr2ogr -> finalize -> complete)
-            # except there is no "archiving" — services don't archive originals.
             heartbeat_task = await claim_job_attempt_and_start_heartbeat(
                 session, job_uuid, attempt_uuid, job=job, current_step="validating"
             )
@@ -890,9 +844,8 @@ async def ingest_service(
             layer_id = um.get("layer_id")
             service_type, source_format = resolve_service_type(service_type_raw)
 
-            # Detect non-spatial tables from preview metadata stored at job creation.
-            # When geometry_type is None/null/absent, the layer has no geometry —
-            # skip geometry-specific ogr2ogr flags to preserve attribute columns.
+            # A layer the preview found no geometry type for imports without
+            # geometry-specific ogr2ogr flags, keeping its attribute columns.
             _preview_geom_type = um.get("geometry_type")
             is_non_spatial = _preview_geom_type is None
 
@@ -913,22 +866,17 @@ async def ingest_service(
                 }
                 await session.commit()
 
-        # Redeem the one-use credential AFTER phase 1, not
-        # before — a single-use secret must only be spent on an attempt
-        # that's really going to run (phase 1's `claim_job_attempt_and_
-        # start_heartbeat` returns None for a superseded one), and the
-        # failure write below is fenced on `status == 'running'`, which
-        # phase 1 sets; claiming before it would leave a
-        # `credential_expired` failure unrecorded until the stale sweep.
-        # Placed outside the phase-1 session so the store round trip
-        # doesn't hold a DB session open.
+        # Redeemed after phase 1: a single-use secret is spent only on an
+        # attempt that will run (the claim returns None for a superseded one),
+        # and the failure write is fenced on `status == 'running'`, which
+        # phase 1 sets, so an earlier `credential_expired` would go unrecorded
+        # until the stale sweep. Outside the session, so the store round trip
+        # holds no DB session open.
         token = await resolve_worker_credential(token, credential_ref)
 
-        # ogr2ogr subprocess — NO session open (would trigger MissingGreenlet).
         db_conn_str = build_pg_conn_str()
 
-        # Stamp current_step="ogr2ogr" before the long remote-service fetch,
-        # using the same brief-session pattern as ingest_file.
+        # Committed before the long remote-service fetch, as in ingest_file.
         async with _job_phase_session(
             job_uuid, phase="progress_write_ogr2ogr", attempt_id=attempt_uuid
         ) as (
@@ -1058,8 +1006,8 @@ async def ingest_service(
             if service_type == "arcgis_featureserver":
                 _record_arcgis_order_field(job, arcgis_order_field)
 
-            # 4a. Rename any source column that collides with a GeoLens-internal
-            #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
+            # 4a. Rename source columns that collide with GeoLens-internal
+            #     names, before _finalize_ingest adds its own.
             from app.processing.ingest.metadata import rename_reserved_columns
 
             reserved_renames = await rename_reserved_columns(
@@ -1118,11 +1066,10 @@ async def ingest_service(
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise
         # Scrub the exact claimed token from any echoed error; pattern-based
-        # redaction cannot recognize arbitrary secret values. Mutate in place
-        # so the exception class survives the bare re-raise.
+        # redaction cannot recognize arbitrary secret values. Mutated in place
+        # so the exception class survives the bare re-raise. The helper below
+        # adds pattern-based redaction.
         scrub_secret_from_exception(exc, token)
-        # Record failure in a fresh session after exact-value scrubbing; the
-        # shared helper adds pattern-based redaction and notification handling.
         try:
             async with _job_phase_session(
                 job_uuid,
@@ -1149,17 +1096,15 @@ async def ingest_service(
                         task="ingest_service",
                     )
         except DBAPIError as write_failure:
-            # The budget covers the helper's own load, so
-            # an expiry there arrives here. Swallowed for the reason the helper
-            # swallows its UPDATE's: the cause below is the task's outcome.
+            # The budget covers the helper's own load, so an expiry there
+            # arrives here. Swallowed: the cause below is the task's outcome.
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="ingest_service"
             )
         raise
     finally:
-        # `purge_token_on_failure` (`tasks_common.py`), the
-        # decorator around this task, must still see whatever exception
-        # `ingest_service` itself raised, not one from a cleanup step.
+        # `purge_token_on_failure`, the decorator around this task, must see
+        # the exception `ingest_service` raised, not one from a cleanup step.
         async with cleanup_step("ingest_service heartbeat", job_id=job_id):
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("ingest_service staging table", job_id=job_id):

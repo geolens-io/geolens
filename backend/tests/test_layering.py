@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1710,
+    "backend/app/processing/ingest/router.py": 1686,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1332,7 +1332,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
     # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1592,
+    "backend/app/processing/ingest/tasks_reupload.py": 1582,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1361,12 +1361,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1704,
+    "backend/app/processing/ingest/tasks_vrt.py": 1584,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1168,
+    "backend/app/processing/ingest/tasks_vector.py": 1113,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1603,
@@ -1383,7 +1383,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/service.py": 1566,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 672,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1867,
     # Analysis validation, bounded execution and fenced registration share one task

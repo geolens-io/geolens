@@ -28,15 +28,12 @@ if TYPE_CHECKING:
 
 _INSERT_BATCH_ROWS = 5000
 
-# The 500 MB upload cap is a weak proxy for the work a parquet
-# file represents — it compresses well, and this loader runs in-process
-# with no subprocess timeout backstop (unlike ogr2ogr's
-# OGR2OGR_FILE_TIMEOUT_SECONDS) — so both ceilings are checked from the
-# file footer's row count before a single row is written. Cells (not just
-# rows) bound the work because a wide table trips the cap sooner at the
-# same row count; geometry counts as a cell despite being skipped from
-# ``plan``, since omitting it would understate the ceiling.
-# Module constants, not Settings fields: no operator has asked to tune this.
+# The 500 MB upload cap is a weak proxy for a parquet file's work: it
+# compresses well, and this loader runs in-process with no subprocess timeout
+# (unlike ogr2ogr's OGR2OGR_FILE_TIMEOUT_SECONDS). So both ceilings are checked
+# from the footer's row count before any row is written. Cells bound the work
+# because a wide table costs more at the same row count; geometry counts as a
+# cell even though ``plan`` skips it, or the ceiling would be understated.
 _MAX_TOTAL_ROWS = 5_000_000
 _MAX_TOTAL_CELLS = 100_000_000
 
@@ -44,7 +41,8 @@ _MAX_TOTAL_CELLS = 100_000_000
 def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
     """Reject a parquet file whose footer already says it is too big.
 
-    Raises ``IngestionError`` naming the limit and the observed value.
+    Raises ``IngestBudgetExceededError`` naming the limit and the observed
+    value.
     """
     from app.processing.ingest.ogr import IngestBudgetExceededError
 
@@ -276,12 +274,11 @@ def _open_and_inspect(file_path: str) -> tuple[pq.ParquetFile, dict]:
     geom_col, col_meta = _geometry_column(geo)
     skip = {geom_col, _covering_column(geo, geom_col)} - {None}
 
-    # The same footer gate the loader applies, here too — this
-    # runs BEFORE the loader (run_ogrinfo ahead of run_ogr2ogr), and the
-    # geometry probe below scans batches until the first non-NULL WKB,
-    # unbounded on a file with millions of leading NULLs. Column count
+    # The loader's footer gate, applied here too: this runs before the loader,
+    # and the geometry probe below scans until the first non-NULL WKB,
+    # unbounded on a file with millions of leading NULLs. The column count
     # assumes the geometry column is present (preview doesn't know
-    # include_geometry) — the conservative direction for a gate.
+    # include_geometry), the conservative direction for a gate.
     _check_ingest_budget(
         pf.metadata.num_rows,
         sum(1 for f in pf.schema_arrow if f.name not in skip)
@@ -396,8 +393,8 @@ async def load_parquet_to_postgis(
     loads attribute columns only (non-spatial parquet, or a user geometry
     override where geometry is constructed post-load).
 
-    Uses executemany inserts, not COPY — fine up to a few million rows;
-    switch to asyncpg copy_records_to_table if load time ever matters.
+    Uses executemany inserts, not COPY, which is fine up to a few million
+    rows.
     """
     from app.core.db import async_session
     from app.processing.ingest.metadata import _qtable, _validate_table_name
@@ -416,11 +413,9 @@ async def load_parquet_to_postgis(
     skip = {source_geom_col, _covering_column(geo, source_geom_col)}
     plan = _column_plan(pf.schema_arrow, skip)
 
-    # Budget gate goes HERE, before anything reads row data —
-    # _geometry_dimensions below decodes the whole geometry column when
-    # geometry_types isn't declared (true of our own exporter's files), so
-    # a check placed after it would let an over-limit file monopolize the
-    # worker for a full scan first. Everything above is footer metadata only.
+    # Before anything reads row data: _geometry_dimensions below decodes the
+    # whole geometry column when geometry_types isn't declared (true of our
+    # own exporter's files). Everything above reads footer metadata only.
     _check_ingest_budget(
         pf.metadata.num_rows, len(plan) + (1 if geom_col is not None else 0)
     )
@@ -437,8 +432,8 @@ async def load_parquet_to_postgis(
     ddl_cols = ["gid serial PRIMARY KEY"]
     ddl_cols += [f"{_q(pg_name)} {pg_type}" for _, pg_name, pg_type, _ in plan]
     if geom_col is not None:
-        # A 2D typmod rejects Z WKB with "Geometry has Z dimension
-        # but column does not" — declare GeometryZ when the source carries Z.
+        # A 2D typmod rejects Z WKB ("Geometry has Z dimension but column
+        # does not"), so the type follows the source's dimensions.
         gtype = {
             (True, True): "GeometryZM",
             (True, False): "GeometryZ",
@@ -472,8 +467,8 @@ async def load_parquet_to_postgis(
     read_cols = [src for src, _, _, _ in plan] + ([geom_col] if geom_col else [])
 
     if not insert_cols:
-        # A geometry-only file loaded as non-spatial would silently
-        # publish an empty dataset — fail with a clear message instead.
+        # A geometry-only file loaded as non-spatial would publish an empty
+        # dataset.
         from app.processing.ingest.ogr import IngestionError
 
         raise IngestionError(

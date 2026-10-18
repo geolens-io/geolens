@@ -41,8 +41,8 @@ class StagingResult:
     three_d: dict
     has_geometry: bool
     geometry_type: str | None
-    # clip_to_mercator_bounds accounting, so the caller (which owns
-    # the job row) can warn the user about geometry the clamp destroyed.
+    # clip_to_mercator_bounds accounting, so the caller (which owns the job
+    # row) can warn the user about geometry the clamp destroyed.
     mercator_clip: dict | None = None
 
 
@@ -119,8 +119,7 @@ async def reap_presigned_staging_object(
     leaves an orphan, better than failing a job whose work is already
     committed.
     """
-    # The terminal-status guard lives HERE, not per tail — a
-    # non-terminal exit (missing job/dataset, lost heartbeat claim) must not
+    # A non-terminal exit (missing job/dataset, lost heartbeat claim) must not
     # sweep, since the attempt may be re-claimed and still need these bytes.
     if final_status not in ("complete", "failed") or not owned_staging_key:
         return True
@@ -147,15 +146,15 @@ async def _validate_upload_file_safety(
     file_path: str,
     source_filename: str | None,
 ) -> None:
-    """Run the three-step upload-safety gauntlet before ogr2ogr touches a file.
+    """Run the upload-safety checks before GDAL touches a file.
 
     - content validation (magic bytes, extension match, CSV parse)
     - size validation (against the persistent_config max)
     - ZIP-container bomb / path-traversal validation
+    - content directives (SQLite virtual tables, VRT members)
 
-    Shared by ``ingest_file``, ``reupload_file``, and ``ingest_raster``.
-    Raises ``ValueError`` on any check so
-    each caller can map to its own job-failure handling.
+    Raises ``ValueError`` on any check so each caller can map it to its own
+    job-failure handling.
     """
     from app.processing.ingest.validation import (
         validate_file_content,
@@ -173,9 +172,7 @@ async def _validate_upload_file_safety(
     validate_file_content(file_path, effective_filename)
     validate_file_size(file_path, max_size_mb * 1024 * 1024)
     validate_archive_safety(file_path, effective_filename)
-    # What the file says to do is as much a
-    # property of the upload as its shape is. Off the event loop: the linear
-    # schema walk is still real work on a request thread.
+    # Off the event loop: the linear schema walk is still real work.
     await run_in_thread_draining(
         validate_content_directives, file_path, effective_filename
     )
@@ -393,26 +390,23 @@ async def _cleanup_staging_on_failure(
 
     The terminal-write site for the import tasks: applies the
     ``redact_failure_reason`` backstop, the ``pending``-inclusive attempt
-    fence (a worker-time refusal that raises before the claim
-    must still finalize the job it owns rather than leave it for the stale
-    sweep), and the ``ingest_failed`` notification.
+    fence (a worker-time refusal that raises before the claim must still
+    finalize the job it owns rather than leave it for the stale sweep), and
+    the ``ingest_failed`` notification.
 
-    ``staging_table`` is "" for paths with none (the VRT tail
-    reaps its object keys in its own ``finally``) — an empty name skips the
-    DROP rather than interpolating and raising inside the best-effort guard.
+    ``staging_table`` is "" for paths with none (the VRT tail reaps its
+    object keys in its own ``finally``); an empty name skips the DROP.
 
-    ORDER is the contract — the failure row is written and
-    committed BEFORE the drop, because a statement error aborts the whole
-    transaction and every later statement on that session raises until
-    rolled back. Drop-first previously left a job ``running`` with no
-    reason recorded when the drop hit a lock/statement timeout. Anything
-    added here that can fail goes after the commit, in its own guarded
-    block with its own rollback.
+    The failure row is committed before the drop, because a statement error
+    aborts the whole transaction: a drop that hit a lock or statement timeout
+    first would leave the job ``running`` with no reason recorded. Anything
+    here that can fail goes after the commit, in its own guarded block with
+    its own rollback.
 
-    The failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``;
-    on a contended row it logs ``job_error_write_timeout`` and returns
-    rather than waiting — the job stays ``running`` and the caller re-raises
-    the failure it was already handling.
+    The failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``; on a
+    contended row it logs ``job_error_write_timeout`` and returns rather than
+    waiting. The job stays ``running`` and the caller re-raises the failure
+    it was already handling.
     """
     from sqlalchemy import text
     from sqlalchemy.exc import DBAPIError
@@ -426,23 +420,21 @@ async def _cleanup_staging_on_failure(
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
-    # Last boundary before this text becomes durable — feeds the
-    # persisted error_message, the log record, and the notification reason,
-    # so redacting once here covers all three for every caller.
-    # The stored-reason rule covers this sink, and it is the
-    # exception rather than its text that crosses, so a library exception
-    # becomes a code instead of its statement-and-parameters dump.
+    # Last boundary before this text becomes durable: it feeds the persisted
+    # error_message, the log record and the notification reason. The
+    # exception, not its text, crosses, so a library exception becomes a code
+    # instead of its statement-and-parameters dump.
     error_message = redact_failure_reason(exc)
     await session.rollback()
 
-    # An expired budget must not become the task's outcome. Swallowed
-    # and logged as its own event, so the caller re-raises the ingest failure and
+    # An expired budget must not become the task's outcome. Swallowed and
+    # logged as its own event, so the caller re-raises the ingest failure and
     # the report below still runs; `written` gates what the write earned.
     written = landed = False
     try:
-        # Armed AFTER the rollback that would discard it and before
-        # the UPDATE, which is the statement that blocks on a contended job row;
-        # inside the guard because arming can fail on a lost connection too.
+        # Armed after the rollback that would discard it and before the
+        # UPDATE, the statement that blocks on a contended job row; inside the
+        # guard because arming can fail on a lost connection too.
         await arm_job_error_write_budget(session)
         # `pending` too: a failure before the claim, such as the worker-time
         # SSRF refusal, must still end the job this attempt owns.
@@ -457,15 +449,14 @@ async def _cleanup_staging_on_failure(
         await session.commit()
         written = True
     except DBAPIError as write_failure:
-        # Same reason as the loader's: the callers below re-raise the ingest
-        # failure, and a rollback that raises would take its place.
+        # The caller re-raises the ingest failure, and a rollback that raised
+        # would take its place.
         with suppress(Exception):  # broad: best-effort, the caller re-raises
             await session.rollback()
         log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
 
-    # DROP after commit — see docstring. Runs before the rowcount return so
-    # this attempt's (attempt-scoped) table is dropped even when a newer
-    # attempt already owns the job row.
+    # Before the `landed` return, so this attempt's (attempt-scoped) table is
+    # dropped even when a newer attempt already owns the job row.
     if staging_table:
         try:
             await session.execute(
@@ -498,10 +489,9 @@ async def _cleanup_staging_on_failure(
         task=task_name,
     )
 
-    # Notify on ingest failed (non-fatal, deferred import). This follows the
-    # attempted terminal write, so a notification error cannot roll back a
-    # committed failed status; if that write raised DBAPIError, the job may still
-    # be active.
+    # After the attempted terminal write, so a notification error cannot roll
+    # back a committed failed status; if that write raised DBAPIError, the
+    # job may still be active.
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
@@ -539,18 +529,12 @@ async def _ingest_vector_into_staging(
 ) -> StagingResult:
     """Load a vector source into staging and return extracted staging metadata.
 
-    TEST-ONLY (#1018): nothing in ``app/`` calls this, only
-    ``tests/test_staging_pipeline.py`` and ``test_staging_pipeline_integration
-    .py``. Gives those tests a seam over vector ingest's pre-staging half,
-    which production runs inline in its own job lifecycle. Mirrors
-    ``run_ogr2ogr``, ``rename_reserved_columns``, the DBF-truncation check,
-    then ``_detect_and_override_geometry`` under ``user_wants_geom`` — the
-    same four as ``tasks_vector.ingest_file`` (the only production path with
-    the override); ``tasks_reupload.reupload_file`` runs only the first
-    three and passes its detected type straight to ``run_ogr2ogr``.
-
-    Then calls the real ``_run_staging_pipeline``, which first ingest and
-    both re-uploads also call.
+    Test-only: a seam over vector ingest's pre-staging half, which production
+    runs inline in its own job lifecycle. Mirrors ``run_ogr2ogr``,
+    ``rename_reserved_columns``, the DBF-truncation check, then
+    ``_detect_and_override_geometry`` under ``user_wants_geom``, as
+    ``tasks_vector.ingest_file`` does, then calls the real
+    ``_run_staging_pipeline``.
 
     Performs no commits.
     """
@@ -580,7 +564,7 @@ async def _ingest_vector_into_staging(
 
         _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-    # Shapefile-only. Keyed on the derived format, not the .zip suffix — a
+    # Shapefile-only. Keyed on the derived format, not the .zip suffix: a
     # File Geodatabase arrives in a .zip too and has no DBF to truncate.
     if derive_source_format(file_path, layer_name) == "shapefile":
         from app.processing.ingest.metadata import detect_dbf_truncation_collisions
@@ -617,9 +601,6 @@ async def _ingest_vector_into_staging(
         effective_srid=effective_srid,
     )
 
-    # Preserve the original geometry_type fallback: if _run_staging_pipeline
-    # returned a geometry_type from metadata, use it; otherwise fall back to
-    # the ogr_geometry_type (possibly overridden by user_wants_geom).
     if result.geometry_type is None and geometry_type is not None:
         result.geometry_type = geometry_type
 

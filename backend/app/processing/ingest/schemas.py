@@ -287,9 +287,9 @@ class VectorCommitRequest(BaseCommitRequest):
     )
 
 
-# Each of these reaches a conversion argument, which is the
-# rewrite strict mode exists to refuse. Mirrors ``check_and_prepare_cog``'s
-# own predicate, case-sensitive DEFLATE default included.
+# Each of these reaches a conversion argument, the rewrite strict mode exists
+# to refuse. Mirrors ``check_and_prepare_cog``'s own predicate, case-sensitive
+# DEFLATE default included.
 def reject_strict_cog_conflict(model: Any) -> Any:
     """Refuse a strict-COG commit that also asks for a rewrite.
 
@@ -369,12 +369,11 @@ class ServiceCommitRequest(BaseCommitRequest):
             "the database. Deprecated: use the auth object with method bearer."
         ),
     )
-    # The deprecated flat spelling of a credential is held
-    # to the same rule as the `auth` object beside it on this door.
+    # The deprecated flat credential is held to the same rule as `auth`.
     _validate_token = field_validator("token")(_validate_safe_token)
-    # Declared LAST — the generated Python SDK gives each field
-    # a positional slot in declaration order, and appending cannot move a
-    # slot that already exists. Pinned by test_service_auth_contract_1746.
+    # Declared last: the generated Python SDK gives each field a positional
+    # slot in declaration order, and appending cannot move an existing slot.
+    # Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
@@ -427,9 +426,8 @@ class CommitRequest(BaseModel):
         le=998999,
         description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged, and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.",
     )
-    # The cap is declared here as well as on ServiceCommitRequest
-    # because only this model's schema is published, and a constraint a caller
-    # cannot read is not part of the contract.
+    # The cap is declared here as well as on ServiceCommitRequest because only
+    # this model's schema is published.
     token: str | None = Field(
         default=None,
         max_length=1000,
@@ -474,14 +472,13 @@ class CommitRequest(BaseModel):
         default=None,
         description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
     )
-    # The handler re-validates ServiceCommitRequest from THIS
-    # model's dump, so a field absent here is dropped before the subclass
-    # ever sees it. Appended, never inserted, for the positional-slot reason above.
+    # The handler re-validates ServiceCommitRequest from this model's dump, so
+    # a field absent here never reaches the subclass. Appended, never
+    # inserted, for the positional-slot reason above.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
-    # Appended for that same reason rather than placed beside the
-    # other raster fields, which would move five existing positional slots.
+    # Appended for the same reason rather than beside the other raster fields.
     strict_cog: bool = Field(
         default=False,
         description=(
@@ -730,7 +727,6 @@ class VrtMutationResponse(BaseModel):
     message: str = Field(description="Human-readable acceptance message.")
 
 
-# Fan-out schemas
 class FanOutLayerRequest(BaseModel):
     """One layer to ingest as a separate dataset from a multi-layer source."""
 

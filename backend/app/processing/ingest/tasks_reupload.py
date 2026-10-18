@@ -64,9 +64,9 @@ from app.processing.ingest.tasks_staging import (
 )
 
 
-# A keyed admitted occurrence has its own wall-clock budget.  The queue claim
-# deadline ends at the pending -> running CAS; it must not terminate a
-# legitimate fetch that started before that deadline.
+# A keyed admitted occurrence has its own wall-clock budget. The queue claim
+# deadline ends at the pending -> running CAS and must not terminate a fetch
+# that started before it.
 _KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS = 1_800.0
 
 
@@ -131,8 +131,8 @@ def _assert_geometry_survives(
 ) -> None:
     """Raise the preview door's refusal when a replacement would strip geometry.
 
-    Both worker paths reach the same ``record_type`` re-derivation —
-    the file path knows from ogrinfo, the service path from the staging table.
+    Both worker paths reach the same ``record_type`` re-derivation: the file
+    path knows from ogrinfo, the service path from the staging table.
     """
     geometry_loss = geometry_loss_refusal(
         record_type=record_type,
@@ -156,15 +156,13 @@ async def _detect_reupload_crs(
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
-    ``layer_name`` targets the user-chosen layer in a
-    multi-layer GPKG rather than defaulting to ``layers[0]``.
+    ``layer_name`` targets the user-chosen layer in a multi-layer GPKG rather
+    than ``layers[0]``.
 
-    Applies the same missing-CRS gate as ``ingest_file``,
-    raising ``IngestionError`` rather than silently falling through to the
-    4326 default and corrupting the replacement dataset.
-
-    And the preview door's geometry-loss refusal, for the client
-    that skipped the preview. ``record_type`` is the dataset's CURRENT one.
+    Applies the missing-CRS gate ``ingest_file`` does, raising
+    ``MissingCrsError`` rather than falling through to the 4326 default, and
+    the preview door's geometry-loss refusal, for a client that skipped the
+    preview. ``record_type`` is the dataset's current one.
 
     Returns (ogrinfo result dict, effective_srid).
     """
@@ -419,7 +417,6 @@ class _FileReupload:
         from app.processing.ingest.service import resolve_file_path
 
         self.file_path = await resolve_file_path(self.file_path, self.job_id)
-        # Validate file content and safety before ogr2ogr.
         async with async_session() as session:
             try:
                 await _validate_upload_file_safety(
@@ -431,8 +428,7 @@ class _FileReupload:
                 self.refused = True
                 raise
 
-        # Detect CRS from the new file, enforce the missing-CRS gate, and
-        # resolve the effective SRID (override > detected > 4326).
+        # Effective SRID: override > detected > 4326.
         self.info, self.effective_srid = await _detect_reupload_crs(
             self.file_path,
             self.layer_name,
@@ -465,8 +461,8 @@ class _FileReupload:
         )
 
     async def stage(self, session, job, dataset) -> Verdict:
-        # Rename source columns that collide with GeoLens-internal names,
-        # before the post-process steps so they cannot clash.
+        # Before the post-process steps, so no source column clashes with a
+        # GeoLens-internal name.
         from app.processing.ingest.metadata import (
             get_geometry_types,
             rename_reserved_columns,
@@ -480,9 +476,8 @@ class _FileReupload:
 
             _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-        # Shapefile-only: detect DBF 10-char truncation collisions. Keyed on
-        # the derived format, not the .zip suffix: a File Geodatabase arrives
-        # in a .zip too and has no DBF to truncate.
+        # Shapefile-only. Keyed on the derived format, not the .zip suffix: a
+        # File Geodatabase arrives in a .zip too and has no DBF to truncate.
         if self.source_format == "shapefile":
             from app.processing.ingest.metadata import (
                 detect_dbf_truncation_collisions,
@@ -520,8 +515,6 @@ class _FileReupload:
             schema=_current_tenant_schema(),
             staged=staging_result,
         )
-        # Tell the user when the Web Mercator clamp destroyed geometry,
-        # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
         # Read before the live table is locked: it scans only the staged rows.
         self.staged_geometry_types = await get_geometry_types(
@@ -651,9 +644,8 @@ class _FileReupload:
         if self.refused:
             return Failure("validation_failed", refused=True)
         if isinstance(exc, MissingCrsError):
-            # Its own code: check_missing_crs's text ends with the SRID
-            # override remedy, which the vector gate's missing_crs sentence
-            # does not carry.
+            # Its own code: check_missing_crs's text ends with the SRID override
+            # remedy, which the vector gate's missing_crs sentence lacks.
             return Failure(
                 "missing_crs_reupload",
                 reason=FixedReason(str(exc), code="missing_crs_reupload"),
@@ -751,10 +743,8 @@ async def _resolve_service_token(
 ) -> str | None:
     """The credential this attempt will fetch with, redeeming a ref if given.
 
-    The body lives in
-    ``platform.refresh.credentials.resolve_worker_credential`` so
-    ``ingest_service`` redeems the same way without either task module
-    importing the other. Kept as the name this task and its tests reach for.
+    Delegates to ``platform.refresh.credentials.resolve_worker_credential``,
+    which ``ingest_service`` also uses.
     """
     return await resolve_worker_credential(token, credential_ref)
 
@@ -780,10 +770,9 @@ async def _fetch_service_layer_with_paging_guard(
     Returns the source's feature count, the ArcGIS ID plan and the order
     field the ArcGIS fetch used, each ``None`` where it doesn't apply.
 
-    Parity with the initial-import path. A refresh of a large
-    ArcGIS layer must not do ONE unpaged fetch and trust GDAL driver paging —
-    the exact behavior the import path's guarded loop exists to distrust.
-    Same criteria, same shared loop (tasks_common); the page-info fetch
+    A refresh of a large ArcGIS layer must not do one unpaged fetch and trust
+    GDAL driver paging, which the import path's guarded loop exists to
+    distrust; it uses the same criteria and shared loop. The page-info fetch
     resolves through tasks_vector's module attribute so test monkeypatches
     cover both doors.
     """
@@ -800,10 +789,9 @@ async def _fetch_service_layer_with_paging_guard(
     pagination_order_field = None
     id_plan = None
     if service_type == "arcgis_featureserver":
-        # The page-info probe is the FIRST outbound
-        # contact of a refresh and can fail before any subprocess exists to
-        # fire on_spawn, so arm the contact stamp here too (monotonic OR —
-        # later per-page spawns re-arming is harmless).
+        # The page-info probe is a refresh's first outbound contact and can
+        # fail before any subprocess fires on_spawn, so the contact stamp is
+        # armed here too (it is monotonic).
         if on_spawn is not None:
             on_spawn()
         (
@@ -1195,9 +1183,9 @@ class _ServiceReupload:
         self.service_type, self.source_format = resolve_service_type(
             self.service_type_raw
         )
-        # Checked again here, on the URL this fetch uses: the route-level check
-        # covers the preview→commit TOCTOU, but manifest reuploads skip that
-        # route entirely.
+        # Checked again on the URL this fetch uses: the route-level check
+        # covers the preview-to-commit TOCTOU, but manifest reuploads skip
+        # that route.
         try:
             await validate_url_for_ssrf(self.source_url_value)
         except SSRFError as exc:
@@ -1217,9 +1205,9 @@ class _ServiceReupload:
         )
 
         def _arm_contact() -> None:
-            # Fired the instant the subprocess exists, the first moment an
-            # outbound attempt truthfully began. Monotonic, so a retry that
-            # dies locally cannot erase its first attempt's contact.
+            # Fired when the subprocess exists, the first moment an outbound
+            # attempt began. Monotonic, so a retry that dies locally cannot
+            # erase its first attempt's contact.
             self.contacted = self.contacted or matches_binding
 
         db_conn_str = build_pg_conn_str()
@@ -1375,7 +1363,8 @@ class _ServiceReupload:
                 accepted_run_id=self.accepted_run_id,
             )
             # Live edits are refused at write rather than reviewed. An
-            # acceptance keeps the held run's baseline, so edits since the hold count.
+            # acceptance keeps the held run's baseline, so edits since the
+            # hold count.
             self.verification["data_revision_baseline"] = await _data_revision_baseline(
                 session,
                 job_id=self.job_uuid,
@@ -1535,8 +1524,8 @@ class _ServiceReupload:
 @task_app.task(
     queue="ingest",
     retry=0,
-    # The context is how the task learns its own queue-row id, so
-    # a terminal failure can strip the raw token out of its own kwargs.
+    # The context gives the task its own queue-row id, so a terminal failure
+    # can strip the raw token out of its own kwargs.
     pass_context=True,
     aliases=["app.ingest.tasks.reupload_service"],
 )
@@ -1581,8 +1570,9 @@ async def reupload_service(
     )
 
 
-# Verified refreshes use a task name introduced with the publication protocol;
-# pre-change workers therefore cannot run them through the ordinary reupload door.
+# Verified refreshes use a task name introduced with the publication
+# protocol, so workers older than it cannot run them through the ordinary
+# reupload door.
 reupload_verified_refresh = task_app.task(
     reupload_service.func,
     queue="ingest",

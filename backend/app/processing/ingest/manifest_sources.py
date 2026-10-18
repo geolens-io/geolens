@@ -60,9 +60,9 @@ def validate_publication_intent(
 ) -> str:
     """Check a manifest publication intent against the live workflow extension.
 
-    Allowed set is the registered WorkflowExtension's
-    ``status_order()``, resolved per call and never cached — an overlay
-    registers after import.
+    The allowed set is the registered WorkflowExtension's ``status_order()``,
+    resolved per call and never cached, because an overlay registers after
+    import.
     """
     from app.platform.extensions import get_workflow_extension
 
@@ -138,9 +138,8 @@ def _storage_uri_to_key(uri: str) -> str:
     key = parsed.path.lstrip("/")
     if not key:
         raise ManifestSourceError("s3:// manifest source must include an object key")
-    # `staging/` keys are system-owned transient uploads, reaped
-    # at terminal job status. An operator-declared source there would get
-    # deleted, so refuse it at declaration time.
+    # `staging/` keys are system-owned transient uploads, reaped at terminal
+    # job status; an operator-declared source there would be deleted.
     if key.startswith("staging/"):
         raise ManifestSourceError(
             "s3:// manifest source keys must not use the 'staging/' prefix: "

@@ -103,10 +103,9 @@ async def ingest_raster(
     12. Update job to complete
     13. Invalidate cache, defer embedding
 
-    Session lifecycle (gh #100): the AsyncSession is split into two
-    short-lived blocks so it is NOT held open across the long-running CPU
-    work in steps 4-8 (each runs via ``asyncio.to_thread``) — holding one
-    open there corrupts the greenlet bridge state and the next
+    The AsyncSession is split into short-lived blocks so it is not held open
+    across the CPU work in steps 4-8 (each runs via ``asyncio.to_thread``):
+    holding one open there corrupts the greenlet bridge state and the next
     ``session.flush()`` raises ``MissingGreenlet``.
     """
     _bind_task_log_context(task_name="ingest_raster", job_id=job_id)
@@ -127,59 +126,43 @@ async def ingest_raster(
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
-    # False until a conversion is known to have kept every
-    # sample. Decision 7's delete is licensed by that fact and nothing else, so
-    # the default has to be the one that retains.
+    # False until a conversion is known to have kept every sample. Decision 7's
+    # delete is licensed by that fact alone, so the default retains.
     source_preserved_in_cog: bool = False
-    # Set when a lossy conversion's original has been copied
-    # to the durable `originals/` prefix. Until it is true the staged upload is
-    # the only faithful copy and nothing may delete it.
+    # Set when a lossy conversion's original has been copied to the durable
+    # `originals/` prefix. Until then the staged upload is the only faithful
+    # copy and nothing may delete it.
     lossy_original_archived: bool = False
-    # Captured in phase 1, swept in the finally.
     owned_staging_key: str | None = None
-    # Storage keys written BEFORE the terminal DB commit. base_key
-    # embeds dataset.id, a flushed-but-uncommitted UUID — if the commit (or any
-    # step after the puts) fails the dataset row is rolled back, so delete_dataset
-    # never reaps these assets. Track them and clean up on the failure path so a
-    # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
+    # Storage keys written before the terminal commit. If the commit (or any
+    # step after the puts) fails, the dataset row is rolled back and
+    # delete_dataset never reaps these, so the failure path deletes them.
     written_storage_keys: list[str] = []
-    # "The COG and quicklooks are published", set at the terminal
-    # commit and nowhere else. The reap below keys off THIS rather than off
-    # `final_status`, for the reason given in the replace
-    # tail: `final_status` also carries "did anything go wrong afterwards",
-    # which is not a question about the objects, and the broad handler sets it
-    # to "failed" even when the failure happened after the swap was durable.
+    # "The COG and quicklooks are published", set at the terminal commit and
+    # nowhere else. The reap keys off this rather than `final_status`, which
+    # the broad handler sets to "failed" even after the publish was durable.
     publish_committed: bool = False
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
-        # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session via _job_phase_session):
-        # load job, mark running, validate. Snapshot the values
-        # needed for CPU work into local variables so phase 2 can re-load
-        # the job in a fresh session without depending on attached ORM
-        # state surviving the asyncio.to_thread calls.
-        # ----------------------------------------------------------------- #
+        # Phase 1: load the job, mark it running, validate, and snapshot what
+        # the CPU work needs, so phase 2 doesn't depend on attached ORM state
+        # surviving the asyncio.to_thread calls.
         async with _job_phase_session(
             job_uuid, phase="phase1", attempt_id=attempt_uuid
         ) as (session, job):
             if job is None:
                 return
 
-            # Captured HERE, first thing after the row
-            # is in hand, so no exit below (heartbeat-claim bail, download
-            # failure, validation return) can leave it None and skip
-            # reaping the staging object. Reads the DB column, not the
-            # local `file_path` that step 2 rebinds.
+            # Captured first, so no exit below (heartbeat-claim bail, download
+            # failure, validation return) can skip reaping the staging object.
+            # Reads the DB column, not the local `file_path` step 2 rebinds.
             owned_staging_key = owned_presigned_staging_key(
                 job.id, job.user_metadata, job.file_path
             )
 
-            # 1. Mark running.
-            # The fresh "validating" stamp rides
-            # the claim commit (see the helper). Raster ingests are the prime
-            # motivator — 10-min COG conversion + quicklook generation
-            # otherwise looks like a dead spinner.
+            # 1. Mark running. The "validating" stamp rides the claim commit,
+            # so a 10-minute COG conversion doesn't look like a dead spinner.
             heartbeat_task = await claim_job_attempt_and_start_heartbeat(
                 session, job_uuid, attempt_uuid, job=job, current_step="validating"
             )
@@ -191,8 +174,7 @@ async def ingest_raster(
 
             file_path = await resolve_file_path(file_path, job_id)
 
-            # 3. Validate file content and size. Raster uploads
-            # are .tif/.tiff/.vrt so the .zip branch of the helper is a no-op.
+            # 3. Validate file content and size.
             try:
                 await _validate_upload_file_safety(
                     session,
@@ -202,15 +184,11 @@ async def ingest_raster(
             except ValueError as exc:
                 await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
                 await session.commit()
-                # NO unlink here — an unconditional delete
-                # would destroy a local-storage install's only copy of a file
-                # that then failed validation. The terminal `finally`
-                # already knows the right distinction and runs on this
-                # return; let ONE exit decide.
+                # No unlink here: on local storage this may be the only copy.
+                # The terminal `finally` decides, and runs on this return.
                 final_status = "failed"
-                # Notify on ingest failed (non-fatal, after commit — deferred import).
-                # status="failed" is already committed so a notification error cannot
-                # roll back or alter the terminal job write.
+                # After the commit, so a notification error cannot alter the
+                # terminal job write.
                 _early_reason = redact_failure_reason(exc)
                 _early_job_id = str(job_uuid)
                 from app.platform.notifications.events import (
@@ -230,31 +208,24 @@ async def ingest_raster(
                 )
                 return
 
-            # Snapshot job attributes needed in phase 2 (after CPU work).
-            # These plain Python values do not require an attached ORM session.
             um: dict = job.user_metadata or {}
             source_filename: str | None = job.source_filename
             _reject_raw_vrt_job(source_filename)
             is_manifest_vrt = _is_manifest_vrt_job(job)
 
-        # ----------------------------------------------------------------- #
-        # CPU work — NO session open. asyncio.to_thread calls run GDAL/numpy
-        # in the thread pool. Holding a session open here is what triggers
-        # the MissingGreenlet bug (gh #100).
-        # ----------------------------------------------------------------- #
+        # CPU work, with no session open (see the docstring).
 
         # 4. Hash source file
         source_sha256 = await asyncio.to_thread(sha256_file, file_path)
 
-        # Read GDAL options from user_metadata (set at commit time)
         assign_crs = um.get("srid_override")
         user_compression = um.get("compression") or "DEFLATE"
 
-        # 5. Inspect the SOURCE in the probe child. From its metadata come
-        # only whether a CRS assignment is needed and `original_srid`;
-        # everything the catalog stores describes the COG. Its compliance
-        # verdict, against the requested compression, feeds the strict gate
-        # and the conversion below.
+        # 5. Inspect the source in the probe child. Its metadata decides only
+        # whether a CRS assignment is needed and `original_srid`; everything
+        # the catalog stores describes the COG. Its compliance verdict,
+        # against the requested compression, feeds the strict gate and the
+        # conversion.
         source_inspection = await asyncio.to_thread(
             inspect_source_raster,
             file_path,
@@ -264,35 +235,25 @@ async def ingest_raster(
         source_meta = source_inspection["metadata"]
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
-        # Derive this from the raster, not an upload-time
-        # stamp — `user_metadata["crs_missing"]` is absent for every S3
-        # (presigned) upload, so a user-supplied srid_override would be
-        # silently dropped and the COG would come out with no CRS.
-        #
-        # The missing-CRS gate and override decision are
-        # one rule, shared with the replace tail — a supplied EPSG
-        # applies even when the source declares a CRS.
+        # Derived from the raster, not an upload-time stamp, so an
+        # srid_override applies on every upload path. One rule, shared with the
+        # replace tail: a supplied EPSG applies even when the source declares a
+        # CRS.
         assign_crs = resolve_crs_assignment(
             crs_wkt=source_meta.get("crs_wkt"), srid_override=assign_crs
         )
 
-        # Strict-mode COG gating. When the user opted in via
-        # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
-        # instead of silently routing through check_and_prepare_cog
-        # conversion. Manifest-VRT jobs are excluded (VRTs are XML, not
-        # TIFFs — the COG compliance check would fail for unrelated reasons).
+        # strict_cog rejects a non-COG TIFF instead of converting it.
+        # Manifest-VRT jobs are excluded: a VRT is XML, and the COG compliance
+        # check would fail for unrelated reasons.
         _enforce_strict_cog(
             source_inspection,
             is_manifest_vrt=is_manifest_vrt,
             strict_cog=bool(um.get("strict_cog")),
         )
 
-        # Stamp current_step="cog_convert"
-        # before the branch so both paths exit with the same progress
-        # checkpoint. Manifest-VRT skips the actual COG work but the UI
-        # signal must still advance — keeps the step name consistent.
-        # Brief-session pattern via _job_phase_session: no
-        # session held open across the asyncio.to_thread CPU work below.
+        # Before the branch, so manifest-VRT (which skips the COG work) still
+        # advances the UI. A brief session, closed before the CPU work.
         async with _job_phase_session(
             job_uuid, phase="progress_write_cog_convert", attempt_id=attempt_uuid
         ) as (
@@ -308,14 +269,11 @@ async def ingest_raster(
             local_cog_path = file_path
             cog_status = "verified"
         else:
-            # 6. Check/convert to COG. Verify disk space first — COG conversion
-            # can produce output up to ~3× source size (decompressed + tiled +
-            # overviews); a stretched disk crashes here with opaque IOError and
-            # may leave concurrent ingests in a half-converted state.
-            # mkdtemp() defaults to /tmp — a 512 MB RAM-backed
-            # tmpfs in the worker container — so the disk-space check below
-            # would measure the wrong filesystem AND a big conversion could
-            # ENOSPC or eat the memory cap. Land it on the staging volume.
+            # 6. Check/convert to COG. Disk space first: the output can reach
+            # ~3x the source (decompressed + tiled + overviews), and a full disk
+            # fails with an opaque IOError and may leave concurrent ingests
+            # half-converted. On the staging volume, because mkdtemp()'s /tmp
+            # is a 512 MB RAM-backed tmpfs in the worker container.
             tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
             source_bytes = os.path.getsize(file_path)
             free_bytes = shutil.disk_usage(tmp_dir).free
@@ -337,23 +295,16 @@ async def ingest_raster(
                 assign_crs=assign_crs,
             )
         assert local_cog_path is not None  # check_and_prepare_cog always returns a path
-        # Resolved state, not the request field — the
-        # branch above can reach this line without converting at all, and
-        # a verified COG loses nothing whatever codec it carries.
-        # No `reprojected=` — `assign_crs` applies through
-        # `gdal_translate -a_srs`, which relabels and resamples nothing,
-        # so an override does not force a second permanent original.
+        # Resolved state, not the request field: the branch above may not
+        # convert at all, and a verified COG loses nothing whatever its codec.
+        # An override needs no `reprojected=`: `gdal_translate -a_srs`
+        # relabels and resamples nothing.
         source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
-        # Read the artifact that will actually serve —
-        # the pre-conversion read describes a different file (codec
-        # differs on every conversion; under an override the CRS and
-        # footprint differ too).
-        #
-        # The pixel grid and corner NUMBERS survive a CRS
-        # assignment unchanged (only the label changes), so reading the
-        # COG interprets them in the assigned CRS — the reading the
-        # caller asked for. Reading the source would use the wrong CRS.
+        # Read the artifact that will serve: the pre-conversion read describes
+        # a different file (the codec differs; under an override the CRS and
+        # footprint do too). A CRS assignment keeps the pixel grid and corner
+        # numbers, so reading the COG interprets them in the assigned CRS.
         cog_meta = (
             source_meta
             if local_cog_path == file_path
@@ -364,12 +315,9 @@ async def ingest_raster(
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
-        # The dataset id is decided HERE rather than by the phase-2
-        # INSERT, because the object keys below embed it and the durable job
-        # row has to be able to name them before the transaction that could
-        # roll that id away ever opens. Nothing else changes: phase 2 hands
-        # this id to create_*_dataset and `base_key` is built from the same
-        # value it always was.
+        # The dataset id is decided here rather than by the phase-2 INSERT,
+        # because the object keys embed it and the durable job row must name
+        # them before the transaction that could roll that id away opens.
         planned_dataset_id = uuid.uuid4()
         _base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
         _unpublished_keys = [
@@ -378,43 +326,33 @@ async def ingest_raster(
             else f"{_base_key}/source.cog.tif",
             f"{_base_key}/quicklook_256.png",
             f"{_base_key}/quicklook_512.png",
-            # The kept original of a lossy conversion. Its key is content-
-            # derived and the dataset id is brand new here, so this attempt is
-            # necessarily the only writer of it - unlike the replace tail,
-            # where the same key can already hold an earlier upload's archive
-            # and must not be registered.
+            # The kept original of a lossy conversion. The dataset id is new,
+            # so this attempt is its only writer, unlike the replace tail,
+            # where the key can already hold an earlier upload's archive.
             archived_original_uri(planned_dataset_id, source_sha256=source_sha256),
         ]
         if not await record_unpublished_storage_keys(
             job_uuid,
             attempt_uuid,
             keys=_unpublished_keys,
-            # Empty, and provably so. Every key above is
-            # under a dataset id generated three lines up, so no row can name
-            # one. The replace tail passes the live asset's keys here, because
-            # an identical re-upload derives the same content hash and would
-            # otherwise register the objects the dataset is serving.
+            # Every key above is under a dataset id generated here, so no row
+            # can name one. (The replace tail passes the live asset's keys,
+            # since an identical re-upload derives the same content hash.)
             already_published=(),
-            # Every key above sits under this id, and it
-            # is generated per task invocation, so a retry cannot reproduce
-            # one. That is this tail's attempt fence; the replace tail has a
-            # fixed dataset id and uses its attempt id instead.
+            # Generated per task invocation, so a retry cannot reproduce a key:
+            # this tail's attempt fence. The replace tail has a fixed dataset
+            # id and uses its attempt id instead.
             attempt_scope=str(planned_dataset_id),
             job_id=job_id,
             task="ingest_raster",
         ):
-            # A confirmed fence miss. Phase 2's own
-            # attempt-fenced load below would catch this too, but stopping
-            # here is what actually keeps the recorder's contract ("do not
-            # write what nothing records") rather than depending on a second
-            # guard downstream to make it true, and it skips the quicklook
-            # generation this dead attempt no longer needs.
+            # A confirmed fence miss. Stopping here keeps the recorder's
+            # contract ("do not write what nothing records") without relying
+            # on phase 2's own fence, and skips the quicklooks.
             return
 
-        # Quicklook generation is the other
-        # multi-second hotspot. Brief-session write before the two
-        # generate_quicklook calls so the UI advances, routed through
-        # _job_phase_session.
+        # Quicklook generation is the other multi-second hotspot, so the UI
+        # advances first.
         async with _job_phase_session(
             job_uuid, phase="progress_write_quicklook", attempt_id=attempt_uuid
         ) as (
@@ -430,15 +368,10 @@ async def ingest_raster(
         ql256 = await asyncio.to_thread(render_quicklook, local_cog_path, 256)
         ql512 = await asyncio.to_thread(render_quicklook, local_cog_path, 512)
 
-        # Phase 2 (short-lived session via _job_phase_session):
-        # create DB records, store assets, commit job. Re-loads
-        # the job fresh (attributes were already snapshotted into
-        # ``um``/``source_filename`` above).
-        #
-        # require_status="running"; see
-        # `_job_phase_session`'s docstring; this phase puts objects to
-        # storage, which no rollback can undo, so a paused-not-dead worker
-        # must not resume here.
+        # Phase 2: create DB records, store assets, commit the job.
+        # require_status="running" because this phase puts objects to storage,
+        # which no rollback can undo, so a paused-not-dead worker must not
+        # resume here.
         async with _job_phase_session(
             job_uuid,
             phase="phase2",
@@ -448,13 +381,8 @@ async def ingest_raster(
             if job is None:
                 return
 
-            # Phase-2 progress signal.
-            # Uncommitted — participates in the existing rollback shape
-            # so a phase-2 failure cleans up the progress write too.
-            # The brief-session "quicklook" write above is the durable
-            # mid-flight checkpoint.
-            # _job_phase_session owns the rollback-on-
-            # exception shape that used to live as a manual try/except.
+            # Uncommitted, so a phase-2 failure rolls it back too; the
+            # "quicklook" write above is the durable mid-flight checkpoint.
             job.current_step = "finalize"
             job.progress = 0.8
 
@@ -497,12 +425,11 @@ async def ingest_raster(
                     dataset_id=planned_dataset_id,
                 )
 
-            # The manifest's credit line. Covers both branches
-            # above — a manifest raster and a manifest-driven VRT alike, since
-            # neither create_*_dataset takes the field.
+            # The manifest's credit line, for both branches: neither
+            # create_*_dataset takes the field.
             await apply_manifest_record_metadata(session, record, um)
 
-            # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
+            # 9b. Set temporal fields on Record.
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
                 temporal_start=um.get("temporal_start")
                 or source_meta.get("temporal_start"),
@@ -532,9 +459,8 @@ async def ingest_raster(
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
-            # Resolve every managed key through the same fail-closed seam used
-            # by serve/delete/presign paths. The ORM fields below deliberately
-            # retain the logical keys.
+            # The fail-closed seam serve/delete/presign use. The ORM fields
+            # below keep the logical keys.
             (
                 _storage_cog_key,
                 _storage_ql256_key,
@@ -545,15 +471,11 @@ async def ingest_raster(
                 ql512_key,
             )
 
-            # Record each key so the failure path can delete exactly
-            # what was written.
-            #
-            # Registered BEFORE the put, not after: a cancelled
-            # put can still have COMPLETED (both providers drain their
-            # worker thread before re-raising CancelledError, a
-            # BaseException), which would skip an append placed after and
-            # leave the finished object with nothing naming it. Reaping a
-            # key the write never created is an idempotent no-op.
+            # Each key is recorded before its put: a cancelled put can still
+            # have completed (both providers drain their thread before
+            # re-raising CancelledError, a BaseException), and an append after
+            # it would leave the object with nothing naming it. Reaping a key
+            # the write never created is a no-op.
             written_storage_keys.append(_storage_cog_key)
             with open(local_cog_path, "rb") as fobj:
                 await storage.put(_storage_cog_key, fobj)
@@ -562,29 +484,23 @@ async def ingest_raster(
             written_storage_keys.append(_storage_ql512_key)
             await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
-            # 11. Update asset URIs and create distribution.
-            # asset_uri stays as the logical (un-prefixed) key — the tenant
-            # prefix is injected at serve-time by resolve_open_path so the
-            # DB value is provider- and tenant-agnostic.
+            # 11. Update asset URIs and create distribution. asset_uri keeps
+            # the logical key; resolve_open_path adds the tenant prefix at
+            # serve time.
             raster_asset.asset_uri = cog_key
             raster_asset.quicklook_256_uri = ql256_key
             raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
-            # Populate the STAC-aligned dataset_assets table. The read
-            # path (search/STAC/OGC `_build_stac_assets`) was always operating on
-            # an empty input because ingest never wrote these rows. Insert them
-            # in this same transaction so STAC item assets are advertised
-            # (data/vrt + thumbnail + overview). On local storage these still
-            # resolve to None; on S3-published deployments they
-            # become presigned hrefs.
+            # The STAC-aligned dataset_assets rows `_build_stac_assets` reads,
+            # in this transaction, so item assets are advertised (data/vrt +
+            # thumbnail + overview). On local storage they resolve to None; on
+            # S3 they become presigned hrefs.
             from app.platform.extensions import (
                 get_catalog_port,
                 get_processing_port as _get_port,
             )
 
-            # dataset_asset_orm_class lives on the CatalogPort, not the
-            # ProcessingPort, so get it from get_catalog_port().
             DatasetAsset = get_catalog_port().dataset_asset_orm_class()
             for asset_row in _build_dataset_asset_rows(
                 dataset_id=dataset.id,
@@ -607,12 +523,11 @@ async def ingest_raster(
             )
             session.add(distribution)
 
-            # Same policy as the replace tail, through the
-            # same helper. ADR-002 Decision 7's retained original lives under
-            # `originals/<dataset_id>/` — the prefix the vector tails have
-            # archived to since #430, which `delete_dataset` reaps and no purge
-            # touches — and it now carries a counted `dataset_assets` row so
-            # per-user storage can see the bytes it consumes.
+            # The replace tail's policy, through the same helper. ADR-002
+            # Decision 7's retained original lives under
+            # `originals/<dataset_id>/`, which `delete_dataset` reaps and no
+            # purge touches, with a counted `dataset_assets` row so per-user
+            # storage sees its bytes.
             (
                 lossy_original_archived,
                 archived_key,
@@ -632,20 +547,14 @@ async def ingest_raster(
                 needed=not source_preserved_in_cog,
                 written_storage_keys=written_storage_keys,
             )
-            # The helper registers the key itself, BEFORE
-            # the cancellable write — appending here as well would double-add,
-            # and appending here INSTEAD would restore the cancellation hole.
+            # The helper registers the key itself, before the cancellable write.
             _archive_asset_key = (
                 archived_original_asset_key(source_sha256) if archived_key else None
             )
-            # BEFORE the upsert, not after.
-            # `create_raster_dataset` reserved only the COG; the kept original
-            # is additional and has to be admitted too. Reserving AFTER the row
-            # is written makes the live recount already contain those bytes, so
-            # adding them again double-charges and falsely refuses an ingest
-            # that fits. This is the ordering rule the swap module's own
-            # docstring states; `test_both_tails_reserve_before_they_upsert`
-            # pins it for both tails.
+            # Before the upsert: `create_raster_dataset` reserved only the COG,
+            # and reserving after the row is written would count the original
+            # twice in the live recount and refuse an ingest that fits
+            # (`test_both_tails_reserve_before_they_upsert`).
             if archived_bytes:
                 from app.modules.quota.service import reserve_storage_bytes
 
@@ -659,12 +568,8 @@ async def ingest_raster(
                 source_filename=source_filename,
             )
 
-            # 12. Finalize job.
-            # Stamp terminal progress
-            # alongside status. ``rows_processed`` stays NULL — raster
-            # ingests have no rows (the COG and quicklooks ARE the
-            # asset). Vector ingests set rows_processed in
-            # tasks_common._finalize_ingest from metadata["feature_count"].
+            # 12. Finalize job. ``rows_processed`` stays NULL: a raster has no
+            # rows.
             await note_publish_followups(
                 session,
                 job_uuid,
@@ -686,10 +591,10 @@ async def ingest_raster(
             try:
                 await session.commit()
             except BaseException as exc:
-                # The one await on this path whose outcome is
-                # genuinely unknown — see `publish_commit_landed`. A lost
-                # acknowledgement would leave the reap below deleting the COG and
-                # quicklooks the committed RasterAsset had just been pointed at.
+                # The one await whose outcome is unknown (see
+                # `publish_commit_landed`): after a lost acknowledgement the
+                # reap below would delete the COG and quicklooks the committed
+                # RasterAsset points at.
                 if not await publish_commit_landed(
                     job_uuid,
                     attempt_uuid,
@@ -715,13 +620,9 @@ async def ingest_raster(
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
         if publish_committed:
-            # The second way this handler is reached with
-            # a durable publish behind it, and the one the stand-down above
-            # cannot cover: the optional post-commit block runs inside the same
-            # try, so a Valkey outage or a busy queue lands here after the
-            # dataset is live. Everything below states that the ingest failed,
-            # including the operator's `ingest_failed` mail, and none of it is
-            # true. Log and finish.
+            # The post-commit follow-ups run inside the same try, so a Valkey
+            # outage or a busy queue lands here after the dataset is live.
+            # Everything below would say the ingest failed; log and finish.
             structlog.get_logger().warning(
                 "raster_post_publish_followup_failed",
                 job_id=job_id,
@@ -734,13 +635,10 @@ async def ingest_raster(
             job_id=job_id,
             task="ingest_raster",
         )
-        # Write failure status via a fresh session — phase 1/2 sessions are
-        # already closed (or rolled back) by the time we get here.
-        # Route through _job_phase_session.
-        #
-        # The budget covers the UPDATE below, the statement that
-        # blocks on a contended job row. An expiry leaves the job `running` for
-        # the stale sweep; the handler below keeps the cause as the outcome.
+        # A fresh session: phase 1/2 sessions are closed or rolled back. The
+        # budget covers the UPDATE, the statement that blocks on a contended
+        # job row. An expiry leaves the job `running` for the stale sweep; the
+        # handler below keeps the cause as the outcome.
         try:
             async with _job_phase_session(
                 job_uuid,
@@ -755,22 +653,18 @@ async def ingest_raster(
                 await ledger.fail(err_session, job_uuid, attempt_uuid, reason=reason)
                 await err_session.commit()
         except DBAPIError as write_failure:
-            # Swallowed so the `raise` below re-raises the ingest
-            # failure. Letting an expiry out would hand the operator a lock
-            # timeout in place of the cause, and skip the notification.
+            # Swallowed so the `raise` below re-raises the ingest failure rather
+            # than a lock timeout, and the notification still runs.
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="ingest_raster"
             )
         finally:
-            # The `finally` reapers gate on THIS
-            # variable, so every exit from this handler sets it — the bounded
-            # error write above can raise past a positional assignment.
+            # The `finally` reapers gate on this, and the bounded error write
+            # above can raise past a positional assignment.
             final_status = "failed"
-        # Notify on ingest failed (non-fatal, deferred import). This runs after
-        # the terminal write was attempted, so a notification error cannot roll
-        # back a committed failed status; if that write raised DBAPIError, the
-        # job may still read running. Placed BEFORE the re-raise so the
-        # notification fires without suppressing the re-raise.
+        # After the attempted terminal write, so a notification error cannot
+        # roll back a committed failed status; if that write raised
+        # DBAPIError, the job may still read running.
         _late_reason = redact_failure_reason(exc)
         _late_job_id = job_id
         from app.platform.notifications.events import (
@@ -792,28 +686,20 @@ async def ingest_raster(
     finally:
         async with cleanup_step("ingest_raster heartbeat", job_id=job_id):
             await stop_ingest_job_heartbeat(heartbeat_task)
-        # Orphan-asset cleanup. If we wrote COG/quicklook bytes to
-        # storage but did NOT reach a successful terminal commit, the dataset
-        # row those keys belong to was rolled back — delete_dataset will never
-        # reap them. Remove them here so a crash/commit-failure mid-ingest does
-        # not leave bytes under a rasters/{dataset_id}/ prefix with no DB row.
+        # Without a terminal commit the dataset row these keys belong to was
+        # rolled back, and delete_dataset will never reap them.
         async with cleanup_step("ingest_raster orphaned storage keys", job_id=job_id):
             if not publish_committed and written_storage_keys:
                 await _cleanup_orphaned_storage_keys(
                     written_storage_keys, job_id=job_id
                 )
-        # Clean up temp COG dir
         async with cleanup_step("ingest_raster temp dir", job_id=job_id):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-        # Clean up local staging file.
-        # When `file_path != original_file_path` this is
-        # a scratch copy downloaded from object storage — always safe to
-        # remove. When equal, this IS the durable original (local-mode
-        # uploads land in the persistent `upload_staging` volume), so it
-        # gets the same retention gate as the object-store reaper —
-        # otherwise the RUNBOOK's retention promise held on S3 and quietly
-        # failed on every local deployment.
+        # A path that differs from `original_file_path` is a scratch copy
+        # downloaded from object storage. An equal one is the durable original
+        # (local uploads land in the persistent `upload_staging` volume), so it
+        # gets the object-store reaper's retention gate.
         async with cleanup_step("ingest_raster local file", job_id=job_id):
             if file_path != original_file_path:
                 _Path(file_path).unlink(missing_ok=True)
@@ -821,10 +707,6 @@ async def ingest_raster(
                 source_preserved_in_cog or lossy_original_archived
             ):
                 _Path(file_path).unlink(missing_ok=True)
-        # Sweep the presigned staging key. Raster
-        # had no equivalent of the vector tail's block, so
-        # nothing on this path ever deleted an object the client could
-        # still overwrite. Shared with the vector tail so they can't drift.
         async with cleanup_step(
             "ingest_raster presigned staging object", job_id=job_id
         ):
@@ -832,20 +714,12 @@ async def ingest_raster(
                 job_id, owned_staging_key, final_status=final_status
             )
         # ADR-002 Decision 7: the pre-conversion source object.
-        # Raster's version of the vector tail's block.
         # `final_status == "complete"` is reached only after the COG is
-        # written, read, and committed, so the delete can't race the
-        # verification it depends on.
-        #
-        # "Losslessly" is a claim about the profile that
-        # ran — under JPEG/WEBP the COG discards detail the upload
-        # carried, making the upload the only lossless copy, so the
-        # delete is gated on the resolved conversion (`source_preserved_
-        # in_cog`), not on conversion having happened at all.
-        #
-        # `failed_source_replayable=True` is Decision 7's other exception:
-        # a failed conversion leaves those bytes as the operator's only
-        # diagnostic copy.
+        # written, read and committed. Under JPEG/WEBP the COG discards detail,
+        # making the upload the only lossless copy, so the delete is gated on
+        # the resolved conversion, not on conversion having happened.
+        # `failed_source_replayable=True`: a failed conversion leaves those
+        # bytes as the operator's only diagnostic copy.
         async with cleanup_step("ingest_raster downloaded source", job_id=job_id):
             if source_preserved_in_cog or lossy_original_archived:
                 await reap_downloaded_staging_source(
