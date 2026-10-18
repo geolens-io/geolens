@@ -60,7 +60,6 @@ from app.modules.catalog.features.idempotency import (
     IDEMPOTENCY_KEY_HEADER,
     IDEMPOTENCY_KEY_MAX_LENGTH,
     IDEMPOTENCY_KEY_PATTERN,
-    CREDENTIAL_KEY_PREFIX,
     CreatedRow,
     KeyedFeature,
     claim_create_key,
@@ -1057,8 +1056,8 @@ async def create_feature(
         pattern=IDEMPOTENCY_KEY_PATTERN,
         description=(
             "Optional key that makes a retried create safe. Any visible ASCII "
-            "character (`!` to `~`, no spaces), 1 to 128 characters, not "
-            "starting with `api-key:`. The key is compared exactly as sent, so a quoted key and the same key "
+            "character (`!` to `~`, no spaces), 1 to 128 characters. The key "
+            "is compared exactly as sent, so a quoted key and the same key "
             "unquoted are different keys. For example "
             "`device-42:2026-10-17T16:09:33.123000+00:00`."
         ),
@@ -1195,11 +1194,6 @@ async def _create(
     keyed = None
     try:
         if idempotency_key is not None:
-            if idempotency_key.startswith(CREDENTIAL_KEY_PREFIX):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Idempotency-Key may not start with 'api-key:'.",
-                )
             idempotency_key = credential_key(db, idempotency_key)
             # Requests on one key run one at a time. The key's lock comes
             # before the feature is touched, so waiting on it holds nothing a

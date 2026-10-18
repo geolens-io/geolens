@@ -1305,12 +1305,32 @@ async def test_two_append_keys_never_share_an_idempotency_key(
     assert ids[0] != ids[1]
 
 
-async def test_the_stored_key_prefix_is_reserved(client: AsyncClient, owner, datasets):
+async def test_no_sent_key_matches_an_append_keys_stored_key(
+    client: AsyncClient, owner, datasets
+):
+    import hashlib
+
     headers, _ = owner
     bound = datasets[0]
+    data = await _mint(client, headers, bound.id, scope="dataset_append")
+    url = f"/datasets/{bound.id}/features/"
+    body = {"geometry": POINT, "properties": {"name": "x"}}
+    by_key = await client.post(
+        url, json=body, headers={"X-Api-Key": data["key"], "Idempotency-Key": "k1"}
+    )
+    assert by_key.status_code == 201, by_key.text
+
+    digest = hashlib.sha256(b"k1").hexdigest()
+    lookalike = f"api-key:{data['id']}:{digest}"
+    by_session = await client.post(
+        url, json=body, headers={**headers, "Idempotency-Key": lookalike}
+    )
+    assert by_session.status_code == 201, by_session.text
+    assert by_session.json()["id"] != by_key.json()["id"]
+    # The stored form itself has a space, which no sent key may contain.
     resp = await client.post(
-        f"/datasets/{bound.id}/features/",
-        json={"geometry": POINT, "properties": {"name": "x"}},
-        headers={**headers, "Idempotency-Key": "api-key:anything"},
+        url,
+        json=body,
+        headers={**headers, "Idempotency-Key": f"api-key {data['id']}:{digest}"},
     )
     assert resp.status_code == 422, resp.text

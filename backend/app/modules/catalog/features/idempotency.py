@@ -30,8 +30,9 @@ IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
 # The key is opaque: hashed into a lock name and compared as a bound value.
 IDEMPOTENCY_KEY_PATTERN = r"^[!-~]+$"
-# Stored keys of append-only API keys start with this, so a sent key may not.
-CREDENTIAL_KEY_PREFIX = "api-key:"
+# Starts the stored keys of append-only API keys. The space keeps them apart
+# from every key a client can send, which IDEMPOTENCY_KEY_PATTERN refuses.
+CREDENTIAL_KEY_PREFIX = "api-key "
 IDEMPOTENCY_ATTEMPT_HEADER = "Idempotency-Attempt"
 IDEMPOTENCY_ATTEMPT_MAX = 2_147_483_647
 
