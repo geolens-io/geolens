@@ -140,6 +140,43 @@ class TestDetector:
             fm.scan_module("wanted.py", source)
 
 
+def _scan_one_line(path: str, line: str) -> list:
+    syntax = next(syn for kind, syn in fm._COMMENT_SYNTAX if kind.search(path))
+    return fm.scan_comment_lines(path, line, syntax)
+
+
+class TestCommentText:
+    """Outside Python, a comment is read wherever it starts on the line."""
+
+    @pytest.mark.parametrize(
+        ("path", "line"),
+        [
+            ("a.ts", "const x = 1; // SEC-002: workaround"),
+            ("a.ts", "foo(); /* fix(#123): workaround */"),
+            ("a.yml", "retries: 3  # GAP-001 bounds it"),
+            ("a.sh", 'echo "done" # BKP-01'),
+            ("a.sql", "SELECT 1; -- BKP-01"),
+            ("a.html", "<p>x</p> <!-- CR-03 -->"),
+        ],
+    )
+    def test_a_comment_after_code_is_read(self, path, line):
+        assert _scan_one_line(path, line)
+
+    @pytest.mark.parametrize(
+        ("path", "line"),
+        [
+            ("a.ts", 'const u = "https://example.com/SEC-002";'),
+            ("a.ts", "const s = 'a // SEC-002';"),
+            ("a.ts", "fetch(`//${host}/SEC-002`);"),
+            ("a.yml", 'title: "a # SEC-002"'),
+            ("a.sh", "echo ${#items[@]} SEC-002"),
+            ("a.sql", "SELECT '-- SEC-002';"),
+        ],
+    )
+    def test_comment_syntax_inside_a_string_is_not_a_comment(self, path, line):
+        assert not _scan_one_line(path, line)
+
+
 @pytest.mark.skipif(not (fm.REPO_ROOT / ".git").exists(), reason="needs a git checkout")
 class TestRepoTree:
     """The gate over tracked files outside backend/app."""

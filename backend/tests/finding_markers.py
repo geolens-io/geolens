@@ -390,44 +390,65 @@ _REPO_SKIP_RE = re.compile(
     r"|^sdks/typescript/src/client/|api\.generated\.ts$"
 )
 
-# Comment leaders by file type. Only a line that starts with one is read; a
-# comment after code on the same line is not.
-_HASH_COMMENT = re.compile(r"\s*#(.*)")
-_COMMENT_LEADERS = (
+# Comment syntax by file type: where a comment starts, and the quotes that
+# hide one. A `#` starts a comment only at the start of a line or after
+# whitespace, `//` not after a `:` (a URL), and a line inside a /* */ block
+# starts with `*`.
+_Syntax = tuple[re.Pattern[str], str]
+_COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
     (
         re.compile(
             r"\.(sh|ya?ml|toml|conf|ini)$"
             r"|(^|/)(Dockerfile[^/]*|Makefile|CODEOWNERS|\.env[^/]*\.example"
             r"|\.(git|docker)ignore)$"
         ),
-        _HASH_COMMENT,
+        (re.compile(r"(?<!\S)#"), "'\""),
     ),
     (
         re.compile(r"\.([cm]?js|tsx?|ql|jsonc|css)$"),
-        re.compile(r"\s*(?://|/\*+|\*)(.*)"),
+        (re.compile(r"(?<!:)//|/\*|^\s*\*"), "'\"`"),
     ),
-    (re.compile(r"\.sql$"), re.compile(r"\s*--(.*)")),
-    (re.compile(r"\.html$"), re.compile(r"\s*<!--(.*)")),
+    (re.compile(r"\.sql$"), (re.compile(r"--"), "'")),
+    (re.compile(r"\.html$"), (re.compile(r"<!--"), "")),
 )
+
+
+def comment_text(line: str, syntax: _Syntax) -> str:
+    """The text after the first comment start outside a quoted string, or ""."""
+    start, quotes = syntax
+    quote = None
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if quote:
+            if char == "\\":
+                i += 1
+            elif char == quote:
+                quote = None
+        elif char in quotes:
+            quote = char
+        elif m := start.match(line, i):
+            return line[m.end() :]
+        i += 1
+    return ""
+
 
 # `main` carries about 850 such files; a listing that silently comes back
 # short (a moved root, a narrowed pattern) must fail, not pass.
 MIN_REPO_FILES = 700
 
 
-def scan_comment_lines(path: str, text: str, leader: re.Pattern[str]) -> list[Hit]:
+def scan_comment_lines(path: str, text: str, syntax: _Syntax) -> list[Hit]:
     """Unanchored marker-bearing comment lines in a file that is not Python."""
-    lines = [
-        m.group(1) if (m := leader.match(line)) else "" for line in text.splitlines()
-    ]
+    lines = [comment_text(line, syntax) for line in text.splitlines()]
     return [
         Hit(path, offset + 1, "comment", found) for offset, found in _line_hits(lines)
     ]
 
 
-def repo_files(root: Path = REPO_ROOT) -> list[tuple[str, re.Pattern[str] | None]]:
+def repo_files(root: Path = REPO_ROOT) -> list[tuple[str, _Syntax | None]]:
     """Tracked files outside backend/app that the scan reads, each with its
-    comment leader, or None for Python."""
+    comment syntax, or None for Python."""
     try:
         listing = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True
@@ -438,11 +459,9 @@ def repo_files(root: Path = REPO_ROOT) -> list[tuple[str, re.Pattern[str] | None
     for rel in listing.split("\0"):
         if not rel or _REPO_SKIP_RE.search(rel):
             continue
-        leader = next(
-            (lead for kind, lead in _COMMENT_LEADERS if kind.search(rel)), None
-        )
-        if leader is not None or rel.endswith(".py"):
-            out.append((rel, leader))
+        syntax = next((syn for kind, syn in _COMMENT_SYNTAX if kind.search(rel)), None)
+        if syntax is not None or rel.endswith(".py"):
+            out.append((rel, syntax))
     return out
 
 
@@ -450,16 +469,16 @@ def scan_repo(root: Path = REPO_ROOT) -> tuple[list[Hit], int]:
     """Scan tracked files outside backend/app. Returns (hits, files scanned)."""
     hits: list[Hit] = []
     files = 0
-    for rel, leader in repo_files(root):
+    for rel, syntax in repo_files(root):
         try:
             text = (root / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             raise MarkerScanError(f"{rel}: could not read: {exc}") from exc
         files += 1
-        if leader is None:
+        if syntax is None:
             hits.extend(scan_module(rel, text))
         else:
-            hits.extend(scan_comment_lines(rel, text, leader))
+            hits.extend(scan_comment_lines(rel, text, syntax))
     return hits, files
 
 

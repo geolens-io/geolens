@@ -97,8 +97,9 @@ repos:
           This hook runs backend/tests/finding_markers.py. In backend/app and
           in the other tracked Python it parses each module and reads comments
           and docstrings only (never code, so a string literal cannot trip
-          it); in the other file types it reads each line that starts a
-          comment. Tests, generated SDK code and Markdown are not scanned. It
+          it); in the other file types it reads each line's comment, wherever
+          it starts outside a quoted string. Tests, generated SDK code and
+          Markdown are not scanned. It
           reports a coded finding id (SEC-002, T-1214-17, PERF-N5) or a
           planning reference (Phase 1184, RESEARCH.md) with no #issue anchor
           within two lines, and every agent tag and fix(#N)-style provenance
