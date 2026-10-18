@@ -7000,6 +7000,14 @@
             ],
             "description": "Cursor value for the next page, null if last",
             "title": "Next Cursor"
+          },
+          "sortable_columns": {
+            "description": "Columns the rows endpoint accepts as `sort`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sortable Columns",
+            "type": "array"
           }
         },
         "required": [

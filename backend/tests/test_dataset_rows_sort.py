@@ -141,3 +141,37 @@ async def test_invalid_order_is_rejected(
         headers=admin_auth_header,
     )
     assert resp.status_code == 422
+
+
+async def test_sortable_columns_are_exactly_the_accepted_sorts(
+    client: AsyncClient, admin_auth_header: dict, sort_dataset
+):
+    url = f"/datasets/{sort_dataset.id}/rows/"
+    listed = (await client.get(url, headers=admin_auth_header)).json()[
+        "sortable_columns"
+    ]
+    assert listed == ["gid", "name", "value"]
+    for column in [*listed, "meta", "geom"]:
+        resp = await client.get(url, params={"sort": column}, headers=admin_auth_header)
+        assert (resp.status_code == 200) == (column in listed), column
+
+
+async def test_page_after_a_deleted_cursor_row_is_empty(
+    client: AsyncClient, admin_auth_header: dict, sort_dataset, test_db_session
+):
+    url = f"/datasets/{sort_dataset.id}/rows/"
+    # The cursor row (c, gid 3) sorts before a NULL row with a higher gid (e).
+    params = {"limit": 1, "sort": "value"}
+    first = (await client.get(url, params=params, headers=admin_auth_header)).json()
+    await test_db_session.execute(
+        text(f"DELETE FROM data.{sort_dataset.table_name} WHERE gid = :g").bindparams(
+            g=first["next_cursor"]
+        )
+    )
+    await test_db_session.commit()
+    resp = await client.get(
+        url, params={**params, "after": first["next_cursor"]}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200
+    assert resp.json()["rows"] == []
+    assert resp.json()["next_cursor"] is None

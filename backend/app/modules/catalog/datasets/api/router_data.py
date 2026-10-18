@@ -47,6 +47,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
     get_dataset_rows,
     get_related_datasets,
+    sortable_columns,
 )
 from app.core.dependencies import get_db
 from app.core.persistent_config import (
@@ -183,6 +184,7 @@ async def get_dataset_rows_endpoint(
         approximate_total=approx_total,
         columns=columns,
         next_cursor=next_cursor,
+        sortable_columns=sortable_columns(dataset.column_info or []),
     )
 
 

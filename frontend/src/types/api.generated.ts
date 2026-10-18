@@ -8890,6 +8890,11 @@ export interface components {
              * @description Cursor value for the next page, null if last
              */
             next_cursor?: number | null;
+            /**
+             * Sortable Columns
+             * @description Columns the rows endpoint accepts as `sort`.
+             */
+            sortable_columns?: string[];
         };
         /** DatasetVersionListResponse */
         DatasetVersionListResponse: {

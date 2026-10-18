@@ -1174,7 +1174,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 112,
+        "backend/app/modules/catalog/datasets/domain/service.py": 114,
         "backend/app/processing/ai/chat_service.py": 519,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1200,7 +1200,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 510,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 547,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 587,
@@ -1385,7 +1385,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1854,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1858,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1454,

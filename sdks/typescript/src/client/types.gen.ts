@@ -4110,6 +4110,12 @@ export type DatasetRowsResponse = {
      * Cursor value for the next page, null if last
      */
     next_cursor?: number | null;
+    /**
+     * Sortable Columns
+     *
+     * Columns the rows endpoint accepts as `sort`.
+     */
+    sortable_columns?: Array<string>;
 };
 
 /**

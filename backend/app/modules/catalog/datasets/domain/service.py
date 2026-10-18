@@ -54,6 +54,7 @@ from app.modules.catalog.datasets.domain.service_query import (
     get_pointcloud_pointer,
     get_tileset_href,
     list_datasets,
+    sortable_columns,
 )
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
@@ -100,6 +101,7 @@ __all__ = [
     "get_relationship_datasets",
     "list_attributes",
     "list_datasets",
+    "sortable_columns",
     "list_relationships",
     "list_relationships_with_total",
     "validate_relationship_columns",

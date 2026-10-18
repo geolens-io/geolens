@@ -50,6 +50,7 @@ __all__ = [
     "get_dataset_detail",
     "get_dataset_rows",
     "InvalidSortColumn",
+    "sortable_columns",
 ]
 
 
@@ -350,38 +351,26 @@ def _build_select_cols(column_info: list[dict]) -> list[str]:
     return [_safe_column_ref(c["name"]) for c in _projected_columns(column_info)]
 
 
-def _build_sort(
-    column_info: list[dict], sort: str, *, descending: bool, table_ref: str
-) -> tuple[str, str]:
-    """Return (keyset predicate, ORDER BY) for a page sorted on ``sort``.
-
-    Order is (column, gid) with NULLs last in both directions. The cursor is
-    still the last row's gid: the predicate reads that row's sort value back
-    from the table, so pages stay globally ordered without the cursor carrying
-    a typed value. A cursor row deleted between pages yields an empty page.
-
-    Raises InvalidSortColumn when ``sort`` is not a projected, orderable column.
-    """
-    sortable = {
-        c["name"]: c["name"]
+def sortable_columns(column_info: list[dict]) -> list[str]:
+    """Names the rows endpoint accepts as ``sort``: projected, orderable columns."""
+    return [
+        c["name"]
         for c in _projected_columns(column_info)
         if c.get("type") not in _UNSORTABLE_TYPES
-    }
-    # The identifier comes from column_info, never from the caller's string.
-    name = sortable.get(sort)
-    if name is None:
-        raise InvalidSortColumn(sort)
-    col = _safe_column_ref(name)
+    ]
+
+
+def _sorted_keyset(col: str, *, descending: bool, anchor_is_null: bool) -> str:
+    """Predicate for rows after the cursor row in (col, gid), NULLs last.
+
+    ``:anchor`` binds the cursor row's sort value, read beforehand.
+    """
+    if anchor_is_null:
+        return f"{col} IS NULL AND gid > :after_gid"
     op = "<" if descending else ">"
-    anchor = f"(SELECT {col} FROM {table_ref} WHERE gid = :after_gid)"
-    keyset = (
-        f"EXISTS (SELECT 1 FROM {table_ref} WHERE gid = :after_gid) AND"
-        f" CASE WHEN {anchor} IS NULL THEN {col} IS NULL AND gid > :after_gid"
-        f" ELSE {col} IS NULL OR {col} {op} {anchor}"
-        f" OR ({col} = {anchor} AND gid > :after_gid) END"
+    return (
+        f"{col} IS NULL OR {col} {op} :anchor OR ({col} = :anchor AND gid > :after_gid)"
     )
-    direction = "DESC" if descending else "ASC"
-    return keyset, f"{col} {direction} NULLS LAST, gid"
 
 
 def _build_where_filters(
@@ -390,7 +379,7 @@ def _build_where_filters(
     *,
     after_gid: int,
     limit: int,
-    keyset: str | None = "gid > :after_gid",
+    keyset: str | None,
 ) -> tuple[str, dict[str, object]]:
     """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
 
@@ -418,6 +407,61 @@ def _build_where_filters(
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
 
+async def _select_rows(
+    db: AsyncSession,
+    table_ref: str,
+    select_sql: str,
+    cols: list[dict],
+    *,
+    filters: dict[str, str] | None,
+    after_gid: int,
+    limit: int,
+    sort_col: str | None,
+    descending: bool,
+) -> list[dict]:
+    """Run the page query; a sorted page continues from the cursor row's value."""
+    keyset: str | None = "gid > :after_gid"
+    anchor: dict[str, object] = {}
+    order_sql = "gid"
+    if sort_col is not None:
+        direction = "DESC" if descending else "ASC"
+        order_sql = f"{sort_col} {direction} NULLS LAST, gid"
+        keyset = None
+        if after_gid:
+            found = (
+                await db.execute(
+                    text(
+                        # codeql[py/sql-injection]
+                        f"SELECT {sort_col} FROM {table_ref} WHERE gid = :g"
+                    ).bindparams(g=after_gid)
+                )
+            ).first()
+            if found is None:
+                # The cursor row was deleted since the last page, so there is
+                # no position to continue from.
+                return []
+            keyset = _sorted_keyset(
+                sort_col, descending=descending, anchor_is_null=found[0] is None
+            )
+            if found[0] is not None:
+                anchor["anchor"] = found[0]
+    where_sql, bind_params = _build_where_filters(
+        filters,
+        valid_columns={c["name"] for c in cols},
+        after_gid=after_gid,
+        limit=limit,
+        keyset=keyset,
+    )
+    result = await db.execute(
+        text(
+            # codeql[py/sql-injection]
+            f"SELECT {select_sql} FROM {table_ref}{where_sql}"
+            f" ORDER BY {order_sql} LIMIT :limit"
+        ).bindparams(**bind_params, **anchor)
+    )
+    return [dict(row._mapping) for row in result.all()]
+
+
 async def get_dataset_rows(
     db: AsyncSession,
     table_name: str,
@@ -440,7 +484,8 @@ async def get_dataset_rows(
     Column names are validated against column_info to prevent injection.
 
     ``sort`` orders by that column, then gid; ``after_gid`` is still the last
-    row's gid. Raises InvalidSortColumn for a column that cannot be sorted.
+    row's gid, and a page after a since-deleted cursor row is empty. Raises
+    InvalidSortColumn for a column not in ``sortable_columns(column_info)``.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
@@ -453,33 +498,25 @@ async def get_dataset_rows(
     _table_ref = _safe_table_ref(table_name, schema=_schema)
 
     cols = column_info or []
-    select_cols = _build_select_cols(cols)
-    select_sql = ", ".join(select_cols) if select_cols else "*"
-    keyset: str | None = "gid > :after_gid"
-    order_sql = "gid"
+    select_sql = ", ".join(_build_select_cols(cols))
+    sort_col = None
     if sort is not None:
-        keyset, order_sql = _build_sort(
-            cols, sort, descending=descending, table_ref=_table_ref
-        )
-        if not after_gid:
-            keyset = None
-    where_sql, bind_params = _build_where_filters(
-        filters,
-        valid_columns={c["name"] for c in cols},
-        after_gid=after_gid,
-        limit=limit,
-        keyset=keyset,
-    )
+        if sort not in sortable_columns(cols):
+            raise InvalidSortColumn(sort)
+        sort_col = _safe_column_ref(sort)
 
     try:
-        result = await db.execute(
-            text(
-                # codeql[py/sql-injection]
-                f"SELECT {select_sql} FROM {_table_ref}{where_sql}"
-                f" ORDER BY {order_sql} LIMIT :limit"
-            ).bindparams(**bind_params)
+        rows = await _select_rows(
+            db,
+            _table_ref,
+            select_sql,
+            cols,
+            filters=filters,
+            after_gid=after_gid,
+            limit=limit,
+            sort_col=sort_col,
+            descending=descending,
         )
-        rows = [dict(row._mapping) for row in result.all()]
 
         count_result = await db.execute(
             text(

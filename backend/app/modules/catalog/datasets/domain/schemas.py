@@ -1148,6 +1148,10 @@ class DatasetRowsResponse(BaseModel):
     next_cursor: int | None = Field(
         default=None, description="Cursor value for the next page, null if last"
     )
+    sortable_columns: list[str] = Field(
+        default_factory=list,
+        description="Columns the rows endpoint accepts as `sort`.",
+    )
 
 
 class ColumnValuesResponse(BaseModel):
