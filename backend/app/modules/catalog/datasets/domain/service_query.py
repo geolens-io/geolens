@@ -324,8 +324,9 @@ async def get_dataset_detail(
 _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 
 
-# PostgreSQL has no btree ordering for these types, so ORDER BY fails on them.
-_UNSORTABLE_TYPES = frozenset({"json", "xml"})
+# PostgreSQL has no btree ordering for json or xml, so ORDER BY fails on them.
+# An ARRAY's element type isn't in column_info, so arrays count as unsortable.
+_UNSORTABLE_TYPES = frozenset({"json", "xml", "ARRAY"})
 
 
 class InvalidSortColumn(ValueError):
@@ -455,8 +456,7 @@ async def _select_rows(
     result = await db.execute(
         text(
             # codeql[py/sql-injection]
-            f"SELECT {select_sql} FROM {table_ref}{where_sql}"
-            f" ORDER BY {order_sql} LIMIT :limit"
+            f"SELECT {select_sql} FROM {table_ref}{where_sql} ORDER BY {order_sql} LIMIT :limit"
         ).bindparams(**bind_params, **anchor)
     )
     return [dict(row._mapping) for row in result.all()]
@@ -501,9 +501,12 @@ async def get_dataset_rows(
     select_sql = ", ".join(_build_select_cols(cols))
     sort_col = None
     if sort is not None:
-        if sort not in sortable_columns(cols):
+        # The identifier comes from column_info, not the request, so the SQL
+        # never interpolates caller input.
+        name = next((c for c in sortable_columns(cols) if c == sort), None)
+        if name is None:
             raise InvalidSortColumn(sort)
-        sort_col = _safe_column_ref(sort)
+        sort_col = _safe_column_ref(name)
 
     try:
         rows = await _select_rows(

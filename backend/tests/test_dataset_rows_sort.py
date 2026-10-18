@@ -35,7 +35,7 @@ async def sort_dataset(test_db_session):
     await test_db_session.execute(
         text(
             f"CREATE TABLE data.{table} "
-            "(gid serial PRIMARY KEY, name text, value integer, meta json, "
+            "(gid serial PRIMARY KEY, name text, value integer, meta json, tags json[], "
             "geom geometry(Point, 4326))"
         )
     )
@@ -60,6 +60,8 @@ async def sort_dataset(test_db_session):
             {"name": "name", "type": "text"},
             {"name": "value", "type": "integer"},
             {"name": "meta", "type": "json"},
+            # information_schema reports json[] as ARRAY, hiding the element type.
+            {"name": "tags", "type": "ARRAY"},
             {"name": "geom", "type": "USER-DEFINED"},
         ],
     )
@@ -119,7 +121,7 @@ async def test_sorted_pages_respect_filters(
     assert names == ["g", "c"]
 
 
-@pytest.mark.parametrize("column", ["nope", "geom", "meta", 'value" desc --'])
+@pytest.mark.parametrize("column", ["nope", "geom", "meta", "tags", 'value" desc --'])
 async def test_unknown_or_unsortable_column_is_rejected(
     client: AsyncClient, admin_auth_header: dict, sort_dataset, column
 ):
@@ -151,7 +153,7 @@ async def test_sortable_columns_are_exactly_the_accepted_sorts(
         "sortable_columns"
     ]
     assert listed == ["gid", "name", "value"]
-    for column in [*listed, "meta", "geom"]:
+    for column in [*listed, "meta", "tags", "geom"]:
         resp = await client.get(url, params={"sort": column}, headers=admin_auth_header)
         assert (resp.status_code == 200) == (column in listed), column
 
