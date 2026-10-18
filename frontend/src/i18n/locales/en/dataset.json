@@ -92,11 +92,12 @@
     "editDetails": "Edit Details",
     "editGeometry": "Edit Features",
     "draw": "Draw",
-    "reupload": "Re-Upload",
+    "reupload": "Re-upload",
     "reuploadTooltip": "Replace this dataset's source file",
     "createVrt": "Create VRT",
     "createVrtTooltip": "Create a VRT mosaic from this raster",
     "downloadCog": "Download COG",
+    "download": "Download",
     "delete": "Delete",
     "deleteTooltip": "Delete this dataset",
     "connect": "Connect",
@@ -267,7 +268,7 @@
     "dependentVrtMessage": "This dataset is used as a source in the following VRTs. Remove it from these VRTs before deleting."
   },
   "reupload": {
-    "title": "Re-Upload Dataset",
+    "title": "Re-upload dataset",
     "descriptions": {
       "sourceSelect": "Choose a source for this re-upload.",
       "select": "Select a file to replace the current dataset data.",

@@ -32,3 +32,8 @@ export function isLargeExtent(bbox: Bbox) {
   const [, miny, , maxy] = bbox;
   return (bboxLonSpan(bbox) > 90 || maxy - miny > 60);
 }
+
+/** A longitude span this wide draws its outline on every world copy as vertical lines. */
+export function isWorldSpanningExtent(bbox: Bbox) {
+  return bboxLonSpan(bbox) >= 350;
+}

@@ -300,8 +300,42 @@ describe('DatasetPage actions by record type', () => {
     expect(map).toHaveAttribute('data-can-edit', 'true');
     expect(screen.getByTestId('dataset-chat-panel')).toBeInTheDocument();
     await openMoreActions();
-    expect(screen.getByRole('menuitem', { name: 'Re-Upload' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Re-upload' })).toBeInTheDocument();
     expect(screen.getByTestId('reupload-dialog')).toBeInTheDocument();
+  });
+
+  it('offers a format Download menu for a vector dataset and no COG download', async () => {
+    await renderAs('vector_dataset');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Download' }));
+    expect(await screen.findByRole('menuitem', { name: 'GeoPackage' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'GeoJSON' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download COG' })).not.toBeInTheDocument();
+  });
+
+  it('offers only CSV in the Download menu for a table', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: makeDataset('table'),
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Download' }));
+    expect(await screen.findByRole('menuitem', { name: 'CSV' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'GeoPackage' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Download COG and no format menu for a raster with a connect block', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: { ...makeDataset('raster_dataset'), raster: { connect: {} } },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(await screen.findByRole('button', { name: 'Download COG' })).toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-header-download')).not.toBeInTheDocument();
   });
 
   it('truncates a long table name in the readout and keeps its copy button visible', async () => {
@@ -335,7 +369,7 @@ describe('DatasetPage actions by record type', () => {
     expect(map).toHaveAttribute('data-can-edit', 'false');
     expect(screen.queryByTestId('dataset-chat-panel')).not.toBeInTheDocument();
     await openMoreActions();
-    expect(screen.queryByRole('menuitem', { name: 'Re-Upload' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Re-upload' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('reupload-dialog')).not.toBeInTheDocument();
   });
 

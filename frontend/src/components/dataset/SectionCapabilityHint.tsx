@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '@/stores/auth-store';
 import { RoleCapabilityHint } from '@/components/dataset/RoleCapabilityHint';
 import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
@@ -13,11 +14,13 @@ interface SectionCapabilityHintProps {
  */
 export function SectionCapabilityHint({ capability, className }: SectionCapabilityHintProps) {
   const { t } = useTranslation('dataset');
+  const signedIn = Boolean(useAuthStore((state) => state.token));
 
   // When the section is editable, the inline pencil + editable field shells already
   // signal it; the extra third-person "Editors can update fields…" banner is noise,
   // so only surface the hint for the read-only case.
-  if (capability.editable) return null;
+  // Signed-out visitors can't be granted edit rights by this page, so the hint is noise for them.
+  if (capability.editable || !signedIn) return null;
 
   return (
     <RoleCapabilityHint

@@ -30,16 +30,16 @@ export function UsedInMaps({ datasetId }: UsedInMapsProps) {
             <Link
               key={map.id}
               to={`/maps/${map.id}`}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-muted"
+              className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted"
             >
-              <span className="text-sm font-medium truncate min-w-0">
+              <span className="text-sm font-medium truncate" title={map.name}>
                 {map.name}
               </span>
-              <div className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {map.created_by_username && (
-                  <span>{map.created_by_username}</span>
+                  <span className="truncate">{map.created_by_username}</span>
                 )}
-                <span>{formatRelativeDate(map.updated_at)}</span>
+                <span className="shrink-0">{formatRelativeDate(map.updated_at)}</span>
               </div>
             </Link>
           ))}

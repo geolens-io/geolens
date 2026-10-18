@@ -100,6 +100,7 @@
     "connect": "Conectar",
     "createVrt": "Crear VRT",
     "downloadCog": "Descargar COG",
+    "download": "Descargar",
     "addToMap": "añadirlo a un mapa"
   },
   "header": {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLargeExtentView, isLargeExtent } from '../map-extent';
+import { computeLargeExtentView, isLargeExtent, isWorldSpanningExtent } from '../map-extent';
 
 describe('isLargeExtent', () => {
   it('returns true when longitude span exceeds 90 degrees', () => {
@@ -88,5 +88,15 @@ describe('antimeridian-crossing extents (fix #903)', () => {
     const crossing = computeLargeExtentView([170, 0, -170, 10]);
     const equivalent = computeLargeExtentView([-10, 0, 10, 10]);
     expect(crossing.zoom).toBe(equivalent.zoom);
+  });
+});
+
+describe('isWorldSpanningExtent', () => {
+  it('is true for a full-longitude extent', () => {
+    expect(isWorldSpanningExtent([-180, -85, 180, 85])).toBe(true);
+  });
+
+  it('is false for a continental extent', () => {
+    expect(isWorldSpanningExtent([-125, 24, -66, 50])).toBe(false);
   });
 });

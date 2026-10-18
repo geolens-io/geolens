@@ -47,6 +47,7 @@ const DetailPanel = lazy(() =>
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
 import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
+import { DatasetDownloadMenu } from '@/components/dataset/DatasetDownloadMenu';
 import { DatasetChatPanel } from '@/components/dataset/DatasetChatPanel';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 // Lazy-load VrtCreateDialog — only fetched when the
@@ -559,7 +560,7 @@ export function DatasetPage() {
   ];
 
   return (
-    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]')}>
+    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]', token && featureTable && 'pb-24')}>
       <DatasetDetailHeader
         title={dataset.title}
         onTitleSave={handleSaveName}
@@ -568,7 +569,7 @@ export function DatasetPage() {
         actions={headerActions}
         statsLine={statsLine}
         leadingContent={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
             {canAddToMap && can('edit_metadata') && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && (canAddToMap || isTable) && (
               <AuthPrompt
@@ -586,6 +587,9 @@ export function DatasetPage() {
                 <Download className="me-1 size-3" />
                 {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>
+            )}
+            {featureTable && (
+              <DatasetDownloadMenu datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
             )}
             <ConnectDropdown dataset={dataset} onShowInstructions={() => handleTabChange('access')} />
           </div>

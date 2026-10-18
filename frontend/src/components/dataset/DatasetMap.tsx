@@ -1,9 +1,10 @@
 import { memo, useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
+import { Map as MapGL, Source, Layer, NavigationControl, AttributionControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { useMapLocale } from '@/hooks/use-map-locale';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   getThemeBasemap,
   makeStyleImageMissingResolver,
@@ -21,7 +22,7 @@ import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName, previewSourceId } from '@/components/maps/hooks/use-map-layers';
-import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
+import { computeLargeExtentView, isLargeExtent, isWorldSpanningExtent } from '@/lib/map-extent';
 import { splitBbox, toFitBounds } from '@/lib/bbox';
 import { findElevationColumn } from '@/lib/geo-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
@@ -224,6 +225,7 @@ export const DatasetMap = memo(function DatasetMap({
         );
   }
 
+  const isMobile = useIsMobile();
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
@@ -792,6 +794,7 @@ export const DatasetMap = memo(function DatasetMap({
   // Only when there's no vector/raster source of this dataset's own to
   // carry it (tileKind null: tiles3d/pointcloud's footprint-only preview) —
   // otherwise that source already shows it, and this would duplicate it.
+  const showsWorldExtent = hasBbox && isWorldSpanningExtent(bbox);
   const bboxAttribution = tileKind === null ? toMapLibreAttribution(attribution) : null;
 
   const handleLoad = useCallback(
@@ -1214,6 +1217,7 @@ export const DatasetMap = memo(function DatasetMap({
       <MapGL
         initialViewState={initialViewState}
         mapStyle={initialBasemapStyle.current ?? ''}
+        attributionControl={false}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
         locale={mapLocale}
@@ -1226,27 +1230,33 @@ export const DatasetMap = memo(function DatasetMap({
         onError={logUnhandledMapError}
       >
         <NavigationControl position="top-right" />
+        {/* Remount on breakpoint change: the control reads `compact` once at construction. */}
+        <AttributionControl key={String(isMobile)} compact={isMobile} position="bottom-right" />
 
         {/* Bbox overlay for spatial context */}
         {bboxGeojson && (
           <Source id="bbox-source" type="geojson" data={bboxGeojson} attribution={bboxAttribution ?? undefined}>
-            <Layer
-              id="bbox-fill"
-              type="fill"
-              paint={{
-                'fill-color': MAP_COLORS.default.fill,
-                'fill-opacity': 0.1,
-              }}
-            />
-            <Layer
-              id="bbox-line"
-              type="line"
-              paint={{
-                'line-color': MAP_COLORS.default.fill,
-                'line-width': 2,
-                'line-dasharray': [2, 2],
-              }}
-            />
+            {!showsWorldExtent && (
+              <>
+                <Layer
+                  id="bbox-fill"
+                  type="fill"
+                  paint={{
+                    'fill-color': MAP_COLORS.default.fill,
+                    'fill-opacity': 0.1,
+                  }}
+                />
+                <Layer
+                  id="bbox-line"
+                  type="line"
+                  paint={{
+                    'line-color': MAP_COLORS.default.fill,
+                    'line-width': 2,
+                    'line-dasharray': [2, 2],
+                  }}
+                />
+              </>
+            )}
           </Source>
         )}
       </MapGL>

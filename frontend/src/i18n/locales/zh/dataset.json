@@ -97,6 +97,7 @@
     "createVrt": "创建 VRT",
     "createVrtTooltip": "基于此栅格创建 VRT 镶嵌",
     "downloadCog": "下载 COG",
+    "download": "下载",
     "delete": "删除",
     "deleteTooltip": "删除此数据集",
     "connect": "连接",

@@ -97,10 +97,16 @@ vi.mock('@vis.gl/react-maplibre', async () => {
       if (id === 'bbox-source') mapSpy.bboxSourceAttribution = attribution;
       return children ?? null;
     },
-    Layer: () => null,
+    Layer: ({ id }: { id?: string }) => <div data-testid={`layer-${id}`} />,
     NavigationControl: () => <div data-testid="nav-control" />,
+    AttributionControl: ({ compact }: { compact?: boolean }) => (
+      <div data-testid="attribution-control" data-compact={String(compact)} />
+    ),
   };
 });
+
+const mobileState = vi.hoisted(() => ({ isMobile: false }));
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => mobileState.isMobile }));
 
 vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
@@ -286,6 +292,32 @@ describe('DatasetMap interaction state', () => {
     expect(screen.getByTestId('dataset-map-shell').className).toContain(
       '[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(100%-5.5rem)]',
     );
+  });
+
+  it('collapses the attribution control on a narrow viewport only', () => {
+    const props = { bbox: [-10, -10, 10, 10] as [number, number, number, number], tableName: 't', geometryType: 'Polygon', datasetId: 'dataset-1' };
+    const { unmount } = render(<DatasetMap {...props} />);
+    expect(screen.getByTestId('attribution-control')).toHaveAttribute('data-compact', 'false');
+    unmount();
+
+    mobileState.isMobile = true;
+    try {
+      render(<DatasetMap {...props} />);
+      expect(screen.getByTestId('attribution-control')).toHaveAttribute('data-compact', 'true');
+    } finally {
+      mobileState.isMobile = false;
+    }
+  });
+
+  it('draws the dashed extent outline for a regional dataset', () => {
+    render(<DatasetMap bbox={[-74.5, 40.5, -73.5, 41.5]} tableName="t" geometryType="Polygon" datasetId="dataset-1" />);
+    expect(screen.getByTestId('layer-bbox-line')).toBeInTheDocument();
+  });
+
+  it('skips the extent outline when the dataset spans the whole world', () => {
+    render(<DatasetMap bbox={[-180, -85, 180, 85]} tableName="t" geometryType="Point" datasetId="dataset-1" />);
+    expect(screen.queryByTestId('layer-bbox-line')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('layer-bbox-fill')).not.toBeInTheDocument();
   });
 
   it('enables interaction and editing controls once edit mode is active', () => {

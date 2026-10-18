@@ -560,7 +560,7 @@ describe('DatasetPage editable affordance integration', () => {
       await screen.findByRole('menuitem', { name: 'Create VRT' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: 'Re-Upload' }),
+      screen.getByRole('menuitem', { name: 'Re-upload' }),
     ).toBeInTheDocument();
   });
 
@@ -620,7 +620,7 @@ describe('DatasetPage editable affordance integration', () => {
       screen.queryByRole('menuitem', { name: 'Create VRT' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('menuitem', { name: 'Re-Upload' }),
+      screen.queryByRole('menuitem', { name: 'Re-upload' }),
     ).not.toBeInTheDocument();
   });
 });
