@@ -32,13 +32,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # AGENTS.md > Security > CodeQL: when the
-        # validated-identifier py/sql-injection class fires again on an
-        # ingest-adjacent PR, adopt the alert-suppression query pack instead of
-        # dismissing the alerts by hand again. It fired again on 2026-08-11:
-        # 12 alerts, all at text() sites in backend/app/processing/ingest/
-        # whose identifiers _qtable (metadata_sql.py) validates first, so the
-        # pack is adopted here.
+        # AGENTS.md > Security > CodeQL: the validated-identifier
+        # py/sql-injection class fires at text() sites in
+        # backend/app/processing/ingest/ whose identifiers _qtable
+        # (metadata_sql.py) validates first, so the alert-suppression query pack
+        # is adopted here instead of dismissing alerts by hand.
         #
         # Only python runs a suppression query. javascript-typescript passes an
         # empty string, which the action reads as unset (getOptionalInput
@@ -83,7 +81,7 @@ jobs:
       # contains no suppression handling, and GitHub staff confirmed the gap on
       # community discussion #156737 (2025-05-12). Without this step the
       # markers would sit in the source, the SARIF would carry the
-      # suppressions, and all 12 alerts would stay open.
+      # suppressions, and the alerts would stay open.
       #
       # Skipped on pull_request: a PR analysis reports against the PR, so there
       # is nothing on the default branch for it to dismiss, and the repo-wide

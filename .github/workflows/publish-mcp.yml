@@ -5,7 +5,7 @@
 #   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
 #     and pauses for required-reviewer approval (one click) before publishing.
 #   - workflow_dispatch → same gate; run from a tag ref, which any non-dry run
-#     now enforces: `gh workflow run publish-mcp.yml --ref vX.Y.Z`
+#     enforces: `gh workflow run publish-mcp.yml --ref vX.Y.Z`
 #
 # Recovering a half-finished release: PyPI refuses a re-upload of a
 # version it already has, so once `uv publish` succeeds there is no way back

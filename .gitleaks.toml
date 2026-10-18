@@ -5,7 +5,7 @@
 # Scan locally:  gitleaks dir . -c .gitleaks.toml --redact
 # Pre-commit:    the `gitleaks` hook in .pre-commit-config.yaml reads this file.
 #
-# GAP-012: the test/SDK allowlists are intentionally NARROW. We do NOT
+# The test/SDK allowlists are intentionally NARROW. We do NOT
 # blanket-allowlist the whole backend/tests/ or sdks/ trees, nor any value
 # containing the substring "padding" — those are exactly where real credentials
 # most often leak (pasted curl commands, recorded cassettes, SDK examples) in a
@@ -40,15 +40,12 @@ paths = [
   # Documented example credentials — placeholders, not real secrets
   '''(^|/)\.env\.example$''',
   # Frontend test fixtures (redaction/eslint regression tests author obvious
-  # fake tokens by design). Out of GAP-012's scope (backend/tests + sdks +
-  # padding); left tree-wide and tracked as a separate narrowing candidate.
+  # fake tokens by design). Allowlisted tree-wide, unlike backend/tests and sdks.
   '''(^|/)__tests__/''',
 ]
-# NOTE (GAP-012): the `^sdks/` and `^backend/tests/` tree-wide path allowlists
-# were REMOVED. The sdks/ tree has no flagged fixtures today, and the
-# backend/tests/ fixtures are covered by the anchored value regexes below — so a
-# real secret pasted into a backend test or an SDK file is no longer silently
-# allowlisted by virtue of its path.
+# There is no tree-wide path allowlist for `^sdks/` or `^backend/tests/`. The
+# backend/tests/ fixtures are covered by the anchored value regexes below, so a
+# real secret pasted into a backend test or an SDK file is still flagged.
 #
 # NOTE: `.env` itself is intentionally NOT allowlisted — it is gitignored, but the
 # pre-commit hook should still flag an accidental `git add -f .env`.
@@ -81,9 +78,9 @@ regexes = [
   '''Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==''',
 ]
 
-# Generic stopwords that mark a value as non-sensitive. `padding` was removed
-# (GAP-012): the bare substring let any value containing it bypass scanning; the
-# anchored `-padding-` regex above replaces it.
+# Generic stopwords that mark a value as non-sensitive. The bare substring
+# `padding` is deliberately absent: it would let any value containing it bypass
+# scanning; the anchored `-padding-` regex above covers the placeholders.
 stopwords = [
   "example",
   "changeme",

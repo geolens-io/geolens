@@ -92,17 +92,14 @@ groups:
         # the GET|HEAD partition it pins keeps meaning what it meant. Tidying
         # this to `=~"HEAD"` would break that helper for no gain.
         #
-        # `>= 1` not `> 1`: before #1517 this was a workaround (the histogram
-        # clipped at 1.0, so `> 1` could never fire). It is now a real p95 —
-        # the top finite bucket is 10 — and `>=` is kept deliberately, so a p95
-        # sitting exactly on the 1s bucket boundary still counts as "at or
-        # above 1s". See LATENCY_LOWR_BUCKETS in
+        # `>= 1` not `> 1`: the top finite bucket is 10, so this is a real p95,
+        # and `>=` is kept deliberately so a p95 sitting exactly on the 1s bucket
+        # boundary still counts as "at or above 1s". See LATENCY_LOWR_BUCKETS in
         # backend/app/observability/metrics/__init__.py.
         #
         # Not touched here: /tiles/.* is still excluded by path alone, so a POST
-        # to /tiles/tokens is out of this rule too. That is #658's shape, its
-        # population is what GeoLensApiTileLatencyMean's 2s bound was calibrated
-        # against, and re-partitioning it is a separate change.
+        # to /tiles/tokens is out of this rule too. That population is what
+        # GeoLensApiTileLatencyMean's 2s bound was calibrated against.
         expr: |
           histogram_quantile(0.95, sum by (le) (
             rate(http_request_duration_seconds_bucket{
@@ -145,7 +142,7 @@ groups:
         # high-volume healthy handler dilute a low-volume degraded one. It also
         # puts the offending handler in the notification.
         #
-        # Bound: on the demo these average 1.2-1.4s (#1517 measured
+        # Bound: on the demo these average 1.2-1.4s (measured
         # features.geojson 1334ms, /collections/{id}/items 1197ms, export
         # 397ms). 5s is ~4x the worst healthy mean — loose on purpose, because
         # response size here is caller-controlled and a tighter bound would page
@@ -155,7 +152,7 @@ groups:
         # /admin/users/export.csv, /config-ops/export) are deliberately NOT in
         # this set. They are admin-only one-offs, so a single legitimately huge
         # one would carry a per-handler mean over any bound for a full rate
-        # window, which is the false page this issue is about; at their volume
+        # window, which is the false page a per-handler mean would raise; at their volume
         # they cannot move the interactive p95 either.
         #
         # `method=~"GET|HEAD"` keeps this to bulk READS. The
@@ -205,7 +202,7 @@ groups:
         # against it.
         # Active map browsing keeps the mean well under 1s even while p95 sits
         # high; a sustained mean above 2s means tiles are genuinely
-        # grinding (raster-proxy incidents run 2.2-2.6s/tile, cf. #643).
+        # grinding (raster-proxy incidents run 2.2-2.6s/tile).
         # With no tile traffic the ratio is 0/0 = NaN, which never compares true.
         expr: |
           sum(rate(http_request_duration_seconds_sum{handler=~"/tiles/.*"}[10m]))

@@ -21,13 +21,13 @@
 !scripts/
 !scripts/**
 
-# Private infra/ config (Phase 1209-04, DP-05 PgBouncer config) is EXCLUDED by
-# the default-deny `**` rule above. Do NOT add `!infra/` or `!infra/**` here —
+# Private infra/ config (PgBouncer) is EXCLUDED by the default-deny `**` rule
+# above. Do NOT add `!infra/` or `!infra/**` here —
 # infra/ is also excluded from git tracking via .git/info/exclude.
 
 # Overlay dirs (enterprise/, cloud/, etc.) are excluded from the OSS build context
 # by default (deny-then-allow pattern).
-# For an enterprise image build (BAKE-01), temporarily add the following and
+# For an enterprise image build, temporarily add the following and
 # place the overlay source at ./enterprise/:
 #   !enterprise/
 #   !enterprise/**
@@ -70,7 +70,7 @@ frontend/npm-debug.log*
 
 scripts/**/__pycache__/
 
-# secrets / TLS material (D05, docker-audit-20260604) — root is the build context
+# secrets / TLS material — root is the build context
 # for the PUBLISHED api/worker/frontend images (root Dockerfile COPYs backend/ +
 # frontend/), and `!frontend/**` above re-includes that tree, so the cert excludes
 # must live here, not only in the per-context .dockerignore files. `**/` matches

@@ -1,5 +1,5 @@
 /**
- * Source→bundle key-existence guard (GAP-024)
+ * Source→bundle key-existence guard
  *
  * Scans src/**\/*.{ts,tsx} for static t('...'), i18n.t('...'), getFixedT, and
  * <Trans i18nKey="..."> usages, resolves each key's namespace (explicit ns:key,

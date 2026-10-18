@@ -36,8 +36,8 @@ function fail(messages) {
 const failures = [];
 const errorMap = readFileSync(ERROR_MAP_PATH, 'utf8');
 
-// These were the two historical leak paths: unknown detail and dynamic quotas
-// were returned verbatim. Keep the check textual and obvious so a future
+// These are the two leak paths the guard covers: unknown detail and dynamic
+// quotas must never be returned verbatim. The check is textual and obvious so a
 // refactor cannot accidentally restore either behavior.
 if (/return\s+backendMessage\s*;/.test(errorMap)) {
   failures.push('error-map.ts returns unknown backendMessage verbatim');

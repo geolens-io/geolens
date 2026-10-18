@@ -99,7 +99,7 @@ updates:
       # init/autobuild/analyze must move together. CodeQL fails with
       # "CodeQL job status was configuration error" when init and analyze
       # resolve to different versions, so a per-action PR is red the moment
-      # it opens — as #1147/#1150/#1155 each were for v3.37.4.
+      # it opens, as happened for v3.37.4.
       codeql-action:
         patterns: ["github/codeql-action*"]
       actions-security:

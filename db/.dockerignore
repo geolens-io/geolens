@@ -10,7 +10,7 @@
 *.md
 .DS_Store
 
-# secrets / TLS material (D05, docker-audit-20260604) — defensive symmetry;
+# secrets / TLS material — defensive symmetry;
 # db/Dockerfile has no COPY of its context, so near-zero real blast radius.
 *.pem
 *.key

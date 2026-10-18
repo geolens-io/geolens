@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  // src/types/api.generated.ts is openapi-typescript output (ARC-02) — 500KB of
+  // src/types/api.generated.ts is openapi-typescript output — 500KB of
   // generated declarations; linting it is wasteful and unfixable.
   globalIgnores(['dist', 'coverage', 'src/types/api.generated.ts']),
   {
@@ -33,11 +33,10 @@ export default defineConfig([
       react: { version: 'detect' },
     },
     rules: {
-      // SEC-FU-03 (sec-audit-20260519.md line 534, Phase 1063-03):
-      // ban dangerouslySetInnerHTML in React components. The popup-template surface
-      // (frontend/src/lib/popup-template.ts) already bans this pattern in a comment;
-      // this rule makes the ban machine-checkable so future regressions fail lint.
-      // Flip regression fixture from .skip.tsx to .tsx and run `npm run lint` to
+      // Ban dangerouslySetInnerHTML in React components. The popup-template surface
+      // (frontend/src/lib/popup-template.ts) bans this pattern in a comment; this
+      // rule makes the ban machine-checkable.
+      // Flip the regression fixture from .skip.tsx to .tsx and run `npm run lint` to
       // verify the rule fires.
       'react/no-danger': 'error',
       'react-hooks/set-state-in-effect': 'off',
@@ -45,15 +44,14 @@ export default defineConfig([
       'react-hooks/preserve-manual-memoization': 'off',
       'react-refresh/only-export-components': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      // SEC-S14 (sec-audit-20260519.md): ban writing token/jwt/auth values to localStorage.
-      // Any future code that reaches for localStorage.setItem('myjwt', ...) or similar will
-      // fail lint, preventing inadvertent regression of the token-storage surface.
+      // Ban writing token/jwt/auth values to localStorage.
+      // Code that reaches for localStorage.setItem('myjwt', ...) or similar fails
+      // lint, which protects the token-storage surface.
       // The single legitimate write site (zustand persist for geolens-auth) does NOT call
       // localStorage.setItem directly — zustand middleware wraps it inside node_modules.
       // Known limitation: identifier and template-literal first args slip through the AST
       // selector (requires 'Literal' type). This catches accidental/cargo-cult regression,
-      // not motivated evasion. See docs-internal/audits/security-lessons.md for rationale
-      // and the medium-term httpOnly-cookie migration plan.
+      // not motivated evasion.
       // Browsers expose crypto.randomUUID only in secure contexts, so it throws
       // on a deployment served over plain HTTP; randomId() falls back.
       'no-restricted-properties': [
@@ -76,7 +74,7 @@ export default defineConfig([
     },
   },
   {
-    // SEC-S14 exemption: auth-store test legitimately writes the 'geolens-auth' persist key
+    // Exemption: auth-store test legitimately writes the 'geolens-auth' persist key
     // to set up zustand fixtures. The rule's intent is to catch NEW token writes in
     // application code, not test setup of the existing single legitimate write site.
     files: ['src/stores/__tests__/auth-store.test.ts'],

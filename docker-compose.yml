@@ -67,7 +67,7 @@ x-storage-env: &storage-env
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
   S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
   S3_PRESIGNED_DOWNLOADS: "${S3_PRESIGNED_DOWNLOADS:-false}"
-  # CR-03 (Phase 1210): Azure Blob Storage vars — required when STORAGE_PROVIDER=azure.
+  # Azure Blob Storage vars — required when STORAGE_PROVIDER=azure.
   # Defaults to empty string so the api+worker containers receive the variable name
   # (Pydantic's empty_str_to_none validator coerces "" → None, which is correct for
   # optional fields).  Cloud-dev: set these in .env; keep Azurite creds out of the image.
@@ -213,14 +213,14 @@ services:
       # (PGDATA lives at <major>/docker inside it); mounting the legacy
       # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
       - pgdata:/var/lib/postgresql
-      # GAP-021: :ro mirrors the sibling conf mount and every repo-file mount on
+      # :ro mirrors the sibling conf mount and every repo-file mount on
       # the api service — the init script is read+exec inside the container, never
       # written, so a compromised db container cannot rewrite this host file (it
       # re-executes on every fresh pgdata volume).
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./scripts/lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
-    # GAP-001: memory limit prevents the DB from consuming all host RAM under
+    # Memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
     # for concurrent queries. Raise on hosts with > 8 GB RAM.
     # env-overridable — mirrors docker-compose.prod.yml so the caps
@@ -235,8 +235,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges=true
-    # D02 (docker-audit-20260604): drop ALL caps; re-add only what the postgres
-    # entrypoint needs (initdb chowns the data dir, then gosu-drops to postgres).
+    # Drop ALL caps; re-add only what the postgres entrypoint needs (initdb
+    # chowns the data dir, then gosu-drops to postgres).
     # no-new-privileges permits this de-escalation. Verify on a FRESH pgdata
     # volume — these caps surface during initdb/chown.
     cap_drop:
@@ -308,7 +308,7 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
-    # GAP-001: 4 GB also accommodates pytest -n 4 with coverage instrumentation.
+    # 4 GB also accommodates pytest -n 4 with coverage instrumentation.
     # Lower via API_MEM_LIMIT on constrained hosts when not running the full suite.
     # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${API_MEM_LIMIT:-4g}"
@@ -368,7 +368,7 @@ services:
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
       - ./scripts/tests:/app/scripts/tests:ro
       - ./sdks:/app/sdks:ro
-      # GAP-022: SHARED-STAGING CONTRACT. The api, worker, and titiler services
+      # SHARED-STAGING CONTRACT. The api, worker, and titiler services
       # all mount this one named volume at the FIXED path /app/staging and MUST
       # see the same files at the same absolute path (api writes the upload,
       # worker reads it for fan-out ingest, titiler reads rasters under it). The
@@ -386,7 +386,7 @@ services:
     # single spaces. Mismatched indent makes YAML preserve the newlines and
     # sh then sees a multi-line script (uvicorn flags become "command not
     # found" lines and uvicorn binds to its 127.0.0.1 default).
-    # GAP-003: --proxy-headers tells uvicorn to populate request.client from
+    # --proxy-headers tells uvicorn to populate request.client from
     # X-Forwarded-For / X-Real-IP headers set by the nginx reverse proxy.
     # The safety here rests on nginx OVERWRITING X-Forwarded-For with
     # $remote_addr (frontend/nginx.conf) — NOT on the api port being private. The
@@ -413,7 +413,7 @@ services:
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
       # prometheus_client multiprocess mode, api service only
-      # (the worker's separate /metrics stays single-process — see #651). A
+      # (the worker's separate /metrics stays single-process). A
       # subdirectory of the api service's tmpfs /tmp mount, so it never
       # survives a container restart carrying stale per-pid files.
       PROMETHEUS_MULTIPROC_DIR: "${PROMETHEUS_MULTIPROC_DIR:-/tmp/prometheus-multiproc}"
@@ -430,7 +430,7 @@ services:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
-      # GAP-022: pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
+      # Pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
       # fixed by the shared-volume contract above; the app's path must equal the
       # /app/staging mount target on every service. See .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
@@ -445,8 +445,8 @@ services:
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
-      # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (SEED-02, raised
-      # from the 120s hardcoded default that timed out 50% of AGO layers).
+      # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (300s by
+      # default so slow ArcGIS Online layers do not time out).
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       # Retention for terminal ingest_jobs rows, purged by the API
       # lifespan sweeper (0 = keep history forever).
@@ -480,7 +480,7 @@ services:
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
-    # GAP-001: 4 GB covers the worker process + GDAL/OGR buffers during large
+    # 4 GB covers the worker process + GDAL/OGR buffers during large
     # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
     # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${WORKER_MEM_LIMIT:-4g}"
@@ -501,7 +501,7 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
       REDIS_URL: "${REDIS_URL:-}"
-      # GAP-022: pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
+      # Pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
       # fixed by the shared-volume contract above; the app's path must equal the
       # /app/staging mount target on every service. See .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
@@ -560,7 +560,7 @@ services:
     # GDAL, not the titiler tag; 2.4.0 resolves rasterio 1.5.1 / GDAL 3.12.4
     # and rio-tiler 9.4.4.
     # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl header_file clamp)
-    # needs GDAL >= 3.13.2, so it stays unavailable and the #1192 gap is gated
+    # needs GDAL >= 3.13.2, so it stays unavailable; the gap is gated
     # on a rasterio wheel bump, not on a titiler tag.
     image: ghcr.io/developmentseed/titiler:2.4.0
     init: true
@@ -571,7 +571,7 @@ services:
     # titiler binds port 8000 inside container (>1024) — no NET_BIND_SERVICE needed.
     cap_drop:
       - ALL
-    # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
+    # 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
     # concurrent tile rendering. Raise for very large raster catalogs.
     # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${TITILER_MEM_LIMIT:-1g}"
@@ -622,7 +622,7 @@ services:
       #
       # RAISE TITILER_MEM_LIMIT WITH IT. GDAL_CACHEMAX below is per PROCESS, so
       # N workers multiply the block-cache ceiling (N x 200 MB) on top of N
-      # Python interpreters, and the #678 RSS ratchet runs independently in
+      # Python interpreters, and the RSS ratchet runs independently in
       # every one of them. Leaving mem_limit at its 1g default while raising
       # workers reaches OOMKill sooner, not later — budget roughly
       # N x (GDAL_CACHEMAX + ~250 MB) and watch RSS before trusting it.
@@ -649,26 +649,11 @@ services:
       # Both options are GDAL >= 3.12 and are pinned rather than inherited so a
       # base-image bump cannot silently relax them.
       #
-      # ALLOWED_SOURCE previously read "NETWORK_OR_LOCAL", labelled "allow VRT
-      # bands to reference remote (S3) sources". That is not one of the values
-      # GDAL accepts (SIBLING_OR_CHILD_OF_VRT_PATH | ONLY_REMOTE | ALL |
-      # <absolute path>), so GDAL parsed it as an absolute path and refused
-      # EVERY VRTRawRasterBand source. Measured 2026-08-04 in both the 2.0.5 and
-      # 2.2.1 images (rasterio 1.5.0 / GDAL 3.12.1):
-      #   "Invalid value for GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE.
-      #    'NETWORK_OR_LOCAL' is not an absolute path"
-      # So the effective policy has always been deny-all, and the comment
-      # claiming otherwise was the only thing that read as permissive — the
-      # #937 shape again, a setting that looks like a decision and is not.
-      #
-      # Correcting the token ALONE would have been a LOOSENING, not a cleanup:
-      # the same fixture OPENED AND READ successfully under
-      # ALLOWED_SOURCE=SIBLING_OR_CHILD_OF_VRT_PATH, so switching only that
-      # value would start admitting sibling raw sources that are refused today.
-      # That is why ENABLE_RAWRASTERBAND=NO is set alongside it — it states the
-      # existing deny-all in a value GDAL accepts, and fails with an intentional
-      # message ("VRTRawRasterBand support has been disabled at run-time")
-      # instead of an accidental one.
+      # ALLOWED_SOURCE alone does not deny raw sources: under
+      # SIBLING_OR_CHILD_OF_VRT_PATH a sibling raw source opens and reads.
+      # ENABLE_RAWRASTERBAND=NO, set alongside it, is the deny-all, and it fails
+      # with an intentional message ("VRTRawRasterBand support has been disabled
+      # at run-time").
       #
       # NO costs nothing: VRTRawRasterBand appears nowhere in this repo (the
       # builder in processing/raster/vrt.py emits SimpleSource / ComplexSource /
@@ -704,7 +689,7 @@ services:
       TITILER_S3_ACCESS_KEY_ID_SET: "${TITILER_S3_ACCESS_KEY_ID:+1}"
       TITILER_S3_SECRET_ACCESS_KEY_SET: "${TITILER_S3_SECRET_ACCESS_KEY:+1}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
-      # Azure Blob / Azurite (STOR-03, Phase 1210) — GDAL /vsiaz/ credentials.
+      # Azure Blob / Azurite — GDAL /vsiaz/ credentials.
       # For Azurite: set AZURE_STORAGE_CONNECTION_STRING to the well-known dev string.
       # Empty defaults keep the existing s3/local stack unchanged when vars are unset.
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
@@ -772,7 +757,7 @@ services:
         condition: service_healthy
 
   backup:
-    # Backup runs by default — no --profile flag needed (BKP-01).
+    # Backup runs by default — no --profile flag needed.
     # Configure schedule/retention via BACKUP_* env vars (see .env.example).
     # Builds the multi-arch root Dockerfile backup stage (not ./db which is
     # amd64-only via the postgis/postgis base).
@@ -781,7 +766,7 @@ services:
       dockerfile: Dockerfile
       target: backup
     restart: unless-stopped
-    # D03 (docker-audit-20260604): backup-entrypoint.sh runs as root throughout
+    # backup-entrypoint.sh runs as root throughout
     # (pg_dump/cp/tar/awscli/sleep on files it owns under /backups; the
     # postgres:18 base ships no cron, so it runs the built-in sleep-loop
     # scheduler). It never drops privilege or chowns across uids, so it needs NO
@@ -801,7 +786,7 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
-      # BKP-01 (Phase 1219): mirror docker-compose.prod.yml — tar the upload_staging
+      # Mirrors docker-compose.prod.yml — tar the upload_staging
       # volume alongside the pg_dump so a restore recovers locally-staged objects
       # (rasters/COGs/source uploads), not just the DB. Read-only: the backup job
       # never mutates app data. CAVEAT: captures the LOCAL upload_staging volume
@@ -867,7 +852,7 @@ services:
     # Pinned by SHA256 digest (tag is documentation).
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     profiles: ["cloud-dev"]
-    # INST-01 + Codex P1 (true fail-closed, parse-safe). `${VAR:?}` would abort
+    # True fail-closed and parse-safe. `${VAR:?}` would abort
     # `compose config`/`up` at PARSE time even when cloud-dev is inactive (breaks
     # a verbatim-.env.example install). But `${VAR:-}` alone is NOT fail-closed:
     # MinIO treats an EMPTY MINIO_ROOT_USER as unset and silently boots with the
@@ -883,8 +868,8 @@ services:
           exit 1
         fi
         exec silo server /data --console-address ":9001"
-    # D04 (docker-audit-20260604): cloud-dev is opt-in + loopback-only, but minio
-    # holds root S3 creds — drop caps + block privilege gain as cheap insurance.
+    # cloud-dev is opt-in + loopback-only, but minio holds root S3 creds. Drop
+    # caps + block privilege gain as cheap insurance.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -898,14 +883,14 @@ services:
       # container (the runtime guard checks these).
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
-      # ops(#1211): abandoned presigned multipart uploads leave parts no app
+      # Abandoned presigned multipart uploads leave parts no app
       # sweep can see (no object exists at the key until completion). MinIO
       # ignores S3 AbortIncompleteMultipartUpload lifecycle rules
       # (minio/minio#19115, "working as intended"); its equivalent is the
       # api-subsystem stale-uploads sweep. Parse-safe operator override with
-      # the defaults preserved (never `:?` — INST-01). The 24h default assumes
-      # the default 1h upload-job lifetime (PENDING_JOB_TIMEOUT_SECONDS=3600,
-      # which also bounds presigned part-URL validity — #1235). Coupling: if
+      # the defaults preserved (never `:?`, see the minio entrypoint note). The
+      # 24h default assumes the default 1h upload-job lifetime (PENDING_JOB_TIMEOUT_SECONDS=3600,
+      # which also bounds presigned part-URL validity). Coupling: if
       # PENDING_JOB_TIMEOUT_SECONDS is raised past ~23h, raise the expiry to
       # at least that lifetime plus headroom, or the sweep aborts parts of
       # still-live uploads. See RUNBOOK.md "Abandoned multipart uploads".
@@ -924,8 +909,7 @@ services:
     # Paired digest pin with the minio service above.
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     profiles: ["cloud-dev"]
-    # D04 (docker-audit-20260604): one-shot setup, but no-new-privileges + cap_drop
-    # are free hardening.
+    # One-shot setup, but no-new-privileges + cap_drop are free hardening.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -933,13 +917,11 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    # BUG-015 (Phase 1184): Previously used `entrypoint: >` (YAML folded scalar)
-    # which collapsed newlines to spaces, destroying the heredoc that wrote the
-    # CORS policy JSON — mc anonymous set-json never ran. Fixed by mounting the
-    # setup logic as a real script file (heredoc preserved verbatim).
-    # INST-01 (Phase 1218): empty-default (:-) so a verbatim-.env.example install
-    # parses without the cloud-dev profile; runtime rejects empty creds (fail-closed
-    # scope moved from parse-time to runtime). See minio service above.
+    # The setup logic is a mounted script file because a YAML folded-scalar
+    # `entrypoint: >` collapses newlines and destroys the heredoc that writes the
+    # CORS policy JSON.
+    # Empty-default (:-) so a verbatim-.env.example install parses without the
+    # cloud-dev profile; the runtime rejects empty creds. See minio service above.
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
@@ -948,11 +930,11 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]
 
   azurite:
-    # Azure Blob Storage emulator — cloud-dev profile only (Phase 1210 / STOR-03).
+    # Azure Blob Storage emulator — cloud-dev profile only.
     # Pinned by SHA256 digest (tag is documentation only).
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
     profiles: ["cloud-dev"]
-    # D04 / T-1210-03: cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
+    # cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
     # are cheap insurance — Azurite holds no keys that matter outside localhost.
     security_opt:
       - no-new-privileges=true
@@ -977,7 +959,7 @@ services:
     # cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a
     # non-root user skips setpriv.
     user: "valkey"
-    # D04 (docker-audit-20260604): drop caps + block privilege gain (opt-in dev cache).
+    # Drop caps + block privilege gain (opt-in dev cache).
     security_opt:
       - no-new-privileges=true
     cap_drop:

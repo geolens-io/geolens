@@ -89,7 +89,7 @@ jobs:
             type=semver,pattern={{major}}
             # `latest` only on a real GA tag — exclude prereleases (a `-rc`/`-beta`
             # suffix). Otherwise a `v1.4.0-rc.1` push clobbers `:latest` with an
-            # unreleased candidate (same spirit as #325 gating release.yml's
+            # unreleased candidate (same spirit as gating release.yml's
             # isPrerelease). Fresh `:latest` pulls must track the last GA.
             type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
           # --label overrides Dockerfile LABEL, and metadata-action's

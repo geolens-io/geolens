@@ -1,6 +1,6 @@
 // FOUC prevention + lang sync — externalized from index.html so the page can
 // ship a strict Content-Security-Policy (script-src 'self') with no inline
-// <script> (SEC-020). Loaded render-blocking from <head>, so it still runs
+// <script>. Loaded render-blocking from <head>, so it still runs
 // before first paint. Keep in sync with ThemeProvider storageKey and the i18n
 // supportedLngs list.
 (function () {

@@ -36,7 +36,7 @@ fi
 # (e.g. http://geolens-api.<namespace>.svc.cluster.local:8000) — a short
 # service name will NXDOMAIN. The Helm chart passes exactly that.
 API_UPSTREAM="${API_UPSTREAM:-http://api:8000}"
-# Codex P2 (#577): strip trailing slashes — a URI component in a variable
+# Strip trailing slashes — a URI component in a variable
 # proxy_pass replaces the rewritten request URI wholesale, so a value like
 # http://api:8000/ would proxy every /api, raster, and embed request to "/".
 while [ "${API_UPSTREAM%/}" != "$API_UPSTREAM" ]; do
@@ -52,8 +52,8 @@ case "$NGINX_RESOLVER" in
 esac
 # /api/ upload cap, matching the backend's UPLOAD_MAX_SIZE_MB.
 # Deployment configs map that setting here with an "m" suffix; the default
-# preserves the previously hard-coded 500m. Guarded so an invalid value fails
-# fast at boot instead of crash-looping on an nginx config error.
+# is 500m. Guarded so an invalid value fails fast at boot instead of
+# crash-looping on an nginx config error.
 CLIENT_MAX_BODY_SIZE="${CLIENT_MAX_BODY_SIZE:-500m}"
 case "$CLIENT_MAX_BODY_SIZE" in
   *[!0-9kKmMgG]* | "" | [!0-9]*)

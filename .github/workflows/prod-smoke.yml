@@ -1,6 +1,6 @@
 name: Prod Compose Smoke
 
-# INST-02 (Phase 1218): pull the PUBLISHED release images and boot
+# Pull the PUBLISHED release images and boot
 # docker-compose.prod.yml to healthy, then tear down. This catches an
 # image/compose combination that parses (CI `installer-test` runs `config -q`)
 # but cannot actually start — e.g. a missing baked dependency, a broken
@@ -19,11 +19,11 @@ name: Prod Compose Smoke
 on:
   push:
     tags:
-      # Semver release tags only: bare "v*" also matched 4-digit GSD
-      # milestone tags (v1055, v1044, …), firing a full image-pull + E2E smoke
-      # on non-release tags. The second pattern keeps prerelease tags
-      # (v1.5.0-rc.1) in the release chain — release.yml is gated on this
-      # workflow's success and explicitly supports prerelease suffixes (#715).
+      # Semver release tags only: bare "v*" also matches 4-digit non-release
+      # tags (v1055, v1044, …), which would fire a full image-pull + E2E
+      # smoke. The second pattern keeps prerelease tags (v1.5.0-rc.1) in the
+      # release chain — release.yml is gated on this
+      # workflow's success and explicitly supports prerelease suffixes.
       # Globs cannot fully express semver (`*` matches zero or more of ANY
       # character, so e.g. v1.2.3-foo_bar still slips through); the
       # "Assert semver release tag" step below is the authoritative gate.
@@ -123,7 +123,7 @@ jobs:
         run: |
           cp .env.example .env
           # CI-distinct, non-default secrets. JWT_SECRET_KEY must be >= 32 chars
-          # to satisfy the Settings validator (backend/app/config.py).
+          # to satisfy the Settings validator (backend/app/core/config.py).
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_smoke_pw|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=prod-smoke-secret-key-padding-32chars-min|' .env
           # .env.example ships GEOLENS_ADMIN_USERNAME= empty, so the seeded admin
@@ -215,7 +215,7 @@ jobs:
             exit 1
           fi
 
-      # E2E through the PROD reverse proxy: now that the published stack is
+      # E2E through the PROD reverse proxy: once the published stack is
       # healthy, drive the existing Playwright audit suite against the prod nginx
       # (127.0.0.1:8080) via E2E_BASE_URL. release.yml is gated on this workflow's
       # success (workflow_run), so a failing tag E2E withholds the GitHub Release

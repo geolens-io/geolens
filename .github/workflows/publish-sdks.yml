@@ -249,5 +249,5 @@ jobs:
         # npm >= 11.5.1 (from Node 24 in setup-node above) also generates + attaches
         # provenance automatically, so no explicit --provenance flag is needed. OIDC + provenance
         # both require a public source repository (it is). `--access public` is kept for
-        # the scoped package. NPM_TOKEN secret is now unused (kept as a manual fallback).
+        # the scoped package. The NPM_TOKEN secret is unused (kept as a manual fallback).
         run: npm publish --access public

@@ -22,7 +22,7 @@ dev: preflight
 # One-shot contributor bootstrap: scripts/install.sh generates .env with dev
 # creds + secrets and starts the stack. It prints how to retrieve the generated
 # admin password (`grep '^GEOLENS_ADMIN_PASSWORD=' .env`) rather than echoing the
-# secret itself (SEC-011 no-echo policy).
+# secret itself.
 dev-init: ## One-shot contributor bootstrap (.env + secrets + start stack)
 	@bash scripts/install.sh
 
@@ -55,12 +55,11 @@ migrate:
 migration:
 	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic revision --autogenerate -m "$(msg)"
 
-# MIG-03: autogenerate drift gate. `alembic check` exits non-zero if the ORM
+# Autogenerate drift gate. `alembic check` exits non-zero if the ORM
 # models have drifted from the migration scripts (a model column added without
 # a matching migration, etc.). Run against a DB that is already at head — the
 # migrate target / `docker compose up` brings it there. Mirrors the drift gate
-# already baked into scripts/test_alembic_upgrade_clean_db.sh, exposed here as
-# a one-liner and wired into CI (.github/workflows/ci.yml, Backend Tests job).
+# in scripts/test_alembic_upgrade_clean_db.sh and runs in CI (Backend Tests job).
 alembic-check:
 	# Requires an OSS-clean DB at head. A dev DB that carries cloud c-chain revisions
 	# (from prior overlay work) can't be resolved by the OSS image and will report a
@@ -74,7 +73,7 @@ alembic-check:
 overlay-migration-check:
 	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync python scripts/verify_overlay_migrations.py
 
-# Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
+# Defaults to parallel execution.
 # Use `make test-sequential` to opt into sequential debugging mode.
 test:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -n 4 -v --tb=short
@@ -165,8 +164,8 @@ SDK_PRESERVED_FILES := \
   sdks/typescript/LICENSE
 
 # make sdks stashes/restores through this checkout-local scratch directory
-# instead of fixed /tmp paths, so two checkouts regenerating at once no
-# longer share a path and can't swap files. It's one fixed directory per
+# instead of fixed /tmp paths, so two checkouts regenerating at once don't
+# share a path and can't swap files. It's one fixed directory per
 # checkout, not a fresh one per run: a leftover directory from an interrupted
 # run is a signal to investigate, not something the next run should delete
 # (see the guard in the sdks recipe below). $(CURDIR) makes it absolute so it
@@ -191,8 +190,8 @@ SDKS_TMPDIR := $(CURDIR)/.sdks-tmp
 #      flattened intermediate. See scripts/flatten_openapi_defs.py docstring.
 #   3. Run the Python + TypeScript generators against the flat intermediate.
 #   4. sync_sdk_versions.py pins both SDK package versions to the OpenAPI
-#      info.version (closes Pitfall 9, version drift caught alongside code
-#      drift in `make sdks-check`).
+#      info.version (version drift is caught alongside code drift in
+#      `make sdks-check`).
 #
 # `sdks` itself only stashes $(SDK_PRESERVED_FILES), delegates the pipeline to
 # _sdks_generate, and always restores them and removes $(SDKS_TMPDIR), whether
@@ -339,7 +338,7 @@ mcp-build: ## Build the geolens-mcp wheel + sdist
 mcp-test: ## Run MCP server unit tests
 	cd mcp && uv run --extra dev python -m pytest -v
 
-# `make mcp-live-test` runs the MCP live-contract tier (#827) against a RUNNING
+# `make mcp-live-test` runs the MCP live-contract tier against a RUNNING
 # instance: every tool in server.py against the real API, asserting response
 # shape. Defaults to the dev stack (http://localhost:8080); admin credentials
 # come from GEOLENS_ADMIN_USERNAME/GEOLENS_ADMIN_PASSWORD or, when unset, from
@@ -353,8 +352,8 @@ mcp-live-test: ## Run MCP live-contract tests against a running instance
 publish-mcp: ## Build + publish geolens-mcp to PyPI
 	cd mcp && uv build && uv publish
 
-# Invariant: log_action() is called only by DefaultAuditSink.emit().
-# All 65 historical emit sites must route through audit_emit(session, AuditEvent(...)) instead.
+# Invariant: log_action() is called only by DefaultAuditSink.emit(); every
+# emit site routes through audit_emit(session, AuditEvent(...)).
 # This target runs the architecture-guard test in isolation — quick local verification
 # without spinning up the full pytest suite.
 audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults_extensions.py
@@ -363,25 +362,23 @@ audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audi
 # Invariants:
 #   - app.core.marketplace must not exist as a module under backend/app/
 #   - No `from app.core.marketplace` import anywhere in backend/app/
-#   - The production dispatch loop in api/main.py uses literal timeout=10.0 (D-11)
+#   - The production dispatch loop in api/main.py uses literal timeout=10.0
 # This target runs both architecture-guard tests in isolation — quick local
 # verification without spinning up the full pytest suite.
 billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispatch hardcodes timeout=10.0
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_core_marketplace_import tests/test_layering.py::test_billing_dispatch_uses_hardcoded_timeout -v
 
 # Invariant: no external module imports from the
-# catalog/datasets/domain/service_X sub-modules directly. The 1407-LOC
-# god-module was split into 5 cohesive sub-modules behind a thin re-export
-# façade in service.py. All 22 consumer files in backend/app/ must continue
-# to import via the façade — sub-module bypasses are forbidden (cross-imports
-# BETWEEN the 5 sub-modules are permitted, D-05).
+# catalog/datasets/domain/service_X sub-modules directly. Consumers import
+# via the façade in service.py; cross-imports between the sub-modules are
+# permitted.
 # This target runs the architecture-guard test in isolation — quick local
 # verification without spinning up the full pytest suite (uses git grep,
 # no DB required).
 catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v
 
-# ----- Version management (REL-05) -----
+# ----- Version management -----
 # `make bump VERSION=X.Y.Z` rewrites EVERY version site atomically (backend +
 # cli + sdks×2 + root/frontend package.json + openapi.json info.version + the
 # metadata fallback constant in main.py + the 5 lockfiles that embed the
@@ -394,14 +391,14 @@ ifndef VERSION
 endif
 	uv run --no-project python scripts/bump_version.py "$(VERSION)"
 
-# `make version-check` — version-coherence gate (REL-04). Reads every version
+# `make version-check` — version-coherence gate. Reads every version
 # site (backend/cli/sdks×2/root+frontend package.json/openapi.json info.version/
 # main.py fallback constant/the 5 lockfiles) and exits non-zero if any disagree.
 # Run in CI to block a release where one site silently drifted from the rest.
 version-check: ## Assert all version sites agree (CI gate)
 	uv run --no-project python scripts/check_version_coherence.py
 
-# `make env-doc-check` — environment-contract drift gate (DOC-01). Keeps
+# `make env-doc-check` — environment-contract drift gate. Keeps
 # Settings, Compose service plumbing, installer writes, and .env.example
 # aligned. Plain python3 — no project dependencies.
 env-doc-check: ## Assert Settings, Compose, installer, and env docs stay aligned

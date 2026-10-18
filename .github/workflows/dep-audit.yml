@@ -1,8 +1,7 @@
 name: Dependency audit
 
-# Added 2026-06-02 (dep-audit). Fails PRs on high/critical CVEs and strong
-# copyleft; runs Trivy OS-CVE scans the local audit could not (trivy is not on
-# dev machines). Weekly cron catches newly-disclosed CVEs in unchanged deps.
+# Fails PRs on high/critical CVEs and strong copyleft; runs Trivy OS-CVE
+# scans (trivy is not on dev machines). Weekly cron catches newly-disclosed CVEs in unchanged deps.
 on:
   pull_request:
     branches: [main]

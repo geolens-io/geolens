@@ -88,8 +88,8 @@ permissions:
 # version into the same group. cancel-in-progress stays FALSE: with
 # `true`, a late-finishing publish job or a re-run could cancel the in-flight
 # verify for that version — masking exactly the publish-failure class this
-# workflow exists to catch (this bit during the 1.6.0 npm OIDC incident).
-# Duplicate triggers now queue behind the running verify (GitHub keeps only the
+# workflow exists to catch.
+# Duplicate triggers queue behind the running verify (GitHub keeps only the
 # newest pending run per group), so an in-flight verify always finishes.
 # Verifying two different versions concurrently is fine — the group is
 # per-version.
@@ -290,9 +290,9 @@ jobs:
               # (created 2026-08-20T00:24:04Z): its head_sha (1eb456346...)
               # is exactly `git rev-parse v1.14.1`, even though main's tip at
               # that instant had already advanced past it to 1e4a3ef4e...
-              # (#1615). Filtered to semver-shaped names for the same reason
+              # Filtered to semver-shaped names for the same reason
               # release.yml's own "Assert semver-shaped tag" step is: a
-              # 4-digit GSD milestone tag could share a commit with a real
+              # 4-digit non-release tag could share a commit with a real
               # release.
               # Resolution follows one rule everywhere in this
               # branch — CONFIRMED (query succeeded, found what's needed) ->
@@ -520,9 +520,9 @@ jobs:
               # (created 2026-08-20T00:24:04Z): its head_sha (1eb456346...)
               # is exactly `git rev-parse v1.14.1`, even though main's tip at
               # that instant had already advanced past it to 1e4a3ef4e...
-              # (#1615). Filtered to semver-shaped names for the same reason
+              # Filtered to semver-shaped names for the same reason
               # release.yml's own "Assert semver-shaped tag" step is: a
-              # 4-digit GSD milestone tag could share a commit with a real
+              # 4-digit non-release tag could share a commit with a real
               # release.
               # Resolution follows one rule everywhere in this
               # branch — CONFIRMED (query succeeded, found what's needed) ->

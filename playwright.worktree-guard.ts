@@ -11,15 +11,12 @@ import { dirname, join } from 'node:path';
 // from a real pass — false passes when your break is.
 //
 // This deliberately does NOT try to work out whether your changes happen to be
-// in the stack. An earlier revision did, comparing git metadata and then file
-// bytes between the two trees, and review found eleven separate ways for that
-// answer to be wrong. That surface is unbounded: it spans git reporting,
-// filesystem semantics and compose configuration.
+// in the stack. That surface is unbounded: it spans git reporting, filesystem
+// semantics and compose configuration.
 //
-// It also does not shell out to git. The first simplification did, and review
-// found that a `rev-parse` failure — an older git without `--path-format`, or a
-// `safe.directory` ownership rejection — turned into an empty string and
-// silently disabled the guard, which is the same false pass in a new costume.
+// It also does not shell out to git: a `rev-parse` failure — an older git
+// without `--path-format`, or a `safe.directory` ownership rejection — would
+// become an empty string and silently disable the guard, the same false pass.
 //
 // Detection is a filesystem fact instead. A linked worktree's `.git` is a FILE
 // containing `gitdir: /…/.git/worktrees/<name>`; the main checkout's `.git` is
@@ -36,8 +33,7 @@ const ACKNOWLEDGED = new Set(['1', 'true', 'yes', 'on']);
 //
 // Both anchors are checked and EITHER one reporting a worktree blocks. That is
 // deliberate: falling back from __dirname to cwd when the loader gives no
-// __dirname would silently restore the original hole, which is the same
-// fail-open-fallback shape as the earlier git and stat findings.
+// __dirname would silently restore the original hole.
 declare const __dirname: string | undefined;
 
 function anchors(): string[] {

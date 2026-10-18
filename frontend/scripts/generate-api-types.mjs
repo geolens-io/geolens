@@ -1,10 +1,9 @@
 /**
- * ARC-02: generate src/types/api.generated.ts from backend/openapi.json.
+ * Generate src/types/api.generated.ts from backend/openapi.json.
  *
- * The frontend's backend-boundary types were hand-maintained in src/types/api.ts
- * (1,803 LOC, 149 importers) with no codegen guard, so any backend schema change
- * surfaced as a runtime bug rather than a compile error. This regenerates a typed
- * mirror straight from the OpenAPI snapshot, exactly like the SDKs do.
+ * A backend schema change surfaces as a compile error instead of a runtime bug
+ * because the frontend's backend-boundary types are a typed mirror of the
+ * OpenAPI snapshot, generated the way the SDKs are.
  *
  * Pipeline (mirrors the `sdks` Make target):
  *   1. flatten_openapi_defs.py rewrites pydantic's local `#/$defs/X` refs to
@@ -14,14 +13,14 @@
  *
  * openapi-typescript is invoked via pinned `npx`, NOT a devDependency, and this
  * is a deliberate exception to the "pin codegen as exact devDeps, never npx"
- * rule (feedback_npx_peer_resolution_beats_pins): 7.13.0 hard-peers
+ * rule: 7.13.0 hard-peers
  * `typescript@^5` while this project is on typescript@6, so a devDep install
  * ERESOLVE-fails and would need `--legacy-peer-deps` (which just masks the
  * incompatibility). The rule exists because a cold `npx` resolve can pull a
  * broken transitive `typescript` — but openapi-typescript@7 emits strings and
  * does NOT invoke the TS compiler at generation, so that trap does not apply.
- * Verified 2026-07-10: a cold-cache run (`npm_config_cache=<fresh>`) produces
- * byte-identical output. Re-verify the same way before bumping the pin.
+ * A cold-cache run (`npm_config_cache=<fresh>`) produces byte-identical output;
+ * re-verify the same way before bumping the pin.
  *
  * Usage:
  *   npm run types:generate      # regenerate in place

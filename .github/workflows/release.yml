@@ -71,7 +71,7 @@ jobs:
         id: prev
         run: |
           # Filter to strict semver (vMAJOR.MINOR.PATCH) before selection so that
-          # 4-digit GSD milestone tags (v1044, v1043, …) — which version-sort above
+          # 4-digit non-release tags (v1044, v1043, …) — which version-sort above
           # the entire semver line — cannot shadow the real previous release.
           PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -A1 "^${TAG}$" | tail -1)
           echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
@@ -188,9 +188,9 @@ jobs:
           ( cd scripts && sha256sum install.sh ) > SHA256SUMS
           gh release upload "${TAG}" SHA256SUMS --clobber
 
-      # CI-1 (see geolens-io/getgeolens.com#108): the site repo listens for
-      # this dispatch to run release-drift immediately and to open its
-      # docs-contract sync PR (getgeolens.com#108, release-sync.yml).
+      # The site repo (geolens-io/getgeolens.com) listens for this dispatch to
+      # run release-drift immediately and to open its docs-contract sync PR
+      # (release-sync.yml).
       # geolens-examples listens for the same event. It pins every published
       # client (geolens, @geolens/sdk, geolens-mcp, geolens-cli) to one version
       # across a dozen files. On this event it bumps those pins on its
@@ -203,10 +203,8 @@ jobs:
       # than in its own step so it inherits this one's latest-release guard
       # and reporting: a stale tag must not draft a newsletter for a version
       # that is no longer current, and that check is subtle enough that a
-      # second copy of it would drift. The runbook's step 11 recorded the
-      # reason it kept being missed — "nothing triggers it and nothing checks
-      # it" — which is both halves of what this step already does for the
-      # other two.
+      # second copy of it would drift. The step both triggers the newsletter and
+      # checks that it ran.
       - name: Notify downstream targets of the release
         # Only GA tags (no `-` suffix) dispatch — same shape as the
         # IS_PRERELEASE case pattern in "Create release" above. A prerelease
@@ -216,9 +214,8 @@ jobs:
         # Everything else (the missing-secret case, the stale-tag case) stays
         # INSIDE the run script rather than in this `if:`, on purpose: a step
         # this `if:` skips shows as a bare grey "skipped" in the run, which is
-        # how a missing SITE_DISPATCH_TOKEN would go unnoticed indefinitely
-        # (this file already learned that lesson once, for #1530). Running
-        # the step and having it log a ::notice::/::warning:: and a
+        # how a missing SITE_DISPATCH_TOKEN would go unnoticed indefinitely.
+        # Running the step and having it log a ::notice::/::warning:: and a
         # step-summary line keeps the same "never fail the release over
         # this" behavior visible instead of silent.
         if: ${{ !contains(env.TAG, '-') }}

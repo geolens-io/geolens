@@ -174,9 +174,9 @@ LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 # This is liveness, not readiness. /health probes the database, the object
 # store and the cache and 503s if any of them is degraded, but the cache path
 # falls back to an in-memory cache by design, so a Valkey outage the API can
-# serve straight through used to mark this container unhealthy -- and the
-# frontend's `depends_on: api: service_healthy` then refused to start the UI at
-# all. Orchestrator readiness probes belong on /health/ready, which checks only
+# serve straight through must not mark this container unhealthy: the frontend's
+# `depends_on: api: service_healthy` would then refuse to start the UI at all.
+# Orchestrator readiness probes belong on /health/ready, which checks only
 # the database; /health stays the full dependency report for dashboards.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
   CMD python -B -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
@@ -246,13 +246,9 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
 #
 # restore.sh sources lib/common.sh
 # (`. "$SCRIPT_DIR/lib/common.sh"`, SCRIPT_DIR=/scripts in this baked
-# layout) for get_env_value — the COPY below used to bring in only the two
-# top-level scripts, so the PUBLISHED geolens-backup image's baked
-# restore.sh (no dev bind-mount to mask it there) hit "No such file or
-# directory" on that `.` and exited immediately. A second COPY preserves
-# the same lib/ subdirectory restore.sh's own SCRIPT_DIR-relative path
-# expects; backup-entrypoint.sh sources nothing (grepped for `.`/`source`),
-# so no further script needs to move.
+# layout) for get_env_value. The published image has no dev bind-mount, so the
+# second COPY preserves the lib/ subdirectory at that relative path;
+# backup-entrypoint.sh sources nothing, so no further script needs to move.
 COPY scripts/backup-entrypoint.sh scripts/restore.sh /scripts/
 COPY scripts/lib/common.sh /scripts/lib/common.sh
 RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
