@@ -2482,7 +2482,10 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
  * the feature it created has been deleted since, or the dataset's data has
  * been replaced by a reupload or an overwrite, the repeat is refused with 409
  * rather than creating another. Without the key every request inserts, and
- * an attempt number sent without one is ignored.
+ * an attempt number sent without one is ignored. Through an append-only
+ * dataset key, a repeat matches only that key's own creates, applies
+ * nothing, and answers with the feature's `id`, a null `geometry` and empty
+ * `properties`.
  *
  * A GeoJSON FeatureCollection body inserts up to 1,000 features in one
  * transaction: all of them or none. A feature the schema refuses is named

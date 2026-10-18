@@ -100,7 +100,10 @@ and releases use semantic versioning.
   dataset back or rewrite it. Otherwise it follows the dataset write key's
   rules: it expires within 365 days, acts as the user who minted it and
   writes while dataset editing is off. An `Idempotency-Key` sent with an
-  append-only key only matches creates made with that same key. The create
+  append-only key only matches creates made with that same key, and a repeat
+  through it applies nothing and answers with only the feature's `id`, a null
+  `geometry` and empty `properties`. A sent `Idempotency-Key` may no longer
+  start with `api-key:`, which those stored keys use. The create
   request gains an optional `scope` (`dataset_write`, the default, or
   `dataset_append`), `scope` in key listings can read `dataset_append`, and
   the key lists mark these keys "Add only" or "One dataset, add only".

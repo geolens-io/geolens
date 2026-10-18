@@ -19729,7 +19729,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostData = {
         /**
          * Idempotency-Key
          *
-         * Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`.
+         * Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters, not starting with `api-key:`. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`.
          */
         'Idempotency-Key'?: string;
         /**

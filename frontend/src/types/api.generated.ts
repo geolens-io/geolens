@@ -2385,7 +2385,10 @@ export interface paths {
          *     the feature it created has been deleted since, or the dataset's data has
          *     been replaced by a reupload or an overwrite, the repeat is refused with 409
          *     rather than creating another. Without the key every request inserts, and
-         *     an attempt number sent without one is ignored.
+         *     an attempt number sent without one is ignored. Through an append-only
+         *     dataset key, a repeat matches only that key's own creates, applies
+         *     nothing, and answers with the feature's `id`, a null `geometry` and empty
+         *     `properties`.
          *
          *     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
          *     transaction: all of them or none. A feature the schema refuses is named
@@ -26728,7 +26731,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`. */
+                /** @description Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters, not starting with `api-key:`. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`. */
                 "Idempotency-Key"?: string;
                 /** @description Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted. */
                 "Idempotency-Attempt"?: number;

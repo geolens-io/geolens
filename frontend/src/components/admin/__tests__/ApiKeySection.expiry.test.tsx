@@ -145,6 +145,12 @@ describe('ApiKeySection expiry', () => {
     expect(screen.getByText('admin:apiKeys.scopeDatasetAppend')).toBeInTheDocument();
   });
 
+  it('still badges a scope this build does not know', () => {
+    listing([makeKey({ scope: 'dataset_future', dataset_id: 'ds-1' })]);
+    render(<ApiKeySection userId="u1" />);
+    expect(screen.getByText('dataset_future')).toBeInTheDocument();
+  });
+
   it('lets a key row wrap so it never widens the edit dialog', () => {
     listing([makeKey({ name: 'Webhook smoke', fingerprint: 'abcdefgh…wxyz', scope: 'dataset_write' })]);
     render(<ApiKeySection userId="u1" />);

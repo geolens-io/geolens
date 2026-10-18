@@ -60,6 +60,7 @@ from app.modules.catalog.features.idempotency import (
     IDEMPOTENCY_KEY_HEADER,
     IDEMPOTENCY_KEY_MAX_LENGTH,
     IDEMPOTENCY_KEY_PATTERN,
+    CREDENTIAL_KEY_PREFIX,
     CreatedRow,
     KeyedFeature,
     claim_create_key,
@@ -68,6 +69,7 @@ from app.modules.catalog.features.idempotency import (
     current_table_oid,
     find_live_key,
     held_table_oid,
+    is_append_only,
     record_attempt,
 )
 from app.modules.catalog.features.schemas import (
@@ -502,7 +504,12 @@ class _Repeat(NamedTuple):
 
 
 async def _settle_repeat(
-    db: AsyncSession, dataset, keyed: KeyedFeature, attempt: int, body: FeatureCreate
+    db: AsyncSession,
+    dataset,
+    keyed: KeyedFeature,
+    attempt: int,
+    body: FeatureCreate,
+    append_only: bool,
 ) -> _Repeat:
     """Settle a create whose key already names a feature.
 
@@ -514,13 +521,18 @@ async def _settle_repeat(
     gets the feature as stored. A higher attempt number is refused with 409 and
     the stored feature if anyone else has written the feature since the last
     attempt was applied. The feature is written before the catalog rows are
-    taken, the order every other feature write uses.
+    taken, the order every other feature write uses. For an ``append_only``
+    caller, which may neither read nor change features, the answer is the
+    feature's id with no geometry or properties, and nothing is applied.
     """
     row = await get_feature_by_id(db, dataset.table_name, keyed.gid)
     if keyed.table_oid != await current_table_oid(db, dataset.table_name):
         raise _feature_gone(await _roll_tile_generation(db, dataset))
     if row is None:
         raise _feature_gone()
+    if append_only:
+        row = {"gid": keyed.gid, "geometry": None, "properties": {}}
+        return _Repeat(row, None, False, keyed.id, attempt, None)
     if attempt <= keyed.attempt:
         return _Repeat(row, None, False, keyed.id, attempt, None)
     # The row is taken before the version is read, so a writer still in flight
@@ -1045,8 +1057,8 @@ async def create_feature(
         pattern=IDEMPOTENCY_KEY_PATTERN,
         description=(
             "Optional key that makes a retried create safe. Any visible ASCII "
-            "character (`!` to `~`, no spaces), 1 to 128 characters. The key "
-            "is compared exactly as sent, so a quoted key and the same key "
+            "character (`!` to `~`, no spaces), 1 to 128 characters, not "
+            "starting with `api-key:`. The key is compared exactly as sent, so a quoted key and the same key "
             "unquoted are different keys. For example "
             "`device-42:2026-10-17T16:09:33.123000+00:00`."
         ),
@@ -1080,7 +1092,10 @@ async def create_feature(
     the feature it created has been deleted since, or the dataset's data has
     been replaced by a reupload or an overwrite, the repeat is refused with 409
     rather than creating another. Without the key every request inserts, and
-    an attempt number sent without one is ignored.
+    an attempt number sent without one is ignored. Through an append-only
+    dataset key, a repeat matches only that key's own creates, applies
+    nothing, and answers with the feature's `id`, a null `geometry` and empty
+    `properties`.
 
     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
     transaction: all of them or none. A feature the schema refuses is named
@@ -1180,6 +1195,11 @@ async def _create(
     keyed = None
     try:
         if idempotency_key is not None:
+            if idempotency_key.startswith(CREDENTIAL_KEY_PREFIX):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Idempotency-Key may not start with 'api-key:'.",
+                )
             idempotency_key = credential_key(db, idempotency_key)
             # Requests on one key run one at a time. The key's lock comes
             # before the feature is touched, so waiting on it holds nothing a
@@ -1190,7 +1210,7 @@ async def _create(
             keyed = await find_live_key(db, dataset_id, user.id, idempotency_key)
         if keyed is not None:
             repeat = await _settle_repeat(
-                db, dataset, keyed, idempotency_attempt or 1, body
+                db, dataset, keyed, idempotency_attempt or 1, body, is_append_only(db)
             )
         else:
             async with _insert_scope(db, dry_run, dataset.table_name):

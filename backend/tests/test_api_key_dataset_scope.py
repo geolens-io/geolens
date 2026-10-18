@@ -1221,3 +1221,96 @@ async def test_the_mint_request_takes_only_a_dataset_scope(
         headers=headers,
     )
     assert resp.status_code == 422, resp.text
+
+
+async def test_an_append_key_retry_never_applies_a_newer_body(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/features/"
+    first = await client.post(
+        url,
+        json={"geometry": POINT, "properties": {"name": "first"}},
+        headers={"X-Api-Key": raw_key, "Idempotency-Key": "device-1:t1"},
+    )
+    assert first.status_code == 201, first.text
+
+    retry = await client.post(
+        url,
+        json={"geometry": POINT_2, "properties": {"name": "second"}},
+        headers={
+            "X-Api-Key": raw_key,
+            "Idempotency-Key": "device-1:t1",
+            "Idempotency-Attempt": "2",
+        },
+    )
+    assert retry.status_code == 201, retry.text
+    assert retry.json()["id"] == first.json()["id"]
+    assert (retry.json()["geometry"], retry.json()["properties"]) == (None, {})
+    stored = await client.get(f"{url}{first.json()['id']}", headers=headers)
+    assert stored.json()["properties"]["name"] == "first"
+    assert stored.json()["geometry"]["coordinates"] == POINT["coordinates"]
+
+
+async def test_an_append_key_retry_shows_nothing_written_since(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/features/"
+    sent = {"X-Api-Key": raw_key, "Idempotency-Key": "device-1:t1"}
+    first = await client.post(
+        url, json={"geometry": POINT, "properties": {"name": "sent"}}, headers=sent
+    )
+    assert first.status_code == 201, first.text
+    gid = first.json()["id"]
+    edited = await client.patch(
+        f"{url}{gid}", json={"properties": {"name": "owner edit"}}, headers=headers
+    )
+    assert edited.status_code == 200, edited.text
+
+    for attempt in ("1", "2"):
+        resp = await client.post(
+            url,
+            json={"geometry": POINT, "properties": {"name": "sent"}},
+            headers={**sent, "Idempotency-Attempt": attempt},
+        )
+        assert resp.status_code == 201, (attempt, resp.text)
+        assert resp.json()["id"] == gid
+        assert "owner edit" not in resp.text
+        assert (resp.json()["geometry"], resp.json()["properties"]) == (None, {})
+
+
+async def test_two_append_keys_never_share_an_idempotency_key(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    url = f"/datasets/{bound.id}/features/"
+    ids = []
+    for _ in range(2):
+        raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))[
+            "key"
+        ]
+        resp = await client.post(
+            url,
+            json={"geometry": POINT, "properties": {"name": "tracker"}},
+            headers={"X-Api-Key": raw_key, "Idempotency-Key": "device-1:t1"},
+        )
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    assert ids[0] != ids[1]
+
+
+async def test_the_stored_key_prefix_is_reserved(client: AsyncClient, owner, datasets):
+    headers, _ = owner
+    bound = datasets[0]
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json={"geometry": POINT, "properties": {"name": "x"}},
+        headers={**headers, "Idempotency-Key": "api-key:anything"},
+    )
+    assert resp.status_code == 422, resp.text

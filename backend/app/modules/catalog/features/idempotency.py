@@ -7,7 +7,8 @@ with the feature that exists instead of inserting another, and the attempt
 number orders the bodies: the highest one received is the one applied, whatever
 order the requests arrive in. Keys are scoped to (dataset, user), so one
 caller's key can neither reveal nor collide with another's. A
-``dataset_append`` API key's keys are scoped to that key as well.
+``dataset_append`` API key's keys are scoped to that key as well, and a repeat
+through one answers with the feature's id alone and applies nothing.
 """
 
 import hashlib
@@ -29,6 +30,8 @@ IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
 # The key is opaque: hashed into a lock name and compared as a bound value.
 IDEMPOTENCY_KEY_PATTERN = r"^[!-~]+$"
+# Stored keys of append-only API keys start with this, so a sent key may not.
+CREDENTIAL_KEY_PREFIX = "api-key:"
 IDEMPOTENCY_ATTEMPT_HEADER = "Idempotency-Attempt"
 IDEMPOTENCY_ATTEMPT_MAX = 2_147_483_647
 
@@ -58,18 +61,24 @@ class CreatedRow(NamedTuple):
     row_xmin: int
 
 
+def is_append_only(db: AsyncSession) -> bool:
+    """Whether a ``dataset_append`` key authenticated this request."""
+    credential = api_key_credential(db)
+    return credential is not None and credential.scope == "dataset_append"
+
+
 def credential_key(db: AsyncSession, key: str) -> str:
     """``key`` as stored for the credential that authenticated this request.
 
-    A repeat answers with the stored feature and can apply a newer body to it,
-    so a ``dataset_append`` key, which may not read or change features, only
-    reaches the features it created itself. Hashing keeps the stored form
-    within the column's 128 characters.
+    A ``dataset_append`` key's keys never match another credential's, so its
+    repeat can't stand in for a create it didn't make. Hashing keeps the
+    stored form within the column's 128 characters.
     """
     credential = api_key_credential(db)
     if credential is None or credential.scope != "dataset_append":
         return key
-    return f"api-key:{credential.id}:{hashlib.sha256(key.encode()).hexdigest()}"
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    return f"{CREDENTIAL_KEY_PREFIX}{credential.id}:{digest}"
 
 
 def _retention_cutoff() -> datetime:
