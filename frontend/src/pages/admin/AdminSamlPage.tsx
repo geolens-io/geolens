@@ -8,12 +8,11 @@
  *   gated /auth/saml/* endpoints (SamlProvidersSection is not rendered).
  * - SAML-enabled runtime: renders the full SamlProvidersSection.
  *
- * Three-layer access-control still holds:
+ * Three-layer access control:
  *   Layer 1: backend gate returns 404 on /auth/saml/*.
  *   Layer 2: sidebar nav filter hides the link.
- *   Layer 3: this page renders a notice (previously: Navigate away).
- * The security stance is identical: default-runtime browser never calls
- * /auth/saml/* regardless of whether layer 3 redirects or renders a notice.
+ *   Layer 3: this page renders a notice.
+ * A default-runtime browser never calls /auth/saml/*.
  */
 
 import { useTranslation } from 'react-i18next';

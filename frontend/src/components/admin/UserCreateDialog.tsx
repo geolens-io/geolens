@@ -30,7 +30,6 @@ export function UserCreateDialog({ open, onOpenChange }: UserCreateDialogProps) 
 
   const createUser = useCreateUser();
 
-  // Reset form state when dialog opens
   useEffect(() => {
     if (open) {
       setUsername('');

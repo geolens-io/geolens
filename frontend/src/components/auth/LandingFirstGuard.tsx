@@ -45,7 +45,6 @@ export function LandingFirstGuard() {
   // an opaque origin, and in some private-browsing modes.
   const guestBrowse = readSessionStorage(GUEST_BROWSE_KEY) === 'true';
 
-  // Redirect ONLY when: flag ON + unauthenticated + no guest-browse marker
   if (landingFirst && !token && !guestBrowse) {
     return <Navigate to="/login" replace />;
   }

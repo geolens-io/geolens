@@ -20,8 +20,8 @@ const ADD_BATCH_SIZE = 100;
 
 /**
  * Sends ids in sequential batches and stops at the first failure or when
- * `shouldContinue` turns false. `ids` are the
- * ids of the batches that succeeded; `count` is the total the server reports adding.
+ * `shouldContinue` turns false. `ids` are the ids of the batches that
+ * succeeded; `count` is the total the server reports adding.
  */
 export async function addInBatches(
   ids: string[],

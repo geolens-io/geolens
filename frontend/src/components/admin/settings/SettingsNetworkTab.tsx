@@ -27,9 +27,8 @@ const FIELDS = [
   { key: 'cors_allowed_origins', defaultValue: '' },
   { key: 'global_rate_limit', defaultValue: 60 },
   { key: 'ogc_items_max_page_size', defaultValue: 1000 },
-  // The registry puts these two on tab="network" and their
-  // docstrings say the admin Settings UI is the only control (there is no
-  // env var for either) — but no tab component ever read the keys.
+  // These two live on tab="network"; the admin Settings UI is their only
+  // control (there is no env var for either).
   { key: 'semantic_search_rate_limit', defaultValue: 30 },
   { key: 'basemap_proxy_rate_limit', defaultValue: 120 },
 ] as const;

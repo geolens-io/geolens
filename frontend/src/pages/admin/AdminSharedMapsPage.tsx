@@ -76,7 +76,7 @@ function parseSortOrder(raw: string | null): SortDirection {
 type EmbedTokenStatus = 'active' | 'expiring_soon' | 'expired' | 'revoked';
 
 function getShareStatus(token: AdminShareTokenResponse): 'active' | 'revoked' | 'expired' | 'none' {
-  // #347: a published map may have no share link at all.
+  // A published map may have no share link at all.
   if (!token.id) return 'none';
   if (!token.is_active) return 'revoked';
   if (token.expires_at && new Date(token.expires_at) < new Date()) return 'expired';
@@ -97,10 +97,7 @@ function getEmbedStatus(token: AdminEmbedTokenResponse): EmbedTokenStatus {
   return 'active';
 }
 
-// ---------------------------------------------------------------------------
 // Embed tokens sub-table shown when a share link row is expanded
-// ---------------------------------------------------------------------------
-
 function EmbedTokensSubTable({ mapId }: { mapId: string }) {
   const { t } = useTranslation('admin');
   const { data, isLoading, isError } = useAdminEmbedTokens({ map_id: mapId, limit: 200 });
@@ -141,7 +138,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
       case 'active':
         return <Badge variant="outline" className={semanticBadgeColors.success}>{t('embedTokens.active')}</Badge>;
       case 'expiring_soon': {
-        const days = getDaysLeft(token.expires_at); // reuses already-computed logic
+        const days = getDaysLeft(token.expires_at);
         return (
           <Badge variant="outline" className={semanticBadgeColors.warning}>
             {days <= 0 ? t('embedTokens.expiresToday') : t('embedTokens.expiringSoon', { days })}
@@ -246,10 +243,6 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-
 export function AdminSharedMapsPage() {
   const { t } = useTranslation('admin');
   useDocumentTitle(t('sharedMaps.title'));
@@ -258,12 +251,11 @@ export function AdminSharedMapsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
-  // the history entry rather than pushing — deliberately, per the #1200
-  // review: pushing would make five header clicks cost five Back presses to
-  // leave the page, and it matches JobList's replace-on-refinement pattern
-  // (#1185). The trade is that Back leaves the page instead of stepping
-  // through orderings. An unrecognised ?sort= falls back to the default
-  // rather than erroring the page; the API refuses it independently.
+  // the history entry: pushing would make five header clicks cost five Back
+  // presses to leave the page, and it matches JobList's replace-on-refinement
+  // pattern. The trade is that Back leaves the page instead of stepping
+  // through orderings. An unrecognised ?sort= falls back to the default; the
+  // API refuses it independently.
   const [searchParams, setSearchParams] = useSearchParams();
   const sortField = parseSortField(searchParams.get('sort'));
   const sortOrder = parseSortOrder(searchParams.get('order'));
@@ -420,8 +412,8 @@ export function AdminSharedMapsPage() {
               ) : (
                 tokens.map((token) => {
                   const s = getShareStatus(token);
-                  // #347: expansion is keyed on map_id (always present, one
-                  // row per map) — token.id is now nullable for unshared maps.
+                  // Expansion is keyed on map_id (always present, one row per
+                  // map); token.id is nullable for unshared maps.
                   const isExpanded = expandedId === token.map_id;
                   return (
                     <Fragment key={token.map_id}>

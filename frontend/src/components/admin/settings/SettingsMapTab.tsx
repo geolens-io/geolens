@@ -31,8 +31,8 @@ interface TabProps {
 }
 
 // Client-side mirror of BasemapEntry.validate_tile_url
-// (backend/app/modules/settings/schemas.py) -- kept in sync so this "Add"
-// gate never rejects a URL shape the backend would accept.
+// (backend/app/modules/settings/schemas.py), so this "Add" gate never rejects
+// a URL shape the backend would accept.
 function isValidTileUrl(url: string): boolean {
   const basePath = url.split('?')[0].replace(/\/+$/, '');
   if (basePath.endsWith('.json')) return true;
@@ -41,24 +41,19 @@ function isValidTileUrl(url: string): boolean {
   return isPmtilesArchiveUrl(url);
 }
 
-// A bare PMTiles archive is only renderable as a
-// basemap when it's raster -- toMaplibreStyle wraps it as a single raster
-// layer, and a vector archive has no layer/paint styling to render sensibly
-// (see basemap-utils.ts). Vector vs raster can only be told apart by reading
-// the archive's own header (a small ranged HTTP request), not from the URL
-// shape, so this checks it at the one point a human types in a NEW archive
-// URL, before it's saved as a basemap.
+// A bare PMTiles archive is only renderable as a basemap when it's raster:
+// toMaplibreStyle wraps it as a single raster layer, and a vector archive has
+// no layer/paint styling to render sensibly (see basemap-utils.ts). The two
+// can only be told apart by reading the archive's own header (a small ranged
+// HTTP request), so this checks at the one point a human types in a NEW
+// archive URL, before it's saved as a basemap.
 //
-// `pmtiles` is dynamically imported rather than statically imported here (or
-// in the widely-shared basemap-utils.ts) so it stays out of every bundle that
-// merely imports this admin tab -- it loads only when an archive URL is
-// actually being added.
+// `pmtiles` is dynamically imported so it stays out of every bundle that
+// merely imports this admin tab (or the widely-shared basemap-utils.ts).
 //
 // Fails OPEN on a read error (CORS, network, unsupported archive): MapLibre's
-// own registered pmtiles:// protocol will attempt the identical fetch at
-// render time regardless, so a failed check here does not change what
-// eventually happens on the map -- it only means this admission gate could
-// not pre-empt it.
+// registered pmtiles:// protocol attempts the identical fetch at render time
+// anyway, so a failed check here does not change what happens on the map.
 async function isVectorPmtilesArchive(url: string): Promise<boolean> {
   try {
     const { PMTiles } = await import('pmtiles');
@@ -170,15 +165,12 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset: submitReset
     }
     if (isPmtilesArchiveUrl(trimmedUrl)) {
       setCheckingPmtilesUrl(true);
-      // Probe with the API key
-      // already substituted (mirroring router_public.py's Python
+      // Probe with the API key substituted (mirroring router_public.py's
       // `url.replace("{api_key}", key_value)`, which replaces every
-      // occurrence) -- without this, an authenticated archive's header
-      // request hits a literal `{api_key}` placeholder, 401s/404s, fails
-      // open, and the check never actually inspects the archive that gets
-      // served once the key is substituted server-side. `replaceAll` (not
-      // `replace`) so a URL with the placeholder more than once is fully
-      // substituted, matching Python's all-occurrences default.
+      // occurrence). Otherwise an authenticated archive's header request hits
+      // a literal `{api_key}` placeholder, fails open, and never inspects the
+      // archive that gets served. `replaceAll` matches Python's
+      // all-occurrences default.
       const probeUrl = newApiKey.trim()
         ? trimmedUrl.replaceAll('{api_key}', newApiKey.trim())
         : trimmedUrl;

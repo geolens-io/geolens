@@ -36,10 +36,9 @@ function PanelErrorFallback({ onReset }: { onReset: () => void }) {
 }
 
 /**
- * Recoverable boundary for builder side panels. A render
- * error inside the sidebar previously crashed the whole builder page even
- * though the map and chat were healthy. The `resetKey` remounts the children
- * on retry, mirroring MapErrorBoundary.
+ * Recoverable boundary for builder side panels: a render error inside the
+ * sidebar leaves the map and chat running. The `resetKey` remounts the
+ * children on retry, mirroring MapErrorBoundary.
  */
 export class PanelErrorBoundary extends Component<PanelErrorBoundaryProps, PanelErrorBoundaryState> {
   constructor(props: PanelErrorBoundaryProps) {

@@ -35,10 +35,8 @@ interface ApiKeySectionProps {
 
 export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const { t } = useTranslation('admin');
-  // The flat limit=200 fetch was itself the
-  // backend's hard cap -- a user past 200 keys still had no way to reach
-  // the rest, the exact defect #1778 set out to fix. pageCount grows via
-  // the "Load more" control below until every key is loaded.
+  // The backend caps one fetch at 200 keys; pageCount grows via the "Load
+  // more" control below until every key is loaded.
   const [pageCount, setPageCount] = useState(1);
   const {
     items: keys,
@@ -155,9 +153,8 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {isLoading && <p className="text-sm text-muted-foreground">{t('apiKeys.loadingKeys')}</p>}
 
-      {/* A failed page used to be dropped
-          silently, so the section fell through to "No API keys" (or just
-          stopped growing) with no indication anything went wrong. */}
+      {/* A failed page is surfaced rather than dropped, which would read as
+          "No API keys". */}
       {apiKeysError && (
         <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
           <p className="text-destructive">
@@ -175,8 +172,8 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {keys.length > 0 && (
         <div className="space-y-2">
-          {/* Without the `total` check a user past the 50-key page limit
-              would have no indication more existed. */}
+          {/* Show the total so a user past the 50-key page limit knows more
+              exist. */}
           {total > keys.length && (
             <p className="text-xs text-muted-foreground">
               {t('apiKeys.showingOf', { shown: keys.length, total })}
@@ -205,7 +202,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                     title={t(`apiKeys.${status}`)}
                     aria-hidden="true"
                   />
-                  {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
+                  {/* Text alternative: dot color alone doesn't convey state. */}
                   <span className="sr-only">
                     {t(`apiKeys.${status}`)}
                   </span>

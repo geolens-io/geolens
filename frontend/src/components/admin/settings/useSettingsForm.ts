@@ -105,28 +105,25 @@ export function useSettingsForm<K extends string>(
     setValues(initialValues);
   }, [initialValues]);
 
-  // Tracking lifetime rule: a settings save refetches whether it succeeds
-  // or fails (a failure can follow a partial commit), and that refetch can
-  // land after isSaving settles — so recording stays armed across the
-  // pending→settled edge until the merge effect below sees a refetch that
-  // reflects a later save, which also runs on a refetch that returns
-  // unchanged data. A refetch is taken to reflect every successful save that
-  // had settled when it landed; a failed save acknowledges nothing, so its
-  // markers last until a later successful save's refetch or a discard. Until
-  // then an edited field stays dirty even when it equals the not-yet-refreshed
-  // server value.
+  // A settings save refetches whether it succeeds or fails (a failure can
+  // follow a partial commit), and that refetch can land after isSaving
+  // settles, so recording stays armed across the pending->settled edge until
+  // the merge effect below sees a refetch that reflects a later save (it also
+  // runs on a refetch that returns unchanged data). A refetch is taken to
+  // reflect every successful save that had settled when it landed; a failed
+  // save acknowledges nothing, so its markers last until a later successful
+  // save's refetch or a discard. Until then an edited field stays dirty even
+  // when it equals the not-yet-refreshed server value.
 
-  // Only sync untouched fields on refetch — a mid-edit query
-  // invalidation (e.g. a background refetch) must not wipe drafts.
-  // A field keeps its draft while the server state for it is unchanged.
-  // When the refetch reports a NEW server value OR source for a field,
-  // the server wins — covering save/reset refetches where the backend
-  // canonicalized the submitted value (settings/router.py trims and
-  // normalizes some values) and resets that only remove an override
-  // whose value equals the default (only `source` moves) — so an
-  // acknowledged save or reset reads pristine instead of staying dirty
-  // forever — UNLESS the draft moved again after the save was
-  // submitted, in which case the newer edit survives and stays dirty.
+  // Only sync untouched fields on refetch: a mid-edit query invalidation must
+  // not wipe drafts. A field keeps its draft while the server state for it is
+  // unchanged. When the refetch reports a NEW server value or source, the
+  // server wins. That covers refetches where the backend canonicalized the
+  // submitted value (settings/router.py trims and normalizes some values) and
+  // resets that only remove an override whose value equals the default (only
+  // `source` moves), so an acknowledged save or reset reads pristine instead
+  // of staying dirty forever. The exception is a draft that moved again after
+  // the save was submitted: the newer edit survives and stays dirty.
   const baselineRef = useRef(initialValues);
   const sourcesBaselineRef = useRef(serverSources);
   useEffect(() => {

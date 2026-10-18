@@ -121,7 +121,6 @@ export function UserList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<UserResponse | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserResponse | null>(null);
@@ -133,12 +132,11 @@ export function UserList() {
   const [isExporting, setIsExporting] = useState(false);
 
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
-  // the history entry rather than pushing — deliberately, per #1200 review:
-  // pushing would make five header clicks cost five Back presses to leave the
-  // page, and it matches JobList's replace-on-refinement pattern (#1185). The
-  // trade is that Back leaves the page instead of stepping through orderings.
-  // An unrecognised ?sort= falls back to the default rather than erroring the
-  // page; the API refuses it independently.
+  // the history entry: pushing would make five header clicks cost five Back
+  // presses to leave the page, and it matches JobList's replace-on-refinement
+  // pattern. The trade is that Back leaves the page instead of stepping
+  // through orderings. An unrecognised ?sort= falls back to the default; the
+  // API refuses it independently.
   const [searchParams, setSearchParams] = useSearchParams();
   const sortField = parseSortField(searchParams.get('sort'));
   const sortOrder = parseSortOrder(searchParams.get('order'));
@@ -224,8 +222,8 @@ export function UserList() {
     }
   }
 
-  // Was `window.open('/api/admin/users/export.csv')`, which
-  // carries no Authorization header and so returned a 401 JSON body in a new tab.
+  // A plain window.open carries no Authorization header and would get a 401,
+  // so the export is fetched through the API client.
   async function handleExportCsv() {
     setIsExporting(true);
     try {
@@ -355,9 +353,9 @@ export function UserList() {
                   { width: 'w-8' },
                 ]} />
               ) : isEmpty ? (
-                /* Filtering to zero used to render an empty
-                   table body, which reads as a broken page. Siblings (JobList,
-                   AuditLog, SharedMaps) all say something here. */
+                /* Filtering to zero would render an empty table body, which
+                   reads as a broken page; siblings (JobList, AuditLog,
+                   SharedMaps) all say something here. */
                 <TableRow>
                   <TableCell colSpan={8}>
                     <EmptyState

@@ -14,11 +14,9 @@ import { ReportProblemWizard } from './ReportProblemWizard';
  *
  * Available to everyone, signed in or not. Capture runs app-wide via
  * initReportCapture() (main.tsx); this only owns the affordance + wizard.
- * Anonymous visitors matter here: on a public instance most traffic browses
- * without an account, the floating button only appears once an error is
- * captured, and the wizard's output is a prefilled GitHub issue — nothing
- * about it needs a GeoLens session. (Originally auth-gated; relaxed so an
- * anonymous visitor who hits a broken map can still tell someone.)
+ * Nothing in the wizard needs a GeoLens session (its output is a prefilled
+ * GitHub issue), so an anonymous visitor who hits a broken map can still tell
+ * someone.
  */
 export function ReportProblemHost() {
   const entries = useReportEntries();

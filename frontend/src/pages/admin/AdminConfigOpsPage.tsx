@@ -82,8 +82,6 @@ function actionBadgeVariant(action: string): 'default' | 'secondary' | 'destruct
   }
 }
 
-// --- Export Section ---
-
 function ExportSection() {
   const { t } = useTranslation();
   const exportMutation = useExportConfig();
@@ -146,8 +144,6 @@ function ExportSection() {
     </Card>
   );
 }
-
-// --- Validate Section ---
 
 function ServiceRow({ name, probe }: { name: string; probe: ServiceProbeResult }) {
   const { t } = useTranslation();
@@ -245,8 +241,6 @@ function ValidateSection() {
     </Card>
   );
 }
-
-// --- Import Section ---
 
 function ImportSection() {
   const { t } = useTranslation();
@@ -658,8 +652,6 @@ function ImportSection() {
     </>
   );
 }
-
-// --- Main Page ---
 
 export function AdminConfigOpsPage() {
   const { t } = useTranslation();

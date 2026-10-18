@@ -203,18 +203,17 @@ function OAuthProvidersSection() {
   // still be seen and cleared if the edition lookup fails.
   const showGroupFields = (isEnterprise || !editionResolved) && form.provider_type !== 'github';
   const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
-  // #305: derive the callback from the CONFIGURED public
-  // API URL (what the backend builds redirect_uri from, same as SAML settings),
-  // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
-  // custom API root would otherwise hand admins the wrong redirect URI.
+  // Derive the callback from the CONFIGURED public API URL (what the backend
+  // builds redirect_uri from, same as SAML settings), not the browser origin:
+  // split frontend/API hosts, reverse proxies or a custom API root would
+  // otherwise hand admins the wrong redirect URI.
   const oauthCallbackUrl = `${getPublicApiBaseUrl(tileConfig) ?? `${window.location.origin}/api`}/auth/oauth/${form.slug || '<provider>'}/callback`;
-  // #305: the OAuth login path resolves redirect_uri from an EXPLICITLY
-  // configured public URL (for_external_use) and raises if none is set, but
-  // both /settings/all and tile-config return a request-derived value — so the
-  // client cannot reliably tell "configured" from "derived" (neither source nor
-  // value is authoritative). Rather than gate copy on an unreliable heuristic,
-  // the field is informational and the hint states the hard requirement that
-  // the deployment's Public API URL (PUBLIC_API_URL) be configured to match.
+  // The OAuth login path resolves redirect_uri from an EXPLICITLY configured
+  // public URL (for_external_use) and raises if none is set, but both
+  // /settings/all and tile-config return a request-derived value, so the
+  // client cannot tell "configured" from "derived". The field is therefore
+  // informational and the hint states the requirement that the deployment's
+  // Public API URL (PUBLIC_API_URL) be configured to match.
 
   function openAddDialog() {
     setEditingProvider(null);
@@ -224,7 +223,6 @@ function OAuthProvidersSection() {
 
   function openEditDialog(provider: OAuthProviderConfig) {
     setEditingProvider(provider);
-    // Extract tenant ID from Microsoft discovery URL if applicable
     let tenantId = '';
     if (provider.provider_type === 'microsoft' && provider.discovery_url) {
       const match = provider.discovery_url.match(/microsoftonline\.com\/([^/]+)\//);
@@ -515,7 +513,7 @@ function OAuthProvidersSection() {
               )}
             </div>
 
-            {/* #305: read-only redirect/callback URL admins must register with the provider. */}
+            {/* Read-only redirect/callback URL admins must register with the provider. */}
             <div className="space-y-2">
               <Label htmlFor="callback-url">
                 {t('settings.oauth.callbackUrl')}
@@ -531,15 +529,15 @@ function OAuthProvidersSection() {
                   type="button"
                   variant="outline"
                   size="icon"
-                  // #305: until tile-config resolves, the URL may still be the
-                  // origin fallback (wrong on split-host deployments) — block
-                  // copying so an admin can't register a premature value.
+                  // Until tile-config resolves, the URL may still be the origin
+                  // fallback (wrong on split-host deployments); block copying
+                  // so an admin can't register a premature value.
                   disabled={tileConfigLoading}
                   aria-label={t('settings.oauth.copyCallbackUrl')}
                   onClick={async () => {
-                    // #305: the Clipboard API is unavailable on non-secure
-                    // (HTTP) origins and can reject — await + catch so a failure
-                    // surfaces an error toast instead of a false success / throw.
+                    // The Clipboard API is unavailable on non-secure (HTTP)
+                    // origins and can reject; await + catch so a failure
+                    // surfaces an error toast instead of a false success.
                     try {
                       await navigator.clipboard.writeText(oauthCallbackUrl);
                       toast.success(t('settings.oauth.callbackUrlCopied'));

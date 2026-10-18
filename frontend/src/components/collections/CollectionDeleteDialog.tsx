@@ -60,7 +60,7 @@ export function CollectionDeleteDialog({ collection, open, onOpenChange }: Colle
         </AlertDialogHeader>
 
         <div className="space-y-2">
-          {/* #305: link the confirm input to the prompt; placeholder is not an accessible name */}
+          {/* Link the confirm input to the prompt; a placeholder is not an accessible name */}
           <p id="collection-delete-confirm-prompt" className="text-sm font-medium">{t('deleteDialog.confirmPrompt')}</p>
           <Input
             value={confirmName}

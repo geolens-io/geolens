@@ -59,7 +59,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* #305: on a server error mark the credential fields invalid + describe by the error */}
+          {/* On a server error mark the credential fields invalid + describe by the error */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="username" className="text-xs">{t('username')}</Label>
             <Input

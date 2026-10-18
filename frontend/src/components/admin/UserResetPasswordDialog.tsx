@@ -24,8 +24,8 @@ interface UserResetPasswordDialogProps {
 }
 
 /**
- * The administrator half of "Contact a GeoLens administrator for a
- * password reset", which the login page has always said and nothing could do.
+ * The administrator half of "Contact a GeoLens administrator for a password
+ * reset".
  *
  * One field, no generated value and no clipboard copy: the administrator picks
  * the credential and hands it over out of band, which keeps the value out of
@@ -45,16 +45,15 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
     if (open) setPassword('');
   }, [open]);
 
-  // A close while the request is in flight would unmount
-  // the dialog without stopping the reset, so the password would change and the
-  // account's credentials be revoked with the UI showing nothing at all. Every
-  // dismissal route (Cancel, the X, Escape, the overlay) goes through here, so
-  // refusing the close covers all of them.
+  // A close while the request is in flight would unmount the dialog without
+  // stopping the reset, so the password would change and the account's
+  // credentials be revoked with the UI showing nothing. Every dismissal route
+  // (Cancel, the X, Escape, the overlay) goes through here, so refusing the
+  // close covers all of them.
   //
-  // The request is deliberately NOT aborted. Aborting the fetch would not undo
-  // a commit the backend may already have made, so it would swap a confusing
-  // outcome for an unknowable one; blocking until it resolves is what keeps the
-  // dialog's report of what happened true.
+  // The request is deliberately NOT aborted: aborting would not undo a commit
+  // the backend may already have made, so it would swap a confusing outcome
+  // for an unknowable one.
   function handleOpenChange(next: boolean) {
     if (resetPassword.isPending && !next) return;
     onOpenChange(next);
@@ -69,19 +68,18 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
       // the guard above would swallow the close it is meant to allow.
       onOpenChange(false);
       if (isSelf) {
-        // The reset revoked this very session, so the
-        // persisted token is already dead. Without this the UI keeps rendering
-        // as signed in until some later request happens to 401, contradicting
-        // the warning this dialog just showed.
+        // The reset revoked this very session, so the persisted token is
+        // already dead. Without this the UI keeps rendering as signed in until
+        // some later request 401s.
         //
-        // This goes through useAuth's logout, not the
-        // store's. The store action only bumps sessionEpoch, which stops a
-        // late refresh writing tokens back but does NOT stop the browser
-        // processing its Set-Cookie: a refresh still in flight could land
-        // after the admin signs in again and overwrite the new refresh cookie
-        // with the one this reset revoked. useAuth's logout calls
-        // abortInflightRefresh() first, and is the single place that ends a
-        // session properly (cache teardown and the redirect come with it).
+        // This goes through useAuth's logout, not the store's. The store
+        // action only bumps sessionEpoch, which stops a late refresh writing
+        // tokens back but does NOT stop the browser processing its Set-Cookie:
+        // a refresh still in flight could land after the admin signs in again
+        // and overwrite the new refresh cookie with the one this reset
+        // revoked. useAuth's logout calls abortInflightRefresh() first and is
+        // the single place that ends a session properly (cache teardown and
+        // the redirect come with it).
         await logout();
       }
     } catch {

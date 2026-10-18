@@ -14,8 +14,8 @@ interface RoleSelectProps {
   disabled?: boolean;
 }
 
-// Was a native <select>, which skips the 44px coarse-pointer
-// target treatment and the app's themed dropdown. Routed through ui/select.
+// Routed through ui/select for the 44px coarse-pointer target treatment and
+// the app's themed dropdown.
 export function RoleSelect({ id, value, onChange, disabled }: RoleSelectProps) {
   const { t } = useTranslation('admin');
 

@@ -33,7 +33,7 @@ export function AdminCapabilityRoute({ capability }: { capability: Capability })
 
 // The /settings/* and /config-ops/* APIs are gated mode-aware
 // (manage_settings single-tenant, manage_tenants multi-tenant), so the route
-// gate must switch the same way — a plain manage_settings gate admitted
+// gate must switch the same way: a plain manage_settings gate would admit
 // multi-tenant per-tenant admins whose every settings request 403s.
 export function AdminSettingsRoute() {
   const { isLoading: permissionsLoading } = usePermissions();

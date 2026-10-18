@@ -16,12 +16,8 @@ interface ApiKeyScopeSelectProps {
 }
 
 /**
- * Scope picker for a new API key (#875).
- *
- * Shared by the self-service and admin mint forms so the two surfaces cannot
- * drift: an admin minting a service-account key is the most likely caller to
- * want `read_only`, and it would be odd for that surface to offer a different
- * set of choices than a user minting their own.
+ * Scope picker for a new API key, shared by the self-service and admin mint
+ * forms so both surfaces offer the same choices.
  */
 export function ApiKeyScopeSelect({ value, onChange, disabled }: ApiKeyScopeSelectProps) {
   const { t } = useTranslation('admin');

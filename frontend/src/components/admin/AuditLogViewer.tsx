@@ -54,15 +54,13 @@ const RESOURCE_ROUTES: Record<string, string> = {
   collection: '/collections',
 };
 
-// Canonical action strings currently emitted by audited application paths. Keep
-// the exact stored values visible so operators can correlate filters with API
-// responses and SIEM rules instead of relying on stale display-only aliases.
-//
-// Kept in sync by hand against the backend's authoritative
-// registry (backend/app/modules/audit/actions.py, enforced there by
-// test_audit_action_registry.py) — this array itself is not generated.
-// The `layer.*` entries are column changes. Adding, removing or reordering a
-// map's layers in the builder writes to map edit history, not audit_logs.
+// Canonical action strings emitted by audited application paths, kept as the
+// exact stored values so operators can correlate filters with API responses
+// and SIEM rules. Maintained by hand against the backend registry
+// (backend/app/modules/audit/actions.py, enforced there by
+// test_audit_action_registry.py). The `layer.*` entries are column changes;
+// adding, removing or reordering a map's layers in the builder writes to map
+// edit history, not audit_logs.
 const CURRENT_AUDIT_ACTIONS = [
   'api_key.create',
   'api_key.revoke',
@@ -174,12 +172,11 @@ export function AuditLogViewer() {
   const { can } = usePermissions();
   const canSelectUser = can('manage_users');
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
-  // the history entry rather than pushing — deliberately, per the #1200
-  // review: pushing would make five header clicks cost five Back presses to
-  // leave the page, and it matches JobList's replace-on-refinement pattern
-  // (#1185). The trade is that Back leaves the page instead of stepping
-  // through orderings. An unrecognised ?sort= falls back to the default
-  // rather than erroring the page; the API refuses it independently.
+  // the history entry: pushing would make five header clicks cost five Back
+  // presses to leave the page, and it matches JobList's replace-on-refinement
+  // pattern. The trade is that Back leaves the page instead of stepping
+  // through orderings. An unrecognised ?sort= falls back to the default; the
+  // API refuses it independently.
   const [searchParams, setSearchParams] = useSearchParams();
   const sortField = parseSortField(searchParams.get('sort'));
   const sortOrder = parseSortOrder(searchParams.get('order'));

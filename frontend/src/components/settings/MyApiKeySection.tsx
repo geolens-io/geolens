@@ -166,8 +166,8 @@ export function MyApiKeySection() {
                     }`}
                     aria-hidden="true"
                   />
-                  {/* Replace dot+title+sr-only with a visible status badge so state is
-                      conveyed as visible text, not color alone. The dot stays as a secondary visual cue. */}
+                  {/* A visible status badge, so state is conveyed as text and not
+                      color alone. The dot stays as a secondary visual cue. */}
                   <Badge
                     className={cn(
                       'px-1.5',

@@ -83,20 +83,19 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const canRegenerateAfterChange = canProbe;
   const { isMultiTenant } = useEdition();
   const { data: keyStatus } = useApiKeyStatus();
-  // Coverage/backfill are manage_users operations in BOTH tenancy modes
-  // (see /admin/embedding-stats + /admin/backfill-embeddings) — deliberately
-  // NOT useAIStatusReader (#653). A settings-only operator can configure
-  // embeddings without issuing forbidden operational probes.
+  // Coverage/backfill are manage_users operations in BOTH tenancy modes (see
+  // /admin/embedding-stats + /admin/backfill-embeddings), deliberately NOT
+  // useAIStatusReader. A settings-only operator can configure embeddings
+  // without issuing forbidden operational probes.
   const { data: embeddingStatsData } = useEmbeddingStats({ enabled: canManageUsers });
   const embeddingStats = canManageUsers ? embeddingStatsData : undefined;
   const backfill = useBackfillEmbeddings();
-  // The id of the run this page queued, polled to its
-  // terminal state so the coverage figure above refreshes when it lands.
+  // The id of the run this page queued, polled to its terminal state so the
+  // coverage figure above refreshes when it lands.
   const [backfillJobId, setBackfillJobId] = useState<string | null>(null);
   const backfillJob = useBackfillJobStatus(backfillJobId);
-  // A run somebody else started counts too. Tracking only the job
-  // this page queued left both buttons live for every other operator, whose
-  // click then bought a 409 the guard had to refuse.
+  // A run somebody else started counts too, so another operator's click
+  // doesn't buy a 409 the guard has to refuse.
   const backfillRunning =
     backfillJob.data?.status === 'pending' ||
     backfillJob.data?.status === 'running' ||
@@ -113,7 +112,6 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     setProbe(null);
   }, [settings]);
 
-  // Alias for readability in JSX
   const aiEnabled = values.ai_enabled as boolean;
   const sendSampleValues = values.ai_send_sample_values as boolean;
   const maxAiTokensPerDay = values.max_ai_tokens_per_user_per_day as number;
@@ -127,11 +125,10 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
 
   const handleBackfill = (force = false) => {
     if (!canManageUsers) return;
-    // The run is queued, not done by the time this resolves —
-    // a full regenerate takes minutes and would hold the request open past
-    // the 600s edge timeout. There are no counts to report yet.
-    // Keep the job id so the run is actually tracked to
-    // its end, rather than acknowledged and forgotten.
+    // The run is queued, not done by the time this resolves: a full
+    // regenerate takes minutes and would hold the request open past the 600s
+    // edge timeout, so there are no counts to report yet. The job id is kept
+    // so the run is tracked to its end.
     backfill.mutate({ force }, {
       onSuccess: (data) => {
         setBackfillJobId(data.job_id);
@@ -593,10 +590,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                 />
               </div>
               <div className="flex gap-2">
-                {/* The non-force backfill now selects on "no
-                    vector under the ACTIVE model", so it covers stale records
-                    too — the #1503 gate that subtracted them hid this button
-                    on the one catalog state it can fix most cheaply. */}
+                {/* The non-force backfill selects on "no vector under the
+                    ACTIVE model", so it covers stale records too. */}
                 {embeddingStats.missing_records > 0 && (
                   <Button
                     variant="outline"

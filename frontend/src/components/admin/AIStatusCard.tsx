@@ -17,10 +17,8 @@ import { Badge } from '@/components/ui/badge';
 export function AIStatusCard() {
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
-  // /admin/ai-status is gated by require_ai_status_reader, which
-  // switches from manage_users to manage_tenants in multi-tenant mode — a
-  // manage_users-only gate hid the card from multi-tenant operators and fired
-  // queries the backend 403s.
+  // /admin/ai-status is gated by require_ai_status_reader, which switches from
+  // manage_users to manage_tenants in multi-tenant mode.
   const canReadAIStatus = useAIStatusReader();
   const canManageUsers = can('manage_users');
   // The settings link targets /admin/settings/ai, whose route gate

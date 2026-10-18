@@ -126,7 +126,7 @@ export function useRemoveDatasetFromCollection() {
       });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
-    // CollectionDetailPage also toasted; the hook now owns it.
+    // The hook owns the error toast, so callers don't toast again.
     onError: (err) => { toast.error(formatMutationError('collections:toasts.removeDatasetFailed', err)); },
   });
 }
