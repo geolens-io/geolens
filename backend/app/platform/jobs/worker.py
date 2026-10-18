@@ -605,9 +605,9 @@ async def main() -> None:
     sweep_stale_gdal_header_files()
 
     # bootstrap(app=None) is worker mode, skipping router/billing. Runs
-    # before run_worker_async so every single-slot port is resolved before
-    # any task uses it, and the worker never runs community ports on a
-    # licensed deployment.
+    # before run_worker_async so overlay ports are registered before any task
+    # uses them; assert_enterprise_ports_resolved then fails loud if a port
+    # the edition requires is still its community default.
     from app.platform.extensions.bootstrap import (
         bootstrap,
         assert_enterprise_ports_resolved,
