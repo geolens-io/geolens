@@ -35,6 +35,7 @@ const fakeMap = vi.hoisted(
     new Proxy({} as Record<string, unknown>, {
       get(target, prop: string) {
         if (prop === 'fitBounds' || prop === 'flyTo') return mapSpy[prop];
+        if (prop === 'getContainer') return () => containerState.el ?? document.createElement('div');
         if (!(prop in target)) target[prop] = vi.fn();
         return target[prop];
       },
@@ -99,14 +100,10 @@ vi.mock('@vis.gl/react-maplibre', async () => {
     },
     Layer: ({ id }: { id?: string }) => <div data-testid={`layer-${id}`} />,
     NavigationControl: () => <div data-testid="nav-control" />,
-    AttributionControl: ({ compact }: { compact?: boolean }) => (
-      <div data-testid="attribution-control" data-compact={String(compact)} />
-    ),
   };
 });
 
-const mobileState = vi.hoisted(() => ({ isMobile: false }));
-vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => mobileState.isMobile }));
+const containerState = vi.hoisted(() => ({ el: null as HTMLElement | null }));
 
 vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
@@ -294,19 +291,28 @@ describe('DatasetMap interaction state', () => {
     );
   });
 
-  it('collapses the attribution control on a narrow viewport only', () => {
+  it('folds the open attribution control on a narrow map only', () => {
     const props = { bbox: [-10, -10, 10, 10] as [number, number, number, number], tableName: 't', geometryType: 'Polygon', datasetId: 'dataset-1' };
-    const { unmount } = render(<DatasetMap {...props} />);
-    expect(screen.getByTestId('attribution-control')).toHaveAttribute('data-compact', 'false');
-    unmount();
+    const mountWithWidth = (width: number) => {
+      const container = document.createElement('div');
+      Object.defineProperty(container, 'clientWidth', { value: width });
+      container.innerHTML = '<details class="maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show" open></details>';
+      containerState.el = container;
+      mapSpy.attachMapInstance = true;
+      const { unmount } = render(<DatasetMap {...props} />);
+      return { attrib: container.querySelector('.maplibregl-ctrl-attrib')!, unmount };
+    };
 
-    mobileState.isMobile = true;
-    try {
-      render(<DatasetMap {...props} />);
-      expect(screen.getByTestId('attribution-control')).toHaveAttribute('data-compact', 'true');
-    } finally {
-      mobileState.isMobile = false;
-    }
+    const { attrib: narrow, unmount } = mountWithWidth(390);
+    expect(narrow).not.toHaveAttribute('open');
+    expect(narrow).not.toHaveClass('maplibregl-compact-show');
+
+    unmount();
+    const { attrib: wide } = mountWithWidth(1200);
+    expect(wide).toHaveAttribute('open');
+    expect(wide).toHaveClass('maplibregl-compact-show');
+    mapSpy.attachMapInstance = false;
+    containerState.el = null;
   });
 
   it('draws the dashed extent outline for a regional dataset', () => {

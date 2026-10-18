@@ -1,10 +1,9 @@
 import { memo, useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Map as MapGL, Source, Layer, NavigationControl, AttributionControl } from '@vis.gl/react-maplibre';
+import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { useMapLocale } from '@/hooks/use-map-locale';
-import { useIsMobile } from '@/hooks/use-mobile';
 import {
   getThemeBasemap,
   makeStyleImageMissingResolver,
@@ -225,7 +224,6 @@ export const DatasetMap = memo(function DatasetMap({
         );
   }
 
-  const isMobile = useIsMobile();
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
@@ -803,6 +801,15 @@ export const DatasetMap = memo(function DatasetMap({
       mapRef.current = map;
       setMapInstance(map);
 
+      // MapLibre's compact attribution starts expanded and only folds on the
+      // first drag; fold it now so it doesn't cover a narrow preview.
+      const container = map.getContainer();
+      if (container.clientWidth <= 640) {
+        const attrib = container.querySelector('.maplibregl-ctrl-attrib');
+        attrib?.classList.remove('maplibregl-compact-show');
+        attrib?.removeAttribute('open');
+      }
+
       // Absolutify URLs and attach auth header for raster tile requests.
       // Shared builder — react-maplibre v8 ignores the
       // transformRequest PROP after mount, so each map wires it here in onLoad.
@@ -1217,7 +1224,6 @@ export const DatasetMap = memo(function DatasetMap({
       <MapGL
         initialViewState={initialViewState}
         mapStyle={initialBasemapStyle.current ?? ''}
-        attributionControl={false}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
         locale={mapLocale}
@@ -1230,32 +1236,31 @@ export const DatasetMap = memo(function DatasetMap({
         onError={logUnhandledMapError}
       >
         <NavigationControl position="top-right" />
-        {/* Remount on breakpoint change: the control reads `compact` once at construction. */}
-        <AttributionControl key={String(isMobile)} compact={isMobile} position="bottom-right" />
 
         {/* Bbox overlay for spatial context */}
         {bboxGeojson && (
           <Source id="bbox-source" type="geojson" data={bboxGeojson} attribution={bboxAttribution ?? undefined}>
+            {/* Direct children: Source injects `source` into each, which a fragment would swallow. */}
             {!showsWorldExtent && (
-              <>
-                <Layer
-                  id="bbox-fill"
-                  type="fill"
-                  paint={{
-                    'fill-color': MAP_COLORS.default.fill,
-                    'fill-opacity': 0.1,
-                  }}
-                />
-                <Layer
-                  id="bbox-line"
-                  type="line"
-                  paint={{
-                    'line-color': MAP_COLORS.default.fill,
-                    'line-width': 2,
-                    'line-dasharray': [2, 2],
-                  }}
-                />
-              </>
+              <Layer
+                id="bbox-fill"
+                type="fill"
+                paint={{
+                  'fill-color': MAP_COLORS.default.fill,
+                  'fill-opacity': 0.1,
+                }}
+              />
+            )}
+            {!showsWorldExtent && (
+              <Layer
+                id="bbox-line"
+                type="line"
+                paint={{
+                  'line-color': MAP_COLORS.default.fill,
+                  'line-width': 2,
+                  'line-dasharray': [2, 2],
+                }}
+              />
             )}
           </Source>
         )}
