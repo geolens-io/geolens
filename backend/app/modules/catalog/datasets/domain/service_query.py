@@ -406,18 +406,14 @@ def _build_where_filters(
     *,
     after_gid: int,
     limit: int,
-    keyset: str | None,
+    keyset: str,
 ) -> tuple[str, dict[str, object]]:
     """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
 
-    ``keyset`` is the predicate selecting rows after ``after_gid``; None means
-    the first page of a sorted read, which has no predicate.
+    ``keyset`` is the predicate selecting rows after ``after_gid``.
     """
-    where_clauses: list[str] = []
-    bind_params: dict[str, object] = {"limit": limit}
-    if keyset is not None:
-        where_clauses.append(f"({keyset})")
-        bind_params["after_gid"] = after_gid
+    where_clauses: list[str] = [f"({keyset})"]
+    bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
     for col_name, search_term in (filters or {}).items():
         if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
@@ -429,8 +425,6 @@ def _build_where_filters(
             f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
         )
         bind_params[param_key] = f"%{search_term}%"
-    if not where_clauses:
-        return "", bind_params
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
 
@@ -447,13 +441,14 @@ async def _select_rows(
     descending: bool,
 ) -> list[dict]:
     """Run the page query; a sorted page continues from the cursor row's value."""
-    keyset: str | None = "gid > :after_gid"
+    # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
+    # could never be a cursor, since `after` starts at 0 and can't go negative.
+    keyset = "gid > :after_gid"
     anchor: dict[str, object] = {}
     order_sql = "gid"
     if sort_col is not None:
         direction = "DESC" if descending else "ASC"
         order_sql = f"{sort_col} {direction} NULLS LAST, gid"
-        keyset = None
         if after_gid:
             found = (
                 await db.execute(
@@ -467,8 +462,10 @@ async def _select_rows(
                 # The cursor row was deleted since the last page, so there is
                 # no position to continue from.
                 return []
-            keyset = _sorted_keyset(
-                sort_col, descending=descending, anchor_is_null=found[0] is None
+            keyset = "gid > 0 AND ({})".format(
+                _sorted_keyset(
+                    sort_col, descending=descending, anchor_is_null=found[0] is None
+                )
             )
             if found[0] is not None:
                 anchor["anchor"] = found[0]

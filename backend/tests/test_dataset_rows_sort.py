@@ -306,3 +306,72 @@ async def test_each_sortable_type_binds_back_as_the_next_page_anchor(
             break
         after = data["next_cursor"]
     assert gids == expected
+
+
+@pytest.fixture
+async def low_gid_dataset(test_db_session):
+    table = f"test_rows_lowgid_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{table} (gid integer PRIMARY KEY, value integer)")
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (gid, value) VALUES "
+            "(-1, 1), (0, 2), (1, 3), (2, 1), (3, NULL)"
+        )
+    )
+    await test_db_session.commit()
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Low Gid Rows Dataset",
+        table_name=table,
+        visibility="public",
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "value", "type": "integer"},
+        ],
+    )
+
+    yield ds
+
+    await test_db_session.execute(
+        text(
+            "DELETE FROM catalog.records WHERE id IN "
+            "(SELECT record_id FROM catalog.datasets WHERE table_name = :t)"
+        ).bindparams(t=table)
+    )
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await test_db_session.commit()
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ({}, [1, 2, 3]),
+        ({"sort": "value", "order": "asc"}, [2, 1, 3]),
+        ({"sort": "value", "order": "desc"}, [1, 2, 3]),
+    ],
+)
+async def test_sorted_pages_skip_gids_unsorted_paging_skips(
+    client: AsyncClient, admin_auth_header: dict, low_gid_dataset, params, expected
+):
+    """Rows at gid 0 or below can't be cursors; a sorted read leaves them out too."""
+    gids: list[int] = []
+    after = 0
+    for _ in range(6):
+        resp = await client.get(
+            f"/datasets/{low_gid_dataset.id}/rows/",
+            params={"limit": 1, "after": after, **params},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        gids.extend(r["gid"] for r in data["rows"])
+        if data["next_cursor"] is None:
+            break
+        after = data["next_cursor"]
+    else:
+        raise AssertionError(f"pagination did not terminate: {gids}")
+    assert gids == expected
