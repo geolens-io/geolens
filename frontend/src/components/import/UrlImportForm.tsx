@@ -46,9 +46,11 @@ type UrlStep =
  * terminal. It deliberately does NOT reuse `use-ingest`'s
  * `isTerminalJobStatus`, which enumerates the terminal set and so treats an
  * unknown status as still running: right for a poll interval, wrong for an
- * escape hatch. An unknown status here fails toward offering the escape hatch:
- * a spurious "Import another" on a live job is cosmetic, a job with no way
- * out strands the tab for the rest of the SPA session.
+ * escape hatch. An unknown status here fails toward offering the escape hatch.
+ * A spurious "Import another" on a live job costs this tab its tracking of
+ * that job (reset clears the session and the job id) while the job itself
+ * runs on; a job with no way out strands the tab for the rest of the SPA
+ * session.
  */
 const IN_FLIGHT_JOB_STATUSES: ReadonlySet<string> = new Set(['pending', 'running']);
 

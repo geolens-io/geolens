@@ -96,7 +96,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
 
   // Non-ArcGIS credential method. `token` above is reused for the bearer
   // branch, as for ArcGIS's 'token' method; the two are mutually exclusive
-  // branches of the ternary below, so neither's value reaches a request.
+  // branches of the ternary below, so neither can read the other's value into
+  // a request.
   const [serviceCredentialMethod, setServiceCredentialMethod] =
     useState<ServiceCredentialMethod>('none');
   const [basicUsername, setBasicUsername] = useState('');
