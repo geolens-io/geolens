@@ -8,6 +8,7 @@ import {
 import { useTileConfig } from '@/hooks/use-settings';
 import { CopyButton } from '@/components/ui/copy-button';
 import { cn } from '@/lib/utils';
+import { exportFilename } from '@/lib/export-formats';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react';
@@ -29,6 +30,8 @@ interface DistributionsListProps {
    * + `_check_record_ownership` guard on the distribution PATCH endpoint.
    * Everyone else keeps the read-only view (#1395). */
   canEdit?: boolean;
+  /** Names exported downloads after the dataset, e.g. `<title>.zip` for a shapefile. */
+  datasetTitle?: string;
   /** A non-public dataset's own vector tile URL is listed with an API key placeholder. */
   visibility?: DatasetVisibility;
 }
@@ -58,9 +61,11 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
 function CopyableUrl({
   distribution,
   publicApiUrl,
+  datasetTitle,
   className,
 }: {
   distribution: DistributionResponse;
+  datasetTitle?: string;
   publicApiUrl: string | null | undefined;
   className?: string;
 }) {
@@ -113,7 +118,10 @@ function CopyableUrl({
     setDownloading(true);
     try {
       const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
-      await authenticatedDownload(resolvedUrl, `${base}.${distribution.format}`);
+      const exportName = datasetTitle && distribution.distribution_type === 'download'
+        ? exportFilename(datasetTitle, distribution.format ?? '')
+        : null;
+      await authenticatedDownload(resolvedUrl, exportName ?? `${base}.${distribution.format}`);
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -264,7 +272,7 @@ function groupByType(
   return groups;
 }
 
-export function DistributionsList({ recordId, canEdit = false, visibility = 'public' }: DistributionsListProps) {
+export function DistributionsList({ recordId, canEdit = false, visibility = 'public', datasetTitle }: DistributionsListProps) {
   const { t } = useTranslation('dataset');
   const { data, isLoading, error } = useDistributions(recordId);
   const { data: tileConfig } = useTileConfig();
@@ -334,6 +342,7 @@ export function DistributionsList({ recordId, canEdit = false, visibility = 'pub
                   <CopyableUrl
                     distribution={dist}
                     publicApiUrl={publicApiBaseUrl}
+                    datasetTitle={datasetTitle}
                     className="min-w-56 flex-1 basis-56"
                   />
                 </div>
@@ -345,17 +354,24 @@ export function DistributionsList({ recordId, canEdit = false, visibility = 'pub
           </ul>
         </section>
       ))}
-      {parquet && <DuckDbHint distribution={parquet} />}
+      {parquet && <DuckDbHint distribution={parquet} datasetTitle={datasetTitle} />}
     </div>
   );
 }
 
 /** GeoParquet is lakehouse-native: a copy-paste DuckDB snippet makes the download queryable, not just archived. */
-function DuckDbHint({ distribution }: { distribution: DistributionResponse }) {
+function DuckDbHint({
+  distribution,
+  datasetTitle,
+}: {
+  distribution: DistributionResponse;
+  datasetTitle?: string;
+}) {
   const { t } = useTranslation('dataset');
-  // Mirror the saved filename: browsers replace path separators, and a single quote must be doubled to stay a valid DuckDB string literal.
-  const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
-  const file = `${base}.${distribution.format}`.replace(/'/g, "''");
+  const saved = (datasetTitle && exportFilename(datasetTitle, distribution.format ?? ''))
+    || `${(distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_')}.${distribution.format}`;
+  // A single quote must be doubled to stay a valid DuckDB string literal.
+  const file = saved.replace(/'/g, "''");
   const snippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${file}' LIMIT 10;`;
 
   return (

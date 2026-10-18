@@ -208,7 +208,7 @@ describe('ValidationStatus', () => {
         { field: 'lineage_summary', message: 'Lineage summary is required', severity: 'error' },
         { field: 'srid', message: 'CRS is required', severity: 'error' },
       ],
-      warnings: [{ field: 'attribute_descriptions', message: '3 attribute(s) missing descriptions', severity: 'warning' }],
+      warnings: [{ field: 'attribute_descriptions', message: '3 attributes missing descriptions', severity: 'warning' }],
     }));
     render(<ValidationStatus datasetId="dataset-1" canEdit onNavigateToField={onNavigateToField} />);
 

@@ -81,9 +81,10 @@ test.describe('Dataset Detail', () => {
 
     // Verify export triggers download
     await page.getByRole('tab', { name: 'Access' }).click();
-    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+    const downloadButton = page.getByRole('tabpanel').getByRole('button', { name: 'Download' }).first();
+    await expect(downloadButton).toBeVisible();
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export' }).click();
+    await downloadButton.click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBeTruthy();
   });

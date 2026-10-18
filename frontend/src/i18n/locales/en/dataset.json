@@ -186,9 +186,7 @@
     "fgb": "FlatGeobuf",
     "pmtiles": "PMTiles",
     "duckdbHint": "Query with DuckDB",
-    "button": "Export",
-    "failed": "Export failed",
-    "formatLabel": "Export format"
+    "failed": "Export failed"
   },
   "attributes": {
     "noData": "No data available",
@@ -395,7 +393,8 @@
     "columnType": "Type",
     "noColumns": "No attribute columns yet.",
     "dropWarning": "Removing \"{{name}}\" permanently deletes the column and all its values.",
-    "usedByMaps": "Used by {{mapCount}} saved map(s) — styles, filters, or labels referencing this column will break.",
+    "usedByMaps_one": "Used by {{count}} saved map — styles, filters, or labels referencing this column will break.",
+    "usedByMaps_other": "Used by {{count}} saved maps — styles, filters, or labels referencing this column will break.",
     "addColumn": "Add Column",
     "add": "Add",
     "columnNamePlaceholder": "column_name",
@@ -514,11 +513,6 @@
     "likelyCompact": "Likely:",
     "troubleshootAction": "Troubleshoot",
     "readOnlyGuidance": "Ask the dataset owner or a contact listed above to address these validation issues.",
-    "health": {
-      "title": "Dataset Health",
-      "ready": "On track",
-      "description": "{{requiredCount}} required item(s) and {{recommendedCount}} recommended item(s) still need review."
-    },
     "actions": {
       "summary": "Review summary",
       "contacts": "Review contacts",
@@ -536,7 +530,8 @@
     "troubleshoot": {
       "trigger": "Troubleshoot",
       "title": "Validation troubleshooting",
-      "description": "Review {{count}} validation issue(s) and follow the next steps to resolve them.",
+      "description_one": "Review {{count}} validation issue and follow the next steps to resolve it.",
+      "description_other": "Review {{count}} validation issues and follow the next steps to resolve them.",
       "likelyNextSteps": "Likely next steps",
       "noIssues": "No active issues detected. Re-run validation if you expected warnings or errors.",
       "blockingErrors": "Blocking errors ({{count}})",
@@ -598,7 +593,6 @@
     "other": "Additional Access",
     "noDistributions": "No additional downloads or services are listed here.",
     "connectWithClient": "Connect with QGIS, Python, or curl",
-    "otherFormats": "Download another format",
     "accessPermissions": "Who can access this dataset",
     "auto": "auto",
     "primary": "Primary",

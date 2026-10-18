@@ -127,15 +127,10 @@ test.describe.serial('Non-spatial CSV', () => {
     await expect(codeBlock).toContainText(`/api/collections/${datasetId}/items?limit=10`);
     await expect(codeBlock).not.toContainText('/api/v1/collections/');
 
-    // The native <select> was replaced with ui/select (Radix)
-    const formatTrigger = page.getByRole('combobox', { name: 'Export format' });
-    await expect(formatTrigger).toContainText('CSV');
-    await formatTrigger.click();
-    const options = page.getByRole('option');
-    await expect(options).toHaveCount(1);
-    await expect(options.first()).toHaveText('CSV');
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+    // Tables only advertise a CSV download; no other export format is listed.
+    const panel = page.getByRole('tabpanel');
+    await expect(panel.getByText('CSV Download')).toBeVisible();
+    await expect(panel.getByText('GeoPackage Download')).toHaveCount(0);
   });
 
   test('attribute table shows rows for non-spatial dataset', async ({

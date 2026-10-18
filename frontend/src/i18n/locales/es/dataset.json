@@ -186,9 +186,7 @@
     "fgb": "FlatGeobuf",
     "pmtiles": "PMTiles",
     "duckdbHint": "Consultar con DuckDB",
-    "button": "Exportar",
-    "failed": "Exportación fallida",
-    "formatLabel": "Formato de exportación"
+    "failed": "Exportación fallida"
   },
   "attributes": {
     "noData": "No hay datos disponibles",
@@ -433,7 +431,8 @@
     "columnType": "Tipo",
     "noColumns": "Aún no hay columnas de atributos.",
     "dropWarning": "Eliminar \"{{name}}\" borra permanentemente la columna y todos sus valores.",
-    "usedByMaps": "Usada por {{mapCount}} mapa(s) guardado(s): los estilos, filtros o etiquetas que referencian esta columna dejarán de funcionar.",
+    "usedByMaps_one": "Usada por {{count}} mapa guardado: los estilos, filtros o etiquetas que referencian esta columna dejarán de funcionar.",
+    "usedByMaps_other": "Usada por {{count}} mapas guardados: los estilos, filtros o etiquetas que referencian esta columna dejarán de funcionar.",
     "addColumn": "Agregar columna",
     "add": "Agregar",
     "columnNamePlaceholder": "nombre_columna",
@@ -509,11 +508,6 @@
     "likelyCompact": "Probable:",
     "troubleshootAction": "Solucionar problemas",
     "readOnlyGuidance": "Pida al propietario del conjunto de datos o a un contacto indicado arriba que resuelva estos problemas de validación.",
-    "health": {
-      "title": "Estado del conjunto de datos",
-      "ready": "En buen camino",
-      "description": "{{requiredCount}} elemento(s) obligatorio(s) y {{recommendedCount}} elemento(s) recomendado(s) aún necesitan revisión."
-    },
     "actions": {
       "summary": "Revisar resumen",
       "contacts": "Revisar contactos",
@@ -531,7 +525,8 @@
     "troubleshoot": {
       "trigger": "Solucionar problemas",
       "title": "Solución de problemas de validación",
-      "description": "Revise {{count}} incidencia(s) de validación y siga los pasos para resolverlas.",
+      "description_one": "Revise {{count}} incidencia de validación y siga los pasos para resolverla.",
+      "description_other": "Revise {{count}} incidencias de validación y siga los pasos para resolverlas.",
       "likelyNextSteps": "Próximos pasos probables",
       "noIssues": "No se detectaron incidencias activas. Ejecute la validación de nuevo si esperaba advertencias o errores.",
       "blockingErrors": "Errores bloqueantes ({{count}})",
@@ -636,7 +631,6 @@
     "other": "Acceso adicional",
     "noDistributions": "No se muestran aquí otras descargas ni servicios.",
     "connectWithClient": "Conectar con QGIS, Python o curl",
-    "otherFormats": "Descargar en otro formato",
     "accessPermissions": "Quién puede acceder a este conjunto de datos",
     "auto": "auto",
     "primary": "Primario",

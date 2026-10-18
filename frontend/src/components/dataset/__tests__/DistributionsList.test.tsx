@@ -247,6 +247,51 @@ describe('DistributionsList', () => {
       expect(document.querySelector('[data-slot="card"]')).toBeNull();
     });
 
+    it('saves an export row as <dataset title>.<ext>, a shapefile as a zip', async () => {
+      const user = userEvent.setup();
+      mockAuthenticatedDownload.mockResolvedValue(undefined);
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [{
+            ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
+            id: 'shp-1',
+            format: 'shp',
+            title: 'Shapefile Download',
+            url: '/datasets/1/export?format=shp',
+          }],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      render(<DistributionsList recordId="record-1" datasetTitle="Manhattan Building Heights" />);
+
+      await user.click(screen.getByRole('button', { name: 'Download' }));
+
+      expect(mockAuthenticatedDownload).toHaveBeenCalledWith(
+        'https://catalog.example.com/api/datasets/1/export?format=shp',
+        'Manhattan Building Heights.zip',
+      );
+    });
+
+    it('points the DuckDB snippet at <dataset title>.parquet', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [{
+            ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
+            id: 'parquet-1',
+            format: 'parquet',
+            title: 'GeoParquet Download',
+            url: '/datasets/1/export?format=parquet',
+          }],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      render(<DistributionsList recordId="record-1" datasetTitle="Manhattan Building Heights" />);
+
+      expect(screen.getByText(/FROM 'Manhattan Building Heights\.parquet'/)).toBeInTheDocument();
+    });
+
     it('offers a DuckDB snippet for the GeoParquet download', () => {
       mockUseDistributions.mockReturnValue({
         data: {

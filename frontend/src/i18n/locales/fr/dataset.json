@@ -186,9 +186,7 @@
     "fgb": "FlatGeobuf",
     "pmtiles": "PMTiles",
     "duckdbHint": "Interroger avec DuckDB",
-    "button": "Exporter",
-    "failed": "Échec de l'exportation",
-    "formatLabel": "Format d'exportation"
+    "failed": "Échec de l'exportation"
   },
   "attributes": {
     "noData": "Aucune donnée disponible",
@@ -433,7 +431,8 @@
     "columnType": "Type",
     "noColumns": "Aucune colonne d'attribut pour l'instant.",
     "dropWarning": "La suppression de « {{name}} » efface définitivement la colonne et toutes ses valeurs.",
-    "usedByMaps": "Utilisée par {{mapCount}} carte(s) enregistrée(s) — les styles, filtres ou étiquettes référençant cette colonne seront cassés.",
+    "usedByMaps_one": "Utilisée par {{count}} carte enregistrée — les styles, filtres ou étiquettes référençant cette colonne seront cassés.",
+    "usedByMaps_other": "Utilisée par {{count}} cartes enregistrées — les styles, filtres ou étiquettes référençant cette colonne seront cassés.",
     "addColumn": "Ajouter une colonne",
     "add": "Ajouter",
     "columnNamePlaceholder": "nom_colonne",
@@ -509,11 +508,6 @@
     "likelyCompact": "Cause probable :",
     "troubleshootAction": "Dépanner",
     "readOnlyGuidance": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessus de corriger ces problèmes de validation.",
-    "health": {
-      "title": "Santé du jeu de données",
-      "ready": "En bonne voie",
-      "description": "{{requiredCount}} élément(s) requis et {{recommendedCount}} élément(s) recommandé(s) nécessitent encore une vérification."
-    },
     "actions": {
       "summary": "Vérifier le résumé",
       "contacts": "Vérifier les contacts",
@@ -531,7 +525,8 @@
     "troubleshoot": {
       "trigger": "Dépanner",
       "title": "Dépannage de validation",
-      "description": "Examinez {{count}} problème(s) de validation et suivez les étapes pour les résoudre.",
+      "description_one": "Examinez {{count}} problème de validation et suivez les étapes pour le résoudre.",
+      "description_other": "Examinez {{count}} problèmes de validation et suivez les étapes pour les résoudre.",
       "likelyNextSteps": "Prochaines étapes probables",
       "noIssues": "Aucun problème actif détecté. Relancez la validation si vous attendiez des avertissements ou des erreurs.",
       "blockingErrors": "Erreurs bloquantes ({{count}})",
@@ -636,7 +631,6 @@
     "other": "Accès supplémentaire",
     "noDistributions": "Aucun autre téléchargement ou service n’est répertorié ici.",
     "connectWithClient": "Se connecter avec QGIS, Python ou curl",
-    "otherFormats": "Télécharger dans un autre format",
     "accessPermissions": "Qui peut accéder à ce jeu de données",
     "auto": "auto",
     "primary": "Principal",

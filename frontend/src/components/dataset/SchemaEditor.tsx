@@ -229,7 +229,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
             </AlertDialogHeader>
             {(columnReferences.data?.map_count ?? 0) > 0 && (
               <p className="text-xs text-warning">
-                {t('schema.usedByMaps', { mapCount: columnReferences.data!.map_count })}
+                {t('schema.usedByMaps', { count: columnReferences.data!.map_count })}
               </p>
             )}
             <AlertDialogFooter>

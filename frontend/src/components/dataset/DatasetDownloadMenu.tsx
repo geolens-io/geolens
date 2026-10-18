@@ -9,23 +9,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { downloadExport } from '@/api/datasets';
+import { exportFormatsFor, exportFilename } from '@/lib/export-formats';
 import type { RecordType } from '@/types/api';
-
-const EXPORT_FORMATS = [
-  { value: 'gpkg', labelKey: 'export.gpkg', ext: 'gpkg' },
-  { value: 'geojson', labelKey: 'export.geojson', ext: 'geojson' },
-  { value: 'shp', labelKey: 'export.shp', ext: 'zip' },
-  { value: 'csv', labelKey: 'export.csv', ext: 'csv' },
-  { value: 'parquet', labelKey: 'export.parquet', ext: 'parquet' },
-  { value: 'fgb', labelKey: 'export.fgb', ext: 'fgb' },
-  { value: 'pmtiles', labelKey: 'export.pmtiles', ext: 'pmtiles' },
-] as const;
-
-const CSV_ONLY = EXPORT_FORMATS.filter((f) => f.value === 'csv');
-
-function exportFormatsFor(recordType?: RecordType) {
-  return recordType === 'table' ? CSV_ONLY : EXPORT_FORMATS;
-}
 
 interface DatasetDownloadMenuProps {
   datasetId: string;
@@ -36,9 +21,9 @@ interface DatasetDownloadMenuProps {
 export function DatasetDownloadMenu({ datasetId, datasetName, recordType }: DatasetDownloadMenuProps) {
   const { t } = useTranslation('dataset');
 
-  const handleSelect = async (format: string, ext: string) => {
+  const handleSelect = async (format: string) => {
     try {
-      await downloadExport(datasetId, format, `${datasetName}.${ext}`);
+      await downloadExport(datasetId, format, exportFilename(datasetName, format) ?? `${datasetName}.${format}`);
     } catch {
       toast.error(t('export.failed'));
     }
@@ -56,7 +41,7 @@ export function DatasetDownloadMenu({ datasetId, datasetName, recordType }: Data
         {exportFormatsFor(recordType).map((f) => (
           <DropdownMenuItem
             key={f.value}
-            onSelect={() => void handleSelect(f.value, f.ext)}
+            onSelect={() => void handleSelect(f.value)}
             data-testid={`dataset-header-download-${f.value}`}
           >
             {t(f.labelKey)}

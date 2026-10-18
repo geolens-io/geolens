@@ -119,7 +119,9 @@ async def validate_record(
             warnings.append(
                 ValidationIssue(
                     "attribute_descriptions",
-                    f"{attr_without_desc} attribute(s) missing descriptions",
+                    f"{attr_without_desc} attribute missing a description"
+                    if attr_without_desc == 1
+                    else f"{attr_without_desc} attributes missing descriptions",
                     "warning",
                 )
             )

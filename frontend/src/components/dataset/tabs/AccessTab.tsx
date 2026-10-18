@@ -441,6 +441,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
                 recordId={dataset.record_id}
                 canEdit={canEdit}
                 visibility={dataset.visibility}
+                datasetTitle={dataset.title}
               />
             ) : (
               <p className="text-sm text-muted-foreground">

@@ -186,9 +186,7 @@
     "fgb": "FlatGeobuf",
     "pmtiles": "PMTiles",
     "duckdbHint": "使用 DuckDB 查询",
-    "button": "导出",
-    "failed": "导出失败",
-    "formatLabel": "导出格式"
+    "failed": "导出失败"
   },
   "attributes": {
     "noData": "暂无可用数据",
@@ -395,7 +393,8 @@
     "columnType": "类型",
     "noColumns": "尚无属性列。",
     "dropWarning": "移除“{{name}}”将永久删除该列及其所有值。",
-    "usedByMaps": "{{mapCount}} 个已保存的地图正在使用此列——引用此列的样式、筛选器或标签将会失效。",
+    "usedByMaps_one": "{{count}} 个已保存的地图正在使用此列——引用此列的样式、筛选器或标签将会失效。",
+    "usedByMaps_other": "{{count}} 个已保存的地图正在使用此列——引用此列的样式、筛选器或标签将会失效。",
     "addColumn": "添加列",
     "add": "添加",
     "columnNamePlaceholder": "column_name",
@@ -514,11 +513,6 @@
     "likelyCompact": "可能原因：",
     "troubleshootAction": "疑难解答",
     "readOnlyGuidance": "请联系数据集所有者或上方列出的联系人，处理这些验证问题。",
-    "health": {
-      "title": "数据集健康度",
-      "ready": "状态良好",
-      "description": "{{requiredCount}} 个必填项和 {{recommendedCount}} 个建议项仍需审查。"
-    },
     "actions": {
       "summary": "审查摘要",
       "contacts": "审查联系人",
@@ -536,7 +530,8 @@
     "troubleshoot": {
       "trigger": "疑难解答",
       "title": "校验疑难解答",
-      "description": "请查看 {{count}} 个校验问题，并按照后续步骤解决它们。",
+      "description_one": "请查看 {{count}} 个校验问题，并按照后续步骤解决它们。",
+      "description_other": "请查看 {{count}} 个校验问题，并按照后续步骤解决它们。",
       "likelyNextSteps": "建议的后续步骤",
       "noIssues": "未检测到待处理的问题。如果您预期会出现警告或错误，请重新运行校验。",
       "blockingErrors": "阻塞错误（{{count}}）",
@@ -598,7 +593,6 @@
     "other": "其他访问方式",
     "noDistributions": "此处未列出其他下载项或服务。",
     "connectWithClient": "使用 QGIS、Python 或 curl 连接",
-    "otherFormats": "下载其他格式",
     "accessPermissions": "谁可以访问此数据集",
     "auto": "自动",
     "primary": "主要",
