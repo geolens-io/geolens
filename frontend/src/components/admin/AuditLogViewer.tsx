@@ -61,8 +61,8 @@ const RESOURCE_ROUTES: Record<string, string> = {
 // Kept in sync by hand against the backend's authoritative
 // registry (backend/app/modules/audit/actions.py, enforced there by
 // test_audit_action_registry.py) — this array itself is not generated.
-// There are no `layer.*` entries: builder layer edits write to map edit
-// history, not audit_logs.
+// The `layer.*` entries are column changes. Adding, removing or reordering a
+// map's layers in the builder writes to map edit history, not audit_logs.
 const CURRENT_AUDIT_ACTIONS = [
   'api_key.create',
   'api_key.revoke',
