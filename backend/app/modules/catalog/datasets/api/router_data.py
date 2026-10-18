@@ -184,7 +184,9 @@ async def get_dataset_rows_endpoint(
         approximate_total=approx_total,
         columns=columns,
         next_cursor=next_cursor,
-        sortable_columns=sortable_columns(dataset.column_info or []),
+        # `columns`, not `dataset`: an absent data table rolls the session back,
+        # which expires the ORM object, and a lazy load here has no greenlet.
+        sortable_columns=sortable_columns(columns),
     )
 
 
