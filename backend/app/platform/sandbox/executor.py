@@ -227,6 +227,7 @@ async def _column_weights(
     parsed and described, never planned or run. Returns None when describing
     fails, leaving the statement itself to report the error.
     """
+    # codeql[py/sql-injection] running a whole statement is the sandbox's job; callers pass validate_sql output or server-built SQL, and this only describes it inside execute_safe's READ ONLY transaction
     statement = text(sql).bindparams(*binds).compile(dialect=conn.dialect).string
     try:
         async with conn.begin_nested():
@@ -269,6 +270,7 @@ async def _execute_limited(
         )
     result = await conn.execute(
         text(
+            # codeql[py/sql-injection] running a whole statement is the sandbox's job; callers pass validate_sql output or server-built SQL, run in a READ ONLY transaction under statement_timeout
             _limited_sql(sql, fetch_limit, max_result_bytes, token, weights)
         ).bindparams(*binds)
     )

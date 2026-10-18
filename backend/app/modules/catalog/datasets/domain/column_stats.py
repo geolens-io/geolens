@@ -275,6 +275,7 @@ async def get_column_stats(
     if data_type not in _NUMERIC_TYPES:
         # Non-numeric: return a categorical summary instead of casting.
         cat_sql = text(
+            # codeql[py/sql-injection] column passed _validate_identifier and is quoted by _sql_quote_ident; table via _qtable
             f"SELECT COUNT({col_q}), COUNT(DISTINCT {col_q}) "
             f"FROM {tbl_q} "
             f"WHERE {col_q} IS NOT NULL"
@@ -295,6 +296,7 @@ async def get_column_stats(
     fractions_str = ", ".join(str(f) for f in fractions)
 
     combined_sql = text(
+        # codeql[py/sql-injection] column passed _validate_identifier and is quoted by _sql_quote_ident; table via _qtable; fractions are computed from an int
         f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "
         f"COUNT({col_q}), AVG({col_q}::numeric), "
         f"percentile_cont(ARRAY[{fractions_str}]) "
