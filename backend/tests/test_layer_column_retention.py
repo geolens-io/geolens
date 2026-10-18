@@ -105,6 +105,23 @@ async def test_changing_the_retention_column_is_refused(
 
 
 @pytest.mark.anyio
+async def test_a_retype_whose_cast_fails_still_reports_the_retention_conflict(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, layer
+):
+    dataset_id, table_name = layer
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/ts/type",
+        json={"new_type": "integer"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "retention_column_in_use"
+    assert await _stored_retention(test_db_session, dataset_id) == ("ts", 5)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("change", list(CHANGES))
 async def test_other_columns_still_change(
     client: AsyncClient, admin_auth_header: dict, test_db_session, layer, change: str

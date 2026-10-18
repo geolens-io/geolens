@@ -390,6 +390,9 @@ async def alter_column_type(
     if column_name not in existing:
         raise ValueError(f"Column {column_name!r} does not exist on this layer.")
 
+    # The retype can rewrite the table, and a failing cast would hide the
+    # conflict, so refuse early too; the check after the ALTER still holds.
+    await refuse_retention_column_change(session, dataset, column_name)
     pg_type = ALLOWED_COLUMN_TYPES[new_type]
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = (
