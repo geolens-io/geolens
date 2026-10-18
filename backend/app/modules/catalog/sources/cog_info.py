@@ -91,25 +91,21 @@ def _georeferencing(info: dict) -> dict:
 def _geotransform(item: dict) -> dict:
     """``res_x``/``res_y``/``is_rotated`` from a Titiler-generated STAC item.
 
-    ``/cog/stac``'s ``proj:transform`` (rio-stac's 9-element
-    affine) is the same six numbers ``raster/cog.py`` reads off
-    ``rasterio``'s ``src.transform`` locally, fed to the same
-    ``pixel_size_from_affine``. Elements 1/3 (``transform.b``/``.d``) set
-    ``is_rotated``.
+    ``/cog/stac``'s ``proj:transform`` (rio-stac's 9-element affine) holds the
+    same six numbers ``raster/cog.py`` reads off ``rasterio``'s
+    ``src.transform`` locally, fed to the same ``pixel_size_from_affine``.
+    Elements 1/3 (``transform.b``/``.d``) set ``is_rotated``.
 
-    Resolution is the pixel VECTORS' lengths, not
-    elements 0/4 alone — those understate a rotated raster by 13% at 30°
-    (see ``pixel_size_from_affine``), which the local path accounts for too.
+    Resolution is the pixel VECTORS' lengths, not elements 0/4 alone, which
+    understate a rotated raster by 13% at 30° (see ``pixel_size_from_affine``).
 
-    ``/cog/validate`` was rejected as the endpoint: it reports the same
-    ``(transform.a, transform.e)`` pair but no ``b``/``d``, so it can't
-    answer the rotation question. Verified against the pinned titiler
-    2.2.1/rio-tiler 9.4.2 image: ``/cog/info``'s ``bounds`` for a
-    30°-rotated COG overstate its footprint by 37% (#1334 declined to
-    publish that number).
+    ``/cog/validate`` reports the same ``(transform.a, transform.e)`` pair but
+    no ``b``/``d``, so it can't answer the rotation question. On the pinned
+    titiler 2.2.1/rio-tiler 9.4.2 image, ``/cog/info``'s ``bounds`` for a
+    30°-rotated COG overstate its footprint by 37%.
 
     Returns an EMPTY dict, not Nones, when the transform is missing or
-    malformed — absent keys leave the row untouched; a None would assert
+    malformed: absent keys leave the row untouched, and a None would assert
     "measured, no value".
     """
     props = item.get("properties") or {}
@@ -237,11 +233,10 @@ async def fetch_cog_info(
             except Exception:  # broad: stats optional, Titiler payload shape varies
                 pass
 
-            # with_raster/with_eo are OFF — their defaults make
-            # this a PIXEL read (rio-stac downsamples to compute per-band
-            # stats, which fetch_cog_info already gets from /cog/statistics).
-            # Measured on the pinned 2.2.1 image, 2048x2048 3-band COG:
-            # 7ms off vs 90ms on.
+            # with_raster/with_eo are OFF: their defaults make this a PIXEL
+            # read (rio-stac downsamples to compute per-band stats, which
+            # /cog/statistics already supplies). Measured on the pinned 2.2.1
+            # image, 2048x2048 3-band COG: 7ms off vs 90ms on.
             geotransform: dict = {}
             try:
                 stac_resp = await client.get(

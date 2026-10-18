@@ -1,14 +1,13 @@
 """Backend layer-kind classification helper.
 
-A layer is 'raster' iff any
-of adapter_type == 'stac', geometry_type contains 'raster', a truthy
-'coverage_format' or 'bands' key, or a links[] entry whose 'type' starts with
-'image/'. Everything else, including geometry_type=None (the default
-for OGC API and WFS probes), returns 'vector'.
+A layer is 'raster' iff adapter_type == 'stac', geometry_type contains
+'raster', a 'coverage_format' or 'bands' key is truthy, or a links[] entry's
+'type' starts with 'image/'. Everything else, including geometry_type=None
+(the default for OGC API and WFS probes), is 'vector'.
 
-Called at layer-dict construction time in the OGC API and WFS adapters so
-every LayerInfo carries a durable 'kind' rather than re-deriving it from
-geometry_type string contents downstream.
+The OGC API and WFS adapters call this when building each layer dict, so
+every LayerInfo carries a 'kind' instead of downstream code re-deriving it
+from geometry_type.
 """
 
 from __future__ import annotations

@@ -83,14 +83,14 @@ async def _resolve_conformance(
     if not conformance_href:
         return conforms_to, has_data_link
 
-    # Bound `abs_href` before use, not after. It names a
-    # document THIS SERVICE chose, so a hostile one could reflect the
-    # credential straight into our logs via a crafted query string —
-    # `redact_url_credentials` is applied at each log call, never trusted to
-    # already be safe. And it must be truncated to `MAX_SERVICE_HREF_BYTES`
-    # at the seed: `redact_url_credentials` calls the deliberately-unbounded
-    # `parse_qsl`, so an oversized href reaching it from a LOGGING call would
-    # pay the cost bounding the fetch path exists to avoid.
+    # Bound `abs_href` before use, not after. It names a document THIS
+    # SERVICE chose, so a hostile one could reflect the credential straight
+    # into our logs via a crafted query string; `redact_url_credentials` is
+    # applied at each log call, never trusted to already be safe. It is
+    # truncated to `MAX_SERVICE_HREF_BYTES` at the seed because
+    # `redact_url_credentials` calls the deliberately unbounded `parse_qsl`,
+    # so an oversized href reaching it from a LOGGING call would pay the
+    # cost bounding the fetch path exists to avoid.
     abs_href = conformance_href[:MAX_SERVICE_HREF_BYTES]
     try:
         # Resolution is inside the try — an unclosed IPv6
@@ -102,10 +102,10 @@ async def _resolve_conformance(
         abs_href = urljoin(
             url, bounded_service_url(conformance_href, what="conformance")
         )
-        # Cross-origin, not followed at all — not even
-        # anonymously. An anonymous answer about a credentialed service is
-        # evidence for a different request than the one the import will
-        # make. Conformance stays unestablished; the `data` link decides.
+        # A cross-origin link is not followed at all, not even anonymously: an
+        # anonymous answer about a credentialed service is evidence for a
+        # different request than the one the import will make. Conformance
+        # stays unestablished; the `data` link decides.
         if credential_header is not None and not same_origin(url, abs_href):
             logger.warning(
                 "OGC API probe: conformance link is on another origin, "
@@ -126,17 +126,17 @@ async def _resolve_conformance(
         conf_data = json.loads(conf_body)
         conforms_to = conf_data.get("conformsTo", [])
     except SSRFError:
-        # Swallowed ON PURPOSE, unlike the `/collections` fetch
-        # below — this read establishes one optional fact, and ending the
-        # probe here would let a service make itself undetectable by
-        # advertising a blocked conformance href.
+        # Swallowed ON PURPOSE, unlike the `/collections` fetch below: this
+        # read establishes one optional fact, and ending the probe here would
+        # let a service make itself undetectable by advertising a blocked
+        # conformance href.
         logger.warning(
             "OGC API probe: conformance link blocked by SSRF check",
             href=redact_url_credentials(abs_href),
         )
-    # `EndpointCheckFailedError` (over-cap body/size, or a
-    # non-identity Content-Encoding) degrades the same as an httpx/JSON
-    # failure here — conformance stays unestablished.
+    # `EndpointCheckFailedError` (over-cap body/size, or a non-identity
+    # Content-Encoding) degrades like an httpx/JSON failure: conformance stays
+    # unestablished.
     except Exception as exc:  # broad: conformance fetch — httpx/JSON/bound failures can throw varied errors; degrade gracefully
         logger.debug(
             "OGC API probe: conformance fetch failed",
@@ -160,16 +160,14 @@ async def probe_ogcapi(
     Returns a dict with ``service_type`` and ``layers``, or None if the URL
     does not look like an OGC API Features service.
 
-    The credential becomes a header HERE, keeping
-    ``build_credential_header`` the tree's only producer of one. A
-    ValueError from the builder is unreachable over HTTP (the probe door
-    already judged the inputs) and is caught here for the in-process caller
-    that skipped it.
+    The credential becomes a header HERE, keeping ``build_credential_header``
+    the tree's only producer of one. A ValueError from the builder is
+    unreachable over HTTP (the probe door already judged the inputs).
 
-    The whole function runs under ``DEFAULT_CHECK_TIMEOUT`` —
-    without its own bound, a protected service the caller already holds a
-    credential for could trickle a response for as long as the client's
-    per-inactivity timeout tolerated, once per probe.
+    The whole function runs under ``DEFAULT_CHECK_TIMEOUT``: without its own
+    bound, a protected service the caller holds a credential for could
+    trickle a response for as long as the client's per-inactivity timeout
+    tolerated, once per probe.
     """
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
@@ -189,9 +187,8 @@ async def _probe_ogcapi_within_deadline(
     # whether this request carries a credential and under what name.
     pair: tuple[str, str] | None = None
     if credential is not None:
-        # ValueError propagates — see probe_wfs for why the
-        # caller, not the adapter, decides what an uncomposable credential
-        # means.
+        # ValueError propagates; see probe_wfs for why the caller, not the
+        # adapter, decides what an uncomposable credential means.
         pair = build_credential_header(
             replace(credential, service_format=OGCAPI_SERVICE_FORMAT)
         )
@@ -229,7 +226,6 @@ async def _probe_ogcapi_within_deadline(
     if not isinstance(data, dict):
         return None
 
-    # conformsTo may be at landing page level or via the /conformance link.
     conforms_to, has_data_link = await _resolve_conformance(
         url,
         client,
@@ -254,11 +250,11 @@ async def _probe_ogcapi_within_deadline(
         )
         col_data = json.loads(col_body)
     except SSRFError:
-        # Re-raised, not degraded — this clause ENDS the
-        # adapter either way, so swallowing it would cost the door its only
-        # truthful answer. Rule: a read whose failure means "one optional
-        # fact is unknown" degrades; a read whose failure ends the adapter
-        # raises (see the arcgis.py/`_resolve_conformance` degrade clauses).
+        # Re-raised, not degraded: this clause ENDS the adapter either way,
+        # so swallowing it would cost the door its only truthful answer. A
+        # read whose failure means "one optional fact is unknown" degrades
+        # (as in `_resolve_conformance`); a read whose failure ends the
+        # adapter raises.
         logger.warning(
             "OGC API probe: collections URL blocked by SSRF check", url=collections_url
         )
@@ -271,19 +267,17 @@ async def _probe_ogcapi_within_deadline(
         )
         return None
 
-    # A non-dict `/collections` response (e.g. `200 []`) makes
-    # `.get(...)` raise `AttributeError`, uncaught by `_header_auth_probe`
-    # or the probe route, reaching the caller as a bare 500 instead of the
-    # ordinary degrade.
+    # A non-dict `/collections` response (e.g. `200 []`) would make `.get()`
+    # raise `AttributeError`, uncaught by `_header_auth_probe` or the probe
+    # route, reaching the caller as a bare 500 instead of the ordinary degrade.
     if not isinstance(col_data, dict):
         return None
     collections = col_data.get("collections", [])
     if not isinstance(collections, list):
         return None
 
-    # geometry_type is None here (probe phase skips ogrinfo enrichment).
     # Raster signals (coverage_format/bands/image/* mediaType) are read from
-    # the raw collection JSON; most OGC API Features collections are 'vector'.
+    # the raw collection JSON.
     layers = [
         {
             "name": c["id"],

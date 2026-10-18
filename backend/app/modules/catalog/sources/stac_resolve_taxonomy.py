@@ -26,47 +26,43 @@ from app.modules.catalog.sources.origin_probe import (
 class StacResolution:
     """Where a STAC dataset's asset lives now, and how the origin answered.
 
-    ``health``/``detail`` are ADR-002's stored vocabulary (#1222 classifier).
+    ``health``/``detail`` are ADR-002's stored vocabulary.
 
     Resolution and health are independent on purpose: an item can name its
     asset perfectly while that asset 404s. The publisher's document is
     authoritative about where the asset is; the probe is authoritative about
-    whether it's being served. Both are worth recording separately.
+    whether it's being served.
     """
 
     health: str
     detail: str | None = None
     contacted: bool = True
     item_href: str | None = None
-    # Written back with the binding, so a dataset whose catalog
-    # states no identity in its URLs still accumulates one to check against.
+    # Written back with the binding, so a dataset whose catalog states no
+    # identity in its URLs still accumulates one to check against.
     item_id: str | None = None
-    # A binding imported with collection=null has none of its
-    # own, so the stored item URL stands in; reporting it back lets the
-    # binding learn it and be checked against a stored value thereafter.
+    # A binding imported with collection=null has none of its own, so the
+    # stored item URL stands in; reporting it back lets the binding learn it.
     collection_id: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
-    # Repairs the served dataset_assets row's media_type on
-    # every successful refresh, bounded by storable_media_type at the gate.
+    # Repairs the served dataset_assets row's media_type on every successful
+    # refresh, bounded by storable_media_type at the gate.
     asset_media_type: str | None = None
-    # A moved asset is not the same asset — re-tiling can change
-    # band count/dtype/nodata/stats, which the tile proxy builds
-    # bidx/rescale/nodata from. Populated only when the href moved.
+    # A moved asset is not the same asset: re-tiling can change band
+    # count/dtype/nodata/stats, which the tile proxy builds bidx/rescale/nodata
+    # from. Populated only when the href moved.
     asset_metadata: dict[str, Any] | None = None
-    # Read from the item when nothing better is available,
-    # matching where import reads it.
-    #
-    # Reconciled with the probe's own CRS when one ran (see
-    # reconcile_epsg) — the item's declaration is the publisher's claim,
-    # asset_metadata (when populated) is Titiler's ground truth from
-    # opening the current bytes. This field is the single authoritative
-    # value once a probe has run; asset_metadata["epsg"] stays the raw
-    # probe reading beside it.
+    # Read from the item when nothing better is available, matching where
+    # import reads it, then reconciled with the probe's own CRS when one ran
+    # (see reconcile_epsg): the item's declaration is the publisher's claim,
+    # asset_metadata is Titiler's reading of the current bytes. Once a probe
+    # has run this is the authoritative value; asset_metadata["epsg"] stays
+    # the raw probe reading.
     epsg: int | None = None
-    # A publisher who re-tiles/crops updates the item's bbox;
-    # carried from the same document as the asset so the two describe the
-    # same object. None when the item states none — not a claim it changed.
+    # A publisher who re-tiles or crops updates the item's bbox; carried from
+    # the same document as the asset so the two describe the same object.
+    # None when the item states none, which is not a claim it changed.
     bbox: list[float] | None = None
     # Why GeoLens declined an asset it could read, for a refusal that has
     # its own message. None for every verdict about the origin.

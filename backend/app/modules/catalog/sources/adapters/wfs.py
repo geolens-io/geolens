@@ -1,9 +1,8 @@
 """WFS GetCapabilities fetching and parsing with safe XML handling.
 
-All parsing uses ``defusedxml.ElementTree``, not stdlib ``xml.etree`` —
-never replace this import. defusedxml blocks XXE, billion laughs, and
-decompression-bomb attacks; the WFS probe accepts user-supplied URLs, so
-the response is always untrusted.
+All parsing uses ``defusedxml.ElementTree``, not stdlib ``xml.etree``: the
+WFS probe accepts user-supplied URLs, so the response is untrusted, and
+defusedxml blocks XXE, billion laughs and decompression bombs.
 
 WFS 1.0/1.1/2.0 use different namespaces and element names for
 FeatureType discovery; the parser walks the tree namespace-agnostic
@@ -41,15 +40,11 @@ WFS_SERVICE_FORMAT = "wfs"
 def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
     """Parse WFS GetCapabilities XML.
 
-    Uses defusedxml for safe parsing (blocks XXE, billion laughs, etc.).
-    Handles namespace variations across WFS 1.0, 1.1, and 2.0.
-
     Returns (version_string, layers_list); each layer dict has keys: name,
     title, crs.
 
-    Accepts `bytes` too — `ET.fromstring` honours an embedded
-    `<?xml encoding="..."?>` declaration on bytes, avoiding a fight with a
-    decode this function already did.
+    Accepts ``bytes`` so ``ET.fromstring`` honours the document's own
+    ``<?xml encoding="..."?>`` declaration.
     """
     root = ET.fromstring(xml_text)
     version = root.get("version", "unknown")
@@ -91,15 +86,14 @@ def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
 def build_capabilities_url(url: str) -> str:
     """Build a GetCapabilities URL, preserving existing query params.
 
-    Every caller reaches this with `url` capped upstream, never
-    a value read from a third-party response — the periodic health check
-    passes `origin_ref["url"]`, JSONB persisted from a probe/preview
-    submission already capped at 2048 chars (~350 fields of `a=1&`). That is
-    what makes `# parse_qs: unbounded` correct here, matching
-    `preview.py::_encode_url_for_gdal`'s exemption for the same reason. A
-    `max_num_fields` bound would raise a `ValueError` that callers other than
-    `_header_auth_probe` don't expect, reaching the health-check route as a
-    bare 500.
+    Every caller passes a ``url`` capped upstream, never a value read from a
+    third-party response: the periodic health check passes
+    ``origin_ref["url"]``, persisted from a probe/preview submission capped
+    at 2048 chars (~350 fields of ``a=1&``). That is what makes
+    ``# parse_qs: unbounded`` correct here, as in
+    ``preview.py::_encode_url_for_gdal``. A ``max_num_fields`` bound would
+    raise a ``ValueError`` that callers other than ``_header_auth_probe``
+    don't expect, reaching the health-check route as a bare 500.
     """
     parsed = urlparse(url)
     existing_params = parse_qs(parsed.query)  # parse_qs: unbounded
@@ -123,14 +117,12 @@ async def probe_wfs(
     Fetches GetCapabilities and parses the response. Returns a dict with
     service_type and layers, or None if not a WFS service.
 
-    The credential becomes a header HERE, keeping
-    ``build_credential_header`` the tree's only producer of one. A
-    ValueError from the builder is unreachable over HTTP (the probe door
-    already judged the inputs) and is caught here for the in-process caller
-    that skipped it.
+    The credential becomes a header HERE, keeping ``build_credential_header``
+    the tree's only producer of one. A ValueError from the builder is
+    unreachable over HTTP (the probe door already judged the inputs).
 
-    The whole function runs under ``DEFAULT_CHECK_TIMEOUT``,
-    same reasoning as ``probe_ogcapi``.
+    The whole function runs under ``DEFAULT_CHECK_TIMEOUT``, for the same
+    reason as ``probe_ogcapi``.
     """
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
@@ -148,11 +140,11 @@ async def _probe_wfs_within_deadline(
     capabilities_url = build_capabilities_url(url)
     request_headers = {}
     if credential is not None:
-        # A ValueError from the builder propagates rather than
-        # becoming "not a WFS service" — another adapter may claim the same
-        # URL and carry the value a different way (e.g. an ArcGIS token,
-        # percent-encoded into a query, legitimately outside the header
-        # charset), so whether it's fatal is the CALLER's decision.
+        # A ValueError from the builder propagates rather than becoming "not
+        # a WFS service": another adapter may claim the same URL and carry the
+        # value a different way (e.g. an ArcGIS token, percent-encoded into a
+        # query, legitimately outside the header charset), so whether it's
+        # fatal is the CALLER's decision.
         pair = build_credential_header(
             replace(credential, service_format=WFS_SERVICE_FORMAT)
         )
@@ -160,9 +152,6 @@ async def _probe_wfs_within_deadline(
             request_headers[pair[0]] = pair[1]
 
     try:
-        # Bounded read; `EndpointCheckFailedError` joins the
-        # two httpx types already caught — whatever the cause, this
-        # degrades to "not a WFS service" the same way.
         body, response_headers = await bounded_probe_read(
             client, capabilities_url, headers=request_headers, accept=WFS_XML_ACCEPT
         )
@@ -171,13 +160,11 @@ async def _probe_wfs_within_deadline(
         httpx.TransportError,
         EndpointCheckFailedError,
     ) as exc:
-        # This request can carry a credential header; the
-        # exception text quotes the full request URL, so it must be
-        # redacted before logging.
+        # This request can carry a credential, and the exception text quotes
+        # the full request URL, so it is redacted before logging.
         logger.debug("WFS probe failed for %s: %s", url, redact_exception_text(exc))
         return None
 
-    # Check Content-Type is XML (not HTML error page)
     content_type = response_headers.get("content-type", "")
     if "text/html" in content_type and "xml" not in content_type:
         return None

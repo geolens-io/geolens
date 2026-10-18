@@ -1291,12 +1291,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/service_items.py": 777,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1135,
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1060,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
-    "backend/app/modules/catalog/sources/router.py": 1734,
+    "backend/app/modules/catalog/sources/router.py": 1718,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2090,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1426,7 +1426,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1649,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1175,
+    "backend/app/modules/catalog/authorization.py": 1172,
 }
 
 

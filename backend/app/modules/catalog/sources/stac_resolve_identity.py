@@ -2,9 +2,9 @@
 
 Both the by-URL path (``stac_resolve.py``) and the by-search fallback
 (``stac_resolve_by_search.py``) ask "what identity does this URL or document
-state, and does it disagree with what GeoLens already knows" — this module
-is the one place those questions are answered, so both paths and the asset
-gate (``stac_resolve_asset_gate.py``) reach the same answer.
+state, and does it disagree with what GeoLens already knows". Answering it
+here once means both paths and the asset gate (``stac_resolve_asset_gate.py``)
+reach the same answer.
 """
 
 from __future__ import annotations
@@ -27,16 +27,14 @@ def credential_for_read(
 ) -> ServiceCredential | None:
     """The credential a read of *url* may carry, or None for an anonymous one.
 
-    ``make_safe_client(credential_header=...)`` guards REDIRECT
-    hops. An item document names its own self link and its assets, both
-    fetched as fresh first-hop requests no redirect hook ever sees, so
-    without this the catalog's key goes wherever the document points.
-    ``same_origin`` is the repo's answer to that class
-    (``adapters/ogcapi.py``, ``platform/service_items.py``): the document
-    chose the address and does not get to choose the credential.
+    ``make_safe_client(credential_header=...)`` guards REDIRECT hops. An item
+    document names its own self link and its assets, both fetched as fresh
+    first-hop requests no redirect hook sees, so without this the catalog's
+    key would go wherever the document points. The document chose the
+    address and does not get to choose the credential.
 
-    Total, and ``same_origin`` is False on a parse error, so an address this
-    cannot read is read anonymously rather than credentialed.
+    ``same_origin`` is False on a parse error, so an address this cannot read
+    is read anonymously rather than credentialed.
     """
     if credential is None or credential_origin is None:
         return None
@@ -100,10 +98,10 @@ def _url_contradicts_identity(
     base) and the post-redirect fetch URL (the base when self link is
     absent), since both steer where relative asset hrefs resolve.
 
-    A body whose id/collection are right while its self link
-    addresses a different item would otherwise resolve that item's relative
-    assets and persist its URL — the next refresh would then derive its
-    expected identity from the wrong URL and quietly walk to another scene.
+    A body whose id/collection are right while its self link addresses a
+    different item would otherwise resolve that item's relative assets and
+    persist its URL; the next refresh would then derive its expected
+    identity from the wrong URL and quietly walk to another scene.
 
     Contradiction, not confirmation: a self link stating no identity (static
     catalog, permalink service) is trusted; one stating an identity must
@@ -123,13 +121,13 @@ def states_verifiable_identity(
 ) -> bool:
     """Whether a refresh could tell this item from another one.
 
-    A binding written before ``item_id`` was recorded, whose
-    catalog publishes permalink-style URLs that state no identity either,
-    has nothing to check the first answer against — a re-pointed permalink
-    would be adopted and its unrelated id recorded as durable truth,
-    self-consistent forever. This is a precondition, not a verdict: a
-    refresh won't adopt a binding whose identity it cannot verify. Costs
-    those pre-existing datasets the capability until re-imported.
+    A binding written before ``item_id`` was recorded, whose catalog
+    publishes permalink-style URLs that state no identity either, has
+    nothing to check the first answer against: a re-pointed permalink would
+    be adopted and its unrelated id recorded as durable truth. This is a
+    precondition, not a verdict: a refresh won't adopt a binding whose
+    identity it cannot verify, so such datasets lose refresh until
+    re-imported.
 
     ``datasets.source_filename`` holds the same id but is deliberately not a
     fallback: it's in the metadata PATCH field map, so an edited field could
@@ -148,21 +146,21 @@ def _contradicts_stored_identity(
 ) -> bool:
     """Whether this document says it is something OTHER than what was asked for.
 
-    A stored URL that redirects (a catalog that collapsed a
-    scene into a mosaic, a bucket serving a default document) hands back a
-    perfectly valid but wrong item; without this check the asset chooser's
-    last resort would publish a stranger's asset as this dataset's raster.
-    The search path never had this hole since ``_feature_by_id`` matches on
-    id; this is the direct path's equivalent.
+    A stored URL that redirects (a catalog that collapsed a scene into a
+    mosaic, a bucket serving a default document) hands back a valid but
+    wrong item; without this check the asset chooser's last resort would
+    publish a stranger's asset as this dataset's raster. The search path
+    checks the id in ``_searched_feature``; this is the direct path's
+    equivalent.
 
     Framed as contradiction, not confirmation: confirmation isn't always
     available (a pre-``item_id`` binding on a non-standard catalog has
     nothing to check). Where both sides state a value they must agree.
 
-    ``expected_item_id`` comes from the binding first, URL only
-    as fallback — otherwise a canonical URL later serving a different item
-    of the same collection would pass. Every refresh writes the id back, so
-    one refresh is enough to gain a durable identity to check against.
+    ``expected_item_id`` comes from the binding first and the URL only as
+    fallback; otherwise a canonical URL later serving a different item of
+    the same collection would pass. Every refresh writes the id back, so one
+    refresh gains a durable identity to check against.
     """
     if expected_item_id is not None and item.get("id") != expected_item_id:
         return True

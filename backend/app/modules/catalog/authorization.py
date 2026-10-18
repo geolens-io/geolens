@@ -69,9 +69,8 @@ class DatasetVisibility(str, enum.Enum):
     """Controls who can see a dataset."""
 
     PUBLIC = "public"
-    # Internal mirrors MapVisibility — any signed-in user, on a
-    # published record. It was already accepted by the API Literal and written
-    # by `geolens apply`, but had no branch in the permission layer.
+    # Internal mirrors MapVisibility: any signed-in user, on a published
+    # record.
     INTERNAL = "internal"
     RESTRICTED = "restricted"
     PRIVATE = "private"
@@ -177,10 +176,10 @@ async def check_datasets_access_bulk(
 ) -> dict[uuid.UUID, Any]:
     """Load and authorize multiple datasets in a small, constant number of queries.
 
-    Batch sibling of ``check_dataset_access`` — one SELECT
-    plus one ``apply_visibility_filter`` pass, replacing a per-id loop
-    that cost ~1000 queries for a 500-id VRT request. Same visibility
-    seam as ``_accessible_dataset_ids``, same 404 as the scalar path.
+    Batch sibling of ``check_dataset_access``: one SELECT plus one
+    ``apply_visibility_filter`` pass, where a per-id loop costs ~1000
+    queries for a 500-id VRT request. Same visibility seam as
+    ``_accessible_dataset_ids``, same 404 as the scalar path.
 
     Returns every requested dataset keyed by id, reachable only once
     every id has passed.
@@ -238,9 +237,9 @@ async def _can_access_dataset_id(
     )
 
 
-# Every provenance param naming a dataset, mapped to
-# what describes it and must drop with it. A new dataset-id param must
-# add a row here — test_every_dataset_id_param_is_redactable enforces it.
+# Every provenance param naming a dataset, mapped to what describes it and
+# must drop with it. test_every_dataset_id_param_is_redactable enforces that
+# each dataset-id param has a row.
 _DATASET_ID_PARAMS: dict[str, tuple[str, ...]] = {
     "mask_dataset_id": ("mask_filter",),
     "join_dataset_id": ("join_fields", "join_filter"),
@@ -255,8 +254,8 @@ async def visible_derived_from(
 ) -> dict | None:
     """The provenance reference, with every dataset id in it access-checked.
 
-    Omitted, not stubbed — a requester must not be able to tell
-    "not derived from anything" from "derived from something you cannot see".
+    Omitted, not stubbed: a requester must not be able to tell "not derived
+    from anything" from "derived from something you cannot see".
     Every id in ``_DATASET_ID_PARAMS`` (not just the source) is checked and
     dropped on its own if denied, since a public output can be derived from
     a public source through a private mask/join layer. Always returns a copy.
@@ -286,8 +285,8 @@ async def visible_derived_from(
     return {**derived_from, "params": params}
 
 
-# Never the dataset's id — _DATASET_ID_PARAMS already redacts
-# that; putting it in the prose would route around it.
+# Never the dataset's id: _DATASET_ID_PARAMS already redacts that, and
+# putting it in the prose would route around it.
 #
 # Never edit the prose span-by-span, because span boundaries can be forged.
 # Binary rule: full prose if every referenced dataset is accessible, else
@@ -326,9 +325,9 @@ async def _accessible_dataset_ids(
     """The subset of ``dataset_ids`` this requester may read, in one query.
 
     List-shaped form of ``check_dataset_access``: both delegate to
-    PermissionExtension (#929/#930). Batching is what makes redaction
-    affordable on a page of results — one statement, not one per dataset.
-    An id that no longer resolves is simply absent: access can't be established.
+    PermissionExtension. Batching is what makes redaction affordable on a
+    page of results: one statement, not one per dataset. An id that no
+    longer resolves is absent, since access can't be established.
     """
     wanted = set(dataset_ids)
     if not wanted:
@@ -380,9 +379,8 @@ async def visible_lineage_summaries(
     """Lineage prose per record, with unreachable datasets' titles redacted.
 
     Served raw, ``lineage_summary`` would hand any viewer the title of a
-    PRIVATE mask/join layer the sentence names — the disclosure
-    ``visible_derived_from`` prevents, reaching here through an
-    unredacted channel.
+    PRIVATE mask/join layer the sentence names: the disclosure
+    ``visible_derived_from`` prevents, through an unredacted channel.
 
     All-or-nothing per requester (see _REDACTED_SUMMARY): a viewer who
     can open every referenced dataset gets the sentence verbatim, else
@@ -620,7 +618,7 @@ def visible_extent_match(
 def can_view_dataset_provenance(
     record: Any, user: Identity | None, user_roles: set[str]
 ) -> bool:
-    """Owner-or-admin predicate for the provenance projection (#1316).
+    """Owner-or-admin predicate for the provenance projection.
 
     ADR-002 amendment: the single provenance projection for every surface
     that carries it. Owner/admin see raw fields (``origin_uri``,
@@ -642,7 +640,7 @@ async def check_dataset_write_access(
 ) -> set[str]:
     """Enforce owner-or-admin for dataset MUTATIONS. Raises 404/403.
 
-    ``check_dataset_access`` is a VISIBILITY check — it lets any authenticated
+    ``check_dataset_access`` is a VISIBILITY check: it lets any authenticated
     user through on a public+published dataset, so it must not gate writes.
     Applies visibility first (404, so we don't leak unreadable datasets),
     then ownership (403). Datasets with no recorded owner
@@ -716,8 +714,8 @@ async def require_dataset_editing_enabled(
     ):
         return
 
-    # Local import mirrors the other persistent_config call sites (e.g.
-    # service_metadata's REQUIRE_METADATA_FOR_PUBLISH) and avoids any import cycle.
+    # Local import, as at the other persistent_config call sites, to avoid an
+    # import cycle.
     from app.core.persistent_config import ENABLE_DATASET_EDITING
 
     if not await ENABLE_DATASET_EDITING.get(db):
@@ -734,12 +732,12 @@ async def check_public_visibility_allowed(
     *,
     user_roles: set[str] | None = None,
 ) -> set[str] | None:
-    """Enforce the `restrict_public_visibility` instance setting (#1691).
+    """Enforce the `restrict_public_visibility` instance setting.
 
     The ONE shared gate for every mutation that accepts a `visibility` value
     (dataset metadata PATCH, ingest paths, STAC import, manifest apply, map
     update). When ON, a non-admin requesting `public` gets a 403; every
-    other value passes through, and existing public content is unaffected —
+    other value passes through, and existing public content is unaffected:
     the gate fires only when a mutation REQUESTS public.
 
     Pass ``user_roles`` when already resolved to skip a lookup. Returns the
@@ -751,8 +749,7 @@ async def check_public_visibility_allowed(
     if visibility != "public":
         return user_roles
 
-    # Local import mirrors the other persistent_config call sites in this
-    # module (require_dataset_editing_enabled) and avoids any import cycle.
+    # Local import to avoid an import cycle, as above.
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 
     if not await RESTRICT_PUBLIC_VISIBILITY.get(db):

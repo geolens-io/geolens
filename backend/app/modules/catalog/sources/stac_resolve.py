@@ -1,11 +1,9 @@
 """Re-resolve a STAC dataset's binding against the catalog that published it.
 
-ADR-002 A10 (#1266). A STAC dataset holds no bytes, only a POINTER an
-upstream publisher can move. #1222 taught GeoLens to NOTICE that (404/410 ->
-``missing``) but not to act; this module is the acting half — every function
-here is a network read that returns facts, never writes to the DB. The
-refresh strategy in ``processing/`` persists what this reports, under the
-run ledger and binding guard.
+A STAC dataset holds no bytes, only a POINTER an upstream publisher can move
+(ADR-002). Every function here is a network read that returns facts and never
+writes to the DB. The refresh strategy in ``processing/`` persists what this
+reports, under the run ledger and binding guard.
 
 Two resolution paths: the stored ``item_href`` (the item's ``rel=self`` link
 captured at import) is tried first. If it 404s, a fallback re-search looks
@@ -20,13 +18,13 @@ actually contacted). Item is gone and the re-search also fails -> ``missing``.
 Anything else (timeout, 5xx, 401/403, non-STAC body) -> ``inaccessible``,
 and the caller leaves stored pointers untouched.
 
-Decomposition (#1335): this module is the by-URL entry point
-(``resolve_stac_binding``) and the façade external callers/tests import
-through. ``stac_resolve_taxonomy.py`` holds the verdict vocabulary;
-``stac_resolve_identity.py`` the URL/body identity checks shared by every
-path; ``stac_resolve_asset_gate.py`` turns a fetched item into a resolution
-(identity refusal, asset-key binding, self-link trust, SSRF/COG gate);
-``stac_resolve_by_search.py`` is the by-search fallback.
+This module is the by-URL entry point (``resolve_stac_binding``) and the
+façade external callers and tests import through. ``stac_resolve_taxonomy.py``
+holds the verdict vocabulary; ``stac_resolve_identity.py`` the URL/body
+identity checks shared by every path; ``stac_resolve_asset_gate.py`` turns a
+fetched item into a resolution (identity refusal, asset-key binding,
+self-link trust, SSRF/COG gate); ``stac_resolve_by_search.py`` is the
+by-search fallback.
 """
 
 from __future__ import annotations
@@ -81,26 +79,22 @@ async def resolve_stac_binding(
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
 
-    The refresh door stashes ``credential`` for one attempt and
-    the worker claims it once. ``catalog_origin`` is the catalog origin it
-    was given for; a read the item document steers elsewhere is made
-    anonymously (``credential_for_read``). Defaults to the stored item URL's
-    origin, which is what the door validated and cannot drift, since an
-    off-origin self link is never adopted.
-
-    ``repair_nodata`` reaches both paths below, direct and by-search.
+    The refresh door stashes ``credential`` for one attempt and the worker
+    claims it once. ``catalog_origin`` is the origin it was given for; a read
+    the item document steers elsewhere is made anonymously
+    (``credential_for_read``). It defaults to the stored item URL's origin,
+    which the door validated and which cannot drift, since an off-origin self
+    link is never adopted.
     """
     if catalog_origin is None:
         catalog_origin = item_href
-    # The BINDING is checked first (exact); falls back to reading the id out
-    # of the URL for datasets imported before it was recorded — only ever a
-    # reading of the stored href, never a guess.
+    # The BINDING is checked first (exact); datasets imported before it was
+    # recorded fall back to the id read out of the stored href, never a guess.
     #
-    # `collection` is optional on a binding, and every
-    # collection comparison here is skipped when absent — so a stored
-    # `/collections/A/items/x` that later redirects to `/collections/B/...`
-    # would rebind to B's keyed asset unless the URL's own collection stands
-    # in for verification. Read only, never written back.
+    # `collection` is optional on a binding and every collection comparison
+    # is skipped when absent, so a stored `/collections/A/items/x` that later
+    # redirects to `/collections/B/...` would rebind to B's keyed asset unless
+    # the URL's own collection stands in. Read only, never written back.
     stored_layout = _standard_item_path(item_href)
     effective_collection = collection_id or (
         stored_layout[1] if stored_layout else None
@@ -108,9 +102,9 @@ async def resolve_stac_binding(
     derived = _search_root_and_item_id(item_href, effective_collection)
     expected_item_id = item_id or (derived[1] if derived else None)
     if expected_item_id is None:
-        # Nothing to check an answer against, so nothing is asked or adopted
-        # — same refusal the door gives before a job exists, at the one
-        # place that decides, so a direct caller can't route around it.
+        # Nothing to check an answer against, so nothing is asked or adopted.
+        # The door refuses the same way before a job exists; refusing here
+        # too means a direct caller can't route around it.
         logger.info("stac_identity_unverifiable")
         return _UNVERIFIABLE
 

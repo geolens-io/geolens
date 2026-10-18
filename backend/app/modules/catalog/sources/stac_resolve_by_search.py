@@ -1,8 +1,7 @@
 """The by-search fallback path for STAC re-resolution.
 
 Reached from ``stac_resolve.resolve_stac_binding`` only once the stored
-``item_href`` has 404/410'd — see that module's docstring for what a
-searched answer is and isn't allowed to prove.
+``item_href`` has answered 404/410.
 """
 
 from __future__ import annotations
@@ -28,15 +27,14 @@ def _searched_feature(
 ) -> dict[str, Any] | None:
     """The searched item, if the answer actually contains it.
 
-    A 200 from ``/search`` isn't itself an answer about this item — an
+    A 200 from ``/search`` isn't itself an answer about this item: an
     endpoint that ignores the filters hands back a page of the catalog, so
     both filters are re-checked against the response.
 
-    The collection must be AFFIRMED, not merely not contradicted.
-    An item id is unique only within its collection, so an endpoint honouring
-    ``ids`` while ignoring ``collections`` can legitimately return a same-id
-    item elsewhere, and a feature omitting ``collection`` would otherwise
-    sail through the weaker contradiction test used elsewhere.
+    The collection must be AFFIRMED, not merely not contradicted. An item id
+    is unique only within its collection, so an endpoint honouring ``ids``
+    while ignoring ``collections`` can return a same-id item elsewhere, and a
+    feature omitting ``collection`` would pass the weaker contradiction test.
     """
     if not isinstance(document, dict):
         return None
@@ -62,10 +60,9 @@ async def _resolve_by_search(
 ) -> StacResolution:
     """Look the item up by identity after its own URL stopped resolving.
 
-    The search ROOT can only come from the URL — there is nowhere else to
-    read it from — so a catalog outside the standard layout still gets no
-    second path. The IDENTITY prefers the stored id, which is exact, over the
-    one read out of the URL.
+    The search ROOT can only come from the URL, so a catalog outside the
+    standard layout gets no second path. The IDENTITY prefers the stored id,
+    which is exact, over the one read out of the URL.
     """
     derived = _search_root_and_item_id(item_href, collection_id)
     if derived is None:
@@ -82,27 +79,23 @@ async def _resolve_by_search(
         ),
     )
     if not result.ok:
-        # A search that couldn't be carried out establishes
-        # nothing and must not report `missing` — the item may simply have
-        # moved, which is the whole reason the search exists.
+        # A search that couldn't be carried out establishes nothing and must
+        # not report `missing`: the item may simply have moved.
         if result.health == MISSING:
-            # "no search endpoint here" is not a fact about this
-            # item, so the item's own 404 stays the last word with its own
-            # detail, not the search endpoint's not_found.
+            # "No search endpoint here" is not a fact about this item, so the
+            # item's own 404 stays the last word, with its own detail.
             return _WITHDRAWN
-        # contacted=True regardless of the search's own flag —
-        # this function is only reached because the item itself answered
-        # 404/410, so the origin demonstrably responded; a search failing
-        # before the wire must not erase that prior contact.
+        # contacted=True whatever the search's own flag: the item itself
+        # answered 404/410, and a search failing before the wire must not
+        # erase that prior contact.
         return StacResolution(result.health, result.detail, contacted=True)
     feature = _searched_feature(
         document, item_id=wanted_id, collection_id=collection_id or ""
     )
     if feature is None:
-        # An empty result is authoritative (`missing`). A
-        # non-empty result that doesn't match means the endpoint isn't
-        # honouring the filters (limit:1 means an unrelated row is all it
-        # had room to return) and establishes nothing about this item.
+        # An empty result is authoritative (`missing`). A non-empty result
+        # that doesn't match means the endpoint ignores the filters (limit:1
+        # left room only for an unrelated row) and establishes nothing.
         features = document.get("features") if isinstance(document, dict) else None
         if isinstance(features, list) and not features:
             return _WITHDRAWN

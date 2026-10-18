@@ -8,9 +8,8 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.url_redaction import has_url_credentials
 
-# ServiceAuthRequest lives in app.platform.service_auth, not here
-# — processing/ cannot import app.modules.catalog.* (test_layering), and importers
-# there need this schema too. Import, don't redefine.
+# ServiceAuthRequest lives in app.platform.service_auth because processing/
+# cannot import app.modules.catalog.* (test_layering) and needs it too.
 from app.platform.service_auth import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_BASIC_POLICY,
@@ -256,9 +255,9 @@ class ServicePreviewRequest(BaseModel):
         max_length=200,
         description="ArcGIS OID field name used for orderByFields during preview pagination.",
     )
-    # Auth MUST be added LAST. The generated SDK positions fields
-    # by declaration order, so inserting it earlier would shift an existing
-    # positional caller's OID string into auth. Pinned by test_service_auth_contract_1746.
+    # Auth stays LAST: the generated SDK positions fields by declaration
+    # order, so inserting it earlier would shift an existing positional
+    # caller's OID string into auth. Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )

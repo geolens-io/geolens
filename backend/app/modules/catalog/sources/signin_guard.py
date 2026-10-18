@@ -55,13 +55,13 @@ logger = structlog.stdlib.get_logger(__name__)
 _ARCGIS_SIGNIN_ATTEMPT_LIMIT = 3
 _ARCGIS_SIGNIN_WINDOW = timedelta(minutes=15)
 
-# Strong references keeping an in-flight settle write
-# alive — `asyncio` holds tasks weakly, and this one is deliberately left
-# running when the drain gives up on it.
+# Strong references keeping an in-flight settle write alive: `asyncio` holds
+# tasks weakly, and this one is deliberately left running when the drain
+# gives up on it.
 _SETTLE_TASKS: set[asyncio.Task] = set()
 
-# Ceiling on a settle write so a database that has
-# stopped answering cannot hold a shutting-down worker open.
+# Ceiling on a settle write so a database that has stopped answering cannot
+# hold a shutting-down worker open.
 _SETTLE_DRAIN_SECONDS = 5.0
 
 
@@ -69,13 +69,12 @@ _SETTLE_DRAIN_SECONDS = 5.0
 class SignInTarget:
     """Everything one attempt is charged to, and the only shape that carries it.
 
-    One frozen value for the three fields that must always
-    agree, so a phase cannot reserve against one account and settle against
-    another.
+    One frozen value for the three fields that must always agree, so a phase
+    cannot reserve against one account and settle against another.
 
     ``host`` is the canonical ``host:port/webadaptor`` of the destination
-    that receives the password or the synthetic
-    ``"unknown"`` for outcomes that precede discovery, where nothing was sent.
+    that receives the password, or the synthetic ``"unknown"`` for outcomes
+    that precede discovery, where nothing was sent.
     """
 
     host: str
@@ -103,21 +102,21 @@ def _signin_event(
     """The audit event for one sign-in outcome, the same row from every writer.
 
     Records the token-service HOST (never the portal URL) and a keyed digest
-    (never the username) — the signal an operator watching for account
-    walking needs, with nothing more.
+    (never the username): the signal an operator watching for account
+    walking needs, and nothing more.
     """
     return AuditEvent(
         user_id=user_id,
         action="arcgis_signin",
         resource_type="service_url",
         details={
-            # DESTINATION host from authInfo.tokenServicesUrl,
-            # never the address the caller typed.
+            # DESTINATION host from authInfo.tokenServicesUrl, never the
+            # address the caller typed.
             "token_service_host": target.host,
             "result": result,
             "account_key": target.account_key,
-            # The reservation this outcome settles; distinguishes
-            # a retry of one attempt from a second attempt.
+            # The reservation this outcome settles; distinguishes a retry of
+            # one attempt from a second attempt.
             **({"attempt_id": str(attempt_id)} if attempt_id else {}),
             **({"discovery_note": note} if note else {}),
         },
@@ -145,9 +144,8 @@ async def _signin_audit(
         db, _signin_event(user_id, target, result, note, attempt_id=attempt_id)
     )
     if not reserved and result not in UNCOUNTED_SIGNIN_RESULTS:
-        # Written here, not at call sites, so the ledger
-        # and audit row can never disagree — same transaction, commit or
-        # fail together.
+        # Written here, not at call sites, so the ledger and audit row share
+        # one transaction and commit or fail together.
         db.add(
             ArcGISSignInAttempt(
                 account_key=target.account_key, user_scope=target.user_scope
@@ -166,13 +164,13 @@ async def _sweep_expired_signin_attempts(db: AsyncSession) -> None:
     concurrent count would have seen, and the rate limits bound how often
     this runs to a handful of times per account per window.
 
-    Rows are picked in a fixed order (`ORDER BY id`) with
-    concurrent holders SKIPPED (`SKIP LOCKED`). Two sign-ins for different
-    scopes hold different advisory locks and sweep concurrently — a bare
-    `DELETE ... WHERE attempted_at < ...` let two sweeps take the same
+    Rows are picked in a fixed order (`ORDER BY id`) with concurrent holders
+    SKIPPED (`SKIP LOCKED`). Two sign-ins for different scopes hold different
+    advisory locks and sweep concurrently; a bare
+    `DELETE ... WHERE attempted_at < ...` would let two sweeps take the same
     expired rows in plan-chosen order and deadlock (40P01) on housekeeping,
-    failing an otherwise-fine sign-in. Dropping a skip-locked row costs
-    nothing: it's already expired and the other sweeper is deleting it.
+    failing an otherwise-fine sign-in. Skipping a locked row costs nothing:
+    it's already expired and the other sweeper is deleting it.
     """
     expired = (
         select(ArcGISSignInAttempt.id)
@@ -193,19 +191,19 @@ async def _sweep_expired_signin_attempts(db: AsyncSession) -> None:
 async def _signin_budgets_spent(db: AsyncSession, target: SignInTarget) -> bool:
     """Whether either attempt budget is spent inside the window.
 
-    Counts are cross-worker via the shared `arcgis_signin_attempts`
-    table, so no new dependency on an install with only PostgreSQL.
+    Counts are cross-worker via the shared `arcgis_signin_attempts` table,
+    so an install with only PostgreSQL needs nothing more.
 
-    TWO budgets, refusal on either. The account budget
-    mirrors what Esri itself counts (a lockout belongs to the account, so a
-    per-user limit alone lets colleagues jointly lock one account); the
-    per-user budget stops one user from walking many accounts at three each.
+    TWO budgets, refusal on either. The account budget mirrors what Esri
+    itself counts (a lockout belongs to the account, so a per-user limit
+    alone lets colleagues jointly lock one account); the per-user budget
+    stops one user from walking many accounts at three each.
 
-    The account budget counts `arcgis_signin_attempts`,
-    not `audit_logs` — `audit_logs` carries `tenant_isolation_audit_logs`,
-    which would make the budget per-tenant and let two tenants each send
-    three failures at one account. The ledger is deliberately outside the
-    RLS boundary (see that model's docstring).
+    The account budget counts `arcgis_signin_attempts`, not `audit_logs`:
+    `audit_logs` carries `tenant_isolation_audit_logs`, which would make the
+    budget per-tenant and let two tenants each send three failures at one
+    account. The ledger is deliberately outside the RLS boundary (see that
+    model's docstring).
 
     The per-caller budget reads the same ledger, keyed on `user_scope` (a
     digest, no plaintext identifier), not `audit_logs`: reserve-then-settle
@@ -214,8 +212,8 @@ async def _signin_budgets_spent(db: AsyncSession, target: SignInTarget) -> bool:
     audit row, undercounting exactly the attempts that matter.
 
     Outcomes GeoLens refused on its own account (no credential reached
-    ArcGIS) don't count — an EXCLUSION list, so a refusal doesn't extend its
-    own window and lock the caller out on every retry.
+    ArcGIS) don't count, through an EXCLUSION list, so a refusal doesn't
+    extend its own window and lock the caller out on every retry.
     """
     since = datetime.now(tz=UTC) - _ARCGIS_SIGNIN_WINDOW
     by_user = await db.scalar(
@@ -250,15 +248,14 @@ async def _signin_reserve(
     Returns the ledger row's id, which the settle writes carry so one attempt
     cannot end up with two audit rows.
 
-    Take both locks, read both budgets, insert the ledger row,
-    commit — one transaction, so no caller can read either counter between
-    this caller's read and write.
+    Take both locks, read both budgets, insert the ledger row, commit: one
+    transaction, so no caller can read either counter between this caller's
+    read and write.
 
-    Locks taken user-and-host FIRST, account SECOND —
-    the account lock alone would leave the per-caller budget racy (one caller
-    signing into three accounts on one host takes three different account
-    locks, so all three read the same pre-attempt count and all three pass
-    a limit of three).
+    Locks taken user-and-host FIRST, account SECOND: the account lock alone
+    would leave the per-caller budget racy (one caller signing into three
+    accounts on one host takes three different account locks, so all three
+    read the same pre-attempt count and all three pass a limit of three).
 
     The connection returns to the pool at commit, so the mint that follows
     holds none; thirteen concurrent sign-ins holding one would occupy a 10+3
@@ -269,12 +266,12 @@ async def _signin_reserve(
     `except Exception` and the route's `except ArcGISSignInError`, so
     write-at-settle would lose both the ledger and audit rows while ArcGIS may
     have counted the password anyway. Counting first is the conservative
-    direction — worst case a wasted attempt, not a lost ArcGIS account.
+    direction: worst case a wasted attempt, not a lost ArcGIS account.
 
     Locks are held for this transaction only, so the "sign-in already in
-    progress" 409 now fires on a collision inside the reservation, not
-    across the whole mint — allowing up to three concurrent credential POSTs
-    per account, still under Esri's five-failure account lock.
+    progress" 409 fires on a collision inside the reservation, not across
+    the whole mint. That allows up to three concurrent credential POSTs per
+    account, still under Esri's five-failure account lock.
     """
     # Client-side rather than the column default: the caller needs the id and
     # a server default would cost a flush and a read back to learn it.
@@ -310,20 +307,20 @@ async def _write_settled_outcome(
     Returns the event when this call wrote the row, and ``None`` when a row
     already carried this ``attempt_id``: the interrupted commit had landed.
 
-    NOT the request's session — the caller stops waiting at
-    a deadline and the route re-raises, which would close the request
-    session's connection under a statement still running.
+    NOT the request's session: the caller stops waiting at a deadline and the
+    route re-raises, which would close the request session's connection
+    under a statement still running.
 
-    One INSERT arbitrated by `uq_audit_logs_arcgis_signin_attempt`
-    that no-ops when a row already carries this `attempt_id`, so a commit the
+    One INSERT arbitrated by `uq_audit_logs_arcgis_signin_attempt` that
+    no-ops when a row already carries this `attempt_id`, so a commit the
     cancellation interrupted can land at any point without a second row.
 
     Only the `audit_logs` row is written here; :func:`_forward_settled_outcome`
     reaches every other registered sink.
 
-    Late-bound import (per `test_layering.py`): a module-scope
-    binding would snapshot the dev-DB factory before the test fixture
-    rebinds `app.core.db.async_session`.
+    Late-bound import (per `test_layering.py`): a module-scope binding would
+    snapshot the dev-DB factory before the test fixture rebinds
+    `app.core.db.async_session`.
     """
     from app.core.db import async_session
 
@@ -350,9 +347,9 @@ async def _write_settled_outcome(
 async def _forward_settled_outcome(event: AuditEvent, sinks: list) -> None:
     """Hand a written outcome to every registered sink except the ``audit_logs`` one.
 
-    A cancel can land while the ``audit_logs`` sink is still on
-    its round trips and before a later sink ran, so a written row is no
-    proof the others heard it — at-least-once for them, keyed on
+    A cancel can land while the ``audit_logs`` sink is still on its round
+    trips and before a later sink ran, so a written row is no proof the
+    others heard it: delivery to them is at-least-once, keyed on
     ``attempt_id``. Late-bound import, for the reason
     :func:`_write_settled_outcome` gives.
     """
@@ -366,15 +363,15 @@ async def _forward_settled_outcome(event: AuditEvent, sinks: list) -> None:
 def _settle_failure(settle: asyncio.Future) -> str | None:
     """What stopped the settle write, by name, or ``None`` when it landed.
 
-    PENDING is checked FIRST. A task just asked to cancel
-    is neither done nor cancelled, and `Future.exception()` on a pending
-    task raises `InvalidStateError` — on the drain-deadline path that would
-    have escaped the finaliser and propagated instead of the
-    `CancelledError` being re-raised, silently dropping the warning log.
+    PENDING is checked FIRST. A task just asked to cancel is neither done nor
+    cancelled, and `Future.exception()` on a pending task raises
+    `InvalidStateError`, which on the drain-deadline path would escape the
+    finaliser in place of the re-raised `CancelledError` and silently drop
+    the warning log.
 
     A cancellation this module asked for reads as `CancelledError` whether
-    the task has finished unwinding yet or not — that's what stopped the
-    write either way.
+    or not the task has finished unwinding; that's what stopped the write
+    either way.
     """
     if not settle.done() or settle.cancelled():
         return "CancelledError"
@@ -418,7 +415,7 @@ async def _signin_settle_shielded(
     """Record *result* for an attempt whose settlement a cancellation cut short.
 
     Best effort, deliberately: the ledger row is already durable, and what's
-    missing is only the operator-facing half — a failure here is logged and
+    missing is only the operator-facing half, so a failure here is logged and
     swallowed rather than replacing a cancellation with a database error.
 
     *release* is the request's session, rolled back first so this write does
@@ -433,9 +430,9 @@ async def _signin_settle_shielded(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SETTLE_DRAIN_SECONDS
     if release is not None:
-        # The request session owns its connection until
-        # FastAPI's teardown, which does not run until the route re-raises, so
-        # the write below would queue behind it on a pool with no spare slot.
+        # The request session owns its connection until FastAPI's teardown,
+        # which does not run until the route re-raises, so the write below
+        # would queue behind it on a pool with no spare slot.
         await _drain_shielded(release.rollback(), deadline)
     settle = await _drain_shielded(
         _write_settled_outcome(user_id, target, result, note, attempt_id), deadline
@@ -444,8 +441,8 @@ async def _signin_settle_shielded(
     if failure is not None:
         # No credential, token or username here: only the destination host
         # and the exception TYPE (never the instance, which can hold a
-        # request whose encoded body is the password) — same as
-        # `PortalSignIn.mint` logs on a transport failure.
+        # request whose encoded body is the password), as `PortalSignIn.mint`
+        # logs on a transport failure.
         logger.warning(
             "ArcGIS sign-in cancelled before its outcome could be recorded",
             token_service_host=target.host,
@@ -472,24 +469,23 @@ async def _signin_locks(
 ) -> AsyncIterator[bool]:
     """Hold both sign-in locks on the REQUEST session, yielding whether both were free.
 
-    The locks are transaction-scoped (`pg_try_advisory_xact_lock`),
-    not the session-scoped variant — that one outlives the pool's
-    rollback-on-return, so one missed unlock would lock an account out for
-    the life of that pooled connection.
+    The locks are transaction-scoped (`pg_try_advisory_xact_lock`), not the
+    session-scoped variant, which outlives the pool's rollback-on-return, so
+    one missed unlock would lock an account out for the life of that pooled
+    connection.
 
-    Two scopes taken in argument ORDER (caller-and-host
-    before account) by every caller, so no two can hold one another's next
-    lock.
+    Two scopes taken in argument ORDER (caller-and-host before account) by
+    every caller, so no two can hold one another's next lock.
 
-    On the request's OWN session, so a sign-in costs
-    ONE pooled connection — a dedicated lock session would cost two, checked
-    out in an order where thirteen concurrent sign-ins could each hold a lock
-    connection and queue for a request connection the other twelve held,
-    stalling unrelated traffic until the pool timeout.
+    On the request's OWN session, so a sign-in costs ONE pooled connection.
+    A dedicated lock session would cost two, checked out in an order where
+    thirteen concurrent sign-ins could each hold a lock connection and queue
+    for a request connection the other twelve held, stalling unrelated
+    traffic until the pool timeout.
 
-    The transaction they ride is the RESERVATION's — open from the first
-    lock through the ledger insert and no further. The commit that ends it
-    both persists the row and releases the locks, in that order, which keeps
+    The transaction they ride is the RESERVATION's, open from the first lock
+    through the ledger insert and no further. The commit that ends it both
+    persists the row and releases the locks, in that order, which keeps
     attempts from interleaving without holding a connection across the
     network budget.
 
@@ -547,13 +543,11 @@ async def _signin_refusal(
 ) -> NoReturn:
     """Log, audit and raise one classified refusal.
 
-    One exit for all six refusal sites, so the log
-    line, audit row and HTTPException can't drift apart by being
-    hand-written at each.
+    One exit for every refusal, so the log line, audit row and HTTPException
+    can't drift apart by being hand-written at each site.
 
-    ``reserved`` passes straight through to
-    :func:`_signin_audit`, so a refusal following the reservation doesn't
-    count the attempt a second time.
+    ``reserved`` passes straight through to :func:`_signin_audit`, so a
+    refusal following the reservation doesn't count the attempt twice.
     """
     logger.warning(
         "ArcGIS sign-in refused",
@@ -572,10 +566,10 @@ async def _signin_refusal(
             attempt_id=attempt_id,
         )
     except Exception:  # broad: any failed transaction, whatever poisoned it
-        # A refusal must be recorded even when a
-        # cancellation left this session's transaction failed. Rolling back
-        # is the only way to a usable session, and costs nothing here since
-        # `_signin_audit` commits, so there is never uncommitted work to lose.
+        # A refusal must be recorded even when a cancellation left this
+        # session's transaction failed. Rolling back is the only way to a
+        # usable session, and costs nothing here: `_signin_audit` commits, so
+        # there is never uncommitted work to lose.
         await db.rollback()
         await _signin_audit(
             db,
