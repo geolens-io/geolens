@@ -110,6 +110,33 @@ class TestRelatedDatasets:
         if len(data["items"]) > 1:
             assert data["items"][0]["similarity"] >= data["items"][1]["similarity"]
 
+    async def test_related_drops_weak_matches(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A neighbour near 0.4 cosine similarity is dropped, one near 0.6 kept."""
+        user_id = await get_user_id(test_db_session, "admin")
+        seed = await create_dataset(test_db_session, created_by=user_id, name="Seed")
+        weak = await create_dataset(test_db_session, created_by=user_id, name="Weak")
+        close = await create_dataset(test_db_session, created_by=user_id, name="Close")
+
+        await _add_embedding(
+            test_db_session, seed.record_id, _make_embedding([1.0, 0.0])
+        )
+        await _add_embedding(
+            test_db_session, weak.record_id, _make_embedding([0.4, 0.9165])
+        )
+        await _add_embedding(
+            test_db_session, close.record_id, _make_embedding([0.6, 0.8])
+        )
+
+        resp = await client.get(
+            f"/datasets/{seed.id}/related/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        names = [item["name"] for item in resp.json()["items"]]
+        assert "Close" in names
+        assert "Weak" not in names
+
     async def test_related_excludes_self(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
