@@ -174,6 +174,18 @@ async def test_a_gid_past_the_integer_range_is_reported_missing(
     assert await _gids(test_db_session, point_layer) == gids
 
 
+@pytest.mark.parametrize("bad", [[True], [False], [1, True]])
+async def test_boolean_gids_are_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, bad
+):
+    gids = await _add_points(client, admin_auth_header, point_layer)
+
+    resp = await _delete(client, point_layer, admin_auth_header, bad)
+
+    assert resp.status_code == 422, resp.text
+    assert await _gids(test_db_session, point_layer) == gids
+
+
 async def test_more_than_the_cap_is_refused(
     client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
 ):

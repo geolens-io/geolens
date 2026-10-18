@@ -160,6 +160,32 @@ describe('AttributeTable batch delete', () => {
     await waitFor(() => expect(getDatasetRows.mock.calls.length).toBeGreaterThan(fetchesBefore));
   });
 
+  it('offers no selection for a gid past 2^53, which arrives rounded', async () => {
+    const unsafe = 2 ** 53 + 2;
+    getDatasetRows.mockImplementation(async () => page(0, [1, 2, unsafe]));
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1" canEdit />);
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Select all rows on this page' }));
+
+    expect(screen.getByRole('checkbox', { name: `Select row ${unsafe}` })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete 2 rows' })).toBeInTheDocument();
+  });
+
+  it('returns focus to the table after a confirmed delete', async () => {
+    deleteFeatures.mockResolvedValue({ deleted: 1, tile_cache_version: 7 });
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1" canEdit />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select row 1' }));
+    await user.click(screen.getByRole('button', { name: 'Delete 1 row' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Feature attributes' })).toHaveFocus(),
+    );
+  });
+
   it('drops the selection when the page changes', async () => {
     const user = userEvent.setup();
     render(<AttributeTable datasetId="ds-1" canEdit />);

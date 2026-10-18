@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainValidator,
+    StrictInt,
     model_validator,
 )
 
@@ -308,7 +309,8 @@ class FeatureCollectionCreate(BaseModel):
 class FeatureBatchDelete(BaseModel):
     """The features a batch delete removes."""
 
-    gids: list[int] = Field(
+    # Strict: lax mode would read JSON true/false as gids 1 and 0.
+    gids: list[StrictInt] = Field(
         min_length=1,
         max_length=MAX_FEATURES_PER_BATCH,
         description=(

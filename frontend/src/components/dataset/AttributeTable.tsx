@@ -201,6 +201,7 @@ export function AttributeTable({
   const [editError, setEditError] = useState<string | null>(null);
   // Scroll container ref used by the row virtualizer.
   const parentRef = useRef<HTMLDivElement>(null);
+  const deleteConfirmedRef = useRef(false);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -283,8 +284,9 @@ export function AttributeTable({
     setSelectedScope(selectionScope);
     setSelection(new Set());
   }
+  // A bigint gid past 2^53 arrives rounded, so it could name another row.
   const pageGids = useMemo(
-    () => (data?.rows ?? []).map((row) => row.gid as number),
+    () => (data?.rows ?? []).map((row) => row.gid as number).filter(Number.isSafeInteger),
     [data?.rows],
   );
   const selectedGids = useMemo(
@@ -788,7 +790,7 @@ export function AttributeTable({
                           <Checkbox
                             aria-label={t('attributes.selectRow', { gid })}
                             checked={selectedGids.includes(gid)}
-                            disabled={isPlaceholderData}
+                            disabled={isPlaceholderData || !Number.isSafeInteger(gid)}
                             onCheckedChange={(value) => toggleRow(gid, value === true)}
                           />
                         </TableCell>
@@ -813,7 +815,15 @@ export function AttributeTable({
       </div>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            // The opener is disabled during the delete and gone after it.
+            if (!deleteConfirmedRef.current) return;
+            deleteConfirmedRef.current = false;
+            event.preventDefault();
+            parentRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t('attributes.deleteRowsTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -829,6 +839,7 @@ export function AttributeTable({
               variant="destructive"
               disabled={deleteFeatures.isPending}
               onClick={() => {
+                deleteConfirmedRef.current = true;
                 handleDeleteRows();
                 setDeleteConfirmOpen(false);
               }}
