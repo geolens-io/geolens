@@ -154,6 +154,7 @@ class TestCommentText:
         ("path", "line"),
         [
             ("a.ts", "const x = 1; // SEC-002: workaround"),
+            ("a.ts", "case 1:// SEC-002"),
             ("a.ts", "foo(); /* fix(#123): workaround */"),
             ("a.yml", "retries: 3  # GAP-001 bounds it"),
             ("a.sh", 'echo "done" # BKP-01'),

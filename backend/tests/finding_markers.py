@@ -404,9 +404,8 @@ class _Syntax:
     quotes: str
 
 
-# A `#` starts a comment only at the start of a line or after whitespace, and
-# `//` not after a `:` (a URL).
-_C_STYLE = _Syntax(re.compile(r"(?<!:)//"), ("/*", "*/"), "'\"`")
+# A `#` starts a comment only at the start of a line or after whitespace.
+_C_STYLE = _Syntax(re.compile(r"//"), ("/*", "*/"), "'\"`")
 _COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
     (
         re.compile(
