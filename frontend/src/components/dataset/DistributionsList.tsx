@@ -29,7 +29,7 @@ interface DistributionsListProps {
   recordId: string;
   /** Owner-or-admin editor: mirrors the backend `require_permission("edit_metadata")`
    * + `_check_record_ownership` guard on the distribution PATCH endpoint.
-   * Everyone else keeps the read-only view (#1395). */
+   * Everyone else keeps the read-only view. */
   canEdit?: boolean;
   /** Names exported downloads after the dataset, e.g. `<title>.zip` for a shapefile. */
   datasetTitle?: string;
@@ -92,20 +92,17 @@ function CopyableUrl({
   // (e.g. a manual viewer-app link) must never receive it.
   const isSameOriginApiResource =
     !isAbsoluteUrl(distribution.url) || isSameOriginAbsoluteUrl(distribution.url);
-  // A vector-tile row's url is a template
-  // (/tiles/data.<table>/{z}/{x}/{y}.pbf — no literal resource at that
-  // path) and a raster/VRT row's url is a bare object-storage key
-  // (rasters/<id>/<sha>/source.cog.tif — not the real, token-gated COG
-  // download route). Neither is something a single fetch resolves, so ONLY
-  // an actually-fetchable url gets a download action at all; the rest stay
-  // copy-only rows.
+  // A vector-tile row's url is a template (/tiles/data.<table>/{z}/{x}/{y}.pbf,
+  // no literal resource at that path) and a raster/VRT row's url is a bare
+  // object-storage key (rasters/<id>/<sha>/source.cog.tif, not the token-gated
+  // COG download route). Neither resolves with a single fetch, so ONLY an
+  // actually-fetchable url gets a download action; the rest stay copy-only.
   const isFetchable = isFetchableDistributionUrl(distribution.url);
 
-  // A plain <a href download> browser navigation carries no
-  // Authorization header, so a private or unpublished dataset's export
-  // endpoint rejected it as anonymous. Route same-origin GeoLens resources
-  // through a refresh-aware, bearer-authenticated fetch-and-save flow
-  // (api/datasets.ts's authenticatedDownload).
+  // A plain <a href download> navigation carries no Authorization header, so a
+  // private or unpublished dataset's export endpoint rejects it as anonymous.
+  // Route same-origin GeoLens resources through a refresh-aware, authenticated
+  // fetch-and-save flow (api/datasets.ts's authenticatedDownload).
   async function handleAuthenticatedDownload() {
     if (downloading) return;
     setDownloading(true);
@@ -170,34 +167,29 @@ function CopyableUrl({
   );
 }
 
-/** Title alone can collide — `uq_record_distribution`
- * covers (record_id, distribution_type, format, url), not title, so two
- * manual rows are free to share one, and a truncated URL is only unique
- * up to whatever the truncation cuts off. The row's own
- * `id` is the one field the database actually guarantees is unique — use it
- * untruncated instead of a heuristic. */
+/** Title alone can collide: `uq_record_distribution` covers (record_id,
+ * distribution_type, format, url), not title, so two manual rows can share one,
+ * and a truncated URL is only unique up to the truncation. The row's own `id`
+ * is the one field the database guarantees unique; use it untruncated. */
 function distributionLabel(distribution: DistributionResponse): string {
   const base =
     distribution.title?.trim() || distribution.format || distribution.distribution_type;
   return `${base} (${distribution.id})`;
 }
 
-/** Radio-style set-primary control. Rendered only for manual
- * (non-auto_generated) rows — `update_distribution` rejects any write,
- * `is_primary` included, against an auto_generated row with a 400, so a
- * control on those rows could never do anything but fail. The currently
- * primary manual row renders checked and disabled; clicking any other one
- * PATCHes it to `is_primary: true`, which the backend applies as a
- * last-write-wins demote of every other row on the record.
+/** Radio-style set-primary control. Rendered only for manual (non-auto_generated)
+ * rows: `update_distribution` rejects any write, `is_primary` included, against
+ * an auto_generated row with a 400. The currently primary manual row renders
+ * checked and disabled; clicking another PATCHes it to `is_primary: true`,
+ * which the backend applies as a last-write-wins demote of every other row.
  *
- * `isMutating` disables every sibling control
- * while any promotion is in flight, not just the clicked one — two manual
- * rows both idle-looking would otherwise let a second click fire a
- * concurrent PATCH, and since both transactions demote-then-promote against
- * `uq_record_distribution_primary`, which one wins is transaction order, not
- * click order. `isPendingThisRow` only decides which button shows the
- * spinner. The accessible name (`distributionLabel`) identifies the row so a
- * screen reader can tell two "Set as primary" buttons apart. */
+ * `isMutating` disables every sibling control while any promotion is in flight,
+ * not just the clicked one: a second click would fire a concurrent PATCH, and
+ * since both transactions demote-then-promote against
+ * `uq_record_distribution_primary`, the winner is transaction order, not click
+ * order. `isPendingThisRow` only decides which button shows the spinner. The
+ * accessible name (`distributionLabel`) identifies the row so a screen reader
+ * can tell two "Set as primary" buttons apart. */
 function SetPrimaryControl({
   distribution,
   onSelect,

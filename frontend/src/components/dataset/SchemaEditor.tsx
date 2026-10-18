@@ -238,9 +238,8 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                // Also wait for the map-references query — a
-                // fast confirm could drop the column before the "used by N
-                // maps" warning had a chance to render.
+                // Also wait for the map-references query: a fast confirm could
+                // drop the column before the "used by N maps" warning rendered.
                 disabled={dropColumnMutation.isPending || columnReferences.isLoading}
                 onClick={() => {
                   if (confirmDelete) handleDropColumn(confirmDelete);
@@ -274,8 +273,8 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                   if (e.key === 'Enter') handleAddColumn();
                 }}
                 className="font-mono text-xs h-9"
-                // Announce the validation failure and associate
-                // it with the field instead of a visually-adjacent <p> only.
+                // Announce the validation failure and associate it with the field
+                // instead of a visually-adjacent <p> only.
                 aria-invalid={nameError ? true : undefined}
                 aria-describedby={nameError ? nameErrorId : undefined}
               />

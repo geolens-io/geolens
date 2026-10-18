@@ -16,10 +16,10 @@ import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import { describeFailureReason } from '@/lib/failure-reason';
 
-// `restricted` is not offered at import time — a non-admin
-// owner who picked it would lose access to their own dataset, and grants have no
-// write path. The type goes with the option, so nothing keeps typechecking
-// against a value the picker cannot produce.
+// `restricted` is not offered at import time: a non-admin owner who picked it
+// would lose access to their own dataset, and grants have no write path. The
+// type goes with the option, so nothing typechecks against a value the picker
+// cannot produce.
 type DatasetVisibilityChoice = 'private' | 'public';
 
 // The schema discovery scans for unregistered tables.
@@ -94,7 +94,6 @@ export function RegisterForm() {
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.discoverTables });
   }
 
-  // ── Results view ──
   if (results) {
     const successes = results.filter((r) => r.status === 'success');
     const errors = results.filter((r) => r.status === 'error');
@@ -142,7 +141,6 @@ export function RegisterForm() {
     );
   }
 
-  // ── Loading ──
   if (isLoading) {
     return (
       <div className="flex items-center justify-center rounded-xl border border-border bg-card py-12">
@@ -154,7 +152,6 @@ export function RegisterForm() {
     );
   }
 
-  // ── Error ──
   if (discoverError) {
     return (
       <div className="rounded-xl border border-border bg-card p-6">
@@ -165,7 +162,6 @@ export function RegisterForm() {
     );
   }
 
-  // ── Empty ──
   if (tablesEmpty) {
     const allRegistered = (datasetCountHint ?? 0) > 0;
     return (
@@ -190,7 +186,6 @@ export function RegisterForm() {
     );
   }
 
-  // ── Two-panel layout ──
   return (
     <div className="grid min-h-[420px] overflow-hidden rounded-xl border border-border bg-card md:grid-cols-[280px_1fr]">
       {/* Left sidebar */}
@@ -258,7 +253,6 @@ export function RegisterForm() {
   );
 }
 
-/* ── Table detail panel ───────────────────────────────── */
 
 function TableDetail({
   table,

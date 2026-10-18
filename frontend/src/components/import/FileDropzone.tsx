@@ -12,11 +12,10 @@ import type { DataKind } from '@/types/api';
 const MAX_BATCH_FILES = 25;
 
 /**
- * Batch cap = the smaller of the UX limit and remaining quota. Floor at 1
- * (not 0 — react-dropzone treats maxFiles:0 as unlimited) so an at-cap user
- * can still drop one file and get the explicit server quota error + banner.
- * Shared with UploadForm's queued-drop flush (PR #274 follow-up) so both
- * enforce the same limit.
+ * Batch cap = the smaller of the UX limit and remaining quota. Floor at 1 (not
+ * 0: react-dropzone treats maxFiles:0 as unlimited) so an at-cap user can still
+ * drop one file and get the explicit server quota error + banner. Shared with
+ * UploadForm's queued-drop flush so both enforce the same limit.
  */
 export function effectiveBatchLimit(remainingQuota: number | null | undefined): number {
   return remainingQuota != null

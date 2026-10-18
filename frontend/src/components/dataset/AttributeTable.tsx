@@ -134,9 +134,8 @@ function InlineCellEditor({
     inputRef.current?.select();
   }, [isSaving]);
 
-  // An unchanged value is a cancel, not a save — blur used to
-  // commit a no-op PATCH that bumped updated_at, rolled the tile version, and
-  // wrote an attribute.edit audit event for a non-change.
+  // An unchanged value is a cancel, not a save: a no-op PATCH would bump
+  // updated_at, roll the tile version and write an attribute.edit audit event.
   const commit = () => {
     if (value === initialValue) {
       onCancel();
@@ -199,7 +198,6 @@ export function AttributeTable({
   const cursor = cursorHistory[cursorHistory.length - 1];
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
-  // Scroll container ref used by the row virtualizer.
   const parentRef = useRef<HTMLDivElement>(null);
   const deleteConfirmedRef = useRef(false);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
@@ -355,9 +353,9 @@ export function AttributeTable({
       return; // keep the editor open so the value can be corrected
     }
     setEditError(null);
-    // Keep the cell in edit mode through the await so the saving
-    // spinner (InlineCellEditor isSaving) actually renders; clearing editingCell
-    // before awaiting made that branch unreachable and showed the stale value.
+    // Keep the cell in edit mode through the await so the saving spinner
+    // (InlineCellEditor isSaving) renders; clearing editingCell first made that
+    // branch unreachable and showed the stale value.
     try {
       await updateFeature.mutateAsync({
         datasetId: submittedDatasetId,
@@ -384,26 +382,21 @@ export function AttributeTable({
     }
   }, [datasetId, updateFeature, t]);
 
-  // Everything the cell renderer needs that changes from render to
-  // render, read through one ref so `columns` below never has to list it.
+  // Everything the cell renderer needs that changes render to render, read
+  // through one ref so `columns` below never has to list it.
   //
   // TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as
-  // the React component TYPE (`React.createElement(def.cell, ctx)`), so a new
-  // `columns` array is a new element type at every cell position and React
-  // unmounts and remounts the whole cell subtree instead of re-rendering it.
-  // That resets InlineCellEditor's `value` state back to the stored cell value.
-  // Depending on `handleCellSave` would do exactly that: its dep list carries
-  // the object react-query's useMutation returns, which is rebuilt on EVERY
-  // render (`return { ...result, mutate, mutateAsync: result.mutate }`,
-  // react-query 5.101 useMutation.ts). So any re-render at all, from anywhere
-  // in the page, would silently throw away what the user had typed into an
-  // open cell editor. Enter would then hit commit()'s value === initialValue
-  // branch: no PATCH, no validation message, editor just closes, and the "keep
-  // the editor open so the value can be corrected" behaviour would be defeated.
+  // the React component TYPE, so a new `columns` array is a new element type at
+  // every cell position and React remounts the cell subtree, resetting
+  // InlineCellEditor's `value` to the stored value. Depending on
+  // `handleCellSave` would do exactly that: its deps carry the object
+  // react-query's useMutation returns, rebuilt on EVERY render (react-query
+  // 5.101 useMutation.ts), so any re-render would throw away what the user
+  // typed into an open editor, and Enter would hit commit()'s value ===
+  // initialValue branch and close without a PATCH or validation message.
   //
-  // Reading state from a ref during render is the pattern this component
-  // uses for `editingCell`: the ref is written in this render pass, before
-  // FlexRender renders the cells that read it.
+  // The ref is written in this render pass, before FlexRender renders the
+  // cells that read it, as for `editingCell`.
   const cellRenderState = {
     editingCell,
     editError,
@@ -507,12 +500,10 @@ export function AttributeTable({
         return cellValue;
       },
     }));
-    // The column lists and `t` ONLY. Every other input the renderer needs
-    // comes from cellRenderRef, because adding any of them back here remounts
-    // every cell — and with it any open editor — whenever they change.
-    // `t` is safe to keep: react-i18next caches its useSyncExternalStore
-    // snapshot and only hands back a new `t` on a language change, which is a
-    // legitimate reason to rebuild the columns.
+    // The column lists and `t` ONLY: adding any other input remounts every
+    // cell, and with it any open editor, whenever it changes. `t` is safe
+    // because react-i18next caches its useSyncExternalStore snapshot and hands
+    // back a new `t` only on a language change, a legitimate reason to rebuild.
   }, [data?.columns, data?.sortable_columns, t]);
 
   const table = useTable(
@@ -530,20 +521,19 @@ export function AttributeTable({
     (state) => state,
   );
 
-  // Virtualize the body so that 100-row pages render only the visible
-  // window (~10-20 rows + overscan), keeping DOM-node count flat regardless of
-  // page size or column count. Rows arrive filtered and sorted from the server.
+  // Virtualize the body so 100-row pages render only the visible window (~10-20
+  // rows + overscan), keeping DOM-node count flat. Rows arrive filtered and
+  // sorted from the server.
   const rows = table.getRowModel().rows;
-  // Fixed-height rows only — never reintroduce dynamic row
-  // measurement here. With a Chrome AX tree attached (screen reader, CDP
-  // Accessibility.enable), the measure→layout→re-render edge fed back
-  // synchronously and locked the page in an infinite render loop.
+  // Fixed-height rows only: never reintroduce dynamic row measurement. With a
+  // Chrome AX tree attached (screen reader, CDP Accessibility.enable), the
+  // measure→layout→re-render edge fed back synchronously and locked the page
+  // in an infinite render loop.
   //
   // The row height is enforced, not estimated: each body cell carries an
   // explicit height class (h-11 / h-7 below) matching this value, and in a
-  // collapsed-border table an explicit cell height yields exactly that row
-  // pitch (measured in Chromium: 44/28px in both densities, editor open or
-  // not — the border is absorbed into the specified height). Keep rowHeight
+  // collapsed-border table that yields exactly that row pitch (measured in
+  // Chromium: 44/28px in both densities, editor open or not). Keep rowHeight
   // and the cell height classes in lockstep.
   const rowHeight = compact ? 28 : 44;
   // react-hooks/incompatible-library only reports the first flagged hook it
@@ -557,13 +547,12 @@ export function AttributeTable({
   });
   const virtualItems = virtualizer.getVirtualItems();
 
-  // TanStack Virtual (virtual-core 3.17.x) does not include
-  // estimateSize in its measurement-cache deps (getMeasurementOptions covers
-  // count/padding/scrollMargin/getItemKey/enabled/lanes/gap only), so when
-  // the density toggle flips rowHeight 44↔28 the cells resize immediately but
-  // getTotalSize() and item offsets keep the old density. measure() is the
-  // documented reset: it clears the item-size cache and recomputes. Skip the
-  // mount pass — the initial layout is already built from the right size.
+  // TanStack Virtual (virtual-core 3.17.x) leaves estimateSize out of its
+  // measurement-cache deps (getMeasurementOptions covers count/padding/
+  // scrollMargin/getItemKey/enabled/lanes/gap only), so when the density toggle
+  // flips rowHeight 44↔28 the cells resize but getTotalSize() and item offsets
+  // keep the old density. measure() clears the item-size cache and recomputes.
+  // Skip the mount pass: the initial layout already uses the right size.
   const prevCompactRef = useRef(compact);
   useEffect(() => {
     if (prevCompactRef.current !== compact) {

@@ -67,12 +67,11 @@ export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName' 
 }
 
 /**
- * Client-side heuristic mirroring the backend ArcGIS adapter's own layer-URL
+ * Client-side heuristic mirroring the backend ArcGIS adapter's layer-URL
  * detection (`adapters/arcgis.py`, matching `/(FeatureServer|MapServer)/`).
- * The import wizard needs to know whether to show the ArcGIS auth method
- * select before the URL is ever probed, since sign-in has to happen before
- * the probe call itself, so there is no server round-trip yet to ask what
- * type of service this is.
+ * The wizard must know whether to show the ArcGIS auth method select before
+ * the URL is probed, since sign-in has to happen before the probe call, so
+ * there is no server round-trip yet to ask what type of service this is.
  */
 export function looksLikeArcGisServiceUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)\b/i.test(url);
@@ -117,12 +116,11 @@ export function originOf(url: string): string {
   }
 }
 
-// The backend treats the sign-in portal field as a
-// portal ROOT and derives /sharing/rest/info and /sharing/rest/generateToken
-// from it (D8's own referer default below matches). The service URL's
-// origin is not that for ArcGIS Online: services6.arcgis.com etc. are
-// feature-service hosts, not portals, so prefilling the service origin
-// presented a host that fails sign-in as though it were a valid default.
+// The backend treats the sign-in portal field as a portal ROOT and derives
+// /sharing/rest/info and /sharing/rest/generateToken from it. The service URL's
+// origin is not that for ArcGIS Online (services6.arcgis.com etc. are
+// feature-service hosts, not portals), so prefilling it would present a host
+// that fails sign-in as a valid default.
 const ARCGIS_ONLINE_PORTAL = 'https://www.arcgis.com';
 
 /**
@@ -130,16 +128,15 @@ const ARCGIS_ONLINE_PORTAL = 'https://www.arcgis.com';
  *
  * - A host under arcgis.com that is not *.maps.arcgis.com (services6.
  *   arcgis.com, tiles.arcgis.com, and the other ArcGIS Online tile/feature
- *   hosts) is ArcGIS Online itself, whose portal is www.arcgis.com, not the
- *   service host. This is also the backend's own D8 referer default
- *   (arcgis_signin.py, DEFAULT_SIGNIN_REFERER), so it doubles as the value
- *   generateToken already expects when nothing more specific is known.
+ *   hosts) is ArcGIS Online itself, whose portal is www.arcgis.com. This is
+ *   also the backend's referer default (arcgis_signin.py,
+ *   DEFAULT_SIGNIN_REFERER), the value generateToken expects when nothing more
+ *   specific is known.
  * - A host already shaped like an org's own portal (*.maps.arcgis.com)
  *   prefills its own origin; that IS the portal.
  * - Anything else (an Enterprise deployment's arbitrary hostname) has no
- *   derivable portal from a /server/rest/services URL. Leaving the field
- *   empty, with its placeholder, is the honest default: presenting a wrong
- *   guess as a valid one is worse than presenting none.
+ *   derivable portal from a /server/rest/services URL. An empty field with its
+ *   placeholder beats presenting a wrong guess as valid.
  *
  * The field stays editable in every case.
  */

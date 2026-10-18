@@ -17,7 +17,6 @@ import { formatBytes, formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
 import type { FileEntry, CommitImportRequest, FilePreviewResponse } from '@/types/api';
 
-/* ── Report CTA (upload/commit failure rows) ─────────── */
 
 /**
  * Inline nudge on a failed staged file toward the in-app problem reporter.
@@ -42,7 +41,6 @@ function ReportProblemButton() {
   );
 }
 
-/* ── Detection panel (expanded row) ──────────────────── */
 
 function DetectionPanel({ entry }: { entry: FileEntry }) {
   const { t } = useTranslation('import');
@@ -167,7 +165,6 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
   );
 }
 
-/* ── Metadata form wrapper ───────────────────────────── */
 
 function ReviewFormBlock({
   entry,
@@ -218,7 +215,6 @@ function ReviewFormBlock({
   );
 }
 
-/* ── Main list ───────────────────────────────────────── */
 
 interface BulkReviewListProps {
   entries: FileEntry[];

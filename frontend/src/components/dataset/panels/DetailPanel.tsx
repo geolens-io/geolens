@@ -34,12 +34,11 @@ interface DetailPanelProps {
   isTableExpanded?: boolean;
   onToggleTableExpand?: () => void;
   /**
-   * Owned by the dataset page (useDatasetRefreshWatch)
-   * rather than by SourceRefreshAction itself, because the "sources" tab
-   * content unmounts on tab switch (Radix Tabs) and would otherwise drop a
-   * dispatched run's tracking mid-poll. Required — the only real caller
-   * (DatasetPage) always has one; tests that stub SourcePanel out entirely
-   * pass a static one.
+   * Owned by the dataset page (useDatasetRefreshWatch) rather than by
+   * SourceRefreshAction, because the "sources" tab content unmounts on tab
+   * switch (Radix Tabs) and would drop a dispatched run's tracking mid-poll.
+   * Required: the only real caller (DatasetPage) always has one; tests that
+   * stub SourcePanel out pass a static one.
    */
   refreshWatch: DatasetRefreshWatch;
 }
@@ -67,13 +66,12 @@ export function DetailPanel(props: DetailPanelProps) {
   const isTable = recordType === 'table';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
-  // Origin PRESENCE isn't the refresh door's gate —
-  // `dataset.origin` is the server-computed field (datasetOrigin() is the
-  // client-side fallback for older payloads that predate it), but an upload,
-  // created, or STAC origin is just as resolvable as a service or postgis
-  // one and the endpoint refuses all three with 409 refresh_not_applicable.
-  // REFRESHABLE_ORIGINS is the one place that actually mirrors the backend's
-  // dispatch table.
+  // Origin PRESENCE isn't the refresh door's gate: `dataset.origin` is the
+  // server-computed field (datasetOrigin() is the client-side fallback for older
+  // payloads), but an upload or created origin is just as resolvable as a
+  // service or postgis one and the endpoint refuses both with 409
+  // refresh_not_applicable. REFRESHABLE_ORIGINS is the one place that mirrors
+  // the backend's dispatch table.
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const canRefresh = origin != null && REFRESHABLE_ORIGINS.has(origin);
   const [acceptBlockedRun, setAcceptBlockedRun] = useState<BlockedRunToAccept>();
@@ -87,10 +85,10 @@ export function DetailPanel(props: DetailPanelProps) {
   const showData = isVector;
   const showStructure = isVector;
 
-  // A deep link can leave activeTab pointing at a tab whose
-  // trigger/content are hidden (for example ?tab=data on a raster); Radix
-  // controlled tabs then render nothing below the tab list. Clamp to Overview
-  // whenever the selected tab isn't visible.
+  // A deep link can leave activeTab pointing at a tab whose trigger/content are
+  // hidden (e.g. ?tab=data on a raster); Radix controlled tabs then render
+  // nothing below the tab list. Clamp to Overview when the selected tab isn't
+  // visible.
   const hiddenTabs = {
     data: !showData,
     structure: !showStructure,

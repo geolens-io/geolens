@@ -82,15 +82,12 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
     }];
   });
 
-  // 'fanned_out' parents have no further status to display — children carry
-  // forward progress under their own job IDs (the per-layer modal already shown).
-  // Treat fanned_out as terminal so the parent doesn't sit in "Active and recent
-  // jobs" forever. See SMOKE-v1013-F1.
-  // 'cancelled' likewise. Cancel is a user-reachable terminal
-  // status for every job type, and a cancelled import will never progress
-  // — leaving it out would keep it in "Active" forever and hold `allDone`
-  // false, so the VRT auto-open would never fire for a batch the user had
-  // finished with.
+  // 'fanned_out' parents have no further status to display: children carry
+  // progress under their own job IDs (the per-layer modal already shown), so
+  // treat it as terminal or the parent sits in "Active and recent jobs"
+  // forever. 'cancelled' likewise: a cancelled import never progresses, and
+  // leaving it out would keep it in "Active" and hold `allDone` false, so the
+  // VRT auto-open would never fire for a batch the user had finished with.
   const isTerminal = (status: string | undefined) =>
     status === 'complete' || status === 'failed' || status === 'fanned_out' || status === 'cancelled';
 
@@ -145,7 +142,6 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
     [doneCount, trackable.length],
   );
 
-  /* ── All-done completion card ──────────────────────── */
   if (allDone) {
     return (
       <div className="space-y-4">
@@ -290,7 +286,6 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
     );
   }
 
-  /* ── In-progress state (batch banner + active jobs) ── */
   return (
     <div className="space-y-4">
       {/* Batch progress banner */}

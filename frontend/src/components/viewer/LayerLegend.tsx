@@ -20,9 +20,8 @@ interface LayerLegendProps {
   /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
   terrainConfig?: MapTerrainConfig | null;
   /**
-   * Custom map-level legend title. When set (non-empty), it renders as
-   * the panel heading in place of the default "Legend" label. Null/empty keeps
-   * the default heading.
+   * Custom map-level legend title. When non-empty it replaces the default
+   * "Legend" panel heading.
    */
   legendTitle?: string | null;
   /** What the map drew each layer as, by layer key. A layer missing from it follows its saved style. */
@@ -64,11 +63,10 @@ export function LayerLegend({
   const terrainEntry = useMemo(() => {
     const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
     if (!entry) return null;
-    // The viewer clears terrain when the bound DEM is LIVE-hidden
-    // via the legend eye (useViewerTerrain honors visibleLayers), so a hidden
-    // source must not keep a synthetic "3D terrain" row for a mesh that no
-    // longer renders. Same helper as ViewerMap's mesh gate — one definition,
-    // so legend and mesh cannot disagree.
+    // The viewer clears terrain when the bound DEM is LIVE-hidden via the legend
+    // eye (useViewerTerrain honors visibleLayers), so a hidden source must not
+    // keep a synthetic "3D terrain" row for a mesh that no longer renders. Same
+    // helper as ViewerMap's mesh gate, so legend and mesh cannot disagree.
     if (!isTerrainBackingLiveVisible(layers, terrainConfig, visibleLayers)) return null;
     // Dedup: drop the synthetic entry when the terrain source DEM is shown as a
     // VISIBLE per-layer entry (e.g. a visible hillshade of the same dataset), so
@@ -103,8 +101,9 @@ export function LayerLegend({
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
 
-      {/* Legend panel — unmounted when closed (PR #330: prevent keyboard trap
-          into invisible per-layer toggles; was opacity-0 + pointer-events-none only). */}
+      {/* Legend panel — unmounted when closed (prevents a keyboard trap into
+          invisible per-layer toggles; opacity-0 + pointer-events-none alone
+          would not). */}
       {isOpen && (
       // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape dismisses the region from any control focused inside it
       <div
@@ -113,11 +112,11 @@ export function LayerLegend({
         id="layer-legend-panel"
         role="region"
         aria-label={t('viewer.legend.title')}
-        // Cap the height against the CONTAINER, not the viewport —
-        // the panel is absolutely positioned inside the map, so a viewport cap
-        // would let a tall legend run down behind the Map data button (bottom-20 +
-        // ~2rem) and the basemap toggle (bottom-8) in the same corner. 11rem =
-        // the 3.5rem top offset plus clearance above that bottom-left stack.
+        // Cap the height against the CONTAINER, not the viewport: the panel is
+        // absolutely positioned inside the map, so a viewport cap would let a
+        // tall legend run behind the Map data button (bottom-20 + ~2rem) and the
+        // basemap toggle (bottom-8) in the same corner. 11rem = the 3.5rem top
+        // offset plus clearance above that bottom-left stack.
         className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
       >
         <div className="p-3 border-b border-border/50">
@@ -129,7 +128,7 @@ export function LayerLegend({
           )}
         </div>
         <ul className="divide-y divide-border/50">
-          {/* A1: pin the synthetic terrain entry at the top, mirroring the
+          {/* Pin the synthetic terrain entry at the top, mirroring the
               stack's relief:terrain row at the top of the relief/terrain group. */}
           {terrainEntry && (
             <li

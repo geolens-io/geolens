@@ -77,9 +77,9 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
     );
   }
 
-  // A fetch failure must NOT collapse into the empty 'noContacts'
-  // state — that misleads the editor into thinking the record has none and
-  // re-adding duplicates. Surface a distinct error with a retry instead.
+  // A fetch failure must NOT collapse into the empty 'noContacts' state, which
+  // misleads the editor into thinking the record has none and re-adding
+  // duplicates. Surface a distinct error with a retry instead.
   if (isError) {
     return (
       <div

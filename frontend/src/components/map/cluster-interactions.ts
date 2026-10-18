@@ -56,8 +56,7 @@ export function clusterFeatureCoordinates(feature: ClusterFeatureLike): [number,
 }
 
 function sourceLabel(kind: ClusterSourceStrategyKind) {
-  // These strings render in the cluster popup ('source'
-  // field); they were hardcoded English.
+  // Rendered in the cluster popup ('source' field).
   if (kind === 'server-tile') return i18n.t('builder:cluster.sourceServerTile');
   if (kind === 'bounded-geojson') return i18n.t('builder:cluster.sourceBoundedGeojson');
   return i18n.t('builder:cluster.sourceFallback');
@@ -139,15 +138,14 @@ export async function activateClusterFeature(
   const center = clusterFeatureCoordinates(feature);
   if (!center) return false;
   const target = await clusterExpansionZoom(map, feature, sourceId);
-  // Ease to the expansion zoom only when it is deeper than where we
-  // already are. Two ways it is not. At CLUSTER_ZOOM_CEILING with
-  // cluster_max_zoom=22 the server's value IS the current
-  // zoom. And a parent cluster tile still drawn overzoomed while its
-  // replacement loads reports the shallow expansion zoom of the level it was
-  // cut at, which would ease the user BACKWARDS out of the view they were
-  // zooming into. Falling back to the current zoom recentres without moving the
-  // zoom — at the ceiling no zoom can split the cluster, so recentring is the
-  // whole honest response, and a click can never lose ground.
+  // Ease to the expansion zoom only when it is deeper than where we already
+  // are. Two ways it is not: at CLUSTER_ZOOM_CEILING with cluster_max_zoom=22
+  // the server's value IS the current zoom, and a parent cluster tile still
+  // drawn overzoomed while its replacement loads reports the shallow expansion
+  // zoom of the level it was cut at, which would ease the user BACKWARDS out of
+  // the view they were zooming into. Falling back to the current zoom recentres
+  // without moving the zoom: at the ceiling no zoom can split the cluster, so
+  // recentring is the whole honest response, and a click can never lose ground.
   const currentZoom = map.getZoom?.() ?? 0;
   const zoom = target > currentZoom ? target : currentZoom;
   map.easeTo({

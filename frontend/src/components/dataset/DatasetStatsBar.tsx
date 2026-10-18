@@ -13,8 +13,8 @@ interface StatCellProps {
 
 function StatCell({ label, value, mono }: StatCellProps) {
   return (
-    // #305: cell borders drawn on top/left so they read correctly
-    // whether cells sit in one desktop row or wrap onto multiple mobile rows.
+    // Cell borders drawn on top/left so they read correctly whether cells sit
+    // in one desktop row or wrap onto multiple mobile rows.
     <div className="px-4 py-3 border-t border-l border-border min-w-0">
       <div className="text-mini font-mono uppercase tracking-widest text-muted-foreground mb-1">
         {label}
@@ -145,9 +145,9 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
   // Limit to 6 cells max
   const displayCells = cells.slice(0, 6);
 
-  // #305: reflow responsively so stats never get crushed/truncated on small
-  // screens, and cap columns to the number of rendered cells at every
-  // breakpoint so a sparse dataset (1-2 stats) leaves no empty grid columns.
+  // Reflow responsively so stats never get crushed/truncated on small screens,
+  // and cap columns to the number of rendered cells at every breakpoint so a
+  // sparse dataset (1-2 stats) leaves no empty grid columns.
   const gridColsClass: Record<number, string> = {
     1: 'grid-cols-1',
     2: 'grid-cols-2',

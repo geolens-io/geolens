@@ -82,15 +82,15 @@ interface DatasetChatPanelProps {
 }
 
 /**
- * Dataset-scoped "Ask AI" (dataset-chat v1).
+ * Dataset-scoped "Ask AI".
  *
  * Mirrors ViewerChatPanel's read-only chat UX for the dataset detail page:
- * questions go to `/ai/chat/dataset/stream/` (query_data-only tool set, all
- * dataset context resolved server-side), the streamed answer renders inline,
- * and `show_query_result` shows the compact table. There is no map on this
- * page, so instead of a flyover the panel offers "Open in builder" — a new
- * map is created and the builder opens with this dataset staged via the
- * same add-dataset entry intent AddToMapButton uses.
+ * questions go to `/ai/chat/dataset/stream/` (query_data-only tool set, dataset
+ * context resolved server-side), the streamed answer renders inline, and
+ * `show_query_result` shows the compact table. With no map on this page, the
+ * panel offers "Open in builder" instead of a flyover: a new map is created
+ * and the builder opens with this dataset staged via the add-dataset entry
+ * intent AddToMapButton uses.
  *
  * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured),
  * so anonymous or unpermitted visitors render nothing.
@@ -131,11 +131,11 @@ export function DatasetChatPanel({
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  // Keep the page informed so it can reflow content clear of the
-  // fixed panel. Effect (not inline in the setOpen calls) so unmount while
-  // open also reports closed. ANDed with availability — if AI availability
-  // flips off while open, the render below bails to null but the component
-  // stays mounted, and the page must not keep padding for an invisible panel.
+  // Keep the page informed so it can reflow clear of the fixed panel. An effect
+  // (not inline in the setOpen calls) so unmount while open also reports
+  // closed. ANDed with availability: if AI availability flips off while open,
+  // the render below bails to null but the component stays mounted, and the
+  // page must not keep padding for an invisible panel.
   useEffect(() => {
     onOpenChange?.(open && isAIAvailable);
     return () => onOpenChange?.(false);
@@ -180,15 +180,14 @@ export function DatasetChatPanel({
             if (action.type === 'show_query_result') {
               const qr = toQueryResult(action);
               if (qr) {
-                // Keep table and spatial payload PAIRED: both come from the
-                // same accepted action, so "Open in builder" never carries
-                // geometry from an earlier result than the table shown (#533).
+                // Keep table and spatial payload PAIRED: both come from the same
+                // accepted action, so "Open in builder" never carries geometry
+                // from an earlier result than the table shown.
                 queryResult = qr;
-                // Carry the completeness pair and the
-                // question with the geometry. The builder can now save a
-                // carried result as a dataset, so a handoff that arrives
-                // without them looks like a complete answer to every guard on
-                // the other side.
+                // Carry the completeness pair and the question with the geometry:
+                // the builder can save a carried result as a dataset, so a handoff
+                // without them would look like a complete answer to every guard
+                // on the other side.
                 const carried = toChatResultHandoff(action.geojson, action.bbox);
                 spatialResult = carried
                   ? {

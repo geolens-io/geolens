@@ -41,8 +41,8 @@ function formatValue(
   booleanFalse: string,
 ): string {
   // 5 fraction digits (not the shared default of 4): this panel is the
-  // accessible surface for raw feature coordinates, so it keeps its
-  // original, more precise formatting.
+  // accessible surface for raw feature coordinates, so it keeps the more
+  // precise formatting.
   return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5) ?? '—';
 }
 

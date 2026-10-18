@@ -6,7 +6,6 @@ import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import { rampGradient } from './legend-facts';
 import type { LegendClasses, LegendRamp, LegendSwatch } from './legend-facts';
 
-/* ── Shared swatch rendering ─────────────────────── */
 
 /**
  * Element-level opacity for the LAYER opacity only. Each renderer applies
@@ -23,7 +22,6 @@ function ringProps(s?: LegendSwatch | null) {
   return s?.stroke ? { stroke: s.stroke.color, strokeWidth: s.stroke.width } : { strokeWidth: 0 };
 }
 
-/* ── Geometry-aware swatch ─────────────────────────── */
 
 interface GeometrySwatchProps {
   geometryType?: string | null;
@@ -35,7 +33,6 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   const gt = (geometryType ?? '').toUpperCase();
   const opacityStyle = swatchOpacityStyle(s);
 
-  // Point: filled circle
   if (gt.includes('POINT')) {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
@@ -49,7 +46,6 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
     );
   }
 
-  // Line: horizontal line segment
   if (gt.includes('LINE')) {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
@@ -74,11 +70,10 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         ...patternPreviewStyle(s.pattern.id),
       }
     : { backgroundColor: color };
-  // fillOpacity dims the fill LAYER only, rendered as a
-  // nested element behind the border. Plain CSS opacity works for every CSS
-  // color format (hex3/4/6/8, rgb()/hsl(), named colors) with no parsing, and
-  // never touches the border, which must stay fully opaque for a stroke-only
-  // style (fillOpacity 0) to remain visible.
+  // fillOpacity dims the fill LAYER only, rendered as a nested element behind
+  // the border. Plain CSS opacity works for every CSS color format (hex3/4/6/8,
+  // rgb()/hsl(), named) with no parsing, and never touches the border, which
+  // must stay fully opaque for a stroke-only style (fillOpacity 0) to show.
   if (s && s.fillOpacity < 1) {
     fillStyle.opacity = s.fillOpacity;
   }
@@ -96,7 +91,6 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   );
 }
 
-/* ── Class legends ───────────────────────────────── */
 
 interface ClassListProps {
   items: LegendClasses['items'];
@@ -206,7 +200,6 @@ export const LegendClassesList = memo(function LegendClassesList({ classes, geom
   );
 });
 
-/* ── Heatmap gradient legend ─────────────────────── */
 
 interface HeatmapLegendProps {
   name: string;

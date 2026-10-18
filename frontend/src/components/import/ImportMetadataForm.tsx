@@ -89,7 +89,6 @@ export function ImportMetadataForm({
   const [visibility, setVisibility] = useState(initialRequest?.visibility ?? 'private');
   const [sridOverride, setSridOverride] = useState(initialRequest?.srid_override?.toString() ?? '');
 
-  // Geometry column override state
   const hasDetected =
     detectedGeometryColumns &&
     (detectedGeometryColumns.x_column || detectedGeometryColumns.wkt_column);
@@ -142,7 +141,6 @@ export function ImportMetadataForm({
   const showGeomSection =
     !isRaster && !hasEmbeddedGeometry && previewColumns && previewColumns.length > 0;
 
-  // Raster-specific fields
   const [temporalStart, setTemporalStart] = useState(
     initialRequest ? (initialRequest.temporal_start ?? '') : (previewData?.temporal_start ?? ''),
   );
@@ -169,7 +167,6 @@ export function ImportMetadataForm({
         : null,
     };
 
-    // Add geometry column overrides
     if (showGeomSection && geomMode !== 'none') {
       if (geomType === 'latlng' && xColumn && yColumn) {
         request.x_column = xColumn;

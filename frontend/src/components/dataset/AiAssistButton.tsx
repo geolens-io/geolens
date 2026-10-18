@@ -21,8 +21,8 @@ export function AiAssistButton({ onClick, isPending, label }: AiAssistButtonProp
       size="xs"
       onClick={onClick}
       disabled={isPending}
-      // The assist buttons were muted ghost buttons users didn't notice; an
-      // outline + primary tint makes them read as a discoverable AI action.
+      // Outline + primary tint so the assist buttons read as a discoverable AI
+      // action.
       className="border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
     >
       {isPending ? (

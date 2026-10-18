@@ -9,7 +9,7 @@ export function VisibilityIcon({
   visibility: string;
   /** Include an sr-only text label. Default true (icon-only uses like the map
    *  cards need it). Pass false where the visibility is already rendered as
-   *  adjacent VISIBLE text to avoid double-announcing ("Public Public"). #305 */
+   *  adjacent VISIBLE text to avoid double-announcing ("Public Public"). */
   withLabel?: boolean;
 }) {
   const { t } = useTranslation();

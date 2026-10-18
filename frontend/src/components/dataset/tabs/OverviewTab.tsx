@@ -192,17 +192,16 @@ export function OverviewTab({
   const isVrt = dataset.record_type === 'vrt_dataset';
   const hasFeatureTable = recordTypeCapabilities(dataset.record_type).featureTable;
 
-  // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId
-  // disables the query. Also gate on authentication — the endpoint needs
-  // an authenticated user (visibility-checked server-side, not owner-only), so
-  // firing it for anonymous viewers guaranteed 401s on public VRTs
-  // (canEdit was too strict: it hid valid read-only data from signed-in
-  // non-owners).
+  // VRT derivation: pass empty string for non-VRT so the hook's
+  // enabled:!!datasetId disables the query. Also gate on authentication: the
+  // endpoint needs an authenticated user (visibility-checked server-side, not
+  // owner-only), so firing it for anonymous viewers guaranteed 401s on public
+  // VRTs; gating on canEdit would hide valid read-only data from signed-in
+  // non-owners.
   const isAuthenticated = useAuthStore((s) => !!s.token);
   const { data: generationsData } = useVrtGenerations(isVrt && isAuthenticated ? dataset.id : '', { limit: 1 });
   const lastGeneration = generationsData?.generations?.[0];
 
-  // ── Sidebar content (right rail) ──
   const sidebar = (
     <aside className="space-y-4">
       {/* Details card — catalog info at a glance. Named "Details" (not "Metadata")

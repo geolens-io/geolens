@@ -79,8 +79,8 @@ export function isDiscreteColorStyle(facts: LegendFacts | null): boolean {
   return facts?.classes?.some((classes) => classes.mode === 'categorical') ?? false;
 }
 
-// Bands inside the existing glyph, not separate chips — keeps the
-// geometry-type cue and the 22px row cell untouched. Cap at 4 bands; beyond
+// Bands inside the existing glyph, not separate chips, to keep the
+// geometry-type cue and the 22px row cell untouched. Capped at 4 bands: beyond
 // that 14px slivers are unreadable and the row subtitle carries the count.
 const MAX_DISCRETE_BANDS = 4;
 
@@ -273,7 +273,7 @@ export function getLayerColors(facts: LegendFacts | null): string[] {
 /**
  * Shared glyph chip for raster-family layers. StackRow, the builder
  * LegendPlugin, and the viewer LayerLegend all render this one component so the
- * legend icon can never drift from the layer-stack icon again.
+ * legend icon can't drift from the layer-stack icon.
  */
 export function RasterGlyphChip({ glyph }: { glyph: string }) {
   return (
@@ -302,10 +302,10 @@ export type LayerTypeIconLayer = Pick<MapLayerResponse, 'dataset_geometry_type'>
   >;
 
 /**
- * Single source of truth for a layer's type icon, shared by the
- * builder layer stack and BOTH legend surfaces (LegendPlugin, viewer
- * LayerLegend). Raster/VRT layers get the glyph chip (▦, DEM: ⛰/◬); vector
- * layers get the colorized geometry icon. Extracted from StackRow.TypeIcon.
+ * Single source of truth for a layer's type icon, shared by the builder layer
+ * stack and BOTH legend surfaces (LegendPlugin, viewer LayerLegend).
+ * Raster/VRT layers get the glyph chip (▦, DEM: ⛰/◬); vector layers get the
+ * colorized geometry icon.
  */
 export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; iconId: string }) {
   const caps = getLayerCapabilities({

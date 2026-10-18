@@ -57,12 +57,10 @@ import '@/lib/maplibre-worker';
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
 
-// audit(w3-maps B11): sources this component (and its hooks) add on top of the
-// basemap. The basemap-switch transformStyle below carries over ONLY these —
-// an allowlist. The previous denylist excluded just the id literally named
-// `basemap`, which only raster styles use; vector styles use provider source
-// ids, so switching vector → raster stacked the entire old vector basemap
-// (~100 layers) on top of the new one.
+// Sources this component (and its hooks) add on top of the basemap. The
+// basemap-switch transformStyle carries over only these: vector styles use
+// provider source ids, so excluding just a source named `basemap` would stack
+// the old vector basemap on top of the new one.
 const APP_SOURCE_IDS = new Set([
   'raster-tile-source', // use-map-layers addRasterLayers
   'drawn-overlay', // use-map-layers addOverlaySource
@@ -75,13 +73,9 @@ function isAppSourceId(id: string, vectorSourceId: string | null): boolean {
 }
 
 /**
- * Whether the drawing store's session belongs to THIS map's dataset. Used
- * both to gate the toolbar render and to decide whether an inherited
- * session should be torn down on mount (see the staleSessionCheckedRef
- * effect). `targetDatasetId === null` means nothing has adopted a target —
- * drawing-store.ts's `setDrawing` always sets it together with
- * `isDrawing: true`, so a real active session always has one — treated as
- * "not a mismatch" rather than as belonging to no dataset.
+ * Whether the drawing store's session belongs to THIS map's dataset. Gates the
+ * toolbar and the teardown of an inherited session on mount.
+ * `targetDatasetId === null` (nothing adopted a target) is not a mismatch.
  */
 function targetsDataset(targetDatasetId: string | null, datasetId: string | undefined): boolean {
   return targetDatasetId === null || targetDatasetId === (datasetId ?? null);
@@ -89,11 +83,8 @@ function targetsDataset(targetDatasetId: string | null, datasetId: string | unde
 
 /**
  * True when a document-level keyboard shortcut should defer to the target's
- * own native handling instead — a hidden drawing session (see the
- * isDataTabExpanded gate in DatasetPage) keeps this map's document-level
- * listeners attached while the Data tab's own table is what has focus. Same
- * check MapToolbar.tsx and MapBuilderPage.tsx already use for their own
- * hotkeys, shared here between this file's two document-level listeners.
+ * native handling. A hidden drawing session keeps this map's document
+ * listeners attached while the Data tab's table has focus.
  */
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -117,30 +108,23 @@ function UnsavedEditNotice({ message, onDiscard, disabled }: { message: string; 
 /**
  * Dataset detail map preview.
  *
- * Renders a single dataset's vector tiles with the user's currently active
- * basemap, supports drawing/editing features (when the user has edit permission),
- * and exposes a fullscreen toggle. The map applies the @vis.gl/react-maplibre v8
- * `setTransformRequest` workaround imperatively in `onLoad` because the
- * declarative `transformRequest` prop is silently ignored in v8.
+ * Renders a single dataset's vector tiles with the active basemap, supports
+ * drawing/editing features (with edit permission) and a fullscreen toggle.
+ * `setTransformRequest` is applied imperatively in `onLoad` because
+ * @vis.gl/react-maplibre v8 silently ignores the declarative prop.
  *
- * Used by the dataset detail page (`pages/DatasetPage.tsx`).
- *
- * This map is intentionally declarative (@vis.gl JSX
- * <Source>/<Layer>), unlike the builder/viewer which drive an imperative
- * adapter core (map-sync + getAdapter). The split is defensible: this host
- * renders one dataset's tiles with light interaction, so JSX is simpler and
- * needs no incremental paint diffing. Converge onto the adapter core only if
- * this page grows builder-like styling; revisit after the extraction.
+ * Declarative (<Source>/<Layer>) rather than the adapter core the
+ * builder/viewer use: one dataset's tiles with light interaction needs no
+ * incremental paint diffing.
  */
 
 interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
   geometryType: string | null;
-  /** Generic created datasets accept any
-   * subtype. Switches BOTH draw-mode gating and rendering to the GEOMETRY
-   * sentinel — use-map-layers installs all-family renderers for it, so
-   * features of any family drawn in the current visit stay visible. */
+  /** Generic created datasets accept any subtype. Switches draw-mode gating
+   * and rendering to the GEOMETRY sentinel, for which use-map-layers installs
+   * all-family renderers. */
   hasGenericGeometry?: boolean;
   datasetId?: string;
   columnInfo?: { name: string; type: string }[] | null;
@@ -155,15 +139,12 @@ interface DatasetMapProps {
   onTileError?: () => void;
   /** Callback for read-only (non-editing) feature clicks, receives the gid */
   onFeatureClick?: (gid: number) => void;
-  /** The dataset's required credit line, rendered in the
-   *  preview's attribution control alongside the basemap's. */
+  /** The dataset's required credit line, shown in the attribution control. */
   attribution?: string | null;
-  /** False while this instance is kept mounted but hidden (DatasetPage's
-   *  isDataTabExpanded gate, so an active drawing session survives the
-   *  Data tab's own table expanding over it) — its document-level Ctrl/
-   *  Meta+Z and Escape handlers must not act on geometry the user can't
-   *  see, even from a target isEditableTarget doesn't otherwise catch
-   *  (e.g. a focused button in that table). */
+  /** False while kept mounted but hidden (DatasetPage's isDataTabExpanded
+   *  gate); its document-level Ctrl/Meta+Z and Escape handlers must then not
+   *  act on geometry the user can't see, even from a target isEditableTarget
+   *  misses (e.g. a focused button in the table). */
   shortcutsEnabled?: boolean;
 }
 
@@ -193,15 +174,14 @@ export const DatasetMap = memo(function DatasetMap({
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
   const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
-  // Ref so the transformRequest installed once in handleLoad reads
-  // the current tile config without re-registering (same pattern as ViewerMap).
+  // Ref so the transformRequest installed once in handleLoad reads the current
+  // tile config without re-registering.
   const tileConfigRef = useRef(tileConfig);
   tileConfigRef.current = tileConfig;
   const tileKind = recordTypeCapabilities(recordType).tileToken;
   const { data: rawTileToken } = useTileToken(tileKind ? datasetId : undefined);
-  // Narrow to the vector-tile shape expected by downstream hooks.
-  // Raster tokens are a separate payload with a preformatted tile_url and
-  // are consumed via the rasterTileUrl prop path instead.
+  // Raster tokens are a separate payload (preformatted tile_url) consumed via
+  // the rasterTileUrl prop; the hooks downstream expect the vector shape.
   const tileToken = rawTileToken?.kind === 'vector' ? rawTileToken : null;
   const vectorSourceId = tileKind === 'vector' && tableName ? previewSourceId(tableName) : null;
   const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
@@ -212,8 +192,7 @@ export const DatasetMap = memo(function DatasetMap({
       : themeBasemap,
     [userBasemapId, basemaps, themeBasemap],
   );
-  // Initial style for <MapGL> — never changes after first render.
-  // All subsequent basemap changes are handled imperatively via the effect below.
+  // Initial style only; later basemap changes are applied imperatively below.
   const initialBasemapStyle = useRef<string | import('maplibre-gl').StyleSpecification | null>(null);
   if (initialBasemapStyle.current === null) {
     const bm = themeBasemap;
@@ -229,45 +208,35 @@ export const DatasetMap = memo(function DatasetMap({
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance, invalidateTileTokens);
-  // Shared tile-auth recovery — a tile 401/403 kicks one throttled
-  // token re-mint; the refreshed token re-renders the declarative <Source>
-  // with a freshly signed URL.
-  // Report every mint the recovery path actually kicks (suppressed),
-  // so a tab-return recovery still leaves a trace even though it does not
-  // arrive wrapped in a 403 burst.
+  // Shared tile-auth recovery: a tile 401/403 kicks one throttled token
+  // re-mint, and the refreshed token re-renders the <Source> with a fresh URL.
+  // Suppressed mints are reported so a tab-return recovery still leaves a trace.
   const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
     reportTileTokenRemint('dataset-preview', trigger),
   );
-  // A tab backgrounded past the 900 s sig boundary comes back with
-  // stale tokens, so MapLibre's resumed fetches 403 before the error handler
-  // can heal them. Kick the same throttled re-mint on the visible edge.
+  // A tab backgrounded past the 900 s sig boundary returns with stale tokens,
+  // so resumed fetches 403 before the error handler can heal them; kick the
+  // same throttled re-mint on the visible edge.
   useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth, () =>
     refreshRasterTileSources(mapRef.current),
   );
-  // `url` is read to tell a raster/DEM auth failure (unrecoverable)
-  // from a vector one (re-mintable).
-  // v6 narrowed the `error` event payload to `ErrorLike`
-  // ({ message: string }). A handler type with NO property in common with it
-  // trips TS's weak-type check, so `message` is declared here to match the
-  // sibling raster/vector handlers below. `status`/`url` are still populated at
-  // runtime — v6's AJAXError keeps both — so the recovery logic is unchanged.
+  // `url` tells a raster/DEM auth failure (unrecoverable) from a vector one
+  // (re-mintable). `message` is declared because v6 narrowed the `error`
+  // payload to `ErrorLike`, and a handler type with no property in common trips
+  // TS's weak-type check; `status`/`url` are still populated at runtime.
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { message?: string; status?: number; url?: string } }) => void) | null>(null);
-  // The dataset-detail preview map had no data-tiles-loaded signal at
-  // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
-  // camera move is in flight, true once idle (no tiles loading / no
-  // transitions / no animations running).
+  // Data-tiles-loaded signal like ViewerMap/BuilderMap: false while a camera
+  // move is in flight, true once idle.
   const [tilesIdle, setTilesIdle] = useState(false);
   const tilesIdleMovestartHandlerRef = useRef<(() => void) | null>(null);
   const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
 
-  // Raster hero-state hardening (#13): ensure onMapReady / onTileError each fire
-  // AT MOST ONCE per map mount, and that the imperatively-attached
-  // ``sourcedata``/``error`` listeners are removed on teardown so a
-  // ``key={mapKey}`` remount can't stack listeners (which churned setState and
-  // could freeze the tab when titiler is cold and the tile grid is a mix of
-  // 200/204/error). Refs are reset whenever a new map mounts via handleLoad.
-  // audit(w3-maps): the same fire-once machinery now also backs the vector
-  // branch, which previously had no loading/error signal at all.
+  // onMapReady / onTileError fire at most once per map mount, and the
+  // imperatively-attached ``sourcedata``/``error`` listeners are removed on
+  // teardown so a ``key={mapKey}`` remount can't stack listeners (which churned
+  // setState and could freeze the tab when titiler is cold). Refs are reset
+  // when handleLoad runs for a new map. The vector branch uses the same
+  // machinery.
   const readyFiredRef = useRef(false);
   // Tracks a *confirmed* raster load (isSourceLoaded) vs a soft 204-only ready,
   // so a sparse-COG 204 doesn't permanently block the error/retry overlay.
@@ -283,11 +252,10 @@ export const DatasetMap = memo(function DatasetMap({
     [geometryType, columnInfo],
   );
 
-  // Generic datasets use the GEOMETRY sentinel for
-  // BOTH drawing and rendering — use-map-layers installs all-family
-  // renderers for it, so a point-only generic sketch still renders a
-  // line drawn in the same visit. elevationColumn above stays keyed on the
-  // concrete display type (extrusion never applies to generic sketches).
+  // Generic datasets use the GEOMETRY sentinel for both drawing and rendering
+  // (use-map-layers installs all-family renderers), so a point-only generic
+  // sketch still renders a line drawn in the same visit. elevationColumn stays
+  // keyed on the concrete display type: extrusion never applies to generic.
   const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
@@ -332,17 +300,13 @@ export const DatasetMap = memo(function DatasetMap({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
-  // Whether the store's session actually belongs to THIS map's dataset —
-  // gates the toolbar so a render before the stale-session effect above
-  // has run never shows controls for a different dataset's selection.
+  // Whether the session belongs to THIS map's dataset; a render before the
+  // stale-session effect runs must not show controls for another dataset.
   const isOwnDrawingSession = isDrawing && targetsDataset(drawingTargetDatasetId, datasetId);
-  // The tdId of a DIRTY selection already present when this instance first
-  // rendered — i.e. inherited, not made by clicking within this instance
-  // (which could only happen after this first render). Read directly here,
-  // during render, like initialBasemapStyle above: the mount effect below
-  // only runs AFTER the first paint, so a ref it set would still show
-  // Save for that one paint. `undefined` (not yet computed) vs `null` (no
-  // orphaned selection) distinguishes "first render" from "checked, none".
+  // The tdId of a dirty selection already present at first render, i.e.
+  // inherited rather than made in this instance. Read during render because
+  // the mount effect runs after first paint, so a ref it set would show Save
+  // for one paint. `undefined` = not yet computed, `null` = none orphaned.
   const orphanedSelectionTdIdRef = useRef<string | null | undefined>(undefined);
   if (orphanedSelectionTdIdRef.current === undefined) {
     const initial = useDrawingStore.getState();
@@ -357,7 +321,6 @@ export const DatasetMap = memo(function DatasetMap({
     requestScopeRef.current = { datasetId, sessionEpoch };
   }
 
-  // Editable columns (non-system) for the attribute form
   const editableColumns = useMemo(
     () => (columnInfo ?? []).filter((c) => !SYSTEM_COLUMNS.has(c.name)),
     [columnInfo],
@@ -372,15 +335,12 @@ export const DatasetMap = memo(function DatasetMap({
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
   }, []);
-  // onHistoryBaseline needs handleHistoryBaseline, which
-  // also comes from useFeatureEditing (needs TerraDraw) — same circular-dep
-  // break as onEditFinish above.
+  // Same circular-dep break as onEditFinish above.
   const historyBaselineRef = useRef<() => void>(() => {});
   const stableHistoryBaseline = useCallback(() => {
     historyBaselineRef.current();
   }, []);
-  // onSelectionLost needs handleSelectionLost, same
-  // circular-dep break as onEditFinish/onHistoryBaseline above.
+  // Same circular-dep break as above.
   const selectionLostRef = useRef<(id: string | number) => void>(() => {});
   const stableSelectionLost = useCallback((id: string | number) => {
     selectionLostRef.current(id);
@@ -416,7 +376,6 @@ export const DatasetMap = memo(function DatasetMap({
     [canEdit, editableColumns, t],
   );
 
-  // --- Terra Draw hook ---
   const {
     setMode: tdSetMode,
     isReady,
@@ -444,7 +403,6 @@ export const DatasetMap = memo(function DatasetMap({
   // instance, so a stale true must not keep blocking navigation.
   useEffect(() => () => setHasUnsavedMapWork(false), [setHasUnsavedMapWork]);
 
-  // --- Feature editing hook (all CRUD logic) ---
   const {
     saveAndRefresh,
     performDeselect,
@@ -478,14 +436,12 @@ export const DatasetMap = memo(function DatasetMap({
   historyBaselineRef.current = handleHistoryBaseline;
   selectionLostRef.current = handleSelectionLost;
 
-  // Clean up overlay listeners on unmount
   useEffect(() => {
     return () => { cleanupOverlayListener(); };
   }, [cleanupOverlayListener]);
 
-  // Clean up imperatively-attached raster tile listeners on unmount (#13).
-  // Prevents listeners stacking across a key={mapKey} remount, which churned
-  // setState on every tile event and could freeze the tab.
+  // Detach the imperatively-attached tile listeners on unmount so a
+  // key={mapKey} remount can't stack them.
   useEffect(() => {
     return () => {
       const map = mapRef.current;
@@ -496,14 +452,12 @@ export const DatasetMap = memo(function DatasetMap({
         if (tileListenersRef.current.sourcedata) {
           map.off('sourcedata', tileListenersRef.current.sourcedata);
         }
-        // Detach the re-arming data-tiles-loaded handlers symmetrically.
         if (tilesIdleMovestartHandlerRef.current) {
           map.off('movestart', tilesIdleMovestartHandlerRef.current);
         }
         if (tilesIdleIdleHandlerRef.current) {
           map.off('idle', tilesIdleIdleHandlerRef.current);
         }
-        // Detach the tile-auth recovery handler symmetrically.
         if (tileAuthErrorHandlerRef.current) {
           map.off('error', tileAuthErrorHandlerRef.current);
         }
@@ -544,9 +498,8 @@ export const DatasetMap = memo(function DatasetMap({
     }
   }, [isReady, activeMode, holdsFinishedSketch, tdSetMode]);
 
-  // --- Select mode click handler ---
-  // Use canvas click instead of map.on('click') because TerraDraw's adapter
-  // intercepts pointer events and prevents MapLibre click events from firing.
+  // Canvas click rather than map.on('click'): TerraDraw's adapter intercepts
+  // pointer events and prevents MapLibre click events from firing.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || activeMode !== 'select') return;
@@ -579,7 +532,6 @@ export const DatasetMap = memo(function DatasetMap({
     };
   }, [activeMode, mapInstance, selectFeatureFromMap]);
 
-  // --- Read-only feature click handler (non-editing mode) ---
   useEffect(() => {
     const map = mapInstance;
     if (!map || !onFeatureClick || !tableName || !tileConfigReady) return;
@@ -605,21 +557,18 @@ export const DatasetMap = memo(function DatasetMap({
     return () => { map.off('click', handleReadOnlyClick); };
   }, [activeMode, mapInstance, onFeatureClick, tableName, tileConfigReady, tileConfig?.mvt_source_layer_prefix]);
 
-  // --- Escape key listener ---
   useEffect(() => {
     if (!selectedFeature && !(canUndo && activeMode && activeMode !== 'select')) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // shortcutsEnabled is false while this instance is hidden
-        // (isDataTabExpanded) — that table's own focusable elements
-        // (e.g. a button) aren't caught by isEditableTarget below, so this
-        // catches those too, on top of typed-in inputs.
+        // shortcutsEnabled is false while hidden (isDataTabExpanded); focusable
+        // elements in that table (e.g. a button) aren't caught by
+        // isEditableTarget below.
         if (!shortcutsEnabled) return;
-        // AttributeTable's cell editor also uses Escape (to cancel an edit)
-        // without stopping propagation — without this check Escape there
-        // would also deselect or open a discard dialog for a feature the
-        // user can't see.
+        // AttributeTable's cell editor also uses Escape (cancel) without
+        // stopping propagation; without this check it would also deselect or
+        // open a discard dialog for a feature the user can't see.
         if (isEditableTarget(e.target)) return;
         // Discarding now would end the session under the write in flight.
         if (isFeatureMutationPending) return;
@@ -647,15 +596,13 @@ export const DatasetMap = memo(function DatasetMap({
     };
   }, [activeMode, canUndo, clear, isFeatureMutationPending, performDeselect, requestDiscardConfirmation, selectedFeature, shortcutsEnabled, tdSetMode]);
 
-  // --- Ctrl+Z / Meta+Z undo shortcut ---
   useEffect(() => {
     if (!isDrawing) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        // shortcutsEnabled is false while this instance is hidden
-        // (isDataTabExpanded) — that table's own focusable elements aren't
-        // caught by isEditableTarget below, so this catches those too.
+        // shortcutsEnabled is false while hidden (isDataTabExpanded); focusable
+        // elements in that table aren't caught by isEditableTarget below.
         if (!shortcutsEnabled) return;
         // Don't hijack the input's native undo while typing.
         if (isEditableTarget(e.target)) return;
@@ -675,7 +622,6 @@ export const DatasetMap = memo(function DatasetMap({
     };
   }, [isDrawing, isFeatureMutationPending, shortcutsEnabled, undo]);
 
-  // --- Fullscreen state sync ---
   useEffect(() => {
     const el = containerRef?.current;
     if (!el) return;
@@ -684,7 +630,6 @@ export const DatasetMap = memo(function DatasetMap({
     return () => el.removeEventListener('fullscreenchange', handler);
   }, [containerRef]);
 
-  // --- Zoom to extent handler ---
   const handleZoomToExtent = useCallback(() => {
     const map = mapRef.current;
     if (!map || !hasBbox) return;
@@ -693,14 +638,12 @@ export const DatasetMap = memo(function DatasetMap({
       // Instant under prefers-reduced-motion.
       map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
-      // An antimeridian-crossing extent is expressed by letting east
-      // run past 180 — MapLibre normalizes it, and the alternative is fitting
-      // the complementary 340° of the world.
+      // An antimeridian-crossing extent has east run past 180; MapLibre
+      // normalizes it, whereas the alternative fits the complementary 340°.
       map.fitBounds(toFitBounds(bbox!), { padding: 60, duration: motionDuration(1000) });
     }
   }, [hasBbox, bbox]);
 
-  // --- Fullscreen toggle handler ---
   const handleToggleFullscreen = useCallback(() => {
     if (!containerRef?.current) return;
     if (!document.fullscreenElement) {
@@ -710,8 +653,8 @@ export const DatasetMap = memo(function DatasetMap({
     }
   }, [containerRef]);
 
-  // --- Basemap switching (theme change or user selection) ---
-  // Single imperative path with transformStyle to preserve custom sources/layers.
+  // Basemap switch (theme or user selection): a single imperative path whose
+  // transformStyle preserves custom sources/layers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -726,8 +669,7 @@ export const DatasetMap = memo(function DatasetMap({
         const customSources: Record<string, unknown> = {};
         const customLayers: unknown[] = [];
         if (_prev) {
-          // audit(w3-maps B11): allowlist app-owned sources/layers instead of
-          // denylisting the raster-style id `basemap` — see APP_SOURCE_IDS.
+          // Allowlist app-owned sources/layers; see APP_SOURCE_IDS.
           for (const [id, src] of Object.entries(_prev.sources || {})) {
             if (!isAppSourceId(id, vectorSourceId) || next.sources?.[id]) continue;
             customSources[id] = src;
@@ -758,10 +700,9 @@ export const DatasetMap = memo(function DatasetMap({
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
-  // A planar ring built straight from a `west > east` pair draws the
-  // complementary 340° rectangle over the map. Split the extent at the seam and
-  // draw the halves as a MultiPolygon — one ring for everything that does not
-  // cross, so non-crossing extents render byte-identically to before.
+  // A planar ring built from a `west > east` pair would draw the complementary
+  // 340° rectangle. Split the extent at the seam and draw a MultiPolygon; an
+  // extent that doesn't cross yields one ring.
   const bboxGeojson = useMemo(
     () =>
       hasBbox
@@ -810,21 +751,19 @@ export const DatasetMap = memo(function DatasetMap({
         attrib?.removeAttribute('open');
       }
 
-      // Absolutify URLs and attach auth header for raster tile requests.
-      // Shared builder — react-maplibre v8 ignores the
-      // transformRequest PROP after mount, so each map wires it here in onLoad.
+      // Absolutify URLs and attach the auth header for raster tile requests.
+      // react-maplibre v8 ignores the transformRequest PROP after mount, so
+      // each map wires it here in onLoad.
       map.setTransformRequest(buildTileTransformRequest({
         getTileConfig: () => tileConfigRef.current,
       }));
 
-      // Suppress missing-image warnings from basemap sprites (e.g. circle-11,
-      // circle_11_black) with a transparent 1x1 pixel fallback for any missing
-      // icon. Shared resolver (knownImagesOnly: false — preview surface, keep
-      // the console clean).
+      // Suppress missing-image warnings from basemap sprites (e.g. circle-11)
+      // with a transparent 1x1 fallback (knownImagesOnly: false keeps the
+      // preview console clean).
       map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
       // data-tiles-loaded signal, re-armed on every camera move
-      // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
       tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
       tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
       map.on('movestart', tilesIdleMovestartHandlerRef.current);
@@ -843,10 +782,10 @@ export const DatasetMap = memo(function DatasetMap({
       const tileStats = { total: 0, failed: 0 };
 
       // Fire heroState transitions at most once per mount so repeated
-      // sourcedata/error events don't churn setState (freeze).
-      // `confirmed` marks a real source load (isSourceLoaded). A 204-only ready
-      // is "soft": it resolves the loading skeleton for a sparse remote COG but
-      // must NOT make success terminal — a later error threshold can override it.
+      // sourcedata/error events don't churn setState (freeze). `confirmed`
+      // marks a real source load (isSourceLoaded); a 204-only ready is "soft":
+      // it resolves the loading skeleton for a sparse remote COG but a later
+      // error threshold can still override it.
       const fireReadyOnce = (confirmed: boolean) => {
         if (confirmed) readyConfirmedRef.current = true;
         if (readyFiredRef.current || errorFiredRef.current) return;
@@ -861,28 +800,22 @@ export const DatasetMap = memo(function DatasetMap({
         onTileError?.();
       };
 
-      // Vector-tile 401/403 handling: a stale sig kicks one throttled token
-      // re-mint, and a conclusively dead session surfaces through the global
-      // signed-out handling via the mint request itself.
-      // recoverTileAuth() returning false is contractual — a recent re-mint
-      // didn't cure the error (revoked grant, expired embed token) — so it
-      // falls through to the existing onTileError error path rather than
-      // leaving the surface silent. Auth failures surface even after a
-      // confirmed load (unlike sporadic tile errors) because they break the
-      // whole tile surface.
-      // A raster/DEM 401/403 is not cured by a fresh sig — raster auth
-      // rides the Authorization header, so the re-mint would return true
-      // ("handled") without changing anything and leave the preview silent
-      // behind a blank raster. Still kick the re-mint (its apiFetch renews an
-      // expiring JWT, which IS what a raster 401 needs), but never let its
-      // `true` stand in for recovery: route a raster failure to the error path.
+      // Vector-tile 401/403: a stale sig kicks one throttled token re-mint, and
+      // a dead session surfaces through the global signed-out handling via the
+      // mint request. recoverTileAuth() returning false means a recent re-mint
+      // didn't cure the error (revoked grant, expired embed token), so it falls
+      // through to onTileError. Auth failures surface even after a confirmed
+      // load because they break the whole tile surface.
+      // A raster/DEM 401/403 is not cured by a fresh sig (raster auth rides the
+      // Authorization header), so the re-mint would return true without
+      // changing anything. Still kick it, since its apiFetch renews an expiring
+      // JWT, but route a raster failure to the error path.
       tileAuthErrorHandlerRef.current = (e: { error?: { message?: string; status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
         const reminting = recoverTileAuth();
-        // A raster auth error counts as recovering while a session
-        // renewal is in flight — that renewal is what fixes it, and its
-        // post-rotation reload retries the tiles.
+        // A raster auth error counts as recovering while a session renewal is
+        // in flight; its post-rotation reload retries the tiles.
         const recovering =
           reminting &&
           (!isRasterTileAuthError(e) ||
@@ -899,21 +832,18 @@ export const DatasetMap = memo(function DatasetMap({
 
         const handleRasterError = (e: { error: { message?: string; status?: number } }) => {
           const status = (e.error as { status?: number })?.status;
-          // HTTP 204 = tile present but empty (no data in this cell). That's a
-          // SUCCESS for a sparse remote COG, not a failure — don't count it
-          // toward the error threshold, and treat it as the source being usable
-          // so heroState resolves deterministically instead of sitting in
-          // 'loading'. (#13)
+          // HTTP 204 = tile present but empty: success for a sparse remote COG.
+          // Don't count it toward the error threshold, and treat the source as
+          // usable so heroState doesn't sit in 'loading'.
           if (status === 204) {
             tileStats.total++;
             fireReadyOnce(false);
             return;
           }
-          // A 401/403 lost to the tab-return refresh race is not a
-          // broken source — the post-rotation reload retries it moments later,
-          // and this listener is independent of the auth handler above, so
-          // without this it still latched the permanent error overlay that the
-          // reload cannot clear.
+          // A 401/403 lost to the tab-return refresh race is not a broken
+          // source: the post-rotation reload retries it, and this listener is
+          // independent of the auth handler above, so without this check it
+          // would latch the permanent error overlay the reload can't clear.
           if (status === 401 && isSessionRenewalPending()) return;
           if (e.error?.message?.includes('raster-tile-source') ||
               e.error?.message?.includes('Error: HTTP') ||
@@ -944,15 +874,12 @@ export const DatasetMap = memo(function DatasetMap({
         addVectorLayers(map);
         addOverlaySource(map);
 
-        // audit(w3-maps): the vector branch previously fired onMapReady
-        // unconditionally and attached no error listeners, so a vector
-        // preview had no loading/error state at all. Mirror the raster
-        // machinery: a soft ready keeps today's immediate-resolve behavior
-        // (a bbox-only dataset has no tiles to confirm), sourcedata confirms
-        // a real load, and repeated hard tile failures cross the same
-        // threshold into the existing onTileError error path. 4xx stays out
-        // of the count — 404 is an expected no-data tile outside the extent,
-        // and 401/403 belong to the tile-auth recovery handler above.
+        // Mirror the raster machinery: a soft ready resolves immediately (a
+        // bbox-only dataset has no tiles to confirm), sourcedata confirms a
+        // real load, and repeated hard tile failures cross the same threshold
+        // into onTileError. 4xx stays out of the count: 404 is an expected
+        // no-data tile outside the extent, and 401/403 belong to the tile-auth
+        // handler above.
         const handleVectorError = (e: { error: { message?: string; status?: number } }) => {
           const status = e.error?.status;
           if (status && status >= 400 && status < 500) return;
@@ -1002,36 +929,24 @@ export const DatasetMap = memo(function DatasetMap({
     autoSaveInFlightRef.current = null;
     setAutoSavingGeometry(null);
     setEditingAttributes(false);
-    // The delete/discard confirmation
-    // dialogs are the same class as pendingGeometry/editingAttributes —
-    // both reference a selectedFeature that just got cleared above.
-    // Left open, "Delete" degrades to a no-op (handleDeleteFeature's own
-    // guard refuses without a selectedFeature) rather than anything
-    // unsafe, but a dangling confirmation for content that no longer
-    // exists is exactly the dialog-survives-the-clear bug this effect
-    // exists to close.
+    // The delete/discard confirmation dialogs reference a selectedFeature that
+    // was just cleared; left open they would dangle (Delete is a no-op).
     setDeleteConfirmOpen(false);
     setDiscardConfirmOpen(false);
     discardActionRef.current = null;
-    // A create in progress (saveAndRefresh) may
-    // have put a not-yet-committed shape in the overlay ref/source. Empty
-    // both here too, or a later identity change or ordinary session close
-    // leaves it visible to whoever looks at the map next.
+    // A create in progress (saveAndRefresh) may have put a not-yet-committed
+    // shape in the overlay ref/source; empty both, or it stays visible later.
     resetOverlay();
     clearDrawing();
   }, [clear, clearDrawing, performDeselect, resetOverlay, tdSetMode]);
 
-  // The identity-change choke point
-  // (lib/auth-cache-reset.ts) only resets Zustand state — clearDrawing()
-  // there has no way to reach Terra Draw's locally-drawn geometry,
-  // MapLibre's hidden-tile filters, or this component's own dialog state
-  // (pendingGeometry/editingAttributes), all of which only
-  // finishDrawingSession knows how to tear down. Run it whenever the
-  // session epoch moves so the previous identity's sketch, hidden tiles and
-  // open dialogs are gone for whoever is signed in (or anonymous) next.
-  // Skipped on mount: the epoch hasn't "changed" yet at that point, and
-  // running finishDrawingSession then would spuriously reset a session
-  // someone is legitimately resuming after a route change.
+  // lib/auth-cache-reset.ts only resets Zustand state; it can't reach Terra
+  // Draw's drawn geometry, MapLibre's hidden-tile filters or this component's
+  // dialog state (pendingGeometry/editingAttributes), which only
+  // finishDrawingSession tears down. Run it whenever the session epoch moves
+  // so the previous identity's sketch, hidden tiles and dialogs are gone.
+  // Skipped on mount: running it then would reset a session someone is
+  // resuming after a route change.
   const sessionEpochRef = useRef(sessionEpoch);
   useEffect(() => {
     if (sessionEpochRef.current === sessionEpoch) return;
@@ -1040,16 +955,13 @@ export const DatasetMap = memo(function DatasetMap({
   }, [sessionEpoch, finishDrawingSession]);
 
   // The drawing store is global but this component is remounted per dataset
-  // (DatasetPage keys it on dataset id), so a client-side navigation away
-  // from an in-progress edit — with nothing dirty, so the unsaved guard lets
-  // it through — can land here with the store still holding the previous
-  // dataset's session, even between two datasets that can both edit (no
-  // canEdit mismatch to catch it, and no identity change to bump
-  // sessionEpoch). A map must not inherit a session for a dataset that
-  // is not its own: besides hiding the toolbar below, end the session so
-  // its mutation hooks, now bound to this dataset's id and table, never
-  // act on the old selection. A session of this dataset that this map
-  // can't edit is left to the edit-rights effect below.
+  // (DatasetPage keys it on dataset id), so navigating away from an
+  // in-progress edit with nothing dirty can land here with the store still
+  // holding the previous dataset's session, even between two editable datasets
+  // (no canEdit mismatch, no sessionEpoch bump). A map must not inherit
+  // another dataset's session: end it so its mutation hooks, bound to this
+  // dataset's id and table, never act on the old selection. A session of this
+  // dataset that this map can't edit is left to the edit-rights effect below.
   const staleSessionCheckedRef = useRef(false);
   useEffect(() => {
     if (staleSessionCheckedRef.current) return;
@@ -1060,23 +972,17 @@ export const DatasetMap = memo(function DatasetMap({
       finishDrawingSession();
     } else if (canEdit && state.selectedFeature) {
       if (state.isEditDirty) {
-        // A dirty selection is kept rather than dropped (see
-        // orphanedSelectionTdIdRef above, computed at render time), so
-        // DatasetPage's unsaved-changes guard still warns before a further
-        // navigation. Its edited geometry lives only in the TerraDraw
-        // instance that made the edit, which this fresh mount is not, so
-        // the toolbar offers a discard for it in place of Save.
+        // A dirty selection is kept (see orphanedSelectionTdIdRef above) so
+        // DatasetPage's unsaved-changes guard still warns. Its edited geometry
+        // lives only in the TerraDraw instance that made it, so the toolbar
+        // offers a discard in place of Save.
         return;
       }
-      // Same route in, no map mounted in between (e.g. a table dataset
-      // with no preview), then back to this same, still-editable dataset:
-      // the session belongs here, but this is a brand-new TerraDraw
-      // instance that never made this selection. performDeselect() drops
-      // it (and its edit-dirty/undo state) and restores any tile filter
-      // hidden for its gid, the same cleanup a real deselect does, without
-      // touching isDrawing/activeMode/targetDatasetId — a legitimate
-      // resume keeps its drawing session, just not a selection this
-      // instance never had.
+      // Same route in, no map mounted in between, then back to this same
+      // editable dataset: the session belongs here but this TerraDraw instance
+      // never made the selection. performDeselect() drops it (and its
+      // edit-dirty/undo state) and restores any tile filter hidden for its gid,
+      // without touching isDrawing/activeMode/targetDatasetId.
       performDeselect();
     }
   }, [canEdit, datasetId, finishDrawingSession, performDeselect]);
@@ -1096,7 +1002,6 @@ export const DatasetMap = memo(function DatasetMap({
     if (!canEdit) setDeleteConfirmOpen(false);
   }, [canEdit]);
 
-  // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
     if (isFeatureMutationPending) return;
     const hasDirtyFeatureEdit = Boolean(useDrawingStore.getState().selectedFeature) &&
@@ -1151,7 +1056,6 @@ export const DatasetMap = memo(function DatasetMap({
     if (!isFeatureMutationPending) undo();
   }, [isFeatureMutationPending, undo]);
 
-  // Attribute form handlers (new feature creation)
   const handleAttributeSubmit = useCallback(
     async (properties: Record<string, unknown>) => {
       if (pendingGeometry) {
@@ -1170,7 +1074,6 @@ export const DatasetMap = memo(function DatasetMap({
     setPendingGeometry(null);
   }, []);
 
-  // If no bbox and no tableName, nothing to show
   if (!hasBbox && !tableName) {
     return (
       <div className="flex items-center justify-center h-[500px] bg-muted rounded-md text-muted-foreground text-sm">
@@ -1199,7 +1102,6 @@ export const DatasetMap = memo(function DatasetMap({
     initialViewState = { bounds, fitBoundsOptions: { padding: 60 }, ...(elevationColumn ? { pitch: 45 } : {}) };
   }
 
-  // Determine cursor: select mode -> pointer, drawing mode -> crosshair, else default
   const cursor = isDrawing
     ? activeMode === 'select'
       ? 'pointer'
@@ -1210,15 +1112,15 @@ export const DatasetMap = memo(function DatasetMap({
   return (
     <div
       // The basemap thumbnail owns the bottom-left corner (12px inset + 64px
-      // image + borders), so the attribution control stops short of it
-      // instead of expanding across it on a phone-width map.
+      // image + borders), so the attribution control stops short of it on a
+      // phone-width map.
       className="relative h-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(100%-5.5rem)]"
       role="region"
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}
       data-testid="dataset-map-shell"
-      // "map fully rendered" signal — false during tile loads
-      // after a camera move, true at idle. Was previously absent entirely.
+      // "Map fully rendered" signal: false while tiles load after a camera
+      // move, true at idle.
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >
       <MapGL
@@ -1230,9 +1132,8 @@ export const DatasetMap = memo(function DatasetMap({
         interactive
         scrollZoom={isFullscreen}
         onLoad={handleLoad}
-        // Claim the wrapper's `error` fallback so a handled
-        // tile-auth 401/403 (re-minted in handleLoad's error handler)
-        // stops double-logging a red AJAXError console row.
+        // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
+        // (re-minted in handleLoad) doesn't double-log a red AJAXError row.
         onError={logUnhandledMapError}
       >
         <NavigationControl position="top-right" />

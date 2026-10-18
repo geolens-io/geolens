@@ -15,28 +15,20 @@ interface ArcgisCredentialBlockProps {
   disabled?: boolean;
 }
 
-// The ONE margin shared by the scheduled timer
-// (handleSignIn, below) and this synchronous check -- mirrors the
-// identical fix in ServiceUrlForm.tsx (EXPIRY_MARGIN_MS)
-// for the same bug shape. The timer used to retire a
-// token 30 seconds before its real expiry while this check compared
-// against the raw `expires_at`, so a backgrounded tab resuming inside
-// that last 30 seconds passed the check and `handleConfirm` submitted a
-// credential this component had already decided to retire -- refresh
-// only queues the worker, so a token that thin can expire before the
-// worker ever uses it.
+// The ONE margin shared by the scheduled timer (handleSignIn, below) and this
+// synchronous check, as in ServiceUrlForm.tsx (EXPIRY_MARGIN_MS). A
+// backgrounded tab resuming inside the last 30 seconds must not pass the check
+// and submit a credential the component already decided to retire: refresh
+// only queues the worker, so a token that thin can expire before it is used.
 const EXPIRY_SAFETY_MARGIN_MS = 30_000;
 
-// A pure function, not a closure over `expiresAtRef`, so the
-// exact same check the render-triggered belt effect below uses is also
-// callable synchronously from SourceRefreshAction's handleConfirm (via the
-// imperative handle below) BEFORE it reads and submits `token`. That gap is
-// real: a background tab or a system sleep can suspend both the scheduled
-// expiry timer and this component's own re-renders, so the belt effect
-// never gets a chance to run before the user comes back and clicks "Start
-// refresh" -- `handleConfirm` captures `token` synchronously in the same
-// tick, ahead of any effect. Margined by EXPIRY_SAFETY_MARGIN_MS (above)
-// so this agrees with the timer on when a token counts as retired.
+// A pure function, not a closure over `expiresAtRef`, so the check the
+// render-triggered belt effect uses is also callable synchronously from
+// SourceRefreshAction's handleConfirm (via the imperative handle below) BEFORE
+// it reads and submits `token`. A background tab or system sleep can suspend
+// both the timer and this component's re-renders, so the belt effect may not
+// run before the user clicks "Start refresh". Margined by
+// EXPIRY_SAFETY_MARGIN_MS (above) to agree with the timer.
 export function isExpired(expiresAt: string | null, now: number): boolean {
   return expiresAt !== null && now >= new Date(expiresAt).getTime() - EXPIRY_SAFETY_MARGIN_MS;
 }
@@ -53,40 +45,28 @@ export interface ArcgisCredentialBlockHandle {
   markExpired: () => void;
 }
 
-// This block used to carry its own
-// {code -> key} table and its own copy for all seven of this endpoint's
-// refusal shapes. error-map.ts (frontend/src/lib/error-map.ts)
-// now maps every one of them -- arcgis_signin_rejected, arcgis_sso_account,
+// apiFetch (client.ts) runs this error's `detail` through error-map.ts
+// (`translateApiErrorDetail`) before this component sees it, so
+// `ApiError.message` IS the translated text of every refusal shape this
+// endpoint returns (arcgis_signin_rejected, arcgis_sso_account,
 // ssrf_refused, arcgis_signin_in_progress, arcgis_portal_not_https and
-// arcgis_portal_host_invalid -- under `common:errors.*`, and deliberately
-// leaves a bare 429 unmapped there because the generic `errors.rateLimited`
-// fallback already covers it. apiFetch (client.ts) already runs this
-// error's `detail` through that exact map, via `translateApiErrorDetail`,
-// before this component ever sees it, so `ApiError.message` (an instance
-// of `Error`) IS that translated text -- reusing it, rather than a second
-// table repeating the same strings, is the fix: one string, one meaning,
-// so this flow and the import wizard's can never drift apart on wording.
-// This also covers a FastAPI/pydantic validation array for free (a
-// scheme-less portal URL, one carrying credentials, an overlong field --
-// `ArcGISSignInRequest` rejecting input before the route runs), since
-// `classifyApiError`'s array branch already turns that into a translated,
-// field-named message.
+// arcgis_portal_host_invalid under `common:errors.*`; a bare 429 stays
+// unmapped because the generic `errors.rateLimited` covers it). Reusing it
+// keeps one string per meaning, so this flow and the import wizard's can't
+// drift apart. It also covers a FastAPI/pydantic validation array
+// (`ArcGISSignInRequest` rejecting input before the route runs), which
+// `classifyApiError`'s array branch turns into a translated, field-named
+// message.
 
 /**
- * The refresh door's ArcGIS credential
- * prompt. The import wizard ships the equivalent three-way method
- * select for the import wizard (`ServiceUrlForm.tsx`), its own
- * `arcgisSignin` client in `api/ingest.ts`, and hand-typed request/response
- * types in `types/api.ts`. This component and that select are still two
- * independent copies of the same taxonomy -- converging them into one
- * shared component remains a follow-up -- but the error COPY is no longer
- * duplicated: this component reuses the shared `common:errors.*` mapping in
- * `lib/error-map.ts` via `ApiError.message` (see the comment above) rather
- * than carrying a second `{code -> key}` table under its own namespace.
+ * The refresh door's ArcGIS credential prompt: None / Token / Sign in.
+ * Selecting a method discards the other branch's fields rather than
+ * half-honouring them (the backend's oneOf rule, applied to component state).
  *
- * None / Token / Sign in. Selecting a method discards the
- * other branch's fields rather than half-honouring them (the backend's oneOf
- * rule, applied here to component state rather than a request body).
+ * This is a second copy of the import wizard's method select
+ * (`ServiceUrlForm.tsx`), which also has its own `arcgisSignin` client in
+ * `api/ingest.ts`; only the error copy is shared, via `ApiError.message` (see
+ * above).
  */
 export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, ArcgisCredentialBlockProps>(
   function ArcgisCredentialBlock({ token, onTokenChange, disabled }, ref) {
@@ -97,14 +77,12 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   const [password, setPassword] = useState('');
   const [signInPending, setSignInPending] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
-  // Bookkeeping only for the raw value; a ref avoids an extra re-render
-  // on every mint/clear. Still explicitly cleared alongside the token
-  // itself.
+  // Bookkeeping for the raw value; a ref avoids a re-render on every mint/clear.
+  // Still cleared alongside the token.
   const expiresAtRef = useRef<string | null>(null);
-  // Distinct from `signInError` -- an expiry is not a
-  // rejected sign-in, it is a credential that WAS valid going stale while
-  // the dialog sat open. Drives the "Token expired" copy in place of
-  // "Signed in".
+  // Distinct from `signInError`: a credential that WAS valid going stale while
+  // the dialog sat open, not a rejected sign-in. Drives "Token expired" in
+  // place of "Signed in".
   const [tokenExpired, setTokenExpired] = useState(false);
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -115,23 +93,18 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     }
   };
 
-  // Derived from the parent's `token` prop rather
-  // than tracked in its own state. "Start refresh" (SourceRefreshAction)
-  // clears its `token` state before awaiting the refresh request, win or
-  // lose -- a separate `signedIn` boolean would go stale the moment that
-  // happens (a rejected refresh left this block still claiming "Signed in"
-  // while a retry silently submitted nothing). Deriving it means there is
-  // nothing here that CAN desynchronise from the token: whenever `token`
-  // clears, for any reason, this becomes false in the same render.
+  // Derived from the parent's `token` prop, not tracked in its own state:
+  // "Start refresh" (SourceRefreshAction) clears `token` before awaiting the
+  // refresh request, win or lose, so a separate `signedIn` boolean would go
+  // stale (a rejected refresh left this block claiming "Signed in" while a
+  // retry silently submitted nothing). Whenever `token` clears, this becomes
+  // false in the same render.
   const isSignedIn = method === 'signin' && token.trim() !== '';
-  // A generation counter, not just a
-  // boolean, so a stale attempt's response is dropped even when a NEWER
-  // attempt is already in flight (not only on unmount). Bumped on unmount
-  // (the dialog closing unmounts this block -- SourceRefreshAction renders
-  // it conditionally on `serviceTokenRequired`, which handleOpenChange
-  // resets on close) and at the start of every sign-in attempt. Mirrors
-  // the generation-counter pattern ServiceUrlForm.tsx applies,
-  // so the two blocks converge later.
+  // A generation counter, not a boolean, so a stale attempt's response is
+  // dropped even when a NEWER attempt is in flight. Bumped on unmount (closing
+  // the dialog unmounts this block: SourceRefreshAction renders it on
+  // `serviceTokenRequired`, which handleOpenChange resets) and at the start of
+  // every sign-in attempt. Same pattern as ServiceUrlForm.tsx.
   const generationRef = useRef(0);
 
   useEffect(() => {
@@ -141,15 +114,12 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     };
   }, []);
 
-  // Belt and braces: the scheduled timer above is the primary
-  // mechanism, but re-verify on every render too (method switch, a field
-  // edit, the `disabled` prop flipping when "Start refresh" is clicked) in
-  // case the timer fires late -- background-tab throttling can delay a
-  // `setTimeout` well past its nominal delay. Deliberately has no
-  // dependency array so it runs after EVERY render, not only when
-  // `isSignedIn` changes -- that is the whole point of a render-triggered
-  // recheck. Self-heals by running the exact same clear the timer runs;
-  // does nothing once `isSignedIn` is already false, so this cannot loop.
+  // Belt and braces: the scheduled timer is primary, but re-verify on every
+  // render too (method switch, field edit, `disabled` flipping on "Start
+  // refresh") in case a background-tab-throttled `setTimeout` fires late.
+  // Deliberately has no dependency array so it runs after EVERY render.
+  // Self-heals with the same clear the timer runs; a no-op once `isSignedIn`
+  // is false, so it cannot loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isSignedIn && isExpired(expiresAtRef.current, Date.now())) {
@@ -159,9 +129,8 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   });
 
   // Exposes the synchronous pre-submit check documented on
-  // `ArcgisCredentialBlockHandle` above. `markExpired` reuses the exact
-  // clear-and-flip the timer and the belt effect both already perform, so
-  // there is still only one place that transition happens.
+  // `ArcgisCredentialBlockHandle`. `markExpired` reuses the clear-and-flip the
+  // timer and belt effect perform, so the transition lives in one place.
   useImperativeHandle(ref, () => ({
     getExpiresAt: () => expiresAtRef.current,
     markExpired: () => {
@@ -170,10 +139,9 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     },
   }));
 
-  // A minted token describes the fields it
-  // was minted from. Once any of those fields changes, or a new attempt
-  // starts, that token no longer describes the account "Start refresh"
-  // would otherwise submit -- clear it immediately rather than leaving it
+  // A minted token describes the fields it was minted from. Once any of them
+  // changes, or a new attempt starts, it no longer describes the account
+  // "Start refresh" would submit: clear it immediately rather than leave it
   // reachable until the next sign-in resolves (or fails).
   const clearMintedCredential = () => {
     expiresAtRef.current = null;
@@ -214,11 +182,10 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
 
   const handleSignIn = async () => {
     if (signInPending) return;
-    // Start of every new attempt: bump the generation so a still-pending
-    // earlier attempt's response (fix P1, below) can never land after this
-    // one starts, and clear whatever an earlier attempt minted so a
-    // slow-failing retry can't leave it behind for "Start refresh" to
-    // submit (fix P2).
+    // Start of every attempt: bump the generation so a pending earlier
+    // attempt's response can't land after this one starts, and clear whatever
+    // an earlier attempt minted so a slow-failing retry can't leave it for
+    // "Start refresh" to submit.
     const generation = (generationRef.current += 1);
     setSignInError(null);
     setTokenExpired(false);
@@ -227,39 +194,30 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     try {
       const result = await arcgisSignIn({
         portal_url: portalUrl.trim(),
-        // ArcGISSignInRequest does not strip
-        // whitespace and PortalSignIn.mint forwards the value unchanged,
-        // so a pasted username with leading/trailing whitespace would
-        // burn one of the ArcGIS account's limited sign-in attempts on a
-        // value that was never going to match. Mirrors the import
-        // wizard's identical `username.trim()` (ServiceUrlForm.tsx).
+        // ArcGISSignInRequest does not strip whitespace and PortalSignIn.mint
+        // forwards the value unchanged, so a pasted username with stray
+        // whitespace would burn one of the account's limited sign-in attempts
+        // on a value that can't match. Same `username.trim()` as ServiceUrlForm.tsx.
         username: username.trim(),
         password,
       });
-      // Dropped when this attempt is stale:
-      // either this block unmounted (the dialog was cancelled/closed while
-      // the request was in flight; SourceRefreshAction renders this block
-      // conditionally and unmounts it on close) or a newer attempt already
-      // started. Calling `onTokenChange` here would call the STILL-MOUNTED
-      // parent's setter from an unmounted child's stale closure -- React
-      // allows that silently, so without this guard a token the user
-      // dismissed reappears the next time the dialog opens.
+      // Dropped when this attempt is stale: this block unmounted (dialog
+      // closed mid-request) or a newer attempt started. Calling `onTokenChange`
+      // from an unmounted child's stale closure would call the STILL-MOUNTED
+      // parent's setter, and a token the user dismissed would reappear the next
+      // time the dialog opens.
       if (generationRef.current !== generation) return;
       onTokenChange(result.token);
       expiresAtRef.current = result.expires_at;
-      // `isSignedIn` is derived from `token` (now non-empty) and `method`
-      // (still 'signin' here) -- no separate flag to set. The password is
-      // cleared once, below, in the generation-matched `finally` -- not
-      // here, so success and failure clear it exactly the same way.
+      // `isSignedIn` is derived from `token` and `method`, so no flag to set.
+      // The password is cleared once, in the generation-matched `finally`, so
+      // success and failure clear it the same way.
 
-      // The refresh door only stages this credential
-      // and queues the worker -- it does not use it synchronously -- so a
-      // dialog left open past the token's lifetime would otherwise submit
-      // one already-dead on the wire, and the failure would only surface
-      // later in the background. Schedule the clear for a safety margin
-      // BEFORE the real expiry, not at it, so a slow clock or a slightly
-      // stale local view of `expires_at` still clears before the origin
-      // itself would refuse the token.
+      // The refresh door only stages this credential and queues the worker, so
+      // a dialog left open past the token's lifetime would submit one already
+      // dead, and the failure would surface later in the background. Schedule
+      // the clear a safety margin BEFORE the real expiry so a slow clock or
+      // stale local `expires_at` still clears before the origin refuses it.
       clearExpiryTimer();
       const expiresAtMs = new Date(result.expires_at).getTime();
       const delay = Math.max(0, expiresAtMs - Date.now() - EXPIRY_SAFETY_MARGIN_MS);
@@ -270,32 +228,23 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       }, delay);
     } catch (err) {
       if (generationRef.current !== generation) return;
-      // No `isSignedIn` to clear: `token` was already cleared at the start
-      // of this attempt, before the request, so it was already false.
-      // The error text rendered here is always this endpoint's own
-      // translated copy (see the module comment above) -- never the raw
-      // response body.
+      // `token` was cleared at the start of this attempt, so `isSignedIn` is
+      // already false. The error text is always this endpoint's own translated
+      // copy (see above), never the raw response body.
       setSignInError(
         err instanceof Error ? err.message : t('common:errors.couldNotReachService'),
       );
     } finally {
       if (generationRef.current === generation) {
-        // Cleared here, unconditionally on
-        // outcome, not only on a successful mint. A rejected sign-in or a
-        // timed-out request used to leave the password sitting in state
-        // and in the controlled input until the user edited it or closed
-        // the dialog -- contradicting this block's own request-scoped
-        // lifetime, and letting the same password be resent by a second
-        // click, which matters under ArcGIS's five-attempts lockout.
-        // Mirrors the sibling ServiceUrlForm.tsx flow's identical
-        // generation-gated clear in its own `finally`. Gated on
-        // generation, not unconditional, because an edit already made
-        // during this attempt (portal URL, username, or password) bumped
-        // the generation and may have put a NEW password in state for the
-        // next attempt -- clearing unconditionally here would wipe that
-        // out from under the user when this now-superseded request
-        // settles. The username is left alone; only the password is
-        // treated as too sensitive to linger.
+        // Cleared on every outcome, not only a successful mint: a rejected or
+        // timed-out sign-in would otherwise leave the password in state and in
+        // the controlled input, letting a second click resend it, which matters
+        // under ArcGIS's five-attempts lockout. Gated on generation, not
+        // unconditional, because an edit made during this attempt (portal URL,
+        // username or password) bumped the generation and may have put a NEW
+        // password in state; clearing unconditionally would wipe it when this
+        // superseded request settles. The username is left alone; only the
+        // password is too sensitive to linger.
         setPassword('');
         setSignInPending(false);
       }
@@ -303,8 +252,8 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   };
 
   const fieldsDisabled = disabled || signInPending;
-  // A whitespace-only username must never submit either -- it trims to
-  // '' and would otherwise still pass a bare `!== ''` check.
+  // A whitespace-only username must never submit: it trims to '' and would
+  // pass a bare `!== ''` check.
   const canSignIn = !fieldsDisabled && portalUrl.trim() !== '' && username.trim() !== '' && password !== '';
 
   return (
@@ -381,11 +330,9 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
             <Input
               id="arcgis-credential-password"
               type="password"
-              // A genuine third-party login, so a
-              // password manager offering to save it is not absurd -- but it
-              // would be saved against the GeoLens origin, which is
-              // misleading. Opt out the same way the request-only service
-              // token field does (#1750).
+              // A third-party login: a password manager offering to save it
+              // would save it against the GeoLens origin, which is misleading.
+              // Opt out as the request-only service token field does.
               autoComplete="new-password"
               data-1p-ignore
               data-lpignore="true"

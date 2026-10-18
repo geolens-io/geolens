@@ -63,18 +63,17 @@ interface AccessTabProps {
   canManageKeys?: boolean;
 }
 
-/** The visibility values this control can move a dataset TO, in
- * ladder order. `restricted` is not one: a non-admin owner who picked it would
- * lose access to their own dataset, and grants have no write path. A dataset
- * already stored as `restricted` still displays its own value (see below) — a
- * one-way exit, never a silent coercion to something the user did not pick.
- * The import pickers deliberately stay at private/public. */
+/** The visibility values this control can move a dataset TO, in ladder order.
+ * `restricted` is not one: a non-admin owner who picked it would lose access to
+ * their own dataset, and grants have no write path. A dataset already stored
+ * as `restricted` still displays its own value (see below), a one-way exit,
+ * never a silent coercion. The import pickers stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
-/** The full ladder in widening order, for deciding whether a
- * visibility move ADDS readers. `restricted` sits between private and
- * internal even though this control cannot move TO it — a stored restricted
- * dataset can still be moved FROM it, and that move's direction matters. */
+/** The full ladder in widening order, for deciding whether a visibility move
+ * ADDS readers. `restricted` sits between private and internal even though this
+ * control cannot move TO it: a stored restricted dataset can still be moved
+ * FROM it, and that move's direction matters. */
 const VISIBILITY_LADDER = ['private', 'restricted', 'internal', 'public'] as const;
 
 /** Copy text to clipboard with textarea fallback for non-HTTPS contexts. */
@@ -242,26 +241,26 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   const { t } = useTranslation('dataset');
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
   const updateDataset = useUpdateDataset();
-  // The restrict_public_visibility instance setting caps
-  // non-admins at non-public; the server enforces it with a 403, this only
-  // disables the affordance.
+  // The restrict_public_visibility instance setting caps non-admins at
+  // non-public; the server enforces it with a 403, this only disables the
+  // affordance.
   const canSetPublic = useCanSetPublicVisibility();
   const canCreateKeys = usePermissions().can('edit_metadata');
   const isLegacyVisibility = !SELECTABLE_VISIBILITIES.includes(
     dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
   );
 
-  // A visibility change held back while the owner confirms that
-  // keywords inherited from the analysis source may reach readers who cannot
-  // open that source.
+  // A visibility change held back while the owner confirms that keywords
+  // inherited from the analysis source may reach readers who cannot open that
+  // source.
   const [pendingChange, setPendingChange] = useState<{
     visibility: DatasetVisibility;
     keywords: string[];
   } | null>(null);
-  // Probe sequence. Two quick selections leave both probes in
-  // flight, and whichever resolved LAST wrote pendingChange — possibly for
-  // the earlier, no-longer-intended value. Each invocation takes a fresh id;
-  // a response whose id is no longer current is discarded outright.
+  // Probe sequence. Two quick selections leave both probes in flight, and
+  // whichever resolved LAST wrote pendingChange, possibly for the earlier,
+  // no-longer-intended value. Each invocation takes a fresh id; a response whose
+  // id is no longer current is discarded.
   const probeSeq = useRef(0);
 
   function applyVisibility(visibility: DatasetVisibility) {
@@ -270,17 +269,17 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
       {
         onSuccess: (result) => {
           toast.success(t('metadataEdit.visibilityUpdated'));
-          // When the preflight probe failed, the PATCH
-          // response is the only warning surface left — reading it is what
-          // makes "a failed probe never blocks" a fallback instead of a hole.
+          // When the preflight probe failed, the PATCH response is the only
+          // warning surface left; reading it makes "a failed probe never
+          // blocks" a fallback instead of a hole.
           if (result?.metadata_warnings?.length) {
             toast.warning(result.metadata_warnings[0]);
           }
         },
-        // Moving a dataset away from public while a public map uses
-        // it is a 422 from `_apply_visibility_change`. This control is the
-        // first UI that can trigger it, so the message has to reach the user
-        // rather than leaving the select silently snapping back.
+        // Moving a dataset away from public while a public map uses it is a 422
+        // from `_apply_visibility_change`. This control is the first UI that can
+        // trigger it, so the message must reach the user rather than the select
+        // silently snapping back.
         onError: (err) =>
           toast.error(formatMutationError('dataset:metadataEdit.visibilityFailed', err)),
       },
@@ -291,34 +290,34 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     if (value === dataset.visibility) return;
     const visibility = value as DatasetVisibility;
     const seq = ++probeSeq.current;
-    // Only a move that ADDS readers warrants the dialog. The
-    // probe asks an absolute question ("does this audience exceed the
-    // source?"), so running it on a narrowing move (public -> internal on an
-    // output already wider than its source) blocked the REMEDIATION behind a
-    // dialog claiming a wider audience. An unknown stored value indexes to
-    // -1 and counts as widening — over-warning is the safe direction.
+    // Only a move that ADDS readers warrants the dialog. The probe asks an
+    // absolute question ("does this audience exceed the source?"), so running
+    // it on a narrowing move (public -> internal on an output already wider than
+    // its source) would block the REMEDIATION behind a dialog claiming a wider
+    // audience. An unknown stored value indexes to -1 and counts as widening;
+    // over-warning is the safe direction.
     const widens =
       VISIBILITY_LADDER.indexOf(visibility as (typeof VISIBILITY_LADDER)[number]) >
       VISIBILITY_LADDER.indexOf(
         dataset.visibility as (typeof VISIBILITY_LADDER)[number],
       );
     if (widens) {
-      // Ask the counterfactual — "at this visibility, would
-      // inherited keywords reach someone who cannot open their source?" — and
-      // put the diff in front of the owner before the change applies.
-      // Advisory only: a failed probe never blocks the change (the backend
-      // PATCH response still carries the warning).
+      // Ask the counterfactual ("at this visibility, would inherited keywords
+      // reach someone who cannot open their source?") and put the diff in front
+      // of the owner before the change applies. Advisory only: a failed probe
+      // never blocks the change (the backend PATCH response still carries the
+      // warning).
       try {
         const kw = await listKeywords(dataset.record_id, {
           audienceVisibility: visibility,
         });
-        // Superseded by a newer selection while awaiting
-        // this response must produce nothing, not even the fall-through.
+        // Superseded by a newer selection while awaiting this response must
+        // produce nothing, not even the fall-through.
         if (seq !== probeSeq.current) return;
-        // The gap flag is authoritative (computed server-side
-        // over ALL keyword rows); the fetched page only supplies display
-        // names. Keying the dialog on the page's inherited entries let a page
-        // boundary skip the confirmation entirely.
+        // The gap flag is authoritative (computed server-side over ALL keyword
+        // rows); the fetched page only supplies display names. Keying the dialog
+        // on the page's inherited entries let a page boundary skip the
+        // confirmation.
         if (kw.inherited_audience_gap) {
           setPendingChange({
             visibility,
@@ -327,8 +326,8 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
           return;
         }
       } catch {
-        // A superseded FAILED probe must not fire the direct
-        // PATCH for its stale value either.
+        // A superseded FAILED probe must not fire the direct PATCH for its stale
+        // value either.
         if (seq !== probeSeq.current) return;
         // fall through to the plain mutate
       }

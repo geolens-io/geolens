@@ -387,13 +387,13 @@ function isRunActive(status: string | undefined): boolean {
 }
 
 /**
- * Tracks refresh runs for the dataset. It is mounted once at the dataset
- * PAGE level because the "sources" TabsContent lives inside Radix Tabs, which
- * unmounts inactive content by default (components/ui/tabs.tsx); a tracker
- * inside it would lose the dispatched-run ref and the poll on a tab switch,
- * and a refresh that finished meanwhile would never invalidate its caches.
- * SourceRefreshAction only calls `trackDispatchedRun` with the run_id from
- * its 202 and reads `latestRun`/`isBusy` back as props.
+ * Tracks refresh runs for the dataset. Mounted once at the dataset PAGE level
+ * because the "sources" TabsContent lives inside Radix Tabs, which unmounts
+ * inactive content (components/ui/tabs.tsx); a tracker inside it would lose the
+ * dispatched-run ref and the poll on a tab switch, and a refresh that finished
+ * meanwhile would never invalidate its caches. SourceRefreshAction only calls
+ * `trackDispatchedRun` with the run_id from its 202 and reads
+ * `latestRun`/`isBusy` back as props.
  *
  * The goal is to keep the page consistent with refresh activity for this
  * dataset, so a run kicked off from the CLI, another editor's tab, or already

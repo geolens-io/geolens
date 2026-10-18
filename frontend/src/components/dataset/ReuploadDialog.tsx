@@ -86,19 +86,18 @@ const VRT_EXTENSION = '.vrt';
 // A .3tz holds only a 3D Tiles tileset and a .laz only a point cloud, which no
 // reupload can replace.
 const KIND_ONLY_EXTENSIONS = new Set(['.3tz', '.laz']);
-// #1289: raster reupload accepts only raster source formats; vector/table
-// reupload accepts everything the backend allows except raster/VRT formats
-// (rasters go through the branch below, VRTs through the regenerate flow).
+// Raster reupload accepts only raster source formats; vector/table reupload
+// accepts everything the backend allows except raster/VRT formats (rasters go
+// through the branch below, VRTs through the regenerate flow).
 const RASTER_REUPLOAD_EXTENSIONS = new Set(['.tif', '.tiff']);
 
 interface ReuploadDialogProps {
   dataset: DatasetResponse;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Called once a raster replacement job completes, so
-   * the caller can force its hero map to remount and pick up the new tiles —
-   * the raster tile URL is a fixed per-dataset route, so nothing else in the
-   * app tells MapLibre's already-added raster source to reload. */
+  /** Called once a raster replacement job completes, so the caller can remount
+   * its hero map: the raster tile URL is a fixed per-dataset route, so nothing
+   * else tells MapLibre's already-added raster source to reload. */
   onReplaceComplete?: () => void;
 }
 
@@ -129,9 +128,9 @@ function isLikelyProtectedServiceFailure(message: string): boolean {
   return AUTH_ERROR_HINTS.some((hint) => normalized.includes(hint));
 }
 
-/** The commit door's expected-origin refusal, read off the
- *  raw `detail` ApiError carries in `body` rather than off the translated
- *  message — the copy is locale-dependent, the code is not. */
+/** The commit door's expected-origin refusal, read off the raw `detail`
+ *  ApiError carries in `body` rather than the translated message: the copy is
+ *  locale-dependent, the code is not. */
 function isOriginChangedError(err: unknown): boolean {
   if (!(err instanceof ApiError) || err.status !== 409) return false;
   const body = err.body;
@@ -152,12 +151,11 @@ export function ReuploadDialog({
   const [step, setStep] = useState<ReuploadStep>('source-select');
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  // The dataset's origin as of when this replacement was
-  // staged, captured beside the job id and sent with the commit. Between
-  // staging and the user's confirmation a service or STAC re-upload can bind
-  // this dataset to a remote source; the swap the commit queues would rebind
-  // it to `upload` and sever that binding, so the server refuses the commit
-  // when the origin it reads is no longer this one.
+  // The dataset's origin as of when this replacement was staged, captured beside
+  // the job id and sent with the commit. Between staging and confirmation a
+  // service or STAC re-upload can bind this dataset to a remote source; the
+  // queued swap would rebind it to `upload` and sever that binding, so the
+  // server refuses the commit when the origin it reads is no longer this one.
   const [stagedOriginKind, setStagedOriginKind] = useState<DatasetOrigin | null>(null);
   // Gate "Try Again" on a landed post-refusal refetch (see
   // handleConfirm's catch block), not just the refusal itself.
@@ -173,7 +171,6 @@ export function ReuploadDialog({
   const [serviceToken, setServiceToken] = useState('');
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<LayerInfo | null>(null);
-  // State for file-path multi-layer selection
   const [allLayers, setAllLayers] = useState<NonNullable<ReuploadPreviewResponse['all_layers']>>([]);
   const [previousSourceLayer, setPreviousSourceLayer] = useState<string | null>(null);
   const [selectedFileLayer, setSelectedFileLayer] = useState<string | null>(null);
@@ -202,8 +199,8 @@ export function ReuploadDialog({
     setStagedOriginKind(null);
     setIsRefreshingOrigin(false);
     setOriginRefreshFailed(false);
-    // Orphans any refetch still in flight from before
-    // this reset (e.g. the dialog was closed mid-refetch).
+    // Orphans any refetch still in flight from before this reset (e.g. the
+    // dialog was closed mid-refetch).
     refreshGenerationRef.current += 1;
     setPreview(null);
     setError(null);
@@ -212,19 +209,16 @@ export function ReuploadDialog({
     setServiceToken('');
     setProbeResult(null);
     setSelectedLayer(null);
-    // Clear multi-layer file state
     setAllLayers([]);
     setPreviousSourceLayer(null);
     setSelectedFileLayer(null);
   }, [dataset.source_url]);
 
-  // Only poll when tracking
   const trackingJobId = step === 'tracking' ? jobId : null;
   const { data: jobData } = useJobStatus(trackingJobId);
   const [quicklookJobId, setQuicklookJobId] = useState<string | null>(null);
   useRefreshSearchWhenQuicklookLands(quicklookJobId);
 
-  // Watch job status for completion
   useEffect(() => {
     if (step !== 'tracking' || !jobData) return;
 
@@ -237,22 +231,19 @@ export function ReuploadDialog({
 
     if (jobData.status === 'complete') {
       if (jobData.quicklook_pending) setQuicklookJobId(jobId);
-      // The await below leaves this continuation
-      // in flight across a render where `step`/`jobId` can change under it —
-      // closing the dialog (resetState) or starting a second reupload before
-      // the first's invalidation settles must not let this stale run apply
-      // its 'complete' transition on top of whatever is current. `cancelled`
-      // is flipped by the effect cleanup, which fires on any dependency
-      // change (step leaving 'tracking' included) before this branch's next
-      // invocation runs.
+      // The await below leaves this continuation in flight across a render
+      // where `step`/`jobId` can change under it: closing the dialog
+      // (resetState) or starting a second reupload before the first's
+      // invalidation settles must not let this stale run apply its 'complete'
+      // transition. `cancelled` is flipped by the effect cleanup, which fires on
+      // any dependency change (including step leaving 'tracking').
       let cancelled = false;
-      // invalidateQueries only SCHEDULES a refetch, so
-      // firing onReplaceComplete without waiting for it raced the remount
-      // against the still-in-flight dataset-detail refetch, so a replacement
-      // with a different extent could remount using the OLD bbox (DatasetMap
-      // only fits the new one on an explicit zoom-to-extent, never on prop
-      // change). Await the detail refetch first so the remount reads fresh
-      // bbox/tile_url/updated_at off the query cache.
+      // invalidateQueries only SCHEDULES a refetch, so firing onReplaceComplete
+      // without waiting raced the remount against the in-flight dataset-detail
+      // refetch: a replacement with a different extent could remount using the
+      // OLD bbox (DatasetMap fits the new one only on an explicit zoom-to-extent,
+      // never on prop change). Await the detail refetch first so the remount
+      // reads fresh bbox/tile_url/updated_at off the query cache.
       void (async () => {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) }),
@@ -263,13 +254,11 @@ export function ReuploadDialog({
           queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
         ]);
         if (cancelled) return;
-        // A raster's tile URL is a fixed per-dataset
-        // route, not versioned by content — invalidating the dataset query
-        // alone doesn't touch the hero map's already-added MapLibre raster
-        // source, so it keeps serving the old tiles until something remounts
-        // it. The vector path doesn't need this: its tiles are cache-busted
-        // through `tileVersion` (dataset.updated_at), which this same
-        // invalidation already refreshes.
+        // A raster's tile URL is a fixed per-dataset route, not versioned by
+        // content, so invalidating the dataset query alone leaves the hero map's
+        // MapLibre raster source serving the old tiles until something remounts
+        // it. Vector tiles are cache-busted through `tileVersion`
+        // (dataset.updated_at), which this invalidation already refreshes.
         if (isRaster) {
           onReplaceComplete?.();
         }
@@ -297,11 +286,10 @@ export function ReuploadDialog({
       );
       setStep('error');
     } else if (jobData.status === 'cancelled') {
-      // Cancel is a reachable terminal status. With no branch
-      // here the dialog would sit on the tracking spinner forever — polling has
-      // already stopped, so nothing would ever move it again. No retry
-      // guidance: a deliberate cancel and a sweep-abandoned upload both just
-      // start over, not retry a specific attempt.
+      // Cancel is a reachable terminal status. Without this branch the dialog
+      // would sit on the tracking spinner forever, since polling has stopped.
+      // No retry guidance: a deliberate cancel and a sweep-abandoned upload both
+      // just start over.
       setError(fixedFailureReason(jobData.error_code) ?? t('reupload.jobCancelled'));
       setStep('error');
     }
@@ -342,9 +330,9 @@ export function ReuploadDialog({
         setJobId(uploadResult.job_id);
         setStagedOriginKind(dataset.origin ?? null);
 
-        // #1289: raster has no schema-preview step — the preview endpoint
-        // returns 400 for raster by design (nothing for ogrinfo to diff a
-        // COG against). Skip straight to the confirm gate.
+        // Raster has no schema-preview step: the preview endpoint returns 400 for
+        // raster by design (nothing for ogrinfo to diff a COG against). Skip to
+        // the confirm gate.
         if (isRaster) {
           setStep('preview');
           return;
@@ -355,12 +343,10 @@ export function ReuploadDialog({
           jobId: uploadResult.job_id,
         });
 
-        // Branch on all_layers for multi-layer file sources.
-        // Show the selecting-file-layer step when:
-        //   (a) the file has >1 layers (multi-layer GPKG), OR
-        //   (b) previous_source_layer is set but not found in the new file's layers
-        //       (even 1-layer files must surface the mismatch so users confirm).
-        // Single-layer files where the previous layer matches (or no previous layer) skip the step.
+        // Show the selecting-file-layer step when the file has >1 layers
+        // (multi-layer GPKG) or previous_source_layer is set but missing from
+        // the new file's layers (even 1-layer files surface the mismatch so
+        // users confirm). Otherwise skip it.
         const layers = previewResult.all_layers ?? [];
         const prevLayer = previewResult.previous_source_layer ?? null;
         const prevLayerMissing = prevLayer !== null && !layers.some((l) => l.name === prevLayer);
@@ -468,8 +454,8 @@ export function ReuploadDialog({
     [dataset.id, dataset.origin, probeResult, servicePreviewMutation, serviceToken, t, appendRetryGuidance],
   );
 
-  // Handler for file-path layer selection.
-  // Mirrors handleLayerPreview (service path) but operates on the file-path state machine.
+  // File-path layer selection; mirrors handleLayerPreview (service path) on the
+  // file-path state machine.
   const handleFileLayerPreview = useCallback(
     async (layerName: string) => {
       if (!jobId) {
@@ -511,9 +497,9 @@ export function ReuploadDialog({
         jobId,
         token,
         ...(selectedFileLayer !== null ? { layerName: selectedFileLayer } : {}),
-        // The origin as of staging, not as of now — `dataset` is a
-        // live query result, so reading it here would re-read the very change
-        // this condition exists to catch and always agree with the server.
+        // The origin as of staging, not as of now: `dataset` is a live query
+        // result, so reading it here would re-read the very change this
+        // condition exists to catch and always agree with the server.
         expectedOriginKind: stagedOriginKind,
         // The changes this dialog showed, acknowledged by confirming.
         reviewFingerprint: preview?.review_fingerprint,
@@ -606,8 +592,8 @@ export function ReuploadDialog({
         if (!extension) return false;
         const normalized = extension.toLowerCase();
         if (normalized === VRT_EXTENSION || KIND_ONLY_EXTENSIONS.has(normalized)) return false;
-        // #1289: raster reupload offers only raster formats; every other
-        // reupload (vector/table) offers everything except raster/VRT.
+        // Raster reupload offers only raster formats; every other reupload
+        // (vector/table) offers everything except raster/VRT.
         const isRasterExtension = RASTER_REUPLOAD_EXTENSIONS.has(normalized);
         return isRaster ? isRasterExtension : !isRasterExtension;
       }),
@@ -660,7 +646,6 @@ export function ReuploadDialog({
     'layer-select': t('reupload.descriptions.layerSelect', {
       defaultValue: 'Choose the service layer to preview.',
     }),
-    // File-path layer-select description
     'selecting-file-layer': t('reupload.descriptions.fileLayerSelect', {
       defaultValue: 'Choose the layer from this multi-layer file.',
     }),
@@ -668,8 +653,8 @@ export function ReuploadDialog({
     previewing: t('reupload.service.previewing', {
       defaultValue: 'Preparing re-upload preview...',
     }),
-    // #1289: raster has no schema diff to review, so the preview/tracking
-    // copy swaps to describe the COG conversion instead.
+    // Raster has no schema diff to review, so the preview/tracking copy
+    // describes the COG conversion instead.
     preview: isRaster
       ? t('reupload.raster.previewDescription', {
         defaultValue: 'Confirm to replace the raster.',
@@ -692,14 +677,12 @@ export function ReuploadDialog({
 
   const previewSourceLabel = sourceType === 'service_url'
     ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
-    // Show 'Layer:' label when a file-layer was selected (multi-layer file)
     : selectedFileLayer !== null
       ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
       : t('reupload.file');
 
   const previewSourceValue = sourceType === 'service_url'
     ? (selectedLayer ? humanizeLayerName(selectedLayer) : (preview?.layer_name ?? t('common:unknown')))
-    // Show selected layer name for multi-layer files
     : selectedFileLayer !== null
       ? selectedFileLayer
       : selectedFile?.name;
@@ -839,8 +822,8 @@ export function ReuploadDialog({
                   })}
                   value={serviceToken}
                   onChange={(event) => setServiceToken(event.target.value)}
-                  // Request-only service token, not a login
-                  // credential — opt out of password managers explicitly.
+                  // Request-only service token, not a login credential: opt out
+                  // of password managers explicitly.
                   autoComplete="new-password"
                   data-1p-ignore
                   data-lpignore="true"
@@ -1040,7 +1023,7 @@ export function ReuploadDialog({
           </div>
         )}
 
-        {/* #1289: raster has no preview payload to render (schema-preview is
+        {/* Raster has no preview payload to render (schema-preview is
             skipped in handleUpload above), so this step renders on isRaster
             alone rather than waiting for `preview`. */}
         {step === 'preview' && (preview || isRaster) && (
@@ -1131,7 +1114,7 @@ export function ReuploadDialog({
           <div className="flex flex-col items-center justify-center gap-3 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              {/* #1289: COG conversion runs on the raster queue and takes
+              {/* COG conversion runs on the raster queue and takes
                   minutes, not the seconds a vector reupload takes. */}
               {isRaster
                 ? t('reupload.raster.processingMessage', {

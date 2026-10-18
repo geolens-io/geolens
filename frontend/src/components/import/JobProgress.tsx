@@ -104,11 +104,11 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   const cancelMutation = useCancelJob();
   const warningShownRef = useRef(false);
 
-  // Warn before tab close / refresh while an import is still running —
+  // Warn before tab close / refresh while an import is still running:
   // navigating away abandons the in-progress ingest. Mirrors the builder's
-  // beforeunload guard (see use-unsaved-guard.ts). In-app navigation blocking
-  // via useBlocker is intentionally NOT used here: it requires a data router
-  // and the leave-warning UX for a backgroundable ingest is the tab-close case.
+  // beforeunload guard (use-unsaved-guard.ts). In-app navigation blocking via
+  // useBlocker is NOT used: it requires a data router, and the leave-warning UX
+  // for a backgroundable ingest is the tab-close case.
   const jobInProgress = job?.status === 'pending' || job?.status === 'running';
   useEffect(() => {
     if (!jobInProgress) return;
@@ -131,39 +131,33 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   }, [job?.status, job?.warning_message]);
 
-  // A failing GET /jobs/{id} leaves `job` undefined whenever there is no
-  // data yet, which would fall into the isLoading/!job branch below and
-  // render an indefinite "Loading status…" spinner.
+  // A failing GET /jobs/{id} leaves `job` undefined whenever there is no data
+  // yet, which would fall into the isLoading/!job branch below and render an
+  // indefinite "Loading status…" spinner.
   //
-  // `!job` alone misses a second case — a
-  // successful pending/running fetch leaves TanStack's stale `data` in
-  // place, so a LATER poll returning 401/403/404 sets `isError` without
-  // clearing `data`. That skips this guard AND `isLoading || !job` below
-  // (job is truthy), so the main render would keep showing the stale
-  // in-flight job — Cancel button included — even though refetchInterval
-  // has already stopped polling it for good. Render this error state whenever `job` is
-  // missing (any error — a 5xx with no data yet must not spin forever
-  // either) OR polling has definitively stopped due to the error while the
-  // cached job is still in-flight. A terminal `job`
-  // (complete/failed/cancelled/fanned_out) is left alone: a later transient
-  // failure on a forced refetch does not make an already-correct terminal
-  // render wrong, so its own block below still owns that case.
+  // `!job` alone misses a second case: after a successful pending/running
+  // fetch TanStack keeps the stale `data`, so a LATER poll returning
+  // 401/403/404 sets `isError` without clearing `data`. That skips this guard
+  // AND `isLoading || !job` below, and the main render would keep showing the
+  // stale in-flight job (Cancel button included) though refetchInterval has
+  // stopped polling it for good. Render this error state whenever `job` is
+  // missing (any error; a 5xx with no data yet must not spin forever) OR
+  // polling has definitively stopped due to the error while the cached job is
+  // still in-flight. A terminal `job` (complete/failed/cancelled/fanned_out) is
+  // left alone: a later transient failure on a forced refetch doesn't make an
+  // already-correct terminal render wrong, so its own block below owns that.
   if (isError && (!job || (isDefinitiveJobError(error) && !isTerminalJobStatus(job.status)))) {
     const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
 
-    // `!job` covers BOTH a definitive error
-    // (401/403/404 — the job is genuinely gone or no longer ours) AND a
-    // transient one (network blip, 5xx, retries exhausted) that happened
-    // to strike before the FIRST fetch ever succeeded. Only the former
-    // means there is nothing left to track — offering Start Over there was
-    // right. The latter does not: the server may still be processing the
-    // job, and Start Over there drops the only tracked job id (and, in
-    // BulkTrackingList, resets the whole batch) out from under it for no
-    // reason better than "the status read glitched once." Every consumer
-    // of this component (JobProgress itself, BulkTrackingList's per-row
-    // render, ServiceUrlForm, VrtCreatorForm) routes through this one
-    // branch, so splitting it here is enough — none of them has its own
-    // parallel error-driven reset path.
+    // `!job` covers BOTH a definitive error (401/403/404: the job is gone or no
+    // longer ours) AND a transient one (network blip, 5xx, retries exhausted)
+    // that struck before the FIRST fetch ever succeeded. Only the former means
+    // there is nothing left to track and warrants Start Over. In the latter the
+    // server may still be processing the job, and Start Over would drop the only
+    // tracked job id (and, in BulkTrackingList, reset the whole batch) for one
+    // glitched status read. Every consumer (JobProgress, BulkTrackingList's
+    // per-row render, ServiceUrlForm, VrtCreatorForm) routes through this one
+    // branch, so splitting it here is enough.
     if (!isDefinitiveJobError(error)) {
       return (
         <Card>
@@ -213,10 +207,10 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   };
 
-  // The backend grants cancel to the job's creator — this is the only
-  // client caller that reaches it from an import surface. One-click,
-  // matching the admin job list and the refresh-run history's cancel: no
-  // confirm dialog, a toast on rejection.
+  // The backend grants cancel to the job's creator; this is the only client
+  // caller that reaches it from an import surface. One-click, as the admin job
+  // list and the refresh-run history's cancel: no confirm dialog, a toast on
+  // rejection.
   const handleCancel = () => {
     cancelMutation.mutate(jobId, {
       onError: () => toast.error(t('jobProgress.cancelFailed')),
@@ -360,13 +354,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
           </div>
         )}
 
-        {/* The new Cancel button (#1778) drives a job
-            to `cancelled`, but the terminal blocks below only covered
-            `complete` and `failed` — a cancelled job rendered no action at
-            all. That strands any consumer with no OTHER escape hatch of its
-            own; ServiceUrlForm and VrtCreatorForm render bare <JobProgress>
-            with nothing else, unlike UrlImportForm's own terminal-status
-            "Import another" button. */}
+        {/* A cancelled job needs an action of its own: ServiceUrlForm and
+            VrtCreatorForm render a bare <JobProgress> with no other escape
+            hatch, unlike UrlImportForm's own "Import another" button. */}
         {job.status === 'cancelled' && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">

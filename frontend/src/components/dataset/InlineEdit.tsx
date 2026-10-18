@@ -135,11 +135,11 @@ export function InlineEdit({
     [cancel, save, multiline],
   );
 
-  // Clear the dirty flag on true unmount ONLY. Depending on
-  // [emitDirtyChange] re-ran this cleanup whenever the onDirtyChange prop
-  // identity changed — which the dirty change itself triggers when the parent
-  // passes an inline arrow — instantly self-reverting the flag, so the
-  // pending-edits bar never appeared for an in-progress multiline edit.
+  // Clear the dirty flag on true unmount ONLY. Depending on [emitDirtyChange]
+  // would re-run this cleanup whenever the onDirtyChange prop identity changes,
+  // which the dirty change itself triggers when the parent passes an inline
+  // arrow, instantly self-reverting the flag so the pending-edits bar never
+  // appeared for an in-progress multiline edit.
   const emitDirtyChangeRef = useRef(emitDirtyChange);
   useEffect(() => {
     emitDirtyChangeRef.current = emitDirtyChange;
@@ -183,17 +183,16 @@ export function InlineEdit({
             value={draft}
             onChange={(e) => handleDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            // Deliberately shares inputClasses with its
-            // sibling <input> so the inline editor looks identical in both modes;
-            // that's why it doesn't use the ui/textarea primitive.
+            // Deliberately shares inputClasses with its sibling <input> so the
+            // inline editor looks identical in both modes; that's why it doesn't
+            // use the ui/textarea primitive.
             className={cn(inputClasses, 'resize-none min-h-[3rem]')}
             rows={3}
             title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
           />
-          {/* Ctrl+Enter was the ONLY save path, hinted solely
-              by a hover tooltip — click-away cancels, so edits were silently
-              lost. Visible buttons; mousedown is prevented so the textarea's
-              blur→cancel doesn't fire before the click lands. */}
+          {/* Visible buttons, because click-away cancels and a hover-only
+              Ctrl+Enter hint loses edits. mousedown is prevented so the
+              textarea's blur→cancel doesn't fire before the click lands. */}
           <div className="mt-1 flex items-center gap-2">
             <Button
               type="button"

@@ -47,8 +47,8 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
                 <span className="font-mono font-normal text-muted-foreground">{ext}</span>
               </div>
               {pct != null && (
-                /* Was a visual-only div; expose progress
-                   semantics so assistive tech can announce it. */
+                /* Expose progress semantics so assistive tech can announce
+                   it. */
                 <div
                   className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2"
                   role="progressbar"

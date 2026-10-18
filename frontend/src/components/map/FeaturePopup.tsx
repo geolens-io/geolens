@@ -68,10 +68,10 @@ export function FeaturePopup({
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // On open, soft-move focus to the close button so
-  // keyboard users land inside the popup; on close/unmount, restore focus to
-  // the map canvas (or container) so the map stays keyboard-operable. This is a
-  // soft move + restore, NOT a focus trap — map interaction is preserved.
+  // On open, soft-move focus to the close button so keyboard users land inside
+  // the popup; on close/unmount, restore focus to the map canvas (or container)
+  // so the map stays keyboard-operable. A soft move + restore, NOT a focus
+  // trap: map interaction is preserved.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
@@ -87,10 +87,9 @@ export function FeaturePopup({
     };
   }, []);
 
-  // Escape closes the popup (focus is restored by the
-  // unmount effect above). Document-level listener so it fires regardless of
-  // which element inside the popup holds focus, without putting a keyboard
-  // handler on the non-interactive dialog container.
+  // Escape closes the popup (focus is restored by the unmount effect above).
+  // Document-level listener so it fires wherever focus is inside the popup,
+  // without a keyboard handler on the non-interactive dialog container.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
@@ -157,13 +156,13 @@ export function FeaturePopup({
   const visibleEntries = useMemo<[string, unknown][]>(() => {
     if (visibleFields !== undefined && visibleFields !== null) {
       const propMap = new Map(baseEntries);
-      // Render configured fields even when absent from the tile
-      // properties — ST_AsMVT omits null-valued properties, so intersecting
-      // with the present keys silently hid configured fields that are null on
-      // the clicked feature (formatValue's '--' placeholder was unreachable).
-      // A name absent from BOTH the tile and the known schema is a stale
-      // config leftover (e.g. reupload/rename) and stays hidden; with no
-      // schema to consult, favor showing.
+      // Render configured fields even when absent from the tile properties:
+      // ST_AsMVT omits null-valued properties, so intersecting with the present
+      // keys hid configured fields that are null on the clicked feature
+      // (formatValue's '--' placeholder was unreachable). A name absent from
+      // BOTH the tile and the known schema is a stale config leftover (e.g.
+      // reupload/rename) and stays hidden; with no schema to consult, favor
+      // showing.
       const known = columnInfo ? new Set(columnInfo.map((c) => c.name)) : null;
       return visibleFields
         .filter((k) => propMap.has(k) || known === null || known.has(k))

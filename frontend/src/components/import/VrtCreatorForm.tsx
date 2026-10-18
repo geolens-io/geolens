@@ -35,9 +35,9 @@ import { formatNumber } from '@/lib/format';
 
 const VRT_MAX_SOURCES = 20;
 
-// Shared by every client-side grid-alignment
-// float comparison in this form, mirroring the backend's _FLOAT_TOL in
-// _check_grid_alignment (backend/app/processing/raster/validation.py).
+// Shared by every client-side grid-alignment float comparison in this form,
+// mirroring the backend's _FLOAT_TOL in _check_grid_alignment
+// (backend/app/processing/raster/validation.py).
 const GRID_ALIGNMENT_TOLERANCE = 1e-10;
 
 function floatsAligned(a: number, b: number): boolean {
@@ -46,19 +46,16 @@ function floatsAligned(a: number, b: number): boolean {
 
 type NodataState = 'defined' | 'absent' | 'unknown';
 
-// _check_nodata_consistency compares the
-// backend's authoritative RasterAsset.nodata column, which IS populated for
-// remote COGs. But cog_info.py's band-level stats for a remote COG carry
-// only min/max/mean -- service_records.py never puts a `nodata` key on
-// that source's raster:bands entries even though the backend sees nodata
-// as defined. A band with no `nodata` key therefore means "this source's
-// band metadata doesn't carry the value" (unknown), not "no nodata"
-// (absent) -- those are different states, and conflating them (as a
-// `!= null` check does) produces a false nodata_inconsistent whenever a
-// remote-COG source is paired with a locally-probed one. `nodata: null`
-// (as opposed to the key being entirely missing) is the one shape that
-// legitimately means "absent" today; no OGCRecordProperties field carries
-// a top-level nodata today; if the API adds one, check it here too.
+// _check_nodata_consistency compares the backend's authoritative
+// RasterAsset.nodata column, which IS populated for remote COGs. But
+// cog_info.py's band-level stats for a remote COG carry only min/max/mean
+// (service_records.py never puts a `nodata` key on that source's raster:bands
+// entries). A band with no `nodata` key therefore means "unknown", not
+// "absent"; conflating them (as a `!= null` check does) produces a false
+// nodata_inconsistent when a remote-COG source is paired with a locally-probed
+// one. `nodata: null` is the one shape that means "absent"; no
+// OGCRecordProperties field carries a top-level nodata, and if the API adds
+// one, check it here too.
 function nodataState(record: OGCRecordResponse): NodataState {
   const bands = record.properties['raster:bands'];
   if (!bands || bands.length === 0) return 'unknown';
@@ -82,36 +79,32 @@ function validateSources(
   const errors: ValidationErrors = {};
   const first = sources[0];
 
-  // _check_crs (backend/app/processing/raster/
-  // validation.py) picks the reference CRS as the FIRST source in the list
-  // with a known CRS, not unconditionally sources[0] -- a source with no
-  // CRS never becomes the reference and is skipped as a comparison target.
-  // Using sources[0] unconditionally (the previous code) silently skipped
-  // every CRS comparison whenever the first selected source had no CRS,
-  // even if two LATER sources disagreed with each other.
+  // _check_crs (backend/app/processing/raster/validation.py) picks the
+  // reference CRS as the FIRST source in the list with a known CRS, not
+  // unconditionally sources[0]; a source with no CRS is never the reference.
+  // Using sources[0] would skip every CRS comparison when the first source has
+  // no CRS, even if two LATER sources disagree.
   const refCrs = sources.find((s) => s.properties.crs)?.properties.crs;
 
   for (let i = 1; i < sources.length; i++) {
     const src = sources[i];
     const errs: string[] = [];
 
-    // CRS check -- mirrors _check_crs. Unknown never blocks: the `&&` guard
-    // skips the comparison whenever either side's CRS is unknown, same
-    // tri-state principle as nodataState() below.
+    // CRS check, mirrors _check_crs. Unknown never blocks: the `&&` guard skips
+    // the comparison when either CRS is unknown (same tri-state as
+    // nodataState() below).
     if (src.properties.crs && refCrs && src.properties.crs !== refCrs) {
       errs.push('crs_mismatch');
     }
 
     if (vrtType === 'mosaic') {
-      // Band count check (mosaic only) -- mirrors _check_band_count_mosaic
-      // The backend compares band_count unconditionally (it is a
-      // NOT NULL column on the authoritative RasterAsset row re-fetched at
-      // creation time); band_count here comes from OGC search-result
-      // properties, which omit the key entirely for legacy records with no
-      // recorded band count. Unknown never blocks: this client-side hint
-      // skips rather than flags a false mismatch against unknown data. The
-      // backend re-runs this check authoritatively before the VRT is
-      // actually created.
+      // Band count check (mosaic only), mirrors _check_band_count_mosaic. The
+      // backend compares band_count unconditionally (NOT NULL on the
+      // authoritative RasterAsset row re-fetched at creation); here it comes
+      // from OGC search-result properties, which omit the key for legacy
+      // records. Unknown never blocks: this hint skips rather than flags a false
+      // mismatch, and the backend re-runs the check authoritatively before the
+      // VRT is created.
       if (
         src.properties.band_count != null &&
         first.properties.band_count != null &&
@@ -121,30 +114,26 @@ function validateSources(
       }
     }
 
-    // Dtype comes from the first band of raster:bands, the
-    // shape the API actually returns (the serializer emits no flat dtype
-    // field).
+    // Dtype comes from the first band of raster:bands, the shape the API
+    // returns (the serializer emits no flat dtype field).
     const srcDtype = src.properties['raster:bands']?.[0]?.data_type;
     const firstDtype = first.properties['raster:bands']?.[0]?.data_type;
 
-    // Mirrors _check_dtype. Unknown never blocks:
-    // raster:bands is entirely absent from OGC search-result properties
-    // for sources ingested before band-info tracking existed, while the
-    // backend's dtype column is guaranteed non-null. Comparing only when
-    // both sides are known avoids flagging a legitimate combination the
-    // client simply cannot see dtype for.
+    // Mirrors _check_dtype. Unknown never blocks: raster:bands is absent from
+    // OGC search-result properties for sources ingested before band-info
+    // tracking, while the backend's dtype column is non-null. Comparing only
+    // when both sides are known avoids flagging a combination the client can't
+    // see dtype for.
     if (srcDtype && firstDtype && srcDtype !== firstDtype) {
       errs.push('dtype_mismatch');
     }
 
-    // _check_nodata_consistency
-    // requires only consistent PRESENCE of nodata, not equal values -- but "present" has to be judged per source, not
-    // inferred from `!= null` on a single band field. A remote COG's
-    // nodata IS defined on the backend but its band stats never carry a
-    // `nodata` key (see nodataState() above), so a plain presence check
-    // conflated "unknown" with "absent" and flagged a false mismatch.
-    // Unknown never blocks: skip the comparison and let the backend, which
-    // always has the authoritative value, decide.
+    // _check_nodata_consistency requires only consistent PRESENCE of nodata, not
+    // equal values, but "present" is judged per source, not inferred from
+    // `!= null` on a single band field: a remote COG's nodata IS defined on the
+    // backend but its band stats carry no `nodata` key (see nodataState()
+    // above). Unknown never blocks: skip and let the backend, which has the
+    // authoritative value, decide.
     const srcNodataState = nodataState(src);
     const firstNodataState = nodataState(first);
     if (
@@ -155,10 +144,9 @@ function validateSources(
       errs.push('nodata_inconsistent');
     }
 
-    // Band stack grid alignment check -- mirrors _check_grid_alignment
-    // Unknown never blocks: every `!= null` guard below skips
-    // its comparison when either side's dimension/resolution is unknown,
-    // same tri-state principle as nodataState() above.
+    // Band stack grid alignment check, mirrors _check_grid_alignment. Unknown
+    // never blocks: every `!= null` guard below skips its comparison when either
+    // side's dimension/resolution is unknown (same tri-state as nodataState()).
     if (vrtType === 'band_stack') {
       const srcShape = src.properties['proj:shape'];
       const firstShape = first.properties['proj:shape'];
@@ -168,13 +156,11 @@ function validateSources(
         srcShape != null && firstShape != null && srcShape[0] !== firstShape[0];
       const widthMismatch =
         srcShape != null && firstShape != null && srcShape[1] !== firstShape[1];
-      // The backend compares res_x/res_y with
-      // a 1e-10 absolute float tolerance, not strict equality.
-      // gsd is a lossy min(abs(res_x), abs(res_y)):
-      // two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30)
-      // collapse to the identical gsd=10, so a gsd-only comparison passed a
-      // pair _check_grid_alignment (which compares res_x and res_y
-      // independently) rejects. Compare each axis directly instead.
+      // The backend compares res_x/res_y with a 1e-10 absolute float tolerance,
+      // not strict equality. gsd is a lossy min(abs(res_x), abs(res_y)): sources
+      // at (res_x=10, res_y=20) and (res_x=10, res_y=30) collapse to the same
+      // gsd=10, so a gsd-only comparison passed a pair _check_grid_alignment
+      // (which compares each axis independently) rejects. Compare each axis.
       const resXMismatch =
         src.properties.res_x != null &&
         first.properties.res_x != null &&
@@ -201,9 +187,8 @@ function errorMessage(
   code: string,
   src: OGCRecordResponse,
   first: OGCRecordResponse,
-  // Must use the same reference (refCrs, the first source with
-  // a KNOWN crs) that validateSources compares against — not `first`, which
-  // can itself be crs-unset.
+  // Must use the same reference (refCrs, the first source with a KNOWN crs) that
+  // validateSources compares against, not `first`, which can be crs-unset.
   refCrs: string | null | undefined,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
@@ -303,12 +288,10 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     }
   }, [multiSourceErrorCount, t]);
 
-  // The search input's blur delay below must not outlive the component.
-  // Unmounting inside its 150 ms window would leave the timer queued, and
-  // firing it afterwards would call setState on a torn-down tree. In vitest
-  // that surfaces as an unhandled `window is not defined` thrown out of
-  // react-dom's scheduler, which fails the whole run even when every test
-  // passes.
+  // The search input's blur delay below must not outlive the component:
+  // unmounting inside its 150 ms window would leave the timer queued, and
+  // firing it would call setState on a torn-down tree (in vitest, an unhandled
+  // `window is not defined` from react-dom's scheduler fails the whole run).
   useEffect(
     () => () => {
       if (blurTimerRef.current !== null) clearTimeout(blurTimerRef.current);
@@ -316,7 +299,6 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     []
   );
 
-  // COG search query
   const { data: searchResults, isFetching: isSearchFetching, error: searchError } = useQuery({
     queryKey: queryKeys.cogSearch.results(debouncedQuery),
     queryFn: () =>
@@ -331,14 +313,12 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     retry: (count, err) => !(err instanceof ApiError && err.status === 429) && count < 1,
   });
 
-  // Filter out already selected datasets
   const filteredResults = useMemo(() => {
     if (!searchResults) return [];
     const selectedIds = new Set(selectedSources.map((s) => s.id));
     return searchResults.features.filter((f) => !selectedIds.has(f.id));
   }, [searchResults, selectedSources]);
 
-  // Validation errors
   const validationErrors = useMemo(
     () => validateSources(selectedSources, vrtType),
     [selectedSources, vrtType],

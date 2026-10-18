@@ -34,9 +34,9 @@ export function ValidationStatus({
   const token = useAuthStore((s) => s.token);
   const { data, isLoading } = useValidation(token ? datasetId : undefined);
   const [troubleshootOpen, setTroubleshootOpen] = useState(false);
-  // require_metadata_for_publish is exposed by the PUBLIC /settings/feature-flags/
-  // endpoint. Previously this read it from the admin-only /settings/all/ endpoint,
-  // which 403'd for non-admin/guest viewers on the dataset detail page (#15).
+  // require_metadata_for_publish is exposed by the PUBLIC
+  // /settings/feature-flags/ endpoint; the admin-only /settings/all/ endpoint
+  // 403s for non-admin/guest viewers on the dataset detail page.
   const { data: featureFlags } = useFeatureFlags();
   const requireMetadata = featureFlags?.require_metadata_for_publish ?? false;
 

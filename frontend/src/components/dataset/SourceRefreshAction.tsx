@@ -27,21 +27,18 @@ import type { DatasetOrigin, DatasetResponse, ServiceAuthRequest } from '@/types
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { BlockedRunToAccept } from '@/components/dataset/SourcePanel';
 
-// Refresh-door origins. router_refresh.py dispatches
-// by origin kind and routes everything it does not name through
-// _resolve_service_origin(), which refuses with 409 refresh_not_applicable —
-// so `upload` and `created` are NOT refreshable even though they have a
-// resolvable origin. This is the one place that fact is encoded; DetailPanel
-// imports it rather than gating on origin presence alone.
+// Refresh-door origins. router_refresh.py dispatches by origin kind and routes
+// everything it does not name through _resolve_service_origin(), which refuses
+// with 409 refresh_not_applicable, so `upload` and `created` are NOT
+// refreshable even though they have a resolvable origin. DetailPanel imports
+// this set rather than gating on origin presence alone.
 //
-// `stac` joins them. Its strategy re-reads the item document the
-// asset was published in and follows the asset if the publisher moved it. One
-// caveat this set cannot express: a STAC binding whose item identity cannot be
-// verified — recorded before item ids were stored, on a catalog whose item
-// URLs carry none — is refused by the door with 409 origin_unavailable. That
-// is a per-dataset fact rather than a per-kind one, so it stays a refusal the
-// error-map renders rather than a hidden control; a user who cannot refresh
-// that dataset is told why and what to do about it.
+// `stac` is included: its strategy re-reads the item document the asset was
+// published in and follows the asset if the publisher moved it. A STAC binding
+// whose item identity can't be verified (recorded before item ids were
+// stored, on a catalog whose item URLs carry none) is refused by the door with
+// 409 origin_unavailable. That is per-dataset, not per-kind, so it stays a
+// refusal the error-map renders rather than a hidden control.
 export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
   'service',
   'postgis',
@@ -51,14 +48,12 @@ export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
 interface SourceRefreshActionProps {
   dataset: DatasetResponse;
   /**
-   * The "sources" tab this control lives in is a
-   * Radix TabsContent, which unmounts on tab switch — so any state tracking
-   * a dispatched run (and the poll watching it) has to live somewhere that
-   * survives that unmount, or a refresh that finishes while the user is on
+   * The "sources" tab this control lives in is a Radix TabsContent, which
+   * unmounts on tab switch, so state tracking a dispatched run (and the poll
+   * watching it) must survive that unmount, or a refresh that finishes on
    * another tab never gets its caches invalidated. Owned by the dataset page
-   * via useDatasetRefreshWatch and handed down; this component only reports
-   * a successful dispatch through `watch.trackDispatchedRun` and reads
-   * `latestRun`/`isBusy` back, rather than polling or tracking on its own.
+   * via useDatasetRefreshWatch; this component only reports a dispatch
+   * through `watch.trackDispatchedRun` and reads `latestRun`/`isBusy`.
    */
   watch: DatasetRefreshWatch;
   /** False renders only the dialog, for accepting a held-back file replacement. */
@@ -68,15 +63,13 @@ interface SourceRefreshActionProps {
 }
 
 /**
- * "Refresh from source" trigger for the Source panel (#1285).
+ * "Refresh from source" trigger for the Source panel.
  *
- * Owns its own dialog, token field, and mutation, so a caller only has to
- * decide WHETHER to render it (DetailPanel gates on canEdit plus
- * REFRESHABLE_ORIGINS above) and supply the page-level `watch`. The taxonomy
- * of 409/503/400/422 refusals from the refresh door is rendered through the
- * shared error-map (`err.message`), which already maps each backend code to
- * a distinct, actionable sentence rather than a single generic failure toast
- * — see `frontend/src/lib/error-map.ts`.
+ * Owns its dialog, token field and mutation, so a caller only decides WHETHER
+ * to render it (DetailPanel gates on canEdit plus REFRESHABLE_ORIGINS above)
+ * and supplies the page-level `watch`. The 409/503/400/422 refusals from the
+ * refresh door are rendered through the shared error-map (`err.message`),
+ * which maps each backend code to a distinct, actionable sentence.
  */
 export function SourceRefreshAction({
   dataset,
@@ -89,56 +82,46 @@ export function SourceRefreshAction({
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // The non-ArcGIS credential, built by ServiceCredentialBlock.
-  // `token` above stays the ArcGIS-only field; the two are mutually
-  // exclusive on the wire (reject_service_auth_conflict), matching
-  // `isArcgisOrigin` below picking exactly one of the two blocks to render.
+  // The non-ArcGIS credential, built by ServiceCredentialBlock. `token` above
+  // stays the ArcGIS-only field; the two are mutually exclusive on the wire
+  // (reject_service_auth_conflict), as `isArcgisOrigin` below picks one block.
   const [serviceAuth, setServiceAuth] = useState<ServiceAuthRequest | undefined>(undefined);
-  // Set on a 422 `service_token_required`
-  // refusal so the dialog stays open and reveals a credential block keyed to
-  // the token field above, instead of rendering that refusal as a generic
-  // inline error like every other refusal on this path.
+  // Set on a 422 `service_token_required` refusal so the dialog stays open and
+  // reveals a credential block keyed to the token field above, instead of a
+  // generic inline error.
   const [serviceTokenRequired, setServiceTokenRequired] = useState(false);
-  // Read synchronously in handleConfirm, below, before this
-  // component trusts `token` at submit time -- the belt effect inside
-  // ArcgisCredentialBlock cannot be relied on to have run first (see the
-  // comment on the check itself).
+  // Read synchronously in handleConfirm before `token` is trusted: the belt
+  // effect inside ArcgisCredentialBlock may not have run yet (see the check).
   const credentialBlockRef = useRef<ArcgisCredentialBlockHandle>(null);
   const refreshMutation = useRefreshDataset();
-  // _dispatch_postgis_refresh() (router_refresh.py)
-  // rejects ANY nonempty token with 422 credential_not_applicable — a
-  // registered table needs no service credential, and there is nothing else
-  // in REFRESHABLE_ORIGINS to authenticate to. Recomputed here rather than
-  // threaded in as a prop so this component stays self-contained; it is the
-  // same derivation DetailPanel uses for the REFRESHABLE_ORIGINS gate.
+  // _dispatch_postgis_refresh() (router_refresh.py) rejects ANY nonempty token
+  // with 422 credential_not_applicable: a registered table needs no service
+  // credential. Recomputed here rather than passed as a prop to stay
+  // self-contained; DetailPanel derives the same for the REFRESHABLE_ORIGINS gate.
   const origin = dataset.origin ?? datasetOrigin(dataset);
-  // A STAC origin takes the credential path — its refresh
-  // re-reads the catalog over HTTP, so it takes the same four-way choice
-  // WFS and OGC API Features take. A registered table still takes none.
-  // Publishing a kept upload contacts no source, so it takes no credential.
+  // A STAC origin takes the credential path: its refresh re-reads the catalog
+  // over HTTP, so it takes the same four-way choice as WFS and OGC API
+  // Features. A registered table takes none, and publishing a kept upload
+  // contacts no source.
   const acceptingUpload = Boolean(acceptBlockedRun?.upload);
   const supportsToken = !acceptingUpload && (origin === 'service' || origin === 'stac');
-  // The two service families that can hit this
-  // refusal read differently -- ArcGIS was asked a probe question and lost,
-  // so it gets the full sign-in taxonomy; WFS and OGC API Features were
-  // refused outright with no probe, so they keep the plain token field and
-  // are told plainly that the refusal was unconditional.
+  // The two service families that can hit this refusal read differently: ArcGIS
+  // was asked a probe question and lost, so it gets the full sign-in taxonomy;
+  // WFS and OGC API Features were refused outright with no probe, so they keep
+  // the plain token field and are told the refusal was unconditional.
   const isArcgisOrigin = dataset.source_format === 'arcgis_featureserver';
   const { isBusy } = watch;
   const acceptBlockedRunId = acceptBlockedRun?.id;
 
-  // DatasetMap stays
-  // mounted above DetailPanel regardless of which tab is active, so a
-  // feature the user selected survives a switch to the Source tab — and the
-  // hazard does not require an in-progress EDIT. The selection alone keeps
-  // the pre-refresh GID and properties live: handleDeleteFeature acts on a
-  // merely-selected feature immediately (no dirtiness involved), and a
-  // later handleSaveEdit would too. Either can submit a stale GID against a
-  // table a refresh already replaced — overwriting a freshly refreshed row,
-  // or the wrong row entirely if GIDs were reassigned. So this blocks on
-  // SELECTION presence, not edit dirtiness; scoped to THIS dataset via
-  // targetDatasetId so a stale selection left over from a different
-  // dataset's map can't false-positive block a refresh here.
+  // DatasetMap stays mounted above DetailPanel whichever tab is active, so a
+  // selected feature survives a switch to the Source tab, and the hazard needs
+  // no in-progress EDIT: handleDeleteFeature acts on a merely-selected feature
+  // immediately, and a later handleSaveEdit would too. Either can submit a
+  // stale GID against a table a refresh already replaced, overwriting a freshly
+  // refreshed row or the wrong one if GIDs were reassigned. So this blocks on
+  // SELECTION presence, not edit dirtiness, scoped to THIS dataset via
+  // targetDatasetId so a stale selection from another dataset's map can't
+  // block a refresh here.
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
   const targetDatasetId = useDrawingStore((s) => s.targetDatasetId);
   const hasSelectedFeature = targetDatasetId === dataset.id && selectedFeature !== null;
@@ -164,11 +147,9 @@ export function SourceRefreshAction({
       setToken('');
       setError(null);
       setServiceTokenRequired(false);
-      // The non-ArcGIS credential is controlled by
-      // ServiceCredentialBlock's own internal state, but that state resets
-      // for free — Radix Dialog unmounts DialogContent on close, so a
-      // remount starts the block fresh. This clears the PARENT's copy of
-      // it, which does not unmount along with the child.
+      // The non-ArcGIS credential's block state resets for free (Radix Dialog
+      // unmounts DialogContent on close); this clears the PARENT's copy, which
+      // does not unmount with the child.
       setServiceAuth(undefined);
     }
   };
@@ -179,14 +160,11 @@ export function SourceRefreshAction({
       return;
     }
     setError(null);
-    // Recheck expiry synchronously, right here, before
-    // `token` (below) is trusted. ArcgisCredentialBlock's own belt effect
-    // (a render-triggered recheck) and its scheduled expiry timer are both
-    // suspended by a backgrounded tab or a system sleep exactly like any
-    // other browser timer -- so if the user returns and clicks this button
-    // immediately, neither has necessarily run yet, and `token` can still
-    // hold a credential that is already dead. This uses the identical
-    // `isExpired` the belt effect and the timer both call.
+    // Recheck expiry synchronously before `token` (below) is trusted.
+    // ArcgisCredentialBlock's belt effect and scheduled expiry timer are both
+    // suspended by a backgrounded tab or system sleep, so if the user returns
+    // and clicks immediately, neither has necessarily run and `token` can hold
+    // a dead credential. Uses the same `isExpired` they call.
     if (
       isArcgisOrigin &&
       credentialBlockRef.current &&
@@ -198,22 +176,19 @@ export function SourceRefreshAction({
     }
     const submittedToken = token.trim() || undefined;
     const submittedAuth = serviceAuth;
-    // `token` is cleared before the request settles
-    // because ArcgisCredentialBlock's own "Signed in" display is DERIVED
-    // from this same `token` prop — clearing it immediately (and
-    // correctly) blanks that display too, so nothing stale is left visible.
+    // `token` is cleared before the request settles because
+    // ArcgisCredentialBlock's "Signed in" display is DERIVED from this prop, so
+    // clearing it blanks that display too.
     //
-    // `serviceAuth` does NOT get the same treatment. ServiceCredentialBlock
-    // is uncontrolled for its own username/password/header fields — it
-    // only calls `onAuthChange` when ITS internal state changes, and has no
-    // prop to resync it if the parent clears `serviceAuth` out from under
-    // it. Clearing it here left the block still showing a filled-in
-    // credential (a 422 keeps the dialog open) while `serviceAuth` itself
-    // had already gone back to undefined, so a same-click retry with the
-    // form visually unchanged silently sent `auth: undefined`. Retained
-    // until the request actually succeeds (cleared there, and on cancel or
-    // close via `handleOpenChange`) so a retry after a failure resends
-    // exactly what the block is still displaying.
+    // `serviceAuth` does NOT get the same treatment. ServiceCredentialBlock is
+    // uncontrolled for its username/password/header fields: it only calls
+    // `onAuthChange` when ITS state changes and has no prop to resync if the
+    // parent clears `serviceAuth`. Clearing it here would leave the block
+    // showing a filled-in credential (a 422 keeps the dialog open) while
+    // `serviceAuth` was undefined, so a same-click retry silently sent
+    // `auth: undefined`. It is retained until the request succeeds (cleared
+    // there, and on cancel or close via `handleOpenChange`) so a retry resends
+    // what the block still displays.
     setToken('');
     try {
       const result = await refreshMutation.mutateAsync({
@@ -225,10 +200,9 @@ export function SourceRefreshAction({
           ? { verificationPolicy: acceptBlockedRun.verificationPolicy }
           : {}),
       });
-      // Reported to the page-level watch rather than a local ref — this call
-      // is safe even if the user has already switched away from the Source
-      // tab (and this component has unmounted) by the time the 202 arrives,
-      // because `watch` is owned by the still-mounted page.
+      // Reported to the page-level watch rather than a local ref, so this is
+      // safe even if the user has switched away from the Source tab (unmounting
+      // this component) by the time the 202 arrives: `watch` lives on the page.
       watch.trackDispatchedRun(result.run_id);
       setServiceAuth(undefined);
       setOpen(false);
@@ -238,12 +212,10 @@ export function SourceRefreshAction({
         { runId: result.run_id },
       ));
     } catch (err) {
-      // A 422 `service_token_required` gets its
-      // own inline credential block below rather than the generic error
-      // paragraph every other refusal renders. The 422 body carries only a
-      // stable code plus an English diagnostic sentence aimed at an API
-      // client, and that sentence must never reach the DOM here -- this
-      // component's own copy explains the refusal instead.
+      // A 422 `service_token_required` gets its own inline credential block
+      // rather than the generic error paragraph. The body carries only a stable
+      // code plus an English diagnostic aimed at an API client, which must never
+      // reach the DOM; this component's own copy explains the refusal.
       if (err instanceof ApiError && err.status === 422) {
         const body = err.body as { code?: string } | undefined;
         if (body?.code === 'service_token_required') {
@@ -319,10 +291,9 @@ export function SourceRefreshAction({
                 <Input
                   id="source-refresh-token"
                   type="password"
-                  // autoComplete="off" alone does not stop Chrome
-                  // from offering a saved password on a password-type field —
-                  // this is a request-only service token, so opt out of every
-                  // password manager explicitly.
+                  // autoComplete="off" alone doesn't stop Chrome offering a saved
+                  // password on a password-type field; this is a request-only
+                  // service token, so opt out of every password manager.
                   autoComplete="new-password"
                   data-1p-ignore
                   data-lpignore="true"

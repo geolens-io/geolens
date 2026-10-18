@@ -4,9 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { DatasetOrigin } from '@/types/api';
 
-// The union lives in types/api.ts, where the backend serves it
-// as the computed `origin` field. Re-exported here so existing importers keep
-// working and the vocabulary keeps one definition.
+// The union lives in types/api.ts, where the backend serves it as the computed
+// `origin` field. Re-exported here so importers share one definition.
 
 
 const SERVICE_FORMATS = new Set(['wfs', 'arcgis_featureserver', 'ogcapi_features']);

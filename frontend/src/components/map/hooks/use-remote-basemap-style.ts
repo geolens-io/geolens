@@ -10,11 +10,10 @@ interface RemoteBasemapStyleOptions {
   mapRef: RefObject<MaplibreMap | null>;
   /** Console prefix for the DEV-only sanitize-failure warning. */
   logLabel: string;
-  /** ViewerMap behavior: on fetch failure, hand MapLibre the raw style URL so
-   *  it performs its own (second) fetch. BuilderMap deliberately does NOT do
-   *  this (the second fetch is uncancelable and can flash an
-   *  intermediate state) — it keeps the placeholder and surfaces a notice via
-   *  `onFetchError` instead. */
+  /** ViewerMap behavior: on fetch failure, hand MapLibre the raw style URL so it
+   *  performs its own (second) fetch. BuilderMap deliberately does NOT (the
+   *  second fetch is uncancelable and can flash an intermediate state); it
+   *  keeps the placeholder and surfaces a notice via `onFetchError`. */
   fallbackToRawUrlOnError?: boolean;
   /** Called when a remote style fetch is about to start (after the placeholder
    *  style is installed). BuilderMap resets its first-load latch here. */
@@ -26,18 +25,15 @@ interface RemoteBasemapStyleOptions {
 }
 
 /**
- * The single remote-basemap-style fetch effect shared by
- * BuilderMap and ViewerMap (DatasetMap never fetches style JSON in app code —
- * its imperative `setStyle` + `transformStyle` path lets MapLibre fetch).
+ * The single remote-basemap-style fetch effect shared by BuilderMap and
+ * ViewerMap (DatasetMap never fetches style JSON in app code: its imperative
+ * `setStyle` + `transformStyle` path lets MapLibre fetch).
  *
- * Remote GL styles can reference sprite patterns that are unavailable in
- * their published sprite sheet. Fetch and sanitize first so MapLibre never
- * emits noisy missing-image warnings. While the fetch is in flight a plain
- * background placeholder is shown; inline styles (blank basemap, raster XYZ
- * wrappers) and non-`/styles/` URLs pass through untouched.
- *
- * Any future fix to this fetch path (e.g. a retry) lands in all consumers at
- * once instead of drifting per map.
+ * Remote GL styles can reference sprite patterns missing from their published
+ * sprite sheet. Fetch and sanitize first so MapLibre never emits noisy
+ * missing-image warnings. While the fetch is in flight a plain background
+ * placeholder is shown; inline styles (blank basemap, raster XYZ wrappers) and
+ * non-`/styles/` URLs pass through untouched.
  */
 export function useRemoteBasemapStyle({
   styleValue,
@@ -51,8 +47,7 @@ export function useRemoteBasemapStyle({
   const [mapStyle, setMapStyle] = useState(styleValue);
 
   // Callbacks are read through a ref at call time so their identity never
-  // re-triggers the fetch effect (deps stay [styleValue], matching the
-  // pre-extraction effects in BuilderMap/ViewerMap).
+  // re-triggers the fetch effect (deps stay [styleValue]).
   const callbacksRef = useRef({ onFetchStart, onFetchSuccess, onFetchError });
   callbacksRef.current = { onFetchStart, onFetchSuccess, onFetchError };
 

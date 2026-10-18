@@ -49,15 +49,14 @@ import type {
 
 interface SourcePanelProps {
   dataset: DatasetResponse;
-  /** Injected by the caller (DetailPanel wires the "Refresh from
-   *  source" action here, gated on canEdit and a resolvable origin). A
-   *  read-only integration passes nothing. */
+  /** Injected by the caller (DetailPanel wires the "Refresh from source" action
+   *  here, gated on canEdit and a resolvable origin). A read-only integration
+   *  passes nothing. */
   actions?: ReactNode;
-  /** The same owner-or-admin signal that gates the injected
-   *  refresh action, minus the origin gate — cancel rights are a superset
-   *  of refresh rights on this surface (a run can be in flight on a dataset
-   *  whose origin no longer resolves). Gates the Cancel button on the
-   *  active run row in the refresh history. */
+  /** The same owner-or-admin signal that gates the injected refresh action,
+   *  minus the origin gate: cancel rights are a superset of refresh rights here
+   *  (a run can be in flight on a dataset whose origin no longer resolves).
+   *  Gates the Cancel button on the active run row in the refresh history. */
   canEdit?: boolean;
   refreshBusy?: boolean;
   onAcceptBlockedRun?: (run: BlockedRunToAccept) => void;
@@ -345,10 +344,10 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
 }
 
 /**
- * Read-only history of refresh attempts (#1285), including failures — the
- * durable record `SourceRefreshAction` dispatches into via `POST .../refresh`
- * and that its dataset_busy gating reads back from. Visible to anyone who can
- * see the dataset at all; the backend redacts triggered_by/error detail for
+ * Read-only history of refresh attempts, including failures: the durable record
+ * `SourceRefreshAction` dispatches into via `POST .../refresh` and that its
+ * dataset_busy gating reads back from. Visible to anyone who can see the
+ * dataset at all; the backend redacts triggered_by/error detail for
  * non-owner, non-admin readers rather than hiding the section outright.
  */
 function RefreshRunHistory({
