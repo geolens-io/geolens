@@ -809,11 +809,11 @@ async def get_collection_items(
     cql2_where: str | None = None
     cql2_binds: list = []
     if filter_expr is not None:
-        # Ordering is deliberate: a parse failure is the caller's bug (400, no
-        # database access); a missing table yields an empty live schema, and
-        # compiling against it would 400 every attribute filter as an unknown
-        # property, so table availability stays the retryable 503; schema-dependent
-        # validation runs last.
+        # Ordering is deliberate: a parse failure is the caller's bug (a 400
+        # before the table and schema queries); a missing table yields an empty
+        # live schema, and compiling against it would 400 every attribute filter
+        # as an unknown property, so table availability stays the retryable 503;
+        # schema-dependent validation runs last.
         filter_ast = parse_feature_cql2(filter_expr, filter_lang)
         # The schema-introspection queries carry no caller input, so any database
         # error here is operational: classify it like the feature query's 503.

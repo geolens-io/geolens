@@ -1378,8 +1378,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
             # ogr2ogr reaches PostGIS through libpq, which cannot see
             # DATABASE_SSL_CA_CERT (it only reaches asyncpg as an SSLContext) and would
             # look for ~/.postgresql/root.crt under verify-full, failing every vector
-            # ingest. Emitted whenever a CA is configured; libpq ignores it under modes
-            # that don't verify.
+            # ingest.
             # verify-full ONLY: libpq treats sslmode=require as verify-ca once a root
             # CA file is present, so emitting this under `require` would verify the
             # server cert here while database_connect_args skips that check for the API.

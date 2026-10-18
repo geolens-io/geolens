@@ -1348,7 +1348,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1157,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
-    "backend/app/core/config.py": 1443,
+    "backend/app/core/config.py": 1442,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
     "backend/app/core/persistent_config.py": 1166,

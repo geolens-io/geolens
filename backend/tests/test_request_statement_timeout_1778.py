@@ -133,9 +133,8 @@ def test_the_installer_sets_no_startup_parameter():
     assert "server_settings" not in code, (
         "the installer must not put anything in the startup packet"
     )
-    # And the mechanism it uses instead: SET LOCAL, with a bound value.
-    assert "set_config" in code
-    assert "true" in code, "set_config's is_local argument must be true"
+    # And the mechanism it uses instead: SET LOCAL inside each transaction.
+    assert "SET LOCAL statement_timeout" in code
 
 
 @pytest.mark.anyio
