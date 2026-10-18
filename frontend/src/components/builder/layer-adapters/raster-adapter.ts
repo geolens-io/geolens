@@ -66,7 +66,6 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
  *   forwarded independently, so one may be non-default while the other is omitted.
  * - `sigma` is forwarded only when `_stretch === 'stddev'` AND the value is a
  *   finite number differing from its default (2).
- * This ensures the default-case URL is byte-identical to prior behavior.
  *
  * `_pmin`, `_pmax`, and `_sigma` are builder-private paint keys —
  * they must NOT appear in `RASTER_OWNED_PAINT_PROPERTIES`.
@@ -115,9 +114,9 @@ export function buildColormapTileUrl(
   const qs = params.toString();
   if (!qs) return baseUrl;
   // The raster template arrives signed, so it already carries
-  // `?sig=&exp=&scope=`. A blind `?` folded these params into the `scope` VALUE
-  // — a "Scope mismatch" 403 on a private raster, and silently dropped styling
-  // on a public one. `new URL()` is not usable here: the base still holds the
+  // `?sig=&exp=&scope=`; a blind `?` would fold these params into the `scope`
+  // VALUE (a "Scope mismatch" 403 on a private raster, silently dropped styling
+  // on a public one). `new URL()` is unusable here: the base still holds the
   // `{z}/{x}/{y}` placeholders.
   const separator = baseUrl.includes('?') ? '&' : '?';
   return `${baseUrl}${separator}${qs}`;
@@ -171,15 +170,12 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map, input) {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
-    // Source construction reads input.tileUrl directly. The
-    // colormap/stretch query params are applied by buildColormapTileUrl (exported from
-    // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
-    // adapterInput.tileUrl before handing it here. The URL builder is co-located in this
-    // file so a reader inspecting raster source/colormap behavior finds it next to the
-    // adapter; map-sync owns the wiring (cross-linked here intentionally).
-    // Split source guard from layer guard so that when a style swap
-    // removes layers but retains sources (raster basemap reload scenario), the
-    // layer is re-added without re-adding the already-existing source.
+    // Source construction reads input.tileUrl directly. The colormap/stretch
+    // query params are applied by buildColormapTileUrl (exported here), called
+    // from map-sync.syncRasterLayer, which mutates adapterInput.tileUrl before
+    // handing it over. The source guard is split from the layer guard so that
+    // when a style swap removes layers but retains sources (raster basemap
+    // reload), the layer is re-added without re-adding the existing source.
     if (!map.getSource(sourceId)) {
       const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {

@@ -23,13 +23,12 @@ export interface OverflowActions {
   onFork: () => void;
   isForkPending: boolean;
   /**
-   * Opens the read-only viewer UI of this map (`?preview=viewer`,
-   * handled by MapViewerGate) in a new tab, so an editor can check the viewer
-   * layout without losing their in-progress builder session. NOT an
-   * anonymous-data preview — requests still carry the editor's session, so
-   * private layers they can access still render (see MapViewerGate docs).
-   * Undefined (e.g. an unsaved new map with no id yet) hides the
-   * menu item — mirrors the `onShare` optional-prop pattern above.
+   * Opens the read-only viewer UI of this map (`?preview=viewer`, handled by
+   * MapViewerGate) in a new tab, so an editor can check the viewer layout
+   * without losing their in-progress builder session. NOT an anonymous-data
+   * preview: requests still carry the editor's session, so private layers they
+   * can access still render. Undefined (e.g. an unsaved new map with no id yet)
+   * hides the menu item, like the `onShare` optional prop above.
    */
   onViewAsViewer?: () => void;
 }
@@ -160,10 +159,8 @@ export function MapTitleBar({
             </Tooltip>
           )}
 
-          {/* A single Save button carries all three states (Save / Saving... /
-              Saved / Save failed). The "[OK Saved]" badge that previously lived to
-              the left was a duplicate signal — the button's label, dot indicator,
-              and tooltip already convey state. */}
+          {/* A single Save button carries all states (Save / Saving... / Saved
+              / Save failed); its label, dot indicator and tooltip convey state. */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -200,11 +197,11 @@ export function MapTitleBar({
               {saveTooltip}
             </TooltipContent>
           </Tooltip>
-          {/* Persistent live region — mounts with the title bar
-              (initial "Saved" is deliberately not announced) and each status
-              change (Saving… / Saved / Save failed) is announced without
-              focus. The previous sr-only span INSIDE the button was dead: the
-              button's aria-label overrode it. */}
+          {/* Persistent live region: mounts with the title bar (initial "Saved"
+              is deliberately not announced) and announces each status change
+              (Saving… / Saved / Save failed) without focus. A sr-only span
+              inside the button would be dead: the button's aria-label overrides
+              it. */}
           <span role="status" className="sr-only">{saveStatusLabel}</span>
 
           <DropdownMenu>
@@ -227,9 +224,8 @@ export function MapTitleBar({
                 <Info className="h-3.5 w-3.5 me-2" />
                 {t('tooltips.mapInfo', { defaultValue: 'Map info' })}
               </DropdownMenuItem>
-              {/* In-flight feedback — spinner + "Duplicating…" while
-                  the fork mutation is pending (was disabled-only, invisible
-                  until the settle toast). */}
+              {/* In-flight feedback: spinner + "Duplicating…" while the fork
+                  mutation is pending. */}
               <DropdownMenuItem onClick={overflow.onFork} disabled={overflow.isForkPending}>
                 {overflow.isForkPending ? (
                   <Loader2 className="h-3.5 w-3.5 me-2 animate-spin" />

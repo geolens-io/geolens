@@ -7,11 +7,11 @@ interface FillPatternPickerProps {
   onChange: (id: string | undefined) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
   /**
-   * Recovery-only mode — render just the None swatch. A
-   * data-driven or extruded layer can arrive carrying a pattern (Advanced JSON, the
-   * AI set_style action), and it must stay clearable; but applying one there is
-   * impossible, and handleStyleConfigChange strips it straight back. A
-   * swatch that silently reverts is worse than no swatch, so only None is offered.
+   * Recovery-only mode: render just the None swatch. A data-driven or extruded
+   * layer can arrive carrying a pattern (Advanced JSON, the AI set_style
+   * action) and it must stay clearable, but applying one there is impossible
+   * and handleStyleConfigChange strips it straight back; a swatch that silently
+   * reverts is worse than none.
    */
   clearOnly?: boolean;
 }

@@ -1,5 +1,4 @@
-// Extracted from UnifiedStackPanel.tsx into a sibling
-// file. Sortable wrapper for a loose layer or a folder-group child row.
+// Sortable wrapper for a loose layer or a folder-group child row.
 import { memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -39,9 +38,10 @@ interface SortableStackRowProps {
   isFresh?: boolean;
   // "Copy N of M" duplicate label, null when not a duplicate
   disambiguationLabel?: string | null;
-  /** fix(v1.6.0 audit): non-null when this row is the LAST child of the named
-   *  group — deleting it or moving it out dissolves the group (#767 prune), so
-   *  the row's confirms must say so. */
+  /**
+   * Non-null when this row is the LAST child of the named group: deleting it or
+   * moving it out dissolves the group, so the row's confirms must say so.
+   */
   dissolvesGroupName?: string | null;
   // True when this layer's dataset would be filtered out for the
   // map's audience (private/unpublished dataset on a public/shared map).
@@ -106,8 +106,8 @@ export const SortableStackRow = memo(function SortableStackRow({
     [onSelectLayer],
   );
 
-  // fix(v1.6.0 audit D7): a fresh object literal here re-broke StackRow's memo
-  // on every wrapper render even when the drag state was unchanged.
+  // A fresh object literal here would re-break StackRow's memo on every wrapper
+  // render even when the drag state is unchanged.
   const dragHandleProps = useMemo(
     () => ({ attributes, listeners, setActivatorNodeRef }),
     [attributes, listeners, setActivatorNodeRef],

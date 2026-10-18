@@ -135,10 +135,10 @@ function unclusteredPointPaint(input: AdapterLayerInput) {
   return resolveCirclePaint(input.paint);
 }
 
-// The cluster-circle paint, cluster-count layout, and
-// cluster-count paint are built ONCE here and consumed by both the add-time and
-// sync-time paths, so the step bucket thresholds (100/750) and stroke/text styling
-// can no longer drift between first render and a subsequent sync.
+// The cluster-circle paint, cluster-count layout and cluster-count paint are
+// built ONCE here and consumed by both the add-time and sync-time paths, so the
+// step bucket thresholds (100/750) and stroke/text styling can't drift between
+// first render and a later sync.
 export const CLUSTER_STROKE_WIDTH = 1.5;
 
 function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {

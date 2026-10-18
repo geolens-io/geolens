@@ -49,9 +49,8 @@ interface DatasetSearchPanelProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  // Dataset id currently being added — drives the per-row
-  // in-flight spinner (the global isAdding flag alone gave no feedback about
-  // WHICH row's click registered).
+  // Dataset id currently being added: drives the per-row in-flight spinner (the
+  // global isAdding flag gives no feedback about WHICH row was clicked).
   addingDatasetId?: string | null;
   initialQuery?: string;
 }
@@ -66,8 +65,7 @@ function isRasterRecord(recordType: RecordType | undefined) {
   return recordTypeCapabilities(recordType).tileToken === 'raster';
 }
 
-// i18n: was hardcoded English ('Raster'/'Table'/'Vector') plus the raw
-// geometry enum (e.g. MULTIPOLYGON) — localize like the result-row badges.
+// Localize type and geometry labels like the result-row badges.
 function typeMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
   const recordType = props.record_type ?? 'vector_dataset';
@@ -78,15 +76,13 @@ function typeMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   return t('search.vector', { defaultValue: 'Vector' });
 }
 
-// "1 features" — the counts were hardcoded English with no plural
-// handling (the catalog search card pluralizes via t()). {{count, number}} in
-// the locale strings keeps the locale grouping formatNumber provided.
+// Counts are pluralized via t() like the catalog search card; {{count, number}}
+// in the locale strings keeps the locale grouping formatNumber provides.
 function featureMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
   if (props.feature_count != null) return t('search.featureCount', { count: props.feature_count });
   if (props.row_count != null) return t('search.rowCount', { count: props.row_count });
-  // width/height were never returned by the API under those flat
-  // names -- this check was always false. proj:shape is [height, width].
+  // proj:shape is [height, width].
   const shape = props['proj:shape'];
   if (shape != null) {
     return `${formatNumber(shape[1])} x ${formatNumber(shape[0])} px`;
@@ -156,9 +152,7 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
     [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record, t)],
     [t('search.metadata.source', { defaultValue: 'Source' }), props.source_organization],
     [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record, t)],
-    // `epsg` was never returned under that flat name -- this was
-    // always undefined, always falling through to props.crs. proj:code is
-    // already formatted as "EPSG:{code}" by the serializer.
+    // proj:code is already formatted as "EPSG:{code}" by the serializer.
     [t('search.metadata.crs', { defaultValue: 'CRS' }), props['proj:code'] ?? props.crs],
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
@@ -174,11 +168,9 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
   );
 }
 
-// ---------------------------------------------------------------------------
 // DraggableDatasetRow: wraps a dataset result row with useDraggable so users
 // can drag it onto the unified stack. Registered in the lifted DndContext at
 // MapBuilderPage level.
-// ---------------------------------------------------------------------------
 interface DraggableDatasetRowProps {
   record: OGCRecordResponse;
   expanded: boolean;
@@ -225,16 +217,16 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           type="button"
           {...attributes}
           {...listeners}
-          // Reworded so it no longer substring-matches "Add to map"
-          // (the row/details action labels), keeping accessible names distinct.
+          // Wording avoids substring-matching "Add to map" (the row/details
+          // action labels), keeping accessible names distinct.
           aria-label={t('search.dragHandle', { defaultValue: 'Drag into map' })}
           // Reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm active:cursor-grabbing"
-          // {...listeners} spreads dnd-kit's PointerSensor
-          // activator (incl. onPointerDown). A bare onPointerDown={stopPropagation}
-          // AFTER the spread would OVERRIDE the activator and break drag-to-add from
-          // the handle. Compose instead: invoke the activator first, then stop
+          // {...listeners} spreads dnd-kit's PointerSensor activator (incl.
+          // onPointerDown). A bare onPointerDown={stopPropagation} AFTER the
+          // spread would OVERRIDE the activator and break drag-to-add from the
+          // handle. Compose instead: invoke the activator first, then stop
           // propagation so the row-level pointer handlers stay suppressed.
           onPointerDown={(e) => {
             listeners?.onPointerDown?.(e);
@@ -297,21 +289,20 @@ export function DatasetSearchPanel({
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
-  // Gate the Import/Upload CTAs on capability (matching
-  // the catalog SearchPage) so a viewer-capable session that lands
-  // here does not see dead-end Import affordances. Keep the `!!token` guard too:
-  // on logout the cached permissions query can briefly still return data, while
-  // `token` clears synchronously in the auth store.
+  // Gate the Import/Upload CTAs on capability (matching the catalog SearchPage)
+  // so a viewer-capable session doesn't see dead-end Import affordances. Keep
+  // the `!!token` guard too: on logout the cached permissions query can briefly
+  // still return data while `token` clears synchronously in the auth store.
   const token = useAuthStore((s) => s.token);
   const { can } = usePermissions();
   const canImport = !!token && can('upload');
   const [query, setQuery] = useState<string>(initialQuery ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-select pre-filled value on mount so the user can immediately replace it.
-  // useEffect runs once because initialQuery is captured at mount time; if the modal
-  // is reopened with a new initialQuery, the parent unmounts/remounts the dialog content
-  // (Radix Dialog default behavior), so this effect re-fires per modal-open.
+  // Auto-select the pre-filled value on mount so the user can immediately
+  // replace it. Runs once because initialQuery is captured at mount; a reopened
+  // modal remounts the dialog content (Radix Dialog default), so the effect
+  // re-fires per open.
   useEffect(() => {
     if (initialQuery && inputRef.current) {
       inputRef.current.select();
@@ -342,10 +333,10 @@ export function DatasetSearchPanel({
     staleTime: 30_000,
   });
 
-  // The `record_type` query param already constrains
-  // the backend query. The previous client-side isRasterRecord filter was a bug that
-  // capped raster discovery to whatever appeared in the all-types page-20 result.
-  // isRasterRecord() is still used by typeMeta() for display purposes.
+  // The `record_type` query param already constrains the backend query; a
+  // client-side isRasterRecord filter would cap raster discovery to whatever
+  // appeared in the all-types first page. isRasterRecord() is still used by
+  // typeMeta() for display.
   const results = useMemo(() => data?.features ?? [], [data?.features]);
 
   const sourceOptions = useMemo(
@@ -402,15 +393,15 @@ export function DatasetSearchPanel({
         className={compact ? 'h-8 gap-1 px-3 text-xs' : 'h-7 w-7 shrink-0'}
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
-        // Mark THIS row busy while its add is in flight
-        // (SuggestCard pattern) — all buttons stay disabled during an add, but
-        // only the clicked row shows the spinner.
+        // Mark THIS row busy while its add is in flight (SuggestCard pattern):
+        // all buttons stay disabled during an add, but only the clicked row
+        // shows the spinner.
         aria-busy={addingDatasetId === record.id}
         title={t('search.addToMap', { defaultValue: 'Add to map' })}
-        // The row action and the expanded-details action both render
-        // this button; give the details-panel instance a distinct accessible
-        // name so screen readers/role+name queries don't see two identical
-        // "Add to map <name>" buttons in one result row.
+        // The row action and the expanded-details action both render this
+        // button; the details-panel instance gets a distinct accessible name so
+        // screen readers don't see two identical "Add to map <name>" buttons in
+        // one result row.
         aria-label={
           compact
             ? t('search.addToMapDetailsNamed', { name: record.properties.title, defaultValue: 'Add to map (details panel): {{name}}' })
@@ -543,9 +534,9 @@ export function DatasetSearchPanel({
         <div className="h-0.5 w-full bg-[var(--primary)] animate-pulse" />
       )}
 
-      {/* Empty states — ONE permanently-mounted live region whose content
-          toggles. Conditionally-mounted role="status" regions appear
-          pre-populated, so assistive tech never announced them. */}
+      {/* Empty states: ONE permanently-mounted live region whose content
+          toggles; conditionally-mounted role="status" regions appear
+          pre-populated, so assistive tech wouldn't announce them. */}
       <div role="status">
         {/* State A: Unfiltered empty — catalog is empty */}
         {!isLoading && !isFetching && !isError
@@ -594,9 +585,9 @@ export function DatasetSearchPanel({
         )}
       </div>
 
-      {/* No pointer-events/opacity freeze during debounced
-          refetches — the pulse band above already signals them, and the
-          freeze made visible rows unclickable on every keystroke pause. */}
+      {/* No pointer-events/opacity freeze during debounced refetches: the pulse
+          band above already signals them, and a freeze would make visible rows
+          unclickable on every keystroke pause. */}
       <div className="mt-3 max-h-[24rem] space-y-1 overflow-y-auto px-1">
         {results.map((record) => (
           <DraggableDatasetRow

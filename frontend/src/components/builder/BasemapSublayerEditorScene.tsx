@@ -16,22 +16,20 @@ import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { InlineDeleteConfirm } from '@/components/builder/row-chrome';
 import { formatNumber } from '@/lib/format';
 
-// The DETAIL LEVEL pill strip stays removed; do not resurrect it.
-// The activeDetailLevel/isCustomized/onDetailLevelChange props were always
-// passed hardcoded defaults from MapBuilderPage; no consumer ever implemented
-// sublayer detail-level style mutation.
+// There is no DETAIL LEVEL control: no consumer implements sublayer
+// detail-level style mutation.
 //
-// STROKE + CASING + ZOOM sections persist through MapBasemapConfig.sublayer_overrides jsonb
-// (zero-migration backward compat). Backend schema: SublayerOverride
-// Pydantic model at backend/app/modules/catalog/maps/schemas.py.
-// MapLibre style mutation: frontend/src/lib/builder/basemap-style-mutation.ts
-// applySublayerOverrides. All 6 callback props are optional
-// for back-compat with callers that haven't wired through yet.
+// STROKE + CASING + ZOOM sections persist through
+// MapBasemapConfig.sublayer_overrides jsonb. Backend schema: SublayerOverride
+// in backend/app/modules/catalog/maps/schemas.py. MapLibre style mutation:
+// applySublayerOverrides in frontend/src/lib/builder/basemap-style-mutation.ts.
+// All 6 callback props are optional so callers that haven't wired them still
+// work.
 
 interface BasemapSublayerEditorSceneProps {
   sublayerId: string;
   sublayerName: string;
-  // Existing live props (KEEP unchanged):
+  // Live props:
   opacity: number;
   onOpacityChange: (opacity: number) => void;
   onResetSublayer: () => void;
@@ -85,11 +83,11 @@ export function BasemapSublayerEditorScene({
   const focusResetButton = () =>
     requestAnimationFrame(() => resetButtonRef.current?.focus());
 
-  // Reset confirmingReset and resetOpen when sublayerId changes.
-  // Without resetting resetOpen, navigating from sublayer A (with the RESET collapsible
-  // open) to sublayer B would render sublayer B pre-expanded. The LayerEditorPanel uses
-  // key={expandedLayerId} for top-level layers, but basemap sublayer navigation reuses
-  // the same component instance — so the effect is the only reset mechanism.
+  // Reset confirmingReset and resetOpen when sublayerId changes: basemap
+  // sublayer navigation reuses the same component instance (LayerEditorPanel's
+  // key={expandedLayerId} only covers top-level layers), so without resetting
+  // resetOpen, navigating from sublayer A with the RESET collapsible open would
+  // render sublayer B pre-expanded.
   useEffect(() => {
     setConfirmingReset(false);
     setResetOpen(false);
@@ -105,19 +103,18 @@ export function BasemapSublayerEditorScene({
     maximumFractionDigits: 1,
   })}px`;
 
-  // STROKE/CASING only mutate line sublayers in
-  // applyOverrideToLayer (stroke_color/width require layerType==='line';
-  // casing requires a 'casing' line sibling). Roads and boundaries are line
-  // layers; labels (symbol) and buildings (fill-extrusion) are not, so the
-  // sections render no-op controls for them and persist junk override fields.
-  // Gate on the sublayer kind so we only surface controls that actually mutate
-  // the current sublayer. Matches both the override keys ('road'/'boundary')
-  // and the builder sublayer ids ('basemap:roads'/'basemap:boundaries').
+  // STROKE/CASING only mutate line sublayers in applyOverrideToLayer
+  // (stroke_color/width require layerType==='line'; casing requires a 'casing'
+  // line sibling). Roads and boundaries are line layers; labels (symbol) and
+  // buildings (fill-extrusion) are not, so those sections would be no-op
+  // controls that persist junk override fields. Gate on the sublayer kind;
+  // matches both the override keys ('road'/'boundary') and the builder sublayer
+  // ids ('basemap:roads'/'basemap:boundaries').
   const supportsStrokeAndCasing = /road|boundar/i.test(sublayerId);
 
   return (
     <>
-      {/* 1. STROKE section — restored (roads/boundaries only) */}
+      {/* 1. STROKE section (roads/boundaries only) */}
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
@@ -152,7 +149,7 @@ export function BasemapSublayerEditorScene({
       </section>
       )}
 
-      {/* 2. CASING section — restored (roads/boundaries only) */}
+      {/* 2. CASING section (roads/boundaries only) */}
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
@@ -187,7 +184,7 @@ export function BasemapSublayerEditorScene({
       </section>
       )}
 
-      {/* 3. ZOOM RANGE section — restored */}
+      {/* 3. ZOOM RANGE section */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -228,8 +225,9 @@ export function BasemapSublayerEditorScene({
                 step={0.5}
                 value={maxZoom ?? 22}
                 onChange={(e) => {
-                  // Number('') === 0 is finite — clearing max-zoom used to write
-                  // 0 and hide the sublayer at every zoom. Empty resets the clamp.
+                  // Number('') === 0 is finite: clearing max-zoom must reset
+                  // the clamp (22), not write 0 and hide the sublayer at every
+                  // zoom.
                   const v = e.target.value === '' ? 22 : Number(e.target.value);
                   if (!Number.isFinite(v)) return;
                   onMaxZoomChange?.(Math.min(24, Math.max(0, v)));
@@ -242,7 +240,7 @@ export function BasemapSublayerEditorScene({
         </div>
       </section>
 
-      {/* 4. Visibility section — opacity only (existing, untouched) */}
+      {/* 4. Visibility section: opacity only */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -271,7 +269,7 @@ export function BasemapSublayerEditorScene({
         </div>
       </section>
 
-      {/* 5. Reset section — collapsed by default (existing, untouched) */}
+      {/* 5. Reset section, collapsed by default */}
       <Collapsible
         open={resetOpen}
         onOpenChange={(open) => {

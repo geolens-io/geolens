@@ -1,30 +1,19 @@
 /**
- * Single source of truth for
- * per-render-mode default paint and the arrow/extrusion magic constants that the
- * layer adapters and renderAs both need.
- *
- * Before this module the heatmap/hillshade/circle/fill defaults and the
- * arrow(14/80)/extrusion(14/0.85) constants were copy-pasted across renderAs.ts
- * and the individual adapters, in several cases with DIVERGENT values (heatmap
- * radius 18-vs-30, fill-opacity 0.45-vs-0.30) so a layer rendered one way when
- * created via the render-mode switch and another way via the adapter fallback.
- *
- * All colors are sourced from the MAP_COLORS design tokens (map-colors.ts), never
- * bare hex, so a palette change updates one place.
+ * Single source of truth for per-render-mode default paint and the
+ * arrow/extrusion constants the layer adapters and renderAs both need. All
+ * colors come from the MAP_COLORS design tokens (map-colors.ts), never bare
+ * hex, so a palette change updates one place.
  */
 import { MAP_COLORS } from '@/lib/map-colors';
 
 /**
- * Reconcile the two conflicting DEFAULT_HEATMAP_PAINT
- * (renderAs radius 18 / weight 0.5 vs heatmap-adapter radius 30 / weight 1) to ONE
- * value. We prefer the ADAPTER's authored values (radius 30, weight 1) because
- * those are what a freshly-created heatmap actually renders with at add-time.
+ * The one default heatmap paint: the adapter's authored values (radius 30,
+ * weight 1), which are what a freshly created heatmap renders with at add-time.
  *
- * `heatmap-color` is intentionally NOT included here: it is built from a named
- * ramp by buildHeatmapColorExpression() in heatmap-adapter.ts. Pulling that into
- * this constants module would create a circular import, and renderAs's heatmap
- * default never carried a color anyway. Consumers that need the color spread this
- * object and add `heatmap-color` themselves.
+ * `heatmap-color` is intentionally NOT included: it is built from a named ramp
+ * by buildHeatmapColorExpression() in heatmap-adapter.ts, and importing that
+ * here would create a circular import. Consumers that need the color spread
+ * this object and add `heatmap-color` themselves.
  */
 export const DEFAULT_HEATMAP_PAINT = {
   'heatmap-radius': 30,
@@ -34,11 +23,9 @@ export const DEFAULT_HEATMAP_PAINT = {
 } as const;
 
 /**
- * Single hillshade default (previously byte-identical
- * copies in renderAs.DEFAULT_HILLSHADE_PAINT and
- * hillshade-adapter.HILLSHADE_PAINT_DEFAULTS). Shadow/highlight/accent are map
- * roles rather than CSS theme colors, so they live in MAP_COLORS with the other
- * MapLibre-safe literals.
+ * Single hillshade default. Shadow/highlight/accent are map roles rather than
+ * CSS theme colors, so they live in MAP_COLORS with the other MapLibre-safe
+ * literals.
  */
 export const DEFAULT_HILLSHADE_PAINT = {
   'hillshade-illumination-direction': 335,
@@ -50,12 +37,9 @@ export const DEFAULT_HILLSHADE_PAINT = {
 } as const;
 
 /**
- * Canonical default circle paint, matching the
- * add-time fallback used by BOTH circle-adapter and cluster-adapter (the dominant
- * path). NOTE: renderAs's render-as-switch circle default previously used a white
- * (#ffffff) stroke; render-as-created circles will now start with the token stroke
- * (MAP_COLORS.default.stroke = #0058ac) instead, matching what every default point
- * already renders with at add-time.
+ * Canonical default circle paint, matching the add-time fallback used by both
+ * circle-adapter and cluster-adapter. Circles created via the render-as switch
+ * start with the same token stroke (MAP_COLORS.default.stroke = #0058ac).
  */
 export const DEFAULT_CIRCLE_PAINT = {
   'circle-radius': 5,
@@ -65,10 +49,8 @@ export const DEFAULT_CIRCLE_PAINT = {
 } as const;
 
 /**
- * Canonical default fill paint. fill-opacity is reconciled
- * to MAP_COLORS.default.fillOpacity (0.30). NOTE: render-mode-switch-created
- * polygons previously started at fill-opacity 0.45; they will now start at 0.30,
- * matching map-colors.ts and shared.ts OPACITY_DEFAULTS.fill.
+ * Canonical default fill paint. fill-opacity is MAP_COLORS.default.fillOpacity
+ * (0.30), matching map-colors.ts and shared.ts OPACITY_DEFAULTS.fill.
  */
 export const DEFAULT_FILL_PAINT = {
   'fill-color': MAP_COLORS.default.fill,

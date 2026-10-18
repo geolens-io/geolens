@@ -59,19 +59,19 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   const { t } = useTranslation('builder');
   const kebabMenu = useKebabContextMenu();
 
-  // Single source for the display name string. Used by
-  // aria-label (visibility toggle), aria-label (kebab trigger), and the visible
-  // row name in Cell 5 — three call sites that previously drifted independently.
+  // Single source for the display name string, used by the visibility toggle's
+  // aria-label, the kebab trigger's aria-label and the visible row name in Cell
+  // 5.
   const rowName = t('basemapGroup.rowName', {
     defaultValue: 'Basemap · {{name}}',
     name: presetName,
   });
 
   function handleRowClick(_e: React.MouseEvent) {
-    // The cursor-not-allowed class and the suppressed drag listeners
-    // below advertise the row as non-interactive during multi-selection.
-    // Without this guard, the click still fires onSelectGroup, unmounting the
-    // BulkActionBar mid-selection — a UX contract violation.
+    // The cursor-not-allowed class and the suppressed drag listeners below
+    // advertise the row as non-interactive during multi-selection; without this
+    // guard the click would still fire onSelectGroup and unmount the
+    // BulkActionBar mid-selection.
     if (isMultiSelectionActive) return;
     onSelectGroup(groupId);
   }
@@ -102,10 +102,10 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         // honor the multi-selection boundary, matching the visual signal.
         if (isMultiSelectionActive) return;
         if (kebabMenu.handleContextMenuKey(e)) return;
-        // a11y(v1.6.0 audit A7, WCAG 2.1.1): Enter on the caret or eye was
-        // dead — the container preventDefaulted descendant keys and cancelled
-        // native button activation. Only handle keys aimed at the row itself;
-        // AFTER the context-menu branch so Shift+F10 works from descendants.
+        // WCAG 2.1.1: only handle keys aimed at the row itself; otherwise the
+        // container's preventDefault on descendant keys cancels native button
+        // activation (Enter on the caret or eye). Placed AFTER the context-menu
+        // branch so Shift+F10 works from descendants.
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -113,11 +113,9 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         }
       }}
     >
-      {/* Cell 1: Caret — visible and functional for basemap group.
-          h-6 w-6 (24×24 hit target) + -mx-1 extends the visual
-          box 4px past each side of the 16px grid column without altering the grid template.
-          ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
-          replaces the Unicode ▸ text character. */}
+      {/* Cell 1: Caret, visible and functional for the basemap group. h-6 w-6
+          (24×24 hit target) + -mx-1 extends the visual box 4px past each side
+          of the 16px grid column without altering the grid template. */}
       <button
         type="button"
         aria-expanded={isExpanded}
@@ -137,11 +135,11 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <ChevronRight className={cn('h-4 w-4', !isExpanded && 'rtl-mirror')} aria-hidden="true" />
       </button>
 
-      {/* Cell 2: Grip. The basemap group IS user-draggable
-          for top/bottom reordering (3D maps need the basemap rendered above data).
-          When isMultiSelectionActive is true, the listeners are suppressed (drag +
-          multi-select are mutually exclusive). Shared DragGripButton.
-          Reveal the reorder grip on coarse-pointer/touch. */}
+      {/* Cell 2: Grip. The basemap group IS user-draggable for top/bottom
+          reordering (3D maps need the basemap rendered above data). When
+          isMultiSelectionActive is true the listeners are suppressed (drag and
+          multi-select are mutually exclusive). Shared DragGripButton; revealed
+          on coarse-pointer/touch. */}
       <DragGripButton
         dragHandleProps={dragHandleProps}
         ariaLabel={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
@@ -150,10 +148,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         listenersSuppressed={isMultiSelectionActive}
       />
 
-      {/* Cell 3: Eye visibility toggle.
-          The dead visibilityDisabled locked-eye branch was
-          removed — no call site ever passed it (the basemap dock wires a real toggle).
-          aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
+      {/* Cell 3: Eye visibility toggle. aria-pressed reflects the visible state
+          so AT users hear "Basemap pressed". */}
       <button
         type="button"
         aria-label={t('stackRow.toggleVisibility', {

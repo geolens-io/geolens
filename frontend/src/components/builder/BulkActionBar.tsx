@@ -16,45 +16,34 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { canJoinFolderGroup } from '@/components/builder/folder-groups';
 import type { MapLayerResponse } from '@/types/api';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface BulkActionBarProps {
   selectedIds: Set<string>;
   layers: MapLayerResponse[];
-  // onClearSelection removed — selection clearing is the caller's responsibility
-  // via handleBulk* wrappers in MapBuilderPage. The bar has no X/clear button.
+  // Selection clearing is the caller's responsibility (handleBulk* wrappers in
+  // MapBuilderPage); the bar has no X/clear button.
   onBulkVisibility: (ids: Set<string>) => void;
   onBulkOpacity: (ids: Set<string>, opacity: number) => void;
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
-  /** Apply the first selected (or copied) layer's style
-   *  to all geometry-compatible selected layers. Optional so existing call sites
-   *  that have not wired it compile; the menu item hides when absent. */
+  /**
+   * Apply the first selected (or copied) layer's style to all
+   * geometry-compatible selected layers. Optional; the menu item hides when
+   * absent.
+   */
   onBulkApplyStyle?: (ids: Set<string>) => void;
   /** True while bulk-delete HTTP call is in flight.
    *  Swaps Trash2 → Loader2, disables the Delete button, sets aria-busy. */
   isDeleting?: boolean;
-  /** fix(v1.6.0 audit A5): count of layers in the in-flight delete batch, captured
-   *  synchronously in the hook BEFORE the optimistic removal. The optimistic
-   *  setLocalLayers empties the selection-derived deletableCount in the same
-   *  commit that sets isDeleting, so deriving the deleting label from props
-   *  here would announce "Deleting 0 layers…". */
+  /**
+   * Count of layers in the in-flight delete batch, captured synchronously in
+   * the hook BEFORE the optimistic removal. The optimistic setLocalLayers
+   * empties the selection-derived deletableCount in the same commit that sets
+   * isDeleting, so deriving the label from props would announce "Deleting 0
+   * layers…".
+   */
   deletingCount?: number;
 }
-
-// ---------------------------------------------------------------------------
-// getParentGroupId and isFolderGroupLayer are
-// imported from their canonical homes (folder-groups.ts / layer-capabilities.ts)
-// instead of being re-implemented inline with `as unknown as` / a hard-coded
-// 'group:folder' substring check.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// BulkActionBar component
-// ---------------------------------------------------------------------------
 
 export const BulkActionBar = memo(function BulkActionBar({
   selectedIds,
@@ -72,21 +61,20 @@ export const BulkActionBar = memo(function BulkActionBar({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
   const confirmId = useId();
-  // The overflow items' aria-label overrides their subtree as the
-  // accessible name, so the inline disabled-reason hints were invisible to
-  // assistive tech. Exposing each hint via aria-describedby (only while it
-  // renders) keeps the short label as the name and surfaces the reason as the
-  // description.
+  // The overflow items' aria-label overrides their subtree as the accessible
+  // name, which hides inline disabled-reason hints from assistive tech. Each
+  // hint is exposed via aria-describedby (only while it renders), keeping the
+  // short label as the name and the reason as the description.
   const hintId = useId();
   const barRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
-  // fix(v1.6.0 audit A3): every exit path out of the inline delete-confirm must
-  // hand focus somewhere stable instead of dropping it on <body>. The
-  // pre-confirm trigger (the overflow-menu Delete item) unmounts on confirm, so
-  // restore to the first remaining enabled control in the bar, else the bar
-  // itself (tabIndex={-1} below makes it focusable as the last resort).
-  // Mirrors the row-chrome.tsx InlineDeleteConfirm cancel-path restore.
+  // Every exit path out of the inline delete-confirm must hand focus somewhere
+  // stable instead of dropping it on <body>. The pre-confirm trigger (the
+  // overflow-menu Delete item) unmounts on confirm, so restore to the first
+  // remaining enabled control in the bar, else the bar itself (tabIndex={-1}
+  // makes it focusable as the last resort). Mirrors the row-chrome.tsx
+  // InlineDeleteConfirm cancel-path restore.
   const restoreFocusToBar = useCallback(() => {
     requestAnimationFrame(() => {
       const bar = barRef.current;
@@ -96,8 +84,8 @@ export const BulkActionBar = memo(function BulkActionBar({
     });
   }, []);
 
-  // fix(v1.6.0 audit A3): minimal focus trap for the aria-modal confirm — Tab
-  // and Shift+Tab cycle between Cancel and the destructive action.
+  // Minimal focus trap for the aria-modal confirm: Tab and Shift+Tab cycle
+  // between Cancel and the destructive action.
   const handleConfirmKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Tab') return;
     const root = confirmRef.current;
@@ -123,23 +111,21 @@ export const BulkActionBar = memo(function BulkActionBar({
 
   const N = selectedIds.size;
 
-  // Derive selected layers — memoized per render cycle
   const selectedLayers = useMemo(
     () => layers.filter((l) => selectedIds.has(l.id)),
     [layers, selectedIds],
   );
 
-  // Group container rows have no backend record — handleBulkDelete
-  // filters them out of the batch — so every delete-facing count must be the
-  // DELETABLE count, not the selection size. Counting group rows promised
-  // deletions that never happened ("Delete 2 layers" on two group headers →
-  // silent no-op) and the Delete item now disables when nothing is deletable.
+  // Group container rows have no backend record (handleBulkDelete filters them
+  // out of the batch), so every delete-facing count must be the DELETABLE
+  // count, not the selection size. Otherwise two group headers would promise
+  // "Delete 2 layers" and silently do nothing; the Delete item disables when
+  // nothing is deletable.
   const deletableCount = useMemo(
     () => selectedLayers.filter((l) => !isFolderGroupLayer(l)).length,
     [selectedLayers],
   );
 
-  // Derived values for display and enable/disable logic
   const avgOpacity =
     N > 0
       ? selectedLayers.reduce((sum, l) => sum + (l.opacity ?? 1), 0) / N
@@ -149,9 +135,8 @@ export const BulkActionBar = memo(function BulkActionBar({
   const majorityVisible = visibleCount > N / 2;
 
   // Group enabled: ALL selected are loose layers (not in a group, not a group
-  // row). The extra vector_dataset requirement disagreed with
-  // StackRow's "Add to group…" and with drag-and-drop membership, both of
-  // which accept raster/DEM rows — canJoinFolderGroup is the shared predicate.
+  // row). canJoinFolderGroup is the shared predicate, matching StackRow's "Add
+  // to group…" and drag-and-drop membership, which accept raster/DEM rows too.
   const canGroup = useMemo(
     () => N > 0 && selectedLayers.every(canJoinFolderGroup),
     [selectedLayers, N],
@@ -178,14 +163,14 @@ export const BulkActionBar = memo(function BulkActionBar({
     if (e.key === 'Escape' && confirmingDelete) {
       e.stopPropagation();
       setConfirmingDelete(false);
-      // fix(v1.6.0 audit A3): Escape closed a focus-owning confirm — restore.
+      // Escape closed a focus-owning confirm: restore focus.
       restoreFocusToBar();
     }
   }
 
-  // fix(v1.6.0 audit A5): while a delete is in flight the optimistic removal
-  // has already emptied selectedLayers, so deletableCount is 0 — render the
-  // batch size the hook captured synchronously instead.
+  // While a delete is in flight the optimistic removal has already emptied
+  // selectedLayers, so deletableCount is 0; render the batch size the hook
+  // captured synchronously instead.
   const displayDeleteCount = isDeleting ? (deletingCount ?? deletableCount) : deletableCount;
 
   return (
@@ -194,11 +179,11 @@ export const BulkActionBar = memo(function BulkActionBar({
       tabIndex={-1}
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
-      // Marker for UnifiedStackPanel's outside-click guard.
-      // Without it, clicking the inline "Delete N layers" confirm button fires the
-      // document-level mousedown listener BEFORE the React click handler, clearing
-      // selection + unmounting the bar — so the onClick that calls onBulkDelete
-      // never runs against a populated selection set.
+      // Marker for UnifiedStackPanel's outside-click guard. Without it,
+      // clicking the inline "Delete N layers" confirm button fires the
+      // document-level mousedown listener BEFORE the React click handler,
+      // clearing selection and unmounting the bar, so onBulkDelete never runs
+      // against a populated selection set.
       data-bulk-action-bar="true"
       className={cn(
         'sticky bottom-0 flex items-center gap-2 px-3',
@@ -212,12 +197,12 @@ export const BulkActionBar = memo(function BulkActionBar({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleContainerKeyDown}
     >
-      {/* Dedicated sr-only live region — announces selection count during normal
-          state and "Deleting N layers…" when a bulk-delete is in flight.
-          role="toolbar" must not carry aria-live.
-          fix(v1.6.0 audit): mounts EMPTY and populates on the rAF tick (the
-          `mounted` flip) — screen readers ignore content already present when
-          a live region enters the accessibility tree. */}
+      {/* Dedicated sr-only live region: announces the selection count in normal
+          state and "Deleting N layers…" while a bulk-delete is in flight.
+          role="toolbar" must not carry aria-live. Mounts EMPTY and populates on
+          the rAF tick (the `mounted` flip), because screen readers ignore
+          content already present when a live region enters the accessibility
+          tree. */}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {mounted
           ? isDeleting
@@ -226,9 +211,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           : null}
       </span>
       {isDeleting ? (
-        // ------------------------------------------------------------------
-        // Deleting state — spinner replaces the normal / confirmation UI
-        // ------------------------------------------------------------------
+        // Deleting state: spinner replaces the normal / confirmation UI.
         <div className="flex items-center gap-2 w-full">
           <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" aria-hidden="true" />
           <span className="text-sm text-muted-foreground flex-1">
@@ -250,16 +233,13 @@ export const BulkActionBar = memo(function BulkActionBar({
           </Button>
         </div>
       ) : confirmingDelete ? (
-        // ------------------------------------------------------------------
-        // Confirmation state
-        // ------------------------------------------------------------------
+        // Confirmation state.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
           ref={confirmRef}
           role="alertdialog"
-          // fix(v1.6.0 audit A3): the role promised modal semantics it didn't
-          // deliver — declare aria-modal and back it with the Tab-cycle trap
-          // below plus focus restoration on every exit path.
+          // aria-modal, backed by the Tab-cycle trap below and focus
+          // restoration on every exit path.
           aria-modal="true"
           aria-labelledby={confirmId}
           className="flex items-center gap-2 w-full"
@@ -283,16 +263,16 @@ export const BulkActionBar = memo(function BulkActionBar({
             onClick={(e) => {
               e.stopPropagation();
               setConfirmingDelete(false);
-              // fix(v1.6.0 audit A3): the confirm owned focus — hand it back.
+              // The confirm owned focus: hand it back.
               restoreFocusToBar();
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             {t('bulkActions.deleteConfirmCancel')}
           </Button>
-          {/* Destructive action styled variant="destructive" and placed
-              last (right), matching InlineDeleteConfirm and every ui/alert-dialog
-              footer — deleting one layer and deleting five are the same gesture. */}
+          {/* Destructive action styled variant="destructive" and placed last
+              (right), matching InlineDeleteConfirm and every ui/alert-dialog
+              footer. */}
           <Button
             type="button"
             variant="destructive"
@@ -301,10 +281,9 @@ export const BulkActionBar = memo(function BulkActionBar({
               e.stopPropagation();
               onBulkDelete(selectedIds);
               setConfirmingDelete(false);
-              // fix(v1.6.0 audit A3): confirming unmounts this button (the bar
-              // swaps to the deleting state) — restore to a stable element (the
-              // first remaining control, else the bar itself), never the dead
-              // trigger.
+              // Confirming unmounts this button (the bar swaps to the deleting
+              // state): restore to a stable element (the first remaining
+              // control, else the bar itself), never the dead trigger.
               restoreFocusToBar();
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -313,14 +292,11 @@ export const BulkActionBar = memo(function BulkActionBar({
           </Button>
         </div>
       ) : (
-        // ------------------------------------------------------------------
-        // Normal state: inline count + Visibility + Opacity, then overflow menu
-        // Group / Ungroup / Delete were previously inline
-        // and clipped by the 340px sidebar `<aside class="overflow-hidden">`
-        // (seen in a smoke check). They now live behind a `…` overflow
-        // trigger so the entire bar fits the sidebar width while Group / Ungroup
-        // / Delete remain reachable via keyboard + pointer.
-        // ------------------------------------------------------------------
+        // Normal state: inline count + Visibility + Opacity, then an overflow
+        // menu. Group / Ungroup / Delete live behind a `…` trigger because
+        // inline they clipped at the 340px sidebar `<aside
+        // class="overflow-hidden">`; they stay reachable via keyboard and
+        // pointer.
         <>
           {/* Selected count label */}
           <span className="text-xs font-medium text-muted-foreground shrink-0">
@@ -403,20 +379,20 @@ export const BulkActionBar = memo(function BulkActionBar({
               align="end"
               side="top"
               className="w-48"
-              // Radix portals the menu content out of the
-              // UnifiedStackPanel's stackPanelRef subtree. The panel's
-              // `document.mousedown` outside-click guard treats portal clicks
-              // as "outside" and would clear the multi-selection before our
-              // onSelect handlers can read it. The data-bulk-action-menu
-              // attribute is the marker UnifiedStackPanel reads to keep the
-              // selection intact while this menu is the target.
+              // Radix portals the menu content out of UnifiedStackPanel's
+              // stackPanelRef subtree, so the panel's `document.mousedown`
+              // outside-click guard would treat portal clicks as "outside" and
+              // clear the multi-selection before our onSelect handlers read it.
+              // The data-bulk-action-menu attribute is the marker the panel
+              // reads to keep the selection intact while this menu is the
+              // target.
               data-bulk-action-menu="true"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Apply one selected layer's style to all
-                  geometry-compatible peers. Enabled at 2+ selected; the hook
-                  filters compatibility + skips mismatches with a count toast. */}
+              {/* Apply one selected layer's style to all geometry-compatible
+                  peers. Enabled at 2+ selected; the hook filters compatibility
+                  and skips mismatches with a count toast. */}
               {onBulkApplyStyle && (
                 <DropdownMenuItem
                   data-testid="bulk-action-apply-style"

@@ -1,9 +1,6 @@
 /**
- * Shared typed paint accessors.
- *
- * These two trivial readers were previously copy-pasted verbatim in
- * RasterLayerControls and DEMEditorScene. They live here as the single
- * source so both raster/DEM editor surfaces read paint identically.
+ * Shared typed paint accessors: the single source so the raster and DEM editor
+ * surfaces (RasterLayerControls, DEMEditorScene) read paint identically.
  */
 export function getNumberPaint(
   paint: Record<string, unknown>,

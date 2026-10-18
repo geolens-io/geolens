@@ -51,12 +51,10 @@ import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
 
 /**
- * True for the backend's "this deployment cannot enforce
- * a domain lock" refusal (`assert_domain_lock_is_enforceable`).
- *
- * Matched through `classifyApiError` rather than by re-testing the prose here,
- * so error-map.ts stays the one place that knows the server's wording — the
- * same single-reader discipline the #1531 fix applied to the policy itself.
+ * True for the backend's "this deployment cannot enforce a domain lock" refusal
+ * (`assert_domain_lock_is_enforceable`). Matched through `classifyApiError`
+ * rather than by re-testing the prose, so error-map.ts stays the one place that
+ * knows the server's wording.
  */
 function isDomainLockUnenforceable(err: unknown): err is ApiError {
   return (
@@ -67,12 +65,10 @@ function isDomainLockUnenforceable(err: unknown): err is ApiError {
 }
 
 /**
- * Build the embedded-viewer iframe `src` URL for a shared map.
- * Single source of truth shared by generateEmbedCode (full iframe
- * snippet) and EmbedPreviewPane (live preview) so the viewer URL shape — path,
- * `embed` flag, `et` token param — cannot drift between the two.
- *
- * URLSearchParams handles any future percent-encodable characters in the token.
+ * Build the embedded-viewer iframe `src` URL for a shared map. Single source of
+ * truth for generateEmbedCode (full iframe snippet) and EmbedPreviewPane (live
+ * preview), so the viewer URL shape (path, `embed` flag, `et` token param)
+ * cannot drift between them.
  */
 export function buildEmbedSrc({
   shareToken,
@@ -101,37 +97,32 @@ function escapeHtmlAttribute(value: string): string {
 /**
  * Generate the iframe embed snippet for a shared map.
  *
- * Emits `sandbox="allow-scripts allow-same-origin"`. The old value
- * omitted `allow-same-origin` to limit sandbox escape, and the snippet could
- * not boot. Without that flag the frame gets an OPAQUE origin, so the shell's
- * `<script type="module" crossorigin>` fetch and every later `/api/` call are
- * cross-origin with `Origin: null`. Measured end to end against a real share
- * token: the viewer rendered "Map not found" while the api answered the very
- * same request 200 and the browser discarded it for want of a CORS header.
+ * Emits `sandbox="allow-scripts allow-same-origin"`. Without
+ * `allow-same-origin` the frame gets an OPAQUE origin, so the shell's `<script
+ * type="module" crossorigin>` fetch and every later `/api/` call are
+ * cross-origin with `Origin: null`: the viewer renders "Map not found" while
+ * the api answers the same request 200 and the browser discards it for want
+ * of a CORS header.
  *
- * The escape hatch that restriction guarded against is real, and it does not reach here.
- * A frame strips its own sandbox by reaching `parent.document`, which requires
- * being same-origin with its EMBEDDER. A third-party page embedding a GeoLens
- * map never is, so the pair cannot be used to escape from there. That warning
- * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx already
- * ships the same pair for YouTube.)
+ * The escape hatch the restriction guards against does not reach here. A frame
+ * strips its own sandbox by reaching `parent.document`, which requires being
+ * same-origin with its EMBEDDER. A third-party page embedding a GeoLens map
+ * never is, so the pair cannot be used to escape from there; the warning
+ * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx ships
+ * the same pair for YouTube.) An iframe with no `sandbox` attribute, which most
+ * embed snippets ship, additionally permits forms, popups, top-level
+ * navigation, downloads and pointer lock.
  *
- * Narrower than the usual case, too: an iframe with no `sandbox` attribute at
- * all, which is what most embed snippets ship and what worked before this bug
- * was reported, additionally permits forms, popups, top-level navigation,
- * downloads and pointer lock.
- *
- * What it costs, and the reason this was a decision rather than a header
- * change: the frame regains the GeoLens origin, and with it the viewer's
- * persisted session. So embed mode is deliberately anonymous — `isEmbedViewer`
+ * The cost: the frame regains the GeoLens origin, and with it the viewer's
+ * persisted session. So embed mode is deliberately anonymous: `isEmbedViewer`
  * in lib/embed-context.ts, read by `authenticatedRawFetch`, withholds the
  * bearer token, skips the proactive refresh, and returns a 401 untouched
  * instead of refreshing or logging out. The share token is the capability and
  * authorizes the map on its own; an embed on someone else's page has no
- * business spending, refreshing, or destroying a viewer's login.
+ * business spending, refreshing or destroying a viewer's login.
  *
- * Exported so SharePanel.test.tsx can pin the rendered snippet shape
- * without mounting the full ShareDialog component.
+ * Exported so SharePanel.test.tsx can pin the rendered snippet shape without
+ * mounting ShareDialog.
  */
 export function generateEmbedCode({
   shareToken,
@@ -183,10 +174,9 @@ const VISIBILITY_OPTIONS: Array<{
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Single source of truth for the share-link expiration
- * presets. The Select options, detectPreset matching windows, and apply math all
- * derive from this table, so adding/changing a preset is a one-line edit that
- * cannot drift between the three former copies.
+ * Single source of truth for the share-link expiration presets: the Select
+ * options, detectPreset matching windows and apply math all derive from this
+ * table.
  */
 const EXPIRATION_PRESETS = [
   { key: '1d', days: 1, i18nKey: 'share.expiration1Day', defaultValue: '1 day' },
@@ -194,10 +184,6 @@ const EXPIRATION_PRESETS = [
   { key: '30d', days: 30, i18nKey: 'share.expiration30Days', defaultValue: '30 days' },
   { key: '90d', days: 90, i18nKey: 'share.expiration90Days', defaultValue: '90 days' },
 ] as const;
-
-/* ------------------------------------------------------------------ */
-/*  ShareLinkSettings – collapsible expiration / domain / revoke      */
-/* ------------------------------------------------------------------ */
 
 interface ShareLinkSettingsProps {
   mapId: string;
@@ -260,14 +246,11 @@ function ShareLinkSettings({
   /**
    * Save the expiration value typed into the Custom date Input.
    *
-   * Contract: this handler does NOT modify rawShareToken or
-   * embedTokenRaw state. Expiration is updated on the share token only via
-   * useUpdateShareToken — those raw tokens survive across dialog open/close
-   * cycles and across expiration changes per the 3ed5ceb3 separation.
-   *
-   * Regression pin: SharePanel.test.tsx tests assert that after
-   * a preset Select change the Copy Link / embed textarea remain visible
-   * (proxy for raw-token state).
+   * Contract: does NOT modify rawShareToken or embedTokenRaw state. Expiration
+   * is updated on the share token only via useUpdateShareToken; the raw tokens
+   * survive dialog open/close cycles and expiration changes.
+   * SharePanel.test.tsx pins this: after a preset Select change the Copy Link /
+   * embed textarea remain visible.
    */
   async function handleSaveExpiration() {
     try {
@@ -285,15 +268,10 @@ function ShareLinkSettings({
   }
 
   /**
-   * Apply an expiration preset and let the server calculate the deadline.
-   *
-   * Contract: does NOT modify rawShareToken or embedTokenRaw — those
-   * survive independently per the 3ed5ceb3 separation. Expiration is updated on
-   * the share token only via the useUpdateShareToken mutation.
-   *
-   * Regression pin: SharePanel.test.tsx tests assert that after this
-   * handler resolves, rawShareToken and embedTokenRaw remain non-null (Copy Link
-   * button and embed textarea stay visible).
+   * Apply an expiration preset and let the server calculate the deadline. Same
+   * contract as above: rawShareToken and embedTokenRaw are untouched
+   * (SharePanel.test.tsx asserts Copy Link and the embed textarea stay
+   * visible).
    */
   async function handleApplyPreset(preset: Exclude<ExpirationPreset, 'custom'>) {
     try {
@@ -354,11 +332,10 @@ function ShareLinkSettings({
       if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
         setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
       } else if (isDomainLockUnenforceable(err)) {
-        // The server's remediation IS the message here —
-        // it names PUBLIC_APP_URL and the value to set. Collapsing it into the
-        // generic "update failed" toast would put the operator back where the
-        // refusal exists to rescue them from: a domain lock that quietly
-        // delivers nothing. err.message is already localized by apiFetch.
+        // The server's remediation IS the message here: it names PUBLIC_APP_URL
+        // and the value to set. Collapsing it into the generic "update failed"
+        // toast would leave a domain lock that quietly delivers nothing.
+        // err.message is already localized by apiFetch.
         setOriginError((err as ApiError).message);
       } else {
         toast.error(t('share.updateFailed'));
@@ -385,10 +362,10 @@ function ShareLinkSettings({
       setOrigins((current) =>
         current.includes(removedOrigin) ? current : [...current, removedOrigin],
       );
-      // Removing one of several origins still writes a
-      // non-empty lock, so an unenforceable deployment refuses it and the
-      // operator needs the same remediation as on add. Clearing the LAST origin
-      // sends null and is never refused, which stays their way out.
+      // Removing one of several origins still writes a non-empty lock, so an
+      // unenforceable deployment refuses it and the operator needs the same
+      // remediation as on add. Clearing the LAST origin sends null and is never
+      // refused, which stays their way out.
       if (isDomainLockUnenforceable(err)) {
         setOriginError((err as ApiError).message);
       } else {
@@ -589,9 +566,8 @@ function ShareLinkSettings({
             </div>
           )}
 
-          {/* Revoke — destructive (kills the link AND every embed token), so it
-              gets the same AlertDialog confirm as the admin revoke actions
-              instead of firing on a bare click. */}
+          {/* Revoke is destructive (kills the link AND every embed token), so
+              it gets the same AlertDialog confirm as the admin revoke actions. */}
           <div className="pt-2 border-t">
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -631,10 +607,6 @@ function ShareLinkSettings({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* EmbedPreviewPane – collapsible iframe preview */
-/* ------------------------------------------------------------------ */
-
 interface EmbedPreviewPaneProps {
   shareToken: string;
   embedTokenRaw: string;
@@ -656,15 +628,12 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
     return () => clearTimeout(timer);
   }, [expanded, loaded, errored, reloadKey]);
 
-  // Share the exact URL construction with
-  // generateEmbedCode via buildEmbedSrc so the preview and the copyable snippet
-  // can never diverge on path or query-param shape.
-  //
-  // The ORIGIN is now the one thing they may legitimately
-  // differ on, and the caller decides. The snippet is opened by a customer and
-  // names the public host; the preview is opened by this browser and names the
-  // host this browser reached. Path, params and sandbox stay identical, which
-  // is what this sharing was ever for.
+  // Share URL construction with generateEmbedCode via buildEmbedSrc so the
+  // preview and the copyable snippet can't diverge on path or query params. The
+  // ORIGIN is the one thing they may differ on, and the caller decides: the
+  // snippet is opened by a customer and names the public host; the preview is
+  // opened by this browser and names the host this browser reached. Path,
+  // params and sandbox stay identical.
   const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
 
   return (
@@ -688,10 +657,10 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
                 </div>
               )}
-              {/* Must stay byte-identical to the sandbox generateEmbedCode emits.
-                  A preview under a different sandbox is a preview of a different page — this one
-                  showed "Map not found" for a valid token while the copied snippet was blamed.
-                  See the generateEmbedCode docstring for why the pair is safe for a third-party embed. */}
+              {/* Must stay byte-identical to the sandbox generateEmbedCode
+                  emits: a preview under a different sandbox is a preview of a
+                  different page. See the generateEmbedCode docstring for why
+                  the pair is safe for a third-party embed. */}
               <iframe
                 key={reloadKey}
                 data-testid="share-preview-iframe"
@@ -724,8 +693,7 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
           )}
           <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
             <Shield className="h-3 w-3" aria-hidden="true" />
-            {/* The old copy said "permits scripts only", which stopped being
-                true when the sandbox gained allow-same-origin. */}
+            {/* Worded generally: the sandbox allows scripts and same-origin. */}
             {t('share.iframeSandboxNote', {
               defaultValue: 'The embed preview runs in the same restricted sandbox as the snippet you copy.',
             })}
@@ -736,10 +704,6 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  ShareDialog                                                        */
-/* ------------------------------------------------------------------ */
-
 interface ShareDialogProps {
   mapId: string;
   visibility: string;
@@ -748,10 +712,9 @@ interface ShareDialogProps {
   hasUnsavedChanges?: boolean;
   saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
   /**
-   * The map's current layers, used to warn about layers whose
-   * dataset would be silently filtered out for this map's audience (a
-   * private/unpublished dataset on a public/shared map). Optional so
-   * existing tests that don't exercise this warning keep compiling.
+   * The map's current layers, used to warn about layers whose dataset would be
+   * silently filtered out for this map's audience (a private/unpublished
+   * dataset on a public/shared map).
    */
   layers?: MapLayerResponse[];
   /** Names the embed snippet's iframe; a generic label is used when absent. */
@@ -759,11 +722,10 @@ interface ShareDialogProps {
 }
 
 /**
- * Owns the full share-token + embed-token lifecycle for a
- * single map, so the "create an embed token when the map has non-public layers"
- * sequence lives in exactly ONE place instead of being copy-pasted across the
- * get/regenerate handlers. ShareDialog consumes this and is reduced to
- * presentation. Behavior is unchanged from the previous inline implementation.
+ * Owns the full share-token + embed-token lifecycle for a single map, so the
+ * "create an embed token when the map has non-public layers" sequence lives in
+ * ONE place instead of being copied across the get/regenerate handlers.
+ * ShareDialog consumes it for presentation only.
  */
 function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const { t } = useTranslation('builder');
@@ -776,8 +738,8 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
   const [rawShareToken, setRawShareToken] = useState<string | null>(null);
 
-  // Single-flight guard for concurrent createEmbedToken invocations.
-  // Mirrors ChatPanel.tsx inflightRef pattern.
+  // Single-flight guard for concurrent createEmbedToken invocations (the
+  // ChatPanel.tsx inflightRef pattern).
   const inflightEmbedCreate = useRef<Promise<{ raw_token: string }> | null>(null);
 
   // Queries as source of truth — only fetch when dialog is open
@@ -788,16 +750,13 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
   const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
-  // Name the predicate param `token` so it no longer
-  // shadows the `t` translation function destructured above.
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
     token => token.is_active && new Date(token.expires_at) > new Date()
   );
   const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
-  // Stabilize with useMemo so the array reference is only new when the data
-  // actually changes. Without memoization, `?? []` produces a new [] reference
-  // on every render, causing the sync useEffect in ShareLinkSettings to fire
-  // every render and wipe in-flight optimistic chip state.
+  // Memoized so the array reference only changes when the data does: `?? []`
+  // would produce a new [] each render, firing the sync useEffect in
+  // ShareLinkSettings every render and wiping in-flight optimistic chip state.
   const configOrigins = useMemo(
     () => activeEmbedToken?.allowed_origins ?? [],
     [activeEmbedToken?.allowed_origins],
@@ -816,26 +775,18 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   /**
    * Create an embed token if one does not already exist.
    *
-   * Contract: deduplicates concurrent invocations via
-   * inflightEmbedCreate ref. Two callers racing through this function (e.g.,
-   * React StrictMode double-mount, or rapid double-click on Generate Share
-   * Link) share the same in-flight promise instead of firing parallel
-   * createEmbedToken mutations that would both succeed and orphan one of the
-   * resulting tokens in the DB.
-   *
-   * Mirrors the ChatPanel.tsx inflightRef pattern.
-   *
-   * This is also the explicit create-embed-token path that
-   * lets a fully-public map (no non-public layers) mint a token so the owner can
-   * configure allowed domains.
-   *
-   * Regression pin: SharePanel.test.tsx test asserts call count
-   * equals 1 under a 2-concurrent-click scenario.
+   * Contract: concurrent invocations are deduplicated via the
+   * inflightEmbedCreate ref. Two callers racing through here (React StrictMode
+   * double-mount, rapid double-click on Generate Share Link) share one
+   * in-flight promise instead of firing parallel createEmbedToken mutations
+   * that would both succeed and orphan one token in the DB. This is also the
+   * explicit create path that lets a fully-public map (no non-public layers)
+   * mint a token so the owner can configure allowed domains.
+   * SharePanel.test.tsx asserts one call under two concurrent clicks.
    */
   async function createEmbed() {
     if (embedTokenRaw) return;
     if (activeEmbedToken) return;
-    // Dedupe concurrent calls. Mirrors ChatPanel inflightRef.
     if (inflightEmbedCreate.current) {
       try {
         await inflightEmbedCreate.current;
@@ -846,7 +797,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
     }
     try {
       // Allowed origins are managed via the chip input in ShareLinkSettings;
-      // no origins at creation time (domainInput was dead state).
+      // none at creation time.
       const promise = createEmbedToken.mutateAsync({ mapId });
       inflightEmbedCreate.current = promise;
       const tokenResult = await promise;
@@ -882,8 +833,8 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
       setRawShareToken(created.share_url ? created.token : null);
       const check = await runVisibilityCheck();
       if (check?.has_non_public) {
-        // Allowed origins are managed via chip input in ShareLinkSettings;
-        // no origins at creation time (domainInput was dead state).
+        // Allowed origins are managed via the chip input in ShareLinkSettings;
+        // none at creation time.
         const tokenResult = await createEmbedToken.mutateAsync({ mapId });
         setEmbedTokenRaw(tokenResult.raw_token);
       }
@@ -911,8 +862,8 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
     if (!activeEmbedToken) return;
     try {
       await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
-      // Allowed origins are managed via chip input in ShareLinkSettings;
-      // no origins at creation time (domainInput was dead state).
+      // Allowed origins are managed via the chip input in ShareLinkSettings;
+      // none at creation time.
       const tokenResult = await createEmbedToken.mutateAsync({ mapId });
       setEmbedTokenRaw(tokenResult.raw_token);
       toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
@@ -965,29 +916,28 @@ export function ShareDialog({
   // disables the Public choice.
   const canSetPublic = useCanSetPublicVisibility();
 
-  // Three origins live here, and the question that
-  // picks between them is WHO OPENS THE URL — not whether it is "a share".
+  // Three origins live here, picked by WHO OPENS THE URL, not by whether it is
+  // "a share".
   //
-  //  1. HANDED TO SOMEONE ELSE — the copied link, its /card twin, the iframe
-  //     snippet. The recipient is not on this network, so these must name the
-  //     address people use to reach GeoLens (shareBaseUrl / embedBaseUrl).
-  //  2. OPENED BY THIS BROWSER — the "Open" button and an UNLOCKED preview.
-  //     These use currentOrigin directly and are deliberately NEITHER of the
-  //     others: this browser demonstrably reaches this host, and may not reach
-  //     the public one at all. An externally routed public hostname unreachable
-  //     from the internal admin network is a normal split-horizon deployment,
-  //     not a misconfiguration, and pointing a local affordance at it means an
-  //     admin can use GeoLens yet cannot open the share they just created.
-  //  3. OPENED BY THIS BROWSER *AND* SUBJECT TO THE LOCK — a DOMAIN-LOCKED
-  //     preview. It belongs to neither bucket above, and for a split-horizon
-  //     deployment it has no answer at all: its API calls must carry the
-  //     CONFIGURED origin, while `frame-ancestors` judges this dialog as the
-  //     PARENT and accepts only that same configured origin. So it is offered
-  //     only when the two already coincide, and refused otherwise. See
-  //     getLockedPreviewBaseUrl.
-  //  4. The domain-lock decision for the SNIPPET is a further split within (1).
+  // 1. HANDED TO SOMEONE ELSE (the copied link, its /card twin, the iframe
+  // snippet): the recipient is not on this network, so these name the address
+  // people use to reach GeoLens (shareBaseUrl / embedBaseUrl).
   //
-  // See lib/public-urls.ts for why "configured" is not the same question as
+  // 2. OPENED BY THIS BROWSER (the "Open" button and an UNLOCKED preview):
+  // these use currentOrigin directly. This browser demonstrably reaches this
+  // host and may not reach the public one at all (an externally routed hostname
+  // unreachable from the internal admin network is a normal split-horizon
+  // deployment), and pointing a local affordance at it would leave an admin
+  // able to use GeoLens yet unable to open the share they just created.
+  //
+  // 3. OPENED BY THIS BROWSER AND SUBJECT TO THE LOCK (a DOMAIN-LOCKED
+  // preview): its API calls must carry the CONFIGURED origin, while
+  // `frame-ancestors` judges this dialog as the PARENT and accepts only that
+  // same configured origin. So it is offered only when the two coincide (see
+  // getLockedPreviewBaseUrl).
+  //
+  // The domain-lock decision for the SNIPPET is a further split within (1). See
+  // lib/public-urls.ts for why "configured" is not the same question as
   // "correct".
   const { data: tileConfig } = useTileConfig();
   const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
@@ -1008,7 +958,6 @@ export function ShareDialog({
     [layers, visibility],
   );
 
-  // Token lifecycle lives in a dedicated hook.
   const tokens = useShareTokens({ mapId, open });
   const {
     hasNonPublic,
@@ -1027,24 +976,22 @@ export function ShareDialog({
   const handleRevoked = tokens.onRevoked;
   const createShareToken = tokens.shareMutation;
   const revokeShareToken = tokens.revokeShareMutation;
-  // The embed snippet splits from the share link here,
-  // on what a wrong origin COSTS. An unrestricted embed degrades — served from
-  // a non-canonical but real origin it still loads and draws. A DOMAIN-LOCKED
-  // one does not: the shell's own API calls would carry an origin the backend
-  // does not recognize as first-party, so the map comes up empty with nothing
-  // said. That is the failure this whole PR exists to stop being silent, so
-  // when the lock is on we require a trustworthy configured origin and withhold
-  // the snippet otherwise. `assert_domain_lock_is_enforceable` refuses to mint
-  // such a lock in the first place, so this is reachable only for a token that
-  // predates the guard or a deployment whose URL changed under it.
+  // The embed snippet splits from the share link here, on what a wrong origin
+  // COSTS. An unrestricted embed degrades: from a non-canonical but real origin
+  // it still loads and draws. A DOMAIN-LOCKED one does not: the shell's own API
+  // calls would carry an origin the backend doesn't recognize as first-party,
+  // so the map comes up empty with nothing said. So when the lock is on we
+  // require a trustworthy configured origin and withhold the snippet otherwise.
+  // `assert_domain_lock_is_enforceable` refuses to mint such a lock, so this is
+  // reachable only for a token that predates the guard or a deployment whose
+  // URL changed under it.
   const isDomainLocked = configOrigins.length > 0;
   const embedBaseUrl = isDomainLocked ? trustedAppBaseUrl : shareBaseUrl;
 
-  // Category (3). Null means the preview is genuinely
-  // impossible rather than merely unconfigured — you cannot preview a
-  // domain-locked embed from a hostname the lock does not permit, and asking
-  // the browser to do it anyway just gets the frame blocked. Copying the
-  // snippet, which is what the admin came here for, is unaffected.
+  // Category (3). Null means the preview is genuinely impossible, not merely
+  // unconfigured: you cannot preview a domain-locked embed from a hostname the
+  // lock does not permit, and the browser would just block the frame. Copying
+  // the snippet, which is what the admin came for, is unaffected.
   const previewBaseUrl = isDomainLocked
     ? getLockedPreviewBaseUrl(tileConfig, currentOrigin)
     : currentOrigin;
@@ -1064,20 +1011,18 @@ export function ShareDialog({
   // cancelling leaves the old selection intact.
   const [pendingVisibility, setPendingVisibility] = useState<MapVisibility | null>(null);
 
-  // The backend refuses PUT /maps/{id} with 400 when a map is
-  // switched to public while it still holds non-public dataset layers
-  // (validate_public_visibility in maps/router.py). That refusal used to
-  // vanish silently — the dataset names were read off the already-translated
-  // `err.message` (a fallback string, not JSON) and JSON.parse'd there,
-  // instead of off the raw `err.body` the backend actually sent. This holds
-  // the refusal so it renders as a persistent inline message under the
-  // visibility control, since the confirm dialog is already closed by the
-  // time the response comes back.
+  // The backend refuses PUT /maps/{id} with 400 when a map is switched to
+  // public while it still holds non-public dataset layers
+  // (validate_public_visibility in maps/router.py). The dataset names come from
+  // the raw `err.body` the backend sent, not the translated `err.message`. This
+  // holds the refusal so it renders as a persistent inline message under the
+  // visibility control, since the confirm dialog is already closed when the
+  // response arrives.
   const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
 
-  // The dialog stays mounted across open/close (BuilderDialogs.tsx
-  // keeps it alive as long as a map is loaded), so a refusal from one visit
-  // would otherwise still be showing the next time this dialog opens.
+  // The dialog stays mounted across open/close (BuilderDialogs.tsx keeps it
+  // alive while a map is loaded), so a refusal from one visit would otherwise
+  // still be showing the next time it opens.
   useEffect(() => {
     if (!open) setPublishBlocked(null);
   }, [open]);
@@ -1158,10 +1103,10 @@ export function ShareDialog({
     if (newVisibility === visibility) return;
     // A fresh attempt clears any stale refusal from a previous one.
     setPublishBlocked(null);
-    // Transitions that cross the public boundary need explicit
-    // confirmation — going public exposes the map to anyone with a link, and
-    // leaving public kills existing share links (clearSharedState below).
-    // Private↔internal keeps the original one-click behavior.
+    // Transitions that cross the public boundary need explicit confirmation:
+    // going public exposes the map to anyone with a link, and leaving public
+    // kills existing share links (clearSharedState below). Private<->internal
+    // stays one click.
     if (newVisibility === 'public' || visibility === 'public') {
       setPendingVisibility(newVisibility);
       if (newVisibility === 'public') checkPublicEligibility();
@@ -1197,36 +1142,36 @@ export function ShareDialog({
       }
     } catch (err) {
       if (!isMountedRef.current || publishRequestId.current !== requestId) return;
-      // The mutation never touched `visibility` on failure (the
-      // toggle only follows the server response above), so the previous
-      // value is already what's on screen — nothing to snap back here. What
-      // was missing was WHY: the raw error detail (`err.body`) carries
-      // `{ message, datasets }` for this specific refusal, extracted here via
-      // the same helper `usePublishMap` uses to skip its own generic
-      // "failed to update" toast for this one case (every other failure
-      // still gets that toast — see use-maps.ts).
+      // The mutation never touched `visibility` on failure (the toggle only
+      // follows the server response above), so the previous value is already on
+      // screen. The raw error detail (`err.body`) carries `{ message, datasets
+      // }` for this refusal, extracted via the same helper `usePublishMap` uses
+      // to skip its generic "failed to update" toast for this one case (see
+      // use-maps.ts).
       const datasets = nonPublicDatasetsFromError(err);
       if (datasets) setPublishBlocked(datasets);
     }
   }
 
-  /** Category (2) above — the "Open" button navigates
-   *  THIS admin's browser and hands the URL to nobody, so it uses the origin
-   *  this browser is known to reach rather than the public one, which a
-   *  split-horizon deployment may route only externally. */
+  /**
+   * Category (2) above: the "Open" button navigates THIS admin's browser and
+   * hands the URL to nobody, so it uses the origin this browser is known to
+   * reach rather than the public one, which a split-horizon deployment may
+   * route only externally.
+   */
   function getShareUrl() {
     if (!rawShareToken) return '';
     return `${currentOrigin}/m/${rawShareToken}`;
   }
 
-  /** Returns the crawler-unfurlable /card URL so the
-   *  copied link emits OG/Twitter meta tags when pasted into Slack, Twitter etc.
-   *  Human visitors are redirected to the SPA viewer via the card route's
-   *  <meta http-equiv="refresh">.
-   *
-   *  The /m/{token} viewer URL is preserved in getShareUrl() for the "Open in
-   *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
-   *  src is unchanged (see generateEmbedCode). */
+  /**
+   * Returns the crawler-unfurlable /card URL so the copied link emits
+   * OG/Twitter meta tags when pasted into Slack, Twitter etc. Human visitors
+   * are redirected to the SPA viewer via the card route's <meta
+   * http-equiv="refresh">. The /m/{token} viewer URL stays in getShareUrl() for
+   * "Open in new tab" (direct, redirect-free load); the embed iframe src is
+   * separate (see generateEmbedCode).
+   */
   function getShareCardUrl() {
     if (!rawShareToken) return '';
     return `${shareBaseUrl}/api/maps/shared/${rawShareToken}/card`;
@@ -1244,7 +1189,6 @@ export function ShareDialog({
 
   async function handleCopyShareLink() {
     // Copy the /card URL so the pasted link unfurls in social clients.
-    // The label ("Copy Link") is unchanged — only the copied value changes.
     const url = getShareCardUrl();
     if (!url) return;
     try {
@@ -1258,8 +1202,8 @@ export function ShareDialog({
   async function handleCopyEmbedCode() {
     const code = getEmbedCode();
     if (!code) {
-      // Only reachable with a domain lock on and no
-      // trustworthy public origin — a snippet that would load and stay empty.
+      // Only reachable with a domain lock on and no trustworthy public origin:
+      // a snippet that would load and stay empty.
       if (!embedBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
       return;
     }
@@ -1311,9 +1255,9 @@ export function ShareDialog({
             </div>
           )}
 
-          {/* Warn about layers whose dataset is private/unpublished
-              on a public/shared map — those viewers silently never see them
-              (filtered server-side by filter_layer_rows_by_dataset_visibility). */}
+          {/* Warn about layers whose dataset is private/unpublished on a
+              public/shared map: those viewers silently never see them (filtered
+              server-side by filter_layer_rows_by_dataset_visibility). */}
           {audienceHiddenLayers.length > 0 && (
             <div
               data-testid="share-audience-hidden-warning"
@@ -1372,9 +1316,9 @@ export function ShareDialog({
             {!isPublic && (
               <p className="text-xs text-muted-foreground mt-2">{t('share.makePublicHint', { defaultValue: 'Make this map public to generate a share link' })}</p>
             )}
-            {/* The server-side refusal to publish a map that still
-                holds non-public dataset layers, surfaced inline instead of
-                vanishing — see handleVisibilityChange above. */}
+            {/* The server-side refusal to publish a map that still holds
+                non-public dataset layers, shown inline (see
+                handleVisibilityChange above). */}
             {publishBlocked && (
               <div
                 data-testid="share-publish-blocked-error"
@@ -1387,11 +1331,10 @@ export function ShareDialog({
             )}
           </div>
 
-          {/* Crossing the public boundary is confirmed before the
-              mutation runs — going public was previously one un-confirmed click,
-              and leaving public silently killed existing share links. Same
-              AlertDialog structure as the revoke confirm above; only the
-              leave-public action is destructive-styled (it breaks live links). */}
+          {/* Crossing the public boundary is confirmed before the mutation
+              runs: going public exposes the map and leaving public kills
+              existing share links. Same AlertDialog structure as the revoke
+              confirm above; only the leave-public action is destructive-styled. */}
           <AlertDialog
             open={pendingVisibility !== null}
             onOpenChange={(dialogOpen) => {
@@ -1615,11 +1558,10 @@ export function ShareDialog({
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
-                  {/* A domain-locked embed with no
-                      trustworthy public origin would load and stay empty, so
-                      say that rather than emitting a snippet that looks fine.
-                      An unrestricted embed always has a usable origin and never
-                      reaches this branch. */}
+                  {/* A domain-locked embed with no trustworthy public origin
+                      would load and stay empty, so say that instead of emitting
+                      a snippet that looks fine. An unrestricted embed always
+                      has a usable origin and never reaches this branch. */}
                   {!embedBaseUrl ? (
                     <div
                       role="status"
@@ -1700,10 +1642,11 @@ export function ShareDialog({
                       <li><code className="bg-muted px-1 rounded-sm text-mini">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
-                  {/* A fully-public map has no embed token (none was
-                      forced by non-public layers), so the domain controls in Link Settings
-                      never appear. Offer an explicit create-embed-token path so the owner
-                      can mint a token and then restrict embedding to specific domains. */}
+                  {/* A fully-public map has no embed token (none was forced by
+                      non-public layers), so the domain controls in Link
+                      Settings never appear. Offer an explicit
+                      create-embed-token path so the owner can restrict
+                      embedding to specific domains. */}
                   {canUseAdvancedSharing && !hasNonPublic && !embedTokenRaw && !resolvedEmbedTokenId && (
                     <div className="flex items-start gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
                       <Shield className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
@@ -1731,13 +1674,12 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* Embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {/* An UNLOCKED preview loads in THIS
-                      browser and uses the origin this browser reached — pointed
-                      at a public host routed only externally it would render
-                      nothing. A DOMAIN-LOCKED preview instead has to come from
-                      the configured origin, because that is the only one its
-                      own API calls may present; with no such origin it is
-                      suppressed rather than shown empty. */}
+                  {/* An UNLOCKED preview loads in THIS browser and uses the
+                      origin this browser reached; pointed at a public host
+                      routed only externally it would render nothing. A
+                      DOMAIN-LOCKED preview must come from the configured
+                      origin, the only one its API calls may present, so with no
+                      such origin it is suppressed rather than shown empty. */}
                   {embedTokenRaw && previewBaseUrl && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}

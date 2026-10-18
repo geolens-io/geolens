@@ -36,10 +36,9 @@ export const FILL_OWNED_PAINT_PROPERTIES = [
 // here because `syncOwnedPaintProperties` only reconciles keys in this set: an
 // unregistered key is written once by addLayers and never updated again.
 export const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-layer-opacity'] as const;
-// 3D extrusion authoring is a DELIBERATE single-purpose subset
-// (column height only). fill-extrusion-base is intentionally fixed to 0 and
-// fill-extrusion-pattern / -translate / -translate-anchor are intentionally NOT authored;
-// this is column-height extrusion, not a general fill-extrusion editor.
+// 3D extrusion authoring is a deliberate subset: column height only.
+// fill-extrusion-base is fixed to 0, and fill-extrusion-pattern, -translate
+// and -translate-anchor are not authored.
 export const EXTRUSION_OWNED_PAINT_PROPERTIES = [
   'fill-extrusion-height',
   'fill-extrusion-base',
@@ -83,8 +82,7 @@ function resolveExtrusionFillColor(
   builder: { fillColorSaved?: string },
 ): FillExtrusionColor {
   const painted = rawPaint['fill-color'];
-  // The single cast lives here, after the check, replacing the two `as string`
-  // assertions the call sites used to make on values that were never checked at all.
+  // The single cast lives here, after the check.
   if (typeof painted === 'string' || Array.isArray(painted)) return painted as FillExtrusionColor;
   return typeof builder.fillColorSaved === 'string'
     ? builder.fillColorSaved

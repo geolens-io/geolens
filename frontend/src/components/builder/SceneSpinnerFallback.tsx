@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
  * full-page LoadingState since the surrounding chrome is already visible.
  *
  * Centered Loader2 spinner, role="status".
- * Aria-label is localized (was hardcoded English).
+ * Aria-label is localized.
  */
 export function SceneSpinnerFallback() {
   const { t } = useTranslation('builder');

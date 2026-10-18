@@ -1,6 +1,4 @@
 /**
- * Selection-utils
- *
  * Pure helper that computes the next layer-row selection state from a click
  * event. Extracted so it can be unit-tested without rendering the panel.
  *
@@ -37,12 +35,11 @@ function layerMatchesSearch(layer: MapLayerResponse, query: string): boolean {
 }
 
 /**
- * The ordered list of row ids the stack actually RENDERS — children
- * of collapsed groups and rows hidden by the layer search are excluded. The raw
- * flat layer array previously fed shift-click range selection directly, so a
- * range could sweep up rows the user cannot see and bulk delete/visibility/
- * opacity then acted on them. Mirrors UnifiedStackPanel's render plan exactly
- * (the panel consumes this same helper for its row-skip decisions):
+ * The ordered list of row ids the stack actually RENDERS: children of collapsed
+ * groups and rows hidden by the layer search are excluded, so a shift-click
+ * range can't sweep up rows the user cannot see. Mirrors UnifiedStackPanel's
+ * render plan exactly (the panel consumes this same helper for its row-skip
+ * decisions):
  *   - group row: rendered unless a search is active and neither its name nor
  *     any child matches;
  *   - group children: rendered only while the group is expanded, and (under

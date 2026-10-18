@@ -6,8 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-// Shared platform detection + Save chord (was duplicated
-// from MapTitleBar.tsx).
+// Shared platform detection + Save chord.
 import { IS_MAC, SAVE_SHORTCUT } from '@/lib/platform';
 
 interface ShortcutRowProps {
@@ -62,10 +61,9 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.legend', { defaultValue: 'Toggle legend' }),
       chord: 'L',
     },
-    // The sheet previously omitted half the real
-    // keyboard model — every row below documents a binding that already
-    // exists (MapBuilderPage '?' hotkey, StackRow reorder mode, panel
-    // Escape handlers, UnifiedStackPanel multi-select).
+    // Every row below documents a binding that exists (MapBuilderPage '?'
+    // hotkey, StackRow reorder mode, panel Escape handlers, UnifiedStackPanel
+    // multi-select).
     {
       id: 'shortcuts',
       label: t('a11y.shortcuts.showSheet', { defaultValue: 'Show this dialog' }),
@@ -91,11 +89,9 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.multiSelect', { defaultValue: 'Toggle layer in selection' }),
       chord: IS_MAC ? '⌘+Click' : 'Ctrl+Click',
     },
-    // Space on a focused row is the keyboard equivalent of the
-    // Cmd-click above (StackRow's `e.key === ' '` handler), and double-click
-    // renames. Both existed with no way to discover them from here — the
-    // keyboard one especially, since it was the only route for a keyboard-only
-    // user and the sheet documented multi-select as a pointer chord alone.
+    // Space on a focused row is the keyboard equivalent of the Cmd-click above
+    // (StackRow's `e.key === ' '` handler), and double-click renames. The
+    // keyboard route is the only one for a keyboard-only user.
     {
       id: 'multi-select-key',
       label: t('a11y.shortcuts.multiSelectKey', { defaultValue: 'Toggle layer in selection (focused row)' }),
@@ -122,9 +118,9 @@ export function KeyboardShortcutsSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* DialogContent has no max height and no overflow of its
-          own, and it is vertically centred, so a sheet taller than the viewport
-          clips at both ends with nothing to scroll. Fifteen rows plus wrapped
+      {/* DialogContent has no max height or overflow of its own and is
+          vertically centred, so a sheet taller than the viewport would clip at
+          both ends with nothing to scroll. Fifteen rows plus wrapped
           translations reach that on a short window or with enlarged text. */}
       <DialogContent className="sm:max-w-sm max-h-[85vh] overflow-y-auto">
         <DialogHeader>

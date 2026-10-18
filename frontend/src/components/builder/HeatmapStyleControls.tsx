@@ -56,8 +56,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
   }, [paint, layer.id, reversed, onPaintChange]);
 
   // Reverse toggle: rebuild heatmap-color so the rendered ramp actually flips,
-  // and store the flag so the checkbox round-trips (was an inert default-false
-  // checkbox with no callback wired).
+  // and store the flag so the checkbox round-trips.
   const handleReversedChange = useCallback((next: boolean) => {
     onPaintChange(layer.id, {
       ...paint,
@@ -181,9 +180,8 @@ export function SliderRow({ label, value, min, max, step, display, format, descr
       <Slider
         aria-label={label}
         aria-describedby={describedBy}
-        // Announce the formatted value ("80%"), matching
-        // RasterSliderRow and the DEM/basemap scenes — without it AT read the
-        // raw number ("0.8") while the screen showed the formatted one.
+        // Announce the formatted value ("80%"), matching RasterSliderRow and
+        // the DEM/basemap scenes; otherwise AT reads the raw number ("0.8").
         aria-valuetext={displayValue}
         value={[value]}
         min={min}

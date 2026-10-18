@@ -10,8 +10,8 @@ import {
 import { MAP_COLORS } from '@/lib/map-colors';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
-// Arrow render-mode defaults come from the single builder-defaults
-// source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
+// Arrow render-mode defaults come from the single builder-defaults source of
+// truth (shared with renderAs + backend mirror).
 import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING, DEFAULT_LINE_PAINT } from './builder-defaults';
 
 const ARROW_IMAGE_ID = 'geolens-line-arrow';
@@ -141,10 +141,10 @@ export function resolveLinePaint(paint: Record<string, unknown>): Record<string,
  * expression. Master opacity rides on `line-layer-opacity`, its own tier in
  * maplibre-gl v6, leaving the per-feature `line-opacity` unmultiplied.
  *
- * line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
- * valid scalar fallback, so it is excluded from the "is paint empty" check the same
- * way the legacy add path did. The writer's EXPRESSION_ONLY_PAINT keeps a real
- * gradient expression out of the initial addLayer call; reconcilePaint installs it.
+ * line-gradient REQUIRES an expression that consumes ['line-progress']; there is
+ * no valid scalar fallback, so it is excluded from the "is paint empty" check.
+ * The writer's EXPRESSION_ONLY_PAINT keeps a real gradient expression out of the
+ * initial addLayer call; reconcilePaint installs it.
  */
 function linePaint(input: AdapterLayerInput): Record<string, unknown> {
   const rawPaint = input.paint;

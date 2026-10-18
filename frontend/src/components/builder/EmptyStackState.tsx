@@ -16,10 +16,6 @@ interface EmptyStackStateProps {
 // imported by UnifiedStackPanel for the basemap-dock BASEMAP eyebrow label
 export const eyebrowClassName = 'block text-2xs font-semibold tracking-wide text-muted-foreground uppercase px-1';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function formatCompactNumber(n: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     notation: 'compact',
@@ -30,10 +26,6 @@ function formatCompactNumber(n: number, locale: string): string {
 function isRasterType(recordType: SuggestedDataset['record_type']): boolean {
   return recordType === 'raster_dataset' || recordType === 'vrt_dataset';
 }
-
-// ---------------------------------------------------------------------------
-// SuggestCard — inner component for a single hand-curated suggestion
-// ---------------------------------------------------------------------------
 
 interface SuggestCardProps {
   suggestion: SuggestedDataset;
@@ -56,12 +48,12 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
     enabled: idIsRealUuid,
   });
 
-  // Hide cards whose ID is a placeholder or whose fetch errored
+  // Hide cards whose ID is a placeholder or whose fetch errored.
   if (!idIsRealUuid) return null;
   if (isError) return null;
-  // While loading the first time (no data yet) we only hide if explicitly errored.
-  // If data is undefined but not errored, show optimistically (availability not yet confirmed).
-  // Cards that actually 404 set isError=true, so this is the correct guard.
+  // While loading the first time (no data yet) hide only if explicitly errored;
+  // if data is undefined but not errored, show optimistically. Cards that
+  // actually 404 set isError=true, so this is the correct guard.
 
   const isAdding = addingId === suggestion.id;
   const isAdded = addedIds.has(suggestion.id);
@@ -154,10 +146,6 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
   );
 }
 
-// ---------------------------------------------------------------------------
-// EmptyStackState — main export
-// ---------------------------------------------------------------------------
-
 export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackStateProps) {
   const { t } = useTranslation('builder');
   const [inlineQuery, setInlineQuery] = useState('');
@@ -201,8 +189,8 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
     >
       {/* Prompt */}
       <div className="text-center">
-        {/* Was <h4>, which skipped h2/h3 under the builder's
-            new <h1>. Styling is unchanged; only the level moves onto the outline. */}
+        {/* The heading level follows the builder's <h1> outline (an <h4> would
+            skip h2/h3). */}
         <h2 className="text-sm font-semibold">
           {t('unifiedStack.emptyHeading', { defaultValue: 'Add your first layer' })}
         </h2>
@@ -236,10 +224,9 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           <Search className="h-4 w-4" aria-hidden="true" />
         </button>
         <input
-          // fix(v1.6.0 audit D12): type="search" gives the searchbox role
-          // natively plus the browser's built-in Escape-clear, instead of the
-          // hand-rolled role="searchbox" on a plain text input. The manual
-          // Escape handler stays for engines (and jsdom) without native clear.
+          // type="search" gives the searchbox role natively plus the browser's
+          // built-in Escape-clear. The manual Escape handler stays for engines
+          // (and jsdom) without native clear.
           type="search"
           aria-label={t('unifiedStack.emptySearchInput', { defaultValue: 'Search datasets to add' })}
           placeholder={t('unifiedStack.emptySearchPlaceholder', { defaultValue: 'Search datasets, URLs, or files…' })}

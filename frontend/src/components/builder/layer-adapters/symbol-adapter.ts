@@ -8,13 +8,15 @@ import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
 const GEOLENS_SPRITE_PATH = '/api/maps/sprites/geolens';
-// Symbol authoring is a DELIBERATE curated subset — icon
-// (image/size/rotate/anchor/offset/allow-overlap) + basic label (field/size/font/anchor/
-// offset/allow-overlap/max-width) and the paint set below. The other ~30 spec symbol
-// properties (symbol-placement/spacing/sort-key, icon-text-fit, icon-keep-upright,
-// text-justify/transform/letter-spacing/variable-anchor, *-rotation-alignment, *-translate,
-// text-halo-blur, etc.) are intentionally out of scope. symbolLayout() spreads ...input.layout
-// first, so any such stored property survives round-trip even though it has no authoring UI.
+// Symbol authoring is a DELIBERATE curated subset: icon
+// (image/size/rotate/anchor/offset/allow-overlap), basic label
+// (field/size/font/anchor/offset/allow-overlap/max-width) and the paint set
+// below. The other ~30 spec symbol properties
+// (symbol-placement/spacing/sort-key, icon-text-fit, icon-keep-upright,
+// text-justify/transform/letter-spacing/variable-anchor, *-rotation-alignment,
+// *-translate, text-halo-blur, etc.) are out of scope. symbolLayout() spreads
+// ...input.layout first, so any such stored property survives round-trip
+// without an authoring UI.
 export const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
   'icon-image',
   'icon-size',
@@ -41,13 +43,11 @@ export const SYMBOL_OWNED_PAINT_PROPERTIES = [
 
 /**
  * Merge a layer's symbol config from the two places it can live.
- *
  * `style_config.builder.symbol` is the legacy stash and `style_config.symbol`
- * is the current home; a layer can carry BOTH, with the top-level object
- * winning field by field. Exported because map-sync
- * resolves `categoryColumn` for the tile column list and a top-level
- * `?? builder.symbol` picked whichever object existed rather than merging, so a
- * `categoryColumn` stashed under `builder` was dropped whenever any top-level
+ * the current home; a layer can carry BOTH, with the top-level object winning
+ * field by field. Exported because map-sync resolves `categoryColumn` for the
+ * tile column list, and picking whichever object exists (instead of merging)
+ * would drop a `categoryColumn` stashed under `builder` whenever any top-level
  * symbol object was present.
  */
 export function resolveSymbolConfig(
@@ -76,20 +76,19 @@ function iconImageExpression(symbol: SymbolStyleConfig): string | unknown[] {
   if (!symbol.categoryColumn || !symbol.categories?.length) return spriteIconId(fallback);
   const pairs: unknown[] = [];
   for (const entry of symbol.categories) {
-    // Skip null values too — the to-string input below
-    // renders null as "", so a null-valued pair could never match.
+    // Skip null values too: the to-string input below renders null as "", so a
+    // null-valued pair could never match.
     if (entry.value === undefined || entry.value === null || !entry.icon) continue;
     pairs.push(String(entry.value), spriteIconId(entry.icon));
   }
   if (pairs.length === 0) {
-    // Zero pairs would emit ['match', input, fallback]
-    // (length 3 < the spec minimum 5) — addLayer throws (swallowed) and the
-    // symbol layer silently never renders. Backend export mirrors this guard.
+    // Zero pairs would emit ['match', input, fallback] (length 3 < the spec
+    // minimum 5): addLayer throws (swallowed) and the symbol layer silently
+    // never renders. Backend export mirrors this guard.
     return spriteIconId(fallback);
   }
-  // To-string the input and stringify labels so numeric MVT
-  // values match the stringified sample values the editor stores (numeric
-  // category columns always fell through to the fallback icon before).
+  // To-string the input and stringify labels so numeric MVT values match the
+  // stringified sample values the editor stores.
   return ['match', ['to-string', ['get', symbol.categoryColumn]], ...pairs, spriteIconId(fallback)];
 }
 
@@ -103,13 +102,12 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     'icon-rotate': symbol.iconRotation ?? 0,
     'icon-anchor': symbol.iconAnchor ?? 'center',
     'icon-offset': symbol.iconOffset ?? [0, 0],
-    // Honor the label overlap toggle for the icon too —
-    // hardcoded true meant "allow overlap: off" decluttered text only. Gated
-    // on an active label column so a stale allowOverlap from a cleared label
-    // config can't hide icons with no visible control. Deliberately EXPLICIT
-    // false only: an absent
-    // allowOverlap keeps icons overlapping so saved maps that never touched
-    // the toggle don't change rendering; text keeps its own ?? false default.
+    // Honor the label overlap toggle for the icon too. Gated on an active label
+    // column so a stale allowOverlap from a cleared label config can't hide
+    // icons with no visible control. Deliberately EXPLICIT false only: an
+    // absent allowOverlap keeps icons overlapping so saved maps that never
+    // touched the toggle don't change rendering; text keeps its own ?? false
+    // default.
     'icon-allow-overlap': !(lc?.column && lc.allowOverlap === false),
     visibility: input.visible ? 'visible' : 'none',
   };
@@ -118,11 +116,10 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     layout['text-field'] = ['get', lc.column];
     layout['text-size'] = lc.fontSize ?? 12;
     layout['text-font'] = [...LABEL_FONT_STACK];
-    // Default anchor/offset must match the companion-label
-    // path AND what LabelEditor displays (center / DEFAULT_POINT_LABEL_OFFSET).
-    // The old 'top'/[0,1.2] defaults meant the editor showed Center/0/-1.5
-    // while the map drew top/0/1.2, and the first Offset-X drag snapped the
-    // text across the point.
+    // Default anchor/offset must match the companion-label path AND what
+    // LabelEditor displays (center / DEFAULT_POINT_LABEL_OFFSET); otherwise the
+    // editor would show Center/0/-1.5 while the map draws top/0/1.2 and the
+    // first Offset-X drag would snap the text across the point.
     layout['text-anchor'] = lc.textAnchor ?? 'center';
     layout['text-offset'] = lc.textOffset ?? [...DEFAULT_POINT_LABEL_OFFSET];
     layout['text-allow-overlap'] = lc.allowOverlap ?? false;

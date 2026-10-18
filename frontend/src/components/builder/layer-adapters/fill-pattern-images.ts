@@ -15,7 +15,7 @@ const TILE = 16;
 type Rgb = readonly [number, number, number];
 type PatternImage = { width: number; height: number; data: Uint8ClampedArray };
 
-/** The pre-#914 fixed pattern colour, still used when no tint is resolvable. */
+/** The fixed pattern colour used when no tint is resolvable. */
 const DEFAULT_PATTERN_RGB: Rgb = [80, 80, 80];
 
 /** RGBA pixel writer helper: sets a pixel at (x, y) in a TILE×TILE data array. */

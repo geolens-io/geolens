@@ -24,19 +24,16 @@ import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 
 /**
- * Renderer for the generic GEOMETRY sentinel.
- *
- * A created (sketch) dataset that mixes geometry families keeps
- * `geometry_type='GEOMETRY'` (see backend `_derive_created_geometry_type`).
- * The classifier used to route that sentinel to the fill adapter, so point and
- * line features added to a map silently disappeared. This adapter installs one
- * sublayer per family, each hard-filtered on `['geometry-type']` — mirroring
- * the dataset-detail map's generic branch (use-map-layers.ts) and the
- * cluster adapter's filtered-sublayer pattern.
+ * Renderer for the generic GEOMETRY sentinel. A created (sketch) dataset that
+ * mixes geometry families keeps `geometry_type='GEOMETRY'` (see backend
+ * `_derive_created_geometry_type`). This adapter installs one sublayer per
+ * family, each hard-filtered on `['geometry-type']`, mirroring the
+ * dataset-detail map's generic branch (use-map-layers.ts) and the cluster
+ * adapter's filtered-sublayer pattern.
  *
  * The family filter is part of each sublayer's identity: it must ALWAYS be
- * composed with (never replaced by) the user's data filter, so each sublayer's
- * spec carries the composed filter.
+ * composed with (never replace) the user's data filter, so each sublayer's spec
+ * carries the composed filter.
  */
 
 export function mixedLinesLayerId(layerId: string) {
@@ -71,11 +68,10 @@ export function mixedFamilyFilter(
 ): FilterSpecification {
   const base = MIXED_FAMILY_FILTERS[family];
   if (!Array.isArray(filter) || filter.length === 0) return base;
-  // Normalize legacy-syntax data filters (e.g.
-  // ['==', 'status', 'open'] from older saved maps) to expression syntax
-  // before composing. A single legacy child makes MapLibre classify the whole
-  // ['all', ...] as a LEGACY filter, which then rejects the expression-syntax
-  // ['geometry-type'] family predicate and fails addLayer/setFilter.
+  // Normalize legacy-syntax data filters (e.g. ['==', 'status', 'open'] from
+  // older saved maps) before composing: a single legacy child makes MapLibre
+  // classify the whole ['all', ...] as a LEGACY filter, which rejects the
+  // expression-syntax ['geometry-type'] predicate and fails addLayer/setFilter.
   // convertFilter passes expression-syntax filters through unchanged.
   let expressionFilter: unknown = filter;
   try {

@@ -170,8 +170,8 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               </Button>
             )}
             {isTerrainActive && (
-              // #186 (c): guide users with a small high-res DEM toward draping it
-              // over a coarse global DEM so terrain stays smooth across the map.
+              // Guide users with a small high-res DEM toward draping it over a
+              // coarse global DEM so terrain stays smooth across the map.
               <p className="mt-1 text-mini italic text-muted-foreground">
                 {t('settings.terrainSmallDemTip', {
                   defaultValue:
@@ -228,8 +228,8 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                 {plugins.map((plugin) => {
                   const isEnabled = activePluginIds.has(plugin.id);
                   const pluginLabel = t(plugin.labelKey, { defaultValue: plugin.id });
-                  // State-specific aria labels — "Enable {name}" / "Disable {name}" —
-                  // replace the older "{action} {name} plugin" composite key.
+                  // State-specific aria labels: "Enable {name}" / "Disable
+                  // {name}".
                   const switchAriaLabel = isEnabled
                     ? t('settings.disablePlugin', { defaultValue: 'Disable {{name}}', name: pluginLabel })
                     : t('settings.enablePlugin', { defaultValue: 'Enable {{name}}', name: pluginLabel });

@@ -7,8 +7,7 @@ import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 
-// Re-export the single hillshade default from builder-defaults
-// (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
+// Re-export the single hillshade default from builder-defaults.
 export const HILLSHADE_PAINT_DEFAULTS = DEFAULT_HILLSHADE_PAINT;
 
 type HillshadePaintProperty = keyof typeof HILLSHADE_PAINT_DEFAULTS;
@@ -170,8 +169,7 @@ export const hillshadeAdapter: LayerAdapter = {
   addLayers(map, input) {
     const { sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
     if (!map.getSource(sourceId)) {
-      // Shared normalizeRasterBounds, computed once instead
-      // of the prior double-call inside the spread ternary.
+      // Shared normalizeRasterBounds, computed once.
       const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {
         type: 'raster-dem',

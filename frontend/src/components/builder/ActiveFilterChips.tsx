@@ -21,13 +21,11 @@ interface FilterChip {
 }
 
 /**
- * Produce a human-readable summary of a filter expression.
- *
- * Renders from the single canonical filter
- * parser (parseCanonicalFilter) shared with LayerFilterEditor, so numeric
- * (to-number-wrapped) filters now produce a chip and the substring
- * "contains" shape is labelled correctly rather than mislabelled as `<value> in
- * (…)`. Opaque/advanced filters intentionally render no chip.
+ * Produce a human-readable summary of a filter expression, from the canonical
+ * filter parser (parseCanonicalFilter) shared with LayerFilterEditor. Numeric
+ * (to-number-wrapped) filters produce a chip and the substring "contains" shape
+ * is labelled correctly rather than as `<value> in (…)`. Opaque/advanced
+ * filters intentionally render no chip.
  */
 function summarizeFilter(filter: FilterSpecification): string | null {
   const parsed = parseCanonicalFilter(filter);
@@ -103,11 +101,11 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
     // The chips share PluginHost's top-left anchor with the MapLibre
     // NavigationControl (index.css pins it at margin-top 32px / left 10px,
     // ~29px wide) and the MapCoordReadout pill. Collapsing to a summary pill +
-    // `ml-12` (clears the zoom control) keeps both usable — the old always-open
-    // chip stack rendered straight over them. max-h-[40vh] + overflow-y-auto
-    // caps the expanded column so it cannot run down into the bottom-left
-    // LegendPlugin. Outer wrapper stays pointer-events-none for map-drag
-    // passthrough; the inner column restores pointer-events-auto for scroll.
+    // `ml-12` (clears the zoom control) keeps both usable. max-h-[40vh] +
+    // overflow-y-auto caps the expanded column so it cannot run down into the
+    // bottom-left LegendPlugin. The outer wrapper stays pointer-events-none for
+    // map-drag passthrough; the inner column restores pointer-events-auto for
+    // scroll.
     <div className="pointer-events-none ml-12">
       <div className="pointer-events-auto flex max-h-[40vh] flex-col items-start gap-1.5 overflow-y-auto">
         <button

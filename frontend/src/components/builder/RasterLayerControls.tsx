@@ -6,9 +6,8 @@ import { RasterStretchControls } from './LayerStyleEditor/RasterStretchControls'
 import { RasterAppearanceSliders, RasterSliderRow } from './RasterAppearanceSliders';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 
-// Derive the reset allowlist from the adapter's
-// RASTER_PAINT_DEFAULTS (the documented single source of truth / paint-key
-// allowlist) instead of re-hardcoding the 7 keys here.
+// Derive the reset allowlist from the adapter's RASTER_PAINT_DEFAULTS (the
+// single paint-key allowlist) rather than hardcoding the keys here.
 const RASTER_PAINT_KEYS = Object.keys(RASTER_PAINT_DEFAULTS) as (keyof typeof RASTER_PAINT_DEFAULTS)[];
 
 interface RasterLayerControlsProps {
@@ -22,11 +21,10 @@ interface RasterLayerControlsProps {
   bandCount?: number | null;
 }
 
-// This control is raster-only. The former
-// renderMode==='hillshade' branch was unreachable dead code — DEM layers route to
-// DEMEditorScene (the single hillshade editor) via deriveBuilderEditorScene, never to
-// LayerEditorPanel/RasterLayerControls. The hillshade UI + HILLSHADE_PAINT_KEYS + getString
-// were deleted. isDem is retained only to suppress the stretch/colormap section for DEMs.
+// This control is raster-only: DEM layers route to DEMEditorScene (the single
+// hillshade editor) via deriveBuilderEditorScene, never to
+// LayerEditorPanel/RasterLayerControls. isDem is retained only to suppress the
+// stretch/colormap section for DEMs.
 export function RasterLayerControls({
   paint,
   onPaintChange,
@@ -113,9 +111,8 @@ export function RasterLayerControls({
         </Select>
       </div>
 
-      {/* Colormap / Stretch via
-          RasterStretchControls. onPaintProp merges into the
-          full paint dict to match this component's onPaintChange contract.
+      {/* Colormap / Stretch via RasterStretchControls. onPaintProp merges into
+          the full paint dict to match this component's onPaintChange contract.
           Not shown for DEM (terrainrgb) or when band_count is unknown. */}
       <RasterStretchControls
         bandCount={bandCount}

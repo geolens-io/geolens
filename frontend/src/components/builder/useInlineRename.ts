@@ -50,10 +50,9 @@ export function useInlineRename({ value, onCommit, restoreFocus }: UseInlineRena
   }, [editing]);
 
   const startRename = useCallback(() => {
-    // Escape unmounts the focused input, so no blur
-    // fires and commit() — the only other place escapeRef clears — never runs.
-    // Without this reset the first Enter of the NEXT rename was swallowed as
-    // a stale escape.
+    // Escape unmounts the focused input, so no blur fires and commit() (the
+    // only other place escapeRef clears) never runs. Without this reset the
+    // first Enter of the NEXT rename would be swallowed as a stale escape.
     escapeRef.current = false;
     setNameValue(value);
     setEditing(true);

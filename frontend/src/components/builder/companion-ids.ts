@@ -1,13 +1,8 @@
-// Single source of truth for the companion-layer id
-// scheme. Before this module the suffixes (`-outline`, `-extrusion`, `-arrow`,
-// `-label`, `-colorrelief`, `-cluster`, `-cluster-count`) were hand-spelled in
-// map-sync.ts, use-layer-map-sync.ts, use-builder-layers.ts, and
-// builder-layer-mutations.ts. Adding or renaming a companion type meant hunting
-// every site; a missed site silently failed to toggle/filter/remove a companion.
-//
-// Every consumer (the map-sync engine here, and the state hooks that adopt this
-// next) derives companion ids through `getCompanionLayerIds` so the convention
-// lives in exactly one place.
+// The companion-layer id scheme (`-outline`, `-extrusion`, `-arrow`, `-label`,
+// `-colorrelief`, `-cluster`, `-cluster-count`) in one place. The toggle,
+// filter and teardown paths derive companion ids through
+// `getCompanionLayerIds`, so a new companion type can't be silently missed by
+// one of them.
 import { clusterCircleLayerId, clusterCountLayerId } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 

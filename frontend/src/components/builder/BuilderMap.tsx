@@ -67,16 +67,17 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import '@/lib/maplibre-worker';
 
 /**
- * Map builder canvas — the editable composition surface used by `MapBuilderPage`.
+ * Map builder canvas, the editable composition surface used by
+ * `MapBuilderPage`.
  *
- * Renders multiple authenticated tile layers stacked over a basemap, with
- * imperative tile signing and live re-styling as the user edits paint, filters,
- * and layer order in the sidebar. Mousemove is throttled with
- * `requestAnimationFrame` to keep interaction responsive on layer-heavy maps.
+ * Renders authenticated tile layers over a basemap, with imperative tile
+ * signing and live re-styling as the user edits paint, filters and layer order.
+ * Mousemove is throttled with `requestAnimationFrame` to keep layer-heavy maps
+ * responsive.
  *
- * Pairs with the read-only `ViewerMap` for shared maps; both components share
- * the `layer-adapters` registry and `map-sync` helpers so styling renders
- * identically in editing and viewing modes.
+ * Pairs with the read-only `ViewerMap`; both share the `layer-adapters`
+ * registry and `map-sync` helpers so styling renders identically when editing
+ * and viewing.
  */
 interface BuilderMapProps {
   layers: MapLayerResponse[];
@@ -114,29 +115,31 @@ function getClusterFallbackReasonKey(status: ClusterSourceStatus): string | null
 /**
  * Additive per-source vector-tile 401/403 re-sign-and-retry.
  *
- * During drag-from-catalog a vector source can be added and MapLibre may request a
- * `.pbf` in the brief window BEFORE the signed `tile_url`/`sig` finishes attaching —
- * producing a transient 401/403 that is a token-sync race, NOT a real auth failure.
+ * During drag-from-catalog a vector source can be added and MapLibre may
+ * request a `.pbf` before the signed `tile_url`/`sig` finishes attaching,
+ * producing a transient 401/403 that is a token-sync race, not a real auth
+ * failure.
  *
- * This helper re-signs ONLY the failing source using the token already present in
- * `tokenMap` for that layer's own dataset_id (the URL the layer description gives
- * the source, as the sync pass signs it) and calls
- * `setTiles([newUrl])` exactly once so MapLibre re-fetches with a fresh sig. It does
- * NOT fabricate, broaden, or cross-assign a token, and never alters the raster path.
+ * Re-signs ONLY the failing source using the token already in `tokenMap` for
+ * that layer's own dataset_id (the URL the layer description gives the source,
+ * as the sync pass signs it) and calls `setTiles([newUrl])` exactly once so
+ * MapLibre re-fetches with a fresh sig. It never fabricates, broadens or
+ * cross-assigns a token, and never alters the raster path.
  *
- * Returns `true` when it re-signed and the caller should suppress the auth toast;
- * `false` (no setTiles) when the case is non-recoverable — no matching layer, no
- * source, source not vector, or no token in `tokenMap` for that dataset — so the
- * caller falls through to the existing toast. One re-sign per error event; MapLibre
- * owns the single retry, so there is no unbounded loop.
+ * Returns `true` when it re-signed and the caller should suppress the auth
+ * toast; `false` (no setTiles) when the case is non-recoverable: no matching
+ * layer, no source, source not vector, or no token in `tokenMap` for that
+ * dataset. One re-sign per error event; MapLibre owns the single retry, so
+ * there is no unbounded loop.
  *
- * HONESTY: this REDUCES the flaky race via re-sign+retry; it does NOT deterministically
- * eliminate it. The success criterion is "no unhandled vector 403 surfaced for the
- * recoverable case".
+ * This reduces the race but does not deterministically eliminate it.
  */
 type BuilderTileConfig = { cdn_base_url?: string | null; mvt_source_layer_prefix?: string | null };
 
-/** The sources a sync pass describes for these layers. The re-sign and refresh paths sign from them. */
+/**
+ * The sources a sync pass describes for these layers; the re-sign and refresh
+ * paths sign from them.
+ */
 function describeBuilderSources(
   layers: MapLayerResponse[],
   tokenMap: Map<string, TileToken>,
@@ -210,42 +213,36 @@ export const BuilderMap = memo(function BuilderMap({
   const mapLocale = useMapLocale();
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
-  // Mount-time projection for the MapGL prop, frozen because a
-  // CHANGED prop hits react-maplibre's unguarded _updateSettings setter which
-  // throws mid style-swap; runtime toggles go through
-  // applyMapBasemapAppearance instead.
+  // Mount-time projection for the MapGL prop, frozen because a CHANGED prop
+  // hits react-maplibre's unguarded _updateSettings setter, which throws mid
+  // style-swap; runtime toggles go through applyMapBasemapAppearance.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((id: string) => void) | null>(null);
-  // Hold the dataloading/idle handlers so unmount detaches
-  // them symmetrically with the error/styleimagemissing handlers.
+  // Held so unmount detaches them symmetrically with the
+  // error/styleimagemissing handlers.
   const dataLoadingHandlerRef = useRef<(() => void) | null>(null);
   const idleHandlerRef = useRef<(() => void) | null>(null);
-  // Re-arming data-tiles-loaded handlers — held for symmetric
-  // detach on unmount, same pattern as the dataloading/idle pair above.
+  // Re-arming data-tiles-loaded handlers, held for symmetric detach on unmount.
   const tilesIdleMovestartHandlerRef = useRef<(() => void) | null>(null);
   const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
   // Latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
-  // audit(w3-maps): true when a 5xx/unknown tile error fired since the last
-  // 'dataloading'. Lets the idle handler clear the 'tiles' basemap notice
-  // only after a clean load cycle — the notice previously latched for the
-  // whole session because nothing ever reset it.
+  // True when a 5xx/unknown tile error fired since the last 'dataloading', so
+  // the idle handler clears the 'tiles' basemap notice only after a clean load
+  // cycle.
   const sawTileErrorSinceLoadingRef = useRef(false);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
-  // State mirror of mapRef.current so MapCoordReadout consumes
-  // the map via state, not by reading a ref during render. Refs don't trigger
-  // re-renders, so passing mapRef.current directly relied on setMapReady firing
-  // in the same render cycle — a fragile implicit coupling.
+  // State mirror of mapRef.current so MapCoordReadout consumes the map via
+  // state rather than reading a ref during render.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [basemapNotice, setBasemapNotice] = useState<'style' | 'tiles' | null>(null);
-  // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
-  // container. Mirrors the ViewerMap hook from 6a5f0181 so the Playwright
-  // showcase-smoke spec can poll a deterministic signal regardless of whether
-  // /maps/:id resolved to BuilderMap (authenticated editor) or ViewerMap
-  // (anonymous viewer) via MapViewerGate.
+  // `tilesIdle` drives the `data-tiles-loaded` attribute on the outer
+  // container, mirroring ViewerMap, so the Playwright showcase-smoke spec can
+  // poll a deterministic signal whether /maps/:id resolved to BuilderMap or
+  // ViewerMap (via MapViewerGate).
   const [tilesIdle, setTilesIdle] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
@@ -275,24 +272,24 @@ export const BuilderMap = memo(function BuilderMap({
     [isBlank, basemapEntry?.url, basemapEntry?.attribution, fallbackUrl],
   );
   // Shared fetch-and-sanitize path (see use-remote-basemap-style).
-  // Builder-specific behavior rides the callbacks: reset the first-load
-  // latch on fetch start, clear the notice + latch success, and surface the
-  // 'style' notice on failure. No raw-URL fallback on
-  // failure — the second fetch is uncancelable and can flash an intermediate
-  // state; the placeholder + notice banner stay instead.
+  // Builder-specific behavior rides the callbacks: reset the first-load latch
+  // on fetch start, clear the notice and latch success, surface the 'style'
+  // notice on failure. No raw-URL fallback on failure: the second fetch is
+  // uncancelable and can flash an intermediate state, so the placeholder and
+  // notice banner stay.
   const mapStyle = useRemoteBasemapStyle({
     styleValue,
     mapRef,
     logLabel: 'BuilderMap',
     onFetchStart: useCallback(() => {
-      // Reset latch on basemap change so a new basemap's first-load
-      // failure surfaces correctly.
+      // Reset the latch on basemap change so a new basemap's first-load failure
+      // surfaces.
       basemapLoadedAtRef.current = null;
     }, []),
     onFetchSuccess: useCallback(() => {
       setBasemapNotice(null);
-      // Latch first-load success so transient 5xx during save don't
-      // surface as outage.
+      // Latch first-load success so transient 5xx during save don't surface as
+      // outage.
       basemapLoadedAtRef.current = Date.now();
     }, []),
     onFetchError: useCallback(() => {
@@ -307,7 +304,6 @@ export const BuilderMap = memo(function BuilderMap({
   const basemapSourceIdsRef = useRef(basemapSourceIds);
   basemapSourceIdsRef.current = basemapSourceIds;
 
-  // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
   const datasetIdKey = layers.map((l) => l.dataset_id).join(',');
   const datasetIds = useMemo(
@@ -323,18 +319,18 @@ export const BuilderMap = memo(function BuilderMap({
     [tokenQueries],
   );
 
-  // Surface a deduped toast when the tile-token batch query fails so
-  // the user sees an error instead of a silent empty map.
+  // Surface a deduped toast when the tile-token batch query fails, so the user
+  // sees an error instead of a silent empty map.
   const tokenBatchIsError = tokenQueries.length > 0 && tokenQueries.some((q) => q.isError);
   useTileTokenError(tokenBatchIsError);
 
   const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());
   const [clusterGeoJsonVersion, setClusterGeoJsonVersion] = useState(0);
-  // Key the fetch effect on a structural signature, not the
-  // layers array — paint/opacity/filter edits replace the array identity on
-  // every debounce tick (~10Hz during a slider drag) and previously re-issued
-  // a network GeoJSON fetch per bounded-geojson cluster layer on each tick.
+  // Key the fetch effect on a structural signature, not the layers array:
+  // paint/opacity/filter edits replace the array identity on every debounce
+  // tick (~10Hz during a slider drag) and would re-issue a GeoJSON fetch per
+  // bounded-geojson cluster layer each tick.
   const clusterSourceKey = useMemo(() => getClusterSourceKey(layers), [layers]);
 
   useEffect(() => {
@@ -440,12 +436,11 @@ export const BuilderMap = memo(function BuilderMap({
   const applyTerrainConfig = useCallback(function apply() {
     const map = mapRef.current;
     if (!map) return;
-    // The post-basemap-swap path re-applies terrain via a SINGLE
-    // `once('idle', applyTerrainConfig)`. When that idle lands mid
-    // style-transition, a silent return here dropped the apply for good — an
-    // enabled terrain_config rendered a flat map until an unrelated dep
-    // changed (the intermittent "Matterhorn loads without 3D" bug). Re-arm on
-    // the next idle instead of no-oping; double-applies are idempotent.
+    // The post-basemap-swap path re-applies terrain via a SINGLE `once('idle',
+    // applyTerrainConfig)`. When that idle lands mid style-transition a silent
+    // return would drop the apply for good, leaving an enabled terrain_config
+    // rendering flat until an unrelated dep changes. Re-arm on the next idle
+    // instead; double-applies are idempotent.
     if (!map.isStyleLoaded()) {
       map.once('idle', apply);
       return;
@@ -454,20 +449,21 @@ export const BuilderMap = memo(function BuilderMap({
     const { terrainConfig: currentTerrainConfig, layers: currentLayers, tokenMap: currentTokenMap } = terrainStateRef.current;
     if (!currentTerrainConfig?.enabled || !currentTerrainConfig.source_dataset_id) {
       map.setTerrain(null);
-      // #186 (b): terrain off → clear the small-DEM warning dedupe so re-enabling
-      // (or selecting a different DEM) can warn again.
+      // Terrain off: clear the small-DEM warning dedupe so re-enabling (or
+      // selecting a different DEM) can warn again.
       resetSmallDemWarning(map);
       return;
     }
 
     // Resolve the terrain DEM by source_dataset_id + isTerrainCapableDemLayer
-    // ONLY — do NOT require render_mode === 'terrain'. This matches the viewer
-    // resolver (viewer/hooks/use-viewer-terrain.ts) so a DEM in hillshade mode can
-    // drive the 3D mesh AND paint its 2D relief on one dataset. Shared with
-    // MapBuilderPage's isTerrainActive so render state and settings status can't drift.
+    // ONLY, not render_mode === 'terrain', matching the viewer resolver
+    // (viewer/hooks/use-viewer-terrain.ts) so a DEM in hillshade mode can drive
+    // the 3D mesh and paint its 2D relief on one dataset. Shared with
+    // MapBuilderPage's isTerrainActive so render state and settings status
+    // can't drift.
     const demLayer = resolveTerrainSourceLayer(currentLayers, currentTerrainConfig);
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
-    // Honor the layer's visibility eye: treat undefined visible as visible (default-visible semantics).
+    // Honor the layer's visibility eye; undefined counts as visible.
     const demLayerVisible = demLayer?.visible !== false;
     const effectiveTerrainEnabled = currentTerrainConfig.enabled === true && demLayerVisible;
     if (!demLayer || token?.kind !== 'raster' || !effectiveTerrainEnabled) {
@@ -480,9 +476,9 @@ export const BuilderMap = memo(function BuilderMap({
       minzoom: token.minzoom,
       maxzoom: token.maxzoom,
       bounds: token.bounds,
-      // A terrain-mode DEM has no visible layer, so the
-      // attributed source its adapter created is unreferenced and MapLibre
-      // does not count it. This one is counted through usedForTerrain.
+      // A terrain-mode DEM has no visible layer, so the attributed source its
+      // adapter created is unreferenced and MapLibre does not count it; this
+      // one is counted through usedForTerrain.
       attribution: toMapLibreAttribution(demLayer.dataset_attribution),
     });
     map.setTerrain({
@@ -491,21 +487,21 @@ export const BuilderMap = memo(function BuilderMap({
     });
     map.triggerRepaint();
 
-    // #186 (b): warn (once per enable) when this DEM only covers a small slice
-    // of the current viewport — a small high-res DEM zoomed out reads as a
-    // pedestal. Keep the active dataset's dedupe key, drop any stale one.
+    // Warn (once per enable) when this DEM covers only a small slice of the
+    // current viewport: a small high-res DEM zoomed out reads as a pedestal.
+    // Keep the active dataset's dedupe key, drop any stale one.
     resetSmallDemWarning(map, currentTerrainConfig.source_dataset_id);
     // The LAYER's extent, not the token's bounds. Both come from
     // `records.spatial_extent`, but the token applies `extent_to_span_bbox`
     // (processing/tiles/router.py) because a tile source cannot be bounded by a
-    // west > east pair — which flattens a Fiji-shaped DEM to [-180, s, 180, n],
-    // bit-identical to a global one, and the guard then read 100% coverage for a
-    // DEM occupying a fifth of the screen. `dataset_extent_bbox` is the RFC 7946
-    // spec form since #1112, so the crossing survives; the math needs no change.
+    // west > east pair. That flattens a Fiji-shaped DEM to [-180, s, 180, n],
+    // bit-identical to a global one, so the guard would read 100% coverage for
+    // a DEM occupying a fifth of the screen. `dataset_extent_bbox` is the RFC
+    // 7946 form, so the crossing survives.
     //
     // The fallback is reachable only if the two conversions disagree about the
-    // same non-null column, and it keeps today's warning rather than silently
-    // deleting it — an absent hint is the exact failure #1128 is about.
+    // same non-null column; it keeps the warning rather than silently deleting
+    // it.
     maybeWarnSmallDemCoverage({
       map,
       demBounds: demLayer.dataset_extent_bbox ?? token.bounds,
@@ -544,10 +540,10 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, [enabledPluginIds]);
 
-  // A draw mode (the analysis clip mask) owns the pointer while it
-  // runs, so feature clicks must not resolve underneath it. Same ref-and-
-  // subscribe shape as measurement above: the handlers below read a ref rather
-  // than a hook value so toggling does not re-register them on the map.
+  // A draw mode (the analysis clip mask) owns the pointer while it runs, so
+  // feature clicks must not resolve underneath it. Same ref-and-subscribe shape
+  // as measurement above: handlers read a ref so toggling does not re-register
+  // them.
   const drawActiveRef = useRef(false);
 
   useEffect(() => {
@@ -561,18 +557,17 @@ export const BuilderMap = memo(function BuilderMap({
   }, []);
 
   const invalidateTileTokens = useInvalidateTileTokens();
-  // Shared tile-auth recovery — a vector tile 401/403 that the
-  // cached-token re-sign can't cure kicks one throttled token re-mint; the
-  // token-sync effect re-signs sources when the fresh batch lands.
-  // Report every mint the recovery path actually kicks (suppressed),
-  // so a tab-return recovery still leaves a trace now that it no longer arrives
-  // wrapped in a 403 burst.
+  // Shared tile-auth recovery: a vector tile 401/403 that the cached-token
+  // re-sign can't cure kicks one throttled token re-mint; the token-sync effect
+  // re-signs sources when the fresh batch lands. Every mint the recovery path
+  // actually kicks is reported (suppressed), so a tab-return recovery leaves a
+  // trace.
   const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
     reportTileTokenRemint('builder', trigger),
   );
-  // A tab backgrounded past the 900 s sig boundary comes back with
-  // stale tokens, so MapLibre's resumed fetches 403 before the handler above
-  // can heal them. Kick the same throttled re-mint on the visible edge.
+  // A tab backgrounded past the 900 s sig boundary comes back with stale
+  // tokens, so MapLibre's resumed fetches 403 before the handler above can heal
+  // them. Kick the same throttled re-mint on the visible edge.
   useVisibleTileTokenRefresh(() => syncInputsRef.current.tokenMap.values(), recoverTileAuth, () =>
     refreshRasterTileSources(mapRef.current),
   );
@@ -581,43 +576,41 @@ export const BuilderMap = memo(function BuilderMap({
     (e: MapLibreEvent) => {
       const map = e.target;
       mapRef.current = map;
-      // FIRST thing in the map-creation path, so this
-      // is the earliest-registered `style.load` listener and the basemap paint
-      // cache is already invalidated by the time any appearance pass runs
-      // against a newly loaded style. Registering it lazily from the appearance
-      // helper would put it behind the persistent handler below.
+      // FIRST thing in the map-creation path, so this is the
+      // earliest-registered `style.load` listener and the basemap paint cache
+      // is invalidated before any appearance pass runs against a newly loaded
+      // style. Registering it lazily from the appearance helper would put it
+      // behind the persistent handler below.
       registerBasemapStyleGeneration(map);
-      // Keep state mirror in sync with the ref so consumers
-      // (e.g. MapCoordReadout) re-render when the map binds.
+      // Keep the state mirror in sync with the ref so consumers (e.g.
+      // MapCoordReadout) re-render when the map binds.
       setMapInstance(map);
       setMapReady(true);
 
-      // `idle` fires when no tiles are loading, no transitions are in
-      // progress, and no animations are running. Flip the outer container's
-      // data-tiles-loaded attribute to true on idle so the showcase-smoke spec
-      // can rely on a deterministic signal instead of an arbitrary wait.
-      // Re-arm on every camera move instead of firing once — it
-      // previously never toggled back to "false", so it couldn't distinguish
-      // "settled" from "tiles loading after a pan/zoom" (both viewer and
-      // builder maps needed this; see ViewerMap.tsx for the mirrored fix).
+      // `idle` fires when no tiles are loading, no transitions are in progress
+      // and no animations are running. Flip the container's data-tiles-loaded
+      // attribute to true on idle so the showcase-smoke spec has a
+      // deterministic signal. Re-arm on every camera move rather than firing
+      // once, so it can tell 'settled' from 'tiles loading after a pan/zoom'
+      // (ViewerMap mirrors this).
       tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
       tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
       map.on('movestart', tilesIdleMovestartHandlerRef.current);
       map.on('idle', tilesIdleIdleHandlerRef.current);
 
-      // Tile loading indicator. Keep references so the
-      // unmount cleanup can detach them symmetrically.
+      // Tile loading indicator. Keep references so the unmount cleanup can
+      // detach them symmetrically.
       dataLoadingHandlerRef.current = () => {
         setTilesLoading(true);
         sawTileErrorSinceLoadingRef.current = false;
       };
       idleHandlerRef.current = () => {
         setTilesLoading(false);
-        // audit(w3-maps): a load cycle finished without a hard tile error —
-        // the 'tiles' notice's condition has passed, so clear it (the 'style'
-        // notice has its own clearing path in the style-fetch effect). During
-        // an ongoing outage the errors that precede idle re-arm the flag, so
-        // the banner does not flap.
+        // A load cycle finished without a hard tile error: the 'tiles' notice's
+        // condition has passed, so clear it (the 'style' notice has its own
+        // clearing path in the style-fetch effect). During an ongoing outage
+        // the errors that precede idle re-arm the flag, so the banner does not
+        // flap.
         if (!sawTileErrorSinceLoadingRef.current) {
           setBasemapNotice((notice) => (notice === 'tiles' ? null : notice));
         }
@@ -625,43 +618,45 @@ export const BuilderMap = memo(function BuilderMap({
       map.on('dataloading', dataLoadingHandlerRef.current);
       map.on('idle', idleHandlerRef.current);
 
-      // Absolutify URLs and attach auth header for raster tile requests.
-      // Shared builder — react-maplibre v8 ignores the
-      // transformRequest PROP after mount, so each map wires it here in onLoad.
+      // Absolutify URLs and attach the auth header for raster tile requests.
+      // Shared builder: react-maplibre v8 ignores the transformRequest PROP
+      // after mount, so each map wires it here in onLoad.
       map.setTransformRequest(buildTileTransformRequest({
         getTileConfig: () => syncInputsRef.current.tileConfig,
       }));
 
-      // Filter expected tile errors (no-data tiles outside extent) and
-      // surface anything else as a deduped toast so the editor knows a
-      // real error has occurred. Previously silenced in production.
+      // Filter expected tile errors (no-data tiles outside extent) and surface
+      // anything else as a deduped toast so the editor knows a real error
+      // occurred.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number; url?: string }; sourceId?: string }) => {
         const status = e.error?.status;
-        // A raster/DEM 401/403 is not cured by anything the recovery
-        // path produces — raster auth rides the Authorization header
-        // (setTransformRequest), so neither the re-sign nor a fresh sig
-        // reaches it. Reporting it "handled" (a suppressed warning) while
-        // logUnhandledMapError still console.errors the same failure is the #755
-        // double-log shape, still live for raster/DEM. `isHandledTileAuthError`
-        // already excludes these, so the handler now agrees with it: report the
-        // unsuppressed error it is and let the toast + single console row own it.
+        // A raster/DEM 401/403 is not cured by anything the recovery path
+        // produces: raster auth rides the Authorization header
+        // (setTransformRequest), so neither the re-sign nor a fresh sig reaches
+        // it. Reporting it 'handled' (a suppressed warning) while
+        // logUnhandledMapError still console.errors the same failure would
+        // double-log it. `isHandledTileAuthError` already excludes these, so
+        // report the unsuppressed error and let the toast and single console
+        // row own it.
         const rasterAuthError = isRasterTileAuthError(e);
         // Capture EVERY map error into the problem-reporter buffer before the
-        // suppression/early-return logic below — suppressed errors (expected
+        // suppression/early-return logic below: suppressed errors (expected
         // no-data tiles, terrain/DEM mismatches) are frequently the actual bug
-        // an engineer needs, so we flag rather than drop them here.
+        // an engineer needs, so flag rather than drop them.
+        //
         // An unsuppressed row here pairs with the `console` row
-        // initReportCapture derives from logUnhandledMapError's console.error —
-        // two rows per unrecovered failure. That is the buffer's long-standing
-        // shape for every error no surface recovers (any tile 5xx does the same;
-        // BuilderMap.raster-tile-auth.test.tsx pins the parity). Dropping either
-        // half for raster would cost the sourceId this row carries, or the
-        // devtools log the surfaces without a row of their own rely on.
-        // A raster auth failure while a session renewal is running is
-        // the visibility race, not a dead session — the post-rotation reload is
-        // about to cure it, so it reports like any other transient.
-        // Only a 401 — a raster 403 is an upstream denial a fresh JWT cannot
-        // cure, so it must still surface.
+        // initReportCapture derives from logUnhandledMapError's console.error,
+        // so an unrecovered failure yields two rows. That is the buffer's shape
+        // for every error no surface recovers (any tile 5xx does the same;
+        // BuilderMap.raster-tile-auth.test.tsx pins the parity). Dropping
+        // either half for raster would cost the sourceId this row carries, or
+        // the devtools log the surfaces without a row of their own rely on.
+        //
+        // A raster auth failure while a session renewal is running is the
+        // visibility race, not a dead session: the post-rotation reload is
+        // about to cure it, so it reports like any other transient. Only a 401,
+        // though; a raster 403 is an upstream denial a fresh JWT cannot cure,
+        // so it must still surface.
         const rasterAuthDuringRenewal =
           isRefreshableRasterAuthError(e) && isSessionRenewalPending();
         const isClientError = Boolean(status && status >= 400 && status < 500);
@@ -676,12 +671,11 @@ export const BuilderMap = memo(function BuilderMap({
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           if (status === 401 || status === 403) {
-            // A vector `.pbf` fetched in the window
-            // before its signed token attaches yields a transient 401/403 that
-            // is a token-sync race, not a real auth failure. Re-sign the failing
-            // vector source (using the token already in tokenMap for its own
-            // dataset) so MapLibre retries with a fresh sig, and suppress the
-            // toast for that recoverable case. Raster sources and genuine
+            // A vector `.pbf` fetched before its signed token attaches yields a
+            // transient 401/403 (a token-sync race, not a real auth failure).
+            // Re-sign the failing vector source using the token in tokenMap for
+            // its own dataset so MapLibre retries with a fresh sig, and
+            // suppress the toast for that recoverable case. Raster sources and
             // no-token cases return false and fall through to the toast below.
             const map = mapRef.current;
             const failingSourceId = e.sourceId;
@@ -692,20 +686,20 @@ export const BuilderMap = memo(function BuilderMap({
               const resigned = rasterAuthError
                 ? false
                 : resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
-              // The cached-token re-sign only cures the attach
-              // race — when the sig itself has expired (stranded session),
-              // it re-signs with the same stale sig forever. Also kick one
-              // throttled token re-mint; the token-sync effect re-signs with
-              // the fresh batch, and a conclusively dead session surfaces
-              // through the global signed-out handling (#628) via the mint
-              // request itself.
-              // The re-mint runs for raster too — the mint
-              // request goes through apiFetch, whose proactive refresh renews an
-              // expiring JWT, and that Bearer is the ONLY thing that fixes a
-              // raster 401. What must not happen is treating it as recovery: the
-              // fresh sig cannot help a raster tile, so a raster failure falls
-              // through to the toast below and is reported unsuppressed, instead
-              // of reading as handled next to logUnhandledMapError's console row.
+              // The cached-token re-sign only cures the attach race; when the
+              // sig itself has expired (stranded session) it re-signs with the
+              // same stale sig forever. Also kick one throttled token re-mint:
+              // the token-sync effect re-signs with the fresh batch, and a
+              // conclusively dead session surfaces through the global
+              // signed-out handling via the mint request itself.
+              //
+              // The re-mint runs for raster too: the mint request goes through
+              // apiFetch, whose proactive refresh renews an expiring JWT, and
+              // that Bearer is the ONLY thing that fixes a raster 401. It must
+              // not count as recovery, though: a fresh sig cannot help a raster
+              // tile, so a raster failure falls through to the toast below and
+              // is reported unsuppressed rather than reading as handled next to
+              // logUnhandledMapError's console row.
               const reminted = recoverTileAuth();
               if (!rasterAuthError && (resigned || reminted)) {
                 pushReportEntry({
@@ -718,15 +712,15 @@ export const BuilderMap = memo(function BuilderMap({
                 return;
               }
             }
-            // Don't tell the user to reload the page for a raster
-            // 401 that a renewal already in flight is seconds from healing.
+            // Don't tell the user to reload for a raster 401 that a renewal
+            // already in flight is seconds from healing.
             if (rasterAuthDuringRenewal) return;
-            // Once the session is conclusively dead the global
-            // signed-out dialog owns the UX — the stale reload-toast is
-            // noise on top of it. Keep it only while a session exists.
-            // Keyed on the ACCESS token. The refresh token is an
-            // httpOnly cookie now, so it reads as null for every cookie-mode
-            // user and this predicate would suppress the toast permanently.
+            // Once the session is conclusively dead the global signed-out
+            // dialog owns the UX and the stale reload toast is noise on top of
+            // it; keep it only while a session exists. Keyed on the ACCESS
+            // token: the refresh token is an httpOnly cookie, so it reads as
+            // null for every cookie-mode user and this predicate would suppress
+            // the toast permanently.
             if (useAuthStore.getState().token) {
               toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
                 id: 'builder-map-auth-error',
@@ -739,22 +733,20 @@ export const BuilderMap = memo(function BuilderMap({
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (!status || status >= 500) {
-          // Suppress the transient connection-issue toast that fires
-          // for a few hundred ms immediately after a successful basemap load
-          // (MapLibre raises a stale tile error while it transitions between
-          // styles). Narrow the suppression to a
+          // Suppress the transient connection-issue toast that fires for a few
+          // hundred ms right after a successful basemap load (MapLibre raises a
+          // stale tile error while transitioning between styles). Narrowed to a
           // bounded window after the latch was armed so ongoing tile-server
-          // outages (basemap loaded OK → tile CDN goes down 30 min later)
-          // still surface a toast / banner. 3000 ms covers the worst-case
-          // post-load transient window observed in MCP smoke without
+          // outages still surface a toast and banner. 3000 ms covers the
+          // worst-case post-load transient window observed in smoke without
           // masking ongoing outages.
           const loadedAt = basemapLoadedAtRef.current;
           if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
-          // Name the failing layer when the error carries a sourceId.
-          // MapLibre attaches the source id to tile/source errors as they
-          // bubble up; style/glyph errors have no sourceId, so fall back to
-          // the generic message. Match against the current layers ref using
-          // the same getSourceIdForLayer contract the map sync uses.
+          // Name the failing layer when the error carries a sourceId. MapLibre
+          // attaches it to tile/source errors; style/glyph errors have none and
+          // fall back to the generic message. Matched against the current
+          // layers ref using the same getSourceIdForLayer contract as the map
+          // sync.
           const failingSourceId = e.sourceId;
           const failingLayer = failingSourceId
             ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
@@ -796,10 +788,9 @@ export const BuilderMap = memo(function BuilderMap({
     [onMapRef, t, recoverTileAuth],
   );
 
-  // Helper: refresh the cached list of queryable layer IDs. Called after every
-  // sync so the click/hover handlers see the layers that actually exist on the
-  // map right now. Reads from `layersRef.current` (updated on every render) so
-  // the callback identity stays stable.
+  // Refresh the cached list of queryable layer IDs after every sync so the
+  // click/hover handlers see the layers that actually exist on the map. Reads
+  // `layersRef.current` so the callback identity stays stable.
   const refreshQueryLayerIds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -807,9 +798,9 @@ export const BuilderMap = memo(function BuilderMap({
       .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
       .flatMap((l) => {
         const layerId = getLayerId(l.id);
-        // Mixed-geometry layers spread hits across
-        // per-family sublayers — include them so point/line features stay
-        // clickable (the getLayer filter below drops any that don't exist).
+        // Mixed-geometry layers spread hits across per-family sublayers;
+        // include them so point/line features stay clickable (the getLayer
+        // filter below drops any that don't exist).
         if (isClusterRenderMode(l)) return clusterInteractiveLayerIds(layerId);
         if (isGenericGeometryType(l.dataset_geometry_type)) return mixedInteractiveLayerIds(layerId);
         return [layerId];
@@ -818,10 +809,10 @@ export const BuilderMap = memo(function BuilderMap({
   }, []);
 
   /**
-   * The SINGLE syncMapComposition invocation shared by the
-   * style.load handler and the main sync effect's `runSync`. Both read inputs from
+   * The SINGLE syncMapComposition invocation shared by the style.load handler
+   * and the main sync effect's `runSync`. Both read inputs from
    * `syncInputsRef.current` (immune to closure-stale inputs) and wire identical
-   * syncOptions / basemapConfig / reorderDataLayerIds — the ONLY difference is
+   * syncOptions / basemapConfig / reorderDataLayerIds; the ONLY difference is
    * whether terrain is applied immediately or deferred to the next `idle`
    * (post-basemap-swap). The token gate stays at each call site.
    */
@@ -862,9 +853,8 @@ export const BuilderMap = memo(function BuilderMap({
   }, [applyTerrainConfig, refreshQueryLayerIds]);
 
   // Re-add data layers after basemap switch (persistent listener). Unlike a
-  // map.once() approach that re-registered per URL change, this listener survives
-  // any number of rapid style swaps — fixing the race where cleanup removed the
-  // listener before style.load fired.
+  // per-URL map.once(), this listener survives any number of rapid style swaps;
+  // a cleanup that removed it before style.load fired would drop the sync.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -877,9 +867,9 @@ export const BuilderMap = memo(function BuilderMap({
       // Gate on tokenMap presence so a later token arrival is picked up by the
       // main sync effect's tokenMap dep — no separate retry needed.
       if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) {
-        // The swap reset the style's projection
-        // and basemap appearance; restore them even while the token gate
-        // defers layer sync, so token availability never controls projection.
+        // The swap reset the style's projection and basemap appearance; restore
+        // them even while the token gate defers layer sync, so token
+        // availability never controls projection.
         applyMapBasemapAppearance({ map, basemapConfig: bc, showBasemapLabels: sbl });
         return;
       }
@@ -894,9 +884,8 @@ export const BuilderMap = memo(function BuilderMap({
   }, [mapReady, tileConfigReady, composeSync]);
 
   /**
-   * Run a full layer sync against the map. Mirrors ViewerMap.tsx's `runSync`
-   * shape. The style is already loaded on this path,
-   * so terrain is applied immediately.
+   * Run a full layer sync against the map, mirroring ViewerMap's `runSync`. The
+   * style is already loaded on this path, so terrain is applied immediately.
    */
   const runSync = useCallback((map: MaplibreMap) => {
     composeSync(map, { immediateTerrain: true });
@@ -910,12 +899,11 @@ export const BuilderMap = memo(function BuilderMap({
     const byMapId = new Map<string, { layer: MapLayerResponse; sourceId: string }>();
     for (const l of layers) {
       const layerId = getLayerId(l.id);
-      // Route through getSourceIdForLayer so the
-      // sourceId stored alongside each layer's MapLibre layer id reflects
-      // the dedupe contract. Cluster layers stay per-layer (the
-      // helper's branching keeps `source-${id}` for clusters), so
-      // `activateClusterFeature(map, feature, hit.sourceId)` (line 544)
-      // continues to receive the cluster's per-layer source id.
+      // Route through getSourceIdForLayer so the sourceId stored with each
+      // layer's MapLibre layer id reflects the dedupe contract. Cluster layers
+      // stay per-layer (the helper keeps `source-${id}` for them), so
+      // `activateClusterFeature(map, feature, hit.sourceId)` receives the
+      // cluster's per-layer source id.
       const sourceId = getSourceIdForLayer(l);
       const ids = isClusterRenderMode(l)
         ? clusterInteractiveLayerIds(layerId)
@@ -1093,10 +1081,9 @@ export const BuilderMap = memo(function BuilderMap({
         handleClusterHit(clusterHit.feature, clusterHit.hit, null);
         return;
       }
-      // audit(w3-maps): the popup was mouse-only for non-cluster features —
-      // the early return above made Enter/Space a no-op unless the
-      // centre-of-canvas hit happened to be a cluster. Mirror handleClick's
-      // mapping so keyboard users can open the same feature popup.
+      // Mirror handleClick's mapping so keyboard users can open the same
+      // feature popup as mouse users; the early return above would otherwise
+      // make Enter/Space a no-op unless the centre-of-canvas hit is a cluster.
       const mapped = mapFeatureHits(hits);
       if (mapped.length === 0) return;
       event.preventDefault();
@@ -1138,18 +1125,11 @@ export const BuilderMap = memo(function BuilderMap({
   // these because the feature it references may no longer exist, may be hidden,
   // or may be re-keyed against a different source.
   //
-  // Also include dataset_table_name (mid-session rename safety)
-  // and the active render mode's primary style_config.builder field (heatmapRamp,
+  // Includes dataset_table_name (mid-session rename safety) and the active
+  // render mode's primary style_config.builder field (heatmapRamp,
   // heightColumn) so non-cluster modes invalidate when their structural style
-  // shifts (popup should clear after heatmap-ramp change, height-column rebind).
-  //
-  // Renamed from `structuralKey` to make
-  // its single consumer (popup-clear) explicit. The auto-fit effect at line
-  // ~882 no longer reads this key — it gates on `layerCountChanged`, which
-  // depends only on `layers.length` (already in its dep array). Reading the
-  // full invalidation key there caused harmless extra effect runs that
-  // misleadingly suggested the auto-fit responds to heatmap-ramp/height-column
-  // edits (it doesn't — those short-circuit at `if (!layerCountChanged) return`).
+  // shifts. The auto-fit effect does not read this key: it gates on
+  // `layerCountChanged`, which depends only on `layers.length`.
   const popupInvalidationKey = useMemo(
     () => layers.map((l) => {
       const builder = l.style_config?.builder;
@@ -1166,21 +1146,17 @@ export const BuilderMap = memo(function BuilderMap({
     [layers],
   );
 
-  // Clear popup when any structural layer property changes (visibility,
-  // ordering, dataset rename, render-mode-specific style shifts).
+  // Clear the popup when the invalidation key changes.
   useEffect(() => {
     setPopupInfo(null);
   }, [popupInvalidationKey]);
 
-  // Sync layers to map — runs on structural changes (add/remove/visibility) and token refresh.
-  // Paint/filter/opacity edits are handled imperatively by use-layer-map-sync.ts.
-  //
-  // This effect was previously keyed on `structuralKey`
-  // (a derived string) and called `syncLayersToMap` directly with a memoized
-  // `syncInputs`. That combination left a closure-stale-input race on the very
-  // first "Add to map" against an empty builder. Mirroring ViewerMap's
-  // `runSync(map)` + `syncInputsRef.current` pattern eliminates the race by
-  // construction: every input is read fresh from the ref at call time.
+  // Sync layers to map: runs on structural changes (add/remove/visibility) and
+  // token refresh. Paint/filter/opacity edits are handled imperatively by
+  // use-layer-map-sync.ts. Inputs are read fresh from `syncInputsRef.current`
+  // at call time (ViewerMap's `runSync(map)` pattern), which avoids a
+  // closure-stale-input race on the first 'Add to map' against an empty
+  // builder.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1191,22 +1167,20 @@ export const BuilderMap = memo(function BuilderMap({
     // token (e.g. a partial batch — one dataset cached, one still in flight).
     if (layers.some((l) => l.dataset_id && !tokenMap.has(l.dataset_id))) return;
 
-    // Style gate. If the basemap style is currently transitioning, the
-    // previous shape (return early) left a permanent miss: nothing in the
-    // effect's dep array would change later, and the once-fired `style.load`
-    // listener already ran with the pre-add state. Instead,
-    // attach a one-shot `idle` listener so the sync is retried as soon as
-    // the map settles. `idle` fires after style.load + tile loading +
-    // transitions complete, which is exactly when `runSync` can succeed.
+    // Style gate. If the basemap style is transitioning, nothing in the dep
+    // array would change later and the once-fired `style.load` listener already
+    // ran with the pre-add state, so an early return would be a permanent miss.
+    // Attach a one-shot `idle` listener to retry as soon as the map settles
+    // (after style.load, tile loading and transitions).
     if (!map.isStyleLoaded()) {
       const retry = () => runSync(map);
       map.once('idle', retry);
       return () => { map.off('idle', retry); };
     }
     runSync(map);
-    // Include basemap_position so dragging basemap top↔bottom
-    // re-runs the sync's reorder pipeline (the orderKey check inside
-    // syncLayersToMap also includes basemap_position to avoid the no-change skip).
+    // Include basemap_position so dragging the basemap top/bottom re-runs the
+    // sync's reorder pipeline (the orderKey check inside syncLayersToMap
+    // includes it too, to avoid the no-change skip).
   }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, basemapConfig?.basemap_position, clusterGeoJsonVersion, runSync]);
 
   useEffect(() => {
@@ -1231,11 +1205,9 @@ export const BuilderMap = memo(function BuilderMap({
   // Reorder and restyle basemap labels/details when appearance controls change.
   // Data labels must be re-stacked above basemap labels after toggling.
   //
-  // If basemap_position='top', run the
-  // reorderBasemapAboveData pass LAST so basemap fill/raster layers end up
-  // ABOVE data geometry in the MapLibre stack. The standard pipeline above
-  // assumes basemap-below-data (the 'bottom' default + legacy behaviour) —
-  // when the user drags basemap to top, that ordering must be reversed.
+  // If basemap_position='top', run the reorderBasemapAboveData pass LAST so
+  // basemap fill/raster layers end up ABOVE data geometry; the standard
+  // pipeline above assumes basemap-below-data.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1268,9 +1240,8 @@ export const BuilderMap = memo(function BuilderMap({
   const hasSavedView = !!(initialViewState?.center_lng != null && initialViewState?.center_lat != null);
   const initialFitDoneRef = useRef(false);
   const prevLayerCountRef = useRef(layers.length);
-  // Lazy-seed — a useRef initializer ARGUMENT evaluates on
-  // every render, so the full bounds walk ran per render and was discarded
-  // after mount. Seed once on first render instead.
+  // Lazy-seed: a useRef initializer ARGUMENT evaluates on every render, which
+  // would walk the full bounds each time.
   const prevVisibleBoundsKeyRef = useRef<string | undefined>(undefined);
   if (prevVisibleBoundsKeyRef.current === undefined) {
     prevVisibleBoundsKeyRef.current = visibleLayerBoundsKey(getVisibleLayerBounds(layers));
@@ -1304,9 +1275,9 @@ export const BuilderMap = memo(function BuilderMap({
     if (!layerCountChanged) return;
     if (!visibleBounds || !visibleBoundsChanged) return;
 
-    // The fit used to move the camera with no way back. Capture
-    // it first and offer a one-shot return. Not on the very first fit — there is no
-    // view the user chose yet, so the offer would just be page-load noise.
+    // Capture the camera first and offer a one-shot return, so the fit has a
+    // way back. Not on the very first fit: there is no user-chosen view yet, so
+    // the offer would be page-load noise.
     const previousCamera = {
       center: map.getCenter(),
       zoom: map.getZoom(),
@@ -1342,11 +1313,9 @@ export const BuilderMap = memo(function BuilderMap({
         },
       });
     }
-  // No longer reads popupInvalidationKey — the
-  // effect short-circuits on unchanged layer count and unchanged visible
-  // bounds, so it only needs `layers.length` to detect add/remove. Including
-  // the full invalidation key here previously caused harmless but misleading
-  // extra effect runs on heatmap-ramp / height-column edits.
+  // Reads `layers.length` rather than popupInvalidationKey: the effect
+  // short-circuits on unchanged layer count and visible bounds, so the full key
+  // would only add misleading extra runs on heatmap-ramp / height-column edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hasSavedView/layers read from refs, not reactive deps
   }, [layers.length, mapReady]);
 
@@ -1371,29 +1340,26 @@ export const BuilderMap = memo(function BuilderMap({
       if (mapRef.current && styleImageMissingHandlerRef.current) {
         mapRef.current.setMissingStyleImageResolver(null);
       }
-      // Detach the dataloading/idle handlers too.
       if (mapRef.current && dataLoadingHandlerRef.current) {
         mapRef.current.off('dataloading', dataLoadingHandlerRef.current);
       }
       if (mapRef.current && idleHandlerRef.current) {
         mapRef.current.off('idle', idleHandlerRef.current);
       }
-      // Detach the re-arming data-tiles-loaded handlers symmetrically.
       if (mapRef.current && tilesIdleMovestartHandlerRef.current) {
         mapRef.current.off('movestart', tilesIdleMovestartHandlerRef.current);
       }
       if (mapRef.current && tilesIdleIdleHandlerRef.current) {
         mapRef.current.off('idle', tilesIdleIdleHandlerRef.current);
       }
-      // Keep state mirror in sync on teardown.
       setMapInstance(null);
       onMapRefLatest.current?.(null);
     };
-    // Unmount-only on purpose: depending on `onMapRef` ran this cleanup on
-    // every identity change of the parent callback, nulling the parent's map
-    // ref mid-session (breaking ephemeral overlays / analysis draw) and
+    // Unmount-only on purpose: depending on `onMapRef` would run this cleanup
+    // on every identity change of the parent callback, nulling the parent's map
+    // ref mid-session (breaking ephemeral overlays and analysis draw) and
     // detaching the error/styleimagemissing/dataloading/idle handlers with no
-    // re-attach path. The latest callback is read through a ref instead.
+    // re-attach path. The latest callback is read through a ref.
   }, []);
 
   const defaultView = useMemo(() => ({
@@ -1409,19 +1375,17 @@ export const BuilderMap = memo(function BuilderMap({
   return (
     <div
       className="relative h-full w-full"
-      // audit(w3-maps): aria-label on <MapGL> is silently dropped —
-      // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
-      // labels its canvas "Map". Label the wrapper region instead (same
-      // pattern as DatasetMap's shell).
+      // aria-label on <MapGL> is silently dropped (@vis.gl/react-maplibre v8
+      // forwards only id/ref/style, and MapLibre labels its canvas "Map"), so
+      // label the wrapper region instead, as DatasetMap's shell does.
       role="region"
       aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
-      // Marker consumed by the
-      // `[data-builder-canvas="true"] .maplibregl-ctrl-top-left` rule in
-      // `index.css`. Pushes the top-left NavigationControl down below the
-      // MapCoordReadout pill at the 800px boundary, where the map column
-      // compresses to ~316px and the pill's ~237px width can stretch
-      // leftward into the zoom-control zone. Scoped via data-attribute so
+      // Marker consumed by the `[data-builder-canvas="true"]
+      // .maplibregl-ctrl-top-left` rule in `index.css`. Pushes the top-left
+      // NavigationControl below the MapCoordReadout pill at the 800px boundary,
+      // where the map column compresses to ~316px and the pill's ~237px width
+      // can stretch into the zoom-control zone. Scoped via data-attribute so
       // ViewerMap (NavigationControl `top-right`) is unaffected.
       data-builder-canvas="true"
     >
@@ -1451,22 +1415,21 @@ export const BuilderMap = memo(function BuilderMap({
         // Cold-mount projection, see ViewerMap's MapGL for rationale.
         locale={mapLocale}
         projection={initialProjection}
-        // preserveDrawingBuffer dropped — captures use
-        // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts
-        // doCapture / handleExportPNG so the WebGL canvas keeps its default
-        // (no-buffer-retention) memory profile during normal editing.
+        // Captures use map.triggerRepaint() + synchronous toDataURL() in
+        // use-builder-save.ts (doCapture / handleExportPNG), so
+        // preserveDrawingBuffer stays off and the WebGL canvas keeps its
+        // default no-buffer-retention memory profile.
         style={{ width: '100%', height: '100%' }}
         minZoom={1}
         onLoad={handleLoad}
-        // Claim the wrapper's `error` fallback so a handled
-        // tile-auth 401/403 (re-sign / #621 re-mint in handleLoad's
-        // error handler) stops double-logging a red AJAXError console row.
+        // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
+        // (re-sign or re-mint in handleLoad's error handler) doesn't double-log
+        // a red AJAXError console row.
         onError={logUnhandledMapError}
       >
-        {/* NavigationControl anchored top-left so it does not
-            collide with the right-side BuilderRail (Notes/History/Ask AI buttons) at
-            narrow viewports (≤1024px rail mode). ScaleControl stays bottom-left;
-            no vertical overlap with the new NavigationControl placement. */}
+        {/* NavigationControl anchored top-left so it does not collide with the
+            right-side BuilderRail (Notes/History/Ask AI buttons) at narrow
+            viewports (≤1024px rail mode). ScaleControl stays bottom-left. */}
         <NavigationControl position="top-left" />
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         {popupInfo && (

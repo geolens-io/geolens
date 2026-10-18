@@ -20,7 +20,7 @@ describe('PERF-08: WebGL canvas buffer is not retained permanently', () => {
   });
 
   it('BuilderMap has a comment explaining why preserveDrawingBuffer is not set', () => {
-    expect(builderMapSrc).toMatch(/preserveDrawingBuffer dropped/);
+    expect(builderMapSrc).toMatch(/preserveDrawingBuffer stays off/);
   });
 
   it('use-builder-save.ts calls triggerRepaint in at least 2 places', () => {
