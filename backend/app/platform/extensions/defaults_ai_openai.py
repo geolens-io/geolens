@@ -1,9 +1,8 @@
 """Community-edition OpenAI-compatible AI provider defaults.
 
-Split from the former single-module ``defaults.py`` (#836): this sub-module
-owns ``DefaultOpenAICompatibleProvider`` and ``DefaultOpenAIEmbeddingProvider``.
-Import them via the ``app.platform.extensions.defaults`` facade, never from
-this sub-module.
+Import ``DefaultOpenAICompatibleProvider`` and
+``DefaultOpenAIEmbeddingProvider`` via the ``app.platform.extensions.defaults``
+facade, never from this sub-module.
 """
 
 from __future__ import annotations
@@ -14,16 +13,11 @@ from collections.abc import Mapping
 class DefaultOpenAICompatibleProvider:
     """Community-edition default: OpenAI-compatible tool-calling loop.
 
-    ``complete()`` is ``_loop_openai`` from ``app.processing.ai.llm_loop``
-    moved verbatim, with Anthropic→OpenAI tool format conversion applied
-    INTERNALLY at the top of the method — callers pass canonical Anthropic
-    shape; the provider converts on the way in.
+    Callers pass tools in the canonical Anthropic shape;
+    ``open_conversation`` converts them.
 
-    Class-level ``_clients`` dict cache keyed by ``base_url`` matches the
-    old module-level singleton.
-
-    All SDK and app-module imports happen INSIDE ``complete()``, never at
-    module load — deferred-import discipline.
+    All SDK and app-module imports happen INSIDE the methods, never at
+    module load.
     """
 
     _clients: dict = {}  # class-level cache: base_url -> AsyncOpenAI
@@ -43,7 +37,6 @@ class DefaultOpenAICompatibleProvider:
         base_url=None,
         temperature=0.5,
     ):
-        # Deferred imports
         import json
         import time
 
@@ -83,7 +76,6 @@ class DefaultOpenAICompatibleProvider:
             purpose="chat",
         )
 
-        # Lazy class-level keyed-client cache
         if effective_base_url not in DefaultOpenAICompatibleProvider._clients:
             DefaultOpenAICompatibleProvider._clients[effective_base_url] = AsyncOpenAI(
                 api_key=reveal(settings.openai_api_key),
@@ -113,10 +105,9 @@ class DefaultOpenAICompatibleProvider:
         # Same runaway guards as the Anthropic complete() loop.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        # EVERY exit from this loop carries the tokens already
-        # spent, not just the exhaustion raises — after round one the
-        # provider has been billed, so a later failure must still reach the
-        # daily quota.
+        # EVERY exit from this loop carries the tokens already spent: after
+        # round one the provider has billed, so a later failure must still
+        # reach the daily quota.
         try:
             for round_num in range(max_rounds):
                 if time.monotonic() > deadline:
@@ -154,7 +145,6 @@ class DefaultOpenAICompatibleProvider:
                     parsed_calls, cleaned_text = parse_xml_tool_calls(text)
 
                     if parsed_calls:
-                        # Execute parsed XML tool calls
                         for fn_name, fn_args in parsed_calls:
                             log.info(
                                 "Parsed XML tool call", tool=fn_name, input=fn_args
@@ -210,7 +200,6 @@ class DefaultOpenAICompatibleProvider:
                     conversation.add_tool_results(round_, results)
                     continue
 
-                # Unexpected finish reason
                 return ToolLoopResult(
                     text=round_.text,
                     truncated=True,
@@ -232,8 +221,7 @@ class DefaultOpenAICompatibleProvider:
             attach_token_usage(exc, total_input, total_output)
             raise
 
-    # Explicit keyword-only signature, matching
-    # AIProviderExtension.stream exactly, instead of a bare **kwargs shim.
+    # Explicit keyword-only signature matching AIProviderExtension.stream.
     async def stream(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -254,8 +242,6 @@ class DefaultOpenAICompatibleProvider:
             "community edition; use complete()."
         )
 
-    # Explicit keyword-only signature, matching
-    # AIProviderExtension.stream_chat_events exactly.
     async def stream_chat_events(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -362,17 +348,7 @@ class DefaultOpenAICompatibleProvider:
 class DefaultOpenAIEmbeddingProvider:
     """Community-edition default: OpenAI-compatible embeddings.
 
-    A Protocol-typed provider class, absorbing the former sync
-    ``build_openai_client()`` / ``resolve_embedding_base_url()`` helpers and
-    ``service.py``'s retry/backoff loop (max 2 attempts, 2.0s backoff+jitter).
-
-    Class-level ``_clients`` dict cache keyed by ``base_url`` mirrors
-    ``DefaultOpenAICompatibleProvider._clients``. Lifetime is process-scoped
-    (registered as a singleton in
-    ``_extensions["embedding_providers"]["openai_compatible"]``).
-
-    ``AsyncOpenAI`` replaces the former sync ``OpenAI`` + ``asyncio.to_thread``,
-    matching ``DefaultOpenAICompatibleProvider``'s chat-completions path.
+    Class-level ``_clients`` dict cache keyed by ``base_url``, process-scoped.
 
     All SDK and app-module imports happen INSIDE ``embed()`` /
     ``resolve_runtime_config()``, never at module load.
@@ -389,7 +365,6 @@ class DefaultOpenAIEmbeddingProvider:
         base_url: str | None = None,
         timeout: float | None = None,
     ) -> list[list[float]]:
-        # Deferred imports
         import asyncio
         import random
 
@@ -412,7 +387,6 @@ class DefaultOpenAIEmbeddingProvider:
             purpose="embedding",
         )
 
-        # Lazy class-level keyed-client cache (mirrors defaults.py:684-692)
         if effective_base_url not in DefaultOpenAIEmbeddingProvider._clients:
             DefaultOpenAIEmbeddingProvider._clients[effective_base_url] = AsyncOpenAI(
                 api_key=reveal(settings.openai_api_key),
@@ -422,15 +396,12 @@ class DefaultOpenAIEmbeddingProvider:
             )
         client = DefaultOpenAIEmbeddingProvider._clients[effective_base_url]
 
-        # Retry loop: max 2 attempts, 2.0s backoff with up to 30% jitter,
-        # asyncio.wait_for per call.
         max_attempts = 2
         backoff = 2.0
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
-                # dimensions=None must NOT be passed to the SDK — build
-                # kwargs conditionally.
+                # dimensions=None must NOT be passed to the SDK.
                 kwargs: dict[str, object] = {"model": model, "input": texts}
                 if dimensions is not None:
                     kwargs["dimensions"] = dimensions

@@ -32,8 +32,8 @@ _RANGE_SPEC_RE = re.compile(r"^(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
 # NOT a 200 with the whole object — a client resuming one tile would splice it.
 RANGE_UNSATISFIABLE = "unsatisfiable"
 
-# Saturated at this many digits before reaching int().
-# CPython refuses to convert a literal longer than
+# Saturated at this many digits before reaching int(). CPython refuses to
+# convert a literal longer than
 # sys.get_int_max_str_digits() (4300 default) — an unbounded `int(group)` on a
 # 4301-digit value (fits an 8 KiB header) would be a 500. Saturating instead of
 # rejecting keeps the RFC answer (416, or a clamp) rather than a 200 with the
@@ -134,9 +134,8 @@ def range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
     ``W/"..."`` (never matches strong comparison), or when there is no
     validator to compare against. An absent ``If-Range`` returns True.
 
-    Shared with the export route under ``processing/``,
-    which needs the identical evaluation — reimplementing it there is how the
-    two would drift.
+    Shared with the export route under ``processing/``, which needs the
+    identical evaluation.
     """
     if if_range is None:
         return True

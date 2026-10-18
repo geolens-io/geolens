@@ -30,20 +30,15 @@ from .shared import (
 )
 
 
-# This function has a SECOND consumer most edits here won't have
-# in mind. The NL->SQL surface renders its output for every metric buffer a
-# chat question asks for (the model writes a short
-# ``geolens_buffer(<geom>, <metres>)`` marker and
-# ``processing/ai/buffer_marker.py`` calls this function to expand it), and
-# the SQL sandbox admits the sixteen amplification-prone functions below
-# ONLY inside a subtree that is exactly what this renderer emits —
-# ``_matches_canonical_buffer`` in ``platform/sandbox/validator.py``
-# re-renders the template and compares. The match follows a shape change
-# automatically, since both sides call this function; it cannot follow a NEW
-# function name that is itself unsafe outside the template, since the
-# exemption would then cover it — weigh that before adding one, and keep the
-# default ``alias``, since a buffer rendered under any other alias fails the
-# match and the sandbox refuses it.
+# This function has a second consumer: NL->SQL expands the model's
+# ``geolens_buffer(<geom>, <metres>)`` marker through it
+# (``processing/ai/buffer_marker.py``), and the SQL sandbox admits the
+# amplification-prone functions below ONLY inside a subtree that is exactly
+# what this renderer emits (``_matches_canonical_buffer`` in
+# ``platform/sandbox/validator.py`` re-renders and compares). A shape change
+# is followed automatically, but any NEW function name used here is exempted
+# too, so it must be safe outside the template. A buffer rendered under a
+# non-default ``alias`` fails the match and the sandbox refuses it.
 def render_geodesic_buffer(
     geom_expr: str, distance: float, *, alias: str = "_pb"
 ) -> str:
@@ -63,25 +58,19 @@ def render_geodesic_buffer(
         about 135° and up 999061   9,240 - 10,824   wide Lambert
 
     At a 45° span PostGIS falls back to world Mercator, whose scale error is
-    1/cos(latitude), so the buffer comes back cos(φ) too small: the
-    two-point fixture at lat 45 held 49.9% of the correct area, and a
-    component at lat 60 measured a 5,009 m radius for a requested 10,000 m —
-    a quarter of its area. Nothing errors and the output stays valid.
+    1/cos(latitude), so the buffer comes back cos(φ) too small with no error
+    and valid output.
 
-    Latitude span is harmless by contrast: swept to 80° with longitude span
-    held at 0, the SRID stayed on the UTM zone and radius stayed within
-    9,990-10,004 m, since transverse Mercator holds scale ≈ 1 along its
+    Latitude span is harmless: transverse Mercator holds scale ≈ 1 along its
     central meridian at every latitude. So the guard tests LONGITUDE span
     only, the same quantity ``render_dateline_safe`` tests.
 
     Three passes, order load-bearing:
 
     1. Slice the input into longitude bands ``BUFFER_LOCAL_SRID_SPAN_DEG``
-       wide (bands, not components: a SINGLE component 90° wide
-       lands in world Mercator exactly like a multipart spread does, and
-       per-component dumping can't touch it since there's nothing to dump it
-       into; a 10 km buffer of ``LINESTRING(0 45, 90 45)`` held 63.7% of its
-       piecewise-truth area). Each band piece is dumped to simple parts and
+       wide (bands, not components: a SINGLE component 90° wide lands in
+       world Mercator exactly like a multipart spread does, and there is
+       nothing to dump it into). Each band piece is dumped to simple parts and
        buffered on its own ``::geography``, so ``_ST_BestSRID`` sees at most
        a 6° span. Buffering a covering set of slices and dissolving equals
        buffering the whole (a Minkowski sum distributes over union), so
@@ -93,107 +82,69 @@ def render_geodesic_buffer(
     2. ``render_dateline_safe`` splits any component that wraps ±180, BEFORE
        the dissolve: a wrapping component's buffer is self-intersecting in
        the planar domain, and unioning it in that state raises
-       ``TopologyException: side location conflict`` — the statement aborts
-       outright. Validating before
-       shifting noded the seam into 4 slivers holding 97.9% of the area
-       instead of 2 parts holding 99.3%.
-    3. ``ST_UnaryUnion`` dissolves parts whose buffers overlap. Without it
-       the per-component pass regresses geometry the whole-input buffer used
-       to merge: a ``MULTIPOINT`` with two points 0.05° apart plus a third
-       90° away came back as 3 overlapping parts, ``ST_IsValid`` false, area
-       935,908,947 m² against a true union of 701,993,608 m² — the overlap
-       counted twice. ``ST_MakeValid`` is NOT a substitute: on the same
-       input it kept 3 parts and cut the overlap out of one instead of
-       merging, landing on 468,078,270 m². The union is a no-op where
-       nothing overlaps (the seam fixture measures 623,944,052 m²
-       and 3 parts either way), so it sits unconditionally on this branch.
+       ``TopologyException: side location conflict`` and the statement
+       aborts.
+    3. ``ST_UnaryUnion`` dissolves parts whose buffers overlap; without it
+       nearby parts come back overlapping, invalid, with the overlap counted
+       twice. ``ST_MakeValid`` is NOT a substitute: it cuts the overlap out
+       of one part instead of merging. The union is a no-op where nothing
+       overlaps, so it sits unconditionally on this branch.
 
     One cheap condition on the SOURCE gates all of that, so an ordinary
     narrow buffer takes a bare ``ELSE`` rendering exactly the plain
     expression, with no slicing, re-collect or union: longitude span must
     reach ``BUFFER_LOCAL_SRID_SPAN_DEG``. Below that the whole input fits
-    one UTM zone and is already buffered in a projection local to it
-    (measured ±0.04%), while a dense source — up to 500,000 rows, per
-    ``MAX_SOURCE_FEATURES`` — would otherwise pay a slice plus a union per
-    row for nothing. The same constant is deliberately the slice width too:
-    under 6° the produced radius holds 9,997-10,004 m for a requested
-    10,000 m, so slicing at the gate's own number keeps one threshold.
+    one UTM zone and is already buffered in a projection local to it, while
+    a dense source (up to ``MAX_SOURCE_FEATURES``) would otherwise pay a
+    slice plus a union per row for nothing.
 
-    Blast radius, decided up front: the earlier gate also required
-    ``ST_NumGeometries(...) > 1``, which kept every single-part output
-    byte-identical at the price of leaving a wide single component in world
-    Mercator. Dropping that condition means every buffer whose span reaches
-    the threshold — single-part included — changes vertex structure. Output
-    stays geometrically correct and ``ST_IsValid``; callers comparing WKT or
-    vertex counts for WIDE inputs will see a difference, and narrow inputs
-    (under the threshold) remain byte-identical, which the tests pin.
+    Every buffer whose span reaches the threshold, single-part included,
+    changes vertex structure but stays valid; narrow inputs remain
+    byte-identical, which the tests pin.
 
-    The guard reads the VALIDATED geometry, not the raw column — that's what
-    the ``OFFSET 0`` fence buys. ``ST_MakeValid`` can raise the part count: a
-    self-intersecting ``POLYGON`` whose lobes sit 90° apart is one component
-    as stored and two after validation, so gating on the raw column would
-    have read a misleadingly narrow single part; the slice pass
-    now works on the validated shape for the same reason.
+    The guard reads the VALIDATED geometry, not the raw column; that's what
+    the ``OFFSET 0`` fence buys. ``ST_MakeValid`` can raise the part count (a
+    self-intersecting ``POLYGON`` whose lobes sit 90° apart becomes two
+    components), so the slice pass works on the validated shape too. The
+    fence also matters because the ``CASE`` references the source geometry
+    several times.
 
-    ``geom_expr`` runs inside an ``OFFSET 0``-fenced subquery, the same
-    pull-up fence the rest of this module uses, since the
-    ``CASE`` references the source geometry several times.
-
-    Cost, from ``EXPLAIN ANALYZE`` baselines over 2,000 rows,
-    inherited by the slice pass: the span guard is free (7.34 ms alone over
-    2,000 66-vertex polygons, short-circuited before any heavy work). The
-    common path pays this function's own ``OFFSET 0`` fence: 335 ms -> 376 ms
-    on those polygons (+20 µs/row), and 53 ms -> 38 ms on 2,000 bare points,
-    where materializing ``ST_MakeValid`` once is cheaper than re-deriving
-    it. The gated path paid 87 ms -> 116 ms for 2,000 two-component rows and
-    586 ms -> 1,316 ms for 200 hundred-part rows — the extra time being the
-    per-piece buffers plus the dissolve; slicing swaps the per-component
-    dump for a band ``generate_series`` + ``ST_Intersection`` in the same
-    cost class. Both ``ST_Buffer`` call sites are rendered, only one is
-    reached per row.
+    Cost: the span guard is free; the common path pays the fence (about
+    +20 µs/row on polygons, cheaper on points); the gated path adds the
+    per-piece buffers plus the dissolve. Both ``ST_Buffer`` call sites are
+    rendered, only one is reached per row.
     """
     # Slice a hair UNDER the constant: the SRID switch away from the local
     # UTM zone happens AT exactly a 6.0° span (why the gate tests >=), so a
     # dense piece filling its band exactly would land in the ±1% fallback
-    # SRID instead of the ±0.04% zone. Measured: exact-width slices produced
-    # a 9,905 m radius (999247's signature) where 5.999° slices hold 9,997+.
+    # SRID instead of the ±0.04% zone. Measured: exact-width slices produced a
+    # 9,905 m radius where 5.999° slices hold 9,997 m or more.
     width = f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)"
     band = (
         f"ST_MakeEnvelope("
         f"ST_XMin({alias}_g.uc) + {alias}_i.i * {width}, -90,"
         f" ST_XMin({alias}_g.uc) + ({alias}_i.i + 1) * {width}, 90, 4326)"
     )
-    # A component that itself crosses the
-    # antimeridian (LINESTRING(170 0, -170 0)) segmentizes to a vertex jump
-    # from ~+180 to ~-180, and a PLANAR band intersection reads that jump as
-    # a near-global chord touching every band. Unwrap into the +360-shifted
-    # domain when — and only when — shifting narrows the planar span (the
-    # same two-condition test render_dateline_safe applies), decided PER
-    # COMPONENT: a feature holding both a seam-crossing and a
-    # Greenwich-crossing component fails the feature-wide test in both
-    # domains, leaving the seam component's chord in place, while deciding
-    # per component unwraps exactly the right one. Per-vertex
-    # ST_ShiftLongitude is safe within a component since segmentized edges
-    # are ~20 km, except edges crossing the PRIME meridian, which shifting
-    # tears into ~360° chords — and exactly then that component's shifted
-    # span isn't narrower, so its guard declines. Bands then run over the
-    # re-collected domain (up to lon ~540); ST_WrapX folds each piece back
-    # into range before the ::geography cast, and render_dateline_safe
-    # splits any re-wrapped output component afterwards. Residual: a single
-    # COMPONENT crossing both meridians stays wide in both domains and keeps
-    # planar slicing.
-    # A component can carry a planar seam JUMP even
-    # after the per-component shift — a path crossing BOTH meridians is
-    # wide in both domains, so neither representation is a continuous
-    # chordless polyline. The jump is detectable exactly: after geography
-    # segmentization every genuine edge is ~20 km (~0.2°), so any planar
-    # segment wider than 180° IS the seam jump.
-    # The per-segment fallback is for LINEAL/PUNTAL
-    # components only — dumping a POLYGON to boundary segments and
-    # buffering those would keep the boundary corridor and discard the
-    # interior. Polygonal components always take the band slice, honoring
-    # their stored PLANAR semantics (the same reading every other consumer
-    # of the column uses).
+    # A component that itself crosses the antimeridian
+    # (LINESTRING(170 0, -170 0)) segmentizes to a vertex jump from ~+180 to
+    # ~-180, which a PLANAR band intersection reads as a near-global chord
+    # touching every band. Unwrap into the +360-shifted domain only when
+    # shifting narrows the planar span (render_dateline_safe's two-condition
+    # test), decided PER COMPONENT, since a feature can hold both a
+    # seam-crossing and a Greenwich-crossing component. Per-vertex
+    # ST_ShiftLongitude is safe within a component since segmentized edges are
+    # ~20 km, except edges crossing the PRIME meridian, which shifting tears
+    # into ~360° chords; then the shifted span isn't narrower and the guard
+    # declines. Bands run over the re-collected domain (up to lon ~540);
+    # ST_WrapX folds each piece back before the ::geography cast, and
+    # render_dateline_safe splits any re-wrapped output afterwards.
+    #
+    # A component crossing BOTH meridians is wide in both domains and keeps a
+    # planar seam jump. After geography segmentization every genuine edge is
+    # ~0.2°, so any planar segment wider than 180° IS the jump. The
+    # per-segment fallback is for LINEAL/PUNTAL components only: buffering a
+    # POLYGON's boundary segments would discard its interior, so polygonal
+    # components always take the band slice in their stored PLANAR semantics.
     has_jump = (
         f"(ST_Dimension({alias}_g.uc) <= 1 AND"
         f" EXISTS (SELECT 1 FROM ST_DumpSegments({alias}_g.uc) AS {alias}_e"
@@ -204,11 +155,10 @@ def render_geodesic_buffer(
     unwrap_components = (
         f"SELECT CASE"
         f" WHEN ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) > 180"
-        # The shifted domain must win by the shared
-        # longitude epsilon — a mathematically tied span (global or
-        # pole-encircling rings) differs only by float noise after the ±360
-        # round-trip, and a bare `<` would let that noise pick the
-        # per-vertex shift, tearing a Greenwich-crossing ring.
+        # The shifted domain must win by the shared longitude epsilon: a
+        # tied span (global or pole-encircling rings) differs only by float
+        # noise after the ±360 round-trip, and a bare `<` would let that noise
+        # pick the per-vertex shift, tearing a Greenwich-crossing ring.
         f" AND ST_XMax({alias}_u.s) - ST_XMin({alias}_u.s)"
         f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) - {LON_EPSILON_DEGREES}"
         f" THEN {alias}_u.s ELSE {alias}_u.c END AS uc"
@@ -221,16 +171,12 @@ def render_geodesic_buffer(
         f" FROM (SELECT (ST_Dump({alias}.g)).geom AS c0) AS {alias}_d0) AS {alias}_d"
         f" OFFSET 0) AS {alias}_u"
     )
-    # Each component either slices into longitude bands (the local-projection
-    # pass) or, when it still carries a seam jump,
-    # falls back to per-SEGMENT buffering: every segmentized segment is
-    # ~20 km, so each one unwraps on its own evidence (the jump segment
-    # always narrows when shifted, a Greenwich segment never needs to), gets
-    # a local projection, and the dissolve merges the overlapping segment
-    # buffers into the corridor. Costlier per row, but confined to this
-    # irreducible shape. ST_WrapX folds shifted-domain pieces (lon up to
-    # ~540) back into [-180, 180] before the ::geography cast, which rejects
-    # out-of-range longitudes — a no-op for pieces already in range.
+    # Each component either slices into longitude bands or, when it still
+    # carries a seam jump, falls back to per-SEGMENT buffering: each ~20 km
+    # segment unwraps on its own evidence, gets a local projection, and the
+    # dissolve merges the segment buffers into the corridor. ST_WrapX folds
+    # shifted-domain pieces back into [-180, 180] before the ::geography
+    # cast, which rejects out-of-range longitudes.
     seg_unwrap = (
         f"CASE"
         f" WHEN ST_XMax({alias}_e2.geom) - ST_XMin({alias}_e2.geom) > 180"
@@ -287,13 +233,9 @@ def render_buffer_expr(distance_meters: float | None) -> tuple[str, str]:
         raise ValueError(
             f"buffer distance must be between 0 and {MAX_BUFFER_METERS:g} meters"
         )
-    # Buffer is the only operation here that round-trips through
-    # ::geography, so the only one that has to pick a planar working SRID
-    # and emit an antimeridian-wrapping geometry the source
-    # never had; both live in render_geodesic_buffer.
-    # Intersection (clip) and union (dissolve) can only shrink or merge
-    # longitudes already in range, and a planar centroid stays inside its
-    # input's envelope.
+    # Only buffer needs the SRID and antimeridian handling (see the module
+    # docstring): clip and dissolve only shrink or merge longitudes already in
+    # range, and a planar centroid stays inside its input's envelope.
     return render_geodesic_buffer("ST_MakeValid(geom_4326)", distance), ""
 
 

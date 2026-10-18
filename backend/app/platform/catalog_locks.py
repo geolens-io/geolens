@@ -1,5 +1,5 @@
-"""The one lock order for the (datasets, records) row pair (#1847), and the
-per-dataset admission lock VRT regeneration serialises on (#1955).
+"""The one lock order for the (datasets, records) row pair, and the
+per-dataset admission lock VRT regeneration serialises on.
 
 Lives in ``platform/`` because ``processing/`` may not import
 ``app.modules.catalog``: worker callers pass the mapped classes the port hands
@@ -66,8 +66,7 @@ def lock_conflict_report(
     """The log event, operator hint and SQLSTATE for a failed acquisition.
 
     The event is ``<event_prefix>_lock_timeout``, ``<event_prefix>_deadlock``
-    or ``<event_prefix>_lock_failed``. One definition, because a per-site copy
-    is a per-site drift.
+    or ``<event_prefix>_lock_failed``.
     """
     cause = conflict.__cause__
     code = sqlstate(cause) if isinstance(cause, DBAPIError) else None
@@ -295,7 +294,7 @@ async def bump_publication_version_atomic(
 ) -> int | None:
     """Roll ``publication_version`` in the database and return the new value.
 
-    The counter a signed tile scope binds (#1963). Same write-time evaluation
+    The counter a signed tile scope binds. Same write-time evaluation
     as :func:`bump_tile_cache_version_atomic`, and a separate counter on
     purpose: this one rolls only when a publication-status or visibility
     transition changes who may read the dataset, so an ordinary edit does not
@@ -423,7 +422,7 @@ async def admit_vrt_mutation(
 ) -> bool:
     """Admit one VRT-mutating dispatch per dataset, or refuse this one.
 
-    The partial unique index from ADR-002 Decision 5b (#1955) does not reach VRT
+    The partial unique index from ADR-002 Decision 5b does not reach VRT
     regeneration, and the three doors that dispatch one read the asset status,
     check it and flip it as three statements. The lock comes FIRST and the
     status is re-read under it: read before the lock, the loser's snapshot

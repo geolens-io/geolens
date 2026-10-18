@@ -23,8 +23,8 @@ HEARTBEAT_INTERVAL_SECONDS = 30.0
 ANALYSIS_MATERIALIZE_LEASE_SECONDS = 300.0
 
 
-# Shared by the code that MAKES these names and the code that
-# RECOGNISES them. Narrow: `parcels_staging` is a legitimate user title.
+# Shared by the code that MAKES these names and the code that RECOGNISES
+# them. Narrow: `parcels_staging` is a legitimate user title.
 # POSIX syntax so Postgres `~` and Python `re` agree (test_staging_table_names_1858.py).
 ATTEMPT_STAGING_NAME_PATTERN = r"_staging_[0-9a-f]{32}$"
 
@@ -109,14 +109,14 @@ async def resolve_ingest_job_attempt(
     return None
 
 
-# The budget an attempt-fenced failure write spends on its own
-# ingest_jobs row. A long holder is a LATER attempt's phase bracket, whose id
+# The budget an attempt-fenced failure write spends on its own ingest_jobs
+# row. A long holder is a LATER attempt's phase bracket, whose id
 # the fence no longer matches, so no wait starts and a wait past this is stuck.
 JOB_ERROR_WRITE_TIMEOUT_MS = 10_000
 
 
-# The two SQLSTATEs the budget itself produces — statement_timeout
-# and lock_timeout. Any other DBAPIError out of the failure write is a database
+# The two SQLSTATEs the budget itself produces: statement_timeout and
+# lock_timeout. Any other DBAPIError out of the failure write is a database
 # problem, reported under the sibling event rather than as an expiry.
 ERROR_WRITE_EXPIRY_CODES = ("57014", "55P03")
 
@@ -156,8 +156,8 @@ async def arm_job_error_write_budget(
     rollback on that session: ``SET LOCAL`` dies with the transaction, so an
     arm placed before a rollback or a commit is gone by the next statement.
 
-    ``budget_ms`` is for a caller that already sits under
-    an outer deadline. The shared budget is the default, not a floor.
+    ``budget_ms`` is for a caller that already sits under an outer deadline.
+    The shared budget is the default, not a floor.
     """
     # Resolved here, not as a default: the module global is what a test
     # patches, and a default argument would freeze it at import.
@@ -213,8 +213,8 @@ async def write_job_failure_for_attempt(
     it from a failure path where a raise would replace the cause with a lock
     timeout.
 
-    ``None`` is not a fence miss. A caller that treats it as one
-    drops cleanup that belongs to an attempt still owning the job row. On
+    ``None`` is not a fence miss. A caller that treats it as one drops
+    cleanup that belongs to an attempt still owning the job row. On
     ``None`` the row stays ``running`` for the stale sweep to settle.
 
     Issue it AFTER any rollback on *session*: ``SET LOCAL`` dies with the

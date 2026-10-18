@@ -991,9 +991,9 @@ def validate_sql(
         sql = _strip_statement_terminator(sql)
         statements = sqlglot.parse(sql, dialect="postgres")
     except sqlglot.errors.SqlglotError as exc:
-        # TokenError (an unterminated literal, identifier, comment
-        # or dollar-quote) is a SIBLING of ParseError under SqlglotError, so
-        # catching ParseError alone surfaced the commonest typo as a 500.
+        # TokenError (an unterminated literal, identifier, comment or
+        # dollar-quote) is a SIBLING of ParseError under SqlglotError, so
+        # catching ParseError alone would surface the commonest typo as a 500.
         logger.info("sandbox.parse_error", sql=sql, error=str(exc))
         raise SandboxError("invalid_query", "Invalid SQL syntax")
 

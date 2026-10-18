@@ -1,9 +1,8 @@
 """Process-wide SlowAPI limiter; lives in platform/ to stay cheap to import.
 
-Moved out of ``app.modules.auth.router`` so importing the limiter
-no longer drags in that router's whole transitive graph. Nothing here may
-import ``app.modules.*`` — several domains import this module, so that would
-be a cycle.
+Importing the limiter must not drag in a router's transitive graph, and
+nothing here may import ``app.modules.*``: several domains import this
+module, so that would be a cycle.
 
 ``_global_rate_limit`` is a callable, not a literal: the limit is
 admin-editable at runtime and SlowAPI re-evaluates the default per request.
@@ -14,11 +13,11 @@ path-parameterised route hands one IP a fresh budget per dataset id or per
 z/x/y, multiplying the configured cap for free. See
 ``tests/test_admin_rate_limit.py``.
 
-With ``REDIS_URL`` set every bucket is one counter the whole
-cluster shares, instead of one per uvicorn worker (the bundled prod compose
-runs two, so each configured cap was really twice that). ``in_memory_
-fallback_enabled`` keeps an outage degrading to per-worker counting, the
-pre-#2018 behaviour, rather than to no limit or a 500 per request.
+With ``REDIS_URL`` set every bucket is one counter the whole cluster
+shares, instead of one per uvicorn worker (the bundled prod compose runs
+two, which would double each configured cap). ``in_memory_fallback_enabled``
+keeps an outage degrading to per-worker counting rather than to no limit or
+a 500 per request.
 """
 
 from __future__ import annotations
@@ -51,8 +50,8 @@ from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# The storage decision is made while this module is imported,
-# which `app/api/main.py` does before it calls `setup_logging`. Logging there
+# The storage decision is made while this module is imported, which
+# `app/api/main.py` does before it calls `setup_logging`. Logging there
 # renders console-formatted lines outside the JSON stream an operator greps,
 # so the notices queue here and the app flushes them once logging is up.
 _startup_notices: list[tuple[str, dict[str, Any]]] = []

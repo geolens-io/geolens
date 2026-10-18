@@ -69,5 +69,4 @@ async def post_webhook(notification: "Notification") -> None:  # type: ignore[na
     timeout = httpx.Timeout(10.0, connect=5.0)
     async with _make_client(timeout) as client:
         response = await client.post(url, json=payload, headers=headers)
-        # Raise on non-2xx so the sink can treat this channel as failed.
         response.raise_for_status()

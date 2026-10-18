@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # Structured ingest-warning contract: warnings land in
 # ``IngestJob.user_metadata['warnings']``. Producers use TypedDicts in
-# ``app.ingest.warnings``; the router re-parses through ``IngestJobWarning``
+# ``app.processing.ingest.warnings``; the router re-parses through ``IngestJobWarning``
 # so malformed warnings are caught before they cross the wire.
 
 
@@ -52,9 +52,9 @@ class MercatorClipDetail(BaseModel):
 
     dropped_features: int = Field(ge=0)
     clipped_features: int = Field(ge=0)
-    # True when the clip was skipped because the Mercator safe
-    # envelope degenerates under ST_Transform (e.g. EPSG:4807 collapses it to
-    # a line); counts are 0/0 then. Defaults False so pre-#906 warnings validate.
+    # True when the clip was skipped because the Mercator safe envelope
+    # degenerates under ST_Transform (e.g. EPSG:4807 collapses it to a line);
+    # counts are 0/0 then. Defaults False so older warnings validate.
     clip_skipped: bool = False
 
     model_config = ConfigDict(extra="forbid")
@@ -96,9 +96,9 @@ class JobStatusResponse(BaseModel):
     # scalar ``warning_message`` stays as a fallback for the pre-structured
     # table-name collision case; clients should prefer ``warnings``.
     warnings: list[IngestJobWarning] = Field(default_factory=list)
-    # Progress fields from the ingest worker,
-    # for multi-minute ingests. Default None so pre-existing/service rows
-    # validate. DB column stays String(32); this Literal is the source of truth.
+    # Progress fields from the ingest worker, for multi-minute ingests.
+    # Default None so older and service rows validate. The DB column is
+    # String(32); this Literal is the source of truth.
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     current_step: (
         Literal[
@@ -132,8 +132,7 @@ class JobStatusResponse(BaseModel):
         "publication, so a client showing the thumbnail can poll again until the "
         "image has been replaced.",
     )
-    # The temporal parser only ever emits these two keys; pin the
-    # shape so adding a third key requires touching the contract deliberately.
+    # The temporal parser only ever emits these two keys.
     temporal_parse_errors: dict[Literal["temporal_start", "temporal_end"], str] = Field(
         default_factory=dict
     )

@@ -69,9 +69,8 @@ UNSUPPORTED_AUTH_METHOD_POLICY = (
     "for a token and nothing else. Use a bearer token for it."
 )
 
-# The request schema's rule, restated for callers that never
-# pass through it. Reuses `invalid_service_token` rather than minting a
-# code for a case that means what that one means.
+# The request schema's rule, restated for callers that never pass through
+# it, under the same `invalid_service_token` code.
 BLANK_BEARER_TOKEN_CODE = INVALID_SERVICE_TOKEN_CODE
 
 BLANK_BEARER_TOKEN_POLICY = (
@@ -129,8 +128,8 @@ def bearer_token_for_credential(credential: ServiceCredential | None) -> str | N
 def credential_input_rejection(credential: ServiceCredential) -> str | None:
     """Why the values in *credential* cannot become a header, or None.
 
-    The door's half of plan 3.5: judge what the caller TYPED, letting
-    composition happen afterwards. A composed basic line contains a space
+    Judges what the caller TYPED, letting composition happen afterwards.
+    A composed basic line contains a space
     and a colon, so a validator applied to the line instead would reject
     the very thing it exists to protect — at the door or, worse, in the
     worker after the single-use credential has been spent.
@@ -145,9 +144,9 @@ def credential_input_rejection(credential: ServiceCredential) -> str | None:
     if method == CredentialMethod.BEARER:
         if not credential.token:
             return BLANK_BEARER_TOKEN_POLICY
-        # Through the builder's own rule, which picks the charset
-        # by service format. Applying the GDAL header-file charset here
-        # refused a STAC key holding `+` or `/` that the builder accepts.
+        # Through the builder's own rule, which picks the charset by service
+        # format; the GDAL header-file charset would refuse a STAC key holding
+        # `+` or `/` that the builder accepts.
         return bearer_token_rejection_reason(credential)
     if method == CredentialMethod.BASIC:
         for supplied in (credential.username, credential.password):
@@ -171,12 +170,9 @@ def service_carries_method(
 ) -> bool:
     """Whether a service of this KIND can present a credential of this METHOD.
 
-    The one mapping, so the probe door and the probe itself
-    can't disagree about it. It had been expressed twice, differently: the
-    door inferred the service kind from URL text and refused there, while
-    `detect_service_type` refused the same methods after detection — a
-    WFS served from a path containing `FeatureServer` was refused a
-    credential it supports, before anything asked the service what it is.
+    The one mapping, so the probe door and the probe itself can't disagree.
+    Inferring the service kind from URL text instead would refuse a WFS
+    served from a path containing `FeatureServer` a credential it supports.
 
     Bearer travels either way: it fits a URL query and a header line.
     Basic and a named API key exist only as a header, so they need a
@@ -232,8 +228,8 @@ def wire_credential(
 
     For the two header-auth formats that's a finished ASCII header
     line, composed here since the queue hop has no site to compose it
-    later; for ArcGIS it's the bare token, percent-encoded into the query
-    exactly as before. Validation happens first either way, so a
+    later; for ArcGIS it's the bare token, percent-encoded into the query.
+    Validation happens first either way, so a
     credential that can't work never reserves a run or burns a
     single-use stash.
 
@@ -241,20 +237,13 @@ def wire_credential(
     which is what an in-process caller sets when constructing
     one directly.
 
-    The ArcGIS branch is selected by
-    ``carries_credential_as_header_line``, NOT by "the builder answered None".
-    ``build_credential_header`` composes an
-    ``X-Esri-Authorization: Bearer`` header for ArcGIS (for GeoLens's own
-    httpx requests — a different transport), so keying off it would have
-    killed the branch below: it handed the worker ``Authorization: Bearer <token>``
-    as ``token``, which ``build_gdal_source`` then percent-encoded into
-    ``&token=Authorization%3A+Bearer+...``, breaking every authenticated
-    ArcGIS ingest/refresh/reupload at the origin after the single-use
-    credential was already spent. This function asks whether the
-    credential becomes a header LINE — that's what
-    ``carries_credential_as_header_line``
-    answers; asking the builder was a proxy for it that stopped being
-    equivalent.
+    The ArcGIS branch is selected by ``carries_credential_as_header_line``,
+    NOT by "the builder answered None": ``build_credential_header`` composes
+    an ``X-Esri-Authorization: Bearer`` header for ArcGIS (for GeoLens's own
+    httpx requests, a different transport). Handed to the worker as
+    ``token``, that line would be percent-encoded by ``build_gdal_source``
+    into ``&token=Authorization%3A+Bearer+...`` and fail at the origin after
+    the single-use credential is spent.
 
     That predicate is wider than ``requires_header_token_policy`` by
     exactly STAC, so a STAC refresh crosses as a
@@ -300,7 +289,7 @@ def custom_credential_header_name(
 ) -> str | None:
     """The header name an httpx client must refuse to follow a redirect with.
 
-    Plan section 5 rule A, httpx half. ``Authorization`` needs nothing:
+    ``Authorization`` needs nothing:
     httpx drops it on a cross-origin redirect by itself. A name the
     SERVICE chose is forwarded verbatim, so ``make_safe_client`` must be
     told about it, and fails the hop closed rather than handing the key
@@ -354,7 +343,6 @@ def _validate_safe_token(v: str | None) -> str | None:
     return v
 
 
-# ---------------------------------------------------------------------------
 # The structured `auth` object every service door accepts, and the
 # deprecated flat `token` that means the same thing for a bearer credential.
 #

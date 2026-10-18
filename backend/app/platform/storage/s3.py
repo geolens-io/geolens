@@ -94,11 +94,10 @@ class S3StorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns s3://bucket/key URI.
 
-        Drained on cancellation — a bare ``to_thread`` would
-        return while the SDK upload kept running, racing cleanup (undo-
-        delete, closed source handle, orphaned multipart parts). Draining
-        costs a cancelled request the rest of its upload; that's the safer
-        trade.
+        Drained on cancellation: a bare ``to_thread`` would return while the
+        SDK upload kept running, racing cleanup (undo-delete, closed source
+        handle, orphaned multipart parts). Draining costs a cancelled request
+        the rest of its upload; that's the safer trade.
         """
         if isinstance(data, bytes):
             await run_in_thread_draining(
@@ -118,7 +117,6 @@ class S3StorageProvider:
                 response = self.client.get_object(Bucket=self.bucket, Key=key)
                 return response["Body"].read()
             except ClientError as e:
-                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -142,7 +140,6 @@ class S3StorageProvider:
                     Key=dst_key,
                 )
             except ClientError as e:
-                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(src_key) from e
                 raise
@@ -162,7 +159,6 @@ class S3StorageProvider:
                 return response["Body"].read()
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # Normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 # A window that starts at or past the end of the object is an
@@ -176,20 +172,18 @@ class S3StorageProvider:
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream the whole object from ONE ``get_object``, in 1 MiB chunks.
 
-        This IS reachable — a resumed range whose ``If-Range`` no
-        longer matches must be answered with the complete representation
-        (RFC 9110 13.1.5), which a presigned URL can't do since the bucket
-        never evaluates the precondition. Never reintroduce
-        NotImplementedError here, and never loop a ranged ``get_object`` per
-        chunk (it did, once: 5,120 requests for a 5 GiB COG). Body closed in
-        ``finally`` so a disconnecting client releases its pool connection.
+        A resumed range whose ``If-Range`` no longer matches must be answered
+        with the complete representation (RFC 9110 13.1.5), which a presigned
+        URL can't do since the bucket never evaluates the precondition. One
+        request, never a ranged ``get_object`` per chunk, which costs 5,120
+        requests for a 5 GiB COG. Body closed in ``finally`` so a disconnecting
+        client releases its pool connection.
         """
 
         def _open():
             try:
                 return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
             except ClientError as e:
-                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -225,7 +219,6 @@ class S3StorageProvider:
                 )["Body"]
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # Normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
@@ -276,7 +269,6 @@ class S3StorageProvider:
                 response = self.client.head_object(Bucket=self.bucket, Key=key)
                 return int(response["ContentLength"])
             except ClientError as e:
-                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -389,9 +381,8 @@ class S3StorageProvider:
     ) -> str:
         """Generate a presigned URL for uploading a single part.
 
-        Clamped to the job lifetime — an unclamped part URL was
-        usable against a row the pending sweep had already failed (7200s
-        offered against a 3600s job lifetime).
+        Clamped to the job lifetime: an unclamped part URL would stay usable
+        against a row the pending sweep already failed.
         """
         from app.core.config import settings
 

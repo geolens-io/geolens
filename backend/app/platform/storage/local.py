@@ -17,7 +17,7 @@ from app.platform.storage.provider import StoredObject
 _STREAM_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 
 # Matches the ListObjectsV2 default so a consumer's per-page budget behaves
-# the same on every backend (feat #1249).
+# the same on every backend.
 _OBJECT_PAGE_SIZE = 1000
 
 
@@ -198,7 +198,7 @@ class LocalStorageProvider:
         """Delete a key. No error if missing.
 
         Deliberately does not remove emptied directories:
-        pruning here raced a concurrent writer's mkdir/open. Pruning belongs
+        pruning here would race a concurrent writer's mkdir/open. Pruning belongs
         to the subsystem that owns the prefix — see ``prune_empty_dirs``.
         """
         path = self._resolve_contained(key)
@@ -348,7 +348,7 @@ class LocalStorageProvider:
     async def iter_object_pages(
         self, prefix: str, *, start_after: str | None = None
     ) -> AsyncIterator[list[StoredObject]]:
-        """Yield keys matching a prefix with their mtimes (feat #1249).
+        """Yield keys matching a prefix with their mtimes.
 
         Chunked into ``_OBJECT_PAGE_SIZE`` pages so an unbounded page can't
         defeat the consumer's between-pages budget, even though local has no

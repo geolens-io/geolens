@@ -584,8 +584,8 @@ def deadline_budget(
 def credential_headers(credential_line: str) -> dict[str, str]:
     """The request headers a credentialed read carries.
 
-    The line is the wire format everything downstream of a door speaks (plan
-    D9), already validated by the door that composed it, so this splits
+    The line is the wire format everything downstream of a door speaks,
+    already validated by the door that composed it, so this splits
     rather than re-derives.
 
     ``Accept-Encoding: identity`` is asked for here and enforced by
@@ -1242,8 +1242,8 @@ async def _check_wfs(
         # declaration escape as a 500.
         raise EndpointCheckFailedError(str(exc)) from None
     except RecursionError as exc:
-        # Last line of defense — the walk above is iterative
-        # now, but ET.fromstring isn't this module's code.
+        # Last line of defense: the walk above is iterative, but
+        # ET.fromstring isn't this module's code.
         raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs, from_url)
     await _check_wfs_schemas(client, url, headers, root, collection)
@@ -1280,8 +1280,7 @@ async def _check_ogcapi(
         return
 
     # No collection yet, so it walks the listing. Bounded; reaching the
-    # bound is recorded, not treated as a clean pass. The `collection is
-    # not None` branch above has no live caller.
+    # bound is recorded, not treated as a clean pass.
     page_url: str | None = f"{url.rstrip('/')}/collections"
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:

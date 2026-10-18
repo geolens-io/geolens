@@ -22,10 +22,9 @@ from app.platform.storage.raster_relay import (
     relay_url,
 )
 
-# Env-overridable TITILER_BASE_URL, read lazily (in
-# _get_titiler_base_url) so the module can import before FastAPI settings
-# are ready. Defaults to "http://titiler:8000" when unset.
-_TITILER_BASE_URL: str | None = None  # populated lazily on first call
+# TITILER_BASE_URL, read lazily by _get_titiler_base_url so the module can
+# import before settings are ready.
+_TITILER_BASE_URL: str | None = None
 
 
 def _get_titiler_base_url() -> str:

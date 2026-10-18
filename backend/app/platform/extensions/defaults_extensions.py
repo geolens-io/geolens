@@ -1,7 +1,6 @@
 """Community-edition defaults for the extension-seam protocols.
 
-Split from the former single-module ``defaults.py`` (#836): this sub-module
-owns the policy/no-op defaults for the extension seams (branding, auth,
+The policy/no-op defaults for the extension seams (branding, auth,
 permission, workflow, identity, audit sink, notification sink, billing,
 connectors, data serving, entitlement). Import via the
 ``app.platform.extensions.defaults`` facade, never from this sub-module.
@@ -155,12 +154,11 @@ class DefaultPermissionExtension:
             return grant_result.scalar_one_or_none() is not None
 
         if record.visibility == "internal":
-            # Internal = any signed-in user, matching
-            # MapVisibility. Looks deletable since the fall-through below
-            # does the same thing, but before this branch existed that
-            # outcome was an accident of an unhandled value, not a pinned
-            # policy. The `record_status` gate above keeps unpublished
-            # internal records owner-only.
+            # Internal = any signed-in user, matching MapVisibility. Explicit
+            # although the fall-through returns the same, so it is a stated
+            # policy rather than the default for an unhandled value. The
+            # `record_status` gate above keeps unpublished internal records
+            # owner-only.
             return True
 
         return True
@@ -169,11 +167,9 @@ class DefaultPermissionExtension:
         """The same ladder as ``filter_visible``, read from the user end.
 
         ``filter_visible`` asks which RECORDS a user may read; this asks
-        which USERS may read a record. One rule, two directions, changed as
-        a pair — ``test_permission_audience.py`` compares them account by
-        account across every visibility/status/role, so a change to one that
-        isn't mirrored here fails there instead of quietly disagreeing with
-        what viewers see.
+        which USERS may read a record. ``test_permission_audience.py``
+        compares them account by account across every visibility/status/role,
+        so a change to one that isn't mirrored here fails there.
         """
         from sqlalchemy import and_, false, or_, select, true
 
@@ -260,7 +256,7 @@ class DefaultIdentityExtension:
 
     Returning None from ``resolve_identity_from_token`` signals the auth
     dep chain (``get_optional_user`` / ``get_current_user``) to fall
-    through to the existing JWT decode + DB lookup path.
+    through to the JWT decode + DB lookup path.
 
     The async signature is required, not incidental: the dep wire-in does
     ``await ext.resolve_identity_from_token(token, request, db)``, so an

@@ -1285,7 +1285,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/manifest_service.py": 1271,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
-    "backend/app/platform/service_endpoints.py": 1355,
+    "backend/app/platform/service_endpoints.py": 1354,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
     "backend/app/platform/service_items.py": 777,
@@ -1342,7 +1342,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1465,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1803,
+    "backend/app/platform/jobs/sweep.py": 1802,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1157,

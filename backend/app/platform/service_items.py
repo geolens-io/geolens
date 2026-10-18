@@ -259,8 +259,8 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         candidates[0],
     )
     try:
-        # length-gated before `urljoin`, and again inside
-        # `_with_page_size` — both raise the SAME ValueError caught below.
+        # Length-gated before `urljoin`, and again inside `_with_page_size`;
+        # both raise the SAME ValueError caught below.
         return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
     except HrefTooLongError:
         # Own wording, matching service_endpoints.py's

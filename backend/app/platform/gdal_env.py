@@ -4,15 +4,15 @@ In ``platform/`` because ``modules/catalog/sources/preview.py`` calls these
 and ``modules/catalog/`` may not import ``app.processing.*``
 (``test_layering.py``). The raster VSI clamps stay in
 ``processing/raster/vrt.py``, which re-exports both of these; the Rule 2 gate
-credits either import path (#1857 item 3).
+credits either import path.
 """
 
 import os
 
 from app.platform.egress_proxy import ServiceEgress
 
-# Several OGR drivers treat their input
-# bytes as instructions, not data — OGR_VRT follows <SrcDataSource> to any
+# Several OGR drivers treat their input bytes as instructions, not data:
+# OGR_VRT follows <SrcDataSource> to any
 # local path or URL, and WFS identifies on content alone regardless of file
 # name, then fetches whatever <URL> says. A staged upload is a local path,
 # so the path alone doesn't bound where the read lands. GDAL_SKIP unloads

@@ -93,11 +93,11 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     translates the logical name after validation.
 
     Only the schema identifier spans of the ORIGINAL text are
-    replaced, right to left. Serializing the parsed tree instead re-rendered
-    the whole statement, which is why the pgvector cosine operator (sqlglot
-    parses ``<=>`` as NullSafeEQ) needed a sentinel swap; every other byte now
-    reaches PostgreSQL as the caller wrote it, as it already does in
-    single-tenant.
+    replaced, right to left, so every other byte reaches PostgreSQL as the
+    caller wrote it, as in single-tenant. Serializing the parsed tree would
+    re-render the whole statement, and sqlglot parses the pgvector cosine
+    operator ``<=>`` as NullSafeEQ, so the output would drift from the
+    query that was validated.
 
     ``physical_schema`` comes from :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
@@ -356,14 +356,14 @@ async def execute_safe(
                             "query_busy",
                             "Another data query is already running for this user",
                         )
-                # Defense-in-depth: use the restricted reader role if available.
-                # Multi-tenant uses the per-tenant reader role (per-tenant
-                # schema access only); single-tenant uses "geolens_reader"
-                # (guaranteed by migration 0007 + init-db.sh, unlike
-                # "geolens_readonly" which lives only in a migration that may
-                # be squashed). Multi-tenant never falls back to a global
-                # role. Role name derives from validated-UUID
-                # current_tenant_var, so it's safe to interpolate.
+                # Defense-in-depth: run as a restricted reader role.
+                # Multi-tenant uses the per-tenant reader role (its own schema
+                # only) and never falls back to a global role; single-tenant
+                # uses "geolens_reader" (created by migration 0007 and
+                # init-db.sh, unlike "geolens_readonly", which only a
+                # squashable migration creates). The role name derives from
+                # the validated-UUID current_tenant_var, so it is safe to
+                # interpolate.
                 if multi_tenant:
                     # tenant_reader_role validates the UUID before building
                     # the identifier.
@@ -419,7 +419,6 @@ async def execute_safe(
     except Exception as exc:  # broad: varied DB errors; classify in handler
         _handle_execution_error(exc, sql, token)
 
-    # Convert rows to list-of-lists
     rows = [list(row) for row in all_rows]
     truncated = len(rows) > row_limit
     if truncated:
@@ -480,5 +479,4 @@ def _handle_execution_error(exc: Exception, sql: str, token: str | None = None) 
             "query_data_error", "The query failed while processing this data"
         ) from exc
 
-    # All other DB errors
     raise SandboxError("query_failed", "Query failed") from exc

@@ -1,7 +1,6 @@
 """Community-edition CatalogPort default.
 
-Split from the former single-module ``defaults.py`` (#836): this sub-module
-owns ``DefaultCatalogPort``, the catalog->processing delegation seam (every
+``DefaultCatalogPort`` is the catalog->processing delegation seam (every
 ``app.processing`` import stays deferred inside method bodies). Import it
 via the ``app.platform.extensions.defaults`` facade, never from this
 sub-module.
@@ -85,11 +84,9 @@ class DefaultCatalogPort:
             storage, key=key, upload_id=upload_id, job_id=job_id
         )
 
-    # Explicit keyword-only signature so a missing or
-    # misspelled keyword surfaces here, not deep inside the service call.
+    # Keyword-only so a missing or misspelled keyword surfaces here.
     # `replacing_dataset_id` is a structural superset over CatalogPort's
-    # declared params — see test_port_signature_parity_1590.py's
-    # EXPECTED_SUPERSET_PARAMS.
+    # declared params (test_port_signature_parity_1590.py).
     async def verify_completed_presigned_upload(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -142,11 +139,9 @@ class DefaultCatalogPort:
 
         return sign_url_with_deadline(storage_method, created_at, *args)
 
-    # Explicit keyword-only signature so a missing or
-    # misspelled keyword surfaces here, not deep inside the service call.
+    # Keyword-only so a missing or misspelled keyword surfaces here.
     # `replacing_dataset_id` is a structural superset over CatalogPort's
-    # declared params — see test_port_signature_parity_1590.py's
-    # EXPECTED_SUPERSET_PARAMS.
+    # declared params (test_port_signature_parity_1590.py).
     async def finalize_presigned_object(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -290,8 +285,8 @@ class DefaultCatalogPort:
         return regenerate_vrt
 
     def ingest_part_size(self) -> int:
-        # Moved off the router — platform code must never import
-        # an API-edge module (route registration runs at import time).
+        # From the service, not the router: platform code never imports an
+        # API-edge module (route registration runs at import time).
         from app.processing.ingest.service import PART_SIZE
 
         return PART_SIZE
@@ -390,9 +385,9 @@ class DefaultCatalogPort:
         return await has_embeddings(session)
 
     async def resolve_embedding_config(self, session):  # type: ignore[no-untyped-def]
-        # Returns the whole (model, dimensions, endpoint,
-        # fingerprint), not just the fingerprint search filters rows on,
-        # because it also has to PIN the provider call to that same config.
+        # The whole (model, dimensions, endpoint, fingerprint), not just the
+        # fingerprint search filters on, because it also PINS the provider
+        # call to that same config.
         from app.processing.embeddings.helpers import resolve_live_embedding_config
 
         return await resolve_live_embedding_config(session)
@@ -400,12 +395,10 @@ class DefaultCatalogPort:
     async def generate_embedding(self, text, session, *, pinned=None):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.service import generate_embeddings_batch
 
-        # `pinned` is (model, dimensions, endpoint) as ONE
-        # optional argument, not three keyword ones. `None` is a legitimate
-        # resolved endpoint, so three separate `None` defaults couldn't tell
-        # "not pinned" from "pinned to the client default" and would have
-        # re-resolved the endpoint for exactly the providers the pin exists
-        # to protect.
+        # `pinned` is (model, dimensions, endpoint) as ONE optional argument:
+        # `None` is a legitimate resolved endpoint, so three separate `None`
+        # defaults couldn't tell "not pinned" from "pinned to the client
+        # default".
         if pinned is None:
             from app.processing.embeddings.service import generate_embedding
 
@@ -422,12 +415,10 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        # Returns the anchor row's identity with its vector, and
-        # is the ONLY anchor read on this path — the caller passes it into
+        # The ONLY anchor read on this path: the caller passes it into
         # `get_nearest_record_ids`, so ranking and scoring share one row
-        # instead of two independent unordered `LIMIT 1` reads that could
-        # anchor on different vectors for a catalog with more than one
-        # model's rows.
+        # rather than two unordered `LIMIT 1` reads that could anchor on
+        # different models' vectors.
         from app.processing.embeddings.helpers import get_anchor_embedding_row
 
         return await get_anchor_embedding_row(session, record_id)
@@ -441,12 +432,10 @@ class DefaultCatalogPort:
         limit=5,
         max_distance=0.7,
     ):
-        # The anchor travels in rather than being read again
-        # here. The caller already read it to score the results, and two
-        # reads under READ COMMITTED can straddle a commit, leaving ranking
-        # anchored on one row and scoring on another. Required, not
-        # optional, on the PORT — an overlay that re-read would reintroduce
-        # the disagreement this closes.
+        # The anchor travels in rather than being read again: two reads
+        # under READ COMMITTED can straddle a commit, leaving ranking
+        # anchored on one row and scoring on another. Required on the PORT,
+        # so an overlay can't re-read it.
         from app.processing.embeddings.helpers import get_nearest_record_ids
 
         return await get_nearest_record_ids(
@@ -460,12 +449,10 @@ class DefaultCatalogPort:
     async def get_embedding_distances(  # type: ignore[no-untyped-def]
         self, session, embedding, record_ids, *, model_name, config_fingerprint
     ):
-        # Scoped to the anchor's own vector space, like the
-        # selection ahead of it. A record may hold one row per model, and this
-        # dict comprehension keeps the last of them — without the scope, the
-        # neighbours would be chosen correctly and then SCORED off whichever
-        # row the planner returned last. This number is the similarity
-        # percentage the UI prints.
+        # Scoped to the anchor's own vector space, like the selection ahead
+        # of it. A record may hold one row per model, and the dict below keeps
+        # the last of them, so without the scope the UI's similarity
+        # percentage would come from whichever row the planner returned last.
         from sqlalchemy import select
 
         await self.set_hnsw_recall(session)
@@ -477,12 +464,11 @@ class DefaultCatalogPort:
             )
             .where(RecordEmbedding.record_id.in_(record_ids))
             .where(
-                # The stored-vs-stored predicate, same as the
-                # selection uses. `usable_by_config` grandfathers an
-                # unstamped row against a stamped anchor — right for search
-                # (a fresh query vector) but wrong here: a stamped anchor
-                # means a partly regenerated catalog, so NULL rows are most
-                # likely the old space.
+                # The stored-vs-stored predicate the selection uses.
+                # `usable_by_config` grandfathers an unstamped row against a
+                # stamped anchor, which is right for search but wrong here: a
+                # stamped anchor means a partly regenerated catalog, so NULL
+                # rows are most likely the old space.
                 RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
             )
         )
@@ -567,7 +553,6 @@ class DefaultCatalogPort:
 
         return await get_job_or_404(session, job_id, user)
 
-    # Tile signing
     def generate_tile_signature(self, scope, exp):  # type: ignore[no-untyped-def]
         from app.processing.tiles.signing import generate_tile_signature
 

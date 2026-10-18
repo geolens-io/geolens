@@ -4,7 +4,7 @@ Every other staging reaper starts from a ROW and asks what object it owns.
 This one starts from the OBJECT and asks whether any row still owns it — the
 only direction that can see an object no row references at all.
 
-Reconciliation replaces margin-widening (#1235/#1236): S3 validates a
+Reconciliation rather than a wider deadline margin: S3 validates a
 presigned signature when a request STARTS, not when it finishes, so an
 accepted PUT can still be writing arbitrarily long after any deadline
 derived from its URL. A HEAD-before-delete has the symmetric problem: it
@@ -296,10 +296,10 @@ async def reconcile_orphaned_staging_objects(
     would expire every ORM instance in the caller's identity map, leaving
     them unloadable. The advisory lock lives on its own session instead.
 
-    The lock makes the counter honest — every API worker runs its own
+    The lock makes the counter honest: every API worker runs its own
     sweeper loop, and without it each would count the same delete N times
-    under ``UVICORN_WORKERS>1`` (#1240's fabricated-number class).
-    Transaction-scoped, so a dying process releases it with its connection.
+    under ``UVICORN_WORKERS>1``. Transaction-scoped, so a dying process
+    releases it with its connection.
 
     Never raises: a mid-pass failure leaves the rest for the next cycle.
 
@@ -321,19 +321,18 @@ async def reconcile_orphaned_staging_objects(
 
 async def _reconcile(db: AsyncSession, *, now: datetime) -> StagingReconcileOutcome:
     """The pass itself. See the wrapper above for the error and lock contract."""
-    from app.core.db import async_session  # late-bound for tests, as #909 does
+    from app.core.db import async_session  # late-bound so a test engine applies
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
     from app.platform.storage import get_storage
 
     if settings.storage_provider != "s3":
-        # `staging/` is exclusively the upload
-        # system's namespace only in a BUCKET. On the local backend the same
-        # prefix also holds operator-staged manifest seed files
-        # (`classify_manifest_source`) — deleting one there is not a leaked
-        # byte, it is someone's input. Nothing is lost by declining: presigned
-        # uploads refuse non-S3 backends, so this module's orphan class
-        # cannot occur on local or Azure.
+        # `staging/` is exclusively the upload system's namespace only in a
+        # BUCKET. On the local backend the same prefix also holds
+        # operator-staged manifest seed files (`classify_manifest_source`), and
+        # deleting one would destroy someone's input. Nothing is lost by
+        # declining: presigned uploads refuse non-S3
+        # backends, so this orphan class cannot occur on local or Azure.
         return StagingReconcileOutcome(ran=False)
 
     if is_multi_tenant() and current_tenant_var.get() is None:
@@ -380,8 +379,7 @@ async def _reconcile_locked(
     is a sample, not a rotation — a recycled worker would only ever see
     suffixes. With the wrap, one unbudgeted pass covers the whole prefix.
     """
-    # Clock skew is immaterial at a threshold measured in hours — one more
-    # reason the threshold isn't a tuned estimate of transfer duration.
+    # Clock skew is immaterial at a threshold measured in hours.
     cutoff = now - timedelta(seconds=settings.staging_orphan_min_age_seconds)
     tally = _Tally()
     last_examined: str | None = None
@@ -560,10 +558,8 @@ async def _delete_page_orphans(
             )
             continue
         tally.orphans_deleted += 1
-        # Published here, not batched to the pass
-        # end — the object is already gone, so a later error must not take
-        # this count with it. Runs strictly after the delete returned, so it
-        # counts completions, not intentions.
+        # Published per delete, after it returned, so a later error can't
+        # take this count with it.
         staging_orphans_deleted_total.inc()
         log.warning(
             "Deleted orphaned staging object no ingest job row references",

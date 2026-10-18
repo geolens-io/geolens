@@ -91,12 +91,9 @@ async def export_configuration(
         ),
     )
     # Commit here so the audit record is durable before the payload ships.
-    #
-    # Deliberately not fail-closed — audit_emit() isolates each
-    # sink in a SAVEPOINT and suppresses failure, so a rejected audit row does
-    # not block the export (NIST AU-5(4) fail-closed is waived here; AU-5's
-    # alert requirement is still met by audit_emit()'s raise). The only
-    # audit_emit() call site that commits for durability.
+    # Deliberately not fail-closed: audit_emit() suppresses a rejected audit
+    # row, so it does not block the export (NIST AU-5(4)); AU-5's alert
+    # requirement is met by audit_emit()'s error log.
     await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

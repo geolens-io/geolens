@@ -49,7 +49,6 @@ def require_entitlement(*features: str) -> Any:
     """
 
     async def _entitlement_checker(request: Request) -> None:
-        # Mirrors request.state._effective_permissions in dependencies.py.
         cached: dict[str, bool] | None = getattr(
             request.state, "_entitlement_summary", None
         )
@@ -87,12 +86,8 @@ async def enforce_limit(request: Request | None, dimension: str, n: int) -> None
 
         await enforce_limit(request, "datasets", current_count)
 
-    The cloud overlay provides the real implementation that reads the
-    ``tenant_entitlements`` table and enforces plan-level hard caps.
-
-    ``request`` is accepted and unused — the port is resolved
-    from tenant context, not the request — so a worker-side caller passes
-    None instead of forking the check.
+    ``request`` is accepted and unused (the port is resolved from tenant
+    context), so a worker-side caller passes None.
     """
     port = get_entitlement_port()
     await port.enforce_limit(dimension, n)

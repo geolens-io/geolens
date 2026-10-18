@@ -257,9 +257,9 @@ class RedisCacheProvider:
         """Write BOTH stores, in either circuit state.
 
         ``set`` routes to whichever store the circuit says is live -- wrong
-        for a value that overrides a cached answer (a positive left in the
-        fallback during an outage outlived a Redis-only revocation and got
-        served again on the next blip). The fallback is written first and
+        for a value that overrides a cached answer, since a positive left in
+        the fallback during an outage would outlive a Redis-only revocation.
+        The fallback is written first and
         unconditionally, so a Redis failure can't leave the override applied
         nowhere; when Redis can't be reached, the override queues for replay
         instead of being dropped, since Redis may still hold the very value
@@ -320,13 +320,12 @@ class RedisCacheProvider:
             self._record_failure()
             return False
 
-    # reads/writes route to ONE store (whichever the circuit says
-    # is live), but eviction must not: a validation cached in the fallback
-    # during an outage can outlive a revoke that only reached Redis once the
-    # circuit closes, serving a revoked embed token on the next blip. So
-    # every eviction hits BOTH stores in BOTH circuit states (the fallback
-    # call is free) and also discards any queued authoritative write for the
-    # key, so a queued override can't resurrect an entry just deleted.
+    # Reads and writes route to ONE store (whichever the circuit says is
+    # live), but eviction must not: a validation cached in the fallback during
+    # an outage can outlive a revoke that only reached Redis, serving a revoked
+    # embed token on the next blip. So every eviction hits BOTH stores in BOTH
+    # circuit states and discards any queued authoritative write for the key,
+    # so a queued override can't resurrect an entry just deleted.
 
     async def delete(self, key: str) -> None:
         await self._fallback.delete(key)

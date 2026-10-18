@@ -278,7 +278,7 @@ async def _emit_refresh_cancelled(
     *,
     cancelled_by: uuid.UUID | None = None,
 ) -> None:
-    """Record an explicit user cancel (#1677).
+    """Record an explicit user cancel.
 
     Deliberately not ``refresh.abandoned``: that is the sweep's correction
     for a task proven gone, while this records a person stopping in-flight
@@ -437,8 +437,8 @@ async def create_pending_run(
             "database did not return a timestamp for scheduled admission"
         )
     # Every facade-admitted occurrence, including an idempotent manual Run now,
-    # has a bounded delivery/claim window. Legacy manual refreshes do not carry
-    # an execution key and retain their existing direct-dispatch behavior.
+    # has a bounded delivery/claim window. Manual refreshes without an
+    # execution key dispatch directly.
     claim_deadline = (
         db_now + timedelta(seconds=SCHEDULED_CLAIM_DEADLINE_SECONDS)
         if trigger == "scheduled" or admitted_execution
@@ -478,8 +478,8 @@ async def create_pending_run(
         raise DatasetBusyError(
             "A refresh is already in progress for this dataset."
         ) from exc
-    # In the caller's transaction, so a dispatch the caller then
-    # rolls back — a busy dataset, a defer that never happened — leaves no
+    # In the caller's transaction, so a dispatch the caller then rolls back
+    # (a busy dataset, a defer that never happened) leaves no
     # audit row claiming a refresh started.
     await _emit_refresh_dispatch(session, run.id)
     return run
@@ -810,7 +810,7 @@ def project_refresh_success(
     ``contacted_origin`` gates ``last_checked_at`` ("last time GeoLens
     contacted the origin") because a file re-upload contacts nothing — the
     bytes arrived from the browser. ``source_health`` is left alone on every
-    path: its classifier belongs to #1222, not here.
+    path: its classifier is the source health probe's.
     """
     dataset.schema_drift_status = drift_status_from_diff(schema_diff)
     if contacted_origin:
@@ -955,9 +955,9 @@ async def record_refresh_blocked(
     return run_id
 
 
-# Guards the pathological legacy DOUBLE — the old system had no
-# admission control, so two reupload tasks for one dataset can both be live
-# at upgrade time, while the backfill's DISTINCT ON can represent only one
+# Guards the legacy DOUBLE: reuploads queued before admission control can
+# leave two live tasks for one dataset at upgrade time, while the backfill's
+# DISTINCT ON can represent only one
 # (the unique index allows one active row). That row's reservation must
 # outlive EVERY live legacy reupload task on the dataset, not just its bound
 # job, or a new refresh could race the unrepresented worker's swap. Native
@@ -992,13 +992,13 @@ _RUN_JOB_SCOPE = """
 # not: `dataset_refresh_runs` carries no RLS policy of its own (dormant
 # `tenant_id`, like `datasets`), so with RLS ENABLED this UPDATE would see
 # every tenant's rows while the `ingest_jobs` sub-query beside it (RLS-
-# enforced) sees only the current tenant's — reading another tenant's live
+# enforced) sees only the current tenant's, reading another tenant's live
 # job as absent. Joining through `catalog.datasets` puts the whole predicate
-# in one visibility scope. No table has RLS enabled today (#998), so this is
-# currently a no-op — written now rather than remembered later.
+# in one visibility scope. Single-tenant mode enables no RLS, so there it is
+# a no-op.
 #
-# The two proofs THIS sweep needs before writing `cancelled`.
-# The status has two writers, told apart by `error_code`:
+# The two proofs THIS sweep needs before writing `cancelled`. The status has
+# two writers, told apart by `error_code`:
 # `abandoned` here, a bookkeeping correction provable only when the work is
 # not happening, and `cancel_active_run_for_job`'s `user_cancelled` stop
 # signal, which is a person's decision and needs no proof.
@@ -1011,7 +1011,7 @@ _RUN_JOB_SCOPE = """
 #
 # 2. The bound ingest job is absent, `failed`, or `pending` with no live
 #    task. `running` is skipped (the ingest stale sweep runs first and
-#    fails it out if genuinely dead). `pending` is NOT excluded (#1274):
+#    fails it out if genuinely dead). `pending` is NOT excluded:
 #    proof 1 already shows no live task, and pending-plus-no-task past the
 #    cutoff is exactly the create-then-defer death this sweep compensates
 #    for — otherwise a presigned commit interrupted before its defer would
@@ -1051,9 +1051,9 @@ _ABANDONED_RUN_SQL = text(
 )
 
 
-# truth-recording counterpart to the abandonment cancel below.
-# For a NATIVE run, "bound job complete + run still active" is impossible
-# by construction (success and job completion commit together), which is
+# The truth-recording counterpart to _ABANDONED_RUN_SQL. For a NATIVE run,
+# "bound job complete + run still active" is impossible by construction
+# (success and job completion commit together), which is
 # why _ABANDONED_RUN_SQL refuses to touch it. But migration 0037's backfill
 # creates active rows for refreshes already running in PRE-migration
 # workers, which mark the job complete without calling the new finalizer.
@@ -1116,8 +1116,8 @@ async def sweep_abandoned_refresh_runs(
     recovered = list(completed.scalars())
     cancelled = list(result.scalars())
     await _release_consumed_acceptances(session, cancelled)
-    # These are the only terminal transitions no worker
-    # reports, so without an event here the audit log shows a dispatch and
+    # These are the only terminal transitions no worker reports, so without
+    # an event here the audit log shows a dispatch and
     # then nothing. Emitted per run, not as one summary row: the audit log
     # is keyed on a resource, and "seven runs reconciled" names none.
     for run_id in recovered:

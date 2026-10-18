@@ -35,7 +35,6 @@ redirect_tempfile_to_staging(settings.upload_staging_dir)
 # S3 endpoint derived into AWS_* env, and GDAL subprocesses inherit os.environ.
 configure_gdal_s3_env(settings)
 
-# Configure structured logging with service label
 setup_logging(
     json_logs=settings.log_json,
     log_level=settings.log_level,
@@ -104,19 +103,19 @@ async def _recover_stale_jobs_for_current_scope() -> None:
 
 
 # A worker killed mid-job leaves its queue row in `doing` forever.
-# Procrastinate 3.x tracks worker heartbeats, so "this worker is gone" is a
-# fact we can read rather than a timeout to guess at — the window is
-# deliberately generous, since waiting costs a stale metric but being wrong
-# fails live work. Covers the final heartbeat interval (10s default) plus
-# the unregister that follows the graceful wait.
+# Procrastinate tracks worker heartbeats, so "this worker is gone" can be
+# read rather than guessed. The window is deliberately generous, since
+# waiting costs a stale metric but being wrong fails live work. Covers the
+# final heartbeat interval (10s default) plus the unregister that follows
+# the graceful wait.
 _STALLED_SHUTDOWN_MARGIN_SECONDS = 60
 
 
 def stalled_worker_seconds() -> int:
     """Heartbeat silence after which a worker counts as dead.
 
-    Floored at ``JOB_TIMEOUT_SECONDS`` (60 min) — the same threshold the
-    ingest_jobs reaper above already calls stale.
+    Floored at ``JOB_TIMEOUT_SECONDS`` (60 min), the threshold the
+    ingest_jobs stale sweep uses.
 
     This sweep is global, so a threshold derived from THIS
     process's config would let a general worker fail a split-queue raster
@@ -246,9 +245,9 @@ async def _purge_stalled_queue_row_tokens(job_ids: list) -> None:
 async def fail_stalled_queue_jobs() -> int:
     """Fail procrastinate rows whose worker died mid-job. Returns the count.
 
-    The ingest_jobs reaper above gives the user a verdict, but never
-    transitions the queue row, so queue depth counted phantom in-flight
-    work, accumulating per worker kill. Fail rather than requeue: ingest
+    The ingest_jobs stale sweep gives the user a verdict but never
+    transitions the queue row, so without this queue depth would count
+    phantom in-flight work per worker kill. Fail rather than requeue: ingest
     tasks are not idempotency-audited.
 
     Caller must hold an open connector. Runs once per process, not once per
@@ -280,12 +279,10 @@ async def fail_stalled_queue_jobs() -> int:
         await manager.finish_job_by_id_async(
             job_id=job.id, status=Status.FAILED, delete_job=False
         )
-        # A second terminal-failed-row site, so it needs
-        # its own increment — after the await, matching the wrapper's
-        # ordering, since this path calls `finish_job_by_id_async` directly.
-        # `getattr`, not `job.queue` — an attribute read
-        # outside count_failed_job's guard would abort the rest of the
-        # sweep mid-loop; metrics bookkeeping must never stop a sweep.
+        # This path calls `finish_job_by_id_async` directly, bypassing the
+        # counting wrapper, so it counts here, after the await. `getattr`:
+        # an attribute read outside count_failed_job's guard could abort the
+        # rest of the sweep.
         count_failed_job(getattr(job, "queue", None))
         failed += 1
         failed_ids.append(job.id)
@@ -341,10 +338,10 @@ async def _registered_tenant_ids_for_recovery() -> list[str]:
 async def recover_stale_jobs() -> None:
     """Recover stale jobs once globally or once per hosted tenant.
 
-    The historical single-tenant path remains one direct recovery call. In
-    hosted mode ``ingest_jobs`` is FORCE-RLS protected, so each recovery must
-    run with an active tenant GUC. A failure is isolated to that tenant and is
-    logged before recovery continues for the rest of the fleet.
+    Single-tenant mode makes one direct recovery call. In hosted mode
+    ``ingest_jobs`` is FORCE-RLS protected, so each recovery must run with an
+    active tenant GUC. A failure is isolated to that tenant and is logged
+    before recovery continues for the rest of the fleet.
     """
     from app.core.db.tenant_session import tenant_job_context
     from app.core.tenancy import is_multi_tenant
@@ -595,26 +592,22 @@ async def main() -> None:
 
     await assert_schema_in_sync()
 
-    # 1. Ensure staging directories exist
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
-    # Sweep orphaned export temp dirs from previous crashes,
-    # only entries older than EXPORTS_SWEEP_AGE_SECONDS (1 hour) — in-flight
-    # exports survive a rolling restart instead of being truncated mid-download.
+    # Only entries older than EXPORTS_SWEEP_AGE_SECONDS, so in-flight exports
+    # survive a rolling restart.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
 
-    # Reclaim GDAL bearer-header tempfiles a
-    # SIGKILL/OOM left on the container tmpfs (not the staging volume — see
-    # gdal_header_dir()); boot-time is the only hook, no periodic sweep loop here.
+    # Reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left on the
+    # container tmpfs (see gdal_header_dir()); boot is the only hook.
     sweep_stale_gdal_header_files()
 
-    # 2. Shared bootstrap (extensions, edition, storage, cache).
-    # bootstrap(app=None) = worker mode, skipping router/billing (need a
-    # FastAPI app). Runs before run_worker_async so all single-slot ports
-    # are resolved before any task uses them — closes the split-brain bug
-    # where the worker ran community ports on licensed deployments.
+    # bootstrap(app=None) is worker mode, skipping router/billing. Runs
+    # before run_worker_async so every single-slot port is resolved before
+    # any task uses it, and the worker never runs community ports on a
+    # licensed deployment.
     from app.platform.extensions.bootstrap import (
         bootstrap,
         assert_enterprise_ports_resolved,
@@ -622,35 +615,28 @@ async def main() -> None:
 
     await bootstrap(app=None)
 
-    # Under GEOLENS_EDITION=enterprise every single-slot port must
-    # be non-Default; fails loud rather than silently running community ports.
     assert_enterprise_ports_resolved()
 
-    # 3. Recover only after bootstrap applies tenancy RLS —
-    # earlier, an unqualified startup sweep could cross tenants.
+    # Only after bootstrap applies tenancy RLS; earlier, an unqualified
+    # startup sweep could cross tenants.
     await recover_stale_jobs()
 
-    # 4. Start health server as background task
     health_task = asyncio.create_task(run_health_server())
-
-    # 5. Start job metrics collector as background task
     metrics_task = asyncio.create_task(update_job_metrics())
 
-    # The same two collectors the API lifespan starts, missing
-    # here despite this process hosting GDAL/OGR at a 4 GB mem_limit — an
-    # OOM kill left only dmesg, no gauge (#643). Also covers
-    # GeoLensDbPoolSaturated, which can't fire for the worker's own engine.
+    # The same two collectors the API lifespan starts: this process hosts
+    # GDAL/OGR at a 4 GB mem_limit, where an OOM kill leaves no other trace,
+    # and the pool gauge lets GeoLensDbPoolSaturated fire for its engine.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
 
-    # The worker hosts credential renewal too, since this
-    # process's liveness gates the CLAIM — an API-only sweeper left a
-    # healthy worker unable to claim a credential the API's downtime
-    # expired. EXPIRE is idempotent, so the two hosts overlapping is cheap.
+    # The worker hosts credential renewal too, since this process's liveness
+    # gates the CLAIM: an API-only sweeper would leave a healthy worker unable
+    # to claim a credential the API's downtime expired. EXPIRE is idempotent,
+    # so the two hosts overlapping is cheap.
     credential_renewal_task = asyncio.create_task(renew_credentials_periodically())
 
     try:
-        # 6. Run Procrastinate worker
         shutdown_timeout = settings.worker_shutdown_timeout
         # Concurrency above 1, so one long COG conversion doesn't
         # head-of-line-block every queued upload. Both knobs are
@@ -703,13 +689,12 @@ async def main() -> None:
                         install_signal_handlers=True,
                         delete_jobs="successful",
                         shutdown_graceful_timeout=shutdown_timeout,
-                        # MUST match the sweep's own window.
-                        # worker_id is ON DELETE SET NULL, and
-                        # select_stalled_jobs_by_heartbeat treats a NULL
-                        # worker_id as stalled OUTRIGHT — at the 30s default, a
-                        # merely-stalled live worker gets pruned and its
-                        # in-flight jobs fail despite our cushion. Equal windows
-                        # mean NULL worker_id can only be a genuinely dead worker.
+                        # MUST match the sweep's own window: worker_id is
+                        # ON DELETE SET NULL, and select_stalled_jobs_by_heartbeat
+                        # treats a NULL worker_id as stalled OUTRIGHT, so at the
+                        # 30s default a merely-stalled live worker gets pruned
+                        # and its in-flight jobs fail. Equal windows mean NULL
+                        # worker_id can only be a genuinely dead worker.
                         stalled_worker_timeout=stalled_worker_seconds(),
                     )
             finally:
@@ -727,7 +712,6 @@ async def main() -> None:
                     return_exceptions=True,
                 )
     finally:
-        # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
         memory_metrics_task.cancel()
         pool_metrics_task.cancel()

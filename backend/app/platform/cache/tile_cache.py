@@ -15,9 +15,8 @@ bounds cardinality by collapsing anything not matching the documented
 
 The ``table`` argument is the tile router's composite segment
 (tenant id, dataset id, cluster params) and never matches ``_safe_label``'s
-shape, so deriving the metric label from it collapsed everything to
-``"_other"``. Readers now pass the bare table name separately as ``label``.
-Invalidation is unaffected: the dataset id sits AFTER the table segment, so
+shape, so readers pass the bare table name separately as ``label``.
+Invalidation still works: the dataset id sits AFTER the table segment, so
 ``tile:{table}:*`` still matches every key for a table regardless of which
 dataset wrote it.
 """
@@ -34,7 +33,6 @@ from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Per-table cache observability (cardinality bounded by _safe_label).
 tile_cache_hits = Counter(
     "geolens_tile_cache_hits_total",
     "Total tile cache hits",
@@ -98,8 +96,8 @@ class TileCacheProvider:
         """Return cached tile bytes or None on miss/error.
 
         `cols_key` differentiates tiles for the same table/z/x/y with
-        different column projections; empty string preserves the original
-        key shape. `label` is the bare table name for the metric.
+        different column projections. `label` is the bare table name for the
+        metric.
         """
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
@@ -175,9 +173,8 @@ def _tile_entry_size(entry: tuple[bytes, float]) -> int:
 class InMemoryTileCacheProvider:
     """In-memory LRU fallback for tile cache when REDIS_URL is unset.
 
-    LRU bounded by tile bytes + per-entry TTL.
-    Interface matches ``TileCacheProvider`` -- same async
-    ``get/set/invalidate_table`` signatures, so callers need zero changes.
+    LRU bounded by tile bytes + per-entry TTL, with the same interface as
+    ``TileCacheProvider``.
 
     ``cachetools`` has no per-key TTL (``TTLCache`` is one global TTL), so
     entries are stored as ``(value, expires_at_monotonic)`` and checked on
@@ -238,7 +235,7 @@ class InMemoryTileCacheProvider:
         """Delete all cached tiles for a table.
 
         Hosted invalidation is restricted to the active tenant's exact prefix;
-        single-tenant deployments retain the historical bare-table shape.
+        single-tenant deployments use the bare table name.
         """
         scoped_table = _invalidation_table_segment(table)
         prefix = f"tile:{scoped_table}:"

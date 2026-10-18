@@ -75,7 +75,6 @@ def build_event_notification(
     *extra* is merged into ``data`` last for structured context (job_id,
     dataset name, etc.).
     """
-    # Deferred import.
     from app.core.config import settings as app_settings
     from app.core.failure_reason import describe_failure_reason
     from app.platform.extensions.protocols import Notification
@@ -84,9 +83,8 @@ def build_event_notification(
         app_settings, "notification_admin_email", None
     ) or getattr(app_settings, "smtp_from_address", None)
 
-    # Mail is a reader like the web app, and a code is not a
-    # sentence. Mapped here rather than at each call site, so a new event
-    # that carries a reason cannot reintroduce the raw identifier.
+    # Mail is a reader like the web app, and a code is not a sentence. Mapped
+    # here rather than at each call site, so no event mails a raw identifier.
     reason = describe_failure_reason(reason) if reason else reason
 
     final_body = body

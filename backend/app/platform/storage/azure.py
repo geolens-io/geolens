@@ -58,8 +58,8 @@ class AzureBlobStorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns az://container/key URI.
 
-        Drained on cancellation — a bare ``to_thread`` would return
-        while the upload kept running, racing cleanup (undo-delete, closed
+        Drained on cancellation: a bare ``to_thread`` would return while the
+        upload kept running, racing cleanup (undo-delete, closed
         source handle, orphaned staged blocks).
         """
 
@@ -79,7 +79,6 @@ class AzureBlobStorageProvider:
                 downloader = blob.download_blob()
                 return downloader.readall()
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         return await asyncio.to_thread(_get)
@@ -101,7 +100,6 @@ class AzureBlobStorageProvider:
             try:
                 dest.start_copy_from_url(source.url, requires_sync=True)
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(src_key) from e
 
         await asyncio.to_thread(_copy)
@@ -114,7 +112,6 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob(offset=start, length=length).readall()
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         return await asyncio.to_thread(_get_range)
@@ -122,9 +119,8 @@ class AzureBlobStorageProvider:
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream a whole blob from ONE ``download_blob`` call.
 
-        This method IS reachable (managed assets take the LOCAL
-        branch, whose GET calls this) — never reintroduce a NotImplementedError
-        here. Raising mid-iteration would truncate an in-flight
+        Reachable: managed assets take the LOCAL branch, whose GET calls
+        this. Raising mid-iteration would truncate an in-flight
         ``StreamingResponse`` instead of failing cleanly.
         """
         blob = self._client.get_blob_client(container=self.container, blob=key)
@@ -133,7 +129,6 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob()
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         downloader = await asyncio.to_thread(_open)
@@ -162,7 +157,6 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob(offset=start, length=length)
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
             except HttpResponseError as e:
                 # Azure raises InvalidRange past EOF where S3/local read empty
@@ -229,7 +223,6 @@ class AzureBlobStorageProvider:
             try:
                 props = blob.get_blob_properties()
             except ResourceNotFoundError as e:
-                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
             size = getattr(props, "size", None)
             if size is None:

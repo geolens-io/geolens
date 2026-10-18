@@ -342,19 +342,17 @@ async def get_job_status(
     return await _job_to_status_response(job, include_detail=True)
 
 
-# The run of "this kind of job is not an ordinary import" checks,
-# as an ORDERED table rather than a branch each — the chain had reached the
-# complexity cap, and order is part of the contract (a service refresh job
-# carries both `reupload` and `refresh` and must keep the reupload wording).
+# The "this kind of job is not an ordinary import" checks, as an ORDERED
+# table: order is part of the contract (a service refresh job carries both
+# `reupload` and `refresh` and must keep the reupload wording).
 _UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
     (
         "reupload",
         "Dataset replacement jobs cannot be replayed as ordinary imports. "
         "Start the reupload again.",
     ),
-    # A registered-PostGIS refresh job carries no file/URL, so
-    # without this it fell through to the import copy, telling the user their
-    # "source" was gone.
+    # A registered-PostGIS refresh job carries no file/URL, so without this
+    # it would get the import copy telling the user their "source" was gone.
     (
         "refresh",
         "Refresh runs cannot be replayed as imports. Refresh the dataset "
@@ -462,11 +460,11 @@ async def get_retry_capability(job: IngestJob) -> tuple[bool, str | None]:
 def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     """The job payload for a reader with no claim on the job itself.
 
-    ``GET /jobs/by-dataset/{dataset_id}`` gated on the DATASET
-    being visible but returned the whole job row, leaking another user's
-    failure text and upload filename to any reader of a public/internal
-    dataset. This projection applies the same provenance rule
-    ``list_dataset_refresh_runs`` already applies, decided field by field.
+    ``GET /jobs/by-dataset/{dataset_id}`` gates only on the DATASET being
+    visible, so the whole row would hand another user's failure text and
+    upload filename to any reader of a public/internal dataset. This
+    projection applies the provenance rule ``list_dataset_refresh_runs``
+    applies, decided field by field.
 
     Kept (refresh-runs publishes the same fact to the same audience):
 
@@ -534,8 +532,7 @@ async def _job_to_status_response(
 
     ``include_detail`` is keyword-only with no default: every call site must
     settle who is reading before serializing a job. True yields the full
-    payload, False the redacted projection on ``_redacted_job_status``. A
-    default here is how this endpoint became a third unguarded door (#1860).
+    payload, False the redacted projection on ``_redacted_job_status``.
 
     Warnings validate through the ``IngestJobWarning`` discriminated union;
     a malformed entry (unknown ``kind``, missing fields) is logged and
@@ -612,7 +609,6 @@ async def _job_to_status_response(
         and QUICKLOOK_ITEM in obligations,
         warning_message=warning_message,
         warnings=warnings,
-        # Surface worker-written progress fields.
         progress=job.progress,
         current_step=job.current_step,
         rows_processed=job.rows_processed,
@@ -702,11 +698,10 @@ async def get_job_status_by_dataset(
         # "no warnings" without a console 404.
         return None
 
-    # The gate above is a VISIBILITY check — it says nothing
-    # about whose job row this is. The creator keeps the full payload (it's
-    # their run, and the import flow polls this route); everyone else goes
-    # through the same provenance predicate ``list_dataset_refresh_runs``
-    # applies to this text.
+    # The gate above is a VISIBILITY check; it says nothing about whose job
+    # row this is. The creator keeps the full payload (the import flow polls
+    # this route); everyone else goes through the provenance predicate
+    # ``list_dataset_refresh_runs`` applies to this text.
     include_detail = job.created_by == user.id or can_view_dataset_provenance(
         record, user, user_roles
     )
@@ -828,9 +823,8 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
 
     Both mean another transaction owns rows this cancel needs, and both are
     safe to report as a retryable 409: nothing was written. 40P01 should be
-    unreachable now that cancel takes locks in the worker's own order (see
-    ``cancel_job``), but mapping it costs one tuple
-    member and turns a future ordering regression into a 409, not a 500.
+    unreachable, since cancel takes locks in the worker's own order, but
+    mapping it turns an ordering regression into a 409, not a 500.
     """
     return is_lock_conflict(exc)
 
@@ -841,15 +835,15 @@ async def _may_cancel_job(
     user: Identity,
     job: IngestJob,
 ) -> bool:
-    """The three authorization arms for cancel (#1677 design §3).
+    """The three authorization arms for cancel.
 
     Arm 1: owners always retain access. Arm 2: the effective cross-user
     capability policy (same as view/retry). Arm 3: dataset write access —
     ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
     not owner/admin); the caller's generic 403 avoids leaking visibility.
 
-    Arm 2 runs as a SILENT probe — a losing arm is
-    not a denial when a later arm grants (arm 3, for a dataset owner
+    Arm 2 runs as a SILENT probe: a losing arm is not a denial when a later
+    arm grants (arm 3, for a dataset owner
     cancelling a refresh an admin triggered). The denial fires once, below,
     only after every arm fails; arm 3 emits no telemetry of its own, so the
     deny path's event count stays exactly one.

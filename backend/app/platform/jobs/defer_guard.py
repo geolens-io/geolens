@@ -1,11 +1,9 @@
-"""Procrastinate defer-async orphan guard (Theme H).
+"""Procrastinate defer-async orphan guard.
 
 Callers of ``task.defer_async(...)`` commit DB state (pending ``IngestJob``,
 VRT ``regenerating`` status) *before* dispatching. If the queue is
-unreachable, the already-committed state leaks as an orphan and the client
-sees a generic 500. IngestJob orphans get swept after 60 minutes; VRT
-``regenerating`` state has no sweep and stays stuck until an operator resets
-it manually.
+unreachable, the already-committed state would leak as an orphan until a
+stale sweep reconciles it, and the client would see a generic 500.
 
 Wraps the defer call in try/except and invokes a caller-supplied rollback
 closure to revert committed state before re-raising as HTTP 503. The usual
@@ -86,8 +84,8 @@ class DeferFailed(HTTPException):
 async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
     """Record durably, on the row, that a dispatch was attempted for it.
 
-    The one write that lets the stale sweep tell an abandoned
-    upload (owner walked away pre-commit) from a broken dispatch (commit
+    The one write that lets the stale sweep tell an abandoned upload
+    (owner walked away pre-commit) from a broken dispatch (commit
     happened, task never landed); ``abandoned_upload`` in sweep.py reads its
     absence.
 
@@ -114,8 +112,8 @@ def _restore_settlement_identifiers(
 ) -> None:
     """Put the settlement's own identifiers back after a rollback expired them.
 
-    ``Session.rollback()`` expires every instance in
-    the failed transaction; a synchronous read of an expired attribute on an
+    ``Session.rollback()`` expires every instance in the failed
+    transaction; a synchronous read of an expired attribute on an
     ``AsyncSession`` raises ``MissingGreenlet`` instead of lazy-loading.
     ``settle_ingest_job_failed`` reads ``job.id``/``job.attempt_id``
     synchronously, so without this the reset that unblocks the session is
@@ -177,8 +175,8 @@ async def _settle_after_failed_dispatch(
 ) -> DeferFailed:
     """Run the caller's rollback closure, commit it, and build the 503 to raise.
 
-    One copy, so the two ways a dispatch can fail settle the row
-    identically rather than diverging on committing, logging or `rolled_back`.
+    Shared by both ways a dispatch can fail, so they settle the row
+    identically.
     """
     try:
         landed = await rollback(exc)
@@ -238,15 +236,14 @@ async def defer_with_orphan_guard(
     raise ``DeferFailed`` (503) carrying whether the rollback landed. If the
     rollback itself raises, both errors are logged but the 503 still raises.
 
-    ``job`` is required because this is the one place every
-    ``IngestJob`` dispatch passes through — stamping here reaches every door
-    at once (``test_commit_attempted_marker_doors.py`` pins it). A failed
+    ``job`` is required because every ``IngestJob`` dispatch passes through
+    here, so stamping here reaches every door
+    (``test_commit_attempted_marker_doors.py`` pins it). A failed
     stamp is treated as a failed dispatch and settled the same way: without
     the marker, a later sweep can't tell this row from an uncommitted upload.
 
-    The stamp gets its own try because that
-    failure leaves the session in a failed transaction, and settlement is
-    itself a statement on that session — it must be reset first.
+    The stamp gets its own try because that failure leaves the session in a
+    failed transaction, which must be reset before settlement can run on it.
 
     Args:
         defer_call: 0-arg async closure that calls ``task.defer_async``.
@@ -289,8 +286,8 @@ async def settle_ingest_job_failed(
 ) -> bool:
     """Fenced ``<expected_status> -> failed`` for a dispatch that never queued.
 
-    ``expected_status`` exists because the URL import commits its
-    row as ``running`` before dispatching — the download owns a worker lease
+    ``expected_status`` exists because the URL import commits its row as
+    ``running`` before dispatching: the download owns a worker lease
     from the moment the door answers, and a ``pending`` row would be judged
     by the stale-pending sweep instead. The fence still has to name the state
     the caller actually committed, or a failed defer leaves the row running

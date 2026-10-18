@@ -98,7 +98,7 @@ def stale_pending_cutoff_seconds(*, completion_bound: bool) -> int:
     """
     if completion_bound:
         return max(
-            86400,  # 24h floor — preserves the default behaviour exactly
+            86400,  # 24h floor
             settings.pending_job_timeout_seconds + _COMMIT_HEADROOM_SECONDS,
         )
     return settings.pending_job_timeout_seconds
@@ -121,8 +121,8 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     or the live-queue check.
 
     ``completion_bound`` selects the half by the ``staging/`` PREFIX of
-    ``file_path``, not truthiness — a truthy test swept up direct uploads
-    (absolute local paths) and left them pending for a day with no retry.
+    ``file_path``, not truthiness, which would also catch direct uploads
+    (absolute local paths) and leave them pending for a day.
     False is the 1h abandonment policy; True is the 24h backstop for a bound
     upload that never committed, which the retention purge would otherwise
     never reach.
@@ -192,8 +192,8 @@ def no_unclaimed_queue_entry():
 def no_live_procrastinate_job():
     """Predicate: this ``ingest_jobs`` row has no queued or running task.
 
-    Age alone conflated a starved-but-queued job (analysis can
-    wait at priority -10 indefinitely) with a true orphan. Correlates on
+    Age alone can't tell a starved-but-queued job (analysis can wait at
+    priority -10 indefinitely) from a true orphan. Correlates on
     args->>'job_id'; both pending auto-fail paths must use this.
     """
     return text(
@@ -311,15 +311,15 @@ _POST_EXPIRY_SWEEP_MARGIN_SECONDS = 900
 def post_expiry_sweep_after_seconds() -> int:
     """Job age past which no PUT URL for it can recreate the staging object.
 
-    Computed from the setting, not fixed at 3600 —
-    a URL expires at `created_at + pending_job_timeout_seconds`. Part URLs
+    Computed from the setting, since a URL expires at
+    `created_at + pending_job_timeout_seconds`. Part URLs
     can't recreate an object (CompleteMultipartUpload consumes the upload
     id); only the single-part object-key URL is a recreation vector.
     """
     return settings.pending_job_timeout_seconds + _POST_EXPIRY_SWEEP_MARGIN_SECONDS
 
 
-# Set on the post-expiry sweep's first pass; not permanent on its own (#1236).
+# Set on the post-expiry sweep's first pass; not permanent on its own.
 _STAGING_REAPED_MARKER = STAGING_REAPED_MARKER
 
 # Set once the RE-CHECK pass has run past
@@ -618,9 +618,9 @@ async def _live_referenced_storage_keys(
     from app.processing.raster.models import RasterAsset
 
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
-    # One array param for every arm: an IN clause per arm crossed asyncpg's
-    # 32767-arg ceiling at ~8192 keys, and a failed query skipped every
-    # delete, leaking the objects for good.
+    # One array param for every arm: an IN clause per arm would cross
+    # asyncpg's 32767-arg ceiling at ~8192 keys, and a failed query skips
+    # every delete.
     keys_param = bindparam("reap_keys", value=list(keys), type_=ARRAY(Text))
     arms = [
         select(RasterAsset.asset_uri.label("key")).where(
@@ -1207,8 +1207,8 @@ async def purge_terminal_job_tokens(db: AsyncSession) -> None:
     ``sweep_stale_jobs_once`` calls this once per pass. Deliberately
     unindexed: a sequential scan beats a write-amplifying index here.
 
-    ``url`` joins ``token``. A URL import cancelled while its row
-    is still ``todo``, or whose worker died between claim and task adoption,
+    ``url`` is purged too: a URL import cancelled while its row is still
+    ``todo``, or whose worker died between claim and task adoption,
     never reaches the purge in ``fetch_url``; ``cancel_job_by_id_async``
     converts the row to ``cancelled`` rather than deleting it, so a presigned
     or SAS link would otherwise sit here until the 30-day terminal purge.
@@ -1556,8 +1556,8 @@ async def fail_stale_jobs(
             .distinct(IngestJob.dataset_id)
             .order_by(IngestJob.dataset_id, IngestJob.created_at.desc())
         )
-        # #434 r7: manifest apply looks up the newest complete job per
-        # manifest_key, so that row is exempt too or the next apply duplicates.
+        # Manifest apply looks up the newest complete job per manifest_key, so
+        # that row is exempt too or the next apply duplicates.
         manifest_key = IngestJob.user_metadata["manifest_key"].astext
         latest_manifest_ids = (
             select(IngestJob.id)
@@ -1776,8 +1776,7 @@ async def _emit_terminal_backfill_event(
     ip_address: str | None,
 ) -> None:
     """Write the one terminal entry; ``actor`` is whoever settled the run."""
-    # Deferred by design to preserve the platform -> modules layer boundary,
-    # same as the deferred imports elsewhere in this module.
+    # Deferred by design to preserve the platform -> modules layer boundary.
     from app.modules.audit.service import AuditEvent, audit_emit
 
     await audit_emit(

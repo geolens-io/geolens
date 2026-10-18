@@ -1,6 +1,6 @@
 """Community-edition default implementations of extension protocols.
 
-Facade module (#836): split by job into ``defaults_extensions.py``,
+Facade module, split by job into ``defaults_extensions.py``,
 ``defaults_processing_port.py``, ``defaults_catalog_port.py``, and
 ``defaults_ai_anthropic.py`` / ``defaults_ai_openai.py``. External code
 imports every ``Default*`` name from THIS module; the sub-modules are
@@ -13,8 +13,8 @@ import without an ``__all__`` entry as unused and deletes it under ``--fix``.
 
 from __future__ import annotations
 
-# re-export as redundant aliases to keep the pre-split import
-# surface intact for out-of-tree callers that relied on it incidentally.
+# Redundant-alias re-exports for out-of-tree callers that import these
+# helpers from here.
 from app.core.db.tenant_session import (
     defer_async_with_tenant as defer_async_with_tenant,
 )

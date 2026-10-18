@@ -13,8 +13,8 @@ def safe_upload_basename(filename: str | None) -> str:
     """The filename stripped to a basename, which is the only form safe to key on.
 
     A name carrying path separators would otherwise split the derivation: the
-    logical URI kept the directory while the write basenamed it, so cleanup
-    tracked a key nobody had written.
+    logical URI would keep the directory while the write basenamed it, so
+    cleanup would track a key nobody wrote.
     """
     return Path(filename or "").name or "upload"
 

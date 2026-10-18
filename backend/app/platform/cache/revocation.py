@@ -41,7 +41,7 @@ _TABLE = "catalog.security_revocation_generation"
 _TABLE_NAME = "security_revocation_generation"
 
 # Returned when the counter cannot be read. A sentinel is NOT a
-# generation: two entries stamped with it compared EQUAL, letting a stale
+# generation: two entries stamped with it would compare EQUAL, letting a stale
 # positive outlive a revocation. Callers must check `is_usable_generation`.
 UNKNOWN_GENERATION = -1
 
@@ -61,12 +61,11 @@ def is_usable_generation(generation: int) -> bool:
     return generation != UNKNOWN_GENERATION
 
 
-# A random 62-bit value, not a wall-clock second -- the old epoch
-# seed could collide with itself (delete+heal within the same second
-# reproduces it, or a fast-revoking fleet outpaces epoch-seconds so a reseed
-# lands BEHIND the counter it replaces). A value drawn from [0, 2**62) makes
-# any collision a ~2**-62 event; 2**62 (not the full 63-bit range) keeps
-# floor()+cast from rounding the boundary into a negative bigint.
+# A random 62-bit value, not a wall-clock second: an epoch seed can collide
+# with itself (delete+heal within one second), or a fast-revoking fleet
+# outpaces epoch-seconds so a reseed lands BEHIND the counter it replaces.
+# 2**62 (not the full 63-bit range) keeps floor()+cast from rounding the
+# boundary into a negative bigint.
 _SEED_EXPR = "(floor(random() * 4611686018427387904))::bigint"
 
 
@@ -84,8 +83,8 @@ async def bump_revocation_generation(db: AsyncSession) -> int:
         )
     )
     if generation is None:
-        # Raise rather than return a sentinel -- returning one let
-        # the revoke commit while every worker kept honouring cached positives.
+        # Raise rather than return a sentinel, which would let the revoke
+        # commit while every worker kept honouring cached positives.
         logger.error("revocation_generation_row_missing", operation="bump")
         raise RevocationGenerationError(
             "The revocation generation counter row is missing, so this "
@@ -112,12 +111,10 @@ async def current_revocation_generation(db: AsyncSession) -> int:
             text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
         )
         if generation is None:
-            # The heal must NOT run on `db` -- every production
-            # caller's session is a get_db() read session, committed on
-            # NOTHING. Healing on it "worked" for the rest of that request
-            # then vanished when the session closed, re-healing forever.
-            # Only a heal on its own connection, committed independently,
-            # outlives the request that triggered it.
+            # The heal must NOT run on `db`: every production caller's
+            # session is a get_db() read session that never commits, so a
+            # heal there vanishes when the session closes and re-heals
+            # forever. Only a heal on its own connection outlives the request.
             logger.error("revocation_generation_row_missing", operation="read")
             healed_generation = await _reseed_missing_generation_row()
             logger.warning(

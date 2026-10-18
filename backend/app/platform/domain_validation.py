@@ -67,7 +67,7 @@ def is_domain_pattern_valid(pattern: str) -> bool:
         return False
 
     if normalized.startswith("*."):
-        remainder = normalized[2:]  # everything after "*."
+        remainder = normalized[2:]
         return _is_valid_dotted_domain(remainder, min_labels=2)
 
     # Double-wildcard or wildcard not at the front is invalid

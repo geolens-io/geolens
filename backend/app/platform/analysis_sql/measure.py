@@ -2,8 +2,7 @@
 
 The family that leaves the geometry ALONE and adds columns to the row: a
 ``(select_columns, join_clause)`` pair, the same contract ``spatial_join``
-renders — kept as its own module because the two share a composition shape,
-not a subject.
+renders.
 
 Import via the ``app.platform.analysis_sql`` façade, never from here.
 """
@@ -25,16 +24,14 @@ def render_measure_columns(*, src: str = "") -> tuple[str, str]:
     ``render_spatial_join`` uses, so preview and CTAS compose identically.
 
     BOTH columns are always emitted, never picked by the catalog's
-    ``geometry_type`` — that type is classified from the dataset's first
-    feature (the catalog's type can be wrong for mixed tables), so a table
-    typed POLYGON can hold line rows. ``ST_Length`` of a polygon and
-    ``ST_Area`` of a line are both 0, so emitting both measures a mixed table
-    correctly throughout.
+    ``geometry_type``: that type is classified from the dataset's first
+    feature, so a table typed POLYGON can hold line rows. ``ST_Length`` of a
+    polygon and ``ST_Area`` of a line are both 0, so a mixed table measures
+    correctly.
 
     The ``::geography`` cast is hoisted into a lateral behind ``OFFSET 0`` so
-    it runs ONCE per row and feeds both accessors; inlined,
-    each reference casts the geometry again, which is expensive on large
-    inputs.
+    it runs once per row and feeds both accessors; inlined, each reference
+    casts again.
 
     geography, not planar: correct on the spheroid without buffer's
     projection juggling, and correct across the antimeridian where planar

@@ -177,10 +177,9 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 
 # The tile router keeps a process-local table_name -> dataset map
 # (authorization fields included) to skip a DB round trip per tile request;
-# versioning the tile cache key doesn't reach it. This function is the seam
-# letting the catalog delete path evict that entry without importing
-# `app.processing.*` (test_layering.py forbids catalog -> processing; both
-# may import platform/).
+# versioning the tile cache key doesn't reach it. These listeners let the
+# catalog delete path evict that entry without importing `app.processing.*`
+# (test_layering.py forbids catalog -> processing).
 #
 # Call AFTER the triggering transaction commits -- inside it, a concurrent
 # tile request can still read the not-yet-deleted row and re-cache what was

@@ -3,8 +3,8 @@
 The claim a paired request redeems is consumed inside slowapi's
 SYNCHRONOUS ``exempt_when``, so this is a sync client with a short timeout
 rather than the async cache provider. Every store error answers ``None`` so
-the caller falls back to its process-local registry, which is the behaviour
-before this module existed; "exempt" is never the fallback.
+the caller falls back to its process-local registry; "exempt" is never the
+fallback.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ _KEY_PREFIX = "geolens:paired-claim:"
 def claim_key(parts: tuple[str, ...]) -> str:
     """Hash a length-prefixed join of *parts* into one store key.
 
-    length-prefixed, because a component is an IPv6 address and
+    Length-prefixed, because a component is an IPv6 address and
     another is caller-supplied text, so a plain separator lets a /64 holder
     pick low bits that shift the split and collide with a neighbour's key.
     """

@@ -1333,8 +1333,8 @@ async def import_config(
             # Single commit for config changes and all associated audit rows.
             await db.commit()
 
-            # One eviction for the whole import; a per-key loop here held the
-            # widest mismatch window of the three batch call sites.
+            # One eviction for the whole import rather than a per-key loop,
+            # which would widen the cache/DB mismatch window.
             await apply_side_effects_batch(deferred_side_effects)
 
             if carries_dims:

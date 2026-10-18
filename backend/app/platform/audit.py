@@ -40,10 +40,9 @@ class AuditEvent:
 def _event_fields(event: AuditEvent) -> dict:
     """Every field of a dropped event, so the log IS the fallback audit record.
 
-    The previous drop-path log omitted the actor, address and
-    payload — the audit content itself. NIST AU-5 requires alerting on an
-    audit-logging failure; logging the full event here is the "alternate
-    audit logging capability" AU-5(4) waives fail-closed for.
+    NIST AU-5 requires alerting on an audit-logging failure; logging the
+    full event here is the "alternate audit logging capability" AU-5(4)
+    waives fail-closed for.
 
     ``details`` goes through ``redact_nested()``, not straight to the
     logger: the structlog redactor is shallow and ``details`` isn't itself
@@ -101,11 +100,9 @@ async def audit_emit(
     if not sinks:
         return
 
-    # A missing session is an audit-infrastructure fault (must not
-    # break the caller) — concretely, on the OAuth generic-error path, whose
-    # only job here is a clean 302 with Referrer-Policy: no-referrer.
-    # Logged at error, not swallowed: this should never happen in a
-    # wired-up app.
+    # A missing session is an audit-infrastructure fault that must not break
+    # the caller (the OAuth generic-error path still needs its clean 302).
+    # Logged at error because it should never happen in a wired-up app.
     if session is None:
         logger.error(
             "audit_emit called without a session; event dropped",
@@ -113,16 +110,12 @@ async def audit_emit(
         )
         return
 
-    # Flush the CALLER's work HERE, outside every guarded block below — this
-    # is the safety argument for the savepoint, not an optimisation.
-    # ``begin_nested()`` flushes the whole session as it takes its snapshot
-    # (SQLAlchemy's ``_take_snapshot``); left inside the try/except, a broken
-    # caller mutation would raise inside the audit savepoint, roll back with
-    # it, and be swallowed as an "audit failure" — the edit silently
-    # discarded, pointing at the wrong culprit.
-    #
-    # Second effect the code below depends on: the session is clean when
-    # each savepoint opens, so anything pending inside one is the sink's own.
+    # Flush the CALLER's work HERE, outside every guarded block below.
+    # ``begin_nested()`` flushes the whole session as it takes its snapshot;
+    # inside the try/except, a broken caller mutation would roll back with
+    # the audit savepoint and be swallowed as an "audit failure", silently
+    # discarding the edit. It also means the session is clean when each
+    # savepoint opens, so anything pending inside one is the sink's own.
     await session.flush()
 
     for sink in sinks:

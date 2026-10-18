@@ -33,8 +33,8 @@ ACTIVE_STATUSES = ("pending", "running")
 TERMINAL_STATUSES = tuple(s for s in ALL_STATUSES if s not in ACTIVE_STATUSES)
 
 # Statuses whose row still needs the staged `file_path`: pending/running read
-# it now, failed keeps it for /jobs/{id}/retry. Lives here, not
-# inline, since both the retention purge and staging-orphan reconciliation read it.
+# it now, failed keeps it for /jobs/{id}/retry. Read by the retention purge and
+# staging-orphan reconciliation.
 STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 
 # Stamped by the stale sweep on a fan-out parent whose dispatch
@@ -54,8 +54,8 @@ URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
 # file is gone.
 URL_IMPORT_METADATA_KEY = "url_import"
 
-# Stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE
-# is load-bearing — a stamp-less pending row was never queued, so the stale
+# Stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE is
+# load-bearing: a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.
 COMMIT_ATTEMPTED_METADATA_KEY = "commit_attempted_at"
 
@@ -261,8 +261,8 @@ class IngestJob(Base):
         Index("ix_catalog_ingest_jobs_tenant_id", "tenant_id"),
         # The admin job list's default order, id tiebreak ascending included.
         Index("ix_ingest_jobs_created_at_id", desc("created_at"), "id"),
-        # DB-enforced (not check-then-insert, which can't stop
-        # two concurrent force runs). NULLS NOT DISTINCT is load-bearing in
+        # DB-enforced (check-then-insert can't stop two concurrent force
+        # runs). NULLS NOT DISTINCT is load-bearing in
         # single-tenant mode, where every tenant_id is NULL. Migration 0050 = DDL.
         Index(
             ACTIVE_BACKFILL_INDEX_NAME,
@@ -316,9 +316,9 @@ class IngestJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Progress fields written by workers at
-    # step boundaries; nullable for back-compat (pre-migration/service-ingest
-    # rows surface None). DB column stays String(32); Pydantic Literal is the contract.
+    # Progress fields written by workers at step boundaries; nullable, since
+    # service-ingest and older rows surface None. The DB column is String(32);
+    # the Pydantic Literal is the contract.
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)

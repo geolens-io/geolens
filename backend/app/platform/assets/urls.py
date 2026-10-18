@@ -39,14 +39,12 @@ def resolve_asset_url(
     Returns None when no safe authorized URL exists (e.g. a local-storage
     path that would collide with the SPA /assets/ nginx location).
     """
-    # A by-reference origin asset (STAC import) stores the
-    # publisher's already-public absolute URL as its href — not managed
-    # storage, so the presign branch and the local-path refusal below would
-    # both mishandle it. Checked first and passed through untouched.
+    # A by-reference origin asset (STAC import) stores the publisher's
+    # already-public absolute URL, not a managed storage key, so it is passed
+    # through before either branch below can mishandle it.
     if is_remote_href(href):
         return href
 
-    # S3 + published data assets: signed URL (always safe — signed by provider)
     is_published = record_status == "published"
     if is_published and storage_backend == "s3" and storage_provider is not None:
         from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -58,9 +56,8 @@ def resolve_asset_url(
             physical_key, **presign_options
         )
 
-    # No backend route serves /assets/{key} — nginx returns the SPA
-    # index or a 404, never the storage file. Return None so callers omit the
-    # asset rather than publish a dead href.
+    # No backend route serves /assets/{key} (nginx returns the SPA index or a
+    # 404), so callers omit the asset rather than publish a dead href.
     return None
 
 

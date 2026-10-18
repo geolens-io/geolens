@@ -11,7 +11,6 @@ import httpx2
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
-# User decision: 10 second timeout for probe requests
 PROBE_TIMEOUT = httpx.Timeout(connect=10.0, read=10.0, write=10.0, pool=10.0)
 
 
@@ -22,8 +21,8 @@ class SSRFError(ValueError):
 class SSRFResolutionError(SSRFError):
     """The hostname did not resolve at all.
 
-    A subclass, not a sibling — NXDOMAIN reports
-    ``network_error`` (dead DNS), a policy refusal reports
+    A subclass, not a sibling: NXDOMAIN reports ``network_error`` (dead
+    DNS), a policy refusal reports
     ``blocked_by_policy``; collapsing them misdirects an operator to audit
     egress policy for a domain that no longer exists.
     """
@@ -51,7 +50,6 @@ def _is_blocked_ip(
         or ip.is_multicast
     ):
         return True
-    # Check ranges not covered by the standard predicates above.
     for network in _EXTRA_BLOCKED_NETWORKS:
         if ip in network:
             return True
@@ -352,7 +350,7 @@ def make_safe_client(
     Pass ``credential_header`` when the request carries a
     service-chosen credential name, so a 302 can't carry it cross-origin;
     ``X-Esri-Authorization`` is refused on a cross-origin hop whether or not it
-    was declared. A caller passing nothing gets today's behaviour.
+    was declared. A caller passing nothing gets only that fixed refusal.
     """
     return httpx.AsyncClient(
         timeout=timeout,

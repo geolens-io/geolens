@@ -121,14 +121,12 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
     Raises :class:`ExtensionSlotConflictError` if a single-slot key changes
     owner. :data:`ADDITIVE_SLOT_KEYS` are exempt — they legitimately stack.
     """
-    # Snapshot the single-slot keys already present (and who owns them)
     pre_snapshot: dict[str, object] = {
         k: registry[k] for k in SINGLE_SLOT_KEYS if k in registry
     }
 
     loader(registry)  # type: ignore[call-arg]
 
-    # Detect conflicts: a key that existed BEFORE and was replaced by a DIFFERENT object
     for key in SINGLE_SLOT_KEYS:
         if key not in registry:
             continue
@@ -136,14 +134,11 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
         if key in pre_snapshot:
             prior_val = pre_snapshot[key]
             if new_val is not prior_val:
-                # A replacement is allowed only if it
-                # transparently wraps the prior value via __slot_inner__;
-                # a bare replacement or a wrong/missing inner still raises.
+                # A replacement is allowed only if it transparently wraps the
+                # prior value via __slot_inner__.
                 if getattr(new_val, "__slot_inner__", None) is prior_val:
-                    # Sanctioned wrap — update ownership to reflect the chain.
                     _slot_owners[key] = ep_name
                     continue
-                # Bare replace or misdirected inner — conflict.
                 prior_owner = _slot_owners.get(key, "unknown")
                 raise ExtensionSlotConflictError(
                     f"Extension slot conflict on key '{key}': "
@@ -157,7 +152,6 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
                     f"wrap (SLOT-02 contract). References: SLOT-01, SLOT-02."
                 )
         else:
-            # First claim — record ownership
             _slot_owners[key] = ep_name
 
 
@@ -240,7 +234,6 @@ def load_extensions() -> None:
         except Exception:  # broad: extension loaders may raise provider-specific errors; logged via logger.warning
             logger.warning("Failed to load extension", name=ep_name, exc_info=True)
 
-    # Extract routers registered by extensions
     routers = _extensions.pop("_routers", [])
     _routers.extend(routers)
 
@@ -330,7 +323,7 @@ def get_identity_extension() -> "IdentityExtension":
     """Return the registered IdentityExtension or the community default.
 
     Community's ``DefaultIdentityExtension.resolve_identity_from_token``
-    returns ``None``, leaving the existing JWT path unchanged.
+    returns ``None``, so the JWT path applies.
     """
     ext = _extensions.get("identity")
     if ext is None:
@@ -396,9 +389,8 @@ def get_processing_port() -> "ProcessingPort":
     Single-slot, NOT list-shape like ``get_audit_sinks()`` — ProcessingPort
     is a singleton consumer surface; overlays REPLACE rather than append.
 
-    ``DefaultProcessingPort`` forwards every call to the existing
-    ``app.modules.catalog.*`` functions via deferred imports, so community
-    behavior is unchanged.
+    ``DefaultProcessingPort`` forwards every call to the
+    ``app.modules.catalog.*`` functions via deferred imports.
     """
     ext = _extensions.get("processing_port")
     if ext is None:
@@ -446,7 +438,7 @@ def get_ai_provider(name: str) -> "AIProviderExtension":
     alongside the defaults.
 
     Raises ``ValueError("Unknown LLM provider: {name}")`` for unknown names,
-    preserving the exception type/message existing callers catch.
+    which callers catch.
     """
     providers = _extensions.setdefault("ai_providers", {})
     providers.setdefault("anthropic", DefaultAnthropicProvider())

@@ -72,21 +72,18 @@ class EnvConfiguredNotificationSink:
         name and the exception's type name. Never raises. A name no channel
         is configured under sends nothing.
         """
-        # Deferred import of settings — not paid at module load.
         from app.core.config import settings as app_settings
 
         # Master toggle: notifications_enabled=False ⇒ no channels attempted.
         if not app_settings.notifications_enabled:
             return [], []
 
-        # Build the list of configured channels in a deterministic order.
         channels: list[tuple[str, object]] = []
         if app_settings.smtp_host:
             channels.append(("smtp", send_email))
         if app_settings.notification_webhook_url:
             channels.append(("webhook", post_webhook))
 
-        # Fan-out with per-channel isolation.
         successes: list[str] = []
         failures: list[tuple[str, str]] = []
 
