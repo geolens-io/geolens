@@ -318,10 +318,10 @@ def call_sdk(
 
     ``on_timeout`` fires only for ``httpx.ReadTimeout``: the request was fully
     sent, so the server may already have accepted the work (manifest apply's
-    "re-running may duplicate an in-flight entry" guidance). Connect, write and
-    pool timeouts happen before the server could have received the request, so
-    they fall through to ``reraise_timeout`` or the ordinary network-failure
-    path.
+    "re-running may duplicate an in-flight entry" guidance). Connect and pool
+    timeouts fire before anything is sent, and a write timeout before the
+    request finished sending, so they fall through to ``reraise_timeout`` or the
+    ordinary network-failure path.
     """
     import httpx  # lazy — only for exception types
 

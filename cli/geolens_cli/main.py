@@ -60,9 +60,8 @@ app.add_typer(arcgis_app, name="arcgis")
 class AppState:
     """Shared state attached to typer.Context.obj.
 
-    Commands call AppState.sdk() for a GeolensClient built from the
-    highest-precedence credential available (CLI flag > GEOLENS_TOKEN env >
-    credentials.toml > keyring).
+    Commands call AppState.sdk() for a GeolensClient built from the active
+    credential, which ``auth.resolve_active_credential()`` selects.
     """
 
     output: _output.Formatter
@@ -95,17 +94,11 @@ class AppState:
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance.
 
-        Credential SELECTION itself (GEOLENS_TOKEN
-        vs the active_kind marker vs legacy bearer-first precedence,
-        and everything that can go wrong reading any of those) is
-        entirely delegated to ``auth.resolve_active_credential()`` --
-        the one precedence implementation for this decision across the
-        whole package (see its own docstring for the full list of call
-        sites this closes over). This method's only remaining job is
-        translating that resolver's result (or one of its three typed
-        failure modes) into a constructed client or a reported CLI
-        error -- ``auth.py`` has no access to ``self.output``, so this
-        is the one place that translation can happen.
+        Credential selection (GEOLENS_TOKEN, the active_kind marker, legacy
+        bearer-first precedence) is delegated to
+        ``auth.resolve_active_credential()``. This method turns its result, or
+        one of its three typed failures, into a client or a reported CLI error,
+        since ``auth.py`` has no access to ``self.output``.
         """
         instance = self.active_instance()
         if not instance:
@@ -362,8 +355,8 @@ def apply_manifest_command(
     NOTE: apply only POSTs the manifest document — it does NOT upload local
     data files. Manifest sources must reference data the server can already
     reach (http(s)/s3 URIs, or files pre-staged server-side). To
-    publish a LOCAL file, use `geolens publish <file>` instead. apply errors
-    early if any source URI is a local path.
+    publish a LOCAL file, use `geolens publish <file>` instead. apply warns
+    if any source URI is a local path.
 
     Without --timeout, the request's timeout is a heuristic lower bound
     computed from the manifest's own entry count -- not a guarantee a
@@ -858,7 +851,7 @@ def scan(
             rel = item.path
         table.add_row(str(rel), item.format, ingest_marker)
 
-    # Use the Formatter's public stdout console so NO_COLOR / quiet are honored;
+    # Use the Formatter's public stdout console so NO_COLOR is honored;
     # Formatter.success is for messages, not tables.
     state.output.console_stdout.print(table)
     if not items:
