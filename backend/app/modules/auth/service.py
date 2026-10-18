@@ -671,8 +671,9 @@ async def create_api_key_for_user(
     ``scope="read_only"`` mints a key that authenticates only
     GET/HEAD/OPTIONS. Default matches the column default.
 
-    ``scope="dataset_write"`` requires ``dataset_id`` and other scopes forbid
-    it; the caller must already have checked write access to that dataset.
+    ``scope="dataset_write"`` and ``scope="dataset_append"`` require
+    ``dataset_id`` and other scopes forbid it; the caller must already have
+    checked write access to that dataset.
     """
     owner = (
         await db.execute(

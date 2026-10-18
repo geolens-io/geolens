@@ -247,6 +247,7 @@ from .create_feature_datasets_dataset_id_features_post_geo_json_feature_properti
 from .create_layer_request import CreateLayerRequest
 from .create_layer_response import CreateLayerResponse
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
+from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
 from .dataset_api_key_list_response import DatasetApiKeyListResponse
 from .dataset_chat_request import DatasetChatRequest
@@ -1124,6 +1125,7 @@ __all__ = (
     "CreateLayerRequest",
     "CreateLayerResponse",
     "DatasetApiKeyCreateRequest",
+    "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",
     "DatasetApiKeyListResponse",
     "DatasetChatRequest",

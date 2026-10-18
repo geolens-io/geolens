@@ -1,4 +1,4 @@
-"""One-dataset write keys: what a ``dataset_write`` key may reach, and how it is refused.
+"""One-dataset keys: what a ``dataset_write`` or ``dataset_append`` key may reach.
 
 The key is bound to one dataset and authenticates only that dataset's feature
 routes. Everywhere else it must look exactly like an invalid key, so a
@@ -17,7 +17,11 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.modules.auth.dependencies import _DATASET_KEY_ROUTES
+from app.modules.auth.dependencies import (
+    _DATASET_APPEND_KEY_ROUTES,
+    _DATASET_KEY_ROUTES,
+    _DATASET_KEY_SCOPE_ROUTES,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_user, get_user_id
 
@@ -1029,3 +1033,199 @@ def test_every_feature_route_is_classified():
         )
     }
     assert feature_routes - refused_on_purpose == set(_DATASET_KEY_ROUTES)
+
+
+def test_every_dataset_key_scope_has_its_routes():
+    from app.platform.request_credential import DATASET_KEY_SCOPES
+
+    assert set(_DATASET_KEY_SCOPE_ROUTES) == DATASET_KEY_SCOPES
+    assert _DATASET_APPEND_KEY_ROUTES == {
+        ("POST", "/datasets/{dataset_id}/features/"),
+        ("POST", "/datasets/{dataset_id}/features"),
+    }
+    assert _DATASET_APPEND_KEY_ROUTES <= _mounted_route_pairs()
+
+
+async def test_an_append_key_creates_features_in_its_dataset(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    data = await _mint(client, headers, bound.id, scope="dataset_append")
+    assert (data["scope"], data["dataset_id"]) == ("dataset_append", str(bound.id))
+    key = {"X-Api-Key": data["key"]}
+    base = f"/datasets/{bound.id}/features"
+
+    for create_url in (f"{base}/", base):
+        created = await client.post(
+            create_url,
+            json={"geometry": POINT, "properties": {"name": "made"}},
+            headers=key,
+        )
+        assert created.status_code == 201, created.text
+    resp = await client.post(f"{base}/", json=_collection("a", "b"), headers=key)
+    assert resp.status_code == 201, resp.text
+    assert len(resp.json()["features"]) == 2
+
+    # A retried create answers with the feature the first attempt made.
+    retry = {**key, "Idempotency-Key": "device-1:t1"}
+    body = {"geometry": POINT, "properties": {"name": "retried"}}
+    first = await client.post(f"{base}/", json=body, headers=retry)
+    again = await client.post(f"{base}/", json=body, headers=retry)
+    assert (first.status_code, again.status_code) == (201, 201), again.text
+    assert again.json()["id"] == first.json()["id"]
+
+    listed = (
+        await client.get(f"/datasets/{bound.id}/api-keys", headers=headers)
+    ).json()
+    assert [(k["id"], k["scope"]) for k in listed["items"]] == [
+        (data["id"], "dataset_append")
+    ]
+
+
+async def test_an_append_key_is_refused_on_every_other_route(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound, other = datasets
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    # A feature to aim the reads and writes at, made by the owner.
+    made = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json={"geometry": POINT, "properties": {"name": "existing"}},
+        headers=headers,
+    )
+    assert made.status_code == 201, made.text
+    gid = made.json()["id"]
+    write = {"json": {"geometry": POINT_2, "properties": {"name": "changed"}}}
+    base = f"/datasets/{bound.id}/features"
+
+    for method, url, kwargs in (
+        ("GET", f"{base}/", {}),
+        ("GET", base, {}),
+        ("GET", f"{base}/{gid}", {}),
+        ("GET", f"/datasets/{bound.id}/features.geojson", {}),
+        ("GET", f"/collections/{bound.id}/items", {}),
+        ("GET", f"/collections/{bound.id}/items/", {}),
+        ("GET", f"/collections/{bound.id}/items/{gid}", {}),
+        ("GET", f"/datasets/{bound.id}/export?format=geojson", {}),
+        ("GET", f"/datasets/{bound.id}/rows/", {}),
+        ("PUT", f"{base}/{gid}", write),
+        ("PATCH", f"{base}/{gid}", {"json": {"properties": {"name": "x"}}}),
+        ("DELETE", f"{base}/{gid}", {}),
+        ("POST", f"{base}/dry-run/", write),
+        ("POST", f"{base}/dry-run", write),
+        (
+            "POST",
+            f"/layers/{bound.id}/columns/",
+            {"json": {"name": "added", "type": "text"}},
+        ),
+        ("DELETE", f"/layers/{bound.id}/columns/name", {}),
+        ("GET", f"/datasets/{bound.id}", {}),
+        ("PATCH", f"/datasets/{bound.id}", {"json": {"title": "Renamed"}}),
+        ("DELETE", f"/datasets/{bound.id}", {}),
+        ("GET", f"/datasets/{bound.id}/api-keys", {}),
+        ("POST", f"/datasets/{other.id}/features/", write),
+        ("POST", f"/datasets/{other.id}/features", write),
+        ("POST", f"/datasets/{other.id}/features/", {"json": _collection("x")}),
+        ("GET", f"/collections/{other.id}/items", {}),
+        ("GET", "/auth/me/", {}),
+        ("GET", "/auth/api-keys/", {}),
+        ("POST", "/maps/", {"json": {"name": "Made by an append key"}}),
+        ("GET", "/admin/users/", {}),
+    ):
+        await _assert_refused_like_an_invalid_key(
+            client, method, url, raw_key, **kwargs
+        )
+
+    resp = await client.get(f"{base}/{gid}", headers=headers)
+    assert resp.json()["properties"]["name"] == "existing"
+
+
+async def test_an_append_key_never_reaches_a_feature_its_user_made_elsewhere(
+    client: AsyncClient, owner, datasets
+):
+    """A retry through the key can't answer with, or rewrite, the user's own create."""
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    url = f"/datasets/{bound.id}/features/"
+    made = await client.post(
+        url,
+        json={"geometry": POINT, "properties": {"name": "owner's"}},
+        headers={**headers, "Idempotency-Key": "shared"},
+    )
+    assert made.status_code == 201, made.text
+
+    resp = await client.post(
+        url,
+        json={"geometry": POINT_2, "properties": {"name": "via key"}},
+        headers={
+            "X-Api-Key": raw_key,
+            "Idempotency-Key": "shared",
+            "Idempotency-Attempt": "2",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"] != made.json()["id"]
+    assert resp.json()["properties"]["name"] == "via key"
+    kept = await client.get(f"{url}{made.json()['id']}", headers=headers)
+    assert kept.json()["properties"]["name"] == "owner's"
+
+
+async def test_an_append_key_writes_while_site_wide_editing_is_off(
+    client: AsyncClient, owner, datasets, monkeypatch
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    await _editing_off(monkeypatch)
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json={"geometry": POINT, "properties": {"name": "webhook"}},
+        headers={"X-Api-Key": raw_key},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_an_append_key_stops_when_its_user_loses_edit_rights(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id, scope="dataset_append"))["key"]
+    admin_id = await get_user_id(test_db_session, "admin")
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.records SET created_by = :admin, visibility = 'public' "
+            "WHERE id = :id"
+        ),
+        {"admin": admin_id, "id": bound.record_id},
+    )
+    await test_db_session.commit()
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json={"geometry": POINT, "properties": {}},
+        headers={"X-Api-Key": raw_key},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+async def test_the_mint_request_takes_only_a_dataset_scope(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    for scope in ("full", "read_only", "dataset_other"):
+        resp = await client.post(
+            f"/datasets/{bound.id}/api-keys",
+            json={"name": "Wide", "expires_at": _in_days(30), "scope": scope},
+            headers=headers,
+        )
+        assert resp.status_code == 422, (scope, resp.text)
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Sneaky", "scope": "dataset_append"},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text

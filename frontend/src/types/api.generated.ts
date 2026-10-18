@@ -1989,14 +1989,16 @@ export interface paths {
         put?: never;
         /**
          * Create Dataset Api Key
-         * @description Create a key that reads and writes this dataset's features only.
+         * @description Create a key that reaches only this dataset's features.
          *
-         *     The key has scope ``dataset_write`` and acts as the caller, so the
-         *     caller's own access to the dataset still applies to every request it
-         *     makes. It authenticates the dataset's feature routes and OGC API
-         *     Features items, and is treated as an invalid key everywhere else. Its
-         *     feature writes go through even when the instance has dataset editing
-         *     switched off. It must expire within 365 days. Requires write access to the
+         *     A ``dataset_write`` key, the default, authenticates the dataset's feature
+         *     routes and OGC API Features items. A ``dataset_append`` key authenticates
+         *     only `POST /datasets/{dataset_id}/features/`, so it can add features but
+         *     not read, change or delete them. Either is treated as an invalid key
+         *     everywhere else. The key acts as the caller, so the caller's own access
+         *     to the dataset still applies to every request it makes. Its feature
+         *     writes go through even when the instance has dataset editing switched
+         *     off. It must expire within 365 days. Requires write access to the
          *     dataset, the ``edit_metadata`` permission the feature writes need, and a
          *     signed-in session. A dataset that can't take feature edits (no feature
          *     table or no geometry column) gets 422. A dataset holds at most 100 keys
@@ -5968,12 +5970,12 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else).
+             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
              */
             scope: string;
             /**
              * Dataset Id
-             * @description The dataset a 'dataset_write' key is bound to; null for other scopes.
+             * @description The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes.
              */
             dataset_id?: string | null;
             /**
@@ -6461,12 +6463,12 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
              * Dataset Id
-             * @description The dataset a 'dataset_write' key is bound to; null for other scopes
+             * @description The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
              */
             dataset_id?: string | null;
             /**
@@ -6498,12 +6500,12 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
              * Dataset Id
-             * @description The dataset a 'dataset_write' key is bound to; null for other scopes
+             * @description The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
              */
             dataset_id?: string | null;
             /**
@@ -8129,6 +8131,13 @@ export interface components {
              * @description Expiry timestamp (RFC 3339, timezone-aware), in the future and at most 365 days away. Expired keys stop authenticating.
              */
             expires_at: string;
+            /**
+             * Scope
+             * @description 'dataset_write' reads and writes the dataset's features. 'dataset_append' only creates features, one or a FeatureCollection per request, and can't read, change or delete them.
+             * @default dataset_write
+             * @enum {string}
+             */
+            scope: "dataset_write" | "dataset_append";
         };
         /** DatasetApiKeyListItem */
         DatasetApiKeyListItem: {
@@ -8153,12 +8162,12 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
              * Dataset Id
-             * @description The dataset a 'dataset_write' key is bound to; null for other scopes
+             * @description The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
              */
             dataset_id?: string | null;
             /**

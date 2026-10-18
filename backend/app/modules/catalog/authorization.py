@@ -48,7 +48,7 @@ from app.modules.catalog.write_recheck import (
     recheck_dataset_write_access,
 )
 from app.platform.catalog_locks import lock_catalog_rows
-from app.platform.request_credential import api_key_credential
+from app.platform.request_credential import DATASET_KEY_SCOPES, api_key_credential
 from app.platform.extensions import (
     DefaultPermissionExtension,
     RecordAudienceQuery,
@@ -703,15 +703,15 @@ async def require_dataset_editing_enabled(
     The flag gates feature edits and column DDL through the API as well as the
     UI; metadata edits stay ungated, matching the UI.
 
-    A request authenticated by a ``dataset_write`` key bound to ``dataset_id``
-    skips the flag for that dataset's feature writes: minting the key is how an
-    editor opts a webhook in while the instance keeps editing off.
+    A request authenticated by a dataset key bound to ``dataset_id`` skips the
+    flag for that dataset's feature writes: minting the key is how an editor
+    opts a webhook in while the instance keeps editing off.
     """
     credential = api_key_credential(db)
     if (
         dataset_id is not None
         and credential is not None
-        and credential.scope == "dataset_write"
+        and credential.scope in DATASET_KEY_SCOPES
         and credential.dataset_id == dataset_id
     ):
         return

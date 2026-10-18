@@ -36,6 +36,7 @@ import type {
   DatasetRelationship,
   DatasetRelationshipListResponse,
   ApiKeyCreateResponse,
+  DatasetApiKeyCreateRequest,
   DatasetApiKeyResponse,
 } from '@/types/api';
 
@@ -617,7 +618,7 @@ export async function listDatasetApiKeys(datasetId: string): Promise<DatasetApiK
 
 export async function createDatasetApiKey(
   datasetId: string,
-  body: { name: string; expires_at: string },
+  body: DatasetApiKeyCreateRequest,
 ): Promise<ApiKeyCreateResponse> {
   return apiFetch<ApiKeyCreateResponse>(`/datasets/${encodeURIComponent(datasetId)}/api-keys`, {
     method: 'POST',

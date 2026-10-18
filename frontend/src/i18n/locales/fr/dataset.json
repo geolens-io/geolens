@@ -1249,7 +1249,11 @@
     "createdBy": "Créée par {{name}}",
     "noKeys": "Aucune clé d'écriture pour ce jeu de données.",
     "loadError": "Impossible de charger les clés d'écriture de ce jeu de données.",
-    "revokeKey": "Révoquer {{name}}"
+    "revokeKey": "Révoquer {{name}}",
+    "appendOnly": "Ajout d'entités uniquement",
+    "appendOnlyHint": "La clé ne peut pas lire, modifier ni supprimer d'entités.",
+    "kindAppend": "Ajout uniquement",
+    "kindReadWrite": "Lecture et écriture"
   },
   "retention": {
     "title": "Rétention",

@@ -1249,7 +1249,11 @@
     "createdBy": "创建者：{{name}}",
     "noKeys": "此数据集没有写入密钥。",
     "loadError": "无法加载此数据集的写入密钥。",
-    "revokeKey": "撤销 {{name}}"
+    "revokeKey": "撤销 {{name}}",
+    "appendOnly": "仅添加要素",
+    "appendOnlyHint": "此密钥不能读取、更改或删除要素。",
+    "kindAppend": "仅添加",
+    "kindReadWrite": "读写"
   },
   "retention": {
     "title": "保留期限",

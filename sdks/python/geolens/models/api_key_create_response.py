@@ -25,11 +25,12 @@ class ApiKeyCreateResponse:
         key (str): The API key secret (shown only once)
         fingerprint (str): Non-secret key identifier (prefix and last four characters)
         name (str):
-        scope (str): Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the
-            dataset in dataset_id, and nothing else)
+        scope (str): Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset
+            in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
         created_at (datetime.datetime):
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
-        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' key is bound to; null for other scopes
+        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for
+            other scopes
     """
 
     id: UUID

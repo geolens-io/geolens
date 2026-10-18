@@ -209,13 +209,13 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else).
+     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
      */
     scope: string;
     /**
      * Dataset Id
      *
-     * The dataset a 'dataset_write' key is bound to; null for other scopes.
+     * The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes.
      */
     dataset_id?: string | null;
     /**
@@ -833,13 +833,13 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
      * Dataset Id
      *
-     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     * The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
      */
     dataset_id?: string | null;
     /**
@@ -879,13 +879,13 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
      * Dataset Id
      *
-     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     * The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
      */
     dataset_id?: string | null;
     /**
@@ -3124,6 +3124,12 @@ export type DatasetApiKeyCreateRequest = {
      * Expiry timestamp (RFC 3339, timezone-aware), in the future and at most 365 days away. Expired keys stop authenticating.
      */
     expires_at: string;
+    /**
+     * Scope
+     *
+     * 'dataset_write' reads and writes the dataset's features. 'dataset_append' only creates features, one or a FeatureCollection per request, and can't read, change or delete them.
+     */
+    scope?: 'dataset_write' | 'dataset_append';
 };
 
 /**
@@ -3157,13 +3163,13 @@ export type DatasetApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
      * Dataset Id
      *
-     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     * The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for other scopes
      */
     dataset_id?: string | null;
     /**

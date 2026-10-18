@@ -1249,7 +1249,11 @@
     "createdBy": "Erstellt von {{name}}",
     "noKeys": "Keine Schreibschlüssel für diesen Datensatz.",
     "loadError": "Die Schreibschlüssel dieses Datensatzes konnten nicht geladen werden.",
-    "revokeKey": "{{name}} widerrufen"
+    "revokeKey": "{{name}} widerrufen",
+    "appendOnly": "Nur Features hinzufügen",
+    "appendOnlyHint": "Der Schlüssel kann keine Features lesen, ändern oder löschen.",
+    "kindAppend": "Nur hinzufügen",
+    "kindReadWrite": "Lesen und schreiben"
   },
   "retention": {
     "title": "Aufbewahrung",

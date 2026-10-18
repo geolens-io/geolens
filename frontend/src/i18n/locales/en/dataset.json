@@ -1249,7 +1249,11 @@
     "createdBy": "Created by {{name}}",
     "noKeys": "No write keys for this dataset.",
     "loadError": "Couldn't load this dataset's write keys.",
-    "revokeKey": "Revoke {{name}}"
+    "revokeKey": "Revoke {{name}}",
+    "appendOnly": "Add features only",
+    "appendOnlyHint": "The key can't read, change or delete features.",
+    "kindAppend": "Add only",
+    "kindReadWrite": "Read and write"
   },
   "retention": {
     "title": "Retention",

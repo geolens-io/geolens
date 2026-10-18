@@ -1249,7 +1249,11 @@
     "createdBy": "Creada por {{name}}",
     "noKeys": "Este conjunto de datos no tiene claves de escritura.",
     "loadError": "No se pudieron cargar las claves de escritura de este conjunto de datos.",
-    "revokeKey": "Revocar {{name}}"
+    "revokeKey": "Revocar {{name}}",
+    "appendOnly": "Solo añadir entidades",
+    "appendOnlyHint": "La clave no puede leer, cambiar ni eliminar entidades.",
+    "kindAppend": "Solo añadir",
+    "kindReadWrite": "Lectura y escritura"
   },
   "retention": {
     "title": "Retención",

@@ -262,6 +262,8 @@ export type MyApiKeyResponse = components['schemas']['ApiKeyListItem'];
 
 export type DatasetApiKeyResponse = components['schemas']['DatasetApiKeyListItem'];
 
+export type DatasetApiKeyCreateRequest = components['schemas']['DatasetApiKeyCreateRequest'];
+
 export type OAuthProviderPublic = components['schemas']['OAuthProviderPublic'];
 
 // Older servers omit the fields below; the login and register flows default them.

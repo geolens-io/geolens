@@ -225,6 +225,11 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                       {t('apiKeys.scopeDatasetWrite')}
                     </Badge>
                   )}
+                  {key.scope === 'dataset_append' && (
+                    <Badge variant="secondary" className="px-1.5">
+                      {t('apiKeys.scopeDatasetAppend')}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

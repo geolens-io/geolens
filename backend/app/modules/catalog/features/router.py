@@ -63,6 +63,7 @@ from app.modules.catalog.features.idempotency import (
     CreatedRow,
     KeyedFeature,
     claim_create_key,
+    credential_key,
     current_row_xmin,
     current_table_oid,
     find_live_key,
@@ -1179,6 +1180,7 @@ async def _create(
     keyed = None
     try:
         if idempotency_key is not None:
+            idempotency_key = credential_key(db, idempotency_key)
             # Requests on one key run one at a time. The key's lock comes
             # before the feature is touched, so waiting on it holds nothing a
             # PATCH, a replacement or a delete could be waiting for.

@@ -6,9 +6,11 @@ time. The key row written beside the insert lets the route answer a repeat
 with the feature that exists instead of inserting another, and the attempt
 number orders the bodies: the highest one received is the one applied, whatever
 order the requests arrive in. Keys are scoped to (dataset, user), so one
-caller's key can neither reveal nor collide with another's.
+caller's key can neither reveal nor collide with another's. A
+``dataset_append`` API key's keys are scoped to that key as well.
 """
 
+import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
@@ -21,6 +23,7 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.features.models import FeatureCreateKey
 from app.platform.extensions import get_catalog_port
+from app.platform.request_credential import api_key_credential
 
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
@@ -53,6 +56,20 @@ class CreatedRow(NamedTuple):
     gid: int
     table_oid: int
     row_xmin: int
+
+
+def credential_key(db: AsyncSession, key: str) -> str:
+    """``key`` as stored for the credential that authenticated this request.
+
+    A repeat answers with the stored feature and can apply a newer body to it,
+    so a ``dataset_append`` key, which may not read or change features, only
+    reaches the features it created itself. Hashing keeps the stored form
+    within the column's 128 characters.
+    """
+    credential = api_key_credential(db)
+    if credential is None or credential.scope != "dataset_append":
+        return key
+    return f"api-key:{credential.id}:{hashlib.sha256(key.encode()).hexdigest()}"
 
 
 def _retention_cutoff() -> datetime:

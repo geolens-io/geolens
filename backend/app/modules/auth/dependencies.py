@@ -177,12 +177,28 @@ _DATASET_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+# A dataset_append key only creates features, one or a FeatureCollection at a
+# time, so a leaked one can neither read the dataset back nor change it.
+_DATASET_APPEND_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/datasets/{dataset_id}/features/"),
+        ("POST", "/datasets/{dataset_id}/features"),
+    }
+)
 
-def _dataset_key_may_call(request: Request, dataset_id: uuid.UUID | None) -> bool:
-    """Whether a dataset_write key bound to ``dataset_id`` may serve this request."""
+_DATASET_KEY_SCOPE_ROUTES: dict[str, frozenset[tuple[str, str]]] = {
+    "dataset_write": _DATASET_KEY_ROUTES,
+    "dataset_append": _DATASET_APPEND_KEY_ROUTES,
+}
+
+
+def _dataset_key_may_call(
+    request: Request, routes: frozenset[tuple[str, str]], dataset_id: uuid.UUID | None
+) -> bool:
+    """Whether a key bound to ``dataset_id`` and limited to ``routes`` may serve this."""
     if dataset_id is None:
         return False
-    if (request.method, _route_template(request)) not in _DATASET_KEY_ROUTES:
+    if (request.method, _route_template(request)) not in routes:
         return False
     try:
         return uuid.UUID(str(request.path_params.get("dataset_id"))) == dataset_id
@@ -301,8 +317,8 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     documented — ``_supplied_api_key`` drops a query-string key on anything
     but a read.
 
-    A ``dataset_write`` key off its own dataset's feature routes resolves to
-    None, like an invalid key: a valid bearer token on the same request then
+    A dataset key off its scope's routes on its own dataset resolves to None,
+    like an invalid key: a valid bearer token on the same request then
     authenticates it as the token's user. A key that resolves is recorded on
     ``db`` for the request's guards and audit events.
     """
@@ -332,11 +348,12 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
         return None
     if not user.is_active or user.status != "active":
         return None
-    # A dataset_write key off its own dataset's feature routes resolves as no
+    # A dataset key off its scope's routes on its own dataset resolves as no
     # key at all, before the usage bump, so the refusal matches an invalid key
     # and tells the caller nothing about the route or the dataset.
-    if api_key_obj.scope == "dataset_write" and not _dataset_key_may_call(
-        request, api_key_obj.dataset_id
+    dataset_key_routes = _DATASET_KEY_SCOPE_ROUTES.get(api_key_obj.scope)
+    if dataset_key_routes is not None and not _dataset_key_may_call(
+        request, dataset_key_routes, api_key_obj.dataset_id
     ):
         log.warning(
             "api_key_dataset_scope_denied",

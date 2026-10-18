@@ -70,14 +70,16 @@ async def create_dataset_api_key(
     _editor: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
-    """Create a key that reads and writes this dataset's features only.
+    """Create a key that reaches only this dataset's features.
 
-    The key has scope ``dataset_write`` and acts as the caller, so the
-    caller's own access to the dataset still applies to every request it
-    makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. Its
-    feature writes go through even when the instance has dataset editing
-    switched off. It must expire within 365 days. Requires write access to the
+    A ``dataset_write`` key, the default, authenticates the dataset's feature
+    routes and OGC API Features items. A ``dataset_append`` key authenticates
+    only `POST /datasets/{dataset_id}/features/`, so it can add features but
+    not read, change or delete them. Either is treated as an invalid key
+    everywhere else. The key acts as the caller, so the caller's own access
+    to the dataset still applies to every request it makes. Its feature
+    writes go through even when the instance has dataset editing switched
+    off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
     table or no geometry column) gets 422. A dataset holds at most 100 keys
@@ -117,7 +119,7 @@ async def create_dataset_api_key(
         user.id,
         body.name,
         expires_at=body.expires_at,
-        scope="dataset_write",
+        scope=body.scope,
         dataset_id=dataset_id,
     )
     await audit_emit(

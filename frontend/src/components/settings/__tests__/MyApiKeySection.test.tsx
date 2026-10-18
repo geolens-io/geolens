@@ -243,6 +243,18 @@ describe('#875: API key scope', () => {
     expect(screen.getByText('admin:apiKeys.scopeDatasetWrite')).toBeInTheDocument();
   });
 
+  it('badges a dataset_append key in the list', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'dataset_append', dataset_id: 'ds-1' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.scopeDatasetAppend')).toBeInTheDocument();
+    expect(screen.queryByText('admin:apiKeys.scopeDatasetWrite')).not.toBeInTheDocument();
+  });
+
   it('wraps the badges below a key name instead of squeezing it at phone width', () => {
     vi.mocked(useMyApiKeys).mockReturnValue({
       data: [makeKey({ name: 'Webhook smoke', scope: 'dataset_write', dataset_id: 'ds-1' })],

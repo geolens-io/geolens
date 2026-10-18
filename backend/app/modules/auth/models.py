@@ -193,11 +193,11 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
     __table_args__ = (
         CheckConstraint(
-            "scope IN ('full', 'read_only', 'dataset_write')",
+            "scope IN ('full', 'read_only', 'dataset_write', 'dataset_append')",
             name="chk_api_keys_scope",
         ),
         CheckConstraint(
-            "(scope = 'dataset_write') = (dataset_id IS NOT NULL)",
+            "(scope IN ('dataset_write', 'dataset_append')) = (dataset_id IS NOT NULL)",
             name="chk_api_keys_dataset_scope",
         ),
         {"schema": "catalog"},
@@ -233,8 +233,9 @@ class ApiKey(Base):
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )
-    # A "dataset_write" key reaches only this dataset's feature routes;
-    # set if and only if the key has that scope.
+    # A "dataset_write" key reaches only this dataset's feature routes, and a
+    # "dataset_append" key only its feature create; set if and only if the key
+    # has one of those scopes.
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="CASCADE"),
         nullable=True,

@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _SESSION_KEY = "geolens.api_key_credential"
 
+# Scopes whose keys are bound to the one dataset in ``api_keys.dataset_id``.
+DATASET_KEY_SCOPES: frozenset[str] = frozenset({"dataset_write", "dataset_append"})
+
 
 @dataclass(frozen=True, slots=True)
 class ApiKeyCredential:

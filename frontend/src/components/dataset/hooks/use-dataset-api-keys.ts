@@ -4,6 +4,7 @@ import { createDatasetApiKey, listDatasetApiKeys, revokeDatasetApiKey } from '@/
 import { formatMutationError } from '@/lib/error-map';
 import { queryKeys } from '@/lib/query-keys';
 import i18n from '@/i18n/i18n';
+import type { DatasetApiKeyCreateRequest } from '@/types/api';
 
 export function useDatasetApiKeys(datasetId: string) {
   return useQuery({
@@ -15,8 +16,7 @@ export function useDatasetApiKeys(datasetId: string) {
 export function useCreateDatasetApiKey(datasetId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; expires_at: string }) =>
-      createDatasetApiKey(datasetId, body),
+    mutationFn: (body: DatasetApiKeyCreateRequest) => createDatasetApiKey(datasetId, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.dataset(datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });

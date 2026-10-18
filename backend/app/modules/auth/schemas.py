@@ -280,6 +280,14 @@ class DatasetApiKeyCreateRequest(BaseModel):
             "most 365 days away. Expired keys stop authenticating."
         ),
     )
+    scope: Literal["dataset_write", "dataset_append"] = Field(
+        default="dataset_write",
+        description=(
+            "'dataset_write' reads and writes the dataset's features. "
+            "'dataset_append' only creates features, one or a FeatureCollection "
+            "per request, and can't read, change or delete them."
+        ),
+    )
 
     @field_validator("expires_at")
     @classmethod
@@ -291,11 +299,13 @@ class DatasetApiKeyCreateRequest(BaseModel):
 
 
 _SCOPE_DESCRIPTION = (
-    "Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and "
-    "writes the features of the dataset in dataset_id, and nothing else)"
+    "Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes "
+    "the features of the dataset in dataset_id, and nothing else), or "
+    "'dataset_append' (only creates features in that dataset)"
 )
 _DATASET_ID_DESCRIPTION = (
-    "The dataset a 'dataset_write' key is bound to; null for other scopes"
+    "The dataset a 'dataset_write' or 'dataset_append' key is bound to; null "
+    "for other scopes"
 )
 
 

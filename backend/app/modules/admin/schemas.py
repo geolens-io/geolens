@@ -605,13 +605,17 @@ class AdminApiKeyListItem(BaseModel):
     )
     scope: str = Field(
         description=(
-            "Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and "
-            "writes the features of the dataset in dataset_id, and nothing else)."
+            "Privilege scope: 'full', 'read_only', 'dataset_write' (reads and "
+            "writes the features of the dataset in dataset_id, and nothing else), "
+            "or 'dataset_append' (only creates features in that dataset)."
         )
     )
     dataset_id: uuid.UUID | None = Field(
         default=None,
-        description="The dataset a 'dataset_write' key is bound to; null for other scopes.",
+        description=(
+            "The dataset a 'dataset_write' or 'dataset_append' key is bound to; "
+            "null for other scopes."
+        ),
     )
     created_at: datetime = Field(description="Timestamp when the key was created.")
     last_used_at: datetime | None = Field(

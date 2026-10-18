@@ -25,14 +25,15 @@ class DatasetApiKeyListItem:
         name (str):
         fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         is_active (bool):
-        scope (str): Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the
-            dataset in dataset_id, and nothing else)
+        scope (str): Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset
+            in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
         created_at (datetime.datetime):
         last_used_at (datetime.datetime | None):
         user_id (UUID): The user who minted the key; it acts as them
         username (str): That user's username
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
-        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' key is bound to; null for other scopes
+        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for
+            other scopes
     """
 
     id: UUID

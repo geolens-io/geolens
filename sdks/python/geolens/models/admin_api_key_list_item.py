@@ -26,12 +26,13 @@ class AdminApiKeyListItem:
         name (str): Human-readable label.
         fingerprint (None | str): Non-secret key identifier; null for legacy keys.
         is_active (bool): Whether the key is active. Inactive keys cannot authenticate.
-        scope (str): Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the
-            dataset in dataset_id, and nothing else).
+        scope (str): Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset
+            in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
         created_at (datetime.datetime): Timestamp when the key was created.
         last_used_at (datetime.datetime | None): Timestamp of the most recent successful authentication using this key.
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire.
-        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' key is bound to; null for other scopes.
+        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' or 'dataset_append' key is bound to; null for
+            other scopes.
     """
 
     id: UUID

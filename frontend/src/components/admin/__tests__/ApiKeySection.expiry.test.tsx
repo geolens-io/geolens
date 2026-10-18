@@ -139,6 +139,12 @@ describe('ApiKeySection expiry', () => {
     expect(screen.getByText('apiKeys.scopeDatasetWrite')).toBeInTheDocument();
   });
 
+  it('badges an append-only key bound to one dataset', () => {
+    listing([makeKey({ scope: 'dataset_append', dataset_id: 'ds-1' })]);
+    render(<ApiKeySection userId="u1" />);
+    expect(screen.getByText('apiKeys.scopeDatasetAppend')).toBeInTheDocument();
+  });
+
   it('lets a key row wrap so it never widens the edit dialog', () => {
     listing([makeKey({ name: 'Webhook smoke', fingerprint: 'abcdefgh…wxyz', scope: 'dataset_write' })]);
     render(<ApiKeySection userId="u1" />);
