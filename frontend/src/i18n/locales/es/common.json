@@ -365,7 +365,7 @@
     "retentionNotFeatureDataset": "La retención solo funciona en conjuntos de datos cuyas entidades tienen geometría.",
     "retentionColumnMissing": "La columna {{column}} ya no existe. Elige otra columna de fecha o marca de tiempo.",
     "retentionColumnNotTemporal": "La columna {{column}} no es de fecha ni de marca de tiempo. Elige una columna de fecha o marca de tiempo.",
-    "retentionColumnInUse": "La retención borra filas según la columna {{column}}. Desactiva la retención o elige otra columna de fecha para ella antes de cambiar esta columna.",
+    "retentionColumnInUse": "La retención borra filas según la columna {{column}}. Desactiva la retención o pásala a otra columna antes de cambiar esa columna o de dar su nombre a otra columna.",
     "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención.",
     "retentionDeleteTrigger": "La retención no puede ejecutarse en una tabla con un disparador de borrado, porque puede conservar filas o cambiar otras al borrar las antiguas. Quita el disparador para usar la retención."
   },

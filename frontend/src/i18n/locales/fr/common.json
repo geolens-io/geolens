@@ -365,7 +365,7 @@
     "retentionNotFeatureDataset": "La rétention ne fonctionne que sur les jeux de données dont les entités ont une géométrie.",
     "retentionColumnMissing": "La colonne {{column}} n’existe plus. Choisissez une autre colonne de date ou d’horodatage.",
     "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage.",
-    "retentionColumnInUse": "La rétention supprime les lignes selon la colonne {{column}}. Désactivez la rétention ou choisissez-lui une autre colonne de date avant de modifier cette colonne.",
+    "retentionColumnInUse": "La rétention supprime les lignes selon la colonne {{column}}. Désactivez la rétention ou associez-la à une autre colonne avant de modifier cette colonne ou de donner son nom à une autre colonne.",
     "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention.",
     "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention."
   },

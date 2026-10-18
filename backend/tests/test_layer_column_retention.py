@@ -161,3 +161,71 @@ async def test_a_setting_saved_after_the_dataset_loaded_still_refuses(
 
     assert resp.status_code == 409, resp.text
     assert "ts" in await _column_types(test_db_session, table_name)
+
+
+async def _drop_outside_the_api(session, table_name: str, column: str) -> None:
+    """Remove the column and its metadata outside the API, leaving retention set.
+
+    A replacement keeps the removed column's metadata, and a rename onto that
+    name is refused for it, so the metadata goes too.
+    """
+    await session.execute(text(f'ALTER TABLE data."{table_name}" DROP COLUMN {column}'))
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET column_info = (SELECT jsonb_agg(c) "
+            "FROM jsonb_array_elements(column_info) c WHERE c->>'name' <> :column) "
+            "WHERE table_name = :table"
+        ),
+        {"column": column, "table": table_name},
+    )
+    await session.execute(
+        text(
+            "DELETE FROM catalog.attribute_metadata WHERE field_name = :column "
+            "AND dataset_id = (SELECT id FROM catalog.datasets WHERE table_name = :table)"
+        ),
+        {"column": column, "table": table_name},
+    )
+    await session.commit()
+
+
+@pytest.mark.anyio
+async def test_renaming_another_column_to_the_retention_name_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, layer
+):
+    dataset_id, table_name = layer
+    await _drop_outside_the_api(test_db_session, table_name, "ts")
+    before = await _column_types(test_db_session, table_name)
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/other_ts/name",
+        json={"new_name": "ts"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "retention_column_in_use"
+    assert resp.json()["detail"]["column"] == "ts"
+    assert await _column_types(test_db_session, table_name) == before
+    assert "other_ts" in before
+    assert await _stored_retention(test_db_session, dataset_id) == ("ts", 5)
+
+
+@pytest.mark.anyio
+async def test_adding_a_column_with_the_retention_name_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, layer
+):
+    dataset_id, table_name = layer
+    await _drop_outside_the_api(test_db_session, table_name, "ts")
+    before = await _column_types(test_db_session, table_name)
+
+    resp = await client.post(
+        f"/layers/{dataset_id}/columns/",
+        json={"column": {"name": "ts", "type": "timestamp"}},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "retention_column_in_use"
+    assert await _column_types(test_db_session, table_name) == before
+    assert "ts" not in before
+    assert await _stored_retention(test_db_session, dataset_id) == ("ts", 5)

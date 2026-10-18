@@ -494,7 +494,7 @@
     "retentionNotFeatureDataset": "保留期限仅适用于要素带有几何数据的数据集。",
     "retentionColumnMissing": "列 {{column}} 已不存在。请选择其他日期或时间戳列。",
     "retentionColumnNotTemporal": "列 {{column}} 不是日期或时间戳列。请选择日期或时间戳列。",
-    "retentionColumnInUse": "保留期限按列 {{column}} 删除行。请先关闭保留期限或为其选择其他日期列，再更改此列。",
+    "retentionColumnInUse": "保留期限按列 {{column}} 删除行。请先关闭保留期限或将其改用其他列，再更改该列或将其名称用于其他列。",
     "retentionGidUnusable": "保留期限按表的整数 gid 列逐批处理，而此表已不再有该列。请恢复整数 gid 列后再使用保留期限。",
     "retentionDeleteTrigger": "保留期限无法在带有删除触发器的表上运行，因为触发器可能保留行，或在删除旧行时更改其他行。请移除该触发器后再使用保留期限。"
   },

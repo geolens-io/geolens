@@ -177,6 +177,8 @@ async def add_column_endpoint(
 
     try:
         columns = await add_column(db, dataset, body.column.name, body.column.type)
+    except RetentionRefused as exc:
+        await _raise_retention_conflict(db, exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -220,6 +220,7 @@ async def add_column(
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} ADD COLUMN {_qcol(column_name)} {pg_type}"
     await session.execute(text(ddl))
+    await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     # Scan, then lock, then assign — the scan needs neither
@@ -322,7 +323,7 @@ async def rename_column(
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"
     await session.execute(text(ddl))
-    await refuse_retention_column_change(session, dataset, column_name)
+    await refuse_retention_column_change(session, dataset, column_name, new_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     # Lock follows the ALTER — the reupload swap takes its

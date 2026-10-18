@@ -365,7 +365,7 @@
     "retentionNotFeatureDataset": "Die Aufbewahrung funktioniert nur bei Datensätzen, deren Features eine Geometrie haben.",
     "retentionColumnMissing": "Die Spalte {{column}} existiert nicht mehr. Wählen Sie eine andere Datums- oder Zeitstempelspalte.",
     "retentionColumnNotTemporal": "Die Spalte {{column}} ist keine Datums- oder Zeitstempelspalte. Wählen Sie eine Datums- oder Zeitstempelspalte.",
-    "retentionColumnInUse": "Die Aufbewahrung löscht Zeilen anhand der Spalte {{column}}. Schalten Sie die Aufbewahrung aus oder wählen Sie dafür eine andere Datumsspalte, bevor Sie diese Spalte ändern.",
+    "retentionColumnInUse": "Die Aufbewahrung löscht Zeilen anhand der Spalte {{column}}. Schalten Sie die Aufbewahrung aus oder legen Sie sie auf eine andere Spalte, bevor Sie diese Spalte ändern oder einer anderen Spalte ihren Namen geben.",
     "retentionGidUnusable": "Die Aufbewahrung durchläuft die Tabelle über ihre ganzzahlige gid-Spalte, die diese Tabelle nicht mehr hat. Stellen Sie eine ganzzahlige gid-Spalte wieder her, um die Aufbewahrung zu nutzen.",
     "retentionDeleteTrigger": "Die Aufbewahrung kann nicht auf einer Tabelle mit einem Lösch-Trigger laufen, weil der Trigger Zeilen behalten oder andere Zeilen ändern kann, wenn alte gelöscht werden. Entfernen Sie den Trigger, um die Aufbewahrung zu nutzen."
   },

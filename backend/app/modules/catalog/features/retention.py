@@ -261,23 +261,25 @@ async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None
 
 
 async def refuse_retention_column_change(
-    session: AsyncSession, dataset: Dataset, column: str
+    session: AsyncSession, dataset: Dataset, *columns: str
 ) -> None:
-    """Refuse a rename, retype or drop of the column the dataset's retention reads.
+    """Refuse a column change that touches the name the dataset's retention reads.
 
-    Call it after the column's ALTER: that lock waits out a save holding the
-    table and blocks a later one until commit, so the setting read here
-    stays current until the change commits.
+    ``columns`` are every name the change touches: the column changed, and for
+    a rename or an add, the name it gives. Call it after the column's ALTER:
+    that lock waits out a save holding the table and blocks a later one until
+    commit, so the setting read here stays current until the change commits.
     """
     stored = await session.scalar(
         select(Dataset.retention_column).where(Dataset.id == dataset.id)
     )
-    if stored == column:
+    if stored is not None and stored in columns:
         raise RetentionRefused(
-            f"Retention deletes rows by column {column!r}. Turn retention off "
-            "or move it to another column before changing this one.",
+            f"Retention deletes rows by column {stored!r}. Turn retention off "
+            "or move it to another column before changing that column or "
+            "giving another column its name.",
             code="retention_column_in_use",
-            values={"column": column},
+            values={"column": stored},
         )
 
 
