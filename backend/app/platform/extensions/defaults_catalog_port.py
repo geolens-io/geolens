@@ -85,7 +85,7 @@ class DefaultCatalogPort:
             storage, key=key, upload_id=upload_id, job_id=job_id
         )
 
-    # fix(#1590): explicit keyword-only signature so a missing or
+    # Explicit keyword-only signature so a missing or
     # misspelled keyword surfaces here, not deep inside the service call.
     # `replacing_dataset_id` is a structural superset over CatalogPort's
     # declared params — see test_port_signature_parity_1590.py's
@@ -142,7 +142,7 @@ class DefaultCatalogPort:
 
         return sign_url_with_deadline(storage_method, created_at, *args)
 
-    # fix(#1590): explicit keyword-only signature so a missing or
+    # Explicit keyword-only signature so a missing or
     # misspelled keyword surfaces here, not deep inside the service call.
     # `replacing_dataset_id` is a structural superset over CatalogPort's
     # declared params — see test_port_signature_parity_1590.py's
@@ -290,7 +290,7 @@ class DefaultCatalogPort:
         return regenerate_vrt
 
     def ingest_part_size(self) -> int:
-        # fix(#836): moved off the router — platform code must never import
+        # Moved off the router — platform code must never import
         # an API-edge module (route registration runs at import time).
         from app.processing.ingest.service import PART_SIZE
 
@@ -390,7 +390,7 @@ class DefaultCatalogPort:
         return await has_embeddings(session)
 
     async def resolve_embedding_config(self, session):  # type: ignore[no-untyped-def]
-        # fix(#1546): returns the whole (model, dimensions, endpoint,
+        # Returns the whole (model, dimensions, endpoint,
         # fingerprint), not just the fingerprint search filters rows on,
         # because it also has to PIN the provider call to that same config.
         from app.processing.embeddings.helpers import resolve_live_embedding_config
@@ -400,7 +400,7 @@ class DefaultCatalogPort:
     async def generate_embedding(self, text, session, *, pinned=None):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.service import generate_embeddings_batch
 
-        # fix(#1546): `pinned` is (model, dimensions, endpoint) as ONE
+        # `pinned` is (model, dimensions, endpoint) as ONE
         # optional argument, not three keyword ones. `None` is a legitimate
         # resolved endpoint, so three separate `None` defaults couldn't tell
         # "not pinned" from "pinned to the client default" and would have
@@ -422,7 +422,7 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        # fix(#1580): returns the anchor row's identity with its vector, and
+        # Returns the anchor row's identity with its vector, and
         # is the ONLY anchor read on this path — the caller passes it into
         # `get_nearest_record_ids`, so ranking and scoring share one row
         # instead of two independent unordered `LIMIT 1` reads that could
@@ -441,7 +441,7 @@ class DefaultCatalogPort:
         limit=5,
         max_distance=0.7,
     ):
-        # fix(#1580): the anchor travels in rather than being read again
+        # The anchor travels in rather than being read again
         # here. The caller already read it to score the results, and two
         # reads under READ COMMITTED can straddle a commit, leaving ranking
         # anchored on one row and scoring on another. Required, not
@@ -460,7 +460,7 @@ class DefaultCatalogPort:
     async def get_embedding_distances(  # type: ignore[no-untyped-def]
         self, session, embedding, record_ids, *, model_name, config_fingerprint
     ):
-        # fix(#1580): scoped to the anchor's own vector space, like the
+        # Scoped to the anchor's own vector space, like the
         # selection ahead of it. A record may hold one row per model, and this
         # dict comprehension keeps the last of them — without the scope, the
         # neighbours would be chosen correctly and then SCORED off whichever
@@ -477,7 +477,7 @@ class DefaultCatalogPort:
             )
             .where(RecordEmbedding.record_id.in_(record_ids))
             .where(
-                # fix(#1580): the stored-vs-stored predicate, same as the
+                # The stored-vs-stored predicate, same as the
                 # selection uses. `usable_by_config` grandfathers an
                 # unstamped row against a stamped anchor — right for search
                 # (a fresh query vector) but wrong here: a stamped anchor

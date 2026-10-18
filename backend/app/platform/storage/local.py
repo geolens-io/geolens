@@ -53,7 +53,7 @@ class LocalStorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns the absolute path as a string.
 
-        fix(#435): a file-like ``data`` stays file-like, copied in 1 MiB
+        A file-like ``data`` stays file-like, copied in 1 MiB
         chunks inside the worker thread — not ``data.read()`` materializing a
         whole COG/VRT/original (can exceed the 2 GB container limit) as one
         ``bytes`` object.
@@ -69,7 +69,7 @@ class LocalStorageProvider:
 
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            # fix(#1532): write beside dest, then os.replace (atomic, same
+            # Write beside dest, then os.replace (atomic, same
             # dir) — an ENOSPC or kill mid-copy must never leave a partial
             # file visible under the real key, unlike S3/Azure puts.
             tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.tmp")
@@ -77,7 +77,7 @@ class LocalStorageProvider:
                 try:
                     _write(tmp, data)
                 except FileNotFoundError:
-                    # fix(#1532): the dir can vanish between mkdir and open if
+                    # The dir can vanish between mkdir and open if
                     # the empty-dir sweeper runs concurrently. Retry ONCE — a
                     # second disappearance means a broken volume, not a race.
                     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +97,7 @@ class LocalStorageProvider:
                 raise
             return str(dest)
 
-        # fix(#435): drain the copy thread on cancellation — otherwise the
+        # Drain the copy thread on cancellation — otherwise the
         # caller's `with open(...)` can close `data` mid-copyfileobj and
         # truncate the artifact. See app/core/async_io.py.
         return await run_in_thread_draining(_put)
@@ -156,7 +156,7 @@ class LocalStorageProvider:
     ) -> AsyncIterator[bytes]:
         """Stream ``length`` bytes from ``start`` off ONE open file handle.
 
-        fix(#1540): mirrors S3/Azure's one-call contract, though local never
+        Mirrors S3/Azure's one-call contract, though local never
         paid the per-chunk-request cost they did — this keeps object stores
         from being a special case at the call site. Handle closed in
         ``finally`` for the same fd-leak reason as ``get_stream``.
@@ -196,7 +196,7 @@ class LocalStorageProvider:
     async def delete(self, key: str) -> None:
         """Delete a key. No error if missing.
 
-        Deliberately does not remove emptied directories (fix(#1532)):
+        Deliberately does not remove emptied directories:
         pruning here raced a concurrent writer's mkdir/open. Pruning belongs
         to the subsystem that owns the prefix — see ``prune_empty_dirs``.
         """
@@ -279,7 +279,7 @@ class LocalStorageProvider:
     ):
         """Lazily yield ``(path, key)`` under *root* in ascending key order.
 
-        Blocking; a generator (fix(#1249)) so an unbounded walk never sits in
+        Blocking; a generator so an unbounded walk never sits in
         front of the first page, and a subtree entirely below ``start_after``
         is never entered.
 

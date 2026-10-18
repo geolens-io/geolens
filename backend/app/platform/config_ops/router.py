@@ -92,7 +92,7 @@ async def export_configuration(
     )
     # Commit here so the audit record is durable before the payload ships.
     #
-    # fix(#1491): deliberately not fail-closed — audit_emit() isolates each
+    # Deliberately not fail-closed — audit_emit() isolates each
     # sink in a SAVEPOINT and suppresses failure, so a rejected audit row does
     # not block the export (NIST AU-5(4) fail-closed is waived here; AU-5's
     # alert requirement is still met by audit_emit()'s raise). The only

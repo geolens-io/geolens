@@ -88,7 +88,7 @@ async def _can_access_another_users_job(
     the job as ``resource`` lets enterprise extensions apply finer-grained
     policy instead of a hard-coded role-name check.
 
-    ``log_denial`` (fix(#1709)): where this check decides alone
+    ``log_denial``: where this check decides alone
     (``get_job_status``, ``retry_job``), a refusal here IS the request's
     refusal and must be recorded. Where a later arm can still grant
     (cancel's dataset-write arm), logging here would file a denial on every
@@ -206,13 +206,13 @@ async def cleanup_stale_jobs(
         if multi_tenant:
             details = database_details
         else:
-            # fix(#1277): this path passed commit=False, so the sweep
+            # This path passed commit=False, so the sweep
             # deferred its counter to the commit above; the fleet helper
             # (multi-tenant) already publishes its own per tenant.
             publish_refresh_reconciliation(outcome)
             outcome = await _reap_committed_staged_paths(outcome)
             outcome = await _sweep_expired_presigned_staging(db, outcome)
-            # fix(#1249): same object-driven reconciliation the background
+            # Same object-driven reconciliation the background
             # sweeper runs; the fleet helper (multi-tenant) already
             # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
@@ -337,12 +337,12 @@ async def get_job_status(
         await _reap_committed_staged_paths(outcome)
         await db.refresh(job)
 
-    # fix(#1860): this handler already refused non-creators without policy
+    # This handler already refused non-creators without policy
     # access, so every caller here is entitled to the full payload.
     return await _job_to_status_response(job, include_detail=True)
 
 
-# fix(#1710): the run of "this kind of job is not an ordinary import" checks,
+# The run of "this kind of job is not an ordinary import" checks,
 # as an ORDERED table rather than a branch each — the chain had reached the
 # complexity cap, and order is part of the contract (a service refresh job
 # carries both `reupload` and `refresh` and must keep the reupload wording).
@@ -352,7 +352,7 @@ _UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
         "Dataset replacement jobs cannot be replayed as ordinary imports. "
         "Start the reupload again.",
     ),
-    # feat(#1265): a registered-PostGIS refresh job carries no file/URL, so
+    # A registered-PostGIS refresh job carries no file/URL, so
     # without this it fell through to the import copy, telling the user their
     # "source" was gone.
     (
@@ -360,7 +360,7 @@ _UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
         "Refresh runs cannot be replayed as imports. Refresh the dataset "
         "again from its source panel.",
     ),
-    # fix(#1709): a fan-out parent whose dispatch crashed before any child was
+    # A fan-out parent whose dispatch crashed before any child was
     # queued. Generic retry would re-queue it as ONE default-layer import —
     # the layer selection was never persisted.
     (
@@ -380,21 +380,21 @@ _UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
         "Analysis runs cannot be replayed as imports. Start the analysis "
         "again from the map builder.",
     ),
-    # fix(#1542): restart via POST /admin/backfill-embeddings/, which re-runs
+    # Restart via POST /admin/backfill-embeddings/, which re-runs
     # its own pre-flight and concurrency guards; retry would skip both.
     (
         EMBEDDING_BACKFILL_METADATA_KEY,
         "Embedding backfill runs cannot be replayed as imports. Start the "
         "backfill again from Settings.",
     ),
-    # fix(#1814): generic retry's failed -> pending CAS skips the manifest
+    # Generic retry's failed -> pending CAS skips the manifest
     # key's advisory lock, risking a second job for a key a re-apply claims.
     (
         "manifest_key",
         "Manifest imports cannot be replayed here. Apply the manifest again, "
         "which is what serializes work on its own keys.",
     ),
-    # fix(#1710): file_path is a download destination the worker never
+    # file_path is a download destination the worker never
     # finished. A truncated CSV or GeoJSON still parses, so replaying it would
     # import an incomplete dataset as a complete one.
     (
@@ -462,7 +462,7 @@ async def get_retry_capability(job: IngestJob) -> tuple[bool, str | None]:
 def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     """The job payload for a reader with no claim on the job itself.
 
-    fix(#1860): ``GET /jobs/by-dataset/{dataset_id}`` gated on the DATASET
+    ``GET /jobs/by-dataset/{dataset_id}`` gated on the DATASET
     being visible but returned the whole job row, leaking another user's
     failure text and upload filename to any reader of a public/internal
     dataset. This projection applies the same provenance rule
@@ -671,7 +671,7 @@ async def get_job_status_by_dataset(
     )
 
     user_roles = await get_user_roles(db, user)
-    # fix(#1860): selects the Record, not Dataset.id, because the provenance
+    # Selects the Record, not Dataset.id, because the provenance
     # predicate reads it — stays correct if that predicate needs a second field.
     dataset_stmt = (
         select(Record)
@@ -702,7 +702,7 @@ async def get_job_status_by_dataset(
         # "no warnings" without a console 404.
         return None
 
-    # fix(#1860): the gate above is a VISIBILITY check — it says nothing
+    # The gate above is a VISIBILITY check — it says nothing
     # about whose job row this is. The creator keeps the full payload (it's
     # their run, and the import flow polls this route); everyone else goes
     # through the same provenance predicate ``list_dataset_refresh_runs``
@@ -829,11 +829,8 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
     Both mean another transaction owns rows this cancel needs, and both are
     safe to report as a retryable 409: nothing was written. 40P01 should be
     unreachable now that cancel takes locks in the worker's own order (see
-    ``cancel_job``, fix(#1709)), but mapping it costs one tuple
+    ``cancel_job``), but mapping it costs one tuple
     member and turns a future ordering regression into a 409, not a 500.
-
-    fix(#1847): moved to ``app.core.db.sqlstate`` for a third caller — a
-    rename, not a policy change.
     """
     return is_lock_conflict(exc)
 
@@ -851,7 +848,7 @@ async def _may_cancel_job(
     ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
     not owner/admin); the caller's generic 403 avoids leaking visibility.
 
-    fix(#1709): arm 2 runs as a SILENT probe — a losing arm is
+    Arm 2 runs as a SILENT probe — a losing arm is
     not a denial when a later arm grants (arm 3, for a dataset owner
     cancelling a refresh an admin triggered). The denial fires once, below,
     only after every arm fails; arm 3 emits no telemetry of its own, so the
@@ -1004,9 +1001,8 @@ async def cancel_job(
 
     # Post-commit, best-effort: ask Procrastinate to cancel a todo row or
     # abort a doing one. Any failure past the commit — row lookup included
-    # (fix(#1709): a dropped connection here used to 500 an
-    # already-durable cancel) — is logged, not surfaced: the fences above
-    # make delivery a no-op either way.
+    # (a dropped connection must not 500 an already-durable cancel) — is
+    # logged, not surfaced: the fences above make delivery a no-op either way.
     try:
         queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
         queue_job_ids = list(queue_rows.scalars())

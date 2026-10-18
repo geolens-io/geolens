@@ -1,6 +1,6 @@
 """Bounded reads for a service-type probe's own request.
 
-fix(#1770): `probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/
+`probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/
 `connect_stac_api` used a plain `client.get` with no byte cap and no
 decoded-size cap. `assert_endpoints_stay_on_origin()` only runs AFTER
 `detect_service_type()` returns, so a probe's own read could exhaust the API

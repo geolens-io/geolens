@@ -1,6 +1,6 @@
 """Process-wide SlowAPI limiter; lives in platform/ to stay cheap to import.
 
-fix(#836): moved out of ``app.modules.auth.router`` so importing the limiter
+Moved out of ``app.modules.auth.router`` so importing the limiter
 no longer drags in that router's whole transitive graph. Nothing here may
 import ``app.modules.*`` — several domains import this module, so that would
 be a cycle.
@@ -8,13 +8,13 @@ be a cycle.
 ``_global_rate_limit`` is a callable, not a literal: the limit is
 admin-editable at runtime and SlowAPI re-evaluates the default per request.
 
-fix(#1778): ``key_style="endpoint"`` keys the counter on (client IP, handler)
+``key_style="endpoint"`` keys the counter on (client IP, handler)
 rather than (client IP, path), slowapi's default. Otherwise a
 path-parameterised route hands one IP a fresh budget per dataset id or per
 z/x/y, multiplying the configured cap for free. See
 ``tests/test_admin_rate_limit.py``.
 
-fix(#2018): with ``REDIS_URL`` set every bucket is one counter the whole
+With ``REDIS_URL`` set every bucket is one counter the whole
 cluster shares, instead of one per uvicorn worker (the bundled prod compose
 runs two, so each configured cap was really twice that). ``in_memory_
 fallback_enabled`` keeps an outage degrading to per-worker counting, the
@@ -51,7 +51,7 @@ from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# fix(#2018): the storage decision is made while this module is imported,
+# The storage decision is made while this module is imported,
 # which `app/api/main.py` does before it calls `setup_logging`. Logging there
 # renders console-formatted lines outside the JSON stream an operator greps,
 # so the notices queue here and the app flushes them once logging is up.
@@ -69,7 +69,7 @@ def emit_startup_notices() -> None:
         logger.warning(event, **fields)
 
 
-# fix(#2018): the schemes BOTH limits' sync storage and redis-py accept.
+# The schemes BOTH limits' sync storage and redis-py accept.
 # `redis_url` reaches redis-py directly in `platform/cache`, so a scheme
 # outside this set cannot be a working deployment's value anyway.
 _SHARED_STORAGE_SCHEMES = frozenset({"redis", "rediss"})
@@ -80,7 +80,7 @@ _SHARED_STORAGE_SCHEMES = frozenset({"redis", "rediss"})
 # into the in-memory fallback fast.
 STORAGE_SOCKET_TIMEOUT_SECONDS = 0.25
 
-# fix(#2018): every URL parameter that can widen how long ONE call holds the
+# Every URL parameter that can widen how long ONE call holds the
 # event loop. redis-py parses each from the URL and lets the querystring win
 # over the keyword arguments; either retry flag also lifts retries 0 -> 1,
 # doubling the bound. That bound is not the operator's to widen.
@@ -94,7 +94,7 @@ def _pin_call_duration(url: str) -> str:
     parts = urlsplit(url)
     if not parts.query:
         return url
-    # fix(#2018): REDIS_URL is an operator-supplied boot-time value parsed
+    # REDIS_URL is an operator-supplied boot-time value parsed
     # once at import, the same class as config.py's DATABASE_URL_OVERRIDE
     # sites; a raise here would fail boot rather than refuse a request.
     pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
@@ -132,7 +132,7 @@ def shared_storage_uri() -> str | None:
         scheme = ""
     if scheme in _SHARED_STORAGE_SCHEMES:
         return _pin_call_duration(url)
-    # fix(#2018): the scheme, never the URL -- REDIS_URL commonly carries a
+    # The scheme, never the URL -- REDIS_URL commonly carries a
     # password in its userinfo, and redact_url_credentials only rewrites
     # http(s), so it would hand a credential straight to the log.
     _notice(
@@ -214,7 +214,7 @@ class _FallbackAnnouncingLimiter(Limiter):
 
     @_storage_dead.setter
     def _storage_dead(self, dead: bool) -> None:
-        # fix(#2018): slowapi flips this once per outage, on the first failed
+        # Slowapi flips this once per outage, on the first failed
         # check and again on recovery, so hooking the transition logs once
         # rather than once per rejected request.
         if dead == self._storage_dead_state:

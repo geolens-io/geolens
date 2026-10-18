@@ -1,17 +1,17 @@
 """Per-worker RSS memory metrics for Prometheus + log watermarks.
 
-fix(#643): an api uvicorn worker was OOM-killed at the container cgroup
-cap with nothing in the normal logs — visible only in the VM's dmesg.
-Exposes each worker's RSS as a gauge and WARNs in structured logs on the
-memory watermark, since many deployments never scrape /metrics. Reads
+An api uvicorn worker can be OOM-killed at the container cgroup
+cap with nothing in the normal logs, visible only in the VM's dmesg.
+This module exposes each worker's RSS as a gauge and WARNs in structured
+logs on the memory watermark, since many deployments never scrape /metrics. Reads
 /proc directly (Linux); idles silently where /proc is absent (macOS dev).
 
-fix(#1778): the Procrastinate worker runs this loop too — it hosts
+The Procrastinate worker runs this loop too — it hosts
 GDAL/OGR with a 4 GB mem_limit against the API's 2 GB, so it's the
-process most likely to reproduce #643, yet had no gauge or warning at
-all; "api worker" below is a naming leftover, both services run it now.
+process most likely to hit the cgroup cap, so it needs the gauge and
+warning too; "api worker" below is a naming leftover, both services run it.
 
-fix(#1240, #651): `multiprocess_mode="liveall"` (not the default `"all"`)
+`multiprocess_mode="liveall"` (not the default `"all"`)
 so a recycled worker's series disappears once
 `shutdown_worker_metrics()` removes its mmap file, instead of `"all"`
 keeping a dead pid's last value forever.

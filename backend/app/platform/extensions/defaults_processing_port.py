@@ -122,7 +122,7 @@ class DefaultProcessingPort:
         can retry from). Callers own the dataset VISIBILITY check, for the
         mask dataset as much as the source — this port never checks it.
 
-        feat(#683): the mask's SHAPE and SIZE are checked here, so every
+        The mask's SHAPE and SIZE are checked here, so every
         port caller gets the rails the REST route applies. Unioning points
         or lines masks nothing meaningful; without the shape check the
         failure is an empty result the model reports as real. The size
@@ -253,7 +253,7 @@ class DefaultProcessingPort:
             .order_by(Record.created_at)
         )
         if not force:
-            # fix(#1506): "missing" means "has no vector THIS model can use",
+            # "missing" means "has no vector THIS model can use",
             # not "has no vector at all" — `record_embeddings` is keyed
             # (record_id, model_name) and semantic search reads only
             # active-model rows, so the old `RecordEmbedding.id IS NULL`
@@ -273,7 +273,7 @@ class DefaultProcessingPort:
                     "backfill_skipped_unresolved_embedding_model"
                 )
                 return []
-            # fix(#1546): "missing" narrows again, from "no vector THIS
+            # "missing" narrows again, from "no vector THIS
             # MODEL can use" to "no vector this CONFIGURATION can use". A
             # model served from a different endpoint is a different vector
             # space, so a row stamped with another configuration is as
@@ -436,7 +436,7 @@ class DefaultProcessingPort:
     async def reconcile_distributions(  # type: ignore[no-untyped-def]
         self, session, dataset_id, record_id, table_name, geometry_type=None
     ):
-        # fix(#1314): the preservation policy for user-authored rows lives
+        # The preservation policy for user-authored rows lives
         # in the function's docstring, not here.
         from app.modules.catalog.records.service import reconcile_distributions
 

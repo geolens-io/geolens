@@ -1,6 +1,6 @@
 """Dataset origin vocabulary: classification, pointer, and typed payload.
 
-feat(#1218): one home for three things that must agree across the catalog
+One home for three things that must agree across the catalog
 domain, the ingest tasks, and the API response boundary.
 
 - ``classify_origin`` is the derivation ADR-002 Decision 2 keeps *derived*:
@@ -42,7 +42,7 @@ SERVICE_SOURCE_FORMATS: frozenset[str] = frozenset(
 # fetched from anywhere. Both classify as None so the type badge speaks alone.
 _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset"})
 
-# fix(#1325): this is the dataset's ORIGIN — how its data entered the
+# This is the dataset's ORIGIN — how its data entered the
 # catalog. DERIVED, not stored: classify_origin() recomputes it from the
 # CURRENT source_format/record_type on every response
 # (datasets/domain/helpers.py:192); it only changes when a mutation crosses
@@ -62,7 +62,7 @@ ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )
 
-# fix(#1768): the same vocabulary as a request-model annotation, so a door that
+# The same vocabulary as a request-model annotation, so a door that
 # takes an origin kind as INPUT rejects an unknown one at the schema boundary
 # and publishes the closed set in OpenAPI. Kept beside the frozenset it
 # mirrors; `test_reupload_expected_origin_1768.py` asserts the two agree, so a
@@ -85,20 +85,20 @@ SCHEMA_DRIFT_STATUS_VALUES: tuple[str, ...] = ("none", "drifted")
 ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `layer_id` is the SERVICE-NATIVE layer identifier; which field applies
     # depends on service_type per `build_gdal_source`
-    # (catalog/sources/preview.py, fix(#1218) review r3): arcgis_featureserver
+    # (catalog/sources/preview.py): arcgis_featureserver
     # uses the numeric layer id (layer NAME ignored); wfs/ogcapi_features use
     # the typename/collection id (layer_id ignored). Exactly one applies per
     # service, so a refresh needs only that one key — do not add a second key
     # for the name.
     #
-    # THE INVARIANT (fix(#1218) review r4): `url` is the service BASE for
+    # THE INVARIANT: `url` is the service BASE for
     # every service_type and NEVER embeds the layer; `layer_id` is the
     # layer. A refresh composes the two — never strips a layer back out of
     # `url`. This is why `url` differs from `datasets.origin_uri`, which
     # keeps ingest's enriched form as provenance.
     #
-    # `auth_required` (fix(#1746)): the last SUCCESSFUL pull used a service
-    # token — NOT "the origin demands one" (fix(#1746) codex r1). The worker
+    # `auth_required`: the last SUCCESSFUL pull used a service
+    # token — NOT "the origin demands one". The worker
     # writes it from the credential it actually used, so a public service
     # imported while the user held a token is marked too; the refresh door
     # treats the key as a gate (one token-less probe before refusing), not a
@@ -120,7 +120,7 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # is a rebinding primitive, not a pointer.
     # With it stored, a refresh can refuse a document answering for a
     # different item even when the item's URL states no identity of its own.
-    # feat(#1764): `auth_required` means here what it means on the service
+    # `auth_required` means here what it means on the service
     # kind — the last SUCCESSFUL refresh used a credential, True or absent.
     #
     # `url` is the catalog root the CALLER submitted at import, and it is the
@@ -141,7 +141,7 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
     #
-    # fix(#1452): `managed` is the one bit separating the two callers of
+    # `managed` is the one bit separating the two callers of
     # `register_existing_table`: an operator registering their own table, vs.
     # the analysis materialize path registering a table GeoLens just CTAS'd.
     # Delete must tell them apart — dropping the first destroys data GeoLens
@@ -218,7 +218,7 @@ def geolens_owns_table(
 ) -> bool:
     """Whether GeoLens created this dataset's physical table and may drop it.
 
-    fix(#1452): the question ``delete_dataset`` answers before a DROP. Every
+    The question ``delete_dataset`` answers before a DROP. Every
     origin but ``postgis`` is data GeoLens materialized into its own table
     (upload, service/STAC pull, a drawn layer). ``postgis`` is
     registered-in-place — registration copies no data, and the row
@@ -259,13 +259,12 @@ def service_auth_required(origin_ref: Any) -> bool:
     """Whether the last successful pull of this origin used a credential.
 
     A token was USED, not demanded: no caller may read this as "the origin
-    requires authentication" — the refresh door checks that separately
-    (fix(#1746) codex r1).
+    requires authentication" — the refresh door checks that separately.
 
-    feat(#1764): reads the key on the STAC kind too, which stores it under
+    Reads the key on the STAC kind too, which stores it under
     the same name and the same rule.
 
-    fix(#1746): ``is True``, not truthiness, same reason as
+    ``is True``, not truthiness, same reason as
     ``geolens_owns_table`` — this gates an outbound request/refusal, and a
     stored 1 or "yes" isn't a claim worth acting on.
     """
@@ -286,7 +285,7 @@ def service_layer_identity(
     service.
 
     Lives here, not at the two ingest call sites, so both spell the rule the
-    same way (fix(#1218) review r3).
+    same way.
     """
     if service_type == "arcgis_featureserver":
         return None if layer_id is None else str(layer_id)
@@ -339,7 +338,7 @@ def set_dataset_origin(
         raise ValueError(
             f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
         )
-    # fix(#1271): every caller here is a successful-ingest commit, so
+    # Every caller here is a successful-ingest commit, so
     # the stored probe verdict stops describing anything real — either the
     # binding now names a DIFFERENT origin (a service marked missing and
     # reuploaded would otherwise serve stale missing/not_found forever) or

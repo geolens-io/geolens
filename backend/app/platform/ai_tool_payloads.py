@@ -41,7 +41,7 @@ def model_safe_tool_result(result: dict) -> dict:
 def tool_result_content(result: dict) -> str:
     """Serialize one tool result for the provider, inside the trust fence.
 
-    fix(#1778): catalog tool results carry text nobody on this side
+    Catalog tool results carry text nobody on this side
     wrote — `search_datasets`/`get_dataset_details` return other users'
     PUBLIC titles/summaries/keywords, `query_data`/`run_analysis` return raw
     rows, `add_layer` echoes a catalog dataset name. A phrase blacklist is a

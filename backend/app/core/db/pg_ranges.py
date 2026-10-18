@@ -1,4 +1,4 @@
-"""Value ranges for PostgreSQL's fixed-width numeric types (fix(#1778)).
+"""Value ranges for PostgreSQL's fixed-width numeric types.
 
 A caller-supplied literal can be a perfectly good Python number and still be
 wrong for the column it is compared against, and how that fails depends on

@@ -82,7 +82,7 @@ ABANDONED_ERROR_MESSAGE = FixedReason(
     code=ABANDONED_ERROR_CODE,
 )
 
-# feat(#1677): an explicit user cancel, distinct from the sweep's `abandoned`
+# An explicit user cancel, distinct from the sweep's `abandoned`
 # correction under the same terminal `cancelled` status. `abandoned` means
 # "the task is provably gone and nobody reported an outcome"; this means
 # "a person asked in-flight work to stop".
@@ -93,9 +93,9 @@ USER_CANCELLED_ERROR_MESSAGE = FixedReason(
 
 
 def redact_run_error(message: str | BaseException) -> str:
-    """ADR-002 Decision 3 applied to a run row's ``error_message``.
+    """Redact a run row's ``error_message`` before it is stored or shown.
 
-    fix(#1953): the clause is enforced in ``core/failure_reason.py``, shared
+    The clause is enforced in ``core/failure_reason.py``, shared
     with the ``ingest_jobs`` sink, rather than restated per caller.
     """
     return redact_failure_reason(message)
@@ -284,7 +284,7 @@ async def _emit_refresh_cancelled(
     for a task proven gone, while this records a person stopping in-flight
     work.
 
-    fix(#1709): attributed to ``cancelled_by`` — the CANCELLING user —
+    Attributed to ``cancelled_by`` — the CANCELLING user —
     not the row's immutable ``triggered_by``, since a dataset owner may
     cancel a refresh someone else started; crediting the dispatcher would
     put the action in the wrong user's history. Falls back to the row's
@@ -478,7 +478,7 @@ async def create_pending_run(
         raise DatasetBusyError(
             "A refresh is already in progress for this dataset."
         ) from exc
-    # feat(#1268): in the caller's transaction, so a dispatch the caller then
+    # In the caller's transaction, so a dispatch the caller then
     # rolls back — a busy dataset, a defer that never happened — leaves no
     # audit row claiming a refresh started.
     await _emit_refresh_dispatch(session, run.id)
@@ -955,7 +955,7 @@ async def record_refresh_blocked(
     return run_id
 
 
-# fix(#1274): guards the pathological legacy DOUBLE — the old system had no
+# Guards the pathological legacy DOUBLE — the old system had no
 # admission control, so two reupload tasks for one dataset can both be live
 # at upgrade time, while the backfill's DISTINCT ON can represent only one
 # (the unique index allows one active row). That row's reservation must
@@ -997,7 +997,7 @@ _RUN_JOB_SCOPE = """
 # in one visibility scope. No table has RLS enabled today (#998), so this is
 # currently a no-op — written now rather than remembered later.
 #
-# fix(#1954): the two proofs THIS sweep needs before writing `cancelled`.
+# The two proofs THIS sweep needs before writing `cancelled`.
 # The status has two writers, told apart by `error_code`:
 # `abandoned` here, a bookkeeping correction provable only when the work is
 # not happening, and `cancel_active_run_for_job`'s `user_cancelled` stop
@@ -1051,7 +1051,7 @@ _ABANDONED_RUN_SQL = text(
 )
 
 
-# fix(#1274): truth-recording counterpart to the abandonment cancel below.
+# truth-recording counterpart to the abandonment cancel below.
 # For a NATIVE run, "bound job complete + run still active" is impossible
 # by construction (success and job completion commit together), which is
 # why _ABANDONED_RUN_SQL refuses to touch it. But migration 0037's backfill
@@ -1116,7 +1116,7 @@ async def sweep_abandoned_refresh_runs(
     recovered = list(completed.scalars())
     cancelled = list(result.scalars())
     await _release_consumed_acceptances(session, cancelled)
-    # feat(#1268): these are the only terminal transitions no worker
+    # These are the only terminal transitions no worker
     # reports, so without an event here the audit log shows a dispatch and
     # then nothing. Emitted per run, not as one summary row: the audit log
     # is keyed on a resource, and "seven runs reconciled" names none.

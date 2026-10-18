@@ -54,10 +54,10 @@ def record_to_dcat_us3(
     """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile.
 
     ``lineage_summary`` arrives access-checked from the caller rather
-    than off the record — fix(#1103): an analysis output's lineage names
+    than off the record, since an analysis output's lineage names
     datasets an anonymous requester may not see. ``app_base_url`` is the
-    public APP base URL, where the raster tile template is served
-    (fix(#1469)). ``has_raster_asset`` gates the COG download distribution
+    public APP base URL, where the raster tile template is served.
+    ``has_raster_asset`` gates the COG download distribution
     the same way. A VRT shows only the extent
     ``vrt_extents`` (``visible_vrt_extents``) holds for it.
     """
@@ -317,7 +317,7 @@ def _spatial_to_dcat_us3(record: Record, spatial_extent: object) -> dict | None:
 
     from app.core.geo import extent_to_span_bbox
 
-    # fix(#892): the bbox below is a planar WKT ring, which cannot express
+    # The bbox below is a planar WKT ring, which cannot express
     # RFC 7946's west > east crossing bbox -- a ring built from one silently
     # becomes the complementary 340°. Take the monotonic span, so a seam-crossing
     # extent serializes over-broad (-180..180) but honest. extent_to_span_bbox

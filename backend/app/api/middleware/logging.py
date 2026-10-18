@@ -8,7 +8,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-# fix(#1778): one redactor for every log line carrying a request path,
+# One redactor for every log line carrying a request path,
 # moved to core/ so the two 5xx handlers (which logged the raw path) can
 # use it too. Re-exported here since callers/tests import it from here.
 from app.core.logging_config import safe_access_log_path
@@ -34,7 +34,7 @@ class RequestLoggingMiddleware:
             await self.app(scope, receive, send)
             return
         structlog.contextvars.clear_contextvars()
-        # fix(#1770): the credential-secret registry is scoped to one
+        # The credential-secret registry is scoped to one
         # request like these contextvars — a reused worker must not let
         # one request's secrets scrub (or fail to scrub) another's logs.
         reset_registered_credential_secrets()
@@ -46,7 +46,7 @@ class RequestLoggingMiddleware:
         # ID without parsing client-supplied headers.
         request.state.request_id = request_id
 
-        # fix(#1778): stamped the moment the request entered the app, on
+        # Stamped the moment the request entered the app, on
         # the same clock a handler can compare against — a route with a
         # proxy read-timeout budget can't start its own clock in the
         # function body, since FastAPI resolves dependencies first (one

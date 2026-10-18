@@ -214,7 +214,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     extension routers (API mode only); init storage (after extensions, so
     overlay storage providers register first); S3 health probe; billing
     extensions' ``on_startup(app)`` dispatch (API mode only); init cache;
-    init the binary tile cache (in-memory fallback is API-only, fix(#1315)).
+    init the binary tile cache (in-memory fallback is API-only).
 
     Returns the ``EditionInfo`` from ``get_edition()``.
 

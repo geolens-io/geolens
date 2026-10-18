@@ -22,7 +22,7 @@ class SSRFError(ValueError):
 class SSRFResolutionError(SSRFError):
     """The hostname did not resolve at all.
 
-    fix(#1271): a subclass, not a sibling — NXDOMAIN reports
+    A subclass, not a sibling — NXDOMAIN reports
     ``network_error`` (dead DNS), a policy refusal reports
     ``blocked_by_policy``; collapsing them misdirects an operator to audit
     egress policy for a domain that no longer exists.
@@ -152,7 +152,7 @@ def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
 def same_origin(first: str, second: str) -> bool:
     """Whether two URLs address the same origin: scheme, host and port.
 
-    fix(#1746): the public form of the redirect hook's rule, for callers
+    The public form of the redirect hook's rule, for callers
     (e.g. an adapter following a link from a response document) that issue
     a fresh request no redirect hook ever sees. Total: an unparseable URL
     is never the same origin as anything, including itself, so a caller
@@ -169,7 +169,7 @@ def _refuse_cross_origin_credential(
 ) -> None:
     """Keep a credential on the origin it was given to.
 
-    fix(#1746): httpx strips `Authorization` on a cross-origin redirect but
+    httpx strips `Authorization` on a cross-origin redirect but
     forwards any other header unchanged, so a caller-named key (`X-API-Key`,
     `Ocp-Apim-Subscription-Key`) follows a 302 to an origin that is public
     and SSRF-valid but not the service it was issued to. Runs from the
@@ -299,7 +299,7 @@ class _SSRFGuard:
                 await super().handle_async_request(request), self._http
             )
         finally:
-            # fix(#1271): restore the hostname after connect — leaving the
+            # Restore the hostname after connect — leaving the
             # pinned IP would break relative-redirect resolution (next hop's
             # SNI would be the IP, failing TLS) and leak the IP into
             # response.url, cookies, and caller-side URL derivation.
@@ -349,7 +349,7 @@ def make_safe_client(
     validation can't reach an internal IP; `_revalidate_redirect` re-validates
     each 3xx Location and the transport re-pins each hop.
 
-    fix(#1746): pass ``credential_header`` when the request carries a
+    Pass ``credential_header`` when the request carries a
     service-chosen credential name, so a 302 can't carry it cross-origin;
     ``X-Esri-Authorization`` is refused on a cross-origin hop whether or not it
     was declared. A caller passing nothing gets today's behaviour.

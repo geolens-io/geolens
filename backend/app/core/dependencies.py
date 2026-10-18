@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    # fix(#909): late-bind — a module-scope import would snapshot the dev-DB
+    # late-bind — a module-scope import would snapshot the dev-DB
     # factory before the test fixture rebinds app.core.db.async_session.
     from app.core.db import async_session
 

@@ -18,7 +18,7 @@ import re
 
 from .shared import render_bbox_predicate
 
-# fix(#953): the columns a spatial join adds to the source row.
+# The columns a spatial join adds to the source row.
 SPATIAL_JOIN_COUNT_COLUMN = "join_count"
 SPATIAL_JOIN_FIELD_PREFIX = "join_"
 
@@ -41,7 +41,7 @@ MAX_SPATIAL_JOIN_FIELDS = 10
 # text() bind-parameter parser or an identifier escape to get wrong. Cost:
 # a column named "Área" can't be transferred (nor dissolved, today). Source
 # columns are unaffected — they ride the carry-column path, which quotes
-# properly and carries every name (fix(#763)).
+# properly and carries every name.
 _SPATIAL_JOIN_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
@@ -53,7 +53,7 @@ def spatial_join_output_columns(join_fields: list[str] | None) -> list[str]:
     than once" after the queue wait, the same trap ``by_field`` hits on
     dissolve's generated ``source_count``.
 
-    fix(#1097): TRUNCATED to PostgreSQL's identifier limit, since
+    TRUNCATED to PostgreSQL's identifier limit, since
     that's the name the CTAS will actually create — verified against the
     server (max_identifier_length is 63; a longer alias is silently
     truncated to it, a NOTICE not an error, quoted or not).
@@ -82,7 +82,7 @@ def render_spatial_join(
     src: str,
     join_fields: list[str] | None = None,
 ) -> tuple[str, str]:
-    """Spatial join against another LAYER (fix(#953)); preview AND materialize.
+    """Spatial join against another LAYER; preview AND materialize.
 
     Returns ``(select_columns, join_clauses)`` for a source table aliased
     ``src``. The geometry is NOT touched — a spatial join adds columns, so
@@ -131,7 +131,7 @@ def render_spatial_join(
         if not _SPATIAL_JOIN_IDENT.match(name):
             raise ValueError(f"Invalid join field name: {name!r}")
 
-    # fix(#953): the JOIN side is tested RAW, deliberately. PostGIS 3.6
+    # The JOIN side is tested RAW, deliberately. PostGIS 3.6
     # raises from ST_Intersection over a self-intersecting bowtie but
     # ST_Intersects over the same geometry returns the same answer the
     # repaired geometry gives, in either argument position. Wrapping it
@@ -148,12 +148,11 @@ def render_spatial_join(
     )
     columns = f"_jc.{SPATIAL_JOIN_COUNT_COLUMN}"
     joins = (
-        # fix(#953): the source geometry is made valid ONCE PER SOURCE ROW
+        # The source geometry is made valid ONCE PER SOURCE ROW
         # here, not inside the predicate below — inlined it is re-evaluated
-        # per CANDIDATE PAIR, the same trap fix(#700) documents for the
-        # preview's geometry expression, fixed the same way (OFFSET 0 fence
-        # against subquery pull-up). Measured (242 Natural Earth country
-        # polygons x 32,186 meteorite points, both 30,712 matches): inlined
+        # per CANDIDATE PAIR, the same trap the preview's geometry expression
+        # avoids the same way (OFFSET 0 fence against subquery pull-up). Measured (242 Natural Earth
+        # country polygons x 32,186 meteorite points, both 30,712 matches): inlined
         # 28.36s, hoisted 0.20s. The inlined form blew the sandbox's 10s
         # statement timeout, so the preview 422'd on an obvious pairing.
         f" CROSS JOIN LATERAL"
@@ -178,7 +177,7 @@ def render_spatial_join(
 def render_spatial_join_match_count(
     src_table_ref: str, join_table_ref: str, *, bbox: list[float] | None = None
 ) -> str:
-    """Count matched PAIRS across the WHOLE source (fix(#953)).
+    """Count matched PAIRS across the WHOLE source.
 
     The geometry preview is capped at ``PREVIEW_FEATURE_CAP`` rows, so
     summing its per-row counts would answer "how many points are in these
@@ -194,7 +193,7 @@ def render_spatial_join_match_count(
     per-source-row ST_MakeValid hoist, without which this statement has the
     same 100x+ blow-up the per-row counts did.
 
-    ``bbox`` (fix(#727)) scopes ``_src`` the same way the
+    ``bbox`` scopes ``_src`` the same way the
     intersect count does — WHOLE means the request's bbox when one was
     sent. Unlike intersect's, this is a genuinely SEPARATE statement from
     the geometry preview: spatial_join is 1:1 and never returns early out

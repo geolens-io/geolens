@@ -122,13 +122,13 @@ api_router.include_router(ogc_features_router)
 api_router.include_router(maps_router)
 api_router.include_router(maps_ownership_router)
 api_router.include_router(maps_link_preview_router)
-# fix(#1440): sprites are unauthenticated reads; mounted as a sibling of
+# Sprites are unauthenticated reads; mounted as a sibling of
 # maps_router (not nested inside it) so they don't inherit its
 # ERROR_RESPONSES_WRITE defaults — see the comment on sprites_router in
 # maps/router_assets.py.
 api_router.include_router(maps_sprites_router)
 api_router.include_router(ai_router)
-# feat(#565): raw sandbox SQL endpoint (POST /query/), consumed by the MCP
+# Raw sandbox SQL endpoint (POST /query/), consumed by the MCP
 # `query` tool. Auth-only; see processing/ai/query_router.py.
 api_router.include_router(query_router)
 api_router.include_router(services_router)

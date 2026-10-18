@@ -1,6 +1,6 @@
 """Single-use paired-request claims, shared across workers when a store exists.
 
-fix(#2018): the claim a paired request redeems is consumed inside slowapi's
+The claim a paired request redeems is consumed inside slowapi's
 SYNCHRONOUS ``exempt_when``, so this is a sync client with a short timeout
 rather than the async cache provider. Every store error answers ``None`` so
 the caller falls back to its process-local registry, which is the behaviour
@@ -27,7 +27,7 @@ _KEY_PREFIX = "geolens:paired-claim:"
 def claim_key(parts: tuple[str, ...]) -> str:
     """Hash a length-prefixed join of *parts* into one store key.
 
-    fix(#2018): length-prefixed, because a component is an IPv6 address and
+    length-prefixed, because a component is an IPv6 address and
     another is caller-supplied text, so a plain separator lets a /64 holder
     pick low bits that shift the split and collide with a neighbour's key.
     """
@@ -39,7 +39,7 @@ def claim_key(parts: tuple[str, ...]) -> str:
 class SharedClaimStore:
     """``SET NX EX`` to record a claim, ``GETDEL`` to consume it once.
 
-    fix(#2018): a failure arms a cooldown, during which every call answers
+    A failure arms a cooldown, during which every call answers
     ``None`` without touching the client. Both search routes are ``async
     def``, so slowapi runs ``exempt_when`` inline on the event loop, and a
     store that drops packets rather than refusing them would otherwise stall
@@ -96,7 +96,7 @@ class SharedClaimStore:
         self._recovered()
         if claimant is None:
             return False
-        # fix(#2018): decode here rather than trusting the client's
+        # Decode here rather than trusting the client's
         # decode_responses. Comparing bytes to str is never equal, so a client
         # built without it would exempt a same-route repeat.
         if isinstance(claimant, bytes):

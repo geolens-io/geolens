@@ -19,7 +19,7 @@ TopologyException.
 0034 backfilled existing rows, #1104), so nothing here needs to guard
 against curved input.
 
-fix(#1089): split from a single 1255-line file by operation family —
+Split from a single 1255-line file by operation family —
 ``shared`` (fences/ceilings/antimeridian/mask parsing), ``overlay``
 (clip/intersect/select-by-location), ``measure`` (area/length),
 ``spatial_join``, ``transform`` (buffer/centroid). Split by family, never by
@@ -40,7 +40,7 @@ from .measure import (
     render_measure_columns,
 )
 
-# fix(#1089): per-family `render_*_expr` helpers stay private
+# per-family `render_*_expr` helpers stay private
 # (`_`-prefixed) — exporting them would expand the facade past the
 # pre-split module's 35 names; the facade-surface test enforces it.
 from .measure import render_measure_expr as _render_measure_expr

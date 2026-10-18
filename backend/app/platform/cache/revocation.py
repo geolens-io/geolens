@@ -1,4 +1,4 @@
-"""Cluster-global revocation generation (fix(#1778)).
+"""Cluster-global revocation generation.
 
 ``RedisCacheProvider``'s fallback and replay queue are PROCESS-local, so a
 revocation made by one worker during a Redis outage is invisible to other
@@ -40,8 +40,8 @@ logger = structlog.stdlib.get_logger(__name__)
 _TABLE = "catalog.security_revocation_generation"
 _TABLE_NAME = "security_revocation_generation"
 
-# Returned when the counter cannot be read. fix(#1778): a sentinel is NOT a
-# generation -- two entries stamped with it compared EQUAL, letting a stale
+# Returned when the counter cannot be read. A sentinel is NOT a
+# generation: two entries stamped with it compared EQUAL, letting a stale
 # positive outlive a revocation. Callers must check `is_usable_generation`.
 UNKNOWN_GENERATION = -1
 
@@ -49,7 +49,7 @@ UNKNOWN_GENERATION = -1
 class RevocationGenerationError(RuntimeError):
     """The revocation counter could not be advanced.
 
-    fix(#1778): a revocation other workers won't hear about must not quietly
+    A revocation other workers won't hear about must not quietly
     proceed. Raising rolls back the caller's transaction (undoing the
     ``is_active`` flip too), so the operator sees a failed revoke and retries
     rather than a "successful" one half the fleet ignores.
@@ -61,7 +61,7 @@ def is_usable_generation(generation: int) -> bool:
     return generation != UNKNOWN_GENERATION
 
 
-# fix(#1778): a random 62-bit value, not a wall-clock second -- the old epoch
+# A random 62-bit value, not a wall-clock second -- the old epoch
 # seed could collide with itself (delete+heal within the same second
 # reproduces it, or a fast-revoking fleet outpaces epoch-seconds so a reseed
 # lands BEHIND the counter it replaces). A value drawn from [0, 2**62) makes
@@ -84,7 +84,7 @@ async def bump_revocation_generation(db: AsyncSession) -> int:
         )
     )
     if generation is None:
-        # fix(#1778): raise rather than return a sentinel -- returning one let
+        # Raise rather than return a sentinel -- returning one let
         # the revoke commit while every worker kept honouring cached positives.
         logger.error("revocation_generation_row_missing", operation="bump")
         raise RevocationGenerationError(
@@ -104,15 +104,15 @@ async def current_revocation_generation(db: AsyncSession) -> int:
 
     Never raises: an unreadable counter resolves to UNKNOWN_GENERATION, which
     is NOT a generation -- check ``is_usable_generation`` and skip the cache
-    rather than stamp or compare with it. fix(#1778): treating the sentinel
-    as an ordinary value let two entries stamped with it compare EQUAL.
+    rather than stamp or compare with it: treating the sentinel as an
+    ordinary value would let two entries stamped with it compare EQUAL.
     """
     try:
         generation = await db.scalar(
             text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
         )
         if generation is None:
-            # fix(#1778): the heal must NOT run on `db` -- every production
+            # The heal must NOT run on `db` -- every production
             # caller's session is a get_db() read session, committed on
             # NOTHING. Healing on it "worked" for the rest of that request
             # then vanished when the session closed, re-healing forever.
@@ -144,7 +144,7 @@ async def current_revocation_generation(db: AsyncSession) -> int:
 async def _reseed_missing_generation_row() -> int:
     """Recreate the deleted singleton counter row on its own connection.
 
-    fix(#1778): committed independently of the caller, NEVER on the caller's
+    Committed independently of the caller, NEVER on the caller's
     `AsyncSession` (see ``current_revocation_generation``). Late-imports
     ``app.core.db.engine`` like ``get_db()`` does -- a module-scope import
     would snapshot the engine before test fixtures rebind it, silently

@@ -309,7 +309,7 @@ def _on_begin(conn: Connection) -> None:
     ``SET LOCAL app.current_tenant``. multi_tenant + var unset: no-op, so RLS
     fail-closes the unscoped query.
 
-    fix(#1778): use ``SET LOCAL``, never ``SELECT set_config(...)`` — the
+    Use ``SET LOCAL``, never ``SELECT set_config(...)`` — the
     SELECT form takes the transaction's first snapshot, so Postgres then
     refuses a later ``SET TRANSACTION ISOLATION LEVEL``/``[NOT] DEFERRABLE``
     (25001).
@@ -405,8 +405,7 @@ def tenant_task(fn: _TaskFn) -> _TaskFn:
     ``tenant_id`` job kwarg (threaded in by :func:`defer_async_with_tenant`)
     and binds it via :func:`tenant_job_context` for the task's duration.
     Without this, a multi_tenant worker task sees the var unset and falls back
-    to the shared ``data`` schema / global reader / no tenant storage prefix
-    (fix(#256)).
+    to the shared ``data`` schema / global reader / no tenant storage prefix.
 
     single_tenant: ``tenant_job_context`` is a no-op, byte-identical to
     calling ``fn`` directly. ``tenant_id`` is POPPED before calling ``fn``, so

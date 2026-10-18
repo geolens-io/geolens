@@ -64,7 +64,7 @@ from app.platform.service_auth import wire_credential
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1277): the TTL is bounded by RENEWAL, not by a constant.
+# The TTL is bounded by RENEWAL, not by a constant.
 #
 # Deriving it from JOB_TIMEOUT_SECONDS was tried and is wrong:
 # `maintain_ingest_job_heartbeat` refreshes `heartbeat_at` every 30s and the
@@ -161,7 +161,7 @@ class RedisCredentialBackend:
     ``RedisCacheProvider``: a fallback here would accept a credential the
     worker can never read. Failing the write is the honest outcome.
 
-    fix(#1277): both operations translate transport failures into
+    Both operations translate transport failures into
     ``CredentialStoreUnavailable`` at this boundary rather than letting
     redis-py's own exceptions escape. Untranslated, they broke both callers
     differently — a connection error during stash returned 500 instead of
@@ -373,12 +373,12 @@ async def claim_service_credential(ref: str) -> str:
     for a new one rather than silently retrying unauthenticated and
     reporting the origin's 401.
 
-    fix(#1277): "gone" and "could not tell" are two answers, and only one is
+    "gone" and "could not tell" are two answers, and only one is
     about the credential. A store that ANSWERS with no such key is evidence
     the secret was claimed or expired; a store that cannot be reached is
-    evidence of nothing but an outage. This used to conflate the two, so a
-    Valkey blip surfaced as `credential_expired` and sent the reader to
-    re-issue a token that was never the problem.
+    evidence of nothing but an outage. Conflating the two would surface a
+    Valkey blip as `credential_expired` and send the reader to re-issue a
+    token that was never the problem.
     """
     if not _REF_PATTERN.match(ref or ""):
         raise CredentialExpiredError(
@@ -488,7 +488,7 @@ async def discard_service_credential(ref: str | None) -> None:
 # 1. the task is still LIVE — 'todo' or 'doing', the abandonment sweep's own
 #    liveness test, character for character.
 #
-#    fix(#1277): 'todo' alone was wrong. Procrastinate flips the status to
+#    'todo' alone is not enough. Procrastinate flips the status to
 #    'doing' BEFORE invoking the task, and the task revalidates its URL for
 #    SSRF (unbounded DNS resolution) before it claims — a stalled resolver
 #    longer than the TTL expired a credential for a refresh actively being
@@ -498,8 +498,8 @@ async def discard_service_credential(ref: str | None) -> None:
 #    claim event, not at a status flip that merely precedes it.
 # 2. the run is still active — a terminal run cannot use a credential.
 #
-# fix(#1277): a third stop, an age bound on the run, was tried and
-# CONTRADICTED the sweep. `_ABANDONED_RUN_SQL` deliberately never cancels a
+# An age bound on the run is deliberately not a third stop: it would
+# CONTRADICT the sweep. `_ABANDONED_RUN_SQL` deliberately never cancels a
 # run whose task is live 'todo' (#1274), so a protected refresh queued
 # behind a healthy long ingest kept its run while renewal dropped its
 # credential at the cutoff, failing the eventual claim `credential_expired`.
@@ -514,12 +514,12 @@ async def discard_service_credential(ref: str | None) -> None:
 # Correlated on `args->>'job_id'`, the correlation every task in this
 # codebase passes and both refresh sweeps already use.
 #
-# feat(#1676): the run join is LEFT, with a fallback stop, because the
+# The run join is LEFT, with a fallback stop, because the
 # FIRST-IMPORT door writes no `dataset_refresh_runs` row at all (unlike the
 # refresh and re-upload-commit doors). An INNER join would silently drop
 # renewal for that door: a protected import queued behind a long ingest
-# would expire at the TTL and fail `credential_expired` where today it
-# simply waits — a regression no refresh-path test could have caught. The
+# would expire at the TTL and fail `credential_expired` where it
+# should simply wait. The
 # fallback stop is `ingest_jobs.status`, asking the same "still being
 # worked?" question of the row that exists for a run-less job, with the
 # same self-terminating property: EXPIRE cannot resurrect a claimed key.
@@ -560,7 +560,7 @@ async def renew_queued_refresh_credentials(
     credential's lifetime becomes the real queue wait, and shortens itself
     the moment the wait ends.
 
-    fix(#1277): ``tenant_id`` filters the query EXPLICITLY rather than
+    ``tenant_id`` filters the query EXPLICITLY rather than
     leaning on RLS: pre-#998 ``tenant_job_context`` only sets a GUC nothing
     reads, so without this every tenant's iteration renewed every OTHER
     tenant's credentials too — N tenants meant N passes of fleet-wide
@@ -583,7 +583,7 @@ async def renew_queued_refresh_credentials(
         )
         refs = [row.credential_ref for row in rows]
     except Exception as exc:  # broad: the sweep's other work must survive this
-        # fix(#1277): named, not swallowed. A query rejected because it
+        # Named, not swallowed. A query rejected because it
         # ran outside a tenant context looks exactly like "nothing to
         # renew" from the return value, so the exception TYPE (logged) is
         # what tells those apart in ops. The query text is deliberately
@@ -612,13 +612,13 @@ async def renew_queued_refresh_credentials(
 async def renew_queued_credentials_once() -> int:
     """Re-arm queued refresh credentials across the whole deployment.
 
-    fix(#1277): iterates tenants the way the stale-job sweep does — one
+    Iterates tenants the way the stale-job sweep does — one
     plain call in single-tenant mode, one scoped transaction per tenant
     otherwise, each inside ``tenant_job_context`` so the GUC is set before
     the query runs. Per-tenant recovery is best-effort: one broken tenant
     must not cost the others their renewals.
 
-    fix(#1277): lives here rather than in ``api/main.py`` so the worker
+    Lives here rather than in ``api/main.py`` so the worker
     can host it too (see :func:`renew_credentials_periodically`) — a module
     under ``platform/`` is importable from both processes; the API app
     module is not.
@@ -628,7 +628,7 @@ async def renew_queued_credentials_once() -> int:
     and the alternative is a registry query plus a session per tenant every
     cycle, forever, to find that out.
     """
-    from app.core.db import async_session  # fix(#909): late-bind for tests
+    from app.core.db import async_session  # late-bind for tests
     from app.core.db.tenant_session import tenant_job_context
     from app.core.tenancy import is_multi_tenant
 
@@ -668,7 +668,7 @@ async def renew_queued_credentials_once() -> int:
 async def renew_credentials_periodically() -> None:
     """Worker-side renewal loop. The second host, and the important one.
 
-    fix(#1277): the API sweeper alone was not enough, because API
+    The API sweeper alone is not enough, because API
     liveness does not bound the lifetime of an already-committed task. The
     API could be down longer than the TTL while the dispatch sat queued
     behind a long ingest, and the worker — healthy the whole time, and the

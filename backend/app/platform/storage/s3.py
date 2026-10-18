@@ -94,7 +94,7 @@ class S3StorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns s3://bucket/key URI.
 
-        fix(#1532): drained on cancellation — a bare ``to_thread`` would
+        Drained on cancellation — a bare ``to_thread`` would
         return while the SDK upload kept running, racing cleanup (undo-
         delete, closed source handle, orphaned multipart parts). Draining
         costs a cancelled request the rest of its upload; that's the safer
@@ -118,7 +118,7 @@ class S3StorageProvider:
                 response = self.client.get_object(Bucket=self.bucket, Key=key)
                 return response["Body"].read()
             except ClientError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -142,7 +142,7 @@ class S3StorageProvider:
                     Key=dst_key,
                 )
             except ClientError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(src_key) from e
                 raise
@@ -162,7 +162,7 @@ class S3StorageProvider:
                 return response["Body"].read()
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 # A window that starts at or past the end of the object is an
@@ -176,7 +176,7 @@ class S3StorageProvider:
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream the whole object from ONE ``get_object``, in 1 MiB chunks.
 
-        fix(#1540): this IS reachable — a resumed range whose ``If-Range`` no
+        This IS reachable — a resumed range whose ``If-Range`` no
         longer matches must be answered with the complete representation
         (RFC 9110 13.1.5), which a presigned URL can't do since the bucket
         never evaluates the precondition. Never reintroduce
@@ -189,7 +189,7 @@ class S3StorageProvider:
             try:
                 return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
             except ClientError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -209,7 +209,7 @@ class S3StorageProvider:
     ) -> AsyncIterator[bytes]:
         """Stream a byte window from ONE ranged ``get_object``.
 
-        fix(#1540): avoids looping ``get_range`` per 1 MiB chunk, which turns
+        Avoids looping ``get_range`` per 1 MiB chunk, which turns
         one ``Range`` request into one ``GetObject`` per chunk — invisible to
         the rate limiter's per-request count but not to the bill. A window
         starting at or past the end is an empty stream, matching
@@ -225,7 +225,7 @@ class S3StorageProvider:
                 )["Body"]
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
@@ -276,7 +276,7 @@ class S3StorageProvider:
                 response = self.client.head_object(Bucket=self.bucket, Key=key)
                 return int(response["ContentLength"])
             except ClientError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -304,7 +304,7 @@ class S3StorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield ListObjectsV2 pages, each entry with its last-modified time.
 
-        One request per page (fix(#1249)), not drain-then-return, so a
+        One request per page, not drain-then-return, so a
         consumer that stops early pays for a bounded number of round trips
         against an arbitrarily large prefix. ``start_after`` becomes S3's
         ``StartAfter`` on the FIRST request only — ListObjectsV2 ignores it
@@ -342,7 +342,7 @@ class S3StorageProvider:
     ) -> str:
         """Generate a presigned PUT URL for direct upload.
 
-        fix(#1234): clamped to the job lifetime, same as the part URLs below
+        Clamped to the job lifetime, same as the part URLs below
         — a lower configured timeout would otherwise let a 3600s URL silently
         outlive the job it belongs to.
         """
@@ -389,7 +389,7 @@ class S3StorageProvider:
     ) -> str:
         """Generate a presigned URL for uploading a single part.
 
-        fix(#1234): clamped to the job lifetime — an unclamped part URL was
+        Clamped to the job lifetime — an unclamped part URL was
         usable against a row the pending sweep had already failed (7200s
         offered against a 3600s job lifetime).
         """

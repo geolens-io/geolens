@@ -259,11 +259,11 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         candidates[0],
     )
     try:
-        # fix(#1770): length-gated before `urljoin`, and again inside
+        # length-gated before `urljoin`, and again inside
         # `_with_page_size` — both raise the SAME ValueError caught below.
         return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
     except HrefTooLongError:
-        # fix(#1770): own wording, matching service_endpoints.py's
+        # Own wording, matching service_endpoints.py's
         # _assert_same_origin.
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
@@ -312,7 +312,7 @@ def _next_href(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                # fix(#1770): same length gate service_endpoints.py's
+                # Same length gate service_endpoints.py's
                 # _next_page applies, before `urljoin`.
                 return urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
@@ -322,7 +322,7 @@ def _next_href(document: object, base: str) -> str | None:
                     "next link exceeds the length limit"
                 ) from None
             except ValueError:
-                # fix(#1746): an unparseable address can't be shown to stay
+                # An unparseable address can't be shown to stay
                 # on the origin, so it's refused rather than read as the
                 # end of the chain. Never echoed.
                 raise ItemFetchFailedError("unparseable next page") from None
@@ -349,7 +349,7 @@ async def _fetch_page(
         client,
         url,
         headers,
-        # fix(#1746): the same Accept the probe and endpoint check send, so
+        # The same Accept the probe and endpoint check send, so
         # HTML-for-`*/*` can't answer one of the three reads differently.
         accept=OGC_JSON_ACCEPT,
         budget=budget,
@@ -362,7 +362,7 @@ async def _fetch_page(
     try:
         return json.loads(body), len(body), final_url
     except (ValueError, RecursionError) as exc:
-        # fix(#1770): a JSON depth bomb is under both the byte cap and
+        # A JSON depth bomb is under both the byte cap and
         # MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and
         # raises RecursionError rather than ValueError.
         raise ItemFetchFailedError(str(exc)) from None
@@ -408,7 +408,7 @@ async def _resolve_items_url(
         # to be paid with this credential.
         raise ItemFetchFailedError("items link leaves the origin")
     try:
-        # fix(#1770): `_with_page_size` re-parses href's query to replace
+        # `_with_page_size` re-parses href's query to replace
         # `limit`, bounding both its length and field count.
         return _with_page_size(href), size
     except HrefTooLongError:
@@ -509,7 +509,7 @@ def _end_of_chain(
         # different service to be paid with this credential.
         raise ItemFetchFailedError("next page leaves the origin")
     if following is None and feature_limit is None and pages == 1:
-        # fix(#1770): a FULL walk ending on the FIRST page with no `next`
+        # A FULL walk ending on the FIRST page with no `next`
         # must PROVE it — see `_page_proves_complete`. `has_next=False`:
         # this branch needs `following is None`.
         provably_complete = _page_proves_complete(
@@ -519,7 +519,7 @@ def _end_of_chain(
             raise ItemFetchFailedError("collection may not be complete")
         return following, truncated
     if following is None and feature_limit is not None:
-        # fix(#1770): SAMPLED-walk mirror of the branch above. Never
+        # SAMPLED-walk mirror of the branch above. Never
         # refuses (a preview stays usable), but the total it reports is
         # honest only where `_page_proves_complete` proves it.
         return following, _sample_truncated(
@@ -572,18 +572,18 @@ async def _walk_pages(
     finished service from a cut-off one, so anything unverifiable it declines.
     """
     written = 0
-    # fix(#1746): every page counted whole, before `feature_limit`
+    # Every page counted whole, before `feature_limit`
     # truncates what gets written — `written` under-reports a page's real
     # size once a sample cuts it short.
     observed = 0
     pages = 0
     on_disk = 0
     number_matched: int | None = None
-    # fix(#1770): whether the walk STOPPED SHORT, tri-state. Only the
+    # Whether the walk STOPPED SHORT, tri-state. Only the
     # breaking site knows; a FULL walk never touches it; `None` means the
     # page proved neither, so the total is unknown.
     truncated: bool | None = False
-    # fix(#1746): origin contacted HERE, not by the subprocess — the
+    # Origin contacted HERE, not by the subprocess — the
     # moment a caller dating origin contacts hears about. `fire_once`
     # means no loop tracks which pass it's on.
     arm = fire_once(on_first_request)
@@ -609,7 +609,7 @@ async def _walk_pages(
         # may stop partway through it.
         observed += len(features)
         if "numberMatched" in document:
-            # fix(#1746): the whole query's match count, read from EVERY
+            # The whole query's match count, read from EVERY
             # page — two pages giving different answers describe two
             # different queries.
             reported = document["numberMatched"]
@@ -618,11 +618,11 @@ async def _walk_pages(
             elif reported != number_matched:
                 raise ItemFetchFailedError("pages disagree about the size")
         for index, feature in enumerate(features):
-            # fix(#1746): ensure_ascii=False on a binary file, so non-Latin
+            # ensure_ascii=False on a binary file, so non-Latin
             # text isn't tripled on disk; what's written is then counted
             # rather than inferred from the download.
             try:
-                # fix(#1770): a JSON escape for an unpaired surrogate is
+                # A JSON escape for an unpaired surrogate is
                 # legal but has no UTF-8 encoding — refuse rather than
                 # write bytes GDAL can't read back.
                 encoded = json.dumps(
@@ -631,7 +631,7 @@ async def _walk_pages(
             except UnicodeEncodeError as exc:
                 raise ItemFetchFailedError(f"unencodable feature: {exc}") from None
             chunk = b"," + encoded if written else encoded
-            # fix(#1746): compared BEFORE the write — checking after
+            # Compared BEFORE the write — checking after
             # admits one expanded feature past the cap.
             if on_disk + len(chunk) > MAX_BYTES:
                 raise ItemFetchFailedError("collection exceeds the cap on disk")
@@ -639,7 +639,7 @@ async def _walk_pages(
             on_disk += len(chunk)
             written += 1
             if feature_limit is not None and written >= feature_limit:
-                # fix(#1770): landing exactly on the last feature asks the
+                # Landing exactly on the last feature asks the
                 # same completeness predicate a full walk's natural end does.
                 truncated = _sample_truncated(
                     document,
@@ -661,17 +661,17 @@ async def _walk_pages(
                 truncated=truncated,
             )
     if page_url is not None:
-        # fix(#1746): page cap reached with more to come — closing the
+        # Page cap reached with more to come — closing the
         # array here would read as a complete collection, and the worker
         # imports it over a dataset.
         raise ItemFetchFailedError("collection exceeds the page cap")
     if number_matched is not None:
-        # fix(#1746): SAMPLING CAN PRODUCE FEWER ROWS THAN THE TOTAL, NEVER
+        # SAMPLING CAN PRODUCE FEWER ROWS THAN THE TOTAL, NEVER
         # MORE, so this half holds on every walk. `observed`, not
         # `written`: a sample masks the page's real size from this check.
         if observed > number_matched:
             raise ItemFetchFailedError("more features than the service reported")
-        # fix(#1746): equality is a FULL-walk claim only — a sampled read
+        # Equality is a FULL-walk claim only — a sampled read
         # is short by design, and `truncated` carries that.
         if feature_limit is None and observed != number_matched:
             raise ItemFetchFailedError("collection is shorter than reported")
@@ -715,7 +715,7 @@ async def materialise_oapif_items(
     collection and the worker would import one over an existing dataset.
     """
     headers = credential_headers(credential_line)
-    # fix(#1746): prefix/suffix come from the module that sweeps them, so
+    # prefix/suffix come from the module that sweeps them, so
     # a file this writes is one that sweep recognises.
     handle, path = tempfile.mkstemp(
         prefix=OAPIF_ITEMS_SCRATCH_PREFIX,
@@ -768,7 +768,7 @@ async def materialise_oapif_items(
         features=written,
     )
     if number_matched is None and truncated is not False:
-        # fix(#1770): `is not False` — walk stopped short (`True`) or the
+        # `is not False` — walk stopped short (`True`) or the
         # page proved neither (`None`); neither can name the total, so it
         # stays unknown rather than reporting the sample size.
         total: int | None = None

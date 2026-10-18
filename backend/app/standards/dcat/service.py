@@ -260,11 +260,11 @@ def record_to_dcat(
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
-    ``app_base_url`` — fix(#1469): the raster tile template is served
+    ``app_base_url``: the raster tile template is served
     there, not under the API base. ``include_context``: False for
     entries nested in a catalog feed to avoid duplication.
     ``lineage_summary`` (``dcterms:provenance``) arrives already
-    access-checked by the caller — fix(#1103): not read off the record,
+    access-checked by the caller, not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. Omitted when absent. ``has_raster_asset``
     gates the COG download distribution the same way. A VRT shows only the
@@ -370,7 +370,7 @@ def record_to_dcat(
     if spatial_extent is not None:
         from app.core.geo import extent_to_span_bbox
 
-        # fix(#892): dcat:bbox is a planar WKT ring, which cannot express
+        # dcat:bbox is a planar WKT ring, which cannot express
         # RFC 7946's west > east crossing bbox -- a ring built from one silently
         # becomes the complementary 340°. Take the monotonic span, so a
         # seam-crossing extent serializes over-broad (-180..180) but honest.

@@ -54,14 +54,14 @@ rollback. Returning ``True`` reports that its write landed, which
 class DeferFailed(HTTPException):
     """The 503 raised when a defer fails, carrying the rollback's fate.
 
-    fix(#1550): ``rolled_back`` tells a caller whether the rollback ran and
+    ``rolled_back`` tells a caller whether the rollback ran and
     committed, so an audit trail doesn't record "failed" while the row is
     still ``pending`` (which would block every later embedding-backfill run).
     ``landed`` is True only when the rollback also reported that its fenced
     write landed. Only then does no worker or other request own the job, so
     only then may a caller delete what the job would have read.
 
-    fix(#1755): ``cause_class`` is ``type(cause).__name__`` — a safe
+    ``cause_class`` is ``type(cause).__name__`` — a safe
     Python identifier, never ``str(cause)``, which can carry a credential or
     provider-chosen string. It distinguishes a bug in the defer closure from
     Procrastinate's queue genuinely being unreachable.
@@ -86,7 +86,7 @@ class DeferFailed(HTTPException):
 async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
     """Record durably, on the row, that a dispatch was attempted for it.
 
-    feat(#1744): the one write that lets the stale sweep tell an abandoned
+    The one write that lets the stale sweep tell an abandoned
     upload (owner walked away pre-commit) from a broken dispatch (commit
     happened, task never landed); ``abandoned_upload`` in sweep.py reads its
     absence.
@@ -114,7 +114,7 @@ def _restore_settlement_identifiers(
 ) -> None:
     """Put the settlement's own identifiers back after a rollback expired them.
 
-    fix(#1774): ``Session.rollback()`` expires every instance in
+    ``Session.rollback()`` expires every instance in
     the failed transaction; a synchronous read of an expired attribute on an
     ``AsyncSession`` raises ``MissingGreenlet`` instead of lazy-loading.
     ``settle_ingest_job_failed`` reads ``job.id``/``job.attempt_id``
@@ -135,7 +135,7 @@ def _restore_settlement_identifiers(
 async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> None:
     """Make a session usable again for the settlement that follows a failure.
 
-    fix(#1774, #1814): call before ``settle_ingest_job_failed`` on any DB
+    Call before ``settle_ingest_job_failed`` on any DB
     error. The rollback expires ``job``; its identifiers are snapshotted first.
     """
     # Reading them is itself an attribute access; an already-expired instance
@@ -162,7 +162,7 @@ async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> N
 def _render_or_unreadable(render: Callable[[], str]) -> str:
     """One diagnostic field, or a placeholder when producing it raises.
 
-    fix(#1755): an already-expired ``job`` raises on the ``id`` read and an
+    An already-expired ``job`` raises on the ``id`` read and an
     exception with a failing ``__str__`` raises on render. Neither may
     escape the log that runs in front of the settlement.
     """
@@ -177,7 +177,7 @@ async def _settle_after_failed_dispatch(
 ) -> DeferFailed:
     """Run the caller's rollback closure, commit it, and build the 503 to raise.
 
-    fix(#1774): one copy, so the two ways a dispatch can fail settle the row
+    One copy, so the two ways a dispatch can fail settle the row
     identically rather than diverging on committing, logging or `rolled_back`.
     """
     try:
@@ -195,16 +195,16 @@ async def _settle_after_failed_dispatch(
 def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
     """Record what made a dispatch fail, because nothing downstream will.
 
-    fix(#1755): FastAPI answers a ``DeferFailed`` without logging it.
+    FastAPI answers a ``DeferFailed`` without logging it.
     ``stage`` separates the two raise sites, which ``cause_class`` alone
     cannot when both fail with the same type.
 
-    fix(#1755): ``error`` is scrubbed HERE, through ``redact_nested``.
+    ``error`` is scrubbed HERE, through ``redact_nested``.
     ``_redact_sensitive_fields`` scrubs free text only under ``event`` and
     ``exception``, and a defer exception can quote Procrastinate's
     ``call_string``, which renders a live ``token='...'`` kwarg.
 
-    fix(#1755): ``exc_info`` carries the chain, because Procrastinate wraps
+    ``exc_info`` carries the chain, because Procrastinate wraps
     a connector failure as ``ConnectorException("Database error.")`` and the
     top frame alone tells two outages apart from neither. ``format_exc_info``
     renders it under ``exception``, which the processor does scrub.
@@ -238,13 +238,13 @@ async def defer_with_orphan_guard(
     raise ``DeferFailed`` (503) carrying whether the rollback landed. If the
     rollback itself raises, both errors are logged but the 503 still raises.
 
-    feat(#1744): ``job`` is required because this is the one place every
+    ``job`` is required because this is the one place every
     ``IngestJob`` dispatch passes through — stamping here reaches every door
     at once (``test_commit_attempted_marker_doors.py`` pins it). A failed
     stamp is treated as a failed dispatch and settled the same way: without
     the marker, a later sweep can't tell this row from an uncommitted upload.
 
-    fix(#1774): the stamp gets its own try because that
+    The stamp gets its own try because that
     failure leaves the session in a failed transaction, and settlement is
     itself a statement on that session — it must be reset first.
 
@@ -262,7 +262,7 @@ async def defer_with_orphan_guard(
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
         _log_dispatch_failure(job, stamp_exc, stage="commit_attempted_marker")
-        # fix(#1774): reset discards nothing — every caller commits before dispatching.
+        # Reset discards nothing — every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
         raise await _settle_after_failed_dispatch(
             rollback, stamp_exc, db
@@ -289,7 +289,7 @@ async def settle_ingest_job_failed(
 ) -> bool:
     """Fenced ``<expected_status> -> failed`` for a dispatch that never queued.
 
-    fix(#1710): ``expected_status`` exists because the URL import commits its
+    ``expected_status`` exists because the URL import commits its
     row as ``running`` before dispatching — the download owns a worker lease
     from the moment the door answers, and a ``pending`` row would be judged
     by the stale-pending sweep instead. The fence still has to name the state
@@ -341,7 +341,7 @@ def make_ingest_job_failed_rollback(
     ``message_prefix`` is embedded before the exception's type so
     ``job.error_message`` matches ``test_queue_ingest_job_*``'s expected format.
 
-    fix(#1709): fenced — see ``settle_ingest_job_failed``. The closure
+    Fenced — see ``settle_ingest_job_failed``. The closure
     returns whether its write landed, so a wrapper compensates only then.
     """
 

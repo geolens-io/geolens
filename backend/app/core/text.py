@@ -37,7 +37,7 @@ def normalize_nfc(v: str | None) -> str | None:
 def reject_html_markup(v: str | None) -> str | None:
     """Reject angle brackets in free text that lands in an HTML render context.
 
-    fix(#1472): dataset ``attribution`` reaches MapLibre's attribution
+    Dataset ``attribution`` reaches MapLibre's attribution
     control, which assigns it to ``innerHTML``. MapLibre's own sanitizer only
     strips ``<script>``/``on*``/``javascript:``/``data:``, so ``<img src>``,
     ``<iframe src>`` and inline ``style`` survive it — letting an editor-

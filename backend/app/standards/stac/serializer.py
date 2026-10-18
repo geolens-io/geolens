@@ -71,7 +71,7 @@ def _build_stac_links(
 ) -> list[dict]:
     """Build the ``links`` array for a STAC Item.
 
-    ``derived_from_id`` (feat(#765)) is the source item of an analysis output.
+    ``derived_from_id`` is the source item of an analysis output.
     It must already be access-checked by the caller — this function only
     formats the link, and an id that reached it is emitted.
     """

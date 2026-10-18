@@ -15,7 +15,7 @@ from app.standards.ogc.utils import standards_api_path
 _origins_cache: tuple[float, set[str]] = (0.0, set())
 _ORIGINS_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
 
-# fix(#1596): native catalog routes with the same anonymous, read-only
+# Native catalog routes with the same anonymous, read-only
 # contract as the standards surface get the same wildcard CORS answer.
 # Enumerated, not matched by widening ``standards_api_path`` (shared
 # with error/OpenAPI contracts) or by prefix (``/search/saved`` needs
@@ -33,8 +33,8 @@ _PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
 
 # What each public surface actually answers. Search is registered GET-only, and
 # the derived-HEAD pass in ``api/main.py`` is keyed on ``standards_api_path``,
-# so HEAD and POST 405 here — fix(#1470) is the record of what happens when a
-# preflight promises a method the route refuses.
+# so HEAD and POST 405 here, which is what happens when a preflight promises a
+# method the route refuses.
 _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
@@ -59,7 +59,7 @@ _ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 def _merge_vary_origin(response: Response) -> None:
     """Declare that this response was derived from the request's ``Origin``.
 
-    fix(#1602): the answer depends on origin, so a cache keyed without
+    The answer depends on origin, so a cache keyed without
     ``Origin`` could replay one origin's CORS headers to another (the
     shipped nginx config runs ``proxy_cache off``, so this is for an
     operator fronting the API with their own CDN). Merged, not assigned,
@@ -99,7 +99,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await self._dispatch(request, call_next)
-        # fix(#1602): one call at the one exit. Every representation this
+        # One call at the one exit. Every representation this
         # middleware returns is origin-dependent, so the declaration
         # belongs here — two of the four policy-writer branches return
         # without calling it, which would silently skip it otherwise.
@@ -107,7 +107,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         return response
 
     async def _dispatch(self, request: Request, call_next) -> Response:
-        # fix(#1778): the liveness probe gets no CORS policy, and more
+        # The liveness probe gets no CORS policy, and more
         # importantly triggers no policy LOOKUP — `_is_origin_allowed` reads
         # CORS_ALLOWED_ORIGINS from the DB when its 60s cache expires, so a
         # probe carrying an Origin header would block on the DB on the one
@@ -190,7 +190,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     def _set_cors_headers(response: Response, origin: str) -> None:
         """Add standard CORS headers to the response.
 
-        fix(#1540): HEAD, conditional/range headers are here because
+        HEAD, conditional/range headers are here because
         #1528 gave the COG download route HEAD, byte ranges, ``ETag``,
         and ``If-Range`` — without these a preflight was refused and JS
         couldn't read ``ETag``/``Content-Range`` (unexposed = invisible).
@@ -200,7 +200,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         ``tests/test_cors_range_headers_1540.py`` reads the download
         route's own source and fails if either list here misses a header.
 
-        fix(#1602): echoes the caller's origin, so ``dispatch`` merges
+        Echoes the caller's origin, so ``dispatch`` merges
         ``Vary: Origin`` onto every response, not just this one.
         """
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -221,7 +221,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Fields, "
-            # fix(#1778): says whether numberMatched is exact or the planner's
+            # Says whether numberMatched is exact or the planner's
             # estimate on a filtered feature page.
             "X-GeoLens-Number-Matched, "
             # The feature delete route's committed tile_cache_version; a 204
@@ -346,7 +346,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Fields, "
-            # fix(#1778): says whether numberMatched is exact or the planner's
+            # Says whether numberMatched is exact or the planner's
             # estimate on a filtered feature page.
             "X-GeoLens-Number-Matched, "
             # The feature delete route's committed tile_cache_version; a 204

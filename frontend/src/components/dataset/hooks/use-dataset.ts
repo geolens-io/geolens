@@ -143,9 +143,9 @@ export function useDeleteDataset() {
     mutationFn: ({ datasetId, confirmName }: { datasetId: string; confirmName: string }) =>
       deleteDataset(datasetId, confirmName),
     onSuccess: (_data, variables) => {
-      // fix(#787 item 5): invalidating fired three refetches at a dataset that no
-      // longer exists — its detail query, plus related/ and maps/, which live under
-      // the ['datasets'] prefix the list invalidation matches. Cancel all three and
+      // A plain invalidation would refetch a dataset that no longer exists:
+      // its detail query, plus related/ and maps/, which live under the
+      // ['datasets'] prefix the list invalidation matches. Cancel all three and
       // keep the list invalidation off the deleted id.
       //
       // `refetchType: 'none'`, not a plain invalidate and not a remove. The caller
@@ -221,7 +221,7 @@ export function useReuploadCommit() {
       sridOverride,
       token,
       layerName,
-      // fix(#1768): the origin the dialog captured when it staged the
+      // The origin the dialog captured when it staged the
       // replacement, so the commit door can refuse a mid-flow rebinding.
       expectedOriginKind,
       reviewFingerprint,
@@ -305,7 +305,7 @@ export function useRestorePreviousVersion() {
   });
 }
 
-// feat(#1677): one-click cancel for the active refresh run, keyed on the
+// One-click cancel for the active refresh run, keyed on the
 // run's ingest_job_id. Invalidates exactly what dispatch invalidates: the
 // cancelled run belongs in history immediately, and dataset health/freshness
 // may change once the row is terminal.
@@ -332,7 +332,7 @@ export function useDatasetRefreshRuns(
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
-    // fix(#1328): observe externally-started refresh runs on tab refocus.
+    // Observe externally-started refresh runs on tab refocus.
     // The app disables refetchOnWindowFocus globally (main.tsx) because a
     // refresh dispatched from the CLI or another editor's session never
     // touches this client's cache — under the global default, this query's
@@ -351,22 +351,21 @@ export function useDatasetRefreshRuns(
     // Focus returning to the tab IS the signal to check for an external
     // run, independent of this query's own freshness clock.
     refetchOnWindowFocus: 'always',
-    // fix(#1285 codex round 2): keepPreviousData shows the LAST successful
+    // keepPreviousData shows the LAST successful
     // result as a placeholder for ANY new query invocation, not just a
     // paged re-fetch of the same dataset — so navigating straight from one
     // /datasets/:id to another briefly serves the PRIOR dataset's runs under
-    // the new query key. Neither consumer checked `run.dataset_id ===
-    // datasetId` (SourceHistory already does this for versions, same root
-    // cause), so the new page could flash the previous dataset's triggered-by
-    // identity, error text, or active-run disabled state. Filtering here
-    // fixes every consumer at once rather than duplicating the check.
+    // the new query key. Without a `run.dataset_id === datasetId` check
+    // (SourceHistory does the same for versions), the new page could flash the
+    // previous dataset's triggered-by identity, error text, or active-run
+    // disabled state. Filtering here covers every consumer at once.
     select: (data) => ({
       ...data,
       runs: data.runs.filter((run) => run.dataset_id === datasetId),
     }),
-    // fix(#1285 codex round 1): the dispatch-time invalidation above fires
+    // The dispatch-time invalidation above fires
     // one refetch that lands as "pending", and the app disables
-    // refetch-on-focus (see auth-recovery notes), so without this the run
+    // refetch-on-focus, so without this the run
     // sits "active" in the mounted page forever — SourceRefreshAction's busy
     // gate never re-enables and this section's status never updates once the
     // worker actually finishes. Self-referential like useJobStatus: poll
@@ -397,29 +396,23 @@ function isRunActive(status: string | undefined): boolean {
 }
 
 /**
- * fix(#1285 codex round 4): SourceRefreshAction used to own this tracking
- * itself, but it lives inside the "sources" TabsContent, and Radix Tabs
- * unmounts inactive content by default (components/ui/tabs.tsx) — switching
- * tabs mid-refresh destroyed the dispatched-run ref AND stopped the poll, so
- * a refresh that finished while the user was looking at another tab never
- * got its caches invalidated. Mount this hook once at the dataset PAGE level
- * instead, where it survives every tab switch; SourceRefreshAction only
- * calls `trackDispatchedRun` with the run_id from its 202 and reads
- * `latestRun`/`isBusy` back as props.
+ * Tracks refresh runs for the dataset. It is mounted once at the dataset
+ * PAGE level because the "sources" TabsContent lives inside Radix Tabs, which
+ * unmounts inactive content by default (components/ui/tabs.tsx); a tracker
+ * inside it would lose the dispatched-run ref and the poll on a tab switch,
+ * and a refresh that finished meanwhile would never invalidate its caches.
+ * SourceRefreshAction only calls `trackDispatchedRun` with the run_id from
+ * its 202 and reads `latestRun`/`isBusy` back as props.
  *
- * fix(#1285 codex round 5): round 4 gated the whole invalidation effect on
- * `latestRunId === dispatchedRunId`, so a run this hook never dispatched —
- * kicked off from the CLI, another editor's tab, or already in flight when
- * this hook mounted (a page navigation, a reload) — could transition all
- * the way to terminal under continuous polling and invalidate nothing. This
- * hook's job is "keep the page consistent with refresh activity for this
- * dataset", not "track my own dispatch", so the transition check below no
- * longer requires having dispatched anything. `dispatchedRunId` is kept for
- * exactly one remaining case: a strategy fast enough to already be terminal
- * on the very FIRST observation (round 3 — a postgis remeasurement can
- * finish in under a second), where no active→terminal transition is ever
- * observed to catch. Two independent triggers, either one fires the same
- * invalidation, and `invalidatedRunIdRef` makes it idempotent per run id:
+ * Its job is "keep the page consistent with refresh activity for this
+ * dataset", not "track my own dispatch", so a run kicked off from the CLI,
+ * another editor's tab, or already in flight when this hook mounted also
+ * invalidates when it goes terminal. `dispatchedRunId` covers one extra
+ * case: a strategy fast enough to already be terminal on the very FIRST
+ * observation (a postgis remeasurement can finish in under a second), where
+ * no active→terminal transition is ever observed. Two independent triggers,
+ * either one fires the same invalidation, and `invalidatedRunIdRef` makes it
+ * idempotent per run id:
  *   (a) wasActive && !isActive  — any run this hook watched go active→terminal,
  *       regardless of who dispatched it;
  *   (b) latestRunId === dispatchedRunId && !isActive — OUR dispatch, terminal
@@ -449,7 +442,7 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     if (invalidatedRunIdRef.current === latestRunId) return;
     invalidatedRunIdRef.current = latestRunId;
 
-    // fix(#1285 codex round 5): the full sweep of caches derived from this
+    // The full sweep of caches derived from this
     // dataset's DATA. query-keys.ts's own header notes there is no single
     // shared root across dataset-scoped keys ("Some domains use different
     // roots for list vs detail"), confirmed by walking every entry in the

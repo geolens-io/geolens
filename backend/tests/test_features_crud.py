@@ -73,8 +73,8 @@ async def _create_test_table_and_dataset(
             {"name": "name", "type": "text"},
             {"name": "status", "type": "text"},
         ],
-        # fix(#430 codex r7): deliberately 'created' WITH a concretely typed
-        # geom column (see pg_geom_type above) — this mirrors the layers-module
+        # Deliberately 'created' WITH a concretely typed geom column
+        # (see pg_geom_type above) — this mirrors the layers-module
         # creation path (layers/service.py), whose typed tables must KEEP typed
         # validation + ST_Multi promotion. effective_geometry_type() only goes
         # generic when the geometry_columns probe reports a generic column.
@@ -1063,7 +1063,7 @@ class TestBboxFiltering:
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): raster/VRT datasets have no feature table — must 404, never 500
+# Raster/VRT datasets have no feature table — must 404, never 500
 # ---------------------------------------------------------------------------
 
 
@@ -1322,10 +1322,9 @@ class TestMeasuredLayerFeatureGuard:
 
 
 class TestCreateEmptyDatasetGenericGeometry:
-    """fix(#430 codex r5, P1): create_empty_dataset stores geometry_type='GEOMETRY'
-    (fix #430 BA-32), which the chk_datasets_geometry_type allow-list rejected —
-    every empty-dataset create 500'd at flush with ZERO endpoint coverage.
-    Migration 0011 admits the generic sentinel; this pins the whole flow."""
+    """create_empty_dataset stores geometry_type='GEOMETRY', which the
+    chk_datasets_geometry_type allow-list must admit (migration 0011 adds the
+    generic sentinel); this pins the whole flow."""
 
     async def _stored_geometry_type(self, session, dataset_id: str) -> str | None:
         result = await session.execute(
@@ -1352,8 +1351,8 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert resp.status_code == 201, resp.text
         dataset_id = resp.json()["id"]
 
-        # fix(#430 BA-32): the generic-typed dataset accepts ANY concrete
-        # geometry subtype — previously the stored 'POINT' rejected polygons.
+        # The generic-typed dataset accepts ANY concrete
+        # geometry subtype, not just the one the first insert used.
         geometries = [
             {"type": "Point", "coordinates": [-73.9857, 40.7484]},
             {
@@ -1380,7 +1379,7 @@ class TestCreateEmptyDatasetGenericGeometry:
                 f"{geometry['type']}: {feature_resp.text}"
             )
 
-        # fix(#430 codex r7): a cross-family mix stays generic (renders as fill,
+        # A cross-family mix stays generic (renders as fill,
         # the honest fallback — same as GEOMETRYCOLLECTION datasets).
         assert await self._stored_geometry_type(test_db_session, dataset_id) == (
             "GEOMETRY"
@@ -1392,7 +1391,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#430 codex r7): a point-only sketch layer must expose a concrete
+        """A point-only sketch layer must expose a concrete
         geometry_type ('POINT') so the builder renders circles — the 'GEOMETRY'
         sentinel classified as an invisible fill layer. Later inserting another
         family must still be ACCEPTED (validation stays generic for created
@@ -1419,7 +1418,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert point_resp.status_code == 201, point_resp.text
         assert await self._stored_geometry_type(test_db_session, dataset_id) == "POINT"
 
-        # fix(#430 codex r18): even with a concrete DISPLAY type derived, the
+        # Even with a concrete DISPLAY type derived, the
         # detail endpoint must expose the genericity signal so the drawing
         # toolbar keeps offering every mode (the column still accepts any
         # subtype).
@@ -1446,7 +1445,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         )
 
         # A different family is STILL accepted (derived type must not
-        # re-restrict inserts — that would reintroduce the BA-32 bug)...
+        # re-restrict inserts, or the generic column would reject other families)...
         line_resp = await client.post(
             f"/datasets/{dataset_id}/features/",
             json={
@@ -1471,11 +1470,10 @@ class TestCreateEmptyDatasetGenericGeometry:
         test_layer: Dataset,
         test_db_session,
     ):
-        """fix(#430 codex r9): a GeoJSON GeometryCollection is insertable into a
-        generic GEOMETRY column (the constraint and column allow it) but was
-        400'd as 'Unsupported geometry type' because GEOJSON_TYPE_MAP had no
-        entry. Typed datasets must keep rejecting it — as a type MISMATCH, not
-        as an unknown type."""
+        """A GeoJSON GeometryCollection is insertable into a
+        generic GEOMETRY column (the constraint and column allow it), so
+        GEOJSON_TYPE_MAP must know the type. Typed datasets must keep rejecting
+        it — as a type MISMATCH, not as an unknown type."""
         resp = await client.post(
             "/datasets/create/",
             json={
@@ -1504,12 +1502,12 @@ class TestCreateEmptyDatasetGenericGeometry:
         )
         assert gc_resp.status_code == 201, gc_resp.text
 
-        # codex r13 (refuted as proposed): a NESTED collection cannot
+        # A NESTED collection cannot
         # round-trip PostGIS's GeoJSON boundary in either direction —
         # ST_GeomFromGeoJSON rejects it on write and ST_AsGeoJSON raises
         # 'GeoJson: geometry not supported' on read — so the schema stays
         # non-recursive and the write path rejects nesting with a CLEAR 422
-        # (previously a misleading 'coordinates: Field required').
+        # rather than a misleading 'coordinates: Field required'.
         nested = {
             "type": "GeometryCollection",
             "geometries": [
@@ -1529,7 +1527,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert nested_resp.status_code == 422, nested_resp.text
         assert "Nested GeometryCollections" in nested_resp.text
 
-        # codex r14: a malformed collection WITHOUT a 'geometries' array must
+        # A malformed collection WITHOUT a 'geometries' array must
         # 422 too — it would otherwise slip through the union's broad
         # GeoJSONGeometry member (type is plain str) and reach
         # ST_GeomFromGeoJSON as a raw database error.
@@ -1564,7 +1562,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert typed_resp.status_code == 400
         assert "mismatch" in typed_resp.json()["detail"].lower()
 
-        # fix(#430 codex r18): typed datasets report no generic signal.
+        # Typed datasets report no generic signal.
         typed_detail = await client.get(
             f"/datasets/{test_layer.id}", headers=admin_auth_header
         )
@@ -1577,10 +1575,10 @@ class TestCreateEmptyDatasetGenericGeometry:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#430 codex r20): a dataset whose column IS typed
+        """A dataset whose column IS typed
         GEOMETRYCOLLECTION (ingested GC data — the check constraint allows the
-        type) must accept flat GeoJSON collections through the feature API;
-        r9's empty compatibility set rejected them as a mismatch. Non-collection
+        type) must accept flat GeoJSON collections through the feature API, not
+        reject them as a mismatch. Non-collection
         subtypes stay rejected (the typed column cannot store them)."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_test_table_and_dataset(
@@ -1628,12 +1626,12 @@ class TestCreateEmptyDatasetGenericGeometry:
 
 
 class TestNativeSridWrites:
-    """fix(#458 E-01): geometry writes must land in the geom column's native SRID.
+    """Geometry writes must land in the geom column's native SRID.
 
     File-ingested layers keep their source CRS in ``geom`` (the file path runs
-    ogr2ogr without -t_srs); ``ST_GeomFromGeoJSON`` emits SRID 4326, so before
-    the ST_Transform fix every geometry write on a projected-SRID dataset
-    violated the column typmod and returned 500.
+    ogr2ogr without -t_srs); ``ST_GeomFromGeoJSON`` emits SRID 4326, so without
+    an ST_Transform every geometry write on a projected-SRID dataset
+    would violate the column typmod and return 500.
     """
 
     # Empire State Building, WGS84. EPSG:2263 = NY State Plane Long Island (ft).
@@ -1753,11 +1751,11 @@ class TestNativeSridWrites:
 
 
 class TestGeometryValidity:
-    """fix(#458 E-02): degenerate/invalid geometry is rejected with 400.
+    """Degenerate/invalid geometry is rejected with 400.
 
-    Before the shapely validity gate, degenerate input 500'd at
-    ST_GeomFromGeoJSON and self-intersecting polygons persisted, then 500'd
-    later bbox/tile reads with GEOS TopologyException.
+    The shapely validity gate keeps degenerate input from 500ing at
+    ST_GeomFromGeoJSON and self-intersecting polygons from persisting and
+    later failing bbox/tile reads with GEOS TopologyException.
     """
 
     BOWTIE = {
@@ -1768,10 +1766,10 @@ class TestGeometryValidity:
         "type": "Polygon",
         "coordinates": [[[0.0, 0.0], [1.0, 1.0], [0.0, 0.0]]],
     }
-    # fix(#1778): same rectangle as POLYGON_GEOJSON, minus the closing vertex.
+    # Same rectangle as POLYGON_GEOJSON, minus the closing vertex.
     # Shapely's shape() auto-closes this and reports it valid, so it must be
-    # ACCEPTED (not rejected) — the bug was that the raw, still-open dict was
-    # the thing written to PostGIS, which does not auto-close it.
+    # ACCEPTED (not rejected), and what is written to PostGIS must be the
+    # closed ring, since PostGIS does not auto-close the raw dict.
     UNCLOSED_RING = {
         "type": "Polygon",
         "coordinates": [
@@ -1856,7 +1854,7 @@ class TestGeometryValidity:
         admin_auth_header: dict,
         polygon_layer: Dataset,
     ):
-        """fix(#1778): already-valid input keeps producing byte-identical
+        """Already-valid input keeps producing byte-identical
         GeoJSON. Writing shapely's normalized geometry instead of the raw
         client dict must not change the response for input that was already
         a closed ring.
@@ -1875,9 +1873,9 @@ class TestGeometryValidity:
         admin_auth_header: dict,
         polygon_layer: Dataset,
     ):
-        """fix(#1778): an unclosed ring on create is stored closed, and a
+        """An unclosed ring on create is stored closed, and a
         subsequent bbox read over it returns 200 with the feature instead of
-        the pre-fix unhandled 500 (GEOS "not closed" from ST_Intersects).
+        a GEOS "not closed" 500 from ST_Intersects.
         """
         resp = await client.post(
             f"/datasets/{polygon_layer.id}/features/",
@@ -1902,7 +1900,7 @@ class TestGeometryValidity:
         admin_auth_header: dict,
         polygon_layer: Dataset,
     ):
-        """fix(#1778): same guard on PUT (full replace)."""
+        """Same guard on PUT (full replace)."""
         create = await client.post(
             f"/datasets/{polygon_layer.id}/features/",
             json={"geometry": POLYGON_GEOJSON, "properties": {"name": "orig"}},
@@ -1937,7 +1935,7 @@ class TestGeometryValidity:
         admin_auth_header: dict,
         polygon_layer: Dataset,
     ):
-        """fix(#1778): same guard on PATCH (partial geometry update)."""
+        """Same guard on PATCH (partial geometry update)."""
         create = await client.post(
             f"/datasets/{polygon_layer.id}/features/",
             json={"geometry": POLYGON_GEOJSON, "properties": {"name": "orig"}},
@@ -1965,7 +1963,7 @@ class TestGeometryValidity:
 
 
 # ---------------------------------------------------------------------------
-# Editing enforcement + write-path contracts (fix #458 E-08/E-09/E-11/E-25)
+# Editing enforcement + write-path contracts
 # ---------------------------------------------------------------------------
 
 

@@ -39,7 +39,7 @@ _USE_REQUEST_DEFAULT: Any = object()
 CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
 
 
-# fix(#1937, #1938): an expired budget and a lost deadlock end an acquisition
+# An expired budget and a lost deadlock end an acquisition
 # alike, and the two send an operator looking for different things.
 _CONFLICT_REPORTS = {
     "55P03": (
@@ -75,7 +75,7 @@ def lock_conflict_report(
     return f"{event_prefix}_{suffix}", hint, code
 
 
-# fix(#1847, #1890): true from the SET LOCAL until the transaction that ran it
+# True from the SET LOCAL until the transaction that ran it
 # commits, so the boundary handler answers 409 only for a wait inside it.
 catalog_timeout_installed: ContextVar[bool] = ContextVar(
     "catalog_timeout_installed", default=False

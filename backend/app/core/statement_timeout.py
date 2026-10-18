@@ -1,7 +1,7 @@
 """API-side statement deadline: `SET LOCAL statement_timeout` on every
 transaction the API engine opens.
 
-fix(#1778): bound at the engine's `begin` event, not in `get_db` or a session
+Bound at the engine's `begin` event, not in `get_db` or a session
 default, because >20 modules open request-scoped sessions directly via
 `async_session()` and would otherwise run unbounded. Engine-scoped rather than
 via `database_connect_args`, since that module is shared with the worker
@@ -57,7 +57,7 @@ def install_api_statement_timeout(engine) -> None:
     if getattr(sync_engine, _INSTALLED_ATTR, False) is True:
         return
 
-    # fix(#1778): plain `SET LOCAL`, NOT `SELECT set_config(..., true)`
+    # Plain `SET LOCAL`, NOT `SELECT set_config(..., true)`
     # -- the SELECT form takes the transaction's first snapshot and then
     # Postgres refuses `SET TRANSACTION ISOLATION LEVEL`/`DEFERRABLE` (25001);
     # READ ONLY is unaffected either way. `SET` takes no bind parameter, so the

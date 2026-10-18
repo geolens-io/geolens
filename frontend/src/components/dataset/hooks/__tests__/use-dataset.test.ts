@@ -242,7 +242,6 @@ describe('useReuploadCommit', () => {
     });
   });
 
-  // fix(#1768): expectedOriginKind joined the positional tail.
   it('passes datasetId, jobId, sridOverride, token, layerName, expectedOriginKind, reviewFingerprint through to reuploadCommit', async () => {
     mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
     const { result } = renderWithClient();
@@ -301,9 +300,9 @@ describe('useReuploadCommit', () => {
 });
 
 /**
- * fix(#787 item 5): deleting a dataset fired three refetches at the resource that
- * had just been deleted — `/datasets/:id`, plus `/related/` and `/maps/`, which sit
- * under the ['datasets'] prefix the list invalidation matches. All three 404'd.
+ * Deleting a dataset must not refetch the resource that was just deleted:
+ * `/datasets/:id`, `/related/` and `/maps/` all sit under the ['datasets']
+ * prefix the list invalidation matches, and all three would 404.
  */
 describe('useSetDatasetRetention', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -406,14 +405,14 @@ describe('useDeleteDataset', () => {
 });
 
 /**
- * fix(#1285 codex round 2): `placeholderData: keepPreviousData` shows the
- * last successful result for ANY new query invocation, not just a re-fetch
- * of the same dataset's runs — so navigating straight from one
+ * `placeholderData: keepPreviousData` shows the last successful result for ANY
+ * new query invocation, not just a re-fetch of the same dataset's runs, so
+ * navigating straight from one
  * /datasets/:id to another briefly serves the PRIOR dataset's runs under
  * the new query key. SourceHistory already filters `versions` by
  * `dataset_id === dataset.id` for the identical reason; this hook does the
  * same for `runs` so both consumers (SourceRefreshAction's busy gate and
- * SourcePanel's Refresh history section) are fixed from one place.
+ * SourcePanel's Refresh history section) are covered from one place.
  */
 describe('useDatasetRefreshRuns', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -475,17 +474,17 @@ describe('useDatasetRefreshRuns', () => {
   });
 
   /**
-   * fix(#1328): main.tsx sets refetchOnWindowFocus: false as the GLOBAL
+   * main.tsx sets refetchOnWindowFocus: false as the GLOBAL
    * default because a refresh dispatched from the CLI or another editor's
    * session never touches this client's cache — without a per-query
    * override, this query's cached "idle" state is never re-validated by
    * returning focus to the tab. The shared test client (test-utils.tsx)
    * doesn't set that global default, so asserting against it would pass
-   * even without the fix (react-query's own default is already `true`).
+   * even without the override (react-query's own default is already `true`).
    * Build a client that mirrors main.tsx's global `false` instead, so a
    * refetch here can only be explained by this query's own override.
    *
-   * fix(#1328 codex review): the override must be 'always', not `true`.
+   * The override must be 'always', not `true`.
    * `true` only refetches when the cached data is already stale, but an
    * external run can start and this tab can regain focus inside the SAME
    * 15s staleTime window as this query's last fetch — the exact case a
@@ -493,8 +492,7 @@ describe('useDatasetRefreshRuns', () => {
    * the one `true` silently drops (worse, nothing schedules a fetch once
    * the data merely becomes stale afterward, since refetchInterval is off
    * in the idle state — the page would wait on a second, unrelated focus
-   * or a remount to notice). Assert the fresh-window case directly rather
-   * than the now-irrelevant "skipped while fresh" behavior.
+   * or a remount to notice). Assert the fresh-window case directly.
    */
   it('refetches on window focus regardless of staleness, including while data is still fresh', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -552,12 +550,11 @@ describe('useDatasetRefreshRuns', () => {
 });
 
 /**
- * fix(#1285 codex round 4): this hook is the extracted "watch a dispatched
- * refresh run" concern, meant to be mounted at the dataset PAGE level so its
- * poll and its run-id tracking survive a tab switch away from "sources"
- * (SourceRefreshAction used to own this and lived inside a Radix
- * TabsContent, which unmounts inactive tabs). The invalidation set below is
- * the full "this dataset's DATA changed" sweep — the same class of caches
+ * This hook is the "watch a dispatched refresh run" concern, mounted at
+ * the dataset PAGE level so its poll and its run-id tracking survive a tab
+ * switch away from "sources" (a Radix TabsContent unmounts inactive tabs). The
+ * invalidation set below is the full "this dataset's DATA changed" sweep — the
+ * same class of caches
  * `invalidateColumnCaches` / `invalidateFeatureDerived` in use-features.ts
  * already invalidate for a feature edit, plus versionsPrefix (a service
  * refresh writes a version; a feature edit never does).
@@ -597,10 +594,10 @@ describe('useDatasetRefreshWatch', () => {
     queryKeys.maps.columnValuesPrefix('ds-1'),
     queryKeys.maps.columnStatsPrefix('ds-1'),
     queryKeys.search.all,
-    // fix(#1285 codex round 5): staleTime Infinity, feeds the persistent
+    // staleTime Infinity, feeds the persistent
     // ingest-warnings banner (mirrors useReuploadCommit's own invalidation).
     queryKeys.ingest.jobStatusByDataset('ds-1'),
-    // fix(#1285 codex round 5): the joined related-record rows a mounted
+    // The joined related-record rows a mounted
     // RelatedRecordsPanel section renders — stale after a data replace.
     queryKeys.relationships.recordsPrefix('ds-1'),
     // Relationship lists carry broken flags that depend on either endpoint.
@@ -676,11 +673,11 @@ describe('useDatasetRefreshWatch', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // fix(#1285 codex round 5): the core round-5 bug. Round 4 gated the whole
-  // invalidation effect on `latestRunId === dispatchedRunId`, so a run this
+  // The invalidation effect must not be gated on
+  // `latestRunId === dispatchedRunId`: a run this
   // hook never dispatched — the CLI, another editor's session, or one
   // already active when this hook mounted — could transition all the way to
-  // terminal under this hook's OWN continuous polling and invalidate
+  // terminal under this hook's OWN continuous polling and would invalidate
   // nothing. dispatchedRunId stays null for the hook's entire lifetime here.
   it('invalidates everything when an OBSERVED run transitions active -> terminal, even though this hook never dispatched it', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

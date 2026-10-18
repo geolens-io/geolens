@@ -34,7 +34,7 @@ interface DetailPanelProps {
   isTableExpanded?: boolean;
   onToggleTableExpand?: () => void;
   /**
-   * fix(#1285 codex round 4): owned by the dataset page (useDatasetRefreshWatch)
+   * Owned by the dataset page (useDatasetRefreshWatch)
    * rather than by SourceRefreshAction itself, because the "sources" tab
    * content unmounts on tab switch (Radix Tabs) and would otherwise drop a
    * dispatched run's tracking mid-poll. Required — the only real caller
@@ -67,7 +67,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const isTable = recordType === 'table';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
-  // fix(#1285 codex round 1): origin PRESENCE isn't the refresh door's gate —
+  // Origin PRESENCE isn't the refresh door's gate —
   // `dataset.origin` is the server-computed field (datasetOrigin() is the
   // client-side fallback for older payloads that predate it), but an upload,
   // created, or STAC origin is just as resolvable as a service or postgis
@@ -87,7 +87,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const showData = isVector;
   const showStructure = isVector;
 
-  // fix(#649): a deep link can leave activeTab pointing at a tab whose
+  // A deep link can leave activeTab pointing at a tab whose
   // trigger/content are hidden (for example ?tab=data on a raster); Radix
   // controlled tabs then render nothing below the tab list. Clamp to Overview
   // whenever the selected tab isn't visible.

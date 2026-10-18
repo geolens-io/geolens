@@ -1,9 +1,9 @@
 """Catalog record-type vocabulary shared across layers.
 
-fix(#836): the raster-family membership check was pasted as a tuple/set
-literal across modules/, processing/, and standards/ — one divergent copy is
-where the next "forgot vrt_dataset" bug hides, so it's defined once here in
-``core``, the only layer every other layer may import.
+The raster-family membership check is defined once here in ``core``, the
+only layer every other layer may import, since a tuple/set literal copied
+across modules/, processing/ and standards/ is where a "forgot vrt_dataset"
+bug hides.
 
 A tuple (not a frozenset) so SQLAlchemy ``.in_()`` renders deterministically.
 

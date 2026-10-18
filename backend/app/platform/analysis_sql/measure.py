@@ -10,7 +10,7 @@ Import via the ``app.platform.analysis_sql`` façade, never from here.
 
 from __future__ import annotations
 
-# fix(#954): metres on the wire, matching the buffer distance convention
+# Metres on the wire, matching the buffer distance convention
 # (AnalysisPanel's BUFFER_UNIT_METERS). ST_Area(geography)/ST_Length(geography)
 # already return square metres/metres, so nothing here converts.
 MEASURE_AREA_COLUMN = "area_sqm"
@@ -19,19 +19,20 @@ MEASURE_OUTPUT_COLUMNS = (MEASURE_AREA_COLUMN, MEASURE_LENGTH_COLUMN)
 
 
 def render_measure_columns(*, src: str = "") -> tuple[str, str]:
-    """Render the measured columns and the cast that feeds them (fix(#954)).
+    """Render the measured columns and the cast that feeds them.
 
     Returns ``(select_columns, join_clause)`` in the same shape
     ``render_spatial_join`` uses, so preview and CTAS compose identically.
 
     BOTH columns are always emitted, never picked by the catalog's
     ``geometry_type`` — that type is classified from the dataset's first
-    feature (same trap as fix(#682)), so a table typed POLYGON can hold line
-    rows. ``ST_Length`` of a polygon and ``ST_Area`` of a line are both 0, so
-    emitting both measures a mixed table correctly throughout.
+    feature (the catalog's type can be wrong for mixed tables), so a table
+    typed POLYGON can hold line rows. ``ST_Length`` of a polygon and
+    ``ST_Area`` of a line are both 0, so emitting both measures a mixed table
+    correctly throughout.
 
     The ``::geography`` cast is hoisted into a lateral behind ``OFFSET 0`` so
-    it runs ONCE per row and feeds both accessors (fix(#700) shape); inlined,
+    it runs ONCE per row and feeds both accessors; inlined,
     each reference casts the geometry again, which is expensive on large
     inputs.
 
@@ -53,7 +54,7 @@ def render_measure_columns(*, src: str = "") -> tuple[str, str]:
 
 
 def render_measure_expr() -> tuple[str, str]:
-    """Measure's per-row geometry: the source feature, unchanged (fix(#954)).
+    """Measure's per-row geometry: the source feature, unchanged.
 
     Deliberately NOT ST_MakeValid'd, unlike other operations: output IS
     input, so returning a repaired copy would change data the user never

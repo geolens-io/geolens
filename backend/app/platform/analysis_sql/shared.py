@@ -28,34 +28,34 @@ from shapely.geometry import shape
 MAX_BUFFER_METERS = 100_000.0
 MAX_MASK_VERTICES = 5_000
 
-# fix(#693): the materialize path unions the mask layer WHOLE, and the
+# The materialize path unions the mask layer WHOLE, and the
 # preview pays a per-request subdivide pass over every mask row — both scale
 # with the layer, and neither is bounded by any row limit.
 MAX_MASK_LAYER_FEATURES = 1_000
 
-# fix(#694): per-operation source-size ceilings, keyed by amplification
+# per-operation source-size ceilings, keyed by amplification
 # shape. dissolve: ST_Union memory scales with input — ~1M polygons
 # OOM-kills a 2 GB db container and takes every connection with it, so 250k
 # keeps 4x headroom. buffer: output-amplifying with no byte quota on vector
-# datasets, so the source itself is bounded (fix(#956): intersect amplifies
-# too, along a different axis — buffer grows each geometry, intersect
+# datasets, so the source itself is bounded (intersect amplifies
+# too, along a different axis: buffer grows each geometry, intersect
 # multiplies rows).
 # Enforced twice with LIMIT-bounded live counts: at enqueue (fast 422) and
 # again in the worker before the CTAS — the queue wait can be long enough
-# for a re-upload to cross the cap (fix(#701)).
-# fix(#953): spatial_join probes the join layer once per source row (cost =
+# for a re-upload to cross the cap.
+# spatial_join probes the join layer once per source row (cost =
 # source rows x per-row lookup, not buffer's flat per-row expression), so it
 # takes dissolve's 250k rather than buffer's 500k.
-# fix(#954): measure is the cheapest operation here (one geography cast, two
+# Measure is the cheapest operation here (one geography cast, two
 # accessors, no amplification, no second layer), so its ceiling is the most
 # generous.
-# fix(#955): select_by_location has spatial_join's cost shape, so it takes
+# select_by_location has spatial_join's cost shape, so it takes
 # the same 250k. clip is deliberately absent/uncapped — its mask layer is
 # what's bounded (MAX_MASK_LAYER_FEATURES), not its source.
 # The router reads this dict with .get() and skips the gate when a key is
 # absent, so an operation missing here has NO ceiling, not a default one —
 # every operation above needs an explicit entry for that reason.
-# fix(#956): intersect's output row count isn't bounded by its source count,
+# intersect's output row count isn't bounded by its source count,
 # so its ceiling was measured, not guessed. Benchmarked against a
 # 972-polygon/249,804-vertex mask (same yardstick as render_clip_layer_join's
 # docstring), varying overlap:
@@ -98,16 +98,15 @@ _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
 # cosmetic: a source dataset can carry an ordinary attribute column named
 # "geom_out", and an unqualified reference then becomes a planner-level
 # "column reference \"geom_out\" is ambiguous" error that fails the whole
-# clip (fix(#719)) — the preview has the same latent fault even
+# clip. The preview has the same latent fault even
 # though it selects no carry columns, since it still joins _src.
 LATERAL_ALIAS = "_op"
 
 # Rows an analysis produced nothing for. Both consumers of the lateral shape
-# must filter on this: the preview because the sandbox row cap counts raw rows
-# (fix(#680)), the materialize worker because the output-size ceiling is
-# checked against the CTAS before the NULL/EMPTY cleanup runs (fix(#719
-# review)). Naming it once keeps the saved dataset and the approved preview
-# from drifting apart.
+# must filter on this: the preview because the sandbox row cap counts raw rows,
+# the materialize worker because the output-size ceiling is checked against
+# the CTAS before the NULL/EMPTY cleanup runs. Naming it once keeps the saved
+# dataset and the approved preview from drifting apart.
 NOT_EMPTY_PREDICATE = (
     f"{LATERAL_ALIAS}.geom_out IS NOT NULL AND NOT ST_IsEmpty({LATERAL_ALIAS}.geom_out)"
 )
@@ -125,17 +124,17 @@ DATELINE_WRAP_SPAN_DEG = 180
 # fits inside a single UTM zone (6° of longitude). Measured on PostGIS 3.6,
 # the switch away from the UTM zone happens exactly at a 6.0° span, so the
 # guard in ``render_geodesic_buffer`` tests ``>=``, not ``>``.
-# fix(#902): the same constant is the slice width for wider inputs — slicing
+# The same constant is the slice width for wider inputs — slicing
 # at the number the gate tests keeps one threshold.
 #
-# fix(#1089): the three BUFFER_SLICE constants stay here, not in
+# The three BUFFER_SLICE constants stay here, not in
 # ``transform`` with their only caller — they're the antimeridian threshold
 # set ``render_dateline_safe`` reasons about in the same ±180/one-UTM-zone
 # terms and have to be read together. A family that later emits
 # seam-crossing geometry needs the same numbers, not a second opinion.
 BUFFER_LOCAL_SRID_SPAN_DEG = 6
 
-# fix(#902): before a wide input is sliced into longitude bands, its edges
+# Before a wide input is sliced into longitude bands, its edges
 # are densified along GREAT CIRCLES (``ST_Segmentize`` on geography) at this
 # max edge length. Geography edges are geodesics, so cutting the bare planar
 # chord buffers a different line: for ``LINESTRING(0 45, 90 45)`` the
@@ -145,7 +144,7 @@ BUFFER_LOCAL_SRID_SPAN_DEG = 6
 # issue's piecewise ground truth.
 BUFFER_SLICE_SEGMENTIZE_M = 20_000
 
-# fix(#902): POLYGONAL components are densified PLANAR-ly instead —
+# POLYGONAL components are densified PLANAR-ly instead —
 # geography-segmentizing a ring reinterprets its long planar edges as great
 # arcs and moves the region itself (a 0..90 rectangle's lat-45 interior
 # point fell outside its own "segmentized" area). Rings keep their stored
@@ -154,7 +153,7 @@ BUFFER_SLICE_SEGMENTIZE_M = 20_000
 # the planar edge.
 BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG = 0.1
 
-# fix(#1097): the prefix every INTERNAL column alias in a rendered
+# The prefix every INTERNAL column alias in a rendered
 # statement carries, and which a carried column may therefore not start
 # with. The output-collision guards reserve names that reach the OUTPUT
 # (join_count, source_gid) but said nothing about aliases invented along the
@@ -169,7 +168,7 @@ BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG = 0.1
 # filters). Reserving the namespace covers an alias added later by
 # construction.
 #
-# fix(#1089): central, not in ``overlay`` with today's only three aliases —
+# Central, not in ``overlay`` with today's only three aliases —
 # the rule's whole point is covering an alias added LATER, possibly by
 # another family, which an overlay-owned constant couldn't credibly do.
 INTERNAL_ALIAS_PREFIX = "_gl_"
@@ -179,11 +178,10 @@ INTERNAL_ALIAS_PREFIX = "_gl_"
 #
 # Here rather than in either caller: dissolve's by_field guard needs it at
 # enqueue (the router) and again after the queue wait (the worker), and the
-# worker must not import from the API layer. Intersect used to need it too
-# (it grouped by every carried overlay column) until fix(#1099) moved those
-# attributes out of the GROUP BY.
+# worker must not import from the API layer. Intersect doesn't need it: carried
+# overlay attributes stay out of its GROUP BY.
 #
-# fix(#1089): not moved into ``transform`` with dissolve — it's a
+# Not moved into ``transform`` with dissolve — it's a
 # PostgreSQL capability fact with no rendered statement behind it, and its
 # consumer set has already crossed a family boundary once inside a single
 # release.
@@ -193,7 +191,7 @@ NON_GROUPABLE_COLUMN_TYPES = frozenset({"json", "xml"})
 def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     """Split antimeridian-wrapping output of ``geom_expr`` at ±180.
 
-    fix(#697): ``ST_Buffer(...::geography, d)::geometry`` normalizes
+    ``ST_Buffer(...::geography, d)::geometry`` normalizes
     longitude into [-180, 180], so a buffer crossing the antimeridian comes
     back as ONE planar polygon with vertices on both sides of the seam.
     Probed on PostGIS 3.6: a 10 km buffer of a point at lon 179.95/lat 45
@@ -208,8 +206,8 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     far side back by -360, and keeps the polygonal components — a valid
     multipart geometry inside [-180, 180].
 
-    Decided PER POLYGON COMPONENT, not the whole buffer's envelope
-    (fix(#883)): one source feature can put components at both seams
+    Decided PER POLYGON COMPONENT, not the whole buffer's envelope: one
+    source feature can put components at both seams
     (a MULTIPOINT holding (179.95, 45) and (0, 45) buffers to one
     antimeridian-wrapping polygon plus one Greenwich-straddling polygon),
     and those two want opposite treatment. Sweeping the second point's
@@ -259,15 +257,15 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     common path.
 
     ``geom_expr`` runs inside an ``OFFSET 0``-fenced subquery — the same
-    pull-up fence ``_wrap_not_empty`` and ``build_preview_sql`` use
-    (fix(#700)), since the CASE references the geometry several
-    times; the per-component shifted copy is fenced the same way so
+    pull-up fence ``_wrap_not_empty`` and ``build_preview_sql`` use, since
+    the CASE references the geometry several times; the per-component
+    shifted copy is fenced the same way so
     ``ST_ShiftLongitude`` also runs once per component (``EXPLAIN VERBOSE``
     over 2,000 rows keeps ``ST_Buffer`` at one evaluation per row).
 
     NOT fixed here, deliberately: a dataset genuinely straddling the seam
     still registers a -180..180 ``spatial_extent``. The column isn't what
-    stops it — fix(#892) widened the typmod to ``geometry(Geometry, 4326)``
+    stops it: the typmod is widened to ``geometry(Geometry, 4326)``
     with ``chk_records_spatial_extent_type`` allowing POLYGON/MULTIPOLYGON
     (the two-ring form RFC 7946 §5.2's west>east bbox corresponds to,
     already used by the STAC harvest path). What flattens the extent is the
@@ -310,7 +308,7 @@ def render_mask_expr(mask: dict[str, Any]) -> str:
 
     Raises ValueError on anything that is not a usable Polygon/MultiPolygon.
 
-    fix(#1089): central rather than in ``overlay`` with today's only two
+    Central rather than in ``overlay`` with today's only two
     callers, because this function IS the injection boundary the package
     docstring describes — the one place untrusted GeoJSON becomes SQL text.
     Whoever adds a family that accepts a drawn geometry must reuse it, and a
@@ -348,15 +346,15 @@ def render_mask_expr(mask: dict[str, Any]) -> str:
 def render_bbox_predicate(bbox: list[float], *, src: str) -> str:
     """Render a viewport-scope prefilter: ``&&`` against a GIST-indexed column.
 
-    fix(#727): a capped preview's ``ORDER BY gid`` returns the first
+    A capped preview's ``ORDER BY gid`` returns the first
     ``PREVIEW_FEATURE_CAP`` rows in ingest order — usually the source file's
     order, usually spatially clustered. A 500-row cap over a 22k-feature
     layer then draws two arbitrary clumps instead of a spatial sample, which
     reads as a failed operation. Scoping source rows to the map's current
     viewport BEFORE the cap applies turns the 500 rows into "the operation
     applied to what is on screen", without touching ``ORDER BY gid`` itself
-    (which is what lets the row cap stop the scan early — see the
-    ``fix(#700)`` comment on the lateral shape this predicate joins).
+    (which is what lets the row cap stop the scan early; see the
+    comment on the lateral shape this predicate joins).
 
     ``&&`` (bounding-box overlap), not ``ST_Intersects`` — callers that need
     exact intersection add their own ``ST_Intersects`` beside their own

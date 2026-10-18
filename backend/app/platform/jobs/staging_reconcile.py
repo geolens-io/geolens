@@ -1,4 +1,4 @@
-"""Reconcile real staging objects against ingest-job rows (fix(#1249)).
+"""Reconcile real staging objects against ingest-job rows.
 
 Every other staging reaper starts from a ROW and asks what object it owns.
 This one starts from the OBJECT and asks whether any row still owns it — the
@@ -67,7 +67,7 @@ log = structlog.get_logger()
 # ours, so the pass runs on S3 storage only (see the gate in `_reconcile`).
 STAGING_PREFIX = "staging/"
 
-# fix(#1249): two budgets, checked between provider pages, because the
+# Two budgets, checked between provider pages, because the
 # pass holds its advisory-lock transaction open the whole time and a
 # `staging/` prefix has no upper bound. Leftovers are not urgent — they are
 # already-leaked bytes, and the sweep runs every few minutes.
@@ -78,7 +78,7 @@ _MAX_DELETES_PER_PASS = 200
 # million tracked-and-old objects would be paged through every cycle for nothing.
 _MAX_OBJECTS_SCANNED_PER_PASS = 20_000
 
-# fix(#1249): where the next pass resumes, per physical prefix. Without
+# Where the next pass resumes, per physical prefix. Without
 # it every pass re-walks the same lexicographically first window and an
 # orphan sorting later would never be reached. Advanced to the last key
 # examined on a budget stop, cleared when a pass completes the whole prefix.
@@ -194,7 +194,7 @@ def _job_id_from_key(logical_key: str) -> uuid.UUID | None:
 def _reference_clause(job_id: uuid.UUID | None, logical_keys: set[str]):
     """Every way an ``ingest_jobs`` row can still need a staging object.
 
-    fix(#1249): the key's own job segment is NOT the whole
+    The key's own job segment is NOT the whole
     ownership story — fan-out proves it. ``create_fan_out_jobs`` clones the
     parent's ``file_path`` onto every child, so a child's only input is the
     PARENT's frozen object; the purge's survivor query keeps that object
@@ -327,7 +327,7 @@ async def _reconcile(db: AsyncSession, *, now: datetime) -> StagingReconcileOutc
     from app.platform.storage import get_storage
 
     if settings.storage_provider != "s3":
-        # fix(#1249): `staging/` is exclusively the upload
+        # `staging/` is exclusively the upload
         # system's namespace only in a BUCKET. On the local backend the same
         # prefix also holds operator-staged manifest seed files
         # (`classify_manifest_source`) — deleting one there is not a leaked
@@ -371,11 +371,11 @@ async def _reconcile_locked(
 ) -> StagingReconcileOutcome:
     """The pass body, entered only with the advisory lock held.
 
-    Page at a time; both budgets are checked between pages (fix(#1249) r1). A
+    Page at a time; both budgets are checked between pages. A
     budget stop leaves a cursor so the next pass resumes rather than
-    re-walking the same window (r2 — see ``_scan_cursors``).
+    re-walking the same window (see ``_scan_cursors``).
 
-    The scan is CIRCULAR (r7, codex P2): cursor to end, then front to cursor
+    The scan is CIRCULAR: cursor to end, then front to cursor
     with whatever budget is left. A one-directional scan from a random start
     is a sample, not a rotation — a recycled worker would only ever see
     suffixes. With the wrap, one unbudgeted pass covers the whole prefix.
@@ -505,10 +505,10 @@ async def _delete_page_orphans(
     so the caller can resume there rather than past the candidates it never
     reached; ``None`` when the whole page was worked through.
     """
-    # fix(#1249): one query per page, not per pass — page size (1000 on
+    # One query per page, not per pass — page size (1000 on
     # S3/Azure) keeps these INs under the bind-parameter ceiling. Same two
     # predicates as `_reference_clause`, not a Python re-derivation, so a
-    # broader pre-filter can't hide candidates the recheck never sees (r4/r6).
+    # broader pre-filter can't hide candidates the recheck never sees.
     logical_keys = {candidate.logical_key for candidate in candidates}
     shielding_ids = set(
         (
@@ -560,7 +560,7 @@ async def _delete_page_orphans(
             )
             continue
         tally.orphans_deleted += 1
-        # fix(#1249): published here, not batched to the pass
+        # Published here, not batched to the pass
         # end — the object is already gone, so a later error must not take
         # this count with it. Runs strictly after the delete returned, so it
         # counts completions, not intentions.

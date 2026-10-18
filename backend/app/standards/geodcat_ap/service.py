@@ -102,11 +102,11 @@ def record_to_geodcat_ap(
     """Serialize a GeoLens dataset to GeoDCAT-AP 2.0.0 JSON-LD.
 
     ``dataset`` needs ``record`` and its keywords/contacts/distributions
-    eager-loaded. ``app_base_url`` — fix(#1469): the raster tile
+    eager-loaded. ``app_base_url``: the raster tile
     template is served there, not under the API base. ``include_context``:
     False for entries nested in a catalog feed to avoid duplication.
     ``lineage_summary`` (``dcterms:provenance``) arrives already
-    access-checked by the caller — fix(#1103): not read off the record,
+    access-checked by the caller, not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. ``has_raster_asset`` gates the COG download
     distribution the same way. A VRT shows only the extent
@@ -377,7 +377,7 @@ def _spatial_to_geodcat_ap(record: Record, spatial_extent: object) -> dict | Non
         return None
     from app.core.geo import extent_to_span_bbox
 
-    # fix(#892): the GeoSPARQL wktLiteral below is a planar ring, which cannot
+    # The GeoSPARQL wktLiteral below is a planar ring, which cannot
     # express RFC 7946's west > east crossing bbox -- a ring built from one
     # silently becomes the complementary 340°. Take the monotonic span, so a
     # seam-crossing extent serializes over-broad (-180..180) but honest.

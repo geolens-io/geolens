@@ -90,7 +90,7 @@ async def enforce_limit(request: Request | None, dimension: str, n: int) -> None
     The cloud overlay provides the real implementation that reads the
     ``tenant_entitlements`` table and enforces plan-level hard caps.
 
-    fix(#1710): ``request`` is accepted and unused — the port is resolved
+    ``request`` is accepted and unused — the port is resolved
     from tenant context, not the request — so a worker-side caller passes
     None instead of forking the check.
     """

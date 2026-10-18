@@ -26,7 +26,7 @@ class AppSetting(Base):
 class SecurityRevocationGeneration(Base):
     """One row, one number: the cluster-global revocation generation.
 
-    fix(#1778): declared here rather than in a domain package because no
+    Declared here rather than in a domain package because no
     domain owns it — it is the counter every worker consults to decide
     whether a cached AUTHORIZATION decision predates the latest revocation,
     and ``app/platform/cache/revocation.py`` (which may not import from

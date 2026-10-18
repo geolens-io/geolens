@@ -42,7 +42,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 # PostgreSQL OID / OID-alias types. The ``reg*`` family resolves an integer OID
 # to a catalog NAME (role, relation, namespace, function, type), and the family
-# is the building block of ``::oid::regrole`` chains (fix(#565)).
+# is the building block of ``::oid::regrole`` chains.
 _OID_ALIAS_TYPES: frozenset[str] = frozenset(
     {
         "oid",
@@ -114,7 +114,7 @@ _BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
     }
 )
 
-# fix(#1778): sqlglot gives only SOME parenless identity keywords a Func
+# Sqlglot gives only SOME parenless identity keywords a Func
 # subclass -- `user`, `current_role` and `system_user` parse as exp.Column and
 # never reach the allowlist walk. `t.user` and `"user"` stay allowed.
 _BLOCKED_NILADIC_KEYWORDS: frozenset[str] = frozenset(
@@ -331,7 +331,7 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
         )
 
 
-# fix(#1001/#1589): the canonical geodesic buffer, recognized whole -- nothing
+# The canonical geodesic buffer, recognized whole -- nothing
 # is admitted per call. A subtree is exempt only when re-rendering the template
 # around its extracted input gives an equal AST; the input itself is not.
 
@@ -429,7 +429,7 @@ _MAX_LINEAGE_HOPS = 4
 
 # The managed 4326 geometry column. Ingest keeps the ORIGINAL `geom` in
 # whatever CRS it arrived in and adds this one alongside, so "reached a base
-# table" is not "reached a bounded geometry" (fix(#1001)).
+# table" is not "reached a bounded geometry".
 _MANAGED_GEOMETRY_COLUMN = "geom_4326"
 
 
@@ -562,8 +562,8 @@ def _derived_select(source: exp.Expression, owner: exp.Select) -> exp.Select | N
         return None
     if isinstance(source, exp.Table):
         # Schema-less: a reference to a CTE, resolved by the CTE's OWN name
-        # rather than by the binding name — `FROM bad AS x` binds x to bad
-        # (fix(#1001)).
+        # rather than by the binding name — `FROM bad AS x` binds x to
+        # bad.
         definition = _cte_definition(owner, source.name)
         return definition if isinstance(definition, exp.Select) else None
     if isinstance(source, exp.Subquery) and isinstance(source.this, exp.Select):
@@ -734,7 +734,7 @@ def _canonical_buffer_exempt_ids(stmt: exp.Expression) -> set[int]:
 
 # Statement types that write, listed explicitly rather than by sqlglot base
 # class: `exp.DDL` and `exp.DML` do not partition the way the names suggest
-# (Insert is both, Drop and Alter are neither). fix(#1011): nested ones too.
+# (Insert is both, Drop and Alter are neither). Nested ones count too.
 _MUTATING_STATEMENTS: tuple[type[exp.Expression], ...] = (
     exp.Insert,
     exp.Update,
@@ -909,12 +909,12 @@ def _check_function_allowlist(
     _check_niladic_keywords(stmt, sql)
     buffer_scaffold = _canonical_buffer_exempt_ids(stmt)
     for func in stmt.find_all(exp.Func):
-        # fix(#538): sqlglot models AND/OR as Func subclasses, but a Connector
+        # Sqlglot models AND/OR as Func subclasses, but a Connector
         # is a boolean operator rather than a callable. find_all walks its
         # operands regardless, so nothing inside escapes the allowlist.
         if isinstance(func, exp.Connector):
             continue
-        # fix(#1017): sqlglot reaches EXISTS through the same Func path, but it
+        # Sqlglot reaches EXISTS through the same Func path, but it
         # is a subquery predicate rather than a callable. find_all walks its
         # operand regardless.
         if isinstance(func, exp.Exists):
@@ -924,13 +924,13 @@ def _check_function_allowlist(
         if fn_name in _BLOCKED_FUNCTIONS or (
             extra_blocked is not None and fn_name in extra_blocked
         ):
-            # fix(#565): `extra_blocked` lets the raw-SQL endpoint drop
+            # `extra_blocked` lets the raw-SQL endpoint drop
             # output-amplifying functions that neither the SQL-length cap nor
             # row_limit bounds, while AI chat keeps them.
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
-        # fix(#1001): the sixteen names the canonical buffer needs are admitted
+        # The sixteen names the canonical buffer needs are admitted
         # here and nowhere else. The BLOCKED check above still runs, so a
         # renderer change could never smuggle a blocked function in.
         if id(func) in buffer_scaffold:
@@ -954,7 +954,7 @@ def _check_function_allowlist(
 def _strip_statement_terminator(sql: str) -> str:
     """Drop the whole trailing run of ``;`` and anything after it.
 
-    fix(#1892): ``execute_safe`` splices the validated SQL into
+    ``execute_safe`` splices the validated SQL into
     ``SELECT * FROM (<sql>) AS _q LIMIT n``, and a terminator inside those
     parentheses is a syntax error. Cutting at the first of the trailing
     SEMICOLON *tokens* takes ``;;`` and ``; ;`` (ordinary paste damage) with it,
@@ -991,7 +991,7 @@ def validate_sql(
         sql = _strip_statement_terminator(sql)
         statements = sqlglot.parse(sql, dialect="postgres")
     except sqlglot.errors.SqlglotError as exc:
-        # fix(#1778): TokenError (an unterminated literal, identifier, comment
+        # TokenError (an unterminated literal, identifier, comment
         # or dollar-quote) is a SIBLING of ParseError under SqlglotError, so
         # catching ParseError alone surfaced the commonest typo as a 500.
         logger.info("sandbox.parse_error", sql=sql, error=str(exc))
@@ -1024,7 +1024,7 @@ def validate_sql(
 
     _reject_oversized_values(stmt, sql, max_values_rows)
 
-    # fix(#565): `||` is string concatenation, an output amplifier
+    # `||` is string concatenation, an output amplifier
     # equivalent to concat, and an exp.DPipe operator rather than a Func, so
     # the function blocklist misses it. Blocked when the caller blocks concat.
     if (
@@ -1049,7 +1049,7 @@ def validate_sql(
     # access-checked. Everything left must pass the data.* check.
     tables: set[tuple[str, str]] = set()
     for table in stmt.find_all(exp.Table):
-        # fix(#565): fold unquoted identifiers as PostgreSQL resolves them
+        # Fold unquoted identifiers as PostgreSQL resolves them
         # BEFORE the access check -- `FROM DATA.ROADS` resolves to `data.roads`,
         # so comparing the preserved case would 404 a readable table.
         schema = _folded_identifier(table.args.get("db")) or ""
@@ -1105,7 +1105,7 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
                         return c
         elif isinstance(node, _SCOPE_TYPES):
             # The WITH's arg key has drifted across sqlglot releases
-            # ("with" -> "with_"), so find it by type. fix(#565): a WITH
+            # ("with" -> "with_"), so find it by type. A WITH
             # over a UNION attaches to the exp.Union, not to its branches.
             with_clause = next(
                 (c for c in node.iter_expressions() if isinstance(c, exp.With)),
@@ -1164,7 +1164,7 @@ _SCOPE_TYPES: tuple[type[exp.Expression], ...] = (
     exp.Except,
 )
 
-# fix(#565): a synthetic key for the TOTAL cross-product degree.
+# A synthetic key for the TOTAL cross-product degree.
 # Per-base-table exponents catch SELF-join amplification, but three DISTINCT
 # tables cross-joined is N*M*K with each at exponent 1, so the max misses it.
 _XPROD_KEY: tuple[str, str] = ("", "__xprod__")
@@ -1295,7 +1295,7 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # reject) is scanned once.
         return {(source.db or "", source.name): 1}
     if isinstance(source, exp.Lateral):
-        # fix(#565): a LATERAL re-evaluates per outer row and its OUTPUT
+        # A LATERAL re-evaluates per outer row and its OUTPUT
         # rows join into the FROM product, so it is a row source like a derived
         # table. Its INTERNAL per-row work is added in _work_fanout.
         inner = _lateral_inner_scope(source)
@@ -1304,12 +1304,12 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         inner = source.this
         if isinstance(inner, _SCOPE_TYPES):
             return _rows_fanout(inner, memo)
-        # fix(#565): a parenthesized FROM join group is a Subquery wrapping
+        # A parenthesized FROM join group is a Subquery wrapping
         # a Table that carries its joins in `.args["joins"]`, not a SELECT, so
         # cost the head and every joined source rather than reporting 0.
         return _group_fanout(inner, memo)
     if isinstance(source, exp.Values):
-        # fix(#565): a constant VALUES relation contributes rows, and
+        # A constant VALUES relation contributes rows, and
         # ALL VALUES share ONE key -- per-node ids let k distinct VALUES each
         # report 1 and slip 256^k combinations.
         return {("", "__values__"): 1}
@@ -1506,7 +1506,7 @@ def _correlated_scopes(
                 # own per-row predicate.
                 break
             elif isinstance(ancestor, exp.AggFunc):
-                # fix(#565): an aggregate ARGUMENT (or FILTER) is evaluated
+                # An aggregate ARGUMENT (or FILTER) is evaluated
                 # for every INPUT row, so the ungrouped-aggregate reduction
                 # must NOT zero its multiplier.
                 under_aggregate = True
@@ -1514,7 +1514,7 @@ def _correlated_scopes(
             ancestor = ancestor.parent
         if clause is None:
             continue
-        # fix(#565): classified by the clause that runs the scope.
+        # Classified by the clause that runs the scope.
         # Only per-output work shrinks when the SELECT aggregates, EXCEPT an
         # aggregate argument; LIMIT / OFFSET are evaluated ONCE.
         if isinstance(clause, (exp.Limit, exp.Offset)):
@@ -1552,8 +1552,8 @@ def _work_fanout(
     out = dict(input_rows)
     if isinstance(node, exp.Select):
         # SIBLING per-row scopes run additively, so combine each group by the
-        # per-table MAX rather than the sum (fix(#565): summing rejects
-        # a legitimate query with two scalar subqueries over one table).
+        # per-table MAX rather than the sum: summing rejects
+        # a legitimate query with two scalar subqueries over one table.
         per_input, per_output, per_statement = _correlated_scopes(node)
         pin: _FanoutMap = {}
         for scope in per_input:

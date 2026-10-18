@@ -51,7 +51,7 @@ class DatasetRefreshRun(Base):
             "OR (trigger <> 'scheduled' AND scheduled_for IS NULL)",
             name="chk_refresh_runs_scheduled_identity",
         ),
-        # fix(#1325): origin_kind is the run's execution DOOR, written once
+        # origin_kind is the run's execution DOOR, written once
         # by create_pending_run at commit time and never updated afterward.
         # It is NOT the dataset's current origin — ORIGIN_KINDS/classify_origin()
         # in platform/dataset_origin.py recompute that live from the

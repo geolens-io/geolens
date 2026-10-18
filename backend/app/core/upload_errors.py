@@ -1,6 +1,6 @@
 """The refusal an upload's own content earns, in a module every layer may import.
 
-fix(#1846): raised where content is inspected
+Raised where content is inspected
 (``processing/ingest/validation.py``) but caught where the refusal becomes a
 response, including ``modules/catalog/datasets/api/router_reupload.py`` —
 which may not import ``app.processing.*`` (``tests/test_layering.py``). Lives
@@ -15,7 +15,7 @@ constructions.
 
 from collections.abc import Mapping
 
-#: fix(#2031): one wording for the two doors that can see the loss coming.
+#: One wording for the two doors that can see the loss coming.
 _GEOMETRY_LOSS_MESSAGE = (
     "The replacement has no geometry, and this dataset stores geometry. "
     "Replacing it would leave the dataset a plain table, so nothing was "
@@ -31,7 +31,7 @@ def geometry_loss_refusal(
 ) -> str | None:
     """The refusal when a replacement would strip a vector dataset's geometry.
 
-    fix(#2031): a geometry-less CSV over a vector dataset committed with no
+    A geometry-less CSV over a vector dataset committed with no
     warning and reclassified it ``table`` — the cross-record-type swap the
     re-upload doors already refuse when they can read it off an extension.
 
@@ -62,7 +62,7 @@ class CodedRefusal(ValueError):
 class IngestCeilingError(CodedRefusal):
     """A refusal whose text names an ingest ceiling, the value, and the way out.
 
-    fix(#2043): a marker base, mixed into ``processing.ingest.ogr.
+    A marker base, mixed into ``processing.ingest.ogr.
     IngestBudgetExceededError`` so that class stays an ``IngestionError`` for
     the worker while the re-upload preview, which may not import
     ``app.processing.*``, can still catch it and pass its text through.

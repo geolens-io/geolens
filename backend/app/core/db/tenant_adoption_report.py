@@ -430,7 +430,7 @@ def _tenant_verdict(
 
 def _format_tenants(report: AdoptionReport) -> list[str]:
     if not report.before:
-        # fix(#998): a tenant provisioned after the empty snapshot makes
+        # A tenant provisioned after the empty snapshot makes
         # report.ok false; "nothing to adopt" while exiting 1 would hide the
         # one condition the operator has to act on.
         if report.tenants_added_during_run:

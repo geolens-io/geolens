@@ -1,6 +1,6 @@
 """The trust boundary between catalog-derived text and instructions.
 
-fix(#1778): the tag, the strip pattern, and the wrapper live in one
+The tag, the strip pattern, and the wrapper live in one
 module so there is exactly one fence. Both ``chat_constants`` and
 ``ai_tool_payloads`` import from here.
 """
@@ -12,7 +12,7 @@ import re
 #: The one marker. Nothing else may spell it.
 UNTRUSTED_FENCE_TAG = "untrusted_dataset_content"
 
-# fix(#1778): matches open/close case-insensitively so content cannot
+# Matches open/close case-insensitively so content cannot
 # close the fence early and escape into the untrusted region.
 FENCE_TAG_PATTERN = re.compile(
     rf"<\s*/?\s*{UNTRUSTED_FENCE_TAG}\b[^>]*>", re.IGNORECASE

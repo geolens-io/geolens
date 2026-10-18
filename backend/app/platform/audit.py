@@ -40,7 +40,7 @@ class AuditEvent:
 def _event_fields(event: AuditEvent) -> dict:
     """Every field of a dropped event, so the log IS the fallback audit record.
 
-    fix(#1491): the previous drop-path log omitted the actor, address and
+    The previous drop-path log omitted the actor, address and
     payload — the audit content itself. NIST AU-5 requires alerting on an
     audit-logging failure; logging the full event here is the "alternate
     audit logging capability" AU-5(4) waives fail-closed for.
@@ -88,12 +88,12 @@ async def audit_emit(
     out in ``session.add()``, which cannot fail; the INSERT it stages runs
     at the CALLER's flush/commit, outside any guard here.
 
-    fix(#1491): each sink now runs inside its own SAVEPOINT, flushed there,
+    Each sink runs inside its own SAVEPOINT, flushed there,
     so a bad audit row rolls back only itself. Fail-open and loud: failures
     are logged with the sink and event.
 
     Two consequences at the ~100 call sites: the caller's pending work is
-    flushed here, so a staged mutation's IntegrityError now raises at this
+    flushed here, so a staged mutation's IntegrityError raises at this
     call instead of at a later ``commit()``; and each event costs a
     SAVEPOINT / INSERT / RELEASE round trip.
     """

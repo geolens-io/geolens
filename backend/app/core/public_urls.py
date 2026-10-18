@@ -34,10 +34,10 @@ class PublicUrlNotConfiguredError(RuntimeError):
 def is_usable_public_origin(value: str | None) -> bool:
     """Is this a value a browser could actually be sent to?
 
-    fix(#1548): the shape rule for ``PUBLIC_APP_URL``, mirrored by
+    The shape rule for ``PUBLIC_APP_URL``, mirrored by
     ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts`` — an
     absolute HTTP(S) URL, with a host, no query/fragment, and no ``/api``
-    path (fix(#1555), the same clause ``validate_public_app_url`` already
+    path (the same clause ``validate_public_app_url`` already
     had). Everything else is untrusted; each consumer refuses or falls
     back accordingly rather than issuing a domain lock it can't satisfy.
     """
@@ -54,7 +54,7 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if not parts.hostname:
         return False
-    # fix(#1548): percent-encoding, backslashes, and non-ASCII hosts
+    # percent-encoding, backslashes, and non-ASCII hosts
     # are refused outright on the RAW candidate — urlsplit and a browser
     # parser read each differently (e.g. IDNA2003 vs WHATWG/UTS #46 for
     # non-ASCII), which is origin confusion, not a formatting nit.
@@ -72,7 +72,7 @@ def is_usable_public_origin(value: str | None) -> bool:
 def is_api_base_path(path: str) -> bool:
     """Does this path name the API base rather than the app?
 
-    fix(#1555): checked once, on the path a BROWSER resolves rather than the
+    Checked once, on the path a BROWSER resolves rather than the
     one ``urlsplit`` hands back — ``/api/.`` and ``/foo/../api/.`` are left
     untouched by Python but normalized to ``/api/`` by every browser, so a
     raw-path check would miss both. ``/apiary`` is not an API base;
@@ -121,10 +121,10 @@ def _remove_dot_segments(path: str) -> str:
 def is_loopback_host(host: str) -> bool:
     """True when a browser served from ``host`` is talking to its own machine.
 
-    fix(#1555): the predicate this replaces was an enumerated set of three
+    The predicate this replaces was an enumerated set of three
     spellings (``localhost``, ``127.0.0.1``, ``::1``). Loopback is a RANGE:
-    ``127.0.0.0/8`` in its entirety, so e.g. ``127.0.0.2`` was previously
-    read as non-loopback and could get a domain lock issued that every
+    ``127.0.0.0/8`` in its entirety, so e.g. ``127.0.0.2`` must not be
+    read as non-loopback and get a domain lock issued that every
     recipient resolves to their own machine. ``*.localhost`` counts too
     (RFC 6761 §6.3). Bracketed IPv6 literals are accepted since
     ``urlsplit(...).hostname`` strips brackets but a browser's
@@ -148,7 +148,7 @@ def canonical_host_error(host: str) -> str | None:
 
     Otherwise a sentence naming what is wrong, for an operator to act on.
 
-    fix(#1548): Python and the browser disagree on canonical host
+    Python and the browser disagree on canonical host
     spelling (e.g. ``192.168.1`` → ``192.168.0.1``; also octal/hex IPv4 and
     IPv6 non-compressed forms) — the shell presents the browser's reading
     while the lock stored Python's, so it was issued and then missed on
@@ -169,7 +169,7 @@ def canonical_host_error(host: str) -> str | None:
             address = ipaddress.IPv6Address(host)
         except ValueError:
             return f"{host!r} is not a valid IPv6 address."
-        # fix(#1555): an IPv4-mapped literal has no canonical spelling both
+        # An IPv4-mapped literal has no canonical spelling both
         # Python and a browser agree on, so it's refused outright rather
         # than translated.
         if address.ipv4_mapped is not None:
@@ -207,7 +207,7 @@ def canonical_host_error(host: str) -> str | None:
         return f"{host!r} has an empty label."
     if not all(c.isalnum() or c == "-" for label in labels for c in label):
         return f"{host!r} contains a character that is not valid in a hostname."
-    # fix(#1555): `xn--` labels are accepted as opaque LDH — Chromium/WebKit
+    # `xn--` labels are accepted as opaque LDH — Chromium/WebKit
     # don't validate them at all, Firefox enforces full RFC 5893 bidi rules,
     # and node matches neither; measured across 28 hosts they disagreed on
     # 13, all `xn--` cases. Any refusal we add is stricter than the engines
@@ -282,7 +282,7 @@ def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]
     generation to their own host. Empty allowlist (local dev) returns the
     request-derived origin unchanged.
 
-    fix(#1778): the second element distinguishes "no origin to derive" from
+    The second element distinguishes "no origin to derive" from
     "an origin was derived and the allowlist refused it" — resolvers must
     not treat those alike, or a raw-Host fallback re-derives the origin
     just rejected.
@@ -339,7 +339,7 @@ def resolve_public_api_url(
     a third party (e.g. an OAuth IdP) where an attacker-controlled origin
     enables auth-code theft.
 
-    fix(#1778): the last-resort ``request.url.netloc`` fallback only runs
+    The last-resort ``request.url.netloc`` fallback only runs
     when the allowlist had no opinion, not when it just rejected a derived
     origin — that fallback reads the raw ``Host`` header, which nginx
     forwards verbatim.
@@ -511,7 +511,7 @@ async def get_public_urls(
             if root_path:
                 api_path = root_path
             else:
-                # fix(#507): a proxy rewrite can clear root_path. Read the same
+                # A proxy rewrite can clear root_path. Read the same
                 # DB or environment configuration used by the fleet fallback.
                 overrides = (
                     {} if _is_env_only() else await _load_public_url_overrides(db)
@@ -529,7 +529,7 @@ async def get_public_urls(
                 )
             api_url = f"{tenant_origin}{api_path}" if api_path else tenant_origin
             return tenant_origin, api_url
-        # fix(#507): JWT-scoped requests on a trusted service host have no
+        # JWT-scoped requests on a trusted service host have no
         # tenant origin. Internal response links may use the fleet URLs below,
         # but external callbacks must remain tenant-bound.
         if tenant_id is not None and for_external_use:
@@ -583,11 +583,11 @@ async def get_public_urls(
 async def get_configured_public_app_url(db: AsyncSession) -> str | None:
     """The explicitly configured ``PUBLIC_APP_URL``, or None. No derivation.
 
-    fix(#1548): unlike ``get_public_app_url``, this never derives from
+    Unlike ``get_public_app_url``, this never derives from
     PUBLIC_API_URL or request headers. Domain locking and share-URL
     generation need the operator's own origin: a derived API origin can be
     a real, non-loopback host that still isn't where the embed shell is
-    served (the original bug), and a request-derived origin is the
+    served, and a request-derived origin is the
     vacuous-``self`` trap #1531 already ruled out. Unset is a legitimate
     answer here.
 
@@ -607,7 +607,7 @@ async def get_shareable_app_url(
 ) -> str | None:
     """The origin a browser is served THIS deployment's app from, or None.
 
-    fix(#1548): only ``request.state.tenant_public_origin`` counts as
+    Only ``request.state.tenant_public_origin`` counts as
     trustworthy here — ``TenantContextMiddleware`` sets it after validating
     the request Host against the tenant registry. An ``/api``-stripped
     PUBLIC_API_URL or a header-derived origin is inferred, not verified,

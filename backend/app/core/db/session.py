@@ -8,7 +8,7 @@ _engine_kwargs: dict = {
     "connect_args": settings.database_connect_args,
     "pool_pre_ping": settings.database_pool_pre_ping,
     "echo": False,
-    # fix(#1778): keep bound parameters out of StatementError.__str__. Without
+    # Keep bound parameters out of StatementError.__str__. Without
     # this, SQLAlchemy renders "[SQL: ...] [parameters: (...)]" into the
     # exception message that api/main.py's DB error handler logs with a
     # traceback. The log redactor in core/logging_config.py only rewrites

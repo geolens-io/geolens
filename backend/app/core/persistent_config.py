@@ -257,7 +257,7 @@ class PersistentConfig(Generic[T]):
         if commit:
             await db.commit()
             await self.apply_side_effects(value)
-        # fix(#430): with commit=False, side effects are deferred to the
+        # With commit=False, side effects are deferred to the
         # batching caller's terminal commit — running them pre-commit flips
         # runtime state (log level, rate limits) a rollback won't restore.
 
@@ -266,8 +266,8 @@ class PersistentConfig(Generic[T]):
 
         Called automatically by set()/reset() when they own the commit. A
         caller batching with ``commit=False`` must not loop this per key —
-        use ``apply_side_effects_batch`` after its terminal commit (fix
-        #1543), never before it (fix(#430) r3; see set() above).
+        use ``apply_side_effects_batch`` after its terminal commit,
+        never before it (see set() above).
         """
         await apply_side_effects_batch([(self, value)])
 
@@ -304,7 +304,7 @@ class PersistentConfig(Generic[T]):
         ``settings`` is the batch's prospective snapshot, so the audited new
         value is the default that takes effect once the whole batch commits.
 
-        fix(#430): pass ``commit=False`` to defer the DB commit to a caller's
+        Pass ``commit=False`` to defer the DB commit to a caller's
         terminal commit (config-import overwrite mode), so a mid-import failure
         rolls the resets back instead of leaving settings wiped to defaults.
         """
@@ -341,7 +341,7 @@ class PersistentConfig(Generic[T]):
             if commit:
                 await db.commit()
                 await self.apply_side_effects(self.env_default)
-            # fix(#430): with commit=False the caller applies side effects
+            # With commit=False the caller applies side effects
             # (with env_default) after its terminal commit — see set().
 
     def _on_change(self, value: T) -> None:
@@ -367,9 +367,9 @@ async def apply_side_effects_batch(
 ) -> None:
     """Apply the post-commit side effects of a whole settings batch at once.
 
-    fix(#1543): a per-key eviction loop let a concurrent reader see the new
-    value for already-evicted keys and the old value for the rest — surfaced
-    by the embedding model/dimensions pair never resolving as committed.
+    A per-key eviction loop would let a concurrent reader see the new
+    value for already-evicted keys and the old value for the rest, so the
+    embedding model/dimensions pair would never resolve as committed.
     One ``delete_many`` collapses that span to a single atomic step, evicted
     only after commit (evicting before it would let a reader repopulate the
     cache with the pre-commit value for a full TTL).
@@ -527,7 +527,7 @@ ENABLE_DATASET_EDITING = PersistentConfig[bool](
     label="Enable Dataset Editing",
 )
 
-# feat(#1691): when ON, only admins may set `visibility: public` on datasets/
+# When ON, only admins may set `visibility: public` on datasets/
 # maps (gate: `check_public_visibility_allowed` in catalog/authorization.py).
 # Default OFF; fires only on a mutation that requests public, so existing
 # public content is untouched.

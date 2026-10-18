@@ -83,7 +83,7 @@ export function getCogDownloadUrl(id: string): string {
   return `${API_BASE}/datasets/${encodeURIComponent(id)}/download/cog`;
 }
 
-// fix(#1863 P1): exported so any same-origin GeoLens API resource can be
+// Exported so any same-origin GeoLens API resource can be
 // downloaded through the same refresh-aware, bearer-authenticated flow —
 // a plain <a href> browser navigation carries no Authorization header, so a
 // private or unpublished dataset's export endpoint rejects it as anonymous.
@@ -172,9 +172,8 @@ export async function setDatasetRetention(
 }
 
 /** Walk the full transition chain server-side in a single request.
- *  chore(#835): the single-step `updatePublicationStatus` sibling
- *  (PATCH /datasets/{id}/status/) was deleted — the app moved entirely to
- *  this target-status endpoint and nothing called it. */
+ *  This target-status endpoint is the only publication-status transition
+ *  the app uses. */
 export async function setTargetStatus(
   id: string,
   status: string,
@@ -207,7 +206,7 @@ export async function getDatasetHistory(
   return apiFetch<AuditLogListResponse>(`/datasets/${encodeURIComponent(id)}/history${qs ? `?${qs}` : ''}`);
 }
 
-// fix(#1778): apiFetch's 30s default aborts a large (up to 500 MB) re-upload
+// apiFetch's 30s default aborts a large (up to 500 MB) re-upload
 // body before the transfer can complete, losing the staged job. This one
 // still holds the request open, so it outlives the edge proxy deliberately.
 const REUPLOAD_TIMEOUT_MS = 630_000;
@@ -268,11 +267,11 @@ export async function reuploadCommit(
   token?: string,
   // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
   layerName?: string,
-  // fix(#1768): the dataset origin the dialog saw when it staged this
+  // The dataset origin the dialog saw when it staged this
   // replacement. The commit door refuses with 409 `origin_changed` if the
   // dataset was rebound to a service, STAC or registered-table source while
   // the user was uploading and confirming. Optional server-side, so omitting
-  // it is the pre-#1768 behaviour rather than an error.
+  // it skips the check rather than erroring.
   expectedOriginKind?: DatasetOrigin | null,
   // The preview's fingerprint of the changes the person was shown. Without
   // it a replacement that needs review ends blocked.
@@ -348,7 +347,7 @@ export async function refreshDataset(
   acceptBlockedRunId?: string,
   verificationPolicy?: DatasetRefreshRequest['verification_policy'],
 ): Promise<DatasetRefreshResponse> {
-  // feat(#1746 B4): the door refuses a body naming both spellings
+  // The door refuses a body naming both spellings
   // (reject_service_auth_conflict), so send at most one.
   const credentialPayload: DatasetRefreshRequest = auth
     ? { auth }

@@ -11,7 +11,7 @@ import os
 
 from app.platform.egress_proxy import ServiceEgress
 
-# fix(#1846, GHSA-hrf5-v3cq-frx5): several OGR drivers treat their input
+# Several OGR drivers treat their input
 # bytes as instructions, not data — OGR_VRT follows <SrcDataSource> to any
 # local path or URL, and WFS identifies on content alone regardless of file
 # name, then fetches whatever <URL> says. A staged upload is a local path,
@@ -52,7 +52,7 @@ _NETWORK_AND_POINTER_DRIVERS: tuple[str, ...] = (
 _SERVICE_KEPT_DRIVERS = frozenset({"WFS", "OAPIF"})
 
 
-# fix(#1828): at YES the GML driver fetches every `xs:import` location of a
+# At YES the GML driver fetches every `xs:import` location of a
 # schema, and the schema a GetFeature response points at, credential header
 # attached. Both are NO by value here so an operator's env cannot flip them.
 _SCHEMA_FETCH_CLAMP: dict[str, str] = {

@@ -47,7 +47,7 @@ function parseSortOrder(raw: string | null): SortDirection {
   return raw === 'desc' || raw === 'asc' ? raw : DEFAULT_ORDER;
 }
 
-// fix(#620): resource types with a frontend detail route the name can link to.
+// Resource types with a frontend detail route the name can link to.
 const RESOURCE_ROUTES: Record<string, string> = {
   dataset: '/datasets',
   map: '/maps',
@@ -58,12 +58,11 @@ const RESOURCE_ROUTES: Record<string, string> = {
 // the exact stored values visible so operators can correlate filters with API
 // responses and SIEM rules instead of relying on stale display-only aliases.
 //
-// fix(#1230): kept in sync by hand against the backend's authoritative
+// Kept in sync by hand against the backend's authoritative
 // registry (backend/app/modules/audit/actions.py, enforced there by
-// test_audit_action_registry.py) — this array itself is not generated. The
-// four `layer.*` entries removed here (layer.add, layer.remove,
-// layer.reorder, layer.bulk_remove) were ghosts: builder layer edits write
-// to map edit history, not audit_logs, so nothing ever emitted them.
+// test_audit_action_registry.py) — this array itself is not generated.
+// There are no `layer.*` entries: builder layer edits write to map edit
+// history, not audit_logs.
 const CURRENT_AUDIT_ACTIONS = [
   'api_key.create',
   'api_key.revoke',
@@ -127,7 +126,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'oauth.login.failure',
   'oauth.login.init',
   'oauth.login.success',
-  // fix(#1778): the IdP group-role mapping is applied on every OAuth login now,
+  // The IdP group-role mapping is applied on every OAuth login,
   // so a role can move without an admin touching it. These two are how that
   // shows up here.
   'oauth.role.change_refused',

@@ -70,7 +70,7 @@ class DefaultPermissionExtension:
                 record_cls.visibility == "private",
                 record_cls.created_by == user.id,
             ),
-            # fix(#930): internal = any signed-in user, bare like `public`,
+            # Internal = any signed-in user, bare like `public`,
             # because `status_filter` below already ANDs the published gate.
             # An inner `record_status == "published"` here looks stricter
             # but is wrong: `status_filter` ORs with `created_by == <caller>`,
@@ -81,7 +81,7 @@ class DefaultPermissionExtension:
         ]
 
         if grant_cls is not None:
-            # fix(#515): grants key catalog.datasets.id, not records.id —
+            # Grants key catalog.datasets.id, not records.id —
             # route through Dataset.record_id so granted records resolve.
             from app.modules.catalog.datasets.domain.models import Dataset
 
@@ -89,7 +89,7 @@ class DefaultPermissionExtension:
                 and_(
                     record_cls.visibility == "restricted",
                     or_(
-                        # fix(#929): creator exemption — without it, a
+                        # Creator exemption — without it, a
                         # non-admin owner who restricts their own dataset
                         # loses read access (grants have no write path).
                         record_cls.created_by == user.id,
@@ -138,7 +138,7 @@ class DefaultPermissionExtension:
             return False
 
         if record.visibility == "restricted":
-            # fix(#929): creator exemption — restricted means "owner,
+            # Creator exemption — restricted means "owner,
             # admins, and grant holders"; the owner is never locked out.
             if record.created_by == user.id:
                 return True
@@ -155,7 +155,7 @@ class DefaultPermissionExtension:
             return grant_result.scalar_one_or_none() is not None
 
         if record.visibility == "internal":
-            # fix(#930): internal = any signed-in user, matching
+            # Internal = any signed-in user, matching
             # MapVisibility. Looks deletable since the fall-through below
             # does the same thing, but before this branch existed that
             # outcome was an accident of an unhandled value, not a pinned
@@ -193,13 +193,13 @@ class DefaultPermissionExtension:
         is_owner = false() if query.owner_id is None else user_cls.id == query.owner_id
 
         if query.visibility in ("public", "internal"):
-            # fix(#930): internal = any signed-in user, bare like `public` —
+            # Internal = any signed-in user, bare like `public` —
             # the status gate below already ANDs the published check.
             reaches = true()
         elif query.visibility == "private":
             reaches = is_owner
         elif query.visibility == "restricted" and grant_cls is not None:
-            # fix(#929): creator exemption, then the grant — the same edge
+            # Creator exemption, then the grant — the same edge
             # `filter_visible` walks (record -> dataset -> grant -> role ->
             # user), traversed from the user end.
             reaches = or_(

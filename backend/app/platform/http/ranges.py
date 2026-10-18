@@ -1,7 +1,7 @@
 """One implementation of RFC 9110 byte-range parsing, shared by every route
 that serves ranges off a stored object.
 
-fix(#1532): lives here because ``processing/`` may not import
+Lives here because ``processing/`` may not import
 ``modules/catalog/``, and both need the identical parser.
 """
 
@@ -32,7 +32,7 @@ _RANGE_SPEC_RE = re.compile(r"^(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
 # NOT a 200 with the whole object — a client resuming one tile would splice it.
 RANGE_UNSATISFIABLE = "unsatisfiable"
 
-# fix(#1540): saturated at this many digits before reaching int().
+# Saturated at this many digits before reaching int().
 # CPython refuses to convert a literal longer than
 # sys.get_int_max_str_digits() (4300 default) — an unbounded `int(group)` on a
 # 4301-digit value (fits an 8 KiB header) would be a 500. Saturating instead of
@@ -134,7 +134,7 @@ def range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
     ``W/"..."`` (never matches strong comparison), or when there is no
     validator to compare against. An absent ``If-Range`` returns True.
 
-    fix(#1532): shared with the export route under ``processing/``,
+    Shared with the export route under ``processing/``,
     which needs the identical evaluation — reimplementing it there is how the
     two would drift.
     """
@@ -196,7 +196,7 @@ def not_modified_response(etag: str | None) -> Response:
     client revalidating before a resume does not have to re-probe. No body or
     ``Content-Length``: starlette's ``init_headers`` already omits both for 304.
 
-    fix(#1554): ``etag`` may be None, matching what the 200 for a row with no
+    ``etag`` may be None, matching what the 200 for a row with no
     stored digest would send. Minting one here would wrongly authorize a resume
     ``range_bound_to_this_version`` refuses on exactly those rows.
     """

@@ -160,7 +160,7 @@ SERVICE_UNAVAILABLE_RESPONSE = {
     "description": "Service unavailable — required publication metadata is missing",
 }
 
-# fix(#1550): a 503 from a queue dispatch failure is a different condition
+# A 503 from a queue dispatch failure is a different condition
 # from the publication-metadata one above, and the description ships to
 # clients in the committed OpenAPI document and both generated SDKs.
 # Reusing the constant told every SDK consumer the wrong reason.
@@ -269,7 +269,7 @@ def _is_standards_path(request: Request) -> bool:
 def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | None:
     """Add HEAD to a 405's ``Allow`` header when GET is already listed.
 
-    fix(#1470): ``_register_standards_head_routes`` serves HEAD beside
+    ``_register_standards_head_routes`` serves HEAD beside
     every standards GET as a SEPARATE route (FastAPI derives operation
     ids from name+path, not method, so one route carrying ``{GET, HEAD}``
     emits duplicate ids). Cost: starlette builds a 405's ``Allow`` from
@@ -424,7 +424,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
         logger.exception(
             "Unhandled error",
-            # fix(#1778): same capability-in-the-path rule the access log
+            # Same capability-in-the-path rule the access log
             # follows since #821 — without it, a 500 on
             # /api/maps/shared/{token} would log the token verbatim.
             path=safe_access_log_path(request.url.path),

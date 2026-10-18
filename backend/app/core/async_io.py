@@ -1,4 +1,4 @@
-"""Cancellation-safe threaded I/O (fix(#435)).
+"""Cancellation-safe threaded I/O.
 
 `asyncio.to_thread` offloads a blocking call, but cancelling the awaiting task
 does NOT stop the thread. If that thread owns a file descriptor (streaming an

@@ -57,7 +57,7 @@ async def _check_database() -> None:
     We additionally run a tiny query against the catalog schema so a
     genuinely unhealthy DB (hung, wrong schema, locks) reports as degraded.
     """
-    from app.core.db import engine  # fix(#909): late-bind for tests
+    from app.core.db import engine  # late-bind for tests
 
     async with engine.connect() as conn:
         # Cheap connectivity check

@@ -13,7 +13,7 @@ import without an ``__all__`` entry as unused and deletes it under ``--fix``.
 
 from __future__ import annotations
 
-# fix(#873): re-export as redundant aliases to keep the pre-split import
+# re-export as redundant aliases to keep the pre-split import
 # surface intact for out-of-tree callers that relied on it incidentally.
 from app.core.db.tenant_session import (
     defer_async_with_tenant as defer_async_with_tenant,
@@ -59,7 +59,7 @@ __all__ = [
     "DefaultPermissionExtension",
     "DefaultProcessingPort",
     "DefaultWorkflowExtension",
-    # fix(#873): keep these two helper bindings wildcard-visible too, not
+    # Keep these two helper bindings wildcard-visible too, not
     # just directly importable.
     "defer_async_with_tenant",
     "model_safe_tool_result",

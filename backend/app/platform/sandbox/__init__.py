@@ -73,7 +73,7 @@ async def validate_and_execute(
             this set — it can only narrow access, never widen it (used by
             dataset-scoped chat, #531, so generated SQL cannot reach other
             tables the user happens to be able to see).
-        max_table_repeats: feat(#565): when set, reject any statement whose
+        max_table_repeats: when set, reject any statement whose
             transitive self-join FAN-OUT (through the CTE dependency graph)
             exceeds this. Guards e.g.
             ``FROM data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c``,
@@ -85,13 +85,13 @@ async def validate_and_execute(
             (no cap) for AI chat, to keep its behavior unchanged.
         require_reader_role: fail closed if the restricted reader role
             cannot be bound in single-tenant mode (see execute_safe).
-        release_session: fix(#565): close the caller's request session
+        release_session: close the caller's request session
             AFTER the RBAC allowlist query and BEFORE execute_safe, so its
             pool slot is freed while the sandbox query runs on its own
             connection — without this each in-flight query holds two pool
             slots and a handful of users exhaust it. Only safe when the
             caller reads nothing from ``db`` afterwards.
-        capacity_semaphore: fix(#565): a GLOBAL fail-fast bound on
+        capacity_semaphore: a GLOBAL fail-fast bound on
             concurrent sandbox executions, on top of the per-user advisory
             lock (which only stops one user stacking queries, not N distinct
             users each holding a connection). At capacity the query is
@@ -123,7 +123,7 @@ async def validate_and_execute(
                 "invalid_query", "Query must reference an accessible dataset"
             )
 
-        # feat(#565): self-join fan-out cap (see the kwarg docs above).
+        # self-join fan-out cap (see the kwarg docs above).
         # Checked before the RBAC query so a rejected statement costs no DB
         # round-trip. The message is sanitized — no table names echo back.
         if (
@@ -141,7 +141,7 @@ async def validate_and_execute(
                 "Query references the same table too many times",
             )
 
-        # fix(#565): global fail-fast capacity bound. `.locked()`
+        # Global fail-fast capacity bound. `.locked()`
         # then `async with` is atomic (no await between, acquiring a free
         # semaphore doesn't yield), so this is check-then-act only in
         # appearance. Acquired BEFORE phase 2: the RBAC allowlist query is
@@ -169,7 +169,7 @@ async def validate_and_execute(
             # a same-named inner CTE happens to define.
             check_table_access(validated.tables, allowed_tables, cte_names=set())
 
-            # fix(#565): free the request session's pooled connection
+            # Free the request session's pooled connection
             # before the sandbox opens its own, so an in-flight query holds
             # one pool slot, not two. ``close()``, not ``rollback()``:
             # rollback keeps the connection bound to the session, and

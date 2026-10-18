@@ -125,7 +125,7 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid CQL2 expression: {e}",
             )
-        # fix(#1614): pygeofilter's json walker raises bare Exception on an
+        # pygeofilter's json walker raises bare Exception on an
         # embedded filter-lang key and RecursionError on deep nesting — both
         # 500'd. Every parse failure on caller input is a 400.
         try:
@@ -377,7 +377,7 @@ _FEATURE_QUERYABLE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
 # recurses arbitrarily and un-indexed predicates cost per byte anyway.
 MAX_FEATURE_FILTER_LENGTH = 10_000
 
-# fix(#1845): ceiling on COMPILED binds, which the character cap above
+# Ceiling on COMPILED binds, which the character cap above
 # doesn't bound usefully. render_postcompile=True expands IN to one bind
 # per member, so the shortest members (one digit + separator) reach 4,995
 # binds inside a 9,998-character filter, measured. Each bind costs a
@@ -388,7 +388,7 @@ MAX_FEATURE_FILTER_LENGTH = 10_000
 # hits the character cap around 2,000 members anyway.
 MAX_FEATURE_FILTER_BINDS = 1_000
 
-# fix(#1845): one compiled scanner for the whole bind rename, replacing a
+# One compiled scanner for the whole bind rename, replacing a
 # per-bind ``re.subn`` over the whole statement — N passes over an O(N)
 # string, which an anonymous caller could turn into seconds of blocking.
 # ``(?<!:)`` skips ``::casts``. The greedy ``\w+`` consumes the whole
@@ -398,7 +398,7 @@ MAX_FEATURE_FILTER_BINDS = 1_000
 # the per-key loop's default.
 _BIND_NAME_RE = re.compile(r"(?<!:):(\w+)")
 
-# fix(#1845): a filter can nest deeper than the interpreter recursion
+# A filter can nest deeper than the interpreter recursion
 # limit while staying inside MAX_FEATURE_FILTER_LENGTH — ``a=1 OR `` is 8
 # chars, so a 10,000-char filter reaches ~1,250 levels against a default
 # limit of 1,000 (measured: an anonymous 500 from depth 1,100).
@@ -446,7 +446,7 @@ def feature_queryable_columns(
 
     ``column_info`` rows come from the live information_schema
     (CatalogPort.get_column_info), NOT from the stored Dataset.column_info —
-    same authority rule as live_property_columns (fix(#1104)): stored metadata
+    same authority rule as live_property_columns: stored metadata
     can drift from the table on re-upload, and the filter's allowed set must
     match what the SQL will see.
 
@@ -504,7 +504,7 @@ def build_feature_queryables_response(
 
 def _is_finite_number(value) -> bool:
     """True for a finite int/float; False for NaN/Infinity and for integers
-    too large for a C double (fix(#1614): math.isfinite raises
+    too large for a C double (math.isfinite raises
     OverflowError on those, which would 500 on caller input)."""
     try:
         return math.isfinite(value)
@@ -521,7 +521,7 @@ def _finite_coords(obj) -> bool:
 def _finite_geojson(geom) -> bool:
     """True when every coordinate in a GeoJSON geometry dict is finite.
 
-    fix(#1614): the JSON normalizer returns geometry dicts verbatim,
+    The JSON normalizer returns geometry dicts verbatim,
     so a Point with a NaN coordinate slipped past the finiteness rule and
     compiled to a degenerate geometry that silently matched nothing.
     """
@@ -548,7 +548,7 @@ def _bbox_ring(minx, miny, maxx, maxy) -> list:
 def _bbox_geometry(minx, miny, maxx, maxy) -> dict:
     """GeoJSON geometry for a BBox literal.
 
-    fix(#1614): minx > maxx is a legal antimeridian-crossing box (same
+    Minx > maxx is a legal antimeridian-crossing box (same
     convention as ``bbox=``) — split at the dateline into a MultiPolygon
     (mirroring get_features()) rather than inverting it into nearly the
     whole globe as one rectangle would. Non-finite coordinates and
@@ -598,7 +598,7 @@ def _bbox_geometry(minx, miny, maxx, maxy) -> dict:
 def _normalize_cql2_json(node):
     """Rewrite final-spec (21-065r2) JSON shapes pygeofilter 0.4.0 mis-parses.
 
-    fix(#1614), verified against the vendored parser:
+    Verified against the vendored parser:
     - ``between``: the spec defines flat 3-element ``args``; the parser reads
       the draft nested ``[expr, [low, high]]`` and TypeErrors on the flat form.
     - ``{"bbox": [...]}``: the parser unpacks GeoJSON bbox order into
@@ -611,7 +611,7 @@ def _normalize_cql2_json(node):
     if not isinstance(node, dict):
         return node
     if "type" in node and "coordinates" in node:
-        # fix(#1614): a GeoJSON geometry may carry the optional
+        # A GeoJSON geometry may carry the optional
         # ``bbox`` member; it is metadata, not a BBox literal — rewriting it
         # would silently replace the shape with its bounding rectangle. Same
         # precedence as pygeofilter's own walker (geometry before bbox).
@@ -635,7 +635,7 @@ def _normalize_cql2_json(node):
 def _rewrite_text_bbox_literals(node):
     """Rewrite cql2-text ``BBOX(minx,miny,maxx,maxy)`` geometry literals.
 
-    fix(#1614): the text grammar only knows BBOX as the legacy 5-argument
+    The text grammar only knows BBOX as the legacy 5-argument
     *predicate*, so a Part 3 BBox literal inside e.g. S_INTERSECTS parses as a
     generic ``Function("bbox", [4 numbers])`` that the SQLAlchemy backend
     KeyErrors on. Rewrite it to a Polygon literal. Anything else is left
@@ -654,7 +654,7 @@ def _rewrite_text_bbox_literals(node):
             return pgf_values.Geometry(_bbox_geometry(*args))
         return node
     if isinstance(node, pgf_ast.BBox) and node.crs is None:
-        # fix(#1614): the legacy BBOX(prop, ...) predicate renders a
+        # The legacy BBOX(prop, ...) predicate renders a
         # planar rectangle upstream, inverting antimeridian-crossing boxes.
         # Route it through the same split geometry as the BBox literal.
         return pgf_ast.GeometryIntersects(
@@ -742,18 +742,18 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
     if pg_type in _STRING_PG_TYPES:
         ok = isinstance(value, str)
     elif pg_type in _INTEGER_PG_TYPES:
-        # fix(#1614) took the int8 bound, since an out-of-range literal
-        # raises inside the driver's encode path rather than comparing.
-        # fix(#1778) narrows it to the column's OWN width via the same
-        # table the property-filter path reads: `cat = 2147483648` on an
-        # integer column is a legal int4/int8 comparison no stored value
-        # can satisfy, so it answered 200 with zero features instead of
-        # saying the literal was out of range.
+        # An out-of-range literal raises inside the driver's encode path
+        # rather than comparing, so the bound is the column's OWN width,
+        # read from the same table the property-filter path uses.
+        # `cat = 2147483648` on an integer column is a legal int4/int8
+        # comparison no stored value can satisfy, so it would answer 200 with
+        # zero features instead of saying the literal was out of
+        # range.
         ok = isinstance(value, int) and not isinstance(value, bool)
     elif pg_type in _NUMBER_PG_TYPES:
         # Python's JSON decoder accepts NaN/Infinity tokens; `height <
         # Infinity` would otherwise match every finite row instead of being
-        # rejected as an invalid filter (fix(#1614)).
+        # rejected as an invalid filter.
         ok = (
             isinstance(value, (int, float))
             and not isinstance(value, bool)
@@ -891,7 +891,7 @@ def _validate_feature_filter_node(node, queryables: dict[str, str], errors: list
 def _quote_single_char_attributes(expr: str) -> str:
     """Double-quote lone single-letter identifiers in a cql2-text filter.
 
-    fix(#1614): pygeofilter's unquoted-attribute token needs at least two
+    pygeofilter's unquoted-attribute token needs at least two
     characters, so a conforming client filtering on a common GIS column
     like ``x`` gets a parse error even though queryables advertises it —
     ``"x"`` parses fine, so quote the bare form. String literals are held
@@ -909,7 +909,7 @@ def _quote_single_char_attributes(expr: str) -> str:
 def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
     """Length-cap, parse, and shim-rewrite a feature-collection filter.
 
-    Split from compilation (fix(#1614) follow-up) so the router can
+    Split from compilation so the router can
     order its checks precisely: a parse failure is the caller's bug and 400s
     with no database access at all; table availability (503) is checked next;
     only then does schema-dependent validation/compilation run.
@@ -990,7 +990,7 @@ def compile_feature_cql2_ast(
 
     _refuse_unsupported_filter(ast_root, queryables)
 
-    # fix(#1614): the asyncpg dialect casts every bind to its
+    # The asyncpg dialect casts every bind to its
     # SQLAlchemy type ($1::FLOAT ...), and a float8-cast bind against a REAL
     # column promotes the stored float4 for comparison — 0.1::real =
     # 0.1::float8 is FALSE. NUMERIC through float8 loses precision the same
@@ -1047,14 +1047,14 @@ def compile_feature_cql2_ast(
         )
 
     binds: list = []
-    # fix(#1845): the rendered replacement per compiled bind name, collected
+    # The rendered replacement per compiled bind name, collected
     # here and applied in the single pass below. Nothing in this loop touches
     # ``sql``, so the cost of the rename no longer grows with the square of
     # the bind count.
     rendered: dict[str, str] = {}
     for i, (key, value) in enumerate(params):
         new_key = f"{bind_prefix}_{i}"
-        # fix(#1614): keep the compiled bind's SQLAlchemy type so
+        # Keep the compiled bind's SQLAlchemy type so
         # execution doesn't re-infer it from the Python value. A
         # render_postcompile-expanded IN member is named <base>_<n>; its
         # BindParameter lives under the base key. (Explicit None checks: a
@@ -1077,7 +1077,7 @@ def compile_feature_cql2_ast(
             and not isinstance(bp.type, sa_types.Float)
             and isinstance(value, float)
         ):
-            # fix(#1614): binding the float raw sends its full
+            # Binding the float raw sends its full
             # binary expansion (19.99 -> 19.98999...) into the NUMERIC
             # comparison; the decimal text form is what the caller wrote.
             # (Done here, not in the AST walk — pygeofilter's evaluator has
@@ -1096,7 +1096,7 @@ def compile_feature_cql2_ast(
         )
 
     if rendered:
-        # fix(#1845): ONE scan. re.sub never rescans what a replacement
+        # ONE scan. re.sub never rescans what a replacement
         # emitted, so a new ``:cql2_N`` name cannot be re-matched by a later
         # bind -- the property the old sequential loop had to detect after the
         # fact through its per-key count.

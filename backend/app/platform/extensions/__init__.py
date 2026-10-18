@@ -40,7 +40,7 @@ from app.platform.extensions.protocols import (
     ConnectorDefinition as ConnectorDefinition,
     ConnectorResource as ConnectorResource,
     NotificationSink,
-    # feat(#1068): runtime (not TYPE_CHECKING) re-exports — an overlay
+    # Runtime (not TYPE_CHECKING) re-exports — an overlay
     # implementing record_audience must CONSTRUCT a RecordAudience, so the
     # name has to resolve at run time.
     RecordAudience as RecordAudience,

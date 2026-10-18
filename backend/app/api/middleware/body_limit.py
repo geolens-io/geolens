@@ -240,7 +240,7 @@ class RequestBodyLimitMiddleware:
         # non-upload routes pass DEFAULT_BODY_LIMIT_BYTES as route_override
         # so the large upload limit never applies to them.
         #
-        # fix(#1778): skipped for the liveness probe. The refresh is
+        # Skipped for the liveness probe. The refresh is
         # failure-tolerant (falls back to cached/boot-time limit on error),
         # but once the cache expires it makes every request pay a DB
         # connection attempt — against a blackholed database that eats the

@@ -250,7 +250,7 @@ KNOWN_BAD_JWT_SECRETS = frozenset(
     }
 )
 
-# fix(#1871): every literal this repo treats as public knowledge, in one place,
+# Every literal this repo treats as public knowledge, in one place,
 # so a new secret-bearing setting refuses all of them rather than the subset
 # whoever added it remembered (Rule 3).
 KNOWN_PUBLIC_CREDENTIALS = frozenset(
@@ -258,20 +258,20 @@ KNOWN_PUBLIC_CREDENTIALS = frozenset(
     | KNOWN_BAD_JWT_SECRETS
 )
 
-# fix(#1871): shown by every SECRET_ENCRYPTION_KEY* boot failure. A Fernet key
+# Shown by every SECRET_ENCRYPTION_KEY* boot failure. A Fernet key
 # is url-safe base64 of 32 random bytes, so `openssl rand -hex 32` (the hint on
 # JWT_SECRET_KEY) does NOT produce one.
 FERNET_KEY_HINT = (
     " Generate a fresh value with `openssl rand -base64 32 | tr '+/' '-_'`."
 )
 
-# fix(#1778): bcrypt's input limit, restated here since `core/` may not import
+# bcrypt's input limit, restated here since `core/` may not import
 # `app.modules.*` (test_layering.py); canonical definition is beside the
 # hasher in app/modules/auth/password_policy.py, pinned equal by test_password_policy.py.
 BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
-# fix(#1235): shortest presigned-upload window worth issuing; must be this
+# Shortest presigned-upload window worth issuing; must be this
 # exact number since it's `pending_job_timeout_seconds`'s lower bound.
 # Lives here, not by its consumer `require_signable_job_lifetime` in
 # processing/ingest/presigned.py, because core must never import processing.
@@ -297,12 +297,12 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_expire_minutes: int = Field(default=15, gt=0)
     refresh_token_expire_days: int = Field(default=7, gt=0)
-    # fix(#621): how long a just-rotated refresh token stays usable so
+    # How long a just-rotated refresh token stays usable so
     # concurrent refreshes (multi-tab) don't strand the losers of the
     # rotation race. 0 restores instant single-use revocation.
     refresh_rotation_grace_seconds: int = Field(default=30, ge=0)
 
-    # fix(#1871): Fernet key for secrets stored at rest (SSO client secrets,
+    # Fernet key for secrets stored at rest (SSO client secrets,
     # SAML IdP certificates). Unset, they are encrypted under a key derived
     # from JWT_SECRET_KEY, so a JWT rotation makes every one of them unreadable.
     secret_encryption_key: SecretStr | None = None
@@ -319,7 +319,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.
     landing_first: bool = False
-    # fix(#838): with ENV_ONLY_CONFIG=true the admin UI cannot store
+    # With ENV_ONLY_CONFIG=true the admin UI cannot store
     # overrides, so these env vars are the only way to show the banner.
     banner_enabled: bool = False
     banner_text: str = ""
@@ -362,7 +362,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
         le=MAX_PRESIGNED_URL_LIFETIME_SECONDS,
     )
-    # feat(#1710): wall clock for one URL-import download, now that the fetch
+    # Wall clock for one URL-import download, now that the fetch
     # runs on the worker and no proxy or client deadline bounds it. The
     # running lease is renewed by the task's heartbeat, so this may exceed
     # JOB_TIMEOUT_SECONDS; the ceiling only stops a typo parking a worker
@@ -482,15 +482,15 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # Replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
     worker_shutdown_timeout: int = Field(default=30, gt=0)
 
-    # fix(#448): Procrastinate parallel job slots per worker process. A
+    # Procrastinate parallel job slots per worker process. A
     # default of 1 head-of-line-blocks every queued upload behind a long COG
     # conversion; 2-3 suits multi-core hosts, keep 1 on 2-vCPU boxes.
     worker_concurrency: int = Field(default=1, ge=1)
-    # fix(#448): queues this worker listens to, so a deployment can run a
+    # Queues this worker listens to, so a deployment can run a
     # second worker dedicated to e.g. WORKER_QUEUES=raster so long raster
-    # jobs never stall vector ingests. fix(#1812): "ingest-auth-v2" is
+    # jobs never stall vector ingests. "ingest-auth-v2" is
     # consumer-only -- nothing enqueues there; drop the name once drained.
-    # fix(#1710): "download" carries the URL-import fetch, whose runtime is a
+    # "download" carries the URL-import fetch, whose runtime is a
     # remote origin's to decide; pin a second worker to it to keep a slow
     # transfer off the ingest slot.
     worker_queues: str = "priority,ingest,raster,download,ingest-auth-v2"
@@ -501,10 +501,10 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     env_only_config: bool = False
 
     db_use_external_pooler: bool = False
-    # fix(#2045): the worker count the compose files export as UVICORN_WORKERS;
+    # The worker count the compose files export as UVICORN_WORKERS;
     # under an external pooler sandbox_bounds divides the query budget by it.
     uvicorn_workers: int = 1
-    # fix(#2045 codex r1): a process cannot see how many API replicas share the
+    # A process cannot see how many API replicas share the
     # pooler, so this states the per-process sandbox share outright when set.
     sandbox_query_slots: int | None = Field(default=None, ge=1)
     db_pool_size: int = Field(default=10, ge=1)
@@ -521,7 +521,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
-    # fix(#1013): the materialize CTAS budget, applied as SET LOCAL
+    # The materialize CTAS budget, applied as SET LOCAL
     # statement_timeout before the CREATE TABLE AS. 300 seconds covers
     # roughly 150k-600k buffered polygon rows, so a one-million-parcel
     # buffer fails.
@@ -537,14 +537,14 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # deliberate compromise; per-operation budgets are the natural follow-up.
     analysis_materialize_timeout_seconds: int = Field(default=300, gt=0)
 
-    # fix(#1013): promoted alongside the CTAS budget -- the commit that makes
+    # Promoted alongside the CTAS budget -- the commit that makes
     # the output durable ends the transaction (and its SET LOCAL) with it, so
     # registration needs its own budget (#692) for the full-scan metadata
     # extraction. Raising the CTAS ceiling for a large dataset needs this
     # raised too.
     analysis_registration_timeout_seconds: int = Field(default=600, gt=0)
 
-    # fix(#1012): per-slot work_mem budget for the materialize CTAS, in MB.
+    # per-slot work_mem budget for the materialize CTAS, in MB.
     # Configurable because the safe value depends on two things this process
     # cannot see: DB_MEM_LIMIT (a compose `mem_limit`, never passed into the
     # api/worker env, and operator-tunable -- prod compose documents 1.5g, an
@@ -567,13 +567,13 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # are applied as given.
     analysis_materialize_work_mem_mb: int = Field(default=64, ge=0)
 
-    # fix(#434): terminal jobs (complete/failed/cancelled/fanned_out) older
+    # Terminal jobs (complete/failed/cancelled/fanned_out) older
     # than this many days are purged by the 5-minute lifespan sweeper, except
     # each dataset's most recent complete job (backs /jobs/by-dataset
     # warning metadata). 0 disables the purge (keep history forever).
     ingest_jobs_retention_days: int = Field(default=30, ge=0)
 
-    # fix(#1778): statement deadline for the API, in seconds; 0 disables it.
+    # Statement deadline for the API, in seconds; 0 disables it.
     # Applied to every transaction the API process opens (handlers open
     # request-scoped sessions directly in 20+ modules, not just get_db), as
     # SET LOCAL never a startup parameter so DB_USE_EXTERNAL_POOLER=true
@@ -671,11 +671,11 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         "notification_webhook_url",
         "notification_webhook_secret",
         "notification_admin_email",
-        # fix(#441): compose passes ENVIRONMENT through as "${ENVIRONMENT:-}",
+        # Compose passes ENVIRONMENT through as "${ENVIRONMENT:-}",
         # so an unset value arrives as "" — normalize to None (LOG_JSON fallback)
         # instead of failing the Literal validation at boot.
         "environment",
-        # fix(#2045 codex r1): compose passes "${SANDBOX_QUERY_SLOTS:-}"; "" is unset.
+        # Compose passes "${SANDBOX_QUERY_SLOTS:-}"; "" is unset.
         "sandbox_query_slots",
         mode="before",
     )
@@ -740,7 +740,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     @field_validator("embedding_dims", mode="before")
     @classmethod
     def empty_embedding_dims_to_default(cls, v: object) -> object:
-        # fix(#512): the one-shot migrate service deliberately preserves an
+        # The one-shot migrate service deliberately preserves an
         # unset host value as "" so migration 0012 can distinguish it from an
         # explicitly configured 1536. Settings is imported before the revision,
         # so normalize only the application-facing value to its existing default.
@@ -785,7 +785,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         if not parsed.path or parsed.path == "/":
             raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
 
-        # fix(#1770): DATABASE_URL_OVERRIDE is an operator-supplied BOOT-TIME
+        # DATABASE_URL_OVERRIDE is an operator-supplied BOOT-TIME
         # env var, never a runtime service-advertised value -- see
         # `bounded_parse_qsl`'s docstring (`platform/service_endpoints.py`)
         # for the sites that DO need the field-count bound.
@@ -894,7 +894,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
 
     @model_validator(mode="after")
     def validate_materialize_work_mem_budget(self) -> "Settings":
-        """fix(#1012): refuse a budget that cannot be divided into legal shares.
+        """Refuse a budget that cannot be divided into legal shares.
 
         The budget is split across WORKER_CONCURRENCY slots. If a share falls
         below PostgreSQL's 64kB minimum for work_mem there is no honest
@@ -1060,7 +1060,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
 
     @model_validator(mode="after")
     def validate_admin_credentials_nonempty(self) -> "Settings":
-        # fix(#668): .env.example ships these keys empty and compose passes
+        # .env.example ships these keys empty and compose passes
         # "" straight through, so without this guard a verbatim-template
         # install silently seeds the initial admin with empty credentials.
         if not self.geolens_admin_username.strip():
@@ -1074,7 +1074,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 "GEOLENS_ADMIN_PASSWORD must not be empty. Generate one "
                 "with `openssl rand -base64 16` and set it in your .env."
             )
-        # fix(#1778): bound it at boot, where the message can name the
+        # Bound it at boot, where the message can name the
         # variable. seed_initial_admin() hashes this with bcrypt, which
         # refuses input over 72 bytes, and nothing upstream validates it --
         # an unbounded value produced a bare bcrypt ValueError inside a
@@ -1118,7 +1118,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 "project's git history." + hint
             )
 
-        # fix(#1871): fail here, not at the first SSO login. A bad value in
+        # Fail here, not at the first SSO login. A bad value in
         # either key is only noticed when someone tries to sign in, and by then
         # the failure looks like a broken identity provider.
         from cryptography.fernet import Fernet
@@ -1211,7 +1211,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
         parts = urlsplit(url)
-        # fix(#1770): same reasoning as `database_url_override`'s validator
+        # Same reasoning as `database_url_override`'s validator
         # above -- operator-supplied boot-time config.
         params = parse_qs(parts.query, keep_blank_values=True)  # parse_qs: unbounded
         params.pop("sslmode", None)
@@ -1319,7 +1319,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            # fix(#1770): same reasoning as `database_url_override`'s
+            # Same reasoning as `database_url_override`'s
             # validator -- operator boot-time config.
             host = (
                 parsed.hostname
@@ -1354,7 +1354,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
             # preserving any caller-supplied ?options= -- ours applied last
             # so it always wins.
             search_path_opt = f"-c search_path={self.procrastinate_schema},public"
-            # fix(#1770): same reasoning -- operator boot-time config, not a
+            # Same reasoning -- operator boot-time config, not a
             # runtime service-advertised value.
             caller_options = parse_qs(parsed.query).get(  # parse_qs: unbounded
                 "options", [""]
@@ -1391,7 +1391,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            # fix(#1770): same reasoning as `database_url_override`'s
+            # Same reasoning as `database_url_override`'s
             # validator -- operator boot-time config.
             host = (
                 parsed.hostname

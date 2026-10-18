@@ -22,12 +22,12 @@ from app.core.url_redaction import (
 # part is at the front.
 MAX_REASON_CHARS = 2000
 
-# fix(#1953): what a sink stores instead of an exception it did not compose.
+# What a sink stores instead of an exception it did not compose.
 # A code rather than prose, so a reader (`ReuploadDialog.tsx`) can localize
 # it and no driver text can hide behind it.
 INTERNAL_FAILURE_REASON = "internal_error"
 
-# fix(#2010): the sentence each code stands for, for a reader that cannot
+# The sentence each code stands for, for a reader that cannot
 # localize one itself. Same vocabulary as `frontend/src/lib/failure-reason.ts`
 # and `cli/geolens_cli/refresh.py`, which map it for their own readers.
 FAILURE_REASON_SENTENCES: dict[str, str] = {
@@ -43,7 +43,7 @@ _OWN_EXCEPTION_ROOT = "app."
 def is_composed_exception(exc: BaseException) -> bool:
     """Whether this codebase, rather than a library, wrote the message.
 
-    fix(#1953): provenance, not shape. A class defined under ``app.``, or
+    Provenance, not shape. A class defined under ``app.``, or
     ``ValueError`` itself, which is this tree's spelling for a refusal the
     user is meant to read. Its subclasses are NOT admitted by that half: a
     library's own is still a library's text, and ``UnicodeDecodeError``
@@ -76,7 +76,7 @@ def failure_code(reason: object) -> str | None:
 def redact_failure_reason(reason: str | BaseException) -> str:
     """Failure text safe to store in a reason column or return in a response.
 
-    fix(#1953): a sink is reached both with an exception and with text a
+    A sink is reached both with an exception and with text a
     caller already flattened, so the raw-exception clause is enforced for
     both. A library exception becomes ``INTERNAL_FAILURE_REASON``; text
     keeps only its first line, which is where an exception's own summary
@@ -90,7 +90,7 @@ def redact_failure_reason(reason: str | BaseException) -> str:
         reason = str(reason)
     lines = reason.splitlines()
     summary = _drop_subprocess_output(_scrub(lines[0] if lines else ""))
-    # fix(#1953): the scrubbers must see a credential whole, and choosing the
+    # The scrubbers must see a credential whole, and choosing the
     # summary line first can hand them half of one. Scrubbing the whole text
     # cannot replace that (urlsplit deletes the line breaks the payload cut
     # needs), so it is the cross-check: a line the wider pass would have
@@ -100,7 +100,7 @@ def redact_failure_reason(reason: str | BaseException) -> str:
     return summary[:MAX_REASON_CHARS]
 
 
-# fix(#1953): a GDAL invocation, which is the clause's "command line". The
+# A GDAL invocation, which is the clause's "command line". The
 # lookahead is what tells one from a mention: an invocation is followed by a
 # flag or an operand, never by "failed" or by prose. Scrubbing the operands
 # cannot meet the clause, since the flags and the target table are operands.
@@ -119,7 +119,7 @@ def _drop_subprocess_output(summary: str) -> str:
     return summary[: match.start()].rstrip(" :-") if match else summary
 
 
-# fix(#2010): a stored reason has no use for a query string, and a signing
+# A stored reason has no use for a query string, and a signing
 # parameter need not be named in SENSITIVE_QUERY_PARAMS to be one. The name
 # class excludes `?` as well as `=`, so a run of them cannot be rescanned
 # from every position; GDAL stderr reaches this uncapped.
@@ -129,7 +129,7 @@ _QUERY_TAIL_RE = re.compile(r"\?[^\s=?]*=\S*")
 def _scrub(text: str) -> str:
     """Every shape Decision 3 keeps out of a reason, masked.
 
-    fix(#1953): the last two are what a GDAL wrapper drags in. Being defined
+    The last two are what a GDAL wrapper drags in. Being defined
     under ``app.`` says who raised the exception, never that its message is
     free of the subprocess output it was built from.
     """
@@ -156,7 +156,7 @@ def _scrub_stable(text: str) -> str:
 def prefixed_failure_reason(prefix: str, reason: str | BaseException) -> str:
     """``prefix: reason``, or the bare code when there is no reason to give.
 
-    fix(#1953): a prefix wrapped around ``INTERNAL_FAILURE_REASON`` hides the
+    A prefix wrapped around ``INTERNAL_FAILURE_REASON`` hides the
     code inside a sentence, and the readers that localize it match the code
     exactly.
     """
@@ -169,7 +169,7 @@ def prefixed_failure_reason(prefix: str, reason: str | BaseException) -> str:
 def coded_failure_reason(prefix: str, exc: BaseException) -> str:
     """A composed reason naming the exception's TYPE, never its message.
 
-    fix(#1953): the durable half of #1755's ``DeferFailed.cause_class``
+    The durable half of #1755's ``DeferFailed.cause_class``
     argument. A class name is a Python identifier and can carry no
     credential, so it survives Decision 3 where ``str(exc)`` does not.
     """

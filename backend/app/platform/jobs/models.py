@@ -33,16 +33,16 @@ ACTIVE_STATUSES = ("pending", "running")
 TERMINAL_STATUSES = tuple(s for s in ALL_STATUSES if s not in ACTIVE_STATUSES)
 
 # Statuses whose row still needs the staged `file_path`: pending/running read
-# it now, failed keeps it for /jobs/{id}/retry. fix(#1249): lives here, not
+# it now, failed keeps it for /jobs/{id}/retry. Lives here, not
 # inline, since both the retention purge and staging-orphan reconciliation read it.
 STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 
-# fix(#1709): stamped by the stale sweep on a fan-out parent whose dispatch
+# Stamped by the stale sweep on a fan-out parent whose dispatch
 # crashed before any child committed. jobs/router.py refuses generic retry on
 # it, since that would silently import only one layer of a multi-layer file.
 FAN_OUT_INTERRUPTED_METADATA_KEY = "fan_out_interrupted"
 
-# fix(#1710): stamped by the URL-import door and CLEARED by the staged
+# Stamped by the URL-import door and CLEARED by the staged
 # transition. While present, `file_path` names a download destination rather
 # than a complete file, so `_retry_capability` refuses the ordinary ingest
 # retry: a crash-truncated CSV is still valid to a streaming reader.
@@ -54,7 +54,7 @@ URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
 # file is gone.
 URL_IMPORT_METADATA_KEY = "url_import"
 
-# fix(#1744): stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE
+# Stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE
 # is load-bearing — a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.
 COMMIT_ATTEMPTED_METADATA_KEY = "commit_attempted_at"
@@ -69,7 +69,7 @@ def commit_attempted_marker() -> dict[str, str]:
     return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
 
 
-# fix(#1542): marks an admin embedding backfill run; the row exists so the
+# Marks an admin embedding backfill run; the row exists so the
 # operator sees it in flight and a second run is refused before it deletes
 # anything. Read by the admin dispatch, its concurrency guard, and jobs/router.py.
 EMBEDDING_BACKFILL_METADATA_KEY = "embedding_backfill"
@@ -80,7 +80,7 @@ EMBEDDING_BACKFILL_METADATA_KEY = "embedding_backfill"
 ACTIVE_BACKFILL_INDEX_NAME = "uq_ingest_jobs_active_embedding_backfill"
 
 # Set by the post-expiry presigned sweep (`_sweep_expired_presigned_staging`
-# in sweep.py) once done with a row's `s3_key`. fix(#1249): presence signals
+# in sweep.py) once done with a row's `s3_key`. Presence signals
 # staging-orphan reconciliation may take the key over; one string, two readers.
 STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
 
@@ -230,7 +230,7 @@ def owned_presigned_staging_key(
 ) -> str | None:
     """Return the presigned staging key this job alone is responsible for.
 
-    fix(#1202): ``user_metadata["s3_key"]`` is the only remaining
+    ``user_metadata["s3_key"]`` is the only remaining
     reference to the client-writable staging key once ``file_path`` points at
     a frozen copy; reapers sweep it alongside ``file_path``.
 
@@ -261,7 +261,7 @@ class IngestJob(Base):
         Index("ix_catalog_ingest_jobs_tenant_id", "tenant_id"),
         # The admin job list's default order, id tiebreak ascending included.
         Index("ix_ingest_jobs_created_at_id", desc("created_at"), "id"),
-        # fix(#1542): DB-enforced (not check-then-insert, which can't stop
+        # DB-enforced (not check-then-insert, which can't stop
         # two concurrent force runs). NULLS NOT DISTINCT is load-bearing in
         # single-tenant mode, where every tenant_id is NULL. Migration 0050 = DDL.
         Index(

@@ -22,7 +22,7 @@ async def _run_tool_use_blocks(
 ) -> list[dict]:
     """Execute one round's tool_use blocks and build the tool_result payload.
 
-    fix(#1778): split out of ``complete`` because wrapping the loop so every
+    Split out of ``complete`` because wrapping the loop so every
     exit stamps its token usage pushed that function over the complexity
     gate. ``collected_actions`` is appended in place, as the caller did inline.
     """
@@ -40,7 +40,7 @@ async def _run_tool_use_blocks(
             {
                 "type": "tool_result",
                 "tool_use_id": block.id,
-                # fix(#1778): fenced, not bare JSON — see tool_result_content
+                # Fenced, not bare JSON — see tool_result_content
                 # for why every result, not a subset.
                 "content": tool_result_content(result),
             }
@@ -131,12 +131,12 @@ class DefaultAnthropicProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
-        # fix(#448): mirror the streaming path's runaway guards — a wall-clock
+        # Mirror the streaming path's runaway guards — a wall-clock
         # deadline and cumulative token cap, so a pathological tool loop can't
         # burn budget until max_rounds.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        # fix(#1778): EVERY exit from this loop carries the tokens already
+        # EVERY exit from this loop carries the tokens already
         # spent, not just the exhaustion raises — after round one the
         # provider has been billed, so a later failure must still reach the
         # daily quota.
@@ -230,7 +230,7 @@ class DefaultAnthropicProvider:
             attach_token_usage(exc, total_input, total_output)
             raise
 
-    # fix(#1590): explicit keyword-only signature, matching
+    # Explicit keyword-only signature, matching
     # AIProviderExtension.stream exactly, instead of a bare **kwargs shim.
     async def stream(  # type: ignore[no-untyped-def]
         self,
@@ -253,7 +253,7 @@ class DefaultAnthropicProvider:
             "streaming is deferred to a follow-up phase)."
         )
 
-    # fix(#1590): explicit keyword-only signature, matching
+    # Explicit keyword-only signature, matching
     # AIProviderExtension.stream_chat_events exactly. `base_url` is accepted
     # (the Protocol declares it) but unused — Anthropic's streaming client
     # resolves its own endpoint.

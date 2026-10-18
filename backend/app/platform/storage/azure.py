@@ -58,7 +58,7 @@ class AzureBlobStorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns az://container/key URI.
 
-        fix(#1532): drained on cancellation — a bare ``to_thread`` would return
+        Drained on cancellation — a bare ``to_thread`` would return
         while the upload kept running, racing cleanup (undo-delete, closed
         source handle, orphaned staged blocks).
         """
@@ -79,7 +79,7 @@ class AzureBlobStorageProvider:
                 downloader = blob.download_blob()
                 return downloader.readall()
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         return await asyncio.to_thread(_get)
@@ -101,7 +101,7 @@ class AzureBlobStorageProvider:
             try:
                 dest.start_copy_from_url(source.url, requires_sync=True)
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(src_key) from e
 
         await asyncio.to_thread(_copy)
@@ -114,7 +114,7 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob(offset=start, length=length).readall()
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         return await asyncio.to_thread(_get_range)
@@ -122,7 +122,7 @@ class AzureBlobStorageProvider:
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream a whole blob from ONE ``download_blob`` call.
 
-        fix(#1532): this method IS reachable (managed assets take the LOCAL
+        This method IS reachable (managed assets take the LOCAL
         branch, whose GET calls this) — never reintroduce a NotImplementedError
         here. Raising mid-iteration would truncate an in-flight
         ``StreamingResponse`` instead of failing cleanly.
@@ -133,7 +133,7 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob()
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
 
         downloader = await asyncio.to_thread(_open)
@@ -151,7 +151,7 @@ class AzureBlobStorageProvider:
     ) -> AsyncIterator[bytes]:
         """Stream a byte window from ONE ``download_blob`` call.
 
-        fix(#1540): avoids the per-1-MiB-chunk amplification ``get_range``
+        Avoids the per-1-MiB-chunk amplification ``get_range``
         looping would cause. One call for the window; the SDK may still split
         a window past ``max_single_get_size`` into several requests, but that
         is its own transfer strategy, not a loop this code writes.
@@ -162,7 +162,7 @@ class AzureBlobStorageProvider:
             try:
                 return blob.download_blob(offset=start, length=length)
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
             except HttpResponseError as e:
                 # Azure raises InvalidRange past EOF where S3/local read empty
@@ -229,7 +229,7 @@ class AzureBlobStorageProvider:
             try:
                 props = blob.get_blob_properties()
             except ResourceNotFoundError as e:
-                # fix(#430): normalize missing-object to FileNotFoundError.
+                # Normalize missing-object to FileNotFoundError.
                 raise FileNotFoundError(key) from e
             size = getattr(props, "size", None)
             if size is None:
@@ -258,7 +258,7 @@ class AzureBlobStorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield blob pages under a prefix, each entry with its last-modified.
 
-        ``by_page()`` (fix(#1249)) so a consumer that stops early stops the
+        ``by_page()`` so a consumer that stops early stops the
         service round trips with it. Azure's flat listing takes a name prefix,
         not a start marker, so ``start_after`` resumes from the continuation
         token of the remembered page that contains it and is filtered
@@ -293,7 +293,7 @@ class AzureBlobStorageProvider:
                     continue
                 last_modified = getattr(blob, "last_modified", None)
                 if last_modified is None:
-                    # feat(#1249): skip undatable blobs here so the caller
+                    # Skip undatable blobs here so the caller
                     # never has to treat one as "old enough to delete".
                     continue
                 page.append(

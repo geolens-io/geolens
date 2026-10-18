@@ -13,7 +13,7 @@ Hit/miss counters carry a ``table_name`` label; ``_safe_label``
 bounds cardinality by collapsing anything not matching the documented
 ``data.*`` shape to ``"_other"``.
 
-fix(#1429): the ``table`` argument is the tile router's composite segment
+The ``table`` argument is the tile router's composite segment
 (tenant id, dataset id, cluster params) and never matches ``_safe_label``'s
 shape, so deriving the metric label from it collapsed everything to
 ``"_other"``. Readers now pass the bare table name separately as ``label``.

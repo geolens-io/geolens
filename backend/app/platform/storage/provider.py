@@ -11,7 +11,7 @@ from typing import AsyncIterator, BinaryIO, Protocol
 class StoredObject:
     """One object as the provider reports it right now.
 
-    feat(#1249): ``last_modified`` is timezone-aware UTC on every provider —
+    ``last_modified`` is timezone-aware UTC on every provider —
     a naive value would make the caller's cutoff comparison raise instead of
     answer.
     """
@@ -110,10 +110,10 @@ class StorageProvider(Protocol):
     ) -> AsyncIterator["builtins.list[StoredObject]"]:
         """Yield objects under a prefix one provider page at a time.
 
-        feat(#1249): also answers how old each key is, distinguishing an
+        Also answers how old each key is, distinguishing an
         abandoned staging object from one whose upload just landed.
 
-        Paged (fix(#1249)) so a caller with a bounded per-pass budget never
+        Paged so a caller with a bounded per-pass budget never
         has to materialize an unbounded prefix first; stopping early stops
         the provider's paging with it.
 
@@ -140,8 +140,8 @@ class StorageProvider(Protocol):
     ) -> str:
         """Generate a presigned PUT URL for direct upload.
 
-        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
-        (fix(#1234)), as for part URLs below — a longer-lived URL is usable
+        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``,
+        as for part URLs below — a longer-lived URL is usable
         against a row the pending sweep already failed. Raises
         NotImplementedError for local storage.
         """
@@ -178,8 +178,8 @@ class StorageProvider(Protocol):
     ) -> str:
         """Generate a presigned URL for uploading a single part.
 
-        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
-        (fix(#1234)), same reason as the put URL above. Raises
+        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``,
+        same reason as the put URL above. Raises
         NotImplementedError for local storage.
         """
         ...

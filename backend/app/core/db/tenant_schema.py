@@ -182,7 +182,7 @@ async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
     no-op. The SECURITY DEFINER function runs in one ordinary transaction;
     tenant creation paths must instead pass their existing session directly.
     """
-    # fix(#909): façade import — see the note in rls.py.
+    # façade import — see the note in rls.py.
     from app.core.db import engine
 
     async with engine.begin() as conn:
@@ -211,7 +211,7 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
     from sqlalchemy import text as sa_text
     from sqlalchemy.pool import NullPool
 
-    # fix(#909): façade import — see the note in rls.py.
+    # façade import — see the note in rls.py.
     from app.core.db import engine as _engine
 
     async def _fetch() -> str:
@@ -259,7 +259,7 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
 async def schema_exists(session, schema: str) -> bool:
     """True when *schema* exists in the current database.
 
-    fix(#435): `42P01` (undefined_table) is ambiguous — Postgres returns it
+    `42P01` (undefined_table) is ambiguous — Postgres returns it
     both for a missing schema and for a raster dataset's synthetic table in a
     schema that exists. Read-side callers degrading `42P01` to an empty page
     must probe first, or a never-provisioned (or restore-lost) tenant schema

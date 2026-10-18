@@ -84,7 +84,7 @@ def _absolute(url: str, base_url: str) -> str:
 def raster_tiles_path(dataset: Dataset) -> str:
     """The XYZ template for a raster dataset, versioned like every renderer.
 
-    fix(#1372) and fix(#2007) version the template on the content and the
+    The template is versioned on the content and the
     publication counters, so a replace or a publication transition rolls the
     shared tile cache. Kept identical to ``build_assets``: a client that reads
     both the STAC asset and the DCAT distribution must get the same URL.
@@ -227,7 +227,7 @@ def published_distributions(
             PublishedDistribution(
                 distribution_type=row.distribution_type,
                 format=row.format,
-                # fix(#2007): a stored vector-tile template predates every
+                # A stored vector-tile template predates every
                 # transition since ingest, so republish it at the row's counter.
                 url=_absolute(
                     republished_tile_url(

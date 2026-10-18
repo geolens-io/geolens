@@ -809,8 +809,6 @@ class TestMetadataPatchTakesThePairToo:
 
 
 class TestTheMetadataPatchTakesThePairOnEveryBody:
-    """fix(#1881): every PATCH takes the pair before its first write."""
-
     @pytest.mark.parametrize(
         "body",
         [
@@ -2062,7 +2060,7 @@ class TestInvalidationsPrecedeTheReap:
 
 
 class TestOnlyThisRequestsTimeoutIsAnswered:
-    """fix(#1847): a 40P01 from a request that never installed the catalog
+    """A 40P01 from a request that never installed the catalog
     timeout is not a busy dataset; only this request's own wait answers 409."""
 
     def _handler_input(self, code: str):
@@ -2102,8 +2100,6 @@ class TestOnlyThisRequestsTimeoutIsAnswered:
 
 
 class TestTheMarkerEndsWithItsTransaction:
-    """fix(#1890): the marker ends with the transaction that installed it."""
-
     async def test_commit_clears_the_marker_the_acquisition_set(self, locked_dataset):
         import app.core.db as db_module
 
@@ -2451,7 +2447,7 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
 
 
 # ---------------------------------------------------------------------------
-# The class gate (fix(#1847))
+# The class gate
 # ---------------------------------------------------------------------------
 
 # A function that writes BOTH catalog rows acquires them in the house order

@@ -1,6 +1,6 @@
 """Which service credential methods this build can carry, and on what.
 
-feat(#1746). ``core/service_tokens.py`` says what a credential may LOOK
+``core/service_tokens.py`` says what a credential may LOOK
 like and how one header is composed from it. This module answers the
 narrower question every door has to answer before it writes anything: of
 the methods a caller can describe, which can the transport under this
@@ -69,7 +69,7 @@ UNSUPPORTED_AUTH_METHOD_POLICY = (
     "for a token and nothing else. Use a bearer token for it."
 )
 
-# fix(#1760): the request schema's rule, restated for callers that never
+# The request schema's rule, restated for callers that never
 # pass through it. Reuses `invalid_service_token` rather than minting a
 # code for a case that means what that one means.
 BLANK_BEARER_TOKEN_CODE = INVALID_SERVICE_TOKEN_CODE
@@ -145,7 +145,7 @@ def credential_input_rejection(credential: ServiceCredential) -> str | None:
     if method == CredentialMethod.BEARER:
         if not credential.token:
             return BLANK_BEARER_TOKEN_POLICY
-        # fix(#1764): through the builder's own rule, which picks the charset
+        # Through the builder's own rule, which picks the charset
         # by service format. Applying the GDAL header-file charset here
         # refused a STAC key holding `+` or `/` that the builder accepts.
         return bearer_token_rejection_reason(credential)
@@ -171,7 +171,7 @@ def service_carries_method(
 ) -> bool:
     """Whether a service of this KIND can present a credential of this METHOD.
 
-    fix(#1746): the one mapping, so the probe door and the probe itself
+    The one mapping, so the probe door and the probe itself
     can't disagree about it. It had been expressed twice, differently: the
     door inferred the service kind from URL text and refused there, while
     `detect_service_type` refused the same methods after detection — a
@@ -183,7 +183,7 @@ def service_carries_method(
     service kind whose credential travels as one. Anything else is a
     method this build doesn't know how to send anywhere.
 
-    feat(#1764): the header-or-query question is
+    The header-or-query question is
     ``carries_credential_as_header_line``, not the GDAL header-file one —
     STAC carries all three methods and writes no header file.
     """
@@ -323,11 +323,10 @@ def bearer_credential(token: str | None) -> ServiceCredential | None:
     return ServiceCredential(method=CredentialMethod.BEARER, token=token)
 
 
-# The request-side spelling of the same thing. feat(#1746): moved here
-# from `modules/catalog/sources/schemas.py`, unchanged, for the same
-# reason the gate above lives here — `processing/ingest` may not import
+# The request-side spelling of the same thing. It lives here for the same
+# reason the gate above does: `processing/ingest` may not import
 # `app.modules.catalog.*`. `sources/schemas.py` imports it back, so every
-# existing import path and the OpenAPI component name are unchanged.
+# import path and the OpenAPI component name stay the same.
 
 
 def _validate_safe_token(v: str | None) -> str | None:
@@ -356,7 +355,7 @@ def _validate_safe_token(v: str | None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# feat(#1746): the structured `auth` object every service door accepts, and the
+# The structured `auth` object every service door accepts, and the
 # deprecated flat `token` that means the same thing for a bearer credential.
 #
 # One model, imported by the re-upload and refresh request models too, so
@@ -428,10 +427,10 @@ _SERVICE_AUTH_SHAPES: dict[str, tuple[frozenset[str], str]] = {
 def _names_a_credential(value: str | None) -> bool:
     """Whether *value* is a credential the caller actually supplied.
 
-    fix(#1760): an empty or whitespace-only string is not one. It used to
-    count as supplied, so ``{"method": "bearer", "token": ""}`` passed the
-    shape check, every downstream test being a truthiness test, so the
-    door contacted the origin with no credential at all — anonymous
+    An empty or whitespace-only string is not one. Counting it as
+    supplied would let ``{"method": "bearer", "token": ""}`` pass the
+    shape check, every downstream test being a truthiness test, and the
+    door would contact the origin with no credential at all: anonymous
     despite a named method, answering 401 in a way that reads like a
     broken service rather than a blank field.
 

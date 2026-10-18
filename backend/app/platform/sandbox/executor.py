@@ -52,7 +52,7 @@ _FLAT_ARRAY_TYPES_SQL = (
 
 # Single-tenant restricted execution role (migration 0007 + init-db.sh).
 # Module-level so tests can point it at a nonexistent role to exercise both
-# the legacy best-effort fallback and the feat(#565) fail-closed binding.
+# the legacy best-effort fallback and the fail-closed binding.
 _SINGLE_TENANT_READER_ROLE = "geolens_reader"
 
 
@@ -66,7 +66,7 @@ def _is_logical_data_schema(identifier: exp.Identifier) -> bool:
 def _logical_data_span(identifier: exp.Identifier, sql: str) -> tuple[int, int]:
     """Source offsets of one logical ``data`` schema qualifier in ``sql``.
 
-    fix(#1892): the slice must spell exactly what sqlglot parsed. An absent or
+    The slice must spell exactly what sqlglot parsed. An absent or
     shifted offset would move an unrelated span, so it fails closed instead.
     """
     start = identifier.meta.get("start")
@@ -92,7 +92,7 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     other real-table schema; multi-tenant storage is per-tenant, so execution
     translates the logical name after validation.
 
-    fix(#1892): only the schema identifier spans of the ORIGINAL text are
+    Only the schema identifier spans of the ORIGINAL text are
     replaced, right to left. Serializing the parsed tree instead re-rendered
     the whole statement, which is why the pgvector cosine operator (sqlglot
     parses ``<=>`` as NullSafeEQ) needed a sentinel swap; every other byte now
@@ -110,7 +110,7 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
         # both tokenize and parse failures).
         raise SandboxError("invalid_query", "Invalid SQL syntax") from exc
 
-    # fix(#1892): `parse`, not `parse_one`, which reports a second statement as
+    # `parse`, not `parse_one`, which reports a second statement as
     # one Block and would rewrite a caller-supplied `a; b` in both halves.
     statements = [statement for statement in statements if statement is not None]
     if len(statements) != 1:

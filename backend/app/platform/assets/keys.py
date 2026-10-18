@@ -1,6 +1,6 @@
 """Which ``dataset_assets`` keys may appear in an API response.
 
-fix(#1290): an ALLOWLIST, not a blocklist — a key added for internal
+An ALLOWLIST, not a blocklist — a key added for internal
 bookkeeping stays private until deliberately published. Guards all three call
 sites that turn ``dataset_assets`` rows into a payload (dataset detail, STAC
 item, search bulk enrichment), directly or via ``_build_stac_assets``. Without

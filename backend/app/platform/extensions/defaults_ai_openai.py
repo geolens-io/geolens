@@ -110,10 +110,10 @@ class DefaultOpenAICompatibleProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
-        # fix(#448): same runaway guards as the Anthropic complete() loop.
+        # Same runaway guards as the Anthropic complete() loop.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        # fix(#1778): EVERY exit from this loop carries the tokens already
+        # EVERY exit from this loop carries the tokens already
         # spent, not just the exhaustion raises — after round one the
         # provider has been billed, so a later failure must still reach the
         # daily quota.
@@ -232,7 +232,7 @@ class DefaultOpenAICompatibleProvider:
             attach_token_usage(exc, total_input, total_output)
             raise
 
-    # fix(#1590): explicit keyword-only signature, matching
+    # Explicit keyword-only signature, matching
     # AIProviderExtension.stream exactly, instead of a bare **kwargs shim.
     async def stream(  # type: ignore[no-untyped-def]
         self,
@@ -254,7 +254,7 @@ class DefaultOpenAICompatibleProvider:
             "community edition; use complete()."
         )
 
-    # fix(#1590): explicit keyword-only signature, matching
+    # Explicit keyword-only signature, matching
     # AIProviderExtension.stream_chat_events exactly.
     async def stream_chat_events(  # type: ignore[no-untyped-def]
         self,

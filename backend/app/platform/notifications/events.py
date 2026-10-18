@@ -84,7 +84,7 @@ def build_event_notification(
         app_settings, "notification_admin_email", None
     ) or getattr(app_settings, "smtp_from_address", None)
 
-    # fix(#2010): mail is a reader like the web app, and a code is not a
+    # Mail is a reader like the web app, and a code is not a
     # sentence. Mapped here rather than at each call site, so a new event
     # that carries a reason cannot reintroduce the raw identifier.
     reason = describe_failure_reason(reason) if reason else reason

@@ -4,7 +4,7 @@ import time
 from collections import OrderedDict
 from typing import Any
 
-# fix(#430): LRU-capped so a no-Redis deployment can't be OOM'd by
+# LRU-capped so a no-Redis deployment can't be OOM'd by
 # unbounded distinct cache keys that are never re-requested (so never
 # lazily evicted). Coldest entry evicts once full; Redis is unaffected.
 _MAX_ENTRIES = 10_000
@@ -19,7 +19,7 @@ _MAX_VALUE_BYTES = 1024 * 1024
 class InMemoryCacheProvider:
     """In-memory LRU-bounded cache with a time.monotonic() TTL.
 
-    fix(#1778): ``security=`` is accepted but ignored. Safe as the layered
+    ``security=`` is accepted but ignored. Safe as the layered
     provider's Redis fallback (never asked a security question there) or as
     the sole store in a single-process deployment; unsafe as the sole store
     under multiple workers, since a revoke in one worker won't reach the
@@ -71,7 +71,7 @@ class InMemoryCacheProvider:
     async def set_if_absent(
         self, key: str, value: Any, ttl: int = 300, *, security: bool = False
     ) -> bool:
-        """fix(#1778): store only when the key is unset (or expired). True if stored.
+        """Store only when the key is unset (or expired). True if stored.
 
         No await between the presence check and the write, so no coroutine
         can interleave on a single event loop.
@@ -83,7 +83,7 @@ class InMemoryCacheProvider:
         return key in self._store
 
     async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
-        """fix(#1778): one store, so this is ``set``. Named separately because
+        """One store, so this is ``set``. Named separately because
         the layered provider has to do more."""
         await self.set(key, value, ttl)
 
@@ -91,7 +91,7 @@ class InMemoryCacheProvider:
         self._pop(key)
 
     async def delete_many(self, *keys: str) -> None:
-        # fix(#1543): no await inside the loop, so on a single event loop there
+        # No await inside the loop, so on a single event loop there
         # is no instant at which some of `keys` are gone and the rest are not.
         for key in keys:
             self._pop(key)

@@ -52,7 +52,7 @@ class MercatorClipDetail(BaseModel):
 
     dropped_features: int = Field(ge=0)
     clipped_features: int = Field(ge=0)
-    # fix(#906): True when the clip was skipped because the Mercator safe
+    # True when the clip was skipped because the Mercator safe
     # envelope degenerates under ST_Transform (e.g. EPSG:4807 collapses it to
     # a line); counts are 0/0 then. Defaults False so pre-#906 warnings validate.
     clip_skipped: bool = False
@@ -105,7 +105,7 @@ class JobStatusResponse(BaseModel):
             # ux(#698): stamped at creation so a pending job reads as queued,
             # not as having nothing to say. Analysis today; any producer may set it.
             "queued",
-            # feat(#1710): the URL import's server-side download, before the
+            # The URL import's server-side download, before the
             # file is staged and previewable.
             "downloading",
             "validating",
@@ -121,7 +121,7 @@ class JobStatusResponse(BaseModel):
         | None
     ) = None
     rows_processed: Annotated[int, Field(ge=0)] | None = None
-    # fix(#1550): rows processed but NOT completed. `rows_processed`
+    # Rows processed but NOT completed. `rows_processed`
     # alone can't distinguish a clean run from a partial one (e.g. embedding
     # backfill after a FORCE run). Read from generic `user_metadata["rows_failed"]`.
     rows_failed: Annotated[int, Field(ge=0)] | None = None

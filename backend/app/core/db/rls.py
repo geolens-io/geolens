@@ -347,7 +347,7 @@ async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> 
     migration process may pass ``verify_runtime_role=False`` while preparing
     the schema; API/worker bootstrap always use the default verification.
     """
-    # fix(#909): via the app.core.db façade, not app.core.db.session — the
+    # Via the app.core.db façade, not app.core.db.session — the
     # test fixture reassigns the façade attribute, so importing from the
     # origin module would resolve the un-patched engine even when late-bound.
     from app.core.db import engine

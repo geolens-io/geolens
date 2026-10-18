@@ -1,6 +1,6 @@
 """Derive GDAL's AWS_* config for its S3 VSI reads from the app's S3_* settings.
 
-fix(#579): with STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2),
+With STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2),
 GDAL S3 VSI reads targeted the default AWS endpoint and failed, since only the
 application-side SDK honored S3_ENDPOINT/S3_ADDRESSING_STYLE, not GDAL.
 

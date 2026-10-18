@@ -71,7 +71,7 @@ export type RecordType =
 // Mirrors backend chk_records_visibility CHECK constraint
 // (catalog/datasets/domain/models.py:35). Keep in sync if values change.
 export type DatasetVisibility = components['schemas']['CommitRequest']['visibility'];
-/** feat(#1218): how the data entered the catalog. Distinct from `record_type`
+/** How the data entered the catalog. Distinct from `record_type`
  *  (what the data is): a vector dataset can be an uploaded file, a registered
  *  PostGIS table, or a copy pulled from a remote service. The backend computes
  *  this from source_format + record_type and serves it as `origin`; OriginBadge
@@ -82,7 +82,7 @@ export type DatasetOrigin = NonNullable<components['schemas']['ReuploadCommitReq
  *  literal, so there is exactly one way to spell "never determined". */
 export type SourceHealth = 'healthy' | 'missing' | 'inaccessible' | 'unknown';
 export type SchemaDriftStatus = 'none' | 'drifted' | 'unknown';
-/** feat(#1224): how a dataset's last refresh of its SOURCE compares to the
+/** How a dataset's last refresh of its SOURCE compares to the
  *  cadence it declares in `update_frequency` — due past one declared period,
  *  overdue past two. Computed server-side on every read, never stored, so there
  *  is no client-side copy of the rule to drift. 'unknown' when the origin
@@ -100,7 +100,7 @@ export type SourceFreshness = 'fresh' | 'due' | 'overdue' | 'unknown';
 /** Response returned by dataset publication-status mutation endpoints. */
 export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
 
-// feat(#1746 B4): structured credential for a protected service, mirroring
+// Structured credential for a protected service, mirroring
 // backend `ServiceAuthRequest` (app/platform/service_auth.py). Mutually
 // exclusive with the deprecated `token` field on every request that carries
 // both — see `reject_service_auth_conflict`. Aliased from the generated
@@ -246,12 +246,12 @@ export type UploadResponse = components['schemas']['UploadResponse'];
 
 export type JobStatusResponse = components['schemas']['JobStatusResponse'];
 
-// feat(#1677): POST /jobs/{id}/cancel. `run_id` is the refresh run the
+// POST /jobs/{id}/cancel. `run_id` is the refresh run the
 // cancel finalized when the job had one bound (refreshes/reuploads do;
 // plain imports don't); `already` marks the idempotent repeat.
 export type JobCancelResponse = components['schemas']['JobCancelResponse'];
 
-/** fix(#875): 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
+/** 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
 export type ApiKeyScope = components['schemas']['ApiKeyCreateRequest']['scope'];
 
 export type ApiKeyResponse = components['schemas']['AdminApiKeyListItem'];
@@ -334,7 +334,7 @@ export type DatasetVersionResponse = components['schemas']['DatasetVersionRespon
 
 export type DatasetVersionListResponse = components['schemas']['DatasetVersionListResponse'];
 
-// feat(#1285): the refresh door (#1277/#1313) and its run history
+// The refresh door (#1277/#1313) and its run history
 // (GET /datasets/{id}/refresh-runs). Hand-mirrored like the version types
 // above rather than aliased from api.generated's `components`, matching this
 // file's existing convention for the datasets domain.
