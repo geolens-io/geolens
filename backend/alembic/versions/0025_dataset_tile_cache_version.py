@@ -5,7 +5,7 @@ bumped on reupload only, yet it fed `MapLayerResponse.tile_version` (the
 frontend's `_v=` tile-URL parameter). Content mutations that don't create a
 version — single-feature edits, column DDL, tile_columns changes — purged the
 Valkey tile cache but left the tile URL unchanged, so CDN/browser/nginx caches
-kept serving stale tiles until max-age expiry (builder-audit 2026-07-15 T-01).
+kept serving stale tiles until max-age expiry.
 
 This dedicated counter is bumped by every tile-content mutation (including
 reupload) and now feeds tile_version, leaving current_version's version-history

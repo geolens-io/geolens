@@ -1,18 +1,18 @@
-"""db-audit #529 naming cleanup: duplicate slug index + staging pkey names.
+"""Drop a duplicate slug index and rename staging primary keys.
 
-Two findings from the 2026-07-16 DB audit (PR #529):
+Two cleanups:
 
-BLOAT-1 — `ix_catalog_map_icon_assets_slug` fully duplicated the backing index
+1. `ix_catalog_map_icon_assets_slug` fully duplicated the backing index
 of `uq_map_icon_assets_slug` on the same column; every write maintained both.
 
-BLOAT-3 — `ALTER TABLE ... RENAME TO` at ingest publish kept each table's PK
+2. `ALTER TABLE ... RENAME TO` at ingest publish kept each table's PK
 constraint (and backing index) named after its attempt-scoped staging table
 (`*_staging_<uuid>_pkey`). Those names are user-visible to anyone connecting
 directly with QGIS/pgAdmin/DBeaver. Ingest now renames the constraint at
 publish (`rename_pkey_to_match_table` in tasks_common.py); this migration
 fixes the tables published before that change, across all tenant schemas.
 
-Downgrade drops back to the pre-audit index but does NOT restore the staging
+Downgrade drops back to the duplicate index but does NOT restore the staging
 pkey names — the attempt UUIDs are gone and the names are cosmetic.
 
 Revision ID: 0026_db_audit_naming_cleanup

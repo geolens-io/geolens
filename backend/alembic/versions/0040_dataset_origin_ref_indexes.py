@@ -50,8 +50,7 @@ fixed-size hash of the value, never the value itself, so it has no such
 ceiling regardless of how long or how multibyte-heavy the source string is.
 
 Postgres hash indexes are single-column only, so `layer_id` is NOT part of
-`ix_datasets_origin_ref_url` (it was a second btree column in an earlier
-revision of this migration). The service-preview guard's `layer_id`
+`ix_datasets_origin_ref_url`. The service-preview guard's `layer_id`
 equality/`IS NULL` check becomes a residual Filter on whatever rows the
 `url` hash index narrows to, rather than an Index Cond — confirmed
 acceptable by EXPLAIN: `url` alone is the selective key for this guard
@@ -61,33 +60,16 @@ does NOT filter out still gets the exact right answer from the Filter, so
 correctness is identical to the composite-btree shape; only the width of
 the candidate set before the Filter changes.
 
-Plain, transactional `CREATE INDEX` -- not `CONCURRENTLY` -- for all three,
-which is a deliberate reversal from an earlier revision of this migration.
-`catalog.datasets` is the core catalog table, but is small in any realistic
-install (thousands of rows, not millions): the Clean-DB CI job's own log
-shows the WHOLE migration chain up to and including this one completing in
-about 1.5 seconds, so a brief SHARE lock during the build is cheap in every
-environment this actually runs in. `CREATE INDEX CONCURRENTLY` trades that
-brief lock for a much sharper failure mode under this test suite's own
-bootstrap: pytest-xdist migrates each worker's database with
-`alembic.command.upgrade` running several workers against one Postgres
-instance in parallel, and a CIC interrupted mid-build (lock contention from
-a sibling worker's migration, a killed process) leaves an INVALID index
-behind; `IF NOT EXISTS` then treats that husk as "already there" and never
-retries or errors. An invalid index is invisible to SQLAlchemy's reflection
-(autogenerate reports it as missing -> `alembic check` drift) and is never
-chosen by the planner (the guard queries silently stop using it) --
-reproduced exactly in CI: `test_email_verification_migration.py`'s
-drift check and this migration's own EXPLAIN tests both failed against a
-worker database that turned out to hold invalid copies of all three
-indexes. The post-squash migration chain (0001 onward) has no other
-`CONCURRENTLY` migration, so this bootstrap path had no prior green run to
-catch the pattern. A plain `CREATE INDEX` participates in the migration's
-ambient transaction: it either fully commits or the whole migration rolls
-back, so there is no invalid-index state to leave behind, no
-`_index_state()` resumability check needed, and no `autocommit_block()`
-needed either. `IF NOT EXISTS` is kept only for idempotency on a retried
-migration, not because a partial build is possible under plain DDL.
+Plain, transactional `CREATE INDEX`, not `CONCURRENTLY`, for all three.
+`catalog.datasets` is small on any realistic install (thousands of rows), so a
+brief SHARE lock during the build is cheap. `CREATE INDEX CONCURRENTLY` has a
+sharper failure mode when pytest-xdist workers migrate their databases in
+parallel against one Postgres instance: an interrupted build leaves an INVALID
+index, `IF NOT EXISTS` then treats that husk as "already there", and nothing
+retries. An invalid index is invisible to SQLAlchemy's reflection (autogenerate
+reports drift) and is never chosen by the planner. A plain `CREATE INDEX`
+participates in the migration's transaction, so it either commits or rolls back
+whole. `IF NOT EXISTS` is kept only for idempotency on a retried migration.
 Index-only, additive: no column added, no existing index touched, no table
 rewrite.
 

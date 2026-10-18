@@ -218,7 +218,7 @@ def do_run_migrations(connection):
         )
     )
     connection.execute(sa.text("COMMIT"))
-    # CV-1: the raw COMMIT above persists the preamble DDL at the DB level, but
+    # The raw COMMIT above persists the preamble DDL at the DB level, but
     # SQLAlchemy's autobegin immediately re-arms an implicit transaction on the
     # connection. If left active, MigrationContext.__init__ (in context.configure
     # below) snapshots _in_external_transaction=True, which makes

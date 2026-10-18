@@ -1,11 +1,10 @@
 """Add catalog.maps.legend_title column.
 
-Additive, nullable text column for the custom map-level legend title
-(ENH-06, Phase 1201). Null means "no custom title" — the legend renders
-without a heading override. The existing `plugins` column cannot hold this
-value (it is list[str] of enabled plugin IDs) and the basemap/terrain JSONB
-blobs are extra="forbid"-validated, so a dedicated nullable column is the
-correct home.
+Additive, nullable text column for the custom map-level legend title. Null
+means "no custom title" — the legend renders without a heading override. The
+existing `plugins` column cannot hold this value (it is list[str] of enabled
+plugin IDs) and the basemap/terrain JSONB blobs are extra="forbid"-validated,
+so a dedicated nullable column is the correct home.
 
 Revision ID: 0004_add_maps_legend_title
 Revises: 0003_normalize_dem_hillshade_style

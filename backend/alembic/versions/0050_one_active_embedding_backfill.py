@@ -16,8 +16,7 @@ Deliberately NOT an advisory lock. ``pg_advisory_xact_lock`` releases at COMMIT
 and the backfill commits per batch, so the lock would be gone for most of the
 run; the session-level variant survives ROLLBACK, and SQLAlchemy's pool
 reset-on-return IS a rollback, so the lock leaks onto a pooled connection
-nobody can see and never comes back. Commit 898048b2 reverted exactly that
-after it hung CI.
+nobody can see and never comes back.
 
 Shape:
 

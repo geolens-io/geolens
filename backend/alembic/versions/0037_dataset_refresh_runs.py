@@ -39,11 +39,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("dataset_id", postgresql.UUID(as_uuid=True), nullable=False),
-        # TSEAM-01 dormant tenant_id: nullable, no FK enforcement, no RLS
+        # Dormant tenant_id: nullable, no FK enforcement, no RLS
         # policy. This table is NOT in migration 0018's stamping-trigger set,
         # so the value is written explicitly at run creation from the parent
-        # dataset's stored column. RLS enablement belongs to #998; no table in
-        # this database has it turned on today.
+        # dataset's stored column. RLS enablement belongs to #998.
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("ingest_job_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -105,10 +104,10 @@ def upgrade() -> None:
             "status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')",
             name="chk_refresh_runs_status",
         ),
-        # 'scheduled' is excluded because nothing schedules (gate 4). Whoever
+        # 'scheduled' is excluded because nothing schedules. Whoever
         # adds it must add scheduled_for and its UNIQUE (dataset_id,
         # scheduled_for) partial index in the SAME migration, or a scheduled
-        # occurrence loses the durable identity invariant 8 requires.
+        # occurrence loses the durable identity it requires.
         sa.CheckConstraint(
             "trigger IN ('manual', 'api', 'cli')",
             name="chk_refresh_runs_trigger",

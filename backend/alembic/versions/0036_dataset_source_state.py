@@ -344,7 +344,7 @@ _STAC_BACKFILL = f"""
 # restricting this to 'vector_dataset' would leave registered non-spatial
 # tables as the only rows whose pointer depends on whether they were
 # registered before or after this migration. ADR-002's predicate names the
-# common case rather than an exclusion (widened deliberately, #1218 review).
+# common case rather than an exclusion.
 #
 # VRT datasets also store a null source_format (they have no single source
 # file), and the record_type predicate is still what keeps them out: a VRT is

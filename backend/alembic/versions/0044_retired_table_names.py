@@ -58,7 +58,7 @@ def upgrade() -> None:
         # Same width as catalog.datasets.table_name, which is what every row
         # here is a copy of.
         sa.Column("table_name", sa.String(length=255), nullable=False),
-        # TSEAM-01 dormant tenant_id: nullable, no FK enforcement, no RLS
+        # Dormant tenant_id: nullable, no FK enforcement, no RLS
         # policy, and not in migration 0018's stamping-trigger set — the same
         # shape 0037_dataset_refresh_runs uses. Written explicitly from the
         # deleted dataset's own column, and READ by the collision probe, which

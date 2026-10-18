@@ -1,8 +1,7 @@
 """Add dormant tenant substrate: tenant_id columns + tenancy tables + partial-unique indexes.
 
-Adds the inert multi-tenant substrate to the core schema (TSEAM-01, TSEAM-02,
-Phase 1207).  All changes are **dormant** — tenant_id defaults to NULL,
-no FK enforcement, no RLS, no behavior change for single_tenant (Community /
+Adds the inert multi-tenant substrate to the core schema. All changes are
+**dormant** — tenant_id defaults to NULL, no FK enforcement, no RLS, no behavior change for single_tenant (Community /
 Enterprise) deployments.
 
 What this migration adds
@@ -15,9 +14,9 @@ What this migration adds
    - ``organizations`` — top-level billing/ownership entity.
    - ``tenants`` — logical tenant (subdomain-shaped slug) within an org.
    - ``org_memberships`` — user ↔ org membership join table (composite PK,
-     no FK constraints until Phase 1208).
+     no FK constraints yet).
 
-3. TSEAM-02 two-partial-index uniqueness pattern on ``users``:
+3. Two-partial-index uniqueness pattern on ``users``:
    Drops the existing global UNIQUE constraints (``users_username_key``,
    ``users_email_key``) and replaces them with four partial unique indexes:
    - ``uq_users_username_global``  UNIQUE(username) WHERE tenant_id IS NULL
@@ -203,7 +202,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("slug", sa.String(63), nullable=False),
-        # Dormant link to organizations — no FK constraint until Phase 1208.
+        # Dormant link to organizations — no FK constraint yet.
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column(
@@ -221,7 +220,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         schema="catalog",
     )
-    # Non-unique index on slug (unique-per-org enforcement is Phase 1208).
+    # Non-unique index on slug (unique-per-org enforcement is not yet in place).
     op.create_index(
         "ix_tenants_slug",
         "tenants",
@@ -234,7 +233,7 @@ def upgrade() -> None:
         "org_memberships",
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        # Nullable until roles are wired (Phase 1208).
+        # Nullable until roles are wired.
         sa.Column("role", sa.String(50), nullable=True),
         sa.Column(
             "created_at",
@@ -247,7 +246,7 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 3. TSEAM-02: Replace global UNIQUE constraints on users with the
+    # 3. Replace global UNIQUE constraints on users with the
     #    two-partial-index pattern (per field).
     # ------------------------------------------------------------------
     # Drop the existing global unique constraints that were created in

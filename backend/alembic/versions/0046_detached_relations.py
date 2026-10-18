@@ -28,7 +28,7 @@ Shape mirrors 0044 deliberately, including its reasoning:
   plus three ids.
 * No unique constraint. The same table can be registered and detached any
   number of times, and a duplicate must never be able to fail a delete.
-* ``tenant_id`` is the dormant TSEAM-01 shape: nullable, no FK, no RLS policy,
+* ``tenant_id`` is the dormant shape: nullable, no FK, no RLS policy,
   written from the deleted dataset's own column.
 * ``dataset_id`` and ``previous_owner_id`` carry no foreign keys. The dataset is
   deleted in the transaction that writes this row, and an FK to

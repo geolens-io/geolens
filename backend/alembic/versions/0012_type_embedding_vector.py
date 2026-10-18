@@ -144,7 +144,7 @@ def upgrade() -> None:
               INTO distinct_dims, stored_dims
             FROM catalog.record_embeddings;
 
-            -- fix(#449, codex P2): explicit config (app_settings override
+            -- Explicit config (app_settings override
             -- unless env-only, then an explicitly-set EMBEDDING_DIMS) beats
             -- stored rows — stale cache rows from a superseded model must
             -- not pin the column to the old dimension.

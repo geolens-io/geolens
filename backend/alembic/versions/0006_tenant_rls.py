@@ -1,4 +1,4 @@
-"""Create fail-closed RLS policies on the 6 tenant-shared tables (ISO-02, Phase 1208-02).
+"""Create fail-closed RLS policies on the 6 tenant-shared tables.
 
 Defines ``CREATE POLICY tenant_isolation_<table>`` with a USING clause of
 ``tenant_id = current_setting('app.current_tenant')::uuid`` and an identical
@@ -9,11 +9,10 @@ Key design constraints
 - **NO ENABLE/FORCE RLS here.** The migration is mode-independent — it runs
   identically in both ``single_tenant`` and ``multi_tenant`` deployments, so
   the schema stays drift-gate-consistent regardless of tenancy mode.  Policy
-  enablement is runtime-only via ``apply_tenancy_rls()`` (Phase 1208-02 Plan).
+  enablement is runtime-only via ``apply_tenancy_rls()``.
 - **NO null-escape clause.** The ``OR current_setting('app.current_tenant','t')
-  IS NULL`` escape is intentionally absent — it would make the policy fail-open
-  and is rejected by the ISO-02 decision (see 1208-CONTEXT.md).  An unset GUC
-  fails closed (error or 0 rows) as required.
+  IS NULL`` escape is intentionally absent — it would make the policy
+  fail-open. An unset GUC fails closed (error or 0 rows) as required.
 - **Safe rollback.** ``downgrade()`` unforces and disables runtime-activated RLS
   before dropping all 6 policies in inverse order.  This prevents policy-free
   tables from remaining in a deny-all state after rollback.

@@ -20,18 +20,15 @@ The NOT EXISTS guard reads only
 auto_generated rows, matching generate_distributions' own existence probe
 — a user-authored download/fgb row must not suppress the
 platform's own export row; the intended end state is both rows coexisting.
-Narrowing the guard reopens the case that broad check was incidentally
-absorbing: a user's row at the exact guessable URL this INSERT targets
-(`/datasets/{id}/export?format=fgb`) collides on uq_record_distribution, so
+Because the guard is narrow, a user's row at the exact guessable URL this
+INSERT targets (`/datasets/{id}/export?format=fgb`) collides on uq_record_distribution, so
 the INSERT carries `ON CONFLICT DO NOTHING` — the same resolution
 `reconcile_distributions` uses for the identical collision at runtime (see
 `TestATemplateUrlCollisionDoesNotRaise` in
 test_distribution_reconcile_1314.py).
 
-Revises 0053_source_format_fgb (#1682, merged concurrently) rather than a
-core revision authored alongside this one: that PR's own migration already
-covers letting 'fgb' through chk_datasets_source_format, so this file is
-scoped to the (unrelated) DCAT distribution gap only.
+0053_source_format_fgb already lets 'fgb' through chk_datasets_source_format,
+so this file covers only the DCAT distribution gap.
 
 Revision ID: 0054_backfill_flatgeobuf_distributions
 Revises: 0053_source_format_fgb

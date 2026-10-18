@@ -1,10 +1,9 @@
 """Let PostgreSQL enforce one terminal audit entry per embedding backfill run.
 
-Three actors can close a backfill's audit trail — the
-worker, the status poll and the stale sweeper — and more than one can be right
-about the same run. The first attempt at idempotency was a read-before-write
-existence check, which is a check-then-insert: two actors both read "no
-terminal entry yet", both insert, and the trail ends up with two conflicting
+Three actors can close a backfill's audit trail — the worker, the status poll
+and the stale sweeper — and more than one can be right about the same run. A
+read-before-write existence check does not make that idempotent, because it is
+a check-then-insert: two actors both read "no terminal entry yet", both insert, and the trail ends up with two conflicting
 terminal outcomes, or the wrong one wins.
 
 That is the same race this change already replaced on the job row with

@@ -1,4 +1,4 @@
-"""Widen chk_oauth_providers_type CHECK to include 'github' (SSO-05, Phase 1237).
+"""Widen chk_oauth_providers_type CHECK to include 'github'.
 
 Background
 ----------
@@ -28,15 +28,6 @@ would risk data loss on enterprise deployments and is explicitly forbidden by th
 and refuse the downgrade while GitHub providers exist; provider credentials and
 dependent identities require an explicit operator-approved migration or removal
 plan.  The constraint replacement remains idempotent (``DROP ... IF EXISTS``).
-
-Head-coupling note
-------------------
-Adding this migration advances the alembic head: ``0009_email_verification`` →
-``0010_oauth_github_provider_type``.  After writing this file the head-coupled CI
-tests (``test_tenant_rls_migration.py``, ``test_email_verification_migration.py``,
-``test_ci_alembic_filter_paths.py``) must remain green.  The focused downgrade
-test targets this migration's parent explicitly so newer heads cannot mask the
-constraint transition.
 
 Cross-repo compatibility contract
 ---------------------------------

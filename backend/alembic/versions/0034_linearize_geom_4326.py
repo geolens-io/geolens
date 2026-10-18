@@ -66,14 +66,14 @@ def upgrade() -> None:
             WHERE c.column_name = 'geom_4326'
               AND c.udt_name = 'geometry'
               AND t.table_type = 'BASE TABLE'
-              -- fix(#1113 review r7): a STORED GENERATED geom_4326 rejects
+              -- A STORED GENERATED geom_4326 rejects
               -- any UPDATE at parse time (even WHERE false), which would
               -- abort this whole migration. It also cannot be fixed by
               -- UPDATE — its values are decided by its generation
               -- expression — so it is skipped, not repaired (#1114 tracks
               -- externally-defined columns whose expressions yield curves).
               AND c.is_generated = 'NEVER'
-              -- fix(#1113 review): only GeoLens-owned data schemas — 'data'
+              -- Only GeoLens-owned data schemas — 'data'
               -- (single-tenant) or the EXACT per-tenant schemas derived from
               -- catalog.tenants, the same construction as tenant_data_schema()
               -- and migrations 0024/0026. A co-hosted schema that merely
@@ -84,13 +84,13 @@ def upgrade() -> None:
                        SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
                        FROM catalog.tenants
                    ))
-              -- fix(#1113 review r11): REGISTERED datasets only. An operator
+              -- REGISTERED datasets only. An operator
               -- can copy a table into a data schema before registering it
               -- (discover_unregistered_tables exists for exactly that state);
               -- GeoLens serves nothing from it yet, registration now runs its
               -- own linearization, and densifying it here would be
               -- irreversible harm with no surface fixed.
-              -- fix(#1113 review r12): the join is TENANT-SCOPED — migration
+              -- The join is TENANT-SCOPED — migration
               -- 0020's (tenant_id, table_name) unique index permits the same
               -- table name in different tenants, so a name-only join would
               -- sweep tenant B's unregistered twin of tenant A's registered
@@ -214,10 +214,10 @@ def upgrade() -> None:
                        SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
                        FROM catalog.tenants
                    ))
-              -- fix(#1113 review r11): warn only about datasets GeoLens
+              -- Warn only about datasets GeoLens
               -- actually serves; an unregistered table's generated column is
               -- registration's problem when (if) it registers.
-              -- fix(#1113 review r12): tenant-scoped, same as the backfill.
+              -- Tenant-scoped, same as the backfill.
               AND EXISTS (
                   SELECT 1 FROM catalog.datasets d
                   WHERE d.table_name = c.table_name

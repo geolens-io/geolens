@@ -1,9 +1,8 @@
-"""Add email_verified column + email_verification_tokens table (Phase 1231).
+"""Add email_verified column + email_verification_tokens table.
 
 Background
 ----------
-Phase 1231 adds email-verified self-serve signup. This migration lays the
-schema foundation:
+Email-verified self-serve signup needs two schema pieces:
 
 1. ``catalog.users.email_verified`` — boolean, NOT NULL, server_default false.
    Flipped to True by ``redeem_verification_token()`` when the user clicks the
@@ -15,7 +14,7 @@ schema foundation:
    deadline and a ``consumed_at`` single-use marker.
 
 Downgrade is a NO-OP (``pass``) per the ``0008_oauth_saml_columns`` precedent
-(MIG-04 enterprise-heads + ``test_tenant_rls_migration`` relative offsets).
+(``test_tenant_rls_migration`` uses relative offsets).
 
 Revision ID: 0009_email_verification
 Revises:     0008_oauth_saml_columns
@@ -88,7 +87,7 @@ def downgrade() -> None:
          (UndefinedColumnError / relation-does-not-exist).
 
     This mirrors the ``0008_oauth_saml_columns`` NO-OP downgrade precedent
-    (MIG-04 enterprise-heads + ``test_tenant_rls_migration`` relative offsets).
+    (``test_tenant_rls_migration`` uses relative offsets).
     Leaving the column/table is harmless: they are additive and backward-compatible
     with all code running against 0008.
     """

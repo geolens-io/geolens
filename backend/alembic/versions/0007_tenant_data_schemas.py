@@ -1,8 +1,8 @@
-"""Add shard_id routing column to catalog.tenants + ensure geolens_reader floor (DP-01/DP-05, Phase 1209-01).
+"""Add shard_id routing column to catalog.tenants + ensure geolens_reader floor.
 
 Design invariants
 -----------------
-- **shard_id column**: trivial one-shard routing map for Phase 1214's promote/rebalance.
+- **shard_id column**: trivial one-shard routing map for tenant promote/rebalance.
   Nullable TEXT with server_default ``'shard-0'`` — existing rows get the default,
   new tenants inherit it automatically.
 - **geolens_reader floor**: ensures the global ``geolens_reader`` NOLOGIN role exists
@@ -37,7 +37,8 @@ def upgrade() -> None:
     """Add shard_id routing column to catalog.tenants + ensure geolens_reader exists.
 
     1. Adds nullable ``shard_id`` TEXT column to ``catalog.tenants`` with server_default
-       ``'shard-0'`` (trivial one-shard routing map; Phase 1214 populate real values).
+       ``'shard-0'`` (trivial one-shard routing map; promote/rebalance sets
+       real values).
     2. Ensures the global ``geolens_reader`` NOLOGIN role exists (idempotent floor for
        fresh single_tenant deployments).
 
