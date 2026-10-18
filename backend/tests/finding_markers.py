@@ -321,13 +321,12 @@ def scan_openapi(spec: object) -> list[Hit]:
         anchored = [ANCHOR_RE.search(line) is not None for line in lines]
         for offset, line in enumerate(lines):
             markers = _openapi_markers(line)
-            if not markers:
-                continue
             low = max(0, offset - ANCHOR_WINDOW)
-            high = offset + ANCHOR_WINDOW + 1
-            if any(anchored[low:high]):
-                continue
-            hits.append(Hit(json_path, offset + 1, f"openapi-{key}", markers))
+            if markers and any(anchored[low : offset + ANCHOR_WINDOW + 1]):
+                markers = ()
+            found = markers + tuple(PROVENANCE_RE.findall(line))
+            if found:
+                hits.append(Hit(json_path, offset + 1, f"openapi-{key}", found))
     return hits
 
 
@@ -350,9 +349,10 @@ def check_openapi(openapi_path: Path = OPENAPI_PATH) -> list[str]:
     hits = scan_openapi(spec)
     if hits:
         problems.append(
-            f"{openapi_path} publishes finding markers with no #issue anchor —"
-            " an integrator reading the generated SDK docstring has nothing to"
-            " resolve them against. Rewrite the Field/Query description to"
+            f"{openapi_path} publishes finding markers with no #issue anchor, or"
+            " fix(#N)-style provenance prefixes — an integrator reading the"
+            " generated SDK docstring has nothing to resolve them against."
+            " Rewrite the Field/Query description to"
             " state the constraint itself, then run `make sdks`:"
         )
         problems.extend(f"    {hit.describe()}" for hit in hits)
