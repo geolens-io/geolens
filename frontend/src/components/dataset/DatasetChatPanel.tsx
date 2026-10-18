@@ -17,7 +17,7 @@ import type { ChatAction, ChatHistoryMessage } from '@/types/api';
 import { randomId } from '@/lib/random-id';
 
 /** Set on the document root while the Ask AI launcher is showing. */
-export const FLOATING_DOCK_INSET_VAR = '--floating-dock-inset';
+const FLOATING_DOCK_INSET_VAR = '--floating-dock-inset';
 
 // Launcher offset (bottom-10, or bottom-44 when lifted above the pending-edits bar) plus its height and a margin.
 const DOCK_INSET = '5.5rem';
