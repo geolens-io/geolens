@@ -21,6 +21,7 @@ from app.modules.catalog.layers.schemas import (
     RESERVED_COLUMNS,
 )
 from app.platform.extensions import get_catalog_port
+from app.modules.catalog.features.retention import refuse_retention_column_change
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -321,6 +322,7 @@ async def rename_column(
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"
     await session.execute(text(ddl))
+    await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     # Lock follows the ALTER — the reupload swap takes its
@@ -395,6 +397,7 @@ async def alter_column_type(
     )
     # codeql[py/sql-injection] column exists on the layer and is quoted by _qcol; pg_type comes from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
+    await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     # Scan, then lock, then assign — the scan needs neither
@@ -451,6 +454,7 @@ async def drop_column(
     ddl = f"ALTER TABLE {table_ref} DROP COLUMN {_qcol(column_name)}"
     # codeql[py/sql-injection] column matches COLUMN_NAME_RE, is not reserved, exists on the layer, and is quoted by _qcol; table via quote_table
     await session.execute(text(ddl))
+    await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     # Scan, then lock, then assign — the scan needs neither

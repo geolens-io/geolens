@@ -15,6 +15,7 @@ describe('API error localization boundary', () => {
     ['retention_not_feature_dataset', 'errors.retentionNotFeatureDataset', 'features have geometry'],
     ['retention_column_missing', 'errors.retentionColumnMissing', 'The column seen_at no longer exists'],
     ['retention_column_not_temporal', 'errors.retentionColumnNotTemporal', 'The column seen_at isn\'t a date'],
+    ['retention_column_in_use', 'errors.retentionColumnInUse', 'Retention deletes rows by the column seen_at'],
   ])('maps the retention refusal %s to its own message', (code, key, text) => {
     const detail = { code, message: 'English diagnostic', column: 'seen_at' };
     expect(classifyApiError(detail, 422).key).toBe(key);

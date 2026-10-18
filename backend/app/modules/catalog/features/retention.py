@@ -260,6 +260,27 @@ async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None
         ) from exc
 
 
+async def refuse_retention_column_change(
+    session: AsyncSession, dataset: Dataset, column: str
+) -> None:
+    """Refuse a rename, retype or drop of the column the dataset's retention reads.
+
+    Call it after the column's ALTER: that lock waits out a save holding the
+    table and blocks a later one until commit, so the setting read here
+    stays current until the change commits.
+    """
+    stored = await session.scalar(
+        select(Dataset.retention_column).where(Dataset.id == dataset.id)
+    )
+    if stored == column:
+        raise RetentionRefused(
+            f"Retention deletes rows by column {column!r}. Turn retention off "
+            "or move it to another column before changing this one.",
+            code="retention_column_in_use",
+            values={"column": column},
+        )
+
+
 def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
     """The value a row's column must be older than to be deleted."""
     instant = now.astimezone(timezone.utc) - timedelta(days=days)

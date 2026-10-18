@@ -238,8 +238,9 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   zip_too_many_entries: 'errors.uploadZipTooManyEntries',
 };
 
-/** The dataset retention setting's refusal codes (`RetentionRefused` in `backend/app/modules/catalog/features/retention.py`). */
+/** `RetentionRefused` codes (`backend/app/modules/catalog/features/retention.py`), from the retention setting and from column changes. */
 const RETENTION_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  retention_column_in_use: 'errors.retentionColumnInUse',
   retention_column_missing: 'errors.retentionColumnMissing',
   retention_column_not_temporal: 'errors.retentionColumnNotTemporal',
   retention_delete_rule: 'errors.retentionDeleteRule',

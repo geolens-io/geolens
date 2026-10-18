@@ -494,6 +494,7 @@
     "retentionNotFeatureDataset": "Retention works only on datasets whose features have geometry.",
     "retentionColumnMissing": "The column {{column}} no longer exists. Choose another date or timestamp column.",
     "retentionColumnNotTemporal": "The column {{column}} isn't a date or timestamp column. Choose a date or timestamp column.",
+    "retentionColumnInUse": "Retention deletes rows by the column {{column}}. Turn retention off or choose another date column for it before you change this column.",
     "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention.",
     "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention."
   },

@@ -11,6 +11,7 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.db.sqlstate import is_operational, sqlstate
 from app.core.identity import Identity
 from app.core.record_types import capabilities
+from app.core.upload_errors import refusal_detail
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
 from app.modules.catalog.authorization import (
@@ -18,6 +19,7 @@ from app.modules.catalog.authorization import (
     require_dataset_editing_enabled,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.modules.catalog.features.retention import RetentionRefused
 from app.modules.catalog.layers.schemas import (
     AddColumnRequest,
     AlterColumnTypeRequest,
@@ -81,6 +83,14 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"{action} failed: the database rejected the change.",
+    )
+
+
+async def _raise_retention_conflict(db: AsyncSession, exc: RetentionRefused) -> None:
+    """Roll back a column change retention still reads and refuse it. Never returns."""
+    await db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail=refusal_detail(exc)
     )
 
 
@@ -228,6 +238,8 @@ async def rename_column_endpoint(
 
     try:
         columns = await rename_column(db, dataset, column_name, body.new_name)
+    except RetentionRefused as exc:
+        await _raise_retention_conflict(db, exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -289,6 +301,8 @@ async def alter_column_type_endpoint(
 
     try:
         columns = await alter_column_type(db, dataset, column_name, body.new_type)
+    except RetentionRefused as exc:
+        await _raise_retention_conflict(db, exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -348,6 +362,8 @@ async def drop_column_endpoint(
 
     try:
         columns = await drop_column(db, dataset, column_name)
+    except RetentionRefused as exc:
+        await _raise_retention_conflict(db, exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
