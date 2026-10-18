@@ -219,6 +219,7 @@ async def add_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} ADD COLUMN {_qcol(column_name)} {pg_type}"
+    # codeql[py/sql-injection] column matches COLUMN_NAME_RE, is not reserved, and is quoted by _qcol; pg_type comes from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name)
 
@@ -322,6 +323,7 @@ async def rename_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"
+    # codeql[py/sql-injection] both names match COLUMN_NAME_RE, are not reserved, and are quoted by _qcol; the old one exists on the layer; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name, new_name)
 
