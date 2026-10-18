@@ -8,10 +8,8 @@ import { ClusterEditor } from './ClusterEditor';
 import type { BaseStyleEditorProps } from './types';
 
 /**
- * Dispatch key type for the RenderModeSwitch lookup table.
- * Derived from geomType + PointRenderMode (for circle layers).
- *
- * Replaces 200+ LOC of nested ternaries with a flat lookup table.
+ * Dispatch key type for the RenderModeSwitch lookup table, derived from
+ * geomType + PointRenderMode (for circle layers).
  */
 export type EditorDispatchKey =
   | 'fill'
@@ -23,19 +21,16 @@ export type EditorDispatchKey =
 
 interface RenderModeSwitchProps extends BaseStyleEditorProps {
   /**
-   * The resolved dispatch key. Computed by the orchestrator from geomType +
-   * renderMode. Narrowed to EditorDispatchKey (no `| string`
-   * widening) so a typo or new render mode is a compile error, not a silent
-   * DEV-warn + null render. The orchestrator owns the exhaustive mapping.
+   * The resolved dispatch key, computed by the orchestrator from geomType +
+   * renderMode. Narrowed to EditorDispatchKey (no `| string` widening) so a typo
+   * or new render mode is a compile error, not a silent DEV-warn + null render.
    */
   dispatchKey: EditorDispatchKey;
 }
 
 /**
- * Lookup-table component dispatcher.
- *
- * Uses a record of EditorDispatchKey → Component instead of nested ternaries.
- * If the dispatchKey is unrecognized, logs a DEV-only warning and returns null.
+ * Lookup-table component dispatcher: a record of EditorDispatchKey → Component.
+ * An unrecognized dispatchKey logs a DEV-only warning and returns null.
  */
 const editorComponents: Record<EditorDispatchKey, React.ComponentType<BaseStyleEditorProps>> = {
   fill: FillEditor,

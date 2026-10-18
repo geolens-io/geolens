@@ -66,20 +66,20 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
-// The single grouping predicate. StackRow's "Add to group…" menu and
-// BulkActionBar's Group action previously disagreed (the bar also required
-// vector_dataset), but drag-and-drop membership (resolveDropGroupMembership)
-// has never checked record type — any non-group row can live in a group.
+// The single grouping predicate, shared by StackRow's "Add to group…" menu and
+// BulkActionBar's Group action. Drag-and-drop membership
+// (resolveDropGroupMembership) never checks record type either: any non-group
+// row can live in a group.
 export function canJoinFolderGroup(layer: MapLayerResponse): boolean {
   return !isFolderGroupLayer(layer) && !getParentGroupId(layer);
 }
 
-// Membership rule for intra-stack drops. childrenByGroup
-// renders by parent_group_id, not array position, so a drag that changes
-// position without updating membership silently snaps back on render.
-// A drop onto a group child adopts that child's group; onto a loose data row
-// leaves any group; onto a group header row keeps the dragged row's current
-// membership (header drops are ambiguous — treat as position-only).
+// Membership rule for intra-stack drops. childrenByGroup renders by
+// parent_group_id, not array position, so a drag that changes position without
+// updating membership would snap back on render. A drop onto a group child
+// adopts that child's group; onto a loose data row leaves any group; onto a
+// group header row keeps the dragged row's current membership (header drops are
+// ambiguous, so position-only).
 export function resolveDropGroupMembership(
   activeLayer: MapLayerResponse,
   overLayer: MapLayerResponse,
@@ -88,13 +88,12 @@ export function resolveDropGroupMembership(
   return getParentGroupId(overLayer);
 }
 
-// handleUngroup / handleMoveLayerOutOfGroup previously only
-// cleared the frontend-only `parent_group_id` field, leaving any PERSISTED
-// `style_config.builder.folderGroupId` on the underlying layer object intact.
-// buildDuplicateRenderingInput copies style_config verbatim, so duplicating a
-// just-ungrouped layer before Save carried the stale pointer to the backend —
-// and the next query-invalidation resync would silently re-group it via
-// hydrateFolderGroupLayers. Callers must clear this alongside parent_group_id.
+// Ungroup and move-out must clear the persisted
+// `style_config.builder.folderGroupId` as well as the frontend-only
+// `parent_group_id`. buildDuplicateRenderingInput copies style_config verbatim,
+// so duplicating a just-ungrouped layer before Save would carry the stale
+// pointer to the backend, and the next resync would re-group it via
+// hydrateFolderGroupLayers.
 export function clearPersistedFolderGroup(
   styleConfig: StyleConfig | null | undefined,
 ): StyleConfig | null {
@@ -117,11 +116,11 @@ export function getPersistedFolderGroup(layer: MapLayerResponse): PersistedFolde
 
 // Group identity is persisted only on children (the builder.folderGroup*
 // markers written by prepareLayersForPersistence below), so a group row with no
-// children has no carrier and cannot survive save+reload — it kept rendering,
-// accepting drops, and dirtying the map, then silently vanished (with any rename)
-// on the next hydrate. Prune the row the moment it empties so the UI and the
+// children has no carrier and can't survive save+reload; left alone it would
+// keep rendering, accepting drops and dirtying the map, then vanish (with any
+// rename) on the next hydrate. Prune the row the moment it empties so the UI and
 // persisted state agree. Callers renumber sort_order; returns the input array
-// unchanged (same identity) when there is nothing to prune.
+// (same identity) when there is nothing to prune.
 export function pruneEmptyFolderGroups(layers: MapLayerResponse[]): MapLayerResponse[] {
   const parentIds = new Set<string>();
   for (const layer of layers) {
@@ -175,24 +174,22 @@ export function hydrateFolderGroupLayers(
   };
 }
 
-// Snapshot helper for the Save-diff baseline. The baseline
-// keeps the hydrated/local layer shape, but its persisted folderGroupExpanded
-// markers must reflect the collapse state that was just SAVED (the live
-// groupMeta), not the state the map loaded with — copying localLayers
-// verbatim after a collapse→save left the baseline saying "expanded", so the
-// following expand→save diffed empty and reload restored the stale collapse.
-// Layers without persisted markers, and groups without a groupMeta entry,
-// pass through as plain copies.
+// Snapshot helper for the save-diff baseline. The baseline keeps the
+// hydrated/local layer shape, but its persisted folderGroupExpanded markers must
+// reflect the collapse state just saved (the live groupMeta), not the state the
+// map loaded with: copying localLayers verbatim after a collapse→save would
+// leave the baseline "expanded", so the next expand→save diffs empty and reload
+// restores the stale collapse. Layers without persisted markers, and groups
+// without a groupMeta entry, pass through as plain copies.
 export function stampPersistedFolderGroupExpanded(
   layers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): MapLayerResponse[] {
-  // Children of a group created THIS session carry
-  // only parent_group_id — no persisted marker yet — but the save that this
-  // baseline snapshots just wrote one (prepareLayersForPersistence derives it
-  // from the group row + groupMeta). Derive the same marker here, or every
-  // later save re-diffs those children against a marker-less baseline and
-  // emits a redundant style_config PATCH per child.
+  // Children of a group created this session carry only parent_group_id, but
+  // the save this baseline snapshots just wrote a marker
+  // (prepareLayersForPersistence derives it from the group row + groupMeta).
+  // Derive the same marker here, or every later save re-diffs those children
+  // against a marker-less baseline and emits a redundant style_config PATCH each.
   const groups = new Map<string, PersistedFolderGroup>();
   for (const layer of layers) {
     if (!isFolderGroupLayer(layer)) continue;

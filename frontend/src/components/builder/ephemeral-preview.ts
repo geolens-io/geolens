@@ -1,8 +1,7 @@
-// The ephemeral preview now has two surfaces — the builder's
-// non-persisting stack row (EphemeralPreviewRow) and the badge that covers the
-// surfaces with no layer stack (public viewer, <1100px builder rail). The count
-// sentence is identical on both, so it lives here instead of being copy-pasted
-// into the second one and drifting.
+// The ephemeral preview has two surfaces: the builder's non-persisting stack
+// row (EphemeralPreviewRow) and the badge for surfaces with no layer stack
+// (public viewer, <1100px builder rail). The count sentence lives here so the
+// two can't drift.
 
 import { useEffect, useState } from 'react';
 
@@ -14,23 +13,21 @@ export interface EphemeralCountInput {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
-  /** totalCount was computed against the map's viewport, not the
-   *  whole dataset — see the field of the same name on useEphemeralLayers'
-   *  state, which this is threaded from. */
+  /** totalCount was computed against the map's viewport, not the whole
+   *  dataset; see the field of the same name on useEphemeralLayers' state. */
   viewportScoped?: boolean;
 }
 
 /**
- * Why the preview's "Save as dataset…" affordance is disabled.
- * A closed union rather than a free string so the copy stays in the component
- * (and therefore in all five locales) instead of at each call site.
+ * Why the preview's "Save as dataset…" affordance is disabled. A closed union,
+ * not a free string, so the copy stays in the component (and all five locales)
+ * instead of at each call site.
  */
 export type PreviewSaveDisabledReason = 'truncated';
 
 /** What "Save as dataset…" does for the preview currently on screen. */
 type PreviewSaveMode =
-  /** Hand off to the Analysis panel, which re-runs the operation
-   *  server-side. */
+  /** Hand off to the Analysis panel, which re-runs the operation server-side. */
   | 'analysis'
   /** Snapshot the client's FeatureCollection through ingest. */
   | 'snapshot'
@@ -46,25 +43,23 @@ interface PreviewSaveInput {
   truncated?: boolean;
   /** How many features the client actually holds. */
   featureCount: number;
-  /** The producer that stamped this preview, when it was not
-   *  the chat (today only 'analysis-panel'). */
+  /** The producer that stamped this preview, when not the chat (today only
+   *  'analysis-panel'). */
   source?: string;
 }
 
 /**
  * Decide what the preview surfaces offer for "Save as dataset…".
  *
- * The truncation guard applies to the SNAPSHOT path only, and deliberately so:
- * a snapshot persists the client's copy, so saving a capped one would file
- * "first N of M" in the catalog as if it were the whole answer — the
- * misrepresentation #674/#1076 closed on the count label, through a door that
- * outlives the session. The #675 analysis handoff re-runs the operation
- * server-side and materializes the complete result, so a capped PREVIEW says
- * nothing about what it would save; blocking it there would remove a working
- * path for no reason.
+ * The truncation guard applies to the snapshot path only: a snapshot persists
+ * the client's copy, so saving a capped one would file "first N of M" in the
+ * catalog as if it were the whole answer, a misrepresentation that outlives the
+ * session. The analysis handoff re-runs the operation server-side and
+ * materializes the complete result, so a capped preview says nothing about what
+ * it would save; blocking it would remove a working path for no reason.
  *
- * `canSaveDataset` gates the snapshot path only, for the same reason: it is the
- * one that turns client-held data into a dataset (POST /ingest/*).
+ * `canSaveDataset` gates the snapshot path only, for the same reason: it is
+ * the one that turns client-held data into a dataset (POST /ingest/*).
  */
 export function previewSaveMode(
   result: PreviewSaveInput | null | undefined,
@@ -72,16 +67,14 @@ export function previewSaveMode(
 ): PreviewSaveMode {
   if (!result) return 'none';
   if (result.analysis) return 'analysis';
-  // Only a preview the CHAT produced is snapshottable.
-  // A stamped source means another surface drew this overlay and owns its own
-  // save (the Analysis panel's Create dataset, which materializes the whole
-  // operation server-side); its preview is also bbox-scoped, so snapshotting
-  // it would persist whatever the map happened to be looking at as the result.
-  // Allowlist rather than blocklist, so a future producer is excluded by
-  // default instead of silently inheriting this path.
+  // Only a preview the chat produced is snapshottable. A stamped source means
+  // another surface drew this overlay and owns its save (the Analysis panel's
+  // Create dataset materializes the whole operation server-side); its preview
+  // is also bbox-scoped, so a snapshot would persist whatever the map happened
+  // to be looking at. An allowlist, so a future producer is excluded by default.
   if (result.source) return 'none';
-  // A snapshot of nothing is not a dataset — an empty result offers no save
-  // (and would only earn a 422 from the ingest preview if it did).
+  // A snapshot of nothing is not a dataset; an empty result offers no save (the
+  // ingest preview would 422).
   if (!canSaveDataset || result.featureCount < 1) return 'none';
   return result.truncated ? 'truncated' : 'snapshot';
 }
@@ -89,10 +82,9 @@ export function previewSaveMode(
 /**
  * The preview's "how many features?" sentence.
  *
- * Three cases, not two. A clip filters rows, so the server cannot
- * report a source total for it — the honest answer to "of how many?" is
- * unknown. Falling back to the plain count there presented a capped preview as
- * the complete result, which is #674's concern through a new door.
+ * Three cases, not two. A clip filters rows, so the server can't report a
+ * source total for it and the honest answer to "of how many?" is unknown;
+ * falling back to the plain count would present a capped preview as complete.
  * Capped-with-a-total keeps its "N of M"; capped-without says so without
  * inventing one.
  */
@@ -102,23 +94,18 @@ export function ephemeralCountLabel(
 ): string {
   if (!truncated) return t('ephemeralBadge.featureCount', { count: featureCount });
   if (totalCount != null) {
-    // A viewport-scoped total is honest about "of WHAT" — without
-    // naming the extent, "180 of 22,324" reads exactly like the pre-fix
-    // capped-in-ingest-order case, which looked like a
-    // failed operation, even though the 180 now really is what's on screen
-    // AT THE TIME OF THE REQUEST.
+    // A viewport-scoped total must say "of what": "180 of 22,324" would read
+    // like a capped-in-ingest-order result, though the 180 is what was on
+    // screen at the time of the request.
     //
-    // "previewed extent", not "in view" — this
-    // badge mounts alongside useEphemeralLayers' fitBounds(), which re-fits
-    // the map to the RESULT geometry's own bbox (a capped, ingest-ordered
-    // sample can be a much smaller extent than the requested viewport), so
-    // by the time this label renders the visible map has often already
-    // moved on from the extent the total was computed against. "In view"
-    // claimed a current-tense fact the fit-then-render sequence had already
-    // made false; "previewed extent" names what the number is scoped to
-    // without claiming it still matches the screen, matching the toast's
+    // "previewed extent", not "in view": this badge mounts alongside
+    // useEphemeralLayers' fitBounds(), which re-fits the map to the result
+    // geometry's bbox (a capped sample can be a much smaller extent than the
+    // requested viewport), so the visible map has often moved on from the extent
+    // the total was computed against. "Previewed extent" names what the number is
+    // scoped to without claiming it matches the screen, and matches the toast
     // wording (AnalysisPanel's truncatedNoticeTotalScoped/
-    // truncatedNoticeMatchedScoped) so the two surfaces agree.
+    // truncatedNoticeMatchedScoped).
     if (viewportScoped) {
       return t('ephemeralBadge.featureCountTruncatedScoped', {
         count: featureCount,
@@ -128,9 +115,8 @@ export function ephemeralCountLabel(
     }
     return t('ephemeralBadge.featureCountTruncated', {
       count: featureCount,
-      // Both numbers passed raw — the locale strings group them via
-      // {{count, number}}/{{total, number}} (one sentence, one grouping), and
-      // count keeps driving plural selection.
+      // Both numbers passed raw: the locale strings group them via
+      // {{count, number}}/{{total, number}}, and count drives plural selection.
       total: totalCount,
       defaultValue: '{{count, number}} of {{total, number}} features',
     });
@@ -155,11 +141,11 @@ export function ephemeralStatusLabel(t: BuilderTranslator, input: EphemeralCount
 }
 
 /**
- * Live regions only announce mutations made while the region is
- * already in the accessibility tree — both preview surfaces mount WITH their
- * text, so role="status" on the wrapper alone would stay silent. Mount the
- * region empty and populate it a frame later so the preview success (and any
- * later count change) arrives as a mutation assistive tech actually reads.
+ * Live regions announce only mutations made while the region is already in the
+ * accessibility tree, and both preview surfaces mount with their text, so
+ * role="status" on the wrapper alone would stay silent. Mount the region empty
+ * and populate it a frame later so the success (and later count changes)
+ * arrives as a mutation assistive tech reads.
  */
 export function useAnnouncedLabel(statusLabel: string): string {
   const [announcedLabel, setAnnouncedLabel] = useState('');

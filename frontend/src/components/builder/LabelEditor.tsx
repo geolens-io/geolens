@@ -33,8 +33,8 @@ const PLACEMENT_OPTIONS = [
   { value: 'line-center', labelKey: 'labels.placementLineCenter' },
 ] as const;
 
-// Every anchor option carries an i18n labelKey so the
-// four corner anchors translate instead of rendering hardcoded English.
+// Every anchor option carries an i18n labelKey so the four corner anchors
+// translate.
 const ANCHOR_OPTIONS = [
   { value: 'center', labelKey: 'labels.anchorCenter' },
   { value: 'top', labelKey: 'labels.anchorTop' },
@@ -70,10 +70,8 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
       } else {
         const firstColumn = columns[0]?.name;
         // Without a column, the upstream handler normalizes config back to null
-        // (empty column = non-functional config). That made the Switch appear
-        // dead from the user's perspective. Bail out early instead so the Switch
-        // stays off until columns are available — caller can show a toast or
-        // disabled state if needed.
+        // (empty column = non-functional config), which would make the Switch
+        // look dead. Bail out so it stays off until columns are available.
         if (!firstColumn) {
           return;
         }
@@ -96,9 +94,9 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
   const placement = labelConfig?.placement ?? (isLine ? 'line' : 'point');
   const isPointPlacement = placement === 'point';
 
-  // Resolve the same implicit default the renderer applies
-  // for point labels, so the sliders show what the map draws (0/-1.5, not 0/0)
-  // and dragging one axis preserves the other instead of discarding it.
+  // Resolve the implicit default the renderer applies for point labels, so the
+  // sliders show what the map draws (0/-1.5, not 0/0) and dragging one axis
+  // preserves the other.
   const isPointGeometry = (geometryType ?? '').toUpperCase().includes('POINT');
   const effectiveOffset: [number, number] =
     labelConfig?.textOffset ??

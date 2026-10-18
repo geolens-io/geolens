@@ -1,18 +1,14 @@
 import type { BuilderStyleConfig } from '@/types/api';
 
 /**
- * Single declarative source for the
- * builderConfig-key <-> underscore-paint-key <-> reverse-routed parity table.
- *
- * Historically this mapping was hand-maintained across three sites — the
- * controlPaint forward map, the handlePaintProp reverse router, and the strip
- * allowlist — and they drifted (see normalize-style-config LEGACY_BUILDER_PAINT_KEYS).
- * Now the orchestrator derives all three from this one table:
+ * Single declarative source for the builderConfig-key <-> underscore-paint-key
+ * <-> reverse-routed parity table. The orchestrator derives three things from
+ * it:
  *   - {@link buildBuilderControlPaint} forward-maps builder fields onto `_`-paint keys
  *   - {@link routeBuilderPaintProp} reverse-routes `_`-paint keys back into builderConfig
  *   - {@link BUILDER_PAINT_STRIP_KEYS} is the builder-config-backed subset of the
- *     paint-strip allowlist (asserted in builder-paint-map.test.ts to stay a
- *     subset of the canonical CUSTOM_PAINT_PROPS so it can no longer drift).
+ *     paint-strip allowlist (builder-paint-map.test.ts asserts it stays a subset
+ *     of the canonical CUSTOM_PAINT_PROPS)
  *
  * Adding a builder-private style field = one row here.
  */
@@ -23,10 +19,10 @@ interface BuilderPaintField {
   paintKey: string;
   /**
    * When true, handlePaintProp reverse-routes edits of `paintKey` back into
-   * updateBuilderConfig(builderKey) rather than writing raw MapLibre paint.
-   * Only the user-editable outline color/width controls round-trip this way;
-   * the *-saved / *-disabled bookkeeping keys are written by the orchestrator
-   * directly and never edited through a paint control.
+   * updateBuilderConfig(builderKey) rather than writing raw MapLibre paint. Only
+   * the user-editable outline color/width controls round-trip this way; the
+   * *-saved / *-disabled bookkeeping keys are written by the orchestrator
+   * directly.
    */
   reverse?: boolean;
 }

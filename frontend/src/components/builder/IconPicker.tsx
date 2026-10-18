@@ -10,9 +10,9 @@ interface IconPickerProps {
   value: string;
   onChange: (spriteId: string) => void;
   label: string;
-  // Localized aria-label for the upload button + hidden
-  // file input. Required (no default fallback) to ensure non-EN locales never
-  // surface the hardcoded English string. Use t('style.symbol.uploadIcon').
+  // Localized aria-label for the upload button and hidden file input. Required
+  // (no default) so non-EN locales never surface hardcoded English. Use
+  // t('style.symbol.uploadIcon').
   uploadAriaLabel: string;
 }
 
@@ -78,9 +78,9 @@ export function IconPicker({ value, onChange, label, uploadAriaLabel }: IconPick
               title={icon.name}
               aria-label={icon.name}
             >
-              {/* icon.url is the API-relative asset path (e.g. /maps/icons/...);
-                  an <img> tag bypasses apiFetch, so prefix API_BASE or it resolves
-                  against the frontend origin and 404s to the SPA shell (#350-followup). */}
+              {/* icon.url is the API-relative asset path (e.g. /maps/icons/...); an
+                  <img> bypasses apiFetch, so prefix API_BASE or it resolves against
+                  the frontend origin and 404s to the SPA shell. */}
               <img
                 src={icon.url.startsWith('http') ? icon.url : `${API_BASE}${icon.url}`}
                 alt=""

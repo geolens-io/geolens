@@ -28,30 +28,27 @@ const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
   /**
-   * Server-state baseline for the layer. Provided when the editor is
-   * mounted from MapBuilderPage (which holds `savedLayerBaseline`). When set,
-   * the "Pending style preview" banner is shown only if `layer` diverges from
-   * `savedLayer` in paint / layout / style_config. When undefined (e.g. in
-   * isolated tests or when the parent has no baseline source), the banner is
-   * hidden — the assumption is "no baseline => nothing to diff against".
+   * Server-state baseline for the layer, provided by MapBuilderPage (which
+   * holds `savedLayerBaseline`). When set, the "Pending style preview" banner
+   * shows only if `layer` diverges from `savedLayer` in paint / layout /
+   * style_config. When undefined (isolated tests, no baseline source) the
+   * banner is hidden: nothing to diff against.
    */
   savedLayer?: MapLayerResponse;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
-  /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
+  /** Omit to hide the master opacity slider (when the parent owns opacity separately). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean; restore?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   /**
-   * Banner Revert restores the baseline through the ordinary mutation
-   * handlers, each of which marks the map dirty — so the revert re-dirtied the
-   * map and the header kept claiming unsaved work. The owner of the baseline
-   * re-derives cleanliness here; it only clears when the WHOLE map is clean.
+   * Banner Revert restores the baseline through the ordinary mutation handlers,
+   * each of which marks the map dirty, so the owner of the baseline re-derives
+   * cleanliness here; it clears only when the whole map is clean.
    */
   onRevertToSaved?: () => void;
 }
 
-// Re-export hasUnsavedStyleChanges so existing callers (tests etc.) can still
-// import it from './LayerStyleEditor' (the implementation lives in utils.ts).
+// Re-exported for existing callers; the implementation lives in utils.ts.
 export { hasUnsavedStyleChanges } from './LayerStyleEditor/utils';
 
 function StyleControlSection({
@@ -107,12 +104,11 @@ function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: 
   );
 }
 
-// The `_`-prefixed builder-private subset of a paint/layout object.
-// The Advanced JSON editor shows a copy with these keys stripped (see
-// stripBuilderPrivate) and Apply replaces the block wholesale, so the onApply
-// wrappers must re-merge them — otherwise an edit-free open→Apply of the
-// layout block silently resets _minzoom/_maxzoom (the zoom sliders' only
-// storage) to 0–22, and the paint block loses its `_`-keys the same way.
+// The `_`-prefixed builder-private subset of a paint/layout object. The
+// Advanced JSON editor shows a copy with these stripped (stripBuilderPrivate)
+// and Apply replaces the block wholesale, so the onApply wrappers must
+// re-merge them; otherwise open→Apply silently resets _minzoom/_maxzoom (the
+// zoom sliders' only storage) to 0–22 and the paint block loses its `_` keys.
 function builderPrivateKeys(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(obj).filter(([k]) => k.startsWith('_')));
 }
@@ -146,11 +142,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     () => (layer.layout as Record<string, unknown>) ?? {},
     [layer.layout],
   );
-  // Advanced JSON editor edits real MapLibre paint/layout, so strip builder-private
-  // keys before showing them — MapLibre's validateStyleMin rejects them as
-  // 'unknown property' on Apply. stripLegacyBuilderPaint removes the known
-  // vector allowlist (incl. non-underscore outline-color/outline-width); the
-  // _-prefix drop covers layout _minzoom/_maxzoom and any future _-prefixed keys.
+  // The Advanced JSON editor edits real MapLibre paint/layout, so builder-private
+  // keys are stripped: validateStyleMin rejects them as 'unknown property' on
+  // Apply. stripLegacyBuilderPaint removes the known vector allowlist (incl.
+  // non-underscore outline-color/outline-width); the `_` prefix drop covers
+  // layout _minzoom/_maxzoom and future `_` keys.
   const stripBuilderPrivate = useCallback(
     (obj: Record<string, unknown>) =>
       Object.fromEntries(
@@ -160,15 +156,13 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   );
   const editorPaint = useMemo(() => stripBuilderPrivate(paint), [paint, stripBuilderPrivate]);
   const editorLayout = useMemo(() => stripBuilderPrivate(layoutObj), [layoutObj, stripBuilderPrivate]);
-  // The Advanced JSON editor must validate against the
-  // RENDERED layer type, not the geometry-derived one — a heatmap-rendered
-  // point layer rejected valid heatmap-* paint and accepted dead circle-*
-  // paint. Cluster renders as circles for validation purposes.
+  // The Advanced JSON editor validates against the rendered layer type, not
+  // the geometry-derived one: a heatmap-rendered point layer must accept
+  // heatmap-* paint and reject dead circle-* paint. Cluster validates as circle.
   const advancedJsonLayerType = useMemo(() => {
     const resolved = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, editorPaint);
-    // 'mixed' passes through — AdvancedJsonEditor validates each family's keys
-    // against its own sublayer type, so line-*/circle-*
-    // keys stay authorable for the line/point sublayers.
+    // 'mixed' passes through: AdvancedJsonEditor validates each family's keys
+    // against its own sublayer type, so line-*/circle-* stay authorable.
     return resolved === 'cluster' ? 'circle' : resolved;
   }, [layer.dataset_geometry_type, layer.style_config, editorPaint]);
   const isDataDriven = !!layer.style_config?.column;
@@ -180,11 +174,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         ? 'cluster'
         : 'points';
 
-  // Compute the dispatch key for RenderModeSwitch
-  // For circle/point layers, sub-dispatch by renderMode
-  // getLayerType only ever returns 'circle' | 'line' | 'fill', so the
-  // old 'raster' fallback (and its editor) was unreachable — real raster layers
-  // are routed to RasterLayerControls by LayerEditorPanel.
+  // Dispatch key for RenderModeSwitch; circle/point layers sub-dispatch by
+  // renderMode. getLayerType returns only 'circle' | 'line' | 'fill'; real
+  // raster layers are routed to RasterLayerControls by LayerEditorPanel.
   const dispatchKey: EditorDispatchKey = useMemo(() => {
     if (geomType === 'fill') return 'fill';
     if (geomType === 'line') return 'line';
@@ -215,12 +207,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer.dataset_column_info],
   );
   const currentHeightCol = builderConfig.heightColumn ?? (layer.paint?.['_height_column'] as string) ?? '';
-  // 100ms debounce for master opacity slider.
-  // Local state holds the slider's displayed value so drags feel instant,
-  // while the debounced effect coalesces rapid changes into a single
-  // onOpacityChange call. The `opacityFromPropRef` tracks the last value
-  // received via the `layer.opacity` prop so we can skip emitting on external
-  // resets (undo, layer swap) — only user-initiated drags emit debounced calls.
+  // 100ms debounce for the master opacity slider. Local state holds the
+  // displayed value so drags feel instant while the debounced effect coalesces
+  // changes into one onOpacityChange. `opacityFromPropRef` tracks the last
+  // `layer.opacity` prop so external resets (undo, layer swap) don't emit; only
+  // user drags do.
   const [localOpacity, setLocalOpacity] = useState(layer.opacity ?? 1);
   const opacityTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const opacityFromPropRef = useRef(layer.opacity ?? 1);
@@ -242,10 +233,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     return () => clearTimeout(opacityTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- push opacity only on local/layer change; the sync setter is stable
   }, [localOpacity, layer.id]);
-  // B10: flush a still-debouncing value on unmount — the bare clearTimeout
-  // alone discarded the final slider movement when the editor closed before
-  // the 100ms window elapsed. (Commit-on-release was rejected: Radix fires
-  // onValueCommit per keyboard step, which reintroduces the spam.)
+  // Flush a still-debouncing value on unmount, or the final slider movement is
+  // lost when the editor closes inside the 100ms window. Commit-on-release was
+  // rejected: Radix fires onValueCommit per keyboard step, which is spammy.
   const opacityFlushRef = useRef<(() => void) | undefined>(undefined);
   opacityFlushRef.current = () => {
     if (opacityTimerRef.current === undefined) return;
@@ -255,9 +245,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   };
   useEffect(() => () => opacityFlushRef.current?.(), []);
 
-  // Forward map derived from the single BUILDER_PAINT_FIELDS
-  // table (builder-paint-map.ts), which also backs handlePaintProp's reverse router
-  // and the strip allowlist — so the three can no longer drift.
+  // Forward map derived from the single BUILDER_PAINT_FIELDS table
+  // (builder-paint-map.ts), which also backs handlePaintProp's reverse router
+  // and the strip allowlist.
   const controlPaint = useMemo(
     () => buildBuilderControlPaint(paint, builderConfig),
     [paint, builderConfig],
@@ -266,16 +256,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   const updateBuilderConfig = useCallback((patch: BuilderStyleConfig, nextPaint: Record<string, unknown> = paint) => {
     const nextConfig = withBuilderConfig(layer.style_config, patch);
     const strippedPaint = stripLegacyBuilderPaint(nextPaint);
-    // A patch that EMPTIES the builder has to replace, not merge. withBuilderConfig
-    // drops the builder key once every field compacts away (collapsing the whole
-    // config to null when nothing else is left), and handleStyleConfigChange reads a
-    // missing builder as "keep the existing one" — so the default merge silently
-    // undoes the clear. That is the same collapse #1022 hit with the fill-color
-    // stash, and it reached three controls here: the fill and stroke visibility
-    // switches sprang straight back on, and a line gradient survived switching to
-    // Solid. Detected centrally because `onBuilderChange` is one prop shared by every
-    // builder control, so a per-caller flag would have to be threaded through all of
-    // them and would go stale the next time a control learns to clear a key.
+    // A patch that empties the builder must replace, not merge. withBuilderConfig
+    // drops the builder key once every field compacts away (collapsing the config
+    // to null when nothing else is left), and handleStyleConfigChange reads a
+    // missing builder as "keep the existing one", so a default merge undoes the
+    // clear (fill/stroke visibility switches springing back on, a line gradient
+    // surviving a switch to Solid). Detected centrally because `onBuilderChange`
+    // is one prop shared by every builder control; a per-caller flag would go
+    // stale when a control learns to clear a key.
     if (!nextConfig?.builder && layer.style_config?.builder) {
       onStyleConfigChange(layer.id, nextConfig, strippedPaint, { replace: true });
       return;
@@ -335,8 +323,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     const heatmapRamp = typeof nextPaint['_heatmap-ramp'] === 'string'
       ? nextPaint['_heatmap-ramp'] as string
       : builderConfig.heatmapRamp;
-    // Persist the ramp direction alongside the ramp name so the Reverse
-    // checkbox round-trips through save/reload.
+    // Persist the ramp direction with the ramp name so Reverse round-trips.
     const heatmapReversed = typeof nextPaint['_heatmap-reversed'] === 'boolean'
       ? nextPaint['_heatmap-reversed'] as boolean
       : builderConfig.heatmapReversed;
@@ -362,61 +349,55 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onStyleConfigChange(layer.id, nextConfig, stripLegacyBuilderPaint(paint));
   }, [layer.id, layer.style_config, onStyleConfigChange, paint, symbolConfig]);
 
-  // Dedicated fill-pattern handler that enforces mutual exclusion between
-  // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing the
-  // pattern (solid / None) deletes fill-pattern. The KEY is removed — never set to
-  // undefined — so saved paint never carries both keys or an undefined value.
-  // The delete above discarded the color outright, so a pattern
-  // round-trip always came back as the default blue. Stash the solid color in
-  // the builder config first — same convention as fillOpacitySaved above — and
-  // restore it on None. Only a string is stashable; an expression means the
-  // layer is data-driven, and the truth table in FillEditor keeps the picker
-  // out of reach in that state (#918 owns dropping the pattern there instead).
+  // Dedicated fill-pattern handler enforcing mutual exclusion between
+  // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing
+  // it (solid / None) deletes fill-pattern. The key is removed, never set to
+  // undefined, so saved paint never carries both keys or an undefined value.
+  // The solid color is stashed in the builder config first (as fillOpacitySaved
+  // above) and restored on None, so a pattern round-trip doesn't return the
+  // default blue. Only a string is stashable; an expression means the layer is
+  // data-driven, and FillEditor's truth table keeps the picker out of reach.
   const handleFillPatternChange = useCallback((id: string | undefined) => {
     const next = { ...paint };
-    // Seed from the existing stash: pattern-to-pattern (Hatch then Dots) finds no
-    // fill-color to stash, and an undefined here would drop the stash from the
-    // builder config and lose the original color on the eventual None.
+    // Seed from the existing stash: pattern-to-pattern (Hatch then Dots) finds
+    // no fill-color to stash, and an undefined would drop the stash and lose the
+    // original color on the eventual None.
     let fillColorSaved = builderConfig.fillColorSaved;
     if (id) {
-      // switching to pattern: stash and remove a SOLID fill-color, set fill-pattern.
-      // An expression is left alone — deleting it is the #910 defect itself, and the
-      // picker is now reachable on a data-driven layer that already has a pattern
-      // (from Advanced JSON or the AI action), where the only useful action is None.
+      // Switching to pattern: stash and remove a solid fill-color, set
+      // fill-pattern. An expression is left alone: the picker is reachable on a
+      // data-driven layer that already has a pattern (Advanced JSON or the AI
+      // action), where the only useful action is None.
       if (typeof next['fill-color'] === 'string') {
         fillColorSaved = next['fill-color'];
         delete next['fill-color'];
       }
       next['fill-pattern'] = id;
     } else {
-      // switching to solid / None: remove fill-pattern
+      // Switching to solid / None: remove fill-pattern
       delete next['fill-pattern'];
-      // Restore the stashed color, or the default when there was none to stash.
-      // The stash is typed `string` but comes from an open
-      // `style_config` that gets size validation only, so an API-authored layer can
-      // hold a number or object there. Painting that would hand MapLibre a colour it
-      // rejects, so an unusable stash falls through to the default — the same rule
-      // `fill-adapter.ts` and the backend export apply to the same value.
+      // Restore the stashed color, or the default when there is none. The stash
+      // is typed `string` but comes from an open `style_config` with size
+      // validation only, so an API-authored layer can hold a number or object;
+      // painting that would hand MapLibre a rejected colour. An unusable stash
+      // falls through to the default, as `fill-adapter.ts` and the backend
+      // export do.
       if (!next['fill-color']) {
         next['fill-color'] =
           typeof fillColorSaved === 'string' ? fillColorSaved : FILL_DEFAULTS['fill-color'];
       }
       fillColorSaved = undefined;
     }
-    // A colour classification orphaned by this change (None
-    // installed a solid fill where an expression used to be) is NOT reconciled here.
-    // The picker is one of several writers that can strand a classification and the
-    // first that happened to trip over it; the rule lives at the commit boundary in
-    // use-layer-map-sync.ts, keyed off the resolved paint. Two attempts at gating it
-    // here were both wrong in one direction or the other.
+    // A colour classification orphaned by this change (None installed a solid
+    // fill where an expression used to be) is not reconciled here: the picker is
+    // one of several writers that can strand one, and the rule lives at the
+    // commit boundary in use-layer-map-sync.ts, keyed off the resolved paint.
     //
-    // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
+    // Not updateBuilderConfig: this needs `replace`. withBuilderConfig collapses
     // to null once fillColorSaved was the only builder field, and
-    // handleStyleConfigChange reads a null config as "keep the existing builder",
-    // which resurrects the very stash this clears. The config built here is already
-    // complete, so replacing it verbatim is also the honest signal. (The same
-    // collapse-to-null hazard exists on the fill/stroke toggles; they predate this
-    // and are left alone.)
+    // handleStyleConfigChange reads null as "keep the existing builder", which
+    // would resurrect the stash this clears. The config built here is already
+    // complete, so replacing it verbatim is also the honest signal.
     onStyleConfigChange(
       layer.id,
       withBuilderConfig(layer.style_config, { fillColorSaved }),
@@ -426,22 +407,19 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   }, [layer.id, layer.style_config, paint, builderConfig.fillColorSaved, onStyleConfigChange]);
 
   const handleResetStyle = useCallback(() => {
-    // Every branch clears the zoom clamp — previously only the line branch
-    // did, so fill/point layers kept a stale _minzoom/_maxzoom after Reset
-    // and could stay invisible at every zoom.
+    // Every branch clears the zoom clamp, or fill/point layers keep a stale
+    // _minzoom/_maxzoom after Reset and can stay invisible at every zoom.
     const nextLayout = { ...layoutObj };
     delete nextLayout['_minzoom'];
     delete nextLayout['_maxzoom'];
-    // A plain null config makes the funnel preserve the builder
-    // block wholesale, stash included, so Reset used to leave a fillColorSaved from
-    // before it — and a pattern applied later (Advanced JSON) then cleared with None
-    // restored that pre-reset colour.
+    // A plain null config makes the funnel preserve the builder block
+    // wholesale, stash included, so a pattern applied later (Advanced JSON) and
+    // cleared with None would restore a pre-reset colour.
     //
-    // Builder-only, deliberately NOT withBuilderConfig(layer.style_config, …): that
-    // copies the whole config, and `replace` would then persist mode / column /
-    // render_mode verbatim — Reset has to destroy the classification and the render
-    // mode. This reproduces exactly what the funnel's null branch preserved (the
-    // builder block, nothing else), minus the stash.
+    // Builder-only, deliberately not withBuilderConfig(layer.style_config, ...):
+    // that copies the whole config and `replace` would persist mode / column /
+    // render_mode verbatim, but Reset must destroy the classification and render
+    // mode. This keeps just the builder block, minus the stash.
     const resetBuilder = compactBuilder({ ...builderConfig, fillColorSaved: undefined });
     const resetConfig = resetBuilder ? ({ builder: resetBuilder } as StyleConfig) : null;
     if (geomType === 'fill') {
@@ -456,12 +434,12 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onOpacityChange?.(layer.id, 1);
   }, [builderConfig, geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
-  // Reset destroys render mode + classification — gate it behind the builder's
-  // shared inline confirm (same pattern as the DEM editor's delete footer).
+  // Reset destroys render mode + classification, so it sits behind the builder's
+  // shared inline confirm (as the DEM editor's delete footer).
   const [confirmReset, setConfirmReset] = useState(false);
-  // The inline confirm owns focus (autofocused Cancel), so both
-  // exits must hand focus back to the always-mounted Reset trigger instead of
-  // <body> — the focus return StackRow's delete confirm does.
+  // The inline confirm owns focus (autofocused Cancel), so both exits hand focus
+  // back to the always-mounted Reset trigger instead of <body>, as StackRow's
+  // delete confirm does.
   const resetButtonRef = useRef<HTMLButtonElement>(null);
   const handleConfirmReset = useCallback(() => {
     setConfirmReset(false);
@@ -476,24 +454,23 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // Bumped by handleRevertToSaved to force-remount the data-driven editor.
   const [revertNonce, setRevertNonce] = useState(0);
 
-  // Banner Reset misbehaved — the "Pending style
-  // preview" banner promises to reflect "this layer before save", so its action
-  // must REVERT the unsaved edits to the server baseline — not apply library
-  // defaults (which silently flattened hand-authored expressions like the
-  // wind-speed line-width). The banner only renders when `savedLayer` exists
-  // (isStyleDirty is false without a baseline), but we guard and fall back to the
-  // defaults reset if it is ever missing. The section-header Reset keeps its
-  // distinct "reset appearance to defaults" behavior via handleResetStyle.
+  // The "Pending style preview" banner promises to reflect "this layer before
+  // save", so its action reverts unsaved edits to the server baseline rather
+  // than applying library defaults (which would flatten hand-authored
+  // expressions like a wind-speed line-width). The banner renders only when
+  // `savedLayer` exists; a missing one falls back to the defaults reset. The
+  // section-header Reset keeps "reset appearance to defaults" via
+  // handleResetStyle.
   const handleRevertToSaved = useCallback(() => {
     if (!savedLayer) {
       handleResetStyle();
       return;
     }
-    // `restore` as well as `replace`. This is the one caller that
-    // reproduces a saved baseline verbatim, so the normalization at the commit
-    // boundary must not touch it — the dirty check compares against that same baseline,
-    // so a normalized restore would leave the layer permanently dirty. The other seven
-    // `replace` callers are forward edits and DO need normalizing.
+    // `restore` as well as `replace`: this is the one caller that reproduces a
+    // saved baseline verbatim, so commit-boundary normalization must not touch
+    // it, or the dirty check (against that baseline) would see the layer as
+    // permanently dirty. The other `replace` callers are forward edits and do
+    // need normalizing.
     onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true, restore: true });
     onLayoutChange(layer.id, savedLayer.layout ?? {});
     onOpacityChange?.(layer.id, savedLayer.opacity ?? 1);
@@ -504,11 +481,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onRevertToSaved?.();
   }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle, onRevertToSaved]);
 
-  // Symbol mode keeps circle paint on the layer, and the
-  // switch back to Point restores style_config.savedCirclePaint, not
-  // layer.paint (renderAs.ts:426-433). Now that the Paint block accepts circle
-  // keys in symbol mode, an edit that only touched layer.paint would be
-  // silently discarded on switch-back — so keep the saved copy in step.
+  // Symbol mode keeps circle paint on the layer, and switching back to Point
+  // restores style_config.savedCirclePaint, not layer.paint (renderAs.ts). The
+  // Paint block accepts circle keys in symbol mode, so an edit touching only
+  // layer.paint would be discarded on switch-back; keep the saved copy in step.
   const handleAdvancedPaintChange = useCallback((next: Record<string, unknown>) => {
     const merged = { ...builderPrivateKeys(paint), ...next };
     if (renderMode === 'symbol') {
@@ -524,18 +500,16 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
 
-  // Gate the "Pending style preview" banner on real dirty
-  // tracking instead of unconditionally rendering it.
+  // Gate the "Pending style preview" banner on real dirty tracking.
   const isStyleDirty = useMemo(
     () => hasUnsavedStyleChangesImpl(layer, savedLayer),
     [layer, savedLayer],
   );
 
-  // Shared props passed to every per-mode editor via RenderModeSwitch.
-  // This ~25-field mega-prop is a deliberate trade-off —
-  // a single uniform BaseStyleEditorProps keeps RenderModeSwitch's lookup-table
-  // dispatch trivial; most editors consume only a subset. Acceptable as-is; if it
-  // grows further, split into a common core + per-mode prop slices.
+  // Shared props for every per-mode editor via RenderModeSwitch. The ~25-field
+  // prop is a deliberate trade-off: one uniform BaseStyleEditorProps keeps
+  // RenderModeSwitch's lookup-table dispatch trivial, and most editors consume a
+  // subset.
   const editorProps = useMemo(() => ({
     layer,
     paint: controlPaint,
@@ -578,9 +552,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         </div>
       )}
 
-      {/* Per-render-mode appearance controls — dispatched via RenderModeSwitch
-          Section title/description adapts to the active mode (heatmap/symbol/cluster
-          have their own section labels; fill/line/circle share the generic appearance label). */}
+      {/* Per-render-mode appearance controls via RenderModeSwitch. The section
+          title/description adapts to the active mode (heatmap/symbol/cluster have
+          their own labels; fill/line/circle share the generic one). */}
       <StyleControlSection
         title={t(
           dispatchKey === 'heatmap' ? 'style.sections.heatmap'
@@ -625,8 +599,8 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         {/* Master opacity — all geometry types; omitted when parent owns the opacity control */}
         {onOpacityChange && (
           <>
-            {/* One "Layer opacity" row, no separate "Opacity" heading —
-                the per-geometry sliders above already say what they scope. */}
+            {/* One "Layer opacity" row, no separate "Opacity" heading: the
+                per-geometry sliders above already say what they scope. */}
             <div className="mt-2 pt-2 border-t" />
             <SliderRow
               label={t('style.layerOpacity')}
@@ -670,13 +644,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           <LazyLoadErrorBoundary>
             <Suspense fallback={null}>
               <DataDrivenStyleEditor
-                // DataDrivenStyleEditor seeds its
-                // ramp/mode/column into local useState on mount. A banner Revert
-                // rewrites layer.style_config externally, but that local state
-                // stays stale and its effect would immediately re-apply the
-                // discarded ramp. Bumping this key on revert remounts the editor
-                // so it re-seeds from the restored config. (Normal edits don't
-                // bump it, so typing/interaction is unaffected.)
+                // DataDrivenStyleEditor seeds ramp/mode/column into local
+                // useState on mount. A banner Revert rewrites layer.style_config
+                // externally, but that local state stays stale and its effect
+                // would re-apply the discarded ramp. Bumping this key on revert
+                // remounts the editor so it re-seeds from the restored config.
                 key={`dds-${revertNonce}`}
                 layer={layer}
                 onStyleConfigChange={onStyleConfigChange}
@@ -690,9 +662,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         <AdvancedJsonEditor
           paint={editorPaint}
           layout={editorLayout}
-          // Re-merge the stripped `_`-prefixed private keys on Apply —
-          // the editor never showed them, so a wholesale replace would drop them
-          // (layout _minzoom/_maxzoom reset the layer's zoom range to 0–22).
+          // Re-merge the stripped `_`-prefixed private keys on Apply: the editor
+          // never showed them, so a wholesale replace would drop them (layout
+          // _minzoom/_maxzoom reset the zoom range to 0–22).
           onPaintChange={handleAdvancedPaintChange}
           onLayoutChange={(l) => onLayoutChange(layer.id, { ...builderPrivateKeys(layoutObj), ...l })}
           layerType={advancedJsonLayerType}

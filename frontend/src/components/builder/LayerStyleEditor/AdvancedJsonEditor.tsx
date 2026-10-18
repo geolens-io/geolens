@@ -6,13 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
-// A mixed-geometry (GEOMETRY sentinel) layer's paint and
-// layout span three MapLibre layer types — the adapter fans the same dict out
-// to fill/line/circle sublayers via filterPaintForLayerType. Split the block
-// by family prefix so each subset validates against its own layer type;
-// un-prefixed keys (e.g. layout `visibility`) validate under the fill primary.
-// fill-extrusion-* lands in the fill bucket and is rejected there — correct,
-// since the mixed adapter deliberately has no extrusion sublayer.
+// A mixed-geometry (GEOMETRY sentinel) layer's paint and layout span three
+// MapLibre layer types: the adapter fans the same dict out to fill/line/circle
+// sublayers via filterPaintForLayerType. Split the block by family prefix so
+// each subset validates against its own layer type; un-prefixed keys (e.g.
+// layout `visibility`) validate under the fill primary. fill-extrusion-* lands
+// in the fill bucket and is rejected there, correctly, since the mixed adapter
+// has no extrusion sublayer.
 function splitMixedBlock(value: Record<string, unknown>) {
   const buckets: Record<'fill' | 'line' | 'circle', Record<string, unknown>> = {
     fill: {},
@@ -27,13 +27,11 @@ function splitMixedBlock(value: Record<string, unknown>) {
   return buckets;
 }
 
-// Use the real MapLibre style-spec validator to catch property names,
-// color values, numeric bounds, expression syntax, and type mismatches —
-// not just property names. Wrap the user's paint/layout in a minimal
-// single-layer style of the correct layer type and filter errors that
-// aren't about paint/layout (we synthesize the source, so source errors
-// would always fire here and are irrelevant to what the user is editing).
-// Exported for tests.
+// Uses the real MapLibre style-spec validator to catch property names, color
+// values, numeric bounds, expression syntax and type mismatches. The user's
+// paint/layout is wrapped in a minimal single-layer style of the right type,
+// and errors that aren't about paint/layout are filtered out (the source is
+// synthesized, so source errors would always fire). Exported for tests.
 export function validatePropertyBlock(
   value: Record<string, unknown>,
   layerType: string | undefined,
@@ -51,11 +49,11 @@ export function validatePropertyBlock(
     }
     return allErrors;
   }
-  // Construct a layer object with the right shape for the requested type.
-  // Use a GeoJSON source stub (no source-layer needed) with lineMetrics
-  // enabled so line-gradient expressions using ["line-progress"] validate
-  // — line-gradient REQUIRES a GeoJSON source per MapLibre spec, and the
-  // project supports it via the lineMetrics + adapter engine.
+  // Build a layer of the right shape for the requested type, on a GeoJSON
+  // source stub (no source-layer needed) with lineMetrics enabled so
+  // line-gradient expressions using ["line-progress"] validate: line-gradient
+  // requires a GeoJSON source per the MapLibre spec, which the lineMetrics +
+  // adapter engine supports.
   const layer: Record<string, unknown> = {
     id: '_validate_target',
     type: layerType,
@@ -75,26 +73,23 @@ export function validatePropertyBlock(
   };
   let errors: { message?: string }[] = [];
   try {
-    // validateStyleMin is typed against StyleSpecification but tolerates
-    // any object shape; cast to satisfy the compiler.
+    // validateStyleMin is typed against StyleSpecification but tolerates any
+    // object shape; cast to satisfy the compiler.
     errors = validateStyleMin(testStyle as unknown as Parameters<typeof validateStyleMin>[0]) ?? [];
   } catch {
-    // A validator crash must BLOCK the apply (null sentinel),
-    // not wave the paste through — returning [] here applied unvalidated JSON
-    // straight to MapLibre, exactly the failure class this editor exists to
-    // prevent.
+    // A validator crash must block the apply (null sentinel), not wave the paste
+    // through: returning [] would apply unvalidated JSON to MapLibre.
     return null;
   }
   return errors
     .map((e) => e?.message ?? '')
     .filter((m): m is string => Boolean(m))
     .filter((m) => {
-      // Drop messages about the stub source/source-layer/sprite/glyphs —
-      // those aren't about what the user typed.
+      // Drop messages about the stub source/source-layer/sprite/glyphs.
       const lower = m.toLowerCase();
       if (lower.includes('sprite') || lower.includes('glyphs')) return false;
       if (lower.includes('"_validate_src"') || lower.includes('source-layer')) return false;
-      // Drop source-tile-url validation noise (we set a placeholder URL).
+      // Drop source-tile-url noise (we set a placeholder URL).
       if (lower.includes('tiles')) return false;
       return true;
     });
@@ -117,9 +112,8 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   const contentId = useId();
   const errorId = useId();
 
-  // Collapsing the block must not throw away a draft. Seed
-  // the text only when there is nothing to preserve; Apply and Cancel are the
-  // two explicit exits that reset it.
+  // Collapsing the block must not discard a draft: seed the text only when there
+  // is nothing to preserve. Apply and Cancel are the explicit exits that reset it.
   function handleToggle() {
     if (editing) { setEditing(false); return; }
     if (text === '') setText(JSON.stringify(value, null, 2));
@@ -140,8 +134,8 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
         setError(t('style.jsonError'));
         return;
       }
-      // Validate against the real MapLibre style spec — catches property
-      // names, color values, numeric bounds, expression syntax, types.
+      // Validate against the real MapLibre style spec (property names, color
+      // values, numeric bounds, expression syntax, types).
       if (layerType) {
         const validationErrors = validatePropertyBlock(parsed, layerType, block);
         if (validationErrors === null) {
@@ -181,9 +175,9 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
       >
         {label}
       </button>
-      {/* The aria-controls target stays mounted and `hidden`
-          while collapsed — an id reference that resolves to nothing is exactly
-          what AT hits when it meets the collapsed trigger. */}
+      {/* The aria-controls target stays mounted and `hidden` while collapsed:
+          an id reference resolving to nothing is what AT hits at the collapsed
+          trigger. */}
       <div id={contentId} hidden={!editing} className="space-y-1.5">
         <Textarea
           className="text-xs font-mono resize-y min-h-[80px]"
@@ -222,10 +216,10 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
   const [open, setOpen] = useState(defaultOpen);
   const blocksId = useId();
 
-  // Symbol mode keeps circle paint on the layer (renderAs.ts:444) but
-  // real symbol layout — validate each block against what it actually holds.
-  // Validating the stored circle paint as 'symbol' rejected every key, so Apply
-  // always errored and the Paint block was a dead end for the whole mode.
+  // Symbol mode keeps circle paint on the layer (renderAs.ts) but has real
+  // symbol layout, so each block validates against what it holds. Validating the
+  // stored circle paint as 'symbol' would reject every key and make the Paint
+  // block a dead end.
   const paintLayerType = layerType === 'symbol' ? 'circle' : layerType;
 
   return (

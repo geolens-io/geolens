@@ -126,9 +126,7 @@ export function HistoryPanel({ mapId, limit = 50, className }: HistoryPanelProps
         title={t('history.errorTitle', { defaultValue: 'History could not be loaded' })}
         description={t('history.errorDescription')}
         role="alert"
-        // The copy used to tell people to close and reopen the
-        // panel. Refetching is what that did, so offer the button instead —
-        // same affordance as DatasetSearchPanel's error state.
+        // Refetch is offered as a button, as in DatasetSearchPanel's error state.
         action={(
           <Button type="button" variant="ghost" size="sm" onClick={() => historyQuery.refetch()}>
             <RotateCcw className="me-1 h-3.5 w-3.5" aria-hidden="true" />

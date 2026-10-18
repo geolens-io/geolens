@@ -5,8 +5,8 @@ import * as React from "react"
 // At < BUILDER_EDITOR_HIDDEN_BREAKPOINT: editor column hidden entirely
 const BUILDER_RAIL_BREAKPOINT = 1100
 const BUILDER_EDITOR_HIDDEN_BREAKPOINT = 800
-// Below this the top bar cramps and the builder is
-// not a real editing surface; we show a "desktop recommended" affordance.
+// Below this the top bar cramps and the builder is not a real editing surface,
+// so a "desktop recommended" affordance is shown.
 const BUILDER_MOBILE_BREAKPOINT = 768
 
 export function useBuilderLayout() {
@@ -37,9 +37,7 @@ export function useBuilderLayout() {
     }
   }, [])
 
-  // The deprecated isCompact/isMobile aliases
-  // were removed — the only production consumer (MapBuilderPage) reads
-  // isRail/isEditorHidden directly.
+  // isRail/isEditorHidden are read directly by MapBuilderPage.
   return {
     isRail,
     isEditorHidden,

@@ -5,18 +5,17 @@ import { resolveTerrainSourceLayer } from './map-stack';
 
 /**
  * Single source of truth for "this DEM layer is suppressed because it powers
- * active 3D terrain." Re-exported here so BOTH legend surfaces (builder
- * LegendPlugin + viewer LayerLegend) consume ONE predicate and never
- * re-derive the render_mode/is_dem check independently.
+ * active 3D terrain." Re-exported so both legend surfaces (builder LegendPlugin
+ * and viewer LayerLegend) share one predicate.
  */
 export { isDemTerrainVisualSuppressed };
 
 /**
  * Synthetic "3D terrain" legend descriptor. Mirrors the shape/id of the stack's
  * synthetic `relief:terrain` row (`map-stack.ts` makeTerrainReliefEntry) so the
- * legend and the layer stack visually agree. Surface-agnostic: carries an
- * i18n label KEY, never literal text, so each surface resolves it in its own
- * namespace (builder: `plugins.legend.terrain3d`; viewer: `viewer.legend.terrain3d`).
+ * legend and stack agree. Surface-agnostic: carries an i18n label key, never
+ * literal text, so each surface resolves it in its own namespace (builder:
+ * `plugins.legend.terrain3d`; viewer: `viewer.legend.terrain3d`).
  */
 interface TerrainLegendEntry {
   /** Mirrors the stack synthetic row id for visual agreement. */
@@ -52,14 +51,12 @@ type TerrainBackingLayer = {
 
 /**
  * Returns a single synthetic "3D terrain" legend entry descriptor when terrain
- * is active, else null. "Active" uses the SAME truth map-stack uses to emit its
- * synthetic `relief:terrain` row: terrain_config is enabled, a source dataset is
- * selected, AND a terrain-capable DEM layer for that dataset is actually present
- * in the layer set. Without the backing-layer check, a dangling
- * terrain_config (legacy maps whose source layer was deleted) would render a
- * phantom "3D terrain" legend entry while the stack reports it missing and no
- * mesh paints, which is the legend<->map disagreement this check prevents.
- * Mirrors the stack's `sourceStatus: 'active'` condition (map-stack.ts).
+ * is active, else null. "Active" matches map-stack's synthetic `relief:terrain`
+ * row (`sourceStatus: 'active'`): terrain_config is enabled, a source dataset is
+ * selected, and a terrain-capable DEM layer for that dataset is present.
+ * Without the backing-layer check, a dangling terrain_config (legacy maps whose
+ * source layer was deleted) would render a phantom legend entry while the stack
+ * reports it missing and no mesh paints.
  */
 export function deriveTerrainLegendEntry(
   terrainConfig: MapTerrainConfig | null | undefined,
@@ -69,10 +66,10 @@ export function deriveTerrainLegendEntry(
   const sourceDatasetId = terrainConfig?.enabled === true ? terrainConfig.source_dataset_id : null;
   if (!sourceDatasetId) return null;
 
-  // Resolve the backing DEM the SAME way BuilderMap/useViewerTerrain do (prefer
-  // a visible rendering). The renderers apply no mesh when the
-  // resolved DEM is saved-hidden, so a hidden source must not list a phantom
-  // "3D terrain" legend entry using that hidden layer's name.
+  // Resolve the backing DEM as BuilderMap/useViewerTerrain do (prefer a visible
+  // rendering). Renderers apply no mesh when the resolved DEM is saved-hidden,
+  // so a hidden source must not list a phantom "3D terrain" entry under that
+  // hidden layer's name.
   const backingLayer = resolveTerrainSourceLayer(layers ?? [], terrainConfig);
   if (!backingLayer || backingLayer.visible === false) return null;
 
@@ -86,12 +83,11 @@ export function deriveTerrainLegendEntry(
 
 /**
  * True when the terrain source dataset is already represented by one of the
- * surface's per-layer legend entries — so the synthetic "3D terrain" entry would
- * duplicate it. Callers pass THEIR OWN shown-entry list (each surface filters
- * differently: LegendPlugin drops hidden layers, LayerLegend keeps them as
- * toggles), so the dedup is correct per surface. When the source DEM has no
- * shown entry (pure terrain render_mode → suppressed, or hidden), this returns
- * false and the synthetic entry remains the only terrain indicator.
+ * surface's per-layer legend entries, so the synthetic "3D terrain" entry would
+ * duplicate it. Callers pass their own shown-entry list (LegendPlugin drops
+ * hidden layers, LayerLegend keeps them as toggles). When the source DEM has no
+ * shown entry (pure terrain render_mode, or hidden), this returns false and the
+ * synthetic entry stays the only terrain indicator.
  */
 export function terrainSourceIsShownAsLayer(
   terrainConfig: MapTerrainConfig | null | undefined,

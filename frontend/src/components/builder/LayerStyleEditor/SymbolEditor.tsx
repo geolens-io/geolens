@@ -6,7 +6,7 @@ import type { BaseStyleEditorProps } from './types';
 import { useMapIcons } from '@/hooks/use-maps';
 import type { SymbolStyleConfig } from '@/types/api';
 
-// The anchor dropdown rendered these raw tokens in every locale.
+// Localized anchor labels; the dropdown would otherwise render raw tokens.
 const ICON_ANCHORS = [
   'center', 'top', 'bottom', 'left', 'right',
   'top-left', 'top-right', 'bottom-left', 'bottom-right',
@@ -20,10 +20,9 @@ export function SymbolEditor({
 }: BaseStyleEditorProps) {
   const sampleColumns = layer.dataset_column_info ?? [];
   const categoryColumn = symbolConfig.categoryColumn ?? '';
-  // Show every value the backend returned instead of an arbitrary 6.
-  // dataset_sample_values is a SAMPLE, not the column's distinct values — the
-  // backend caps it at 10 per column, drawn from the first 10k rows — so the
-  // section is labelled as a sample rather than claiming "6 of N".
+  // Show every value the backend returned. dataset_sample_values is a sample,
+  // not the column's distinct values (capped at 10 per column from the first
+  // 10k rows), so the section is labelled as a sample rather than "6 of N".
   const sampleValues = categoryColumn
     ? (layer.dataset_sample_values?.[categoryColumn] ?? [])
     : [];
@@ -32,21 +31,21 @@ export function SymbolEditor({
   const iconsQuery = useMapIcons();
   const knownIcons = iconsQuery.data?.icons;
   function iconResolves(icon: string): boolean {
-    // Only judge once the list has loaded — an in-flight query must not flag
+    // Judge only once the list has loaded; an in-flight query must not flag
     // every row as broken.
     if (!knownIcons?.length) return true;
     // The renderer accepts a fully qualified id (spriteIconId in symbol-adapter
-    // keeps anything containing ':'), while /maps/icons returns the bare slug —
-    // compare on the slug so `geolens:marker` is not reported as missing.
+    // keeps anything containing ':') while /maps/icons returns the bare slug, so
+    // compare on the slug to avoid reporting `geolens:marker` as missing.
     const slug = icon.includes(':') ? icon.slice(icon.indexOf(':') + 1) : icon;
     return knownIcons.some((entry) => entry.sprite_id === slug);
   }
 
   function updateCategory(value: string | number | null, icon: string) {
     const existing = currentCategories.filter((entry) => entry.value !== value);
-    // An empty icon is not a mapping. The adapter already skips it,
-    // but storing {value, icon: ''} left junk in saved style_config and made the
-    // row render blank instead of the fallback icon it actually draws.
+    // An empty icon is not a mapping: the adapter skips it, and storing
+    // {value, icon: ''} would leave junk in style_config and render a blank row
+    // instead of the fallback icon.
     const next = icon ? [...existing, { value, icon }] : existing;
     onSymbolConfigChange({ categories: next, categoryColumn });
   }
@@ -138,9 +137,8 @@ export function SymbolEditor({
             <p className="text-mini leading-snug text-muted-foreground">{t('style.symbol.sampledValues')}</p>
           )}
           {sampleValues.map((value) => {
-            // `||` not `??`: a map saved by the previous handler can hold
-            // {value, icon: ''}, and the adapter renders the FALLBACK for those
-            // — showing a blank field and flagging it as broken would be wrong.
+            // `||` not `??`: a stored {value, icon: ''} renders the fallback in
+            // the adapter, so showing a blank field flagged as broken would be wrong.
             const mapped = currentCategories.find((entry) => entry.value === value)?.icon
               || symbolConfig.iconImage || 'marker';
             const unknown = !iconResolves(mapped);
@@ -156,8 +154,8 @@ export function SymbolEditor({
                     onChange={(event) => updateCategory(value as string | number | null, event.target.value)}
                   />
                 </div>
-                {/* A typo used to land in the match expression and draw
-                    nothing at all, with no indication anything was wrong. */}
+                {/* An unknown icon would land in the match expression and draw
+                    nothing, with no indication. */}
                 {unknown && (
                   <p className="text-mini text-warning" role="alert">
                     {t('style.symbol.unknownIcon', { icon: mapped })}

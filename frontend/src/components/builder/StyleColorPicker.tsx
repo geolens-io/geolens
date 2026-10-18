@@ -16,7 +16,6 @@ interface StyleColorPickerProps {
 }
 
 // Single source for the 6-digit hex validation regex.
-// Previously copied inline in DataDrivenStyleEditor (two sites).
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 // Map symbol preset colors — not UI chrome. Reuse the centralized map palette
@@ -34,11 +33,9 @@ export const PRESET_COLORS = [
 ] as const;
 
 /**
- * Compact swatch button + popover hex editor shared by the
- * DataDrivenStyleEditor categorical and graduated color lists. Replaces two
- * near-identical inline Popover+HexColorPicker+HexColorInput blocks (each with
- * its own copy of the hex regex). Debouncing, if any, is owned by the caller's
- * onChange (the data-driven editor debounces map repaints there).
+ * Compact swatch button + popover hex editor shared by the DataDrivenStyleEditor
+ * categorical and graduated color lists. Debouncing, if any, is owned by the
+ * caller's onChange (the data-driven editor debounces map repaints there).
  */
 export function SwatchColorPopover({
   color,
@@ -113,8 +110,8 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
               <button
                 key={hex}
                 type="button"
-                // Presets go through the same local-state
-                // path as the picker so the selected ring updates instantly.
+                // Presets go through the same local-state path as the picker so
+                // the selected ring updates instantly.
                 onClick={() => debouncedChange(hex)}
                 className={cn(
                   'cursor-pointer w-5 h-5 rounded-sm border transition-transform hover:scale-125',

@@ -13,10 +13,9 @@ import { DEFAULT_CIRCLE_PAINT } from '@/components/builder/layer-adapters/builde
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
 
-// Centralized default symbol style_config used when converting a
-// layer to symbol render mode without a previously-saved symbol config. Lifted
-// out of the inline literal in handleRenderModeChange so the swap defaults live
-// in one place (alongside DEFAULT_CIRCLE_PAINT / DEFAULT_HEATMAP_PAINT).
+// Default symbol style_config used when converting a layer to symbol render
+// mode without a previously saved symbol config (alongside DEFAULT_CIRCLE_PAINT
+// / DEFAULT_HEATMAP_PAINT).
 const DEFAULT_SYMBOL_CONFIG: SymbolStyleConfig = {
   iconImage: 'marker',
   iconSize: 1,
@@ -25,12 +24,12 @@ const DEFAULT_SYMBOL_CONFIG: SymbolStyleConfig = {
   iconOffset: [0, 0],
 };
 
-/** A render-mode change that enters OR leaves cluster mode crosses a source
- *  boundary — cluster layers get a per-layer GeoJSON/server-tile source while
- *  every other render mode shares the deduped vector source. The imperative
- *  swapLayerOnMap assumes a stable source id, so these transitions must be
- *  handed to the reactive syncMapComposition (BuilderMap) which rebuilds the
- *  source + layers atomically instead. */
+/** A render-mode change that enters or leaves cluster mode crosses a source
+ *  boundary: cluster layers get a per-layer GeoJSON/server-tile source while
+ *  every other mode shares the deduped vector source. The imperative
+ *  swapLayerOnMap assumes a stable source id, so these transitions are handed
+ *  to the reactive syncMapComposition (BuilderMap), which rebuilds source and
+ *  layers atomically. */
 function isClusterTransition(
   prev: { style_config?: StyleConfig | null },
   next: { style_config?: StyleConfig | null },
@@ -39,9 +38,8 @@ function isClusterTransition(
     || next.style_config?.render_mode === 'cluster';
 }
 
-// Render-mode / layer-swap cluster, relocated verbatim out of the
-// useBuilderLayers god-hook. PURE RELOCATION — handler bodies are unchanged; the
-// shared layers state (layersRef + setters) is threaded in as params.
+// Render-mode / layer-swap handlers. The shared layers state (layersRef +
+// setters) is threaded in as params.
 interface UseRenderModeLayersParams {
   layersRef: React.RefObject<MapLayerResponse[]>;
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>;
@@ -61,11 +59,10 @@ export function useRenderModeLayers({
 
   /** Swap the MapLibre layer for a given dataset between vector adapter types (e.g. circle <-> heatmap).
    *  An image or hillshade switch is left to the sync pass. */
-  // Named function expression so the idle-retry recursion
-  // targets the function's own (immutable) name binding `runSwapLayerOnMap`
-  // instead of the reactive useCallback identity — the React Compiler rejects
-  // self-referencing a useCallback const. Behavior is identical to the prior
-  // `swapLayerOnMap(...)` self-call.
+  // Named function expression so the idle-retry recursion targets the
+  // function's own immutable name binding `runSwapLayerOnMap`, not the reactive
+  // useCallback identity (the React Compiler rejects a useCallback const
+  // referencing itself).
   const swapLayerOnMap = useCallback(function runSwapLayerOnMap(
     layer: MapLayerResponse,
     adapterType: RenderAsAdapterType,
@@ -76,10 +73,9 @@ export function useRenderModeLayers({
     if (adapterType === 'raster' || adapterType === 'hillshade') return;
     const map = mapInstanceRef.current;
     if (!map) return;
-    // Mirror the idle-retry pattern from BuilderMap.tsx (~:923).
-    // A render-mode switch during a basemap style transition must not be silently
-    // dropped. Register a one-shot `idle` listener so the swap is retried as soon
-    // as the map settles (idle fires after style.load + tiles + transitions).
+    // Idle-retry, as in BuilderMap.tsx: a render-mode switch during a basemap
+    // style transition must not be dropped. A one-shot `idle` listener retries
+    // the swap once the map settles (after style.load + tiles + transitions).
     if (!map.isStyleLoaded()) {
       map.once('idle', () => runSwapLayerOnMap(layer, adapterType, updatedPaint));
       return;
@@ -93,12 +89,10 @@ export function useRenderModeLayers({
     try {
       const adapter = getAdapter(adapterType);
       adapter.addLayers(map, adapterInput);
-      // Explicitly re-assert visibility after addLayers. The adapter
-      // contract honors `input.visible` at initial add (defense-in-depth in
-      // each adapter), and calling syncVisibility here also covers companion
-      // layers (e.g. fill outline / cluster count / label) so the freshly-swapped
-      // layer cannot become a "ghost visible" layer when the user is on a
-      // hidden render-mode source.
+      // Re-assert visibility after addLayers. Adapters honor `input.visible` at
+      // initial add, and syncVisibility also covers companion layers (fill
+      // outline / cluster count / label), so the swapped layer can't become a
+      // "ghost visible" layer on a hidden render-mode source.
       adapter.syncVisibility(map, adapterInput);
     } catch (e) {
       toast.error(t('toasts.renderModeSwitchFailed'));
@@ -107,13 +101,13 @@ export function useRenderModeLayers({
     }
   }, [mapInstanceRef, mvtSourceLayerPrefix, t]);
 
-  /** Cluster transitions are handed to the reactive syncMapComposition, but that
-   *  reconciler adds before it removes stale layers and SKIPS adding a layer id
-   *  that already exists (map-sync `if (!map.getLayer(id)) adapter.addLayers`).
-   *  The cluster⇄points transition reuses the layer's MapLibre ids on a DIFFERENT
+  /** Cluster transitions are handed to the reactive syncMapComposition, but it
+   *  adds before it removes stale layers and skips adding a layer id that
+   *  already exists (map-sync `if (!map.getLayer(id)) adapter.addLayers`). The
+   *  cluster⇄points transition reuses the layer's MapLibre ids on a different
    *  source, so the old layer graph must be torn down first or the reconciler
-   *  skips the replacement and then deletes the stale layer → blank until the next
-   *  sync. Remove the layer + every companion id here; source
+   *  skips the replacement and then deletes the stale layer, leaving the layer
+   *  blank until the next sync. Removes the layer and every companion id; source
    *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
   const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
     const map = mapInstanceRef.current;
@@ -149,11 +143,10 @@ export function useRenderModeLayers({
     );
     // Cluster uses a per-layer GeoJSON/server-tile source whose id differs from
     // the shared vector source and may not exist yet when switching in. The
-    // imperative same-source swapLayerOnMap cannot bridge that source change — it
-    // would add the cluster layer to a not-yet-created source and then collide
-    // with the reactive reconcile ("source ... not found" / "layer ... already
-    // exists"). Defer cluster transitions (entering OR leaving) to
-    // syncMapComposition in BuilderMap, which rebuilds source + layers atomically.
+    // imperative same-source swapLayerOnMap can't bridge that: it would add the
+    // cluster layer to a not-yet-created source and collide with the reactive
+    // reconcile ("source ... not found" / "layer ... already exists"). Entering
+    // or leaving cluster is deferred to syncMapComposition in BuilderMap.
     if (isClusterTransition(layer, updatedLayer)) {
       removeLayerGraphForReactiveSync(layerId);
     } else {
@@ -166,14 +159,14 @@ export function useRenderModeLayers({
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
-    // renderAsOptions in LayerEditorPanel surfaces ALL RenderAsId
-    // values (arrow / fill / stroke / fill-stroke / extrusion-3d / line plus the
-    // legacy circle quartet handled below). Route everything that isn't a
-    // circle-family transition through handleRenderAsChange + buildRenderAsPatch
-    // so the layout/paint replacement is computed correctly. Without this gate,
-    // line→arrow on a MultiLineString layer was falling through to the `circle`
-    // branch and dispatching addLayer with stale line-cap / line-join layout
-    // keys, which MapLibre rejects with `unknown property` validation errors.
+    // renderAsOptions in LayerEditorPanel surfaces every RenderAsId (arrow /
+    // fill / stroke / fill-stroke / extrusion-3d / line plus the legacy circle
+    // quartet handled below). Everything that isn't a circle-family transition
+    // goes through handleRenderAsChange + buildRenderAsPatch so the layout/paint
+    // replacement is computed correctly; otherwise line→arrow on a
+    // MultiLineString layer would fall into the `circle` branch and dispatch
+    // addLayer with stale line-cap / line-join layout keys, which MapLibre
+    // rejects with `unknown property`.
     if (
       mode === 'cluster' ||
       mode === 'arrow' ||

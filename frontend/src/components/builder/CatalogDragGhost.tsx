@@ -1,6 +1,5 @@
-// Extracted from UnifiedStackPanel.tsx into a sibling
-// file. Compact pill shown in the DragOverlay during a catalog drag, so the
-// overlay reads as a "new-dataset-to-be-added" rather than an existing stack row.
+// Compact pill shown in the DragOverlay during a catalog drag, so the overlay
+// reads as a new dataset to be added rather than an existing stack row.
 
 export function CatalogDragGhost({
   recordType,
@@ -9,8 +8,8 @@ export function CatalogDragGhost({
   recordType: string;
   name: string;
 }) {
-  // Type-icon swatch palette.
-  // Basemap → primary-50/primary-700; raster/vrt → type-raster-bg/type-raster; default (vector) → type-vector-bg/type-vector.
+  // Type-icon swatch palette: basemap → primary-50/primary-700; raster/vrt →
+  // type-raster-bg/type-raster; default (vector) → type-vector-bg/type-vector.
   let swatchBg: string;
   let swatchColor: string;
   let swatchGlyph: string;

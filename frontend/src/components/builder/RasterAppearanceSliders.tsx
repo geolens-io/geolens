@@ -4,13 +4,11 @@ import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 import { formatNumber } from '@/lib/format';
 
 /**
- * The single brightness/contrast/saturation/hue appearance
- * slider surface, previously implemented twice with subtly different step values and
- * formatting. RasterLayerControls (the LayerEditorPanel path) is the only consumer
- * since the unreachable RenderModeSwitch raster editor was deleted.
+ * The brightness/contrast/saturation/hue appearance slider surface.
+ * RasterLayerControls (the LayerEditorPanel path) is its only consumer.
  *
- * Fallbacks are read from the adapter's RASTER_PAINT_DEFAULTS (single source of truth)
- * so the editor display and the rendered default cannot diverge.
+ * Fallbacks come from the adapter's RASTER_PAINT_DEFAULTS (single source of
+ * truth), so the editor display and the rendered default can't diverge.
  */
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
@@ -41,7 +39,7 @@ interface RasterSliderRowProps {
   format?: RasterValueFormat;
 }
 
-/** A single labelled raster slider row, shared by the appearance sliders and the
+/** A labelled raster slider row, shared by the appearance sliders and the
  *  RasterLayerControls opacity control. */
 export function RasterSliderRow({
   label,

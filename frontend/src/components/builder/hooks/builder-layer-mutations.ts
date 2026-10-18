@@ -7,13 +7,12 @@ import { getCompanionLayerIds } from '@/components/builder/companion-ids';
 /**
  * Decide whether deleting a layer must tear down active 3D terrain.
  *
- * Terrain is backed by a DEM dataset (terrain_config.source_dataset_id), not by
- * a single layer id. The teardown keys on DATASET IDENTITY: terrain is cleared
- * ONLY when, after the delete, NO remaining layer is a DEM layer for the terrain
- * source dataset. This correctly:
- *   - clears when the (last) DEM backing the terrain dataset is removed,
- *   - preserves terrain when an unrelated DEM/vector layer is deleted,
- *   - PRESERVES terrain when another DEM layer on the same dataset still exists.
+ * Terrain is backed by a DEM dataset (terrain_config.source_dataset_id), not a
+ * single layer id, so the teardown keys on dataset identity: terrain is cleared
+ * only when, after the delete, no remaining layer is a DEM layer for the terrain
+ * source dataset. It clears when the last DEM backing the dataset is removed,
+ * and preserves terrain when an unrelated layer is deleted or another DEM layer
+ * on the same dataset remains.
  *
  * @param remainingLayers - layers that survive the delete (already filtered)
  * @param terrainConfig - the current (local) terrain_config
@@ -24,11 +23,11 @@ export function shouldClearTerrainOnDelete(
 ): boolean {
   if (!terrainConfig?.enabled || !terrainConfig.source_dataset_id) return false;
   const sourceDatasetId = terrainConfig.source_dataset_id;
-  // "Still backed" means resolvable as a terrain source
-  // — use the canonical isTerrainCapableDemLayer predicate (is_dem AND a DEM
-  // record type) exactly as the mesh resolver (BuilderMap/use-viewer-terrain) and
-  // the stack compute it. A bare is_dem check could keep terrain_config alive for
-  // a layer the mesh resolver can no longer attach, leaving a dangling config.
+  // "Still backed" means resolvable as a terrain source: use the canonical
+  // isTerrainCapableDemLayer predicate (is_dem AND a DEM record type), as the
+  // mesh resolver (BuilderMap/use-viewer-terrain) and the stack do. A bare
+  // is_dem check could keep terrain_config alive for a layer the mesh resolver
+  // can't attach, leaving a dangling config.
   const datasetStillBacked = remainingLayers.some(
     (layer) => layer.dataset_id === sourceDatasetId && isTerrainCapableDemLayer(layer),
   );
@@ -36,20 +35,18 @@ export function shouldClearTerrainOnDelete(
 }
 
 /**
- * Derive the full set of MapLibre layer ids that the adapter owns for a given
- * raw layer id. Falls back to the canonical companion-id set
- * (`getCompanionLayerIds`) when the render mode is unknown so that
- * legacy call sites and future unregistered render modes continue to work.
+ * Derive the full set of MapLibre layer ids the adapter owns for a raw layer
+ * id. Falls back to the canonical companion-id set (`getCompanionLayerIds`)
+ * when the render mode is unknown, so legacy call sites and unregistered render
+ * modes keep working.
  *
- * Known render_mode values NOT in the adapter registry:
- *   - 'arrow': not registered as a first-class adapter; getAdapter('arrow') returns the
- *     circleAdapter fallback whose type === 'circle'. The `adapter.type === renderMode`
- *     guard fails, causing the code to fall through to the companion-id fallback — which
- *     does include the '-arrow' companion. This is the correct behavior. If 'arrow' is
- *     ever added to the registry, ensure getLayerIds returns both the base id and the
- *     '-arrow' companion.
+ * 'arrow' is not in the adapter registry: getAdapter('arrow') returns the
+ * circleAdapter fallback (type === 'circle'), the `adapter.type === renderMode`
+ * guard fails, and the companion-id fallback runs, which includes the '-arrow'
+ * companion. If 'arrow' is ever registered, getLayerIds must return both the
+ * base id and the '-arrow' companion.
  *
- * @param rawLayerId - the logical layer id (NOT prefixed with `layer-`)
+ * @param rawLayerId - the logical layer id (not prefixed with `layer-`)
  * @param renderMode - value from style_config.render_mode (or inferred adapter type)
  */
 function deriveCompanionIds(rawLayerId: string, renderMode: string | null | undefined): string[] {
@@ -64,15 +61,13 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
         return adapter.getLayerIds(prefixedLayerId);
       }
     } catch {
-      // Defensive — getAdapter should never throw, but fall through to the
-      // canonical companion-id set.
+      // getAdapter should never throw; fall through to the canonical set.
     }
   }
-  // Full companion set (base + outline + label + extrusion + arrow
-  // + colorrelief + cluster + cluster-count) from the single source of truth,
-  // for an unknown or absent render mode. Color-relief is included because DEM
-  // hillshade layers can create it as a conditional companion on the same
-  // raster-dem source.
+  // Full companion set (base + outline + label + extrusion + arrow + colorrelief
+  // + cluster + cluster-count) from the single source of truth, for an unknown
+  // or absent render mode. Color-relief is included because DEM hillshade
+  // layers can create it as a conditional companion on the same raster-dem source.
   const c = getCompanionLayerIds(rawLayerId);
   return [c.layer, c.outline, c.label, c.extrusion, c.arrow, c.colorRelief, c.cluster, c.clusterCount, c.mixedLines, c.mixedPoints];
 }
@@ -82,10 +77,8 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
  * the builder draft. Sources are left for the normal sync prune because vector
  * sources may be shared by sibling layers.
  *
- * When `renderModeByLayerId` is provided, the function derives companion ids via
- * the LayerAdapter.getLayerIds() contract instead of the static suffix list.
- * Existing callers that omit `renderModeByLayerId` continue to use the suffix-
- * list fallback path — no call-site changes required.
+ * When `renderModeByLayerId` is provided, companion ids come from the
+ * LayerAdapter.getLayerIds() contract instead of the static suffix list.
  */
 export function removePerLayerCompanions(
   map: MaplibreMap | null,
@@ -114,9 +107,9 @@ interface DuplicateRenderingLabels {
   duplicateName: (baseName: string) => string;
 }
 
-// Kept pure (no t() call) — matches the current English copy so existing
-// callers that omit `labels` see unchanged behavior. Real call sites pass
-// translated labels; see useBuilderLayers' handleDuplicateRendering.
+// Pure (no t() call), matching the English copy for callers that omit `labels`.
+// Real call sites pass translated labels (useBuilderLayers'
+// handleDuplicateRendering).
 const DEFAULT_DUPLICATE_RENDERING_LABELS: DuplicateRenderingLabels = {
   layerFallback: 'Layer',
   duplicateName: (baseName) => `${baseName} rendering`,
@@ -126,19 +119,17 @@ export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
   labels: DuplicateRenderingLabels = DEFAULT_DUPLICATE_RENDERING_LABELS,
 ): MapLayerInput {
-  // Place the duplicate adjacent to its source (source.sort_order + 1) instead
-  // of at the stack bottom (max(sort_order)+1) — a grouped source's copy must
-  // land next to it, not escape past every other group/layer. This is a
-  // backend hint only — handleDuplicateRendering's caller renumbers sort_order
-  // by final local array index at splice time, and prepareLayersForPersistence
-  // renumbers again by array index at save time.
+  // Place the duplicate adjacent to its source (source.sort_order + 1), not at
+  // the stack bottom: a grouped source's copy must land next to it. This is a
+  // backend hint only; handleDuplicateRendering's caller renumbers sort_order by
+  // final local array index at splice time, and prepareLayersForPersistence
+  // renumbers again at save time.
   const nextSortOrder = layer.sort_order + 1;
   const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || labels.layerFallback;
   return {
     dataset_id: layer.dataset_id,
     sort_order: nextSortOrder,
-    // Inherit source visibility so duplicating a hidden
-    // layer yields a hidden copy rather than forcing it visible.
+    // Inherit source visibility so duplicating a hidden layer yields a hidden copy.
     visible: layer.visible ?? true,
     opacity: layer.opacity,
     paint: { ...(layer.paint ?? {}) },

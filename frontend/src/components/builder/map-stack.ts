@@ -1,14 +1,15 @@
 /**
- * `buildMapStack` is TEST-ONLY: a verification oracle for the saved-map normalizer
- * (`api/__tests__/maps.normalize.test.ts`, `__tests__/map-stack.test.ts`).
- * No production component calls it, so Vite tree-shakes the derived group and
- * entry labels. The shared duplicate helpers below are production code and use
- * `mapStack.badges.copy` for the live stack-row badge.
+ * `buildMapStack` is test-only: a verification oracle for the saved-map
+ * normalizer (`api/__tests__/maps.normalize.test.ts`,
+ * `__tests__/map-stack.test.ts`). No production component calls it, so Vite
+ * tree-shakes the derived group and entry labels. The shared duplicate helpers
+ * below are production code and use `mapStack.badges.copy` for the live
+ * stack-row badge.
  *
- * The REST of this module is production code — the shared terrain
- * resolver (`resolveTerrainSourceLayer`, `isTerrainCapableDemLayer`) and
- * helpers are imported by ViewerMap, MapBuilderPage, use-viewer-terrain,
- * terrain-legend, and UnifiedStackPanel. Only `buildMapStack` is test-only.
+ * The rest of this module is production code: the shared terrain resolver
+ * (`resolveTerrainSourceLayer`, `isTerrainCapableDemLayer`) and helpers are
+ * imported by ViewerMap, MapBuilderPage, use-viewer-terrain, terrain-legend and
+ * UnifiedStackPanel.
  */
 import type {
   LabelConfig,
@@ -234,11 +235,10 @@ function popupEnabled(popupConfig: PopupConfig | null | undefined) {
   return popupConfig?.enabled === true;
 }
 
-// Exported: the canonical "is this layer resolvable as a 3D
-// terrain source?" predicate. Both the legend synthetic-entry derivation
-// (terrain-legend.ts) and the delete-time terrain-clear check
-// (builder-layer-mutations.ts) consume THIS one predicate so legend <-> stack
-// <-> mesh-resolver stay in lockstep.
+// The canonical "is this layer resolvable as a 3D terrain source?" predicate.
+// The legend synthetic-entry derivation (terrain-legend.ts) and the delete-time
+// terrain-clear check (builder-layer-mutations.ts) both consume it so legend,
+// stack and mesh-resolver stay in lockstep.
 export function isTerrainCapableDemLayer(layer: {
   is_dem?: boolean | null;
   dataset_record_type?: string | null;
@@ -247,13 +247,12 @@ export function isTerrainCapableDemLayer(layer: {
 }
 
 /**
- * Resolve the DEM layer that backs `terrain_config`, the SINGLE way both the map
- * renderer (BuilderMap) and the settings status
- * (MapBuilderPage `isTerrainActive`) must agree on: match the source dataset and
- * be terrain-capable, regardless of render_mode (a hillshade-mode DEM drives the
- * 3D mesh too). Sharing this prevents the two from drifting — which is exactly
- * what made the settings report "No terrain layer is active" while the map was
- * rendering terrain from a hillshade DEM.
+ * Resolve the DEM layer that backs `terrain_config`, the one way both the map
+ * renderer (BuilderMap) and the settings status (MapBuilderPage
+ * `isTerrainActive`) must agree on: match the source dataset and be
+ * terrain-capable, regardless of render_mode (a hillshade-mode DEM drives the
+ * 3D mesh too). Sharing it keeps settings from reporting "No terrain layer is
+ * active" while the map renders terrain from a hillshade DEM.
  */
 export function resolveTerrainSourceLayer<
   T extends {
@@ -268,10 +267,9 @@ export function resolveTerrainSourceLayer<
 ): T | undefined {
   const src = terrainConfig?.source_dataset_id;
   if (!src) return undefined;
-  // terrain_config binds a DATASET, but a dataset may have several
-  // renderings. Deterministic duplicate semantics: prefer the first visible
-  // matching DEM (a hidden rendering detaches builder terrain, so a visible
-  // sibling should win), then fall back to the first match in stack order.
+  // terrain_config binds a dataset, which may have several renderings. For
+  // duplicates, prefer the first visible match (a hidden rendering detaches
+  // builder terrain, so a visible sibling wins), then the first in stack order.
   const matches = layers.filter((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
   return matches.find((l) => l.visible !== false) ?? matches[0];
 }
@@ -353,13 +351,10 @@ function stableDatasetKey(layer: MapLayerResponse) {
 }
 
 /**
- * Compute per-layer-id duplicate disambiguation metadata over an ordered set of
- * layers. This is the single source of truth for the "Copy N of M" label —
- * `duplicateIndex` (legend / derived-stack path) and the live `UnifiedStackPanel`
- * stack-row path both consume it so the two never drift.
- *
- * Output is intentionally identical to the previous inline `duplicateIndex` body;
- * `map-stack.test.ts` guards that contract.
+ * Per-layer-id duplicate disambiguation metadata over an ordered set of layers:
+ * the single source of truth for the "Copy N of M" label. `duplicateIndex`
+ * (legend / derived-stack path) and the live `UnifiedStackPanel` stack-row path
+ * both consume it so they never drift; `map-stack.test.ts` guards the contract.
  */
 function computeDisambiguationMetadata(
   layers: MapLayerResponse[],
@@ -388,12 +383,11 @@ function computeDisambiguationMetadata(
 
     const datasetCount = datasetCounts.get(datasetKey) ?? 1;
     const nameCount = nameCounts.get(name) ?? 1;
-    // Disambiguate on NAME collisions only. The badge answers "which of these
-    // identical-looking rows is which?" — only ambiguous when the names match.
-    // Two differently-named layers off one dataset (e.g. a line + its casing)
-    // are an intentional cartographic pair, not a duplicate; badging them on
-    // shared dataset_id was pure noise. datasetCount/-Occurrence remain in the
-    // metadata for informational consumers.
+    // Disambiguate on name collisions only: the badge answers "which of these
+    // identical-looking rows is which?". Two differently named layers off one
+    // dataset (e.g. a line + its casing) are an intentional cartographic pair, so
+    // badging them on shared dataset_id would be noise. datasetCount/-Occurrence
+    // stay in the metadata for informational consumers.
     byLayerId.set(layer.id, {
       datasetKey,
       datasetOccurrence,
@@ -410,10 +404,10 @@ function computeDisambiguationMetadata(
 }
 
 /**
- * Convenience helper for UI consumers that only need the display label per layer.
- * Returns `Map<layerId, 'Copy N of M' | null>` over the supplied (already
- * order-stable) layer list. Shares `computeDisambiguationMetadata` so the live
- * stack badge and the legend/derived-stack badge always agree.
+ * Display label per layer for UI consumers: `Map<layerId, 'Copy N of M' |
+ * null>` over the supplied (order-stable) layer list. Shares
+ * `computeDisambiguationMetadata` so the live stack badge and the legend badge
+ * agree.
  */
 export function computeDisambiguationLabels(
   layers: MapLayerResponse[],
@@ -428,25 +422,20 @@ export function computeDisambiguationLabels(
 }
 
 /**
- * Whether a layer would be silently filtered out for the map's
- * audience. Adding a private dataset to a public/shared map used to succeed
- * with no indication that anonymous/other-audience viewers would never see
- * the layer (the backend's `filter_layer_rows_by_dataset_visibility` drops it
- * server-side). A private map has no audience beyond the owner/grantees, so
- * it is never flagged here — only public/internal (shared) maps can strand a
- * layer this way.
+ * Whether a layer would be silently filtered out for the map's audience: the
+ * backend's `filter_layer_rows_by_dataset_visibility` drops a private dataset
+ * on a public/shared map, so other-audience viewers never see the layer. A
+ * private map has no audience beyond the owner/grantees, so it is never flagged;
+ * only public/internal (shared) maps can strand a layer this way.
  *
- * Conservative by design: when the dataset_visibility/dataset_status fields
- * are both absent (e.g. an older cached response), this returns `false`
- * rather than guessing — matching the pre-fix behavior of showing no warning,
- * not a false positive on every layer.
+ * Conservative: when dataset_visibility/dataset_status are both absent (e.g. an
+ * older cached response) it returns `false` rather than guess.
  *
- * The two shared map audiences are no longer equivalent. A public
- * map's audience includes anonymous visitors, so only a public dataset
- * survives; an internal map's audience is every signed-in user, which is
- * exactly the audience an `internal` dataset serves, so such a layer is not
- * stranded there. `restricted` stays flagged on both — it needs a grant, which
- * a generic member of either audience does not have.
+ * The two shared audiences differ. A public map's audience includes anonymous
+ * visitors, so only a public dataset survives; an internal map's audience is
+ * every signed-in user, which an `internal` dataset serves, so such a layer
+ * isn't stranded there. `restricted` is flagged on both: it needs a grant a
+ * generic member of either audience lacks.
  */
 export function isLayerHiddenFromMapAudience(
   layer: Pick<MapLayerResponse, 'dataset_visibility' | 'dataset_status'>,
@@ -526,8 +515,8 @@ function makeTerrainReliefEntry(
   if (demLayers.length === 0 && !terrainConfig?.source_dataset_id) return;
 
   const configuredSourceId = terrainConfig?.source_dataset_id ?? null;
-  // Resolve the bound DEM the SAME way BuilderMap does (prefer a
-  // visible rendering) so a duplicate can't flip the reported status.
+  // Resolve the bound DEM as BuilderMap does (prefer a visible rendering) so a
+  // duplicate can't flip the reported status.
   const selectedDemLayer = configuredSourceId
     ? resolveTerrainSourceLayer(demLayers, terrainConfig) ?? null
     : demLayers[0] ?? null;
@@ -535,13 +524,11 @@ function makeTerrainReliefEntry(
   const sourceLayer = selectedDemLayer ?? fallbackLayer;
   // 'active' matches the runtime resolver (resolveTerrainSourceLayer /
   // BuilderMap): any dataset-matched terrain-capable DEM powers the mesh,
-  // regardless of render_mode. The old rule required render_mode === 'terrain'
-  // and reported the hybrid hillshade+terrain state as 'disabled' while the map
-  // was actively rendering terrain from it.
-  // BuilderMap sets no mesh when the bound DEM is hidden
-  // (effectiveTerrainEnabled = enabled && demLayerVisible), and Settings gates
-  // isTerrainActive the same way — so a hidden source is 'disabled', not
-  // 'active', or the stack badge drifts from the map and Settings.
+  // regardless of render_mode, so the hybrid hillshade+terrain state is not
+  // 'disabled'. BuilderMap sets no mesh when the bound DEM is hidden
+  // (effectiveTerrainEnabled = enabled && demLayerVisible) and Settings gates
+  // isTerrainActive the same way, so a hidden source is 'disabled' or the stack
+  // badge drifts from the map and Settings.
   const sourceVisible = selectedDemLayer ? selectedDemLayer.visible !== false : false;
   const sourceStatus: MapStackTerrainSourceStatus = terrainConfig?.enabled
     ? selectedDemLayer

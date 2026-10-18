@@ -1,19 +1,11 @@
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
-// ---------------------------------------------------------------------------
-// Dirty-tracking helper
-//
-// Exported for unit testing. Returns true iff the editor draft (`draft`)
-// diverges from its server-state baseline (`saved`) in any of:
-//   - paint   (Record<string, unknown>)
-//   - layout  (Record<string, unknown>)
-//   - style_config (StyleConfig | null)
-//
-// Identity-equal references short-circuit to false. When `saved` is undefined,
-// returns false — the caller has no baseline to compare against, so the
-// "Pending style preview" banner stays hidden (smoke check 2026-05-15).
-// ---------------------------------------------------------------------------
+// Exported for unit testing. True iff the editor draft (`draft`) diverges from
+// its server-state baseline (`saved`) in paint, layout or style_config.
+// Identity-equal references short-circuit to false. When `saved` is undefined it
+// returns false: with no baseline to compare, the "Pending style preview"
+// banner stays hidden.
 export function hasUnsavedStyleChanges(
   draft: MapLayerResponse,
   saved: MapLayerResponse | undefined,
@@ -88,10 +80,9 @@ export function getPaintValue<T>(paint: Record<string, unknown>, key: string, fa
   return val !== undefined && val !== null ? (val as T) : fallback;
 }
 
-// Returns either a scalar number or a MapLibre expression
-// array (data-driven / zoom expression) — never an arbitrary `unknown`. Typed as
-// `number | unknown[]` so callers (ZoomExpressionEditor `value`) get the
-// scalar-or-expression contract the name promises.
+// Returns a scalar number or a MapLibre expression array (data-driven / zoom
+// expression), never an arbitrary `unknown`, so callers (ZoomExpressionEditor
+// `value`) get the scalar-or-expression contract.
 export function getEditableNumericPaintValue(
   paint: Record<string, unknown>,
   key: string,

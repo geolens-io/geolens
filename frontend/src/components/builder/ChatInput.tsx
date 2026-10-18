@@ -24,8 +24,7 @@ const SLASH_COMMAND_IDS = ['style', 'filter', 'label', 'query', 'add'] as const;
 
 /**
  * Detect an active @-mention or /-command trigger ending at `cursorPos`.
- * Exported for unit testing: the cursor-sliced regex is
- * exactly the off-by-one-prone logic that previously had zero coverage.
+ * Exported for unit testing: the cursor-sliced regex is off-by-one-prone.
  */
 export function detectTrigger(value: string, cursorPos: number): TriggerState | null {
   const before = value.slice(0, cursorPos);
@@ -60,8 +59,8 @@ function filterItems(items: MentionItem[], query: string): MentionItem[] {
 
 /**
  * Compute the value + cursor position after inserting `item` for an active
- * trigger. Pure and exported for unit testing — covers
- * bracket vs plain insertion and the +1-for-trigger-char offset arithmetic.
+ * trigger. Pure and exported for unit testing (bracket vs plain insertion and
+ * the +1-for-trigger-char offset arithmetic).
  *
  * `@`-mentions whose label contains a space use bracket syntax (`@[Layer Name] `);
  * otherwise a bare `@Name `. Slash commands always insert `<label> `.
@@ -228,9 +227,8 @@ export function ChatInput({
           label={triggerState!.type === '@' ? t('chat.layersDropdown') : t('chat.commandsDropdown')}
         />
       )}
-      {/* Kept as a raw textarea, not the ui/textarea
-          primitive: this one auto-resizes, is a combobox for @-mentions, and
-          carries bespoke keyboard handling. */}
+      {/* A raw textarea, not the ui/textarea primitive: this one auto-resizes, is
+          a combobox for @-mentions, and carries bespoke keyboard handling. */}
       <textarea
         ref={textareaRef}
         value={value}

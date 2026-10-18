@@ -1,6 +1,5 @@
-// Shared types for the unified stack sub-components,
-// extracted from UnifiedStackPanel.tsx so the sortable wrappers can live in
-// sibling files without importing the 1200-line panel module.
+// Shared types for the unified stack sub-components, in a sibling file so the
+// sortable wrappers don't import the 1200-line UnifiedStackPanel module.
 
 export interface BasemapSublayerInfo {
   id: string;

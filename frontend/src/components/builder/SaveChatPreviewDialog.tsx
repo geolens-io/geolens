@@ -1,14 +1,13 @@
 // "Save as dataset…" for a plain chat query preview.
 //
-// The preview's whole FeatureCollection is already on the client (it is what
-// the map overlay draws), so persisting it needs no new endpoint: wrap it in a
-// File and push it through the same upload → preview → commit path the import
-// page uses, reusing that page's metadata form so naming, description, and
-// visibility behave identically wherever a dataset is created.
+// The preview's whole FeatureCollection is already on the client (the map
+// overlay draws it), so persisting it needs no new endpoint: wrap it in a File
+// and push it through the upload → preview → commit path the import page uses,
+// reusing that page's metadata form so naming, description and visibility
+// behave identically wherever a dataset is created.
 //
-// This is a SNAPSHOT — a saved answer, frozen at save time, not a live query.
-// The dialog says so, because the resulting dataset is indistinguishable from
-// any other once it lands.
+// This is a snapshot, frozen at save time, not a live query. The dialog says
+// so, because the resulting dataset is indistinguishable from any other.
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -34,12 +33,11 @@ const MAX_SUGGESTED_TITLE = 80;
 const GEOJSON_EXT = '.geojson';
 
 /**
- * The byte budget for the name the file is UPLOADED
- * under. Graphemes are the wrong unit for a filesystem: 80 emoji plus the
- * extension is 328 bytes, and local staging writes
- * `<job-uuid>_<basename>` into a directory entry Linux caps at 255 bytes, so a
- * multibyte prompt that passes the grapheme cap fails the upload with
- * ENAMETOOLONG (a 500). 120 leaves room for the uuid prefix and then some.
+ * The byte budget for the name the file is uploaded under. Graphemes are the
+ * wrong unit for a filesystem: 80 emoji plus the extension is 328 bytes, and
+ * local staging writes `<job-uuid>_<basename>` into a directory entry Linux caps
+ * at 255 bytes, so a multibyte prompt passing the grapheme cap would fail the
+ * upload with ENAMETOOLONG (a 500). 120 leaves room for the uuid prefix.
  */
 const MAX_UPLOAD_NAME_BYTES = 120;
 
@@ -49,17 +47,16 @@ const FALLBACK_UPLOAD_BASE = 'chat-result';
 /**
  * The chat prompt, shaped into the name of the file we are about to upload.
  *
- * Returns a FILE name, not a title, because that is what `defaultName` means
- * at every other ImportMetadataForm call site — the form strips the extension
- * to seed its title field, so a prompt carrying its own dots ("buildings over
- * 3.5m") survives the round trip intact.
+ * Returns a file name, not a title, matching what `defaultName` means at every
+ * other ImportMetadataForm call site: the form strips the extension to seed its
+ * title field, so a prompt with its own dots ("buildings over 3.5m") survives.
  */
 export function chatPreviewFileName(prompt: string | undefined, fallbackTitle: string): string {
   const collapsed = (prompt ?? '')
-    // Path separators have no business in a catalog entry's source filename.
-    // The backend strips them too (`safe_upload_basename`) — doing it here
-    // keeps the name the user is shown identical to the one that gets stored.
-    // Newlines need no special case: the whitespace collapse below folds them.
+    // Path separators have no place in a source filename. The backend strips
+    // them too (`safe_upload_basename`); doing it here keeps the name the user
+    // sees identical to the stored one. The whitespace collapse below folds
+    // newlines.
     .replace(/[\\/]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -68,12 +65,11 @@ export function chatPreviewFileName(prompt: string | undefined, fallbackTitle: s
 }
 
 /**
- * The same name, bounded by UTF-8 BYTES so it can be a filesystem entry.
+ * The same name, bounded by UTF-8 bytes so it can be a filesystem entry.
  *
- * Kept separate from the name above deliberately: that one only ever reaches
- * the metadata form, where it becomes the suggested dataset title and no byte
- * limit applies. Trimming happens by grapheme, so a multibyte name loses whole
- * characters rather than splitting one down the middle.
+ * Separate from the name above because that one only reaches the metadata form,
+ * where it becomes the suggested title and no byte limit applies. Trimming is by
+ * grapheme, so a multibyte name loses whole characters, never half of one.
  */
 export function chatPreviewUploadName(fileName: string): string {
   const encoder = new TextEncoder();
@@ -92,13 +88,12 @@ export function chatPreviewUploadName(fileName: string): string {
 /**
  * What became of a job whose commit we already sent.
  *
- * The backend refuses a repeat commit with 400 for EVERY non-pending status,
- * and those statuses do not mean the same thing. A commit that queued the
- * import leaves the job for the worker to claim (`running`, then `complete`).
- * A commit whose dispatch failed leaves it `failed` with its staged file
- * already deleted (`queue_ingest_job`'s orphan guard, which also returns 503),
- * so nothing on that job can ever succeed. Reading the 400 alone would call
- * both of them success.
+ * The backend refuses a repeat commit with 400 for every non-pending status,
+ * and those statuses differ. A commit that queued the import leaves the job for
+ * the worker (`running`, then `complete`). A commit whose dispatch failed leaves
+ * it `failed` with its staged file deleted (`queue_ingest_job`'s orphan guard,
+ * which also returns 503), so nothing on that job can succeed. The 400 alone
+ * would call both success.
  */
 async function stagedJobOutcome(jobId: string): Promise<'queued' | 'dead' | 'unknown'> {
   try {
@@ -116,7 +111,7 @@ async function stagedJobOutcome(jobId: string): Promise<'queued' | 'dead' | 'unk
 interface SaveChatPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The previewed result, complete — callers must not offer this for a
+  /** The previewed result, complete. Callers must not offer this for a
    *  server-truncated preview (see `previewSaveMode`). */
   geojson: GeoJSON.FeatureCollection;
   /** The prompt that produced the preview, used to suggest a name. */
@@ -131,12 +126,11 @@ export function SaveChatPreviewDialog({
 }: SaveChatPreviewDialogProps) {
   const { t } = useTranslation('builder');
   const [isCommitting, setIsCommitting] = useState(false);
-  // The staged job survives a failed attempt, so a retry
-  // resumes the chain instead of restarting it. Re-uploading would leave the
-  // first job staged with nothing pointing at it, and worse: if a commit was
-  // accepted and only its response was lost, a fresh job would queue a second
-  // dataset from the same answer. Resuming puts that retry back on the job the
-  // server already has, where the outcome is one dataset either way.
+  // The staged job survives a failed attempt, so a retry resumes the chain.
+  // Re-uploading would leave the first job staged with nothing pointing at it,
+  // and if a commit was accepted and only its response was lost, a fresh job
+  // would queue a second dataset from the same answer. Resuming keeps it to one
+  // dataset either way.
   const stagedRef = useRef<{
     jobId: string;
     previewed: boolean;
@@ -160,10 +154,9 @@ export function SaveChatPreviewDialog({
       const staged = stagedRef.current;
       if (!staged.previewed) {
         // Not skippable: preview is where a payload too large for the ingest
-        // budget, or one the server cannot read, is rejected with an
-        // actionable message, before a job is queued and a half-made dataset
-        // exists. Recorded so a retry after a commit failure does not re-run
-        // it (the job is already validated).
+        // budget, or one the server can't read, is rejected with an actionable
+        // message before a job is queued. Recorded so a retry after a commit
+        // failure doesn't re-run it.
         await previewFile(staged.jobId);
         staged.previewed = true;
       }
@@ -172,27 +165,25 @@ export function SaveChatPreviewDialog({
       try {
         await commitImport(staged.jobId, metadata);
       } catch (err) {
-        // A commit whose response was lost still queued
-        // the import, and the backend then refuses the repeat with 400 "Job
-        // already processed" — forever, so the dialog could never close over a
-        // dataset the server already had. Only ever on a RE-commit: a 400 on
-        // the first attempt is a real rejection.
+        // A commit whose response was lost still queued the import, and the
+        // backend then refuses the repeat with 400 "Job already processed"
+        // forever, so the dialog could never close over a dataset the server
+        // already had. Only on a re-commit: a 400 on the first attempt is a real
+        // rejection.
         //
-        // Sending the second commit at all is safe. The worker claims a job
-        // with one conditional UPDATE (pending -> running, fenced on
-        // attempt_id, backend/app/platform/jobs/heartbeat.py), so if the
-        // repeat is accepted instead of refused — the response was lost before
-        // the worker picked the job up — the redundant task finds the row
-        // claimed and no-ops. One dataset either way.
+        // Sending the second commit is safe: the worker claims a job with one
+        // conditional UPDATE (pending -> running, fenced on attempt_id,
+        // backend/app/platform/jobs/heartbeat.py), so if the repeat is accepted
+        // (the response was lost before the worker picked the job up) the
+        // redundant task finds the row claimed and no-ops.
         if (!isRecommit || !(err instanceof ApiError) || err.status !== 400) throw err;
-        // But that 400 covers every non-pending status,
-        // including the job a failed dispatch marked `failed` (503 on the
-        // first attempt, staged file already deleted). Ask what actually
-        // happened rather than reading success into the refusal.
+        // That 400 covers every non-pending status, including a job a failed
+        // dispatch marked `failed` (503 on the first attempt, staged file
+        // deleted). Ask what happened rather than reading success into it.
         const outcome = await stagedJobOutcome(staged.jobId);
         if (outcome !== 'queued') {
-          // A dead job can never produce a dataset and its staged file is
-          // gone, so stop resuming it: the next submit starts a fresh upload.
+          // A dead job can't produce a dataset and its staged file is gone, so
+          // stop resuming it: the next submit starts a fresh upload.
           if (outcome === 'dead') stagedRef.current = null;
           throw err;
         }
@@ -212,8 +203,8 @@ export function SaveChatPreviewDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // A commit is one request chain with no cancel — closing under it
-        // would orphan the staged upload with the user believing they stopped.
+        // A commit is one request chain with no cancel; closing under it would
+        // orphan the staged upload with the user believing they stopped.
         if (isCommitting && !next) return;
         onOpenChange(next);
       }}

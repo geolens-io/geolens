@@ -17,9 +17,8 @@ interface BuilderEditorSyntheticLabels {
   basemapGroupName: (presetName: string) => string;
 }
 
-// Kept pure (no t() call) — matches the current English copy so callers that
-// omit `labels` see unchanged behavior. Real call sites (MapBuilderPage) pass
-// translated labels.
+// Pure (no t() call), matching the English copy for callers that omit `labels`.
+// Real call sites (MapBuilderPage) pass translated labels.
 const DEFAULT_SYNTHETIC_LABELS: BuilderEditorSyntheticLabels = {
   settingsName: 'Settings',
   sublayerFallback: 'Sublayer',
@@ -35,8 +34,8 @@ export function deriveBuilderEditorScene(
   if (expandedLayerId === 'settings') return 'settings';
   if (expandedLayerId === 'basemap-group') return 'basemap-group';
   if (expandedLayerId.startsWith('basemap:')) return 'basemap-sublayer';
-  // Folder groups are structural containers, not
-  // stylable layers; never fall through to a real editing scene for them.
+  // Folder groups are structural containers, not stylable layers; never fall
+  // through to a real editing scene for them.
   if (editingLayer && isFolderGroupLayer(editingLayer)) return 'group';
   if (editingLayer?.is_dem === true) return 'dem';
   return 'default';
@@ -136,9 +135,9 @@ export function useBuilderEditorScene({
     [expandedLayerId, localLayers],
   );
 
-  // A group:folder row IS a member of localLayers,
-  // so without this guard editingLayer would resolve to the group row and bind
-  // the editor to its inherited (phantom) geometry. Treat it as non-editable.
+  // A group:folder row is a member of localLayers, so without this guard
+  // editingLayer would resolve to the group row and bind the editor to its
+  // inherited (phantom) geometry. Treat it as non-editable.
   const editingLayer = matchedLayer && isFolderGroupLayer(matchedLayer) ? null : matchedLayer;
 
   const editingSavedLayer = useMemo(

@@ -4,9 +4,9 @@
  * Surfaces a deduped toast.error when the builder's tile-token batch query
  * fails, mirroring the viewer's tokenError pattern (use-viewer-tokens.ts).
  *
- * Dedupe: the toast uses a stable `id` so repeated renders in the error state
- * do not stack multiple toasts. The hook tracks the previous `isError` value
- * so a new error episode (false→true transition) fires a fresh toast.
+ * The toast uses a stable `id` so repeated renders in the error state don't
+ * stack toasts; the hook tracks the previous `isError` so a new error episode
+ * (false→true) fires a fresh one.
  */
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +23,7 @@ export function useTileTokenError(isError: boolean): void {
     prevErrorRef.current = isError;
 
     if (isError && !wasError) {
-      // New error episode — fire the toast (id dedupes any concurrent calls)
+      // New error episode: fire the toast (the id dedupes concurrent calls)
       toast.error(
         t('builderMap.tokenError', {
           defaultValue: 'Failed to load tile tokens — some layers may not display.',

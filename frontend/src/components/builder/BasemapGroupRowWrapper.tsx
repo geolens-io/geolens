@@ -1,5 +1,4 @@
-// Extracted from UnifiedStackPanel.tsx into a sibling
-// file. Sortable wrapper for the basemap group row.
+// Sortable wrapper for the basemap group row.
 import { memo, useCallback, useMemo } from 'react';
 import { useDndContext } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
@@ -20,13 +19,12 @@ interface BasemapGroupRowWrapperProps {
   isMultiSelectionActive?: boolean;
 }
 
-// Basemap group is SORTABLE, using useSortable like
-// FolderGroupRowWrapper so the user can drag the basemap between top and bottom
-// positions in the layer stack. The `data` option preserves the catalog
-// drop-target semantics (handleDragEnd in MapBuilderPage still reads
-// `over.id === basemapGroup.id` for catalog basemap-swap drops).
-// Persistence: position is encoded in MapBasemapConfig.basemap_position (jsonb,
-// no migration) and serialized via use-builder-save.ts.
+// The basemap group is sortable (useSortable, like FolderGroupRowWrapper) so the
+// user can drag the basemap between top and bottom positions in the layer stack.
+// The `data` option preserves the catalog drop-target semantics (handleDragEnd
+// in MapBuilderPage reads `over.id === basemapGroup.id` for catalog basemap-swap
+// drops). Position is encoded in MapBasemapConfig.basemap_position (jsonb) and
+// serialized via use-builder-save.ts.
 export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   group,
   selected,
@@ -38,18 +36,15 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onResetAppearance,
   isMultiSelectionActive,
 }: BasemapGroupRowWrapperProps) {
-  // When a NON-basemap catalog item is
-  // being dragged, disable the basemap-group sortable so dnd-kit's collision
-  // detection does not resolve to basemap-group via closestCenter fallback.
-  // The shadcn Dialog backdrop (`fixed inset-0 z-50`) intercepts pointer events
-  // over the sidebar listbox, which makes `pointerWithin` return empty hits and
-  // forces the fallback to closestCenter — and closestCenter can rank the
-  // basemap row as nearest even when the user pointer is clearly over an
-  // overlay row. Since handleDragEnd in MapBuilderPage silent-rejects this
-  // exact combo (Case 3), short-circuiting it here gives the same semantics but
-  // allows dnd-kit to land the drop on the actual overlay row target. Basemap
-  // catalog drags (recordType === 'basemap') still need basemap-group as a drop
-  // target — keep the sortable enabled for those.
+  // While a non-basemap catalog item is dragged, disable the basemap-group
+  // sortable so dnd-kit's collision detection doesn't resolve to it via the
+  // closestCenter fallback. The shadcn Dialog backdrop (`fixed inset-0 z-50`)
+  // intercepts pointer events over the sidebar listbox, so `pointerWithin`
+  // returns no hits and closestCenter can rank the basemap row nearest even when
+  // the pointer is over an overlay row. handleDragEnd in MapBuilderPage
+  // silent-rejects this combo (Case 3); short-circuiting here lets the drop land
+  // on the overlay row. Basemap catalog drags (recordType === 'basemap') still
+  // need basemap-group as a drop target, so the sortable stays enabled for them.
   const { active } = useDndContext();
   const activeData = active?.data?.current as
     | { source?: string; recordType?: string }
@@ -69,11 +64,8 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   } = useSortable({
     id: group.id,
     data: { source: 'stack', kind: 'basemap-group' },
-    // Only disable the DROPPABLE side; keep draggable enabled so the basemap
-    // row can still be dragged out (basemap reposition). When a non-basemap
-    // catalog drag is active, this prevents dnd-kit from picking basemap-group
-    // via the closestCenter fallback when shadcn Dialog's backdrop blocks
-    // pointerWithin hits.
+    // Disable only the droppable side; the draggable stays enabled so the
+    // basemap row can still be dragged out (reposition).
     disabled: {
       draggable: false,
       droppable: disableForCatalogNonBasemap,
@@ -90,8 +82,8 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
     [onSelectGroup],
   );
 
-  // fix(v1.6.0 audit D7): a fresh object literal here re-broke the row memo on
-  // every wrapper render even when the drag state was unchanged.
+  // A fresh object literal here re-breaks the row memo on every wrapper render
+  // even when the drag state is unchanged.
   const dragHandleProps = useMemo(
     () => ({ attributes, listeners, setActivatorNodeRef }),
     [attributes, listeners, setActivatorNodeRef],

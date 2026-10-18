@@ -27,9 +27,9 @@ interface BasemapGroupEditorSceneProps {
   masterOpacity: number;
   onSwapBasemap: (presetId: string) => void;
   /**
-   * Optional. When omitted, the "Add custom basemap" affordance is not rendered.
-   * Custom-basemap support is not implemented yet; until a real handler is
-   * supplied the button stays hidden rather than shipping a no-op stub.
+   * Optional. When omitted, the "Add custom basemap" affordance is not rendered:
+   * custom-basemap support isn't implemented, so the button stays hidden rather
+   * than shipping a no-op stub.
    */
   onAddCustomBasemap?: () => void;
   onSublayerVisibilityChange: (sublayerId: string) => void;
@@ -84,10 +84,9 @@ export function BasemapGroupEditorScene({
           <p className="eyebrow mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
-          {/* Expose selected-state to assistive tech —
-              radiogroup + aria-checked, same pattern as the Projection pills
-              in SettingsEditorScene. The border highlight alone was invisible
-              to screen readers. */}
+          {/* Selected state is exposed to assistive tech via radiogroup +
+              aria-checked, as the Projection pills in SettingsEditorScene; the
+              border highlight alone is invisible to screen readers. */}
           <div
             role="radiogroup"
             aria-label={t('basemapGroup.presetSectionAria', { defaultValue: 'Basemap preset' })}

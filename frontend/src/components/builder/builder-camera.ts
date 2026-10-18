@@ -4,11 +4,11 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
  * The five viewport fields a map save persists.
  *
  * The builder has no explicit "set home view" control: the stored view is the
- * camera at the last save. `readMapCamera` and `savedMapCamera` are therefore
- * the SAME normalizer applied to the live map and to the server row, so the
- * dirty check can mean exactly "saving now would change the stored value".
- * Both sides must keep using it; comparing a raw `getCenter()` against a saved
- * float reintroduces the drift the rounding is here to absorb.
+ * camera at the last save. `readMapCamera` and `savedMapCamera` are the same
+ * normalizer applied to the live map and the server row, so the dirty check
+ * means exactly "saving now would change the stored value". Comparing a raw
+ * `getCenter()` against a saved float would reintroduce the drift the rounding
+ * absorbs.
  */
 export interface BuilderCamera {
   center_lng: number | null;
@@ -27,14 +27,14 @@ interface SavedCameraFields {
   pitch?: number | null;
 }
 
-// 6 decimals of longitude is about 11 cm, finer than any home view
-// needs and far coarser than the float noise a round trip through the map
-// transform introduces, so a resize or a reprojection cannot read as a pan.
+// 6 decimals of longitude is about 11 cm: finer than any home view needs and far
+// coarser than the float noise a round trip through the map transform adds, so a
+// resize or reprojection can't read as a pan.
 const CAMERA_DECIMALS = 6;
 
 function roundCameraValue(value: number | null | undefined): number | null {
-  // A non-finite reading has to normalize to null: NaN !== NaN would pin the
-  // unsaved indicator on for the rest of the session.
+  // Normalize a non-finite reading to null: NaN !== NaN would pin the unsaved
+  // indicator on for the session.
   if (value == null || !Number.isFinite(value)) return null;
   return Number(value.toFixed(CAMERA_DECIMALS));
 }

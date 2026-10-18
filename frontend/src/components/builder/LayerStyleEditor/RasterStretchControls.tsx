@@ -10,22 +10,21 @@ import {
 import { cn } from '@/lib/utils';
 
 /**
- * RasterStretchControls — the shared COLORMAP / STRETCH section for raster layers.
+ * RasterStretchControls: the shared COLORMAP / STRETCH section for raster
+ * layers, consumed by `RasterLayerControls` (the editor LayerEditorPanel mounts
+ * for raster/vrt layers).
  *
- * Consumed by `RasterLayerControls`, the editor LayerEditorPanel mounts for
- * raster/vrt layers. (It previously also backed LayerStyleEditor/RasterEditor,
- * which was deleted as unreachable.)
- *
- * Gate-split:
- *  - STRETCH: visible for any numeric band_count >= 1 (single AND multi-band)
+ * Gates:
+ *  - STRETCH: any numeric band_count >= 1 (single and multi-band)
  *  - COLORMAP: single-band only (band_count === 1)
  *  - HINT: single-band only, when stretch != minmax AND colormap != gray
  *
- * `_colormap` / `_stretch` / `_pmin` / `_pmax` / `_sigma` are builder-private paint keys.
- * They mutate the tile URL via buildColormapTileUrl (layer-description.ts) and never reach
- * MapLibre setPaintProperty (intentionally absent from RASTER_OWNED_PAINT_PROPERTIES).
+ * `_colormap` / `_stretch` / `_pmin` / `_pmax` / `_sigma` are builder-private
+ * paint keys. They mutate the tile URL via buildColormapTileUrl
+ * (layer-description.ts) and never reach MapLibre setPaintProperty (absent from
+ * RASTER_OWNED_PAINT_PROPERTIES on purpose).
  *
- * Not shown for DEM layers — stretch corrupts terrainrgb encoding and the backend
+ * Not shown for DEM layers: stretch corrupts terrainrgb encoding and the backend
  * short-circuits stretch for is_dem rasters.
  */
 interface RasterStretchControlsProps {
@@ -47,11 +46,10 @@ export function RasterStretchControls({
   isDem = false,
   t,
 }: RasterStretchControlsProps) {
-  // The inputs used to reject any keystroke that crossed the
-  // sibling bound mid-typing (e.g. clearing pmin to type a new value, or typing
-  // a high pmax digit-by-digit), so the field appeared frozen. Now the user
-  // types freely into a draft and the value is clamped once, on blur.
-  // Hooks must run before the early returns below.
+  // The user types freely into a draft and the value is clamped once, on blur;
+  // rejecting keystrokes that cross the sibling bound mid-typing (clearing pmin
+  // to type a new value, typing a high pmax digit by digit) would freeze the
+  // field. Hooks must run before the early returns below.
   const [pminDraft, setPminDraft] = useState<string | null>(null);
   const [pmaxDraft, setPmaxDraft] = useState<string | null>(null);
 
@@ -101,10 +99,10 @@ export function RasterStretchControls({
               <span className="w-28 shrink-0 text-xs text-muted-foreground">
                 {t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}
               </span>
-              {/* These 8 colormap values are hand-mirrored against the
-                  backend validator _ALLOWED_COLORMAPS (backend/app/processing/tiles/router.py:459-461),
-                  which 422s anything not in that frozenset. There is no codegen guard — adding or
-                  renaming a colormap on either side must be mirrored here (and vice-versa). */}
+              {/* These 8 colormap values are hand-mirrored against the backend
+                  validator _ALLOWED_COLORMAPS (backend/app/processing/tiles/router.py),
+                  which 422s anything outside that frozenset. No codegen guard
+                  exists, so a colormap change on either side must be mirrored. */}
               <Select value={currentColormap} onValueChange={(v) => onPaintProp('_colormap', v)}>
                 <SelectTrigger className="h-8 text-xs flex-1" aria-label={t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}>
                   <SelectValue />
@@ -123,9 +121,9 @@ export function RasterStretchControls({
             </div>
           )}
 
-          {/* Stretch select row — minmax / percentile (p2–p98) / stddev (mean±2σ).
-              percentile and stddev compute a stats-based rescale via the raster-proxy →
-              Titiler /cog/statistics. Visible for all band_count >= 1. */}
+          {/* Stretch select row: minmax / percentile (p2–p98) / stddev (mean±2σ).
+              percentile and stddev compute a stats-based rescale via the
+              raster-proxy → Titiler /cog/statistics. Visible for band_count >= 1. */}
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-xs text-muted-foreground">
               {t('style.raster.stretchLabel', { defaultValue: 'Stretch' })}
@@ -203,8 +201,8 @@ export function RasterStretchControls({
             </div>
           )}
 
-          {/* Stretch↔colormap hint — single-band only,
-              shown when stretch is not minmax AND colormap is not gray */}
+          {/* Stretch↔colormap hint: single-band only, shown when stretch is not
+              minmax and colormap is not gray */}
           {isSingleBand && currentStretch !== 'minmax' && currentColormap !== 'gray' && (
             <p role="note" className="text-mini leading-snug text-muted-foreground">
               {t('style.raster.stretchColormapHint', { defaultValue: 'Stretch sets the input range for the colormap.' })}

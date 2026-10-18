@@ -20,26 +20,22 @@ const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => 
 const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').then(m => ({ default: m.AnalysisPanel })));
 
 /**
- * Structured disabled-state for the AI rail panel.
- * Renders per-reason copy, plus a
- * Settings CTA for users the admin-settings route will actually admit.
+ * Structured disabled-state for the AI rail panel: per-reason copy, plus a
+ * Settings CTA for users the admin-settings route will admit.
  *
- * Consumes useAIAvailability() internally — TanStack Query deduplicates so there is no
- * extra network call vs. the parent's derivation; the hook just reads the cached result.
+ * Reads useAIAvailability() internally; TanStack Query dedupes, so no extra
+ * network call versus the parent's derivation.
  */
 function AIDisabledState() {
   const { t } = useTranslation('builder');
   const { reason, isLoading } = useAIAvailability();
-  // The CTA targets /admin/settings/ai — show it only to users
-  // the route will admit (the old isAdmin flag no longer matches who sees
-  // detailed reasons). The route gate is mode-aware (manage_tenants
-  // in multi-tenant), so gate through useSettingsAdmin, not raw manage_settings.
+  // The CTA targets /admin/settings/ai; show it only to users the route admits.
+  // The route gate is mode-aware (manage_tenants in multi-tenant), so gate
+  // through useSettingsAdmin, not raw manage_settings.
   const canAdminSettings = useSettingsAdmin();
 
-  // One persistent live region whose CONTENT toggles —
-  // the loading spinner and the disabled-state message used to be two
-  // conditionally-mounted role="status" regions, so the message often
-  // appeared pre-populated and was never announced.
+  // One persistent live region whose content toggles: two conditionally mounted
+  // role="status" regions would mount pre-populated and never be announced.
   const loading = isLoading || reason === null;
 
   const titleKey = reason === 'env_disabled' ? ('rail.aiDisabledTitle' as const)
@@ -80,8 +76,7 @@ function AIDisabledState() {
           <p className="text-sm text-muted-foreground text-center max-w-[18rem]">{t(bodyKey, { defaultValue: bodyDefault })}</p>
           {showCTA && (
             <Button variant="outline" size="sm" asChild>
-              {/* The ?tab=ai form redirected to the General tab —
-                  the settings route is /admin/settings/:tab */}
+              {/* The settings route is /admin/settings/:tab */}
               <Link to="/admin/settings/ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
             </Button>
           )}
@@ -116,25 +111,25 @@ interface BuilderRailProps {
   ) => void;
   // Analysis tools
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
-  /** The layer selected in the builder's stack — the Analysis
-   *  panel prefers it (when analysable) over the remembered form's layer and
-   *  the first-eligible default. */
+  /** The layer selected in the builder's stack; the Analysis panel prefers it
+   *  (when analysable) over the remembered form's layer and the first-eligible
+   *  default. */
   selectedLayerId?: string | null;
   onClearPreview?: () => void;
   hasPreview?: boolean;
-  /** Who drew the current ephemeral overlay — the
-   *  panel's stale-restore cleanup only clears its own. */
+  /** Who drew the current ephemeral overlay; the panel's stale-restore cleanup
+   *  clears only its own. */
   previewSource?: 'analysis-panel';
-  /** Which map `layers` currently belongs to; the
-   *  Analysis panel mounts only once this matches mapId. */
+  /** Which map `layers` currently belongs to; the Analysis panel mounts only
+   *  once this matches mapId. */
   layersMapId?: string | null;
-  /** Chat-preview handoff — keys a remount of AnalysisPanel so the
-   *  form initializes from it. The nonce distinguishes successive handoffs. */
+  /** Chat-preview handoff: keys a remount of AnalysisPanel so the form
+   *  initializes from it. The nonce distinguishes successive handoffs. */
   analysisPrefill?: (EphemeralAnalysisHandoff & { nonce: number }) | null;
   /** Page-level materialize-job tracking (toast survives panel close). */
   onAnalysisJobChange?: (jobId: string | null) => void;
-  /** Optional viewport context passed through to ChatPanel for
-   *  viewport-aware suggestion chips. Purely additive — omitting this prop has no effect. */
+  /** Optional viewport context passed through to ChatPanel for viewport-aware
+   *  suggestion chips. */
   viewport?: ViewportContext;
   // Dirty tracking
   onMarkDirty?: () => void;
@@ -164,15 +159,15 @@ export function BuilderRail({
 }: BuilderRailProps) {
   const { t } = useTranslation('builder');
   // AnalysisJobWatcher clears the tracked job on any terminal status, so a
-  // tracked job is by definition still in flight.
+  // tracked job is still in flight.
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
 
   const togglePanel = useCallback((panel: RailPanel) => {
     const next = activePanel === panel ? null : panel;
     onPanelChange(next);
-    // Opening counterpart to closePanel's focus restore below: move keyboard
-    // focus into the freshly-mounted panel (rAF — it doesn't exist yet this
-    // tick), so rail-button activation doesn't leave focus stranded on the rail.
+    // Opening counterpart to closePanel's focus restore: move keyboard focus
+    // into the freshly mounted panel (rAF, since it doesn't exist yet this tick)
+    // so rail-button activation doesn't strand focus on the rail.
     if (next) {
       requestAnimationFrame(() => {
         document.querySelector<HTMLElement>('[data-rail-panel]')?.focus();
@@ -180,11 +175,11 @@ export function BuilderRail({
     }
   }, [activePanel, onPanelChange]);
 
-  // Closing the panel unmounts the aside containing the focused
-  // element, dropping keyboard focus to <body>. Mirror handleCloseEditor
-  // (MapBuilderPage): return focus to the rail button that opened the panel.
-  // In sheet mode (showRail=false) the button doesn't exist and Radix's own
-  // close-time focus restoration applies instead.
+  // Closing the panel unmounts the aside containing the focused element,
+  // dropping focus to <body>. Mirror handleCloseEditor (MapBuilderPage): return
+  // focus to the rail button that opened the panel. In sheet mode
+  // (showRail=false) there is no button and Radix's close-time focus restore
+  // applies.
   const closePanel = useCallback(() => {
     const panel = activePanel;
     onPanelChange(null);
@@ -234,8 +229,8 @@ export function BuilderRail({
     <>
       {/* Icon rail */}
       {showRail && (
-        // Named landmark — both builder asides announced as
-        // bare "complementary" with no way to tell rail from panel.
+        // Named landmark, so rail and panel asides aren't both announced as bare
+        // "complementary".
         <aside
           aria-label={t('rail.toolsLabel', { defaultValue: 'Builder tools' })}
           className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0"
@@ -248,20 +243,18 @@ export function BuilderRail({
               disabled={btn.disabled}
               data-unavailable={btn.unavailable || undefined}
               title={btn.label}
-              // The notes-presence state lives in the BUTTON's
-              // accessible name — aria-label replaces the subtree, so a label
-              // on the dot span was never exposed (and aria-label on a
-              // role-less span is invalid ARIA anyway).
+              // The notes-presence state lives in the button's accessible name:
+              // aria-label replaces the subtree, so a label on the dot span would
+              // never be exposed (and is invalid ARIA on a role-less span).
               aria-label={
                 btn.id === 'notes' && notes.trim().length > 0
                   ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
                   : btn.label
               }
               aria-pressed={activePanel === btn.id}
-              // The only ambient signal that a materialize job is
-              // still running once the panel is closed — the completion toast
-              // fires at the END, so without this the rail says nothing for up
-              // to five minutes.
+              // The only ambient signal that a materialize job is still running
+              // once the panel is closed; the completion toast fires at the end,
+              // up to five minutes later.
               aria-busy={btn.id === 'analysis' && analysisJobRunning}
               className={cn(
                 'relative flex items-center justify-center h-8 w-8 rounded-md transition-colors',
@@ -277,10 +270,9 @@ export function BuilderRail({
               ) : (
                 <btn.icon className="h-4 w-4" />
               )}
-              {/* Presence dot — non-whitespace notes render a 6px primary-color dot
-                  at the button's top-right corner. Purely decorative: the state is
-                  announced via the button's conditional aria-label above.
-                  No animation (static state indicator). */}
+              {/* Presence dot: non-whitespace notes render a 6px primary-color
+                  dot at the button's top-right. Decorative and static; the state
+                  is announced via the button's conditional aria-label above. */}
               {btn.id === 'notes' && notes.trim().length > 0 && (
                 <span
                   aria-hidden="true"
@@ -296,8 +288,8 @@ export function BuilderRail({
       {activePanel && (
         // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children; the aside itself stays non-interactive
         <aside
-          // Named landmark — the panel takes its accessible
-          // name from its own title, distinguishing it from the icon rail.
+          // Named landmark: the panel takes its accessible name from its own
+          // title, distinguishing it from the icon rail.
           aria-labelledby="builder-rail-panel-title"
           // togglePanel focuses the panel on open (see above).
           data-rail-panel=""
@@ -307,9 +299,8 @@ export function BuilderRail({
             showRail ? 'w-80' : 'w-full border-s-0',
           )}
           onKeyDown={(e) => {
-            // Escape closes the expanded rail panel — parity
-            // with the editor flyout's Escape (non-modal, fires only when
-            // focus is inside the panel).
+            // Escape closes the expanded rail panel, in parity with the editor
+            // flyout (non-modal; fires only when focus is inside the panel).
             if (e.key === 'Escape' && !e.defaultPrevented) {
               e.stopPropagation();
               closePanel();
@@ -358,12 +349,12 @@ export function BuilderRail({
               <HistoryPanel mapId={mapId} />
             )}
 
-            {/* The panel's initializers judge the remembered
-                form against `layers` at mount, but on direct /maps/:id
-                navigation the page keeps the PREVIOUS map's layers until its
-                sync effect runs — mounting then would discard (and overwrite)
-                the new map's remembered form against the wrong rows. Hold the
-                mount until the layers are known to belong to this map. */}
+            {/* The panel's initializers judge the remembered form against
+                `layers` at mount, but on direct /maps/:id navigation the page
+                keeps the previous map's layers until its sync effect runs;
+                mounting then would discard and overwrite the new map's
+                remembered form against the wrong rows. Hold the mount until the
+                layers are known to belong to this map. */}
             {activePanel === 'analysis' &&
               layers &&
               mapId != null &&
@@ -380,13 +371,12 @@ export function BuilderRail({
                   </div>
                 }>
                   <AnalysisPanel
-                    // Keyed by map as well — navigating
-                    // directly between /maps/:id routes (fork, "open new
-                    // map") reuses this mounted tree, and the panel's
-                    // initializers run on mount only; without the remount the
-                    // new map inherited the previous map's form, mask, and
-                    // job state. The map id is in BOTH variants: an active
-                    // prefill's nonce doesn't change on a map switch.
+                    // Keyed by map as well: direct navigation between /maps/:id
+                    // routes (fork, "open new map") reuses this mounted tree and
+                    // the panel's initializers run on mount only, so without the
+                    // remount the new map would inherit the previous map's form,
+                    // mask and job state. The map id is in both variants because
+                    // an active prefill's nonce doesn't change on a map switch.
                     key={
                       analysisPrefill
                         ? `prefill-${mapId ?? 'none'}-${analysisPrefill.nonce}`

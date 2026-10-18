@@ -116,12 +116,11 @@ export function shouldFetchClusterGeoJson(layer: ClusterSourceLayer) {
   return getClusterSourceStrategy(layer).kind === 'bounded-geojson';
 }
 
-// Structural identity key for the cluster-source fetch effect.
-// Folds in only the fields that change WHICH GeoJSON gets fetched (cluster
-// membership, dataset, resolved strategy). Paint/opacity/filter edits replace
-// the layers array identity on every tick; keying the fetch effect on this
-// string instead of the array keeps those edits from re-issuing network
-// fetches for bounded-geojson cluster layers.
+// Structural identity key for the cluster-source fetch effect. Folds in only
+// the fields that change which GeoJSON gets fetched (cluster membership,
+// dataset, resolved strategy). Paint/opacity/filter edits replace the layers
+// array identity on every tick; keying the effect on this string keeps them
+// from re-issuing fetches for bounded-geojson cluster layers.
 export function getClusterSourceKey(
   layers: Array<ClusterSourceLayer & { id?: string; dataset_id?: string | null }>,
 ): string {

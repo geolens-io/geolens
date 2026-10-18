@@ -32,16 +32,16 @@ import { randomId } from '@/lib/random-id';
 
 /**
  * Bulk apply-style under the fill exclusions, since bulk apply reaches neither
- * `handleStyleConfigChange` nor `handlePasteStyle`. It also stashes the displaced colour
- * and drops a classification the resolved paint no longer backs.
+ * `handleStyleConfigChange` nor `handlePasteStyle`. It also stashes the
+ * displaced colour and drops a classification the resolved paint no longer backs.
  */
 function applyStyleExcludingFillCollisions(
   layer: MapLayerResponse,
   source: CopiedStyle,
 ): MapLayerResponse {
   const merged = applyCopiedStyleToLayer(layer, source);
-  // The TARGET's paint is the provenance baseline: whichever fill key the merge just
-  // introduced is the one the copied style asserted.
+  // The target's paint is the provenance baseline: whichever fill key the merge
+  // just introduced is the one the copied style asserted.
   const exclusions = resolveFillExclusions(
     merged.style_config ?? null,
     merged.paint ?? {},
@@ -59,12 +59,11 @@ function applyStyleExcludingFillCollisions(
 }
 
 // Bulk-operation handlers (apply-style / visibility / opacity / group /
-// ungroup / delete), relocated verbatim out of the useBuilderLayers god-hook.
-// PURE RELOCATION — handler bodies are unchanged; shared state (layersRef +
-// setters + clipboard ref) is threaded in as params. Visibility, opacity, group,
-// and ungroup are PURE LOCAL STATE MUTATIONS (single setLocalLayers call each,
-// persisted via the existing Save gate). Only handleBulkDelete calls the
-// per-layer DELETE endpoint. The hook OWNS the in-flight isDeleting state.
+// ungroup / delete). Shared state (layersRef, setters, clipboard ref) is
+// threaded in as params. Visibility, opacity, group and ungroup are pure local
+// state mutations (one setLocalLayers call each, persisted via the Save gate);
+// only handleBulkDelete calls the per-layer DELETE endpoint. The hook owns the
+// in-flight isDeleting state.
 interface UseBulkLayerActionsParams {
   layersRef: React.RefObject<MapLayerResponse[]>;
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>;
@@ -76,20 +75,19 @@ interface UseBulkLayerActionsParams {
   localTerrainConfig: MapTerrainConfig | null;
   setLocalTerrainConfig: React.Dispatch<React.SetStateAction<MapTerrainConfig | null>>;
   savedLayerBaselineRef: React.MutableRefObject<MapLayerResponse[]>;
-  /** The save-diff baseline bridge; its `remove` half is called
-   *  alongside the savedLayerBaselineRef prune below. */
+  /** The save-diff baseline bridge; its `remove` half is called alongside the
+   *  savedLayerBaselineRef prune below. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
 }
 
-// Failure-path restore that does NOT clobber concurrent
-// edits. Restoring the pre-delete snapshot wholesale discarded anything that
-// landed during the await (e.g. a handleAddDataset onSuccess), and the next
-// save's removed-computation then asked the server to DELETE the just-added
-// layer. Instead, recompute from CURRENT state: re-insert only the rows whose
-// deletes failed (at their old relative positions when cheap), plus any pruned
-// group container a failed child still points at, and leave every other
-// current row — including concurrent additions — untouched.
+// Failure-path restore that doesn't clobber concurrent edits. Restoring the
+// pre-delete snapshot wholesale would discard anything that landed during the
+// await (e.g. a handleAddDataset onSuccess), and the next save's removed
+// computation would ask the server to DELETE the just-added layer. Instead,
+// recompute from current state: re-insert only the rows whose deletes failed
+// (at their old relative positions when cheap), plus any pruned group container
+// a failed child still points at, and leave every other row untouched.
 export function restoreFailedLayers(
   current: MapLayerResponse[],
   previous: MapLayerResponse[],
@@ -119,8 +117,8 @@ export function restoreFailedLayers(
   for (const row of toRestore) {
     const rowPrevIdx = prevIndex.get(row.id) ?? Number.MAX_SAFE_INTEGER;
     // Old position ≈ before the first current row that followed it in the
-    // previous order. Rows unknown to `previous` (concurrent additions) have
-    // no index and never force a displacement.
+    // previous order. Rows unknown to `previous` (concurrent additions) have no
+    // index and never force a displacement.
     let insertAt = next.length;
     for (let i = 0; i < next.length; i++) {
       const idx = prevIndex.get(next[i].id);
@@ -153,17 +151,16 @@ export function useBulkLayerActions({
 
   // Tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
-  // Batch size captured synchronously in handleBulkDelete
-  // BEFORE the optimistic removal commits. Once that removal lands, the bar's
-  // selection-derived deletableCount is 0, so the deleting state must render
-  // this count instead ("Deleting 0 layers…" regression).
+  // Batch size captured synchronously in handleBulkDelete before the optimistic
+  // removal commits: afterwards the bar's selection-derived deletableCount is
+  // 0, so the deleting state must render this count.
   const [deletingCount, setDeletingCount] = useState(0);
 
-  // Apply one source style to every OTHER compatible
-  // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
-  // Source = the copied style if present, else the lowest-sort_order selected
-  // layer. Incompatible-geometry targets are skipped and surfaced via a count
-  // toast. No-ops when fewer than 2 compatible targets would be written.
+  // Apply one source style to every other compatible selected layer in a single
+  // setLocalLayers pass. Source = the copied style if present, else the
+  // lowest-sort_order selected layer. Incompatible-geometry targets are skipped
+  // and surfaced via a count toast. No-ops when fewer than 2 compatible targets
+  // would be written.
   const handleBulkApplyStyle = useCallback((selectedIds: Set<string>) => {
     const current = layersRef.current;
     const selected = current
@@ -172,8 +169,8 @@ export function useBulkLayerActions({
     if (selected.length === 0) return;
 
     const copied = copiedStyleRef.current;
-    // Determine the source style + which selected layer (if any) authored it so
-    // we never re-apply a layer's own style onto itself.
+    // The source style, and which selected layer (if any) authored it, so a
+    // layer's own style is never re-applied onto itself.
     let source: CopiedStyle;
     let sourceLayerId: string | null;
     if (copied) {
@@ -191,14 +188,13 @@ export function useBulkLayerActions({
     if (targets.length === 0) return;
 
     const targetIds = new Set(targets.map((l) => l.id));
-    // Count selected layers that were skipped for geometry incompatibility
-    // (exclude the source layer itself from the skip count).
+    // Count selected layers skipped for geometry incompatibility (excluding the
+    // source layer).
     const skipped = selected.filter(
       (l) => l.id !== sourceLayerId && !targetIds.has(l.id),
     ).length;
 
-    // Single atomic write — replace every compatible target in one pass
-    // (the multi-field clobber rule: never field-by-field per layer).
+    // One atomic write for every compatible target (never field-by-field).
     setLocalLayers((prev) =>
       prev.map((l) => (targetIds.has(l.id) ? applyStyleExcludingFillCollisions(l, source) : l)),
     );
@@ -224,7 +220,7 @@ export function useBulkLayerActions({
     const majorityVisible = visibleCount > selectedLayers.length / 2;
     const nextVisible = !majorityVisible;
 
-    // Single setState call for the entire batch
+    // One setState call for the entire batch
     setLocalLayers((prev) =>
       prev.map((l) => (selectedIds.has(l.id) ? { ...l, visible: nextVisible } : l)),
     );
@@ -241,7 +237,7 @@ export function useBulkLayerActions({
     const selectedLayers = current.filter((l) => selectedIds.has(l.id));
     if (selectedLayers.length === 0) return;
 
-    // Single setState call for the entire batch
+    // One setState call for the entire batch
     setLocalLayers((prev) =>
       prev.map((l) => (selectedIds.has(l.id) ? { ...l, opacity } : l)),
     );
@@ -253,27 +249,25 @@ export function useBulkLayerActions({
     }
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
-  // Returns true only when a group was actually created, so the
-  // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a
-  // no-op must never silently eat the user's selection.
+  // Returns true only when a group was created, so the caller can clear the
+  // multi-selection only on success; a no-op must not eat the selection.
   const handleBulkGroup = useCallback((selectedIds: Set<string>): boolean => {
     const current = layersRef.current;
     const selectedLayers = current.filter((l) => selectedIds.has(l.id));
-    // Defense-in-depth: all selected must be loose layers (not already
-    // grouped, not group rows themselves). The extra
-    // vector_dataset requirement disagreed with StackRow's "Add to group…"
-    // and drag-and-drop membership, both of which accept raster/DEM rows.
+    // Defense-in-depth: all selected must be loose layers (not grouped, not
+    // group rows). Not restricted to vector_dataset, which would disagree with
+    // StackRow's "Add to group…" and drag-and-drop, both of which accept
+    // raster/DEM rows.
     const groupableLayers = selectedLayers.filter((l) =>
       !(l as GroupedLayer).parent_group_id &&
       (l as GroupedLayer).layer_type !== 'group:folder',
     );
 
-    // Surface WHY the group action no-op'd instead
-    // of returning silently while the caller clears the selection anyway.
+    // Surface why the group action no-op'd rather than returning silently while
+    // the caller clears the selection anyway.
     if (groupableLayers.length !== selectedLayers.length) {
-      // Pick the message that matches the actual reason — a group
-      // row in the selection is the most distinct mistake, otherwise
-      // "already grouped".
+      // Match the actual reason: a group row in the selection is the most
+      // distinct mistake, otherwise "already grouped".
       const hasGroupRow = selectedLayers.some(
         (l) => (l as GroupedLayer).layer_type === 'group:folder',
       );
@@ -289,8 +283,8 @@ export function useBulkLayerActions({
       return false;
     }
 
-    // randomId() is collision-safe — see
-    // handleCreateGroupWithLayer for the bulk + single race rationale.
+    // randomId() is collision-safe; see handleCreateGroupWithLayer for the bulk
+    // + single race rationale.
     const groupId = `group-${randomId()}`;
     const existingGroupCount = current.filter(
       (l) => (l as GroupedLayer).layer_type === 'group:folder',
@@ -308,10 +302,10 @@ export function useBulkLayerActions({
     };
 
     setLocalLayers((prev) => {
-      // Compact the selected block adjacent to the group row.
-      // Stamping parent_group_id in place stranded any non-selected layer that
-      // sat between selected ones below the group — stack order and map draw
-      // order diverged for it, persistently (not self-healed by save+reload).
+      // Compact the selected block adjacent to the group row. Stamping
+      // parent_group_id in place would strand a non-selected layer sitting
+      // between selected ones below the group, leaving stack order and map draw
+      // order diverged, even after save+reload.
       const insertIdx = prev.findIndex((l) => selectedIds.has(l.id));
       const grouped = prev
         .filter((l) => selectedIds.has(l.id))
@@ -326,8 +320,7 @@ export function useBulkLayerActions({
     });
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
-    // The group action only toasted its skip paths —
-    // success was silent while delete and apply-style both confirm.
+    // Success is toasted, as delete and apply-style are.
     toast.success(t('toasts.bulkGrouped', { count: groupableLayers.length, name: groupName }));
     return true;
   }, [layersRef, setLocalLayers, setGroupMeta, setHasUnsavedChanges, t]);
@@ -346,11 +339,11 @@ export function useBulkLayerActions({
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            // Clear the persisted folderGroupId alongside the
-            // frontend-only parent_group_id — mirrors handleUngroup /
-            // handleMoveLayerOutOfGroup (use-folder-group-layers.ts), otherwise a
-            // child duplicated before Save carries the stale group pointer and
-            // gets silently re-grouped on the next server resync.
+            // Clear the persisted folderGroupId with the frontend-only
+            // parent_group_id, as handleUngroup / handleMoveLayerOutOfGroup
+            // (use-folder-group-layers.ts) do; otherwise a child duplicated
+            // before Save carries the stale pointer and is re-grouped on the next
+            // server resync.
             return {
               ...gl,
               parent_group_id: null,
@@ -362,7 +355,6 @@ export function useBulkLayerActions({
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-    // Ungroup had no success feedback at all.
     toast.success(t('toasts.bulkUngrouped', { count: selectedGroups.length }));
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, t]);
 
@@ -379,9 +371,8 @@ export function useBulkLayerActions({
       return true;
     });
     if (idsToDelete.length === 0) {
-      // A selection of only group rows used to no-op silently — the
-      // bar promised "Delete N layers", nothing happened, no toast, selection
-      // preserved. Say why nothing was deletable.
+      // A selection of only group rows would otherwise no-op silently after the
+      // bar promised "Delete N layers". Say why nothing was deletable.
       toast.info(t('toasts.bulkDeleteOnlyGroupRows'));
       return false;
     }
@@ -389,22 +380,21 @@ export function useBulkLayerActions({
     // Clear expanded layer if it's being deleted
     setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
 
-    // Optimistic update — remove only layers actually sent to the backend (idsToDelete),
-    // not the full selectedIds which may include frontend-only group folder rows.
-    // Deleting every child of a folder group also prunes the now-empty
-    // group row — it has no persisted carrier and would vanish on save+reload anyway.
+    // Optimistic update: remove only layers actually sent to the backend
+    // (idsToDelete), not selectedIds, which may include frontend-only group
+    // folder rows. Deleting every child of a folder group also prunes the empty
+    // group row, which has no persisted carrier.
     const idsToDeleteSet = new Set(idsToDelete);
     setLocalLayers((prev) =>
       pruneEmptyFolderGroups(prev.filter((l) => !idsToDeleteSet.has(l.id)))
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
-    // If the batch removes the last DEM layer
-    // backing active 3D terrain, auto-clear terrain_config + non-blocking toast.
-    // Keyed on dataset identity so unrelated DEM/vector deletes leave it intact.
-    // Snapshot the prior terrain_config so any
-    // failure/rollback branch below can restore it. Without this, a failed bulk
-    // delete leaves the DEM layer restored but 3D terrain silently disabled.
+    // If the batch removes the last DEM layer backing active 3D terrain,
+    // auto-clear terrain_config and toast. Keyed on dataset identity so
+    // unrelated deletes leave it intact. The prior terrain_config is
+    // snapshotted so rollback can restore it; otherwise a failed bulk delete
+    // leaves the DEM layer back but 3D terrain disabled.
     const previousTerrainConfig = localTerrainConfig;
     const remainingAfterBulk = previousLayers.filter((l) => !idsToDeleteSet.has(l.id));
     const clearedTerrainOnBulk = shouldClearTerrainOnDelete(remainingAfterBulk, localTerrainConfig);
@@ -418,34 +408,30 @@ export function useBulkLayerActions({
       toast.success(t('toasts.terrainDisabledSourceRemoved'));
     }
 
-    // Imperatively clean per-layer companions for
-    // every id in the batch so visual artifacts vanish in lockstep with the
-    // optimistic state update. removeStaleSourcesAndLayers cannot derive
-    // these ids under the dedupe contract — the stripped source id
+    // Clean per-layer companions for every id in the batch so visual artifacts
+    // vanish with the optimistic update. removeStaleSourcesAndLayers can't
+    // derive these ids under the dedupe contract: the stripped source id
     // produces `data-${dataset_table_name}`, not the real per-layer id.
     removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
 
-    // One batched call replaces N sequential DELETEs
-    // Capture the batch size for the bar's deleting label
-    // BEFORE isDeleting flips — the optimistic removal above already emptied
-    // the selection-derived count the bar would otherwise render.
+    // One batched call replaces N sequential DELETEs. Capture the batch size
+    // for the bar's deleting label before isDeleting flips: the optimistic
+    // removal already emptied the selection-derived count.
     setDeletingCount(idsToDelete.length);
     setIsDeleting(true);
     try {
       const result = await bulkDeleteLayersApi(mapId, idsToDelete);
 
       if (result.failed.length === 0) {
-        // Full success — sync baseline immediately so the subsequent invalidateQueries
-        // refetch is not blocked by a stale savedLayerBaselineRef.
-        // Prune emptied group rows here too so the baseline cannot
-        // retain a group row localLayers no longer renders.
+        // Full success: sync the baseline now so the invalidateQueries refetch
+        // isn't blocked by a stale savedLayerBaselineRef. Emptied group rows are
+        // pruned too, so the baseline can't retain a row localLayers no longer renders.
         savedLayerBaselineRef.current = pruneEmptyFolderGroups(
           savedLayerBaselineRef.current.filter((l) => !idsToDeleteSet.has(l.id)),
         );
-        // The save-diff baseline needs the same prune. It only
-        // refreshes while the map is clean, so a bulk delete on an already-dirty
-        // map otherwise left these ids in it and the next save's diff.removed
-        // named rows the server had already dropped.
+        // The save-diff baseline needs the same prune. It refreshes only while the
+        // map is clean, so on a dirty map the next save's diff.removed would name
+        // rows the server already dropped.
         saveBaselineSyncRef.current?.remove(idsToDeleteSet);
         await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
         toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
@@ -453,10 +439,9 @@ export function useBulkLayerActions({
       }
 
       if (result.deleted.length === 0) {
-        // Full failure — restore the failed batch. NOT a
-        // wholesale snapshot write — a concurrent edit (e.g. handleAddDataset
-        // landing during the await) must survive the rollback, otherwise the
-        // next save diff would DELETE the just-added layer.
+        // Full failure: restore the failed batch, not a wholesale snapshot
+        // write; a concurrent edit (e.g. handleAddDataset during the await) must
+        // survive, or the next save diff would DELETE the just-added layer.
         setLocalLayers((current) =>
           restoreFailedLayers(current, previousLayers, idsToDeleteSet),
         );
@@ -468,25 +453,20 @@ export function useBulkLayerActions({
         return false;
       }
 
-      // Partial failure: keep deleted layers removed, restore failed layers.
-      // Survivors return at their previous relative positions, not
-      // interleaved between two numbering schemes.
-      // Recompute from CURRENT state instead of writing a
-      // stale previousLayers-derived array — a concurrent edit that landed
-      // during the await (e.g. handleAddDataset) must survive; only the rows
-      // whose deletes FAILED are re-inserted, and confirmed-deleted rows are
-      // dropped. Empty groups stay pruned like the optimistic path (#767)
-      // because restoreFailedLayers only revives a group container whose failed
-      // child is returning.
+      // Partial failure: keep deleted layers removed, restore failed ones.
+      // Recompute from current state, not a stale previousLayers array, so a
+      // concurrent edit during the await survives; only the rows whose deletes
+      // failed are re-inserted and confirmed-deleted rows are dropped. Empty
+      // groups stay pruned as on the optimistic path, since restoreFailedLayers
+      // revives a group container only when a failed child is returning.
       const deletedIds = new Set(result.deleted);
       const failedIds = new Set(result.failed.map((f) => f.id));
-      // The confirmed-deleted rows leave local state
-      // here just as they do on the full-success path, so BOTH baselines need
-      // the same prune. Without it the next Save re-emitted them in
-      // diff.removed, tripped the stale-conflict recovery and its warning, and
-      // failed outright whenever the refetch was unavailable. Only groups whose
-      // every child was actually deleted are pruned: a failed child is not in
-      // deletedIds, so its container still has a member and survives.
+      // Confirmed-deleted rows leave local state as on the full-success path, so
+      // both baselines need the same prune; otherwise the next Save re-emits them
+      // in diff.removed, trips the stale-conflict recovery and fails outright
+      // when the refetch is unavailable. Only groups whose every child was
+      // deleted are pruned: a failed child isn't in deletedIds, so its
+      // container survives.
       savedLayerBaselineRef.current = pruneEmptyFolderGroups(
         savedLayerBaselineRef.current.filter((l) => !deletedIds.has(l.id)),
       );
@@ -498,17 +478,16 @@ export function useBulkLayerActions({
           failedIds,
         ),
       );
-      // The optimistic terrain clear assumed the WHOLE batch was deleted.
-      // Re-evaluate against the layers that ACTUALLY remain after restoring the
-      // failed ones; if terrain is still backed (its source DEM was among the
-      // failures), restore terrain_config so it is not silently disabled.
+      // The optimistic terrain clear assumed the whole batch was deleted.
+      // Re-evaluate against the layers that actually remain; if terrain is still
+      // backed (its source DEM was among the failures), restore terrain_config.
       if (clearedTerrainOnBulk) {
         const remainingAfterPartial = previousLayers.filter((l) => !deletedIds.has(l.id));
         if (!shouldClearTerrainOnDelete(remainingAfterPartial, previousTerrainConfig)) {
           setLocalTerrainConfig(previousTerrainConfig);
         }
       }
-      // Partial state differs from server — prevent silent refetch wipe
+      // Partial state differs from the server: prevent a silent refetch wipe
       setHasUnsavedChanges(true);
       toast.error(
         t('bulkActions.deletePartialFailure', {

@@ -31,8 +31,8 @@ type DemRenderMode = 'hillshade' | 'terrain';
 interface DEMEditorSceneProps {
   layer: MapLayerResponse;
   // Render mode is derived from layer.style_config.render_mode by the component.
-  // Missing/legacy image DEM modes are treated as hillshade because raw DEM
-  // image tiles are encoded elevation data, not inspectable imagery.
+  // Missing/legacy image DEM modes are treated as hillshade: raw DEM image tiles
+  // are encoded elevation data, not inspectable imagery.
   onPaintChange: (paint: Record<string, unknown>) => void;
   onStyleConfigChange: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onOpacityChange: (opacity: number) => void;
@@ -49,10 +49,10 @@ interface DEMEditorSceneProps {
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
   /**
-   * True when this DEM's dataset is the map's bound 3D terrain
-   * source (parent computes it via isHillshadeTerrainBound). Drives the
-   * "Use as 3D terrain" switch — hillshade overlay and 3D terrain are
-   * independent, composable outputs of one DEM, not exclusive modes.
+   * True when this DEM's dataset is the map's bound 3D terrain source (parent
+   * computes it via isHillshadeTerrainBound). Drives the "Use as 3D terrain"
+   * switch; the hillshade overlay and 3D terrain are independent, composable
+   * outputs of one DEM, not exclusive modes.
    */
   isTerrainBound?: boolean;
 }
@@ -156,14 +156,14 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // The inline confirm owns focus (autofocused Cancel), so
-  // dismissing it must hand focus back to the trigger instead of <body> —
-  // same return StackRow's delete confirm does. rAF: the button remounts on
-  // the state flip, so it does not exist yet at onCancel time.
+  // The inline confirm owns focus (autofocused Cancel), so dismissing it hands
+  // focus back to the trigger instead of <body>, as StackRow's delete confirm
+  // does. rAF: the button remounts on the state flip, so it doesn't exist yet at
+  // onCancel time.
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   // 'hillshade' = visible relief overlay on; 'terrain' is the legacy persisted
-  // value meaning "no visual overlay" — it does NOT control the 3D mesh, which
-  // is bound separately through map-level terrain_config (isTerrainBound).
+  // value meaning "no visual overlay" and does not control the 3D mesh, which is
+  // bound through map-level terrain_config (isTerrainBound).
   const overlayOn = currentMode(layer) === 'hillshade';
   const paint = useMemo(() => layer.paint ?? {}, [layer.paint]);
 
@@ -175,17 +175,16 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     typeof layout._maxzoom === 'number' ? layout._maxzoom : 22,
   );
 
-  // The overlay toggle writes ONLY style_config.render_mode. It no
-  // longer binds/unbinds map-level terrain, so overlay round trips can never
-  // silently drop an active terrain binding (and vice versa).
+  // The overlay toggle writes only style_config.render_mode; it doesn't bind or
+  // unbind map-level terrain, so overlay round trips can't drop an active
+  // terrain binding (and vice versa).
   const handleOverlayToggle = useCallback((next: boolean) => {
     if (next === (currentMode(layer) === 'hillshade')) return;
     const nextConfig: Record<string, unknown> = { ...(layer.style_config ?? {}) };
     nextConfig.render_mode = next ? 'hillshade' : 'terrain';
-    // Source binding (the layer dataset_id + paint object) is intentionally preserved
-    // unchanged across toggles. Overlay-specific paint values stay in layer.paint;
-    // reading the paint dict per key (e.g. hillshade-* keys) returns last-saved
-    // values on re-entry.
+    // Source binding (dataset_id + paint object) is preserved across toggles.
+    // Overlay-specific paint values stay in layer.paint, so re-entry reads the
+    // last-saved hillshade-* values.
     onStyleConfigChange(nextConfig as StyleConfig, layer.paint ?? {});
   }, [layer, onStyleConfigChange]);
 
@@ -201,10 +200,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     onPaintChange({ ...paint, [key]: nextValue });
   }, [paint, onPaintChange]);
 
-  // Read hillshade fallbacks from the adapter's
-  // HILLSHADE_PAINT_DEFAULTS (the values buildHillshadePaint actually renders) rather
-  // than re-typing literals, so the editor swatch can never diverge from the rendered
-  // default (the prior '#D4A97A' accent showed brown while the map painted black).
+  // Hillshade fallbacks come from the adapter's HILLSHADE_PAINT_DEFAULTS (what
+  // buildHillshadePaint renders), not re-typed literals, so the editor swatch
+  // can't diverge from the rendered default.
   const azimuth = getNumberPaint(paint, 'hillshade-illumination-direction', HILLSHADE_PAINT_DEFAULTS['hillshade-illumination-direction']);
   const exaggeration = normalizeHillshadeExaggeration(getNumberPaint(paint, 'hillshade-exaggeration', HILLSHADE_PAINT_DEFAULTS['hillshade-exaggeration']));
   const terrainSurfaceExaggeration = normalizeTerrainExaggeration(terrainExaggeration);
@@ -219,9 +217,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* 1. RELIEF SHADING section — the visible 2D overlay (hillshade + tint).
-          The overlay is an independent switch, not a radio against 3D terrain —
-          both outputs can be active on one DEM at the same time. */}
+      {/* 1. RELIEF SHADING: the visible 2D overlay (hillshade + tint). An
+          independent switch, not a radio against 3D terrain; both can be active
+          on one DEM. */}
       <section
         aria-labelledby={`section-appearance-dem-${layer.id}`}
         className="border-b"
@@ -261,7 +259,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   {t('demEditor.sunPositionLabel', { defaultValue: 'SUN POSITION' })}
                 </p>
 
-                {/* Compass extracted to SunCompass. */}
+                {/* Compass: see SunCompass. */}
                 <SunCompass
                   azimuth={azimuth}
                   ariaLabel={t('demEditor.compassAriaLabel', {
@@ -323,8 +321,8 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 2. 3D TERRAIN section — the additive map-level mesh binding.
-          Independent of the relief overlay; both can be active together. */}
+      {/* 2. 3D TERRAIN: the additive map-level mesh binding, independent of the
+          relief overlay. */}
       <section
         aria-labelledby={`section-terrain-dem-${layer.id}`}
         className="border-b"
@@ -370,7 +368,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 3. HYPSOMETRIC TINT section — part of the 2D overlay (requires hillshade) */}
+      {/* 3. HYPSOMETRIC TINT: part of the 2D overlay (requires hillshade) */}
       <section
         aria-labelledby={`section-hypso-dem-${layer.id}`}
         className="border-b"
@@ -383,7 +381,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
           </p>
 
-          {/* Overlay off: inline hint only — color-relief rides the hillshade overlay */}
+          {/* Overlay off: inline hint only; color-relief rides the hillshade overlay */}
           {!overlayOn && (
             <p className="text-xs text-muted-foreground">
               {t('demEditor.hypsometricTerrainHint', {
@@ -406,7 +404,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   aria-label={t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
                 />
               </div>
-              {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
+              {/* Ramp picker, mounted only when enabled */}
               {paint['_hypso-enabled'] === true && (
                 <>
                   <ColorRampPicker
@@ -417,9 +415,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                     reversed={paint['_hypso-reversed'] === true}
                     onReversedChange={(next) => handlePaintValue('_hypso-reversed', next)}
                   />
-                  {/* Surface the hardcoded 0–4000 m, meters-only
-                      elevation range limitation in-product (buildElevationExpression in
-                      color-relief-sync.ts has no min/max control yet). */}
+                  {/* Surfaces the hardcoded 0–4000 m, meters-only elevation range
+                      (buildElevationExpression in color-relief-sync.ts has no
+                      min/max control yet). */}
                   <p className="text-mini leading-snug text-muted-foreground">
                     {t('demEditor.hypsometricRangeNote', {
                       defaultValue: 'Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat.',
@@ -432,10 +430,10 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 4. VISIBILITY section — opacity and zoom range act on the
-          2D overlay only (the 3D mesh ignores both: opacity is skipped for
-          suppressed layers and the terrain source uses token min/max), so the
-          controls render only while the overlay exists. */}
+      {/* 4. VISIBILITY: opacity and zoom range act on the 2D overlay only (the 3D
+          mesh ignores both: opacity is skipped for suppressed layers and the
+          terrain source uses token min/max), so the controls render only while
+          the overlay exists. */}
       {overlayOn && (
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
@@ -482,8 +480,8 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   min={0}
                   max={Math.max(0, maxZoom - 1)}
                   value={minZoom}
-                  // Number('') === 0 — clearing the field must reset the clamp
-                  // (min 0), not silently write a real bound; NaN is ignored.
+                  // Number('') === 0: clearing the field resets the clamp (min 0)
+                  // rather than writing a real bound; NaN is ignored.
                   onChange={(e) => {
                     const v = e.target.value === '' ? 0 : Number(e.target.value);
                     if (!Number.isFinite(v)) return;
@@ -506,8 +504,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   min={Math.min(22, minZoom + 1)}
                   max={22}
                   value={maxZoom}
-                  // Number('') === 0 — clearing max-zoom used to write 0 and hide
-                  // the layer at every zoom. Empty clears the clamp (22); NaN is ignored.
+                  // Number('') === 0: an empty field clears the clamp (22) rather
+                  // than writing 0, which would hide the layer at every zoom; NaN
+                  // is ignored.
                   onChange={(e) => {
                     const v = e.target.value === '' ? 22 : Number(e.target.value);
                     if (!Number.isFinite(v)) return;
@@ -523,7 +522,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
       </section>
       )}
 
-      {/* Footer — Delete layer (inline confirmation, same pattern as FolderGroupRow) */}
+      {/* Footer: Delete layer (inline confirmation, as FolderGroupRow) */}
       <footer className="shrink-0 border-t p-3 mt-auto">
         {!confirmDelete ? (
           <Button
@@ -536,8 +535,8 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             {t('layerEditor.deleteLayer', { defaultValue: 'Delete layer' })}
           </Button>
         ) : (
-          // Shared builder-wide inline confirm — safe action left,
-          // destructive right, cancel autofocused.
+          // Shared builder-wide inline confirm: safe action left, destructive
+          // right, cancel autofocused.
           <InlineDeleteConfirm
             confirmId="dem-delete-confirm-title"
             message={t('layerEditor.deleteLayerConfirmMessage', { defaultValue: 'Delete this layer? This cannot be undone.' })}
@@ -549,9 +548,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             }}
             onCancel={() => {
               setConfirmDelete(false);
-              // Hand focus back to the Delete-layer button instead
-              // of dropping to <body> (confirm removes the whole scene, so
-              // there is no surviving trigger to return to on that path).
+              // Hand focus back to the Delete-layer button, not <body>. (Confirm
+              // removes the whole scene, so there is no surviving trigger on that
+              // path.)
               requestAnimationFrame(() => deleteButtonRef.current?.focus());
             }}
             className="mx-0 mb-0"

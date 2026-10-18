@@ -3,9 +3,8 @@ import { canUseClusterSource } from './cluster-source';
 import { classifyGeometry } from './layer-adapters/shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import i18n from '@/i18n/i18n';
-// Pull the per-render-mode default paint and
-// the arrow/extrusion magic constants from the single builder-defaults source of truth
-// instead of re-declaring divergent copies here.
+// Per-render-mode default paint and the arrow/extrusion constants come from the
+// single builder-defaults source of truth.
 import {
   DEFAULT_ARROW_SIZE,
   DEFAULT_ARROW_SPACING,
@@ -45,17 +44,13 @@ interface RenderAsOption {
   source: RenderAsSource;
 }
 
-// Trimmed RendererCapability to the fields runtime code
-// actually reads. The previous schema modeled backend/viewerSupport/styleJsonSupport/
-// companionLayers/sourceRequirement/writableFields/enabled, none of which had a
-// consumer outside this module and its tests (every row was backend:'maplibre',
-// enabled:true). 'deckgl-future' was already removed; with the single
-// backend gone there is no multi-backend abstraction left to model.
+// RendererCapability trimmed to the fields runtime code reads. Every renderer is
+// backend:'maplibre', so there is no multi-backend abstraction to model.
 interface RendererCapability {
   id: RenderAsId;
   label: string;
   source: Exclude<RenderAsSource, 'unsupported'>;
-  /** Cluster needs a GeoJSON/cluster source — the only capability-level gate read at runtime. */
+  /** Cluster needs a GeoJSON/cluster source; the only capability-level gate read at runtime. */
   requiresClusterSource?: boolean;
 }
 
@@ -299,17 +294,17 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
 }
 
 /**
- * Whether the layer's CURRENT render mode carries mode-specific
- * style settings that diverge from that mode's fresh/default state. Used to
- * decide whether the render-as confirm dialog is warranted — a layer that has
- * never been customized beyond the mode's defaults has nothing to lose by
- * switching, so `handleRenderAsClick` skips the confirm when this is `false`.
+ * Whether the layer's current render mode carries mode-specific style settings
+ * that diverge from that mode's fresh/default state. Decides whether the
+ * render-as confirm dialog is warranted: a layer never customized beyond the
+ * mode's defaults has nothing to lose, so `handleRenderAsClick` skips the
+ * confirm when this is `false`.
  *
- * Only checks fields with a fixed, mode-independent default (radius/zoom/size
- * numbers, ramp/icon names). Color fields are intentionally excluded — they
- * are derived from the layer's base paint at mode-entry time (e.g. arrow
- * color inherits the line color), so there is no fixed "default" to diverge
- * from and comparing them would always read as customized.
+ * Only fields with a fixed, mode-independent default (radius/zoom/size numbers,
+ * ramp/icon names) are checked. Color fields are excluded: they derive from the
+ * layer's base paint at mode entry (e.g. arrow color inherits the line color),
+ * so there is no fixed default to diverge from and they would always read as
+ * customized.
  */
 export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
   const mode = getCurrentRenderAs(layer);
@@ -325,8 +320,8 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
         || (symbol.iconSize !== undefined && symbol.iconSize !== 1)
         || (symbol.iconRotation !== undefined && symbol.iconRotation !== 0)
         || (symbol.iconAnchor !== undefined && symbol.iconAnchor !== 'center')
-        // The Symbol editor also persists iconOffset and a
-        // per-category icon mapping — all dropped when leaving symbol mode.
+        // The Symbol editor also persists iconOffset and a per-category icon
+        // mapping, all dropped when leaving symbol mode.
         || (symbol.iconOffset !== undefined
           && (symbol.iconOffset[0] !== 0 || symbol.iconOffset[1] !== 0))
         || (typeof symbol.categoryColumn === 'string' && symbol.categoryColumn !== '')
@@ -342,10 +337,9 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'cluster': {
-      // clusterColor is auto-seeded on mode entry (from
-      // the circle paint), so presence alone isn't customization — diverging
-      // from that seed is (same pattern as extrusion heightColumn). Any
-      // non-empty ramp is user-authored destructible state.
+      // clusterColor is auto-seeded on mode entry (from the circle paint), so
+      // presence alone isn't customization; diverging from the seed is (as for
+      // extrusion heightColumn). Any non-empty ramp is user-authored state.
       const seededClusterColor = typeof paint['circle-color'] === 'string'
         ? paint['circle-color']
         : DEFAULT_CIRCLE_PAINT['circle-color'];
@@ -362,11 +356,10 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'arrow': {
-      // arrowColor is auto-seeded on mode entry from the
-      // line paint (same pattern as clusterColor/heightColumn); diverging
-      // from the seed is destructible state. With this, every editor-persisted
-      // builder field (arrow*, cluster*, heightColumn, symbol.*) is covered
-      // by this switch — verified against the LayerStyleEditor inventory.
+      // arrowColor is auto-seeded on mode entry from the line paint (as
+      // clusterColor/heightColumn); diverging from the seed is destructible
+      // state. Every editor-persisted builder field (arrow*, cluster*,
+      // heightColumn, symbol.*) is covered by this switch.
       const seededArrowColor = typeof paint['line-color'] === 'string'
         ? paint['line-color']
         : MAP_COLORS.default.fill;
@@ -378,9 +371,9 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'extrusion-3d': {
-      // A user-chosen heightColumn is destructible state too —
-      // leaving extrusion deletes it. Entry auto-picks a column, so presence
-      // alone isn't customization; diverging from the auto-pick default is.
+      // A user-chosen heightColumn is destructible too (leaving extrusion deletes
+      // it). Entry auto-picks a column, so presence alone isn't customization;
+      // diverging from the auto-pick default is.
       const heightColumn = builderHeightColumn(layer);
       return (
         (typeof builder.heightScale === 'number' && builder.heightScale !== 1)
@@ -390,10 +383,9 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
       );
     }
 
-    // 'point' / 'line' / 'fill' / 'stroke' / 'fill-stroke' / 'image' / 'hillshade':
-    // these modes have no destructible mode-specific settings of their own —
-    // buildRenderAsPatch preserves or stashes (savedCirclePaint) their base
-    // paint across a mode switch, so there is nothing mode-specific to lose.
+    // 'point' / 'line' / 'fill' / 'stroke' / 'fill-stroke' / 'image' /
+    // 'hillshade' have no destructible mode-specific settings: buildRenderAsPatch
+    // preserves or stashes (savedCirclePaint) their base paint across a switch.
     default:
       return false;
   }
@@ -546,8 +538,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
       builder.heightColumn = numericHeightColumn(layer);
       builder.heightScale = typeof priorHeightScale === 'number' ? priorHeightScale : 1;
       builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : DEFAULT_EXTRUSION_MIN_ZOOM;
-      // The prior `Math.min(0.85, 1)` was a no-op that
-      // always evaluated to 0.85; use the shared extrusion-opacity cap directly.
+      // The shared extrusion-opacity cap, not a hardcoded value.
       builder.extrusionOpacity = typeof priorExtrusionOpacity === 'number' ? priorExtrusionOpacity : DEFAULT_EXTRUSION_OPACITY_CAP;
     }
 

@@ -29,10 +29,9 @@ interface LayerFilterEditorProps {
   onFilterChange: (expression: FilterSpecification | null) => void;
   layerName?: string | null;
   /**
-   * Rendered-feature count for this layer. When set
-   * to 0 AND `filter` is non-null, the empty-state hint + Clear-filter button
-   * are shown. `null` / `undefined` (default) suppresses the hint regardless
-   * of filter state.
+   * Rendered-feature count for this layer. When 0 AND `filter` is non-null, the
+   * empty-state hint and Clear-filter button are shown. `null`/`undefined`
+   * suppresses the hint regardless of filter state.
    */
   featureCount?: number | null;
 }
@@ -45,9 +44,8 @@ interface OperatorDef {
   value: string;
 }
 
-// NUMERIC_COMPARISON_OPERATORS now imported from
-// maplibre-filter-utils (the single canonical copy) instead of re-declared here.
-
+// NUMERIC_COMPARISON_OPERATORS comes from maplibre-filter-utils, the single
+// canonical copy.
 // Discriminated union returned by parseFilterExpression
 type ParseResult =
   | { kind: 'editable'; combinator: 'all' | 'any'; conditions: FilterCondition[] }
@@ -96,9 +94,9 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
   ],
 };
 
-// Boolean operators whose value renders as the
-// true/false select — a free-text input would coerce anything but "true" to
-// false and silently save e.g. `active != false`.
+// Boolean operators whose value renders as the true/false select: a free-text
+// input would coerce anything but "true" to false and silently save e.g.
+// `active != false`.
 const BOOLEAN_VALUE_OPERATORS = new Set(['==', '!=']);
 
 function coerceValue(value: string, pgType: string): string | number | boolean {
@@ -130,10 +128,9 @@ export function buildFilterExpression(
     // Reject non-numeric values for numeric columns
     const col = columnInfo.find((ci) => ci.name === c.field);
     const isNumeric = !!col && classifyColumnType(col.type) === 'number';
-    // List operators validate PER ENTRY — the whole-string
-    // NaN check below would reject every numeric list ("1,2" → Number NaN);
-    // the condition stays valid while at least one entry is numeric, and the
-    // emit branch drops the non-numeric entries.
+    // List operators validate per entry: the whole-string NaN check below would
+    // reject every numeric list ("1,2" → NaN). The condition stays valid while
+    // at least one entry is numeric; the emit branch drops non-numeric entries.
     if (isNumeric && (c.operator === 'in_list' || c.operator === 'not_in_list')) {
       return String(c.value)
         .split(',')
@@ -158,16 +155,15 @@ export function buildFilterExpression(
       expressions.push(['has', cond.field]);
     } else if (cond.operator === 'in_list' || cond.operator === 'not_in_list') {
       const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
-      // Per-entry NaN guard for numeric columns — coerceValue
-      // leaves non-numeric entries as strings, so "1,abc,3" silently emitted a
-      // mixed-type literal. Drop the entries that don't coerce instead.
+      // Per-entry NaN guard for numeric columns: coerceValue leaves non-numeric
+      // entries as strings, so "1,abc,3" would emit a mixed-type literal. Drop
+      // entries that don't coerce.
       const numericColumn = classifyColumnType(pgType) === 'number';
       const coerced = values
         .map(v => coerceValue(v, pgType))
         .filter(v => !numericColumn || typeof v === 'number');
-      // A list of only separators (",, ,") coerces to
-      // an empty literal — an always-false filter that silently hides every
-      // feature. Drop the condition instead.
+      // A list of only separators (",, ,") coerces to an empty literal, an
+      // always-false filter that hides every feature. Drop the condition.
       if (coerced.length === 0) continue;
       const inExpr = ['in', ['get', cond.field], ['literal', coerced]];
       expressions.push(cond.operator === 'in_list' ? inExpr : ['!', inExpr]);
@@ -195,9 +191,9 @@ export function buildFilterExpression(
 }
 
 export function parseFilterExpression(expr: FilterSpecification | null): ParseResult {
-  // Delegate all filter recognition to the
-  // single canonical parser in maplibre-filter-utils so the structured editor and
-  // ActiveFilterChips cannot drift again. We only re-attach editor-local row ids.
+  // Filter recognition is delegated to the canonical parser in
+  // maplibre-filter-utils so the structured editor and ActiveFilterChips can't
+  // drift; only editor-local row ids are re-attached.
   const canonical = parseCanonicalFilter(expr);
   if (canonical.kind === 'opaque') {
     return { kind: 'opaque', raw: canonical.raw };
@@ -264,11 +260,11 @@ export function LayerFilterEditor({
   }, []);
 
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
-    // Cancel any pending debounced value emit — a stale 200ms
-    // timer firing after this immediate emit would rebuild the filter from
-    // captured (pre-change) conditions/combinator, silently overwrite the newer
-    // filter, and set lastEmittedFilterRef to the stale value so the prop-sync
-    // effect never corrects the UI. The wrong filter then persists on Save.
+    // Cancel any pending debounced value emit: a stale 200ms timer firing after
+    // this immediate emit would rebuild the filter from captured (pre-change)
+    // conditions/combinator, overwrite the newer filter, and set
+    // lastEmittedFilterRef to the stale value so the prop-sync effect never
+    // corrects the UI, and the wrong filter would persist on Save.
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -340,9 +336,9 @@ export function LayerFilterEditor({
 
   function handleCombinatorChange(value: string) {
     const combo = value as 'all' | 'any';
-    // Same stale-timer cancellation as emitChange — an All↔Any
-    // toggle within the debounce window must not be clobbered by the pending
-    // value emit (which captured the previous combinator).
+    // Same stale-timer cancellation as emitChange: an All↔Any toggle within the
+    // debounce window must not be clobbered by the pending value emit (which
+    // captured the previous combinator).
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -381,10 +377,10 @@ export function LayerFilterEditor({
       return;
     }
 
-    // Validate + normalize against the shared filter grammar
-    // (mirrors backend validate_filter) so invalid arity / unsupported legacy
-    // forms are rejected here instead of being saved and surfacing late as a
-    // MapLibre setFilter error. Opaque-but-valid filters are preserved verbatim.
+    // Validate and normalize against the shared filter grammar (mirrors backend
+    // validate_filter) so invalid arity or unsupported legacy forms are rejected
+    // here, not saved and surfaced later as a MapLibre setFilter error.
+    // Opaque-but-valid filters are preserved verbatim.
     let normalized: FilterSpecification | null;
     try {
       normalized = validateRawFilter(parsed);
@@ -424,10 +420,9 @@ export function LayerFilterEditor({
 
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-      {/* Empty-state hint — shown when filter is active but 0 features rendered.
-          The count is VIEWPORT-scoped (queryRenderedFeatures), so
-          the copy says "in view" — matches may exist off-screen and "eliminated
-          every feature" was a false alarm in that case. */}
+      {/* Empty-state hint: a filter is active but 0 features rendered. The count
+          is viewport-scoped (queryRenderedFeatures), so the copy says "in view":
+          matches may exist off-screen. */}
       {showEmptyState && (
         <div
           role="status"

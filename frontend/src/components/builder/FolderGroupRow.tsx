@@ -69,9 +69,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const kebabMenu = useKebabContextMenu();
 
-  // Shared inline-rename state machine (was duplicated
-  // verbatim with StackRow, including the focus-race gating). Empty input
-  // is a silent revert: onCommit ignores a null name.
+  // Shared inline-rename state machine, also used by StackRow (including the
+  // focus-race gating). Empty input is a silent revert: onCommit ignores a null
+  // name.
   const {
     editing,
     setEditing,
@@ -86,8 +86,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     onCommit: (next) => {
       if (next) onRenameGroup(groupId, next);
     },
-    // a11y(v1.6.0 audit A7): commit/cancel unmount the focused input — hand
-    // focus back to the row, matching the delete-confirm's focus return.
+    // a11y: commit/cancel unmount the focused input, so hand focus back to the
+    // row, matching the delete-confirm's focus return.
     restoreFocus: () => document.getElementById(`stack-row-${groupId}`)?.focus(),
   });
 
@@ -123,11 +123,10 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       onContextMenu={kebabMenu.onContextMenu}
       onKeyDown={(e) => {
         if (kebabMenu.handleContextMenuKey(e)) return;
-        // a11y(v1.6.0 audit A7, WCAG 2.1.1): keys from descendant controls
-        // (caret, eye, rename input, delete-confirm buttons) keep their native
-        // activation — the container only handles keys aimed at the row
-        // itself. AFTER the context-menu branch so Shift+F10 still works from
-        // a focused descendant.
+        // a11y (WCAG 2.1.1): keys from descendant controls (caret, eye, rename
+        // input, delete-confirm buttons) keep their native activation; the
+        // container handles only keys aimed at the row itself. After the
+        // context-menu branch so Shift+F10 still works from a focused descendant.
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -137,10 +136,10 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           e.preventDefault();
           onCmdClick?.(groupId); // Space = Cmd-click (toggles multi-selection)
         }
-        // Escape with the delete confirm pending dismisses the
-        // confirm (consumed) instead of falling through to ancestor Escape
-        // handlers. The confirm handles its own Escape when focus is inside it;
-        // this covers focus resting on the row.
+        // Escape with the delete confirm pending dismisses the confirm
+        // (consumed) instead of reaching ancestor Escape handlers. The confirm
+        // handles its own Escape when focus is inside it; this covers focus on
+        // the row.
         if (e.key === 'Escape' && confirmingDelete) {
           e.preventDefault();
           e.stopPropagation();
@@ -167,10 +166,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             onPointerDown={(e) => e.stopPropagation()}
           />
         ) : (
-          // h-6 w-6 (24×24 hit target) + -mx-1 extends the
-          // visual box 4px past each side of the 16px grid column without altering the grid
-          // template. ChevronRight Lucide icon at h-4 w-4 (16px
-          // visible glyph) replaces the Unicode ▸ text character.
+          // h-6 w-6 (24×24 hit target) with -mx-1 extends the visual box 4px past
+          // each side of the 16px grid column without altering the grid template;
+          // the glyph is a 16px ChevronRight.
           <button
             type="button"
             aria-expanded={isExpanded}
@@ -200,9 +198,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           })}
         />
 
-        {/* Cell 3: Eye visibility toggle.
-            aria-pressed reflects the visible state so AT announces it as a toggle,
-            matching StackRow and BasemapGroupRow. */}
+        {/* Cell 3: Eye visibility toggle. aria-pressed reflects the visible state
+            so AT announces a toggle, matching StackRow and BasemapGroupRow. */}
         <button
           type="button"
           aria-label={t('stackRow.toggleVisibility', {
@@ -223,9 +220,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           )}
         </button>
 
-        {/* Cell 4: Type icon — folder group.
-            Was an inline OKLCH amber with no dark variant;
-            now the theme-aware --type-folder token pair. */}
+        {/* Cell 4: Type icon (folder group), using the theme-aware --type-folder
+            token pair. */}
         <span
           className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium bg-type-folder-bg text-type-folder"
           aria-hidden="true"
@@ -293,10 +289,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             >
               <DropdownMenuItem
                 onSelect={() => {
-                  // Let Radix close the menu cleanly; the rename input mounts in
-                  // the next render and is focused by the hook's rAF. The
-                  // skipCloseAutoFocusRef flag prevents Radix from stealing focus
-                  // back to the kebab.
+                  // Let Radix close the menu cleanly; the rename input mounts in the
+                  // next render and is focused by the hook's rAF.
+                  // skipCloseAutoFocusRef stops Radix stealing focus back to the kebab.
                   skipCloseAutoFocusRef.current = true;
                   startRename();
                 }}
@@ -326,7 +321,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         </div>
       </div>
 
-      {/* Shared inline confirm — sibling of grid row, NOT inside DropdownMenuContent */}
+      {/* Shared inline confirm: sibling of the grid row, not inside DropdownMenuContent */}
       {confirmingDelete && (
         <InlineDeleteConfirm
           confirmId={`confirm-delete-${groupId}`}
@@ -339,8 +334,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           }}
           onCancel={() => {
             setConfirmingDelete(false);
-            // The confirm owned focus (autofocused Cancel button), so
-            // dismissing it must hand focus back to the row instead of <body>.
+            // The confirm owned focus (autofocused Cancel), so dismissing it hands
+            // focus back to the row instead of <body>.
             document.getElementById(`stack-row-${groupId}`)?.focus();
           }}
         />

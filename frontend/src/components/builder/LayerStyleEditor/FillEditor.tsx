@@ -11,8 +11,8 @@ import { formatNumber } from '@/lib/format';
 
 function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; max: string; count: number } | null {
   if (!samples || samples.length === 0) return null;
-  // Coerce strings to numbers: dataset_sample_values from the API returns string values
-  // (e.g., "573" not 573). Parse both native numbers and numeric strings.
+  // Coerce strings to numbers: dataset_sample_values from the API returns string
+  // values ("573" not 573). Parse native numbers and numeric strings.
   const numeric = samples
     .map((v) => {
       if (typeof v === 'number') return v;
@@ -43,29 +43,28 @@ export function FillEditor({
   currentHeightCol,
   t,
 }: BaseStyleEditorProps) {
-  // fill-color and fill-pattern are mutually exclusive, so
-  // exactly one of the two controls is reachable at a time. The pattern picker
-  // is also out in 3D-extrusion mode, where the extrusion companion reads
-  // fill-color and a pattern click would reset the whole layer to the default.
-  // It stays visible while a pattern IS set, because it is the only way to clear
-  // one — selecting a height column with a pattern already applied would
-  // otherwise strand the layer with a pattern and no control to remove it.
-  // Any present value counts, not just a string: fill-pattern accepts MapLibre
-  // expressions, and AdvancedJsonEditor lets one through. A gate that only saw
-  // strings would leave the colour picker live on an expression-patterned layer,
-  // where editing it writes both keys back — the breakage this closes.
+  // fill-color and fill-pattern are mutually exclusive, so exactly one of the
+  // two controls is reachable at a time. The pattern picker is also out in
+  // 3D-extrusion mode, where the extrusion companion reads fill-color and a
+  // pattern click would reset the whole layer to the default. It stays visible
+  // while a pattern is set, because it is the only way to clear one (selecting a
+  // height column with a pattern applied would otherwise strand the layer with
+  // a pattern and no control to remove it). Any present value counts, not just a
+  // string: fill-pattern accepts MapLibre expressions, which AdvancedJsonEditor
+  // lets through, and a gate that saw only strings would leave the colour picker
+  // live on an expression-patterned layer, where editing it writes both keys back.
   const hasFillPattern = paint['fill-pattern'] != null;
-  // An ACTIVE pattern always keeps its clearing control, whatever else is true of
-  // the layer. Advanced JSON and the AI set_style action write paint through
-  // onPaintChange, which bypasses the exclusion in handleStyleConfigChange, so a
-  // data-driven or extruded layer can arrive here already carrying a pattern — and
-  // hiding the picker then strands it with the pattern winning on the map. Applying
-  // a NEW pattern stays gated to plain solid polygons.
+  // An active pattern always keeps its clearing control. Advanced JSON and the
+  // AI set_style action write paint through onPaintChange, bypassing the
+  // exclusion in handleStyleConfigChange, so a data-driven or extruded layer can
+  // arrive already carrying a pattern, and hiding the picker would strand it
+  // with the pattern winning on the map. Applying a new pattern stays gated to
+  // plain solid polygons.
   const showPatternPicker = isPolygon && (hasFillPattern || (!isDataDriven && !currentHeightCol));
-  // An expression-valued pattern is active but unrepresentable
-  // as a swatch. Coercing it to undefined made None report aria-pressed while
-  // MapLibre drew the expression, so it gets a sentinel: no swatch matches it, and
-  // None correctly reads unpressed. Display-only — onChange never emits it.
+  // An expression-valued pattern is active but can't be shown as a swatch.
+  // Coercing it to undefined would make None report aria-pressed while MapLibre
+  // draws the expression, so it gets a sentinel no swatch matches and None reads
+  // unpressed. Display-only: onChange never emits it.
   const patternValue = !hasFillPattern
     ? undefined
     : typeof paint['fill-pattern'] === 'string'

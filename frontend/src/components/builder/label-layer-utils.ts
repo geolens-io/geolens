@@ -15,10 +15,9 @@ export const LABEL_FONT_STACK = [
 ] as const;
 
 /**
- * The offset a point label renders at when the user hasn't
- * set one. The renderer applied this implicitly while the editor showed 0/0, so
- * the first X-drag silently discarded the -1.5 Y. Both sides now read this
- * constant, so the editor shows what the map renders.
+ * The offset a point label renders at when the user hasn't set one. Editor and
+ * renderer both read this constant; if the renderer applied it implicitly while
+ * the editor showed 0/0, the first X-drag would silently discard the -1.5 Y.
  */
 export const DEFAULT_POINT_LABEL_OFFSET: [number, number] = [0, -1.5];
 
@@ -33,18 +32,17 @@ function resolvePlacement(
 }
 
 /**
- * The single canonical {layout, paint} mapping for a
- * label layer, derived from `LabelConfig` + geometry. Both `buildLabelLayerSpec`
- * (add path) and `syncLabelLayer` (update path) consume this ONE object so the
- * GL property list and its defaults exist exactly once and cannot drift — a new
- * label property is picked up by both add and update automatically.
+ * The single canonical {layout, paint} mapping for a label layer, derived from
+ * `LabelConfig` + geometry. `buildLabelLayerSpec` (add path) and
+ * `syncLabelLayer` (update path) both consume this one object, so the GL
+ * property list and its defaults exist once and a new label property reaches
+ * both.
  *
- * Note: `text-anchor`/`text-offset` are ALWAYS present. For point placement they
+ * `text-anchor`/`text-offset` are always present. For point placement they
  * carry the configured value; for line/line-center placement they are pinned to
  * the neutral `center` / `[0, 0]` so the update path resets them when a layer
- * switches away from point placement (MapLibre keeps the previous value
- * otherwise). On the add path these equal MapLibre's own defaults, so the layer
- * renders identically.
+ * leaves point placement (MapLibre keeps the previous value otherwise). On the
+ * add path these equal MapLibre's defaults.
  */
 export function buildLabelStyle(
   lc: LabelConfig,
@@ -77,9 +75,8 @@ export function buildLabelStyle(
 }
 
 /**
- * Build a MapLibre addLayer spec for a symbol/label layer.
- * Shared across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx
- * to eliminate duplication of label layer construction.
+ * Build a MapLibre addLayer spec for a symbol/label layer, shared across
+ * map-sync.ts, use-builder-layers.ts and ViewerMap.tsx.
  */
 export function buildLabelLayerSpec(opts: {
   labelId: string;
@@ -105,18 +102,18 @@ export function buildLabelLayerSpec(opts: {
 }
 
 /**
- * Apply label layout/paint properties to an existing label layer.
- * Shared update logic across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx.
- * Iterates the SAME canonical {layout, paint} object that `buildLabelLayerSpec`
- * spreads, so add and update stay byte-for-byte in lockstep.
+ * Apply label layout/paint properties to an existing label layer, shared across
+ * map-sync.ts, use-builder-layers.ts and ViewerMap.tsx. Iterates the same
+ * canonical {layout, paint} object `buildLabelLayerSpec` spreads, so add and
+ * update stay in lockstep.
  */
 export function syncLabelLayer(
-  // Derived from the real Map type instead of hand-written signatures.
-  // maplibre-gl v6 made setPaintProperty/setLayoutProperty generic, and a generic
-  // method is not assignable to a plain one, so a live Map stopped satisfying the
-  // old shape. `Pick` keeps the contract exactly as narrow as what this function
-  // touches — which is what lets the tests keep passing a plain mock — while making
-  // the Map itself the single source of those three signatures.
+  // Derived from the real Map type: maplibre-gl v6 made
+  // setPaintProperty/setLayoutProperty generic, and a generic method isn't
+  // assignable to a plain one, so a live Map stopped satisfying a hand-written
+  // shape. `Pick` keeps the contract as narrow as what this function touches
+  // (so tests can pass a plain mock) with the Map as the source of the
+  // signatures.
   map: Pick<MaplibreMap, 'setLayoutProperty' | 'setPaintProperty' | 'setLayerZoomRange'>,
   labelId: string,
   lc: LabelConfig,
@@ -132,18 +129,17 @@ export function syncLabelLayer(
   map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
 }
 
-/** The label companion's id for a layer, matching the arrow companion's own
+/** The label companion's id for a layer, matching the arrow companion's
  *  `${layerId}-arrow` convention (both equal what `getCompanionLayerIds`
- *  derives, since `input.layerId` is already that function's prefixed `layer` id). */
+ *  derives, since `input.layerId` is already its prefixed `layer` id). */
 export function labelLayerId(layerId: string): string {
   return `${layerId}-label`;
 }
 
-// 'visibility' is deliberately absent: syncPaint's owned-layout reconciliation
-// runs from an input that a coalesced write can carry stale, and visibility
-// must not roll back to it. writeDescribedVisibility is the only writer of
-// this layer's visibility after the initial add, matching every other family
-// (none of which owns 'visibility' either).
+// 'visibility' is absent on purpose: syncPaint's owned-layout reconciliation
+// runs from an input a coalesced write can carry stale, and visibility must not
+// roll back to it. writeDescribedVisibility is the only writer of this layer's
+// visibility after the initial add, as for every other family.
 const LABEL_OWNED_LAYOUT_PROPERTIES = [
   'text-field',
   'text-size',
@@ -165,9 +161,9 @@ const LABEL_OWNED_PAINT_PROPERTIES = [
 
 /**
  * The label companion spec for a layer, or null when it has none. Symbol
- * carries its own inline text and heatmap has no per-feature labels, so
- * neither calls `withLabelCompanion`. The zoom range comes from the label
- * config through the writer's minzoom/maxzoom.
+ * carries its own inline text and heatmap has no per-feature labels, so neither
+ * calls `withLabelCompanion`. The zoom range comes from the label config
+ * through the writer's minzoom/maxzoom.
  */
 function labelSpec(input: AdapterLayerInput): LayerSpec | null {
   const lc = input.label_config;
@@ -192,9 +188,9 @@ function labelSpec(input: AdapterLayerInput): LayerSpec | null {
 }
 
 /** Append a labelled family's label spec to its own drawing, or return the
- *  drawing unchanged when the layer has none. Call as the last step of a
- *  labelled family's `describe()`, so the label renders on top (bottom-first
- *  spec order) and `addLayers`/`syncPaint`/`syncVisibility` carry it for free. */
+ *  drawing unchanged when the layer has none. Call it last in `describe()`, so
+ *  the label renders on top (bottom-first spec order) and `addLayers`/
+ *  `syncPaint`/`syncVisibility` carry it. */
 export function withLabelCompanion(input: AdapterLayerInput, drawing: LayerDrawing): LayerDrawing {
   const spec = labelSpec(input);
   return spec ? { specs: [...drawing.specs, spec], images: drawing.images } : drawing;

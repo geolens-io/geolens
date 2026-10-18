@@ -1,9 +1,8 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
-// This file must import nothing from BuilderMap.tsx — a static
-// import from it defeats MapBuilderPage's `lazy(() => import(BuilderMap))`
-// code-split boundary.
+// Imports nothing from BuilderMap.tsx: a static import would defeat
+// MapBuilderPage's `lazy(() => import(BuilderMap))` code-split boundary.
 
 type VisibleLayerBounds = [[number, number], [number, number]];
 
@@ -27,15 +26,14 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
       continue;
     }
 
-    // Unwrap a `west > east` pair past 180 rather than dropping
-    // it — MapLibre normalizes the result, so a seam-crossing layer still
-    // fits the few degrees it occupies.
+    // Unwrap a `west > east` pair past 180 rather than dropping it; MapLibre
+    // normalizes the result, so a seam-crossing layer still fits the few degrees
+    // it occupies.
     let west = bbox[0];
     let east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
 
-    // Try all three turns of the globe the merged interval could sit on and
-    // keep whichever yields the smallest span — comparing west
-    // edges alone is not sufficient to find it.
+    // Try all three turns of the globe the merged interval could sit on and keep
+    // the smallest span; comparing west edges alone can't find it.
     if (hasBounds) {
       let bestSpan = Infinity;
       let bestShift = 0;
@@ -59,9 +57,8 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
   }
 
   if (!hasBounds) return null;
-  // No union of longitude intervals can exceed 360° — clamp here so a
-  // seam-crossing layer added to a world-spanning one can't widen the key
-  // past the world bounds it started from.
+  // No union of longitude intervals can exceed 360°; clamp so a seam-crossing
+  // layer added to a world-spanning one can't widen the key past the world bounds.
   if (maxX - minX >= 360) {
     minX = -180;
     maxX = 180;
