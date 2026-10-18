@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { toast } from 'sonner';
+import { ApiError } from '@/api/client';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { useDebouncedValue } from '@/hooks/use-debounce';
@@ -236,13 +237,23 @@ export function AttributeTable({
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [datasetId, cursor, activeFilters, sort, pageSize]);
 
-  const { data, isLoading, isFetching, isError } = useDatasetRows(
+  const { data, error, isLoading, isFetching, isError } = useDatasetRows(
     datasetId,
     pageSize,
     cursor,
     activeFilters,
     sort,
   );
+  // A schema edit can drop or retype the sorted column. The server then
+  // refuses the sort, so fall back to unsorted rows instead of a dead error.
+  if (
+    sort
+    && error instanceof ApiError
+    && error.status === 400
+    && error.body === 'Invalid sort column'
+  ) {
+    setSorting([]);
+  }
 
   const handleFilterChange = useCallback((colName: string, value: string) => {
     setColumnFilters((prev) => ({ ...prev, [colName]: value }));

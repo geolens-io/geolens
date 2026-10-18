@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@/test/test-utils';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
+import { ApiError } from '@/api/client';
 
 const getDatasetRows = vi.hoisted(() => vi.fn());
 vi.mock('@/api/datasets', async (importOriginal) => ({
@@ -85,6 +86,37 @@ describe('AttributeTable server-side sort', () => {
       ),
     );
     expect(popHeader).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('drops a sort the server refuses, such as one on a column a schema edit removed', async () => {
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1" />);
+    const popButton = await screen.findByRole('button', { name: /pop/ });
+
+    getDatasetRows.mockImplementation(async (_id: string, params: { sort?: unknown }) => {
+      if (params.sort) throw new ApiError('Bad request', 400, 'Invalid sort column');
+      return {
+        columns,
+        rows: [{ gid: 1, pop: 10, meta: null }],
+        next_cursor: null,
+        approximate_total: 1,
+        sortable_columns: ['gid', 'pop'],
+      };
+    });
+    getDatasetRows.mockClear();
+    await user.click(popButton);
+
+    await waitFor(() =>
+      expect(screen.getByRole('columnheader', { name: /pop/ })).toHaveAttribute('aria-sort', 'none'),
+    );
+    expect(getDatasetRows).toHaveBeenCalledWith(
+      'ds-1',
+      expect.objectContaining({ sort: { column: 'pop', desc: false } }),
+    );
+    expect(getDatasetRows).toHaveBeenLastCalledWith(
+      'ds-1',
+      expect.not.objectContaining({ sort: expect.anything() }),
+    );
   });
 
   it('offers no sort on a column the server does not list as sortable', async () => {
