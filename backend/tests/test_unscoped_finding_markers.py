@@ -140,9 +140,9 @@ class TestDetector:
             fm.scan_module("wanted.py", source)
 
 
-def _scan_one_line(path: str, line: str) -> list:
+def _scan(path: str, text: str) -> list:
     syntax = next(syn for kind, syn in fm._COMMENT_SYNTAX if kind.search(path))
-    return fm.scan_comment_lines(path, line, syntax)
+    return fm.scan_comment_lines(path, text, syntax)
 
 
 class TestCommentText:
@@ -160,7 +160,7 @@ class TestCommentText:
         ],
     )
     def test_a_comment_after_code_is_read(self, path, line):
-        assert _scan_one_line(path, line)
+        assert _scan(path, line)
 
     @pytest.mark.parametrize(
         ("path", "line"),
@@ -171,10 +171,21 @@ class TestCommentText:
             ("a.yml", 'title: "a # SEC-002"'),
             ("a.sh", "echo ${#items[@]} SEC-002"),
             ("a.sql", "SELECT '-- SEC-002';"),
+            ("a.css", "a { background: url(//cdn.example.com/SEC-002.png); }"),
+            ("a.ts", "/* setup */ const a = 'SEC-002';"),
         ],
     )
     def test_comment_syntax_inside_a_string_is_not_a_comment(self, path, line):
-        assert not _scan_one_line(path, line)
+        assert not _scan(path, line)
+
+    @pytest.mark.parametrize(
+        "path",
+        ["a.ts", "a.css", "a.sql", "a.html"],
+    )
+    def test_every_line_of_a_block_comment_is_read(self, path):
+        opener, closer = ("<!--", "-->") if path.endswith(".html") else ("/*", "*/")
+        text = f"x {opener} first line\n  SEC-002: workaround\n{closer} y\nz SEC-003\n"
+        assert [(h.lineno, h.markers) for h in _scan(path, text)] == [(2, ("SEC-002",))]
 
 
 @pytest.mark.skipif(not (fm.REPO_ROOT / ".git").exists(), reason="needs a git checkout")

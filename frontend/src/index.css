@@ -63,9 +63,9 @@
   --destructive-foreground: oklch(0.985 0 0);
   /* Measured contrast (OKLCH→sRGB→WCAG):
      --border 0.88 sits at ~1.4:1 against card/background. Decorative dividers
-     and card edges are not WCAG-1.4.11 "components", so this subtle hairline is
+     and card edges are not WCAG 1.4.11 "components", so this subtle hairline is
      kept intentionally for the instrument-panel look; darkening every card edge
-     to 3:1 is a design decision, not swept here. */
+     to 3:1 is a design decision. */
   --border: oklch(0.88 0.005 85);
   /* --input IS a 1.4.11 component (form-control boundary), so it is brought to
      ≥3:1: L 0.65 measures ~3.1:1 vs card and background. */

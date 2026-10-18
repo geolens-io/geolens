@@ -390,11 +390,20 @@ _REPO_SKIP_RE = re.compile(
     r"|^sdks/typescript/src/client/|api\.generated\.ts$"
 )
 
-# Comment syntax by file type: where a comment starts, and the quotes that
-# hide one. A `#` starts a comment only at the start of a line or after
-# whitespace, `//` not after a `:` (a URL), and a line inside a /* */ block
-# starts with `*`.
-_Syntax = tuple[re.Pattern[str], str]
+
+@dataclass(frozen=True)
+class _Syntax:
+    """How one file type writes comments: a line-comment start, a block
+    comment's open and close, and the quotes that hide either."""
+
+    line: re.Pattern[str] | None
+    block: tuple[str, str] | None
+    quotes: str
+
+
+# A `#` starts a comment only at the start of a line or after whitespace, and
+# `//` not after a `:` (a URL).
+_C_STYLE = _Syntax(re.compile(r"(?<!:)//"), ("/*", "*/"), "'\"`")
 _COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
     (
         re.compile(
@@ -402,35 +411,50 @@ _COMMENT_SYNTAX: tuple[tuple[re.Pattern[str], _Syntax], ...] = (
             r"|(^|/)(Dockerfile[^/]*|Makefile|CODEOWNERS|\.env[^/]*\.example"
             r"|\.(git|docker)ignore)$"
         ),
-        (re.compile(r"(?<!\S)#"), "'\""),
+        _Syntax(re.compile(r"(?<!\S)#"), None, "'\""),
     ),
-    (
-        re.compile(r"\.([cm]?js|tsx?|ql|jsonc|css)$"),
-        (re.compile(r"(?<!:)//|/\*|^\s*\*"), "'\"`"),
-    ),
-    (re.compile(r"\.sql$"), (re.compile(r"--"), "'")),
-    (re.compile(r"\.html$"), (re.compile(r"<!--"), "")),
+    (re.compile(r"\.([cm]?js|tsx?|ql|jsonc)$"), _C_STYLE),
+    (re.compile(r"\.css$"), _Syntax(None, ("/*", "*/"), "'\"")),
+    (re.compile(r"\.sql$"), _Syntax(re.compile(r"--"), ("/*", "*/"), "'")),
+    (re.compile(r"\.html$"), _Syntax(None, ("<!--", "-->"), "")),
 )
 
 
-def comment_text(line: str, syntax: _Syntax) -> str:
-    """The text after the first comment start outside a quoted string, or ""."""
-    start, quotes = syntax
-    quote = None
-    i = 0
-    while i < len(line):
-        char = line[i]
-        if quote:
-            if char == "\\":
-                i += 1
-            elif char == quote:
-                quote = None
-        elif char in quotes:
-            quote = char
-        elif m := start.match(line, i):
-            return line[m.end() :]
-        i += 1
-    return ""
+def comment_lines(text: str, syntax: _Syntax) -> list[str]:
+    """Each line's comment text, "" where it has none. A block comment carries
+    across lines; a quoted string hides comment syntax within its line."""
+    out = []
+    close = None
+    for line in text.splitlines():
+        parts = []
+        quote = None
+        i = 0
+        while i < len(line):
+            if close:
+                j = line.find(close, i)
+                parts.append(line[i:] if j < 0 else line[i:j])
+                if j < 0:
+                    break
+                i, close = j + len(close), None
+                continue
+            char = line[i]
+            if quote:
+                if char == "\\":
+                    i += 1
+                elif char == quote:
+                    quote = None
+            elif char in syntax.quotes:
+                quote = char
+            elif syntax.block and line.startswith(syntax.block[0], i):
+                i += len(syntax.block[0])
+                close = syntax.block[1]
+                continue
+            elif syntax.line and (m := syntax.line.match(line, i)):
+                parts.append(line[m.end() :])
+                break
+            i += 1
+        out.append(" ".join(parts))
+    return out
 
 
 # `main` carries about 850 such files; a listing that silently comes back
@@ -440,9 +464,9 @@ MIN_REPO_FILES = 700
 
 def scan_comment_lines(path: str, text: str, syntax: _Syntax) -> list[Hit]:
     """Unanchored marker-bearing comment lines in a file that is not Python."""
-    lines = [comment_text(line, syntax) for line in text.splitlines()]
     return [
-        Hit(path, offset + 1, "comment", found) for offset, found in _line_hits(lines)
+        Hit(path, offset + 1, "comment", found)
+        for offset, found in _line_hits(comment_lines(text, syntax))
     ]
 
 
