@@ -416,9 +416,9 @@ async def update_publication_status(
         )
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
 
-    # The transition rolls the signed-scope counter, so this
-    # handler dirties the datasets row too and must take both in house order.
-    # Keep this immediately before the writes and after the workflow query.
+    # The transition rolls the signed-scope counter, so this handler dirties the
+    # datasets row too and must take both in house order: after the workflow
+    # query, immediately before the writes.
     await _roll_publication_version(db, dataset)
     if target == "published" and current != "published":
         await _require_publishable(db, dataset)

@@ -108,10 +108,9 @@ router = APIRouter(
 )
 
 
-# Dual-shape decorator: both trailing-slash and no-trailing-slash
-# variants register against the same handler. Slash form stays canonical
-# (already in OpenAPI); no-slash is a hidden alias closing the 404
-# regression introduced by redirect_slashes=False (api/main.py).
+# Dual-shape decorator: the no-slash variant is a hidden alias of the canonical
+# slash form (already in OpenAPI), closing the 404 from redirect_slashes=False
+# (api/main.py).
 @router.get(
     "",
     response_model=DatasetListResponse,
@@ -222,7 +221,6 @@ async def get_single_dataset(
         )
         await db.commit()
 
-    # Fetch collection memberships for detail view
     colls = await get_dataset_collections(db, dataset_id)
     collections_data = [{"id": str(c.id), "name": c.name} for c in colls]
 
@@ -559,10 +557,9 @@ async def _rollback_failed_item(db: AsyncSession, user) -> None:
         await db.refresh(user)
 
 
-# Dual-shape decorator: both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# Dual-shape decorator: the no-slash variant is a hidden alias of the canonical
+# slash form (already in OpenAPI), closing the 404 from redirect_slashes=False
+# (api/main.py).
 @router.post("/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False)
 @router.post("/bulk-delete/", response_model=BulkDeleteResponse)
 async def bulk_delete_datasets_endpoint(
@@ -765,16 +762,15 @@ async def delete_dataset_endpoint(
     await db.commit()
 
     await invalidate_catalog_cache()
-    # Only now is the delete visible to a concurrent tile
-    # request, so only now can the table_name -> metadata map be evicted
-    # without re-caching the deleted row -- that map decides visibility, and
-    # a stale entry would authorize a successor under the deleted dataset's
-    # rules.
+    # Only now is the delete visible to a concurrent tile request, so only now
+    # can the table_name -> metadata map be evicted without re-caching the
+    # deleted row. That map decides visibility; a stale entry would authorize a
+    # successor under the deleted dataset's rules.
     notify_table_invalidated(table_name)
 
-    # After both invalidations -- the reap awaits object
-    # storage, so a slow backend or cancellation would delay/skip them,
-    # leaving search and the tile map serving a deleted dataset until TTL.
+    # After both invalidations: the reap awaits object storage, so a slow
+    # backend or cancellation would delay or skip them and leave search and the
+    # tile map serving a deleted dataset until TTL.
     await _reap_after_commit(deletion)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

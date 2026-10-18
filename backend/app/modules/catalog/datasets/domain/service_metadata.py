@@ -69,17 +69,14 @@ _SUBTYPE_TYPE_EQUIVALENCES = {
 def _normalize_col_type(column: dict) -> str:
     """Normalize one column's reported type for case-insensitive comparison.
 
-    Which vocabulary a value is in depends on the value, not on whether it
-    is the "old" or "new" argument: a reupload preview diffs a PostgreSQL
-    type against an OGR type, but the post-swap drift recompute diffs two
-    PostgreSQL types. Every attribute column's PostgreSQL type reaching
-    this diff is lowercase (a PostGIS geometry column would report the
-    non-lowercase ``USER-DEFINED``, but ``column_info`` excludes those
-    before they get here). Every OGR type name starts with a capital
-    letter, so a lowercase value is already canonical and returned as-is,
-    while a capitalized one maps to the PostgreSQL type ogr2ogr would
-    create for it, honoring a GDAL subtype the driver stores narrower
-    than the bare type.
+    The vocabulary depends on the value, not on which argument it is: a
+    reupload preview diffs a PostgreSQL type against an OGR type, while the
+    post-swap drift recompute diffs two PostgreSQL types. PostgreSQL attribute
+    types reaching this diff are lowercase (PostGIS geometry's
+    ``USER-DEFINED`` is excluded by ``column_info``) and every OGR type name
+    starts with a capital. A lowercase value is returned as-is; a capitalized
+    one maps to the PostgreSQL type ogr2ogr would create, honoring a GDAL
+    subtype the driver stores narrower than the bare type.
     """
     raw_type = column["type"]
     base_type = raw_type.lower()
@@ -138,9 +135,8 @@ def compute_schema_diff(
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
-        # `None` on either side is UNKNOWN, not zero -- coercing
-        # it invented a delta the size of whichever count was known. An
-        # unknown difference is reported as unknown.
+        # `None` on either side is unknown, not zero, so the difference is
+        # reported as unknown.
         "row_count_delta": (
             None
             if old_feature_count is None or new_feature_count is None
@@ -150,7 +146,6 @@ def compute_schema_diff(
 
 
 # Field maps for the simple-assignment portion of update_user_metadata.
-# Module scope so they aren't rebuilt per call.
 _RECORD_FIELD_MAP: dict[str, str] = {
     "title": "title",
     "summary": "summary",

@@ -95,10 +95,10 @@ async def refresh_dropped_join_column(
     """Return the permanent error when the live table lacks the join column.
 
     A column dropped directly in the database stays in ``column_info``, so the
-    relationship list keeps reporting it healthy. The column is dropped from the stored
-    list only when ``may_repair`` says the caller may modify the dataset; a read alone
-    never writes the catalog. Returns ``None`` when the failure is not a
-    dropped join column.
+    relationship list keeps reporting it healthy. The column leaves the stored
+    list only when ``may_repair`` says the caller may modify the dataset; a
+    read alone never writes the catalog. Returns ``None`` when the failure is
+    not a dropped join column.
     """
     if join_column in _INTERNAL_COLUMNS:
         return None

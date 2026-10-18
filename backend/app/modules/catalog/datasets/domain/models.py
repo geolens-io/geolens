@@ -191,7 +191,6 @@ class Record(Base):
         MutableList.as_mutable(ARRAY(Text)), nullable=True
     )
 
-    # Search
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed(
@@ -211,7 +210,6 @@ class Record(Base):
         MutableDict.as_mutable(JSONB), nullable=True
     )
 
-    # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )
@@ -232,7 +230,6 @@ class Record(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationships
     dataset: Mapped["Dataset | None"] = relationship(
         "Dataset",
         back_populates="record",
@@ -452,7 +449,6 @@ class Dataset(Base):
         {"schema": "catalog"},
     )
 
-    # Identity
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
     )
@@ -514,13 +510,12 @@ class Dataset(Base):
     )
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Source info
     source_format: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
     original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 
-    # Source origin & refresh state (ADR-002, #1218). System-managed: none
+    # Source origin & refresh state (ADR-002). System-managed: none
     # is in _DATASET_FIELD_MAP, so metadata PATCH can't reach them.
     # source_url stays user-editable prose beside origin_uri (machine
     # pointer). origin_ref writes go through the key allowlist in
@@ -554,7 +549,6 @@ class Dataset(Base):
         UUID(as_uuid=True), nullable=True
     )
 
-    # Version tracking
     current_version: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
 
     # The data a replacement or restore replaced, kept in the table named by
@@ -616,7 +610,6 @@ class Dataset(Base):
         Boolean, nullable=False, server_default=text("false"), default=False
     )
 
-    # Relationships
     record: Mapped["Record"] = relationship(
         "Record", back_populates="dataset", lazy="joined"
     )

@@ -569,11 +569,9 @@ async def analysis_materialize_endpoint(
             detail="An analysis job is already running; wait for it to finish",
         )
 
-    # Tenant ceiling above the per-user cap. In single-tenant
-    # mode there's one tenant by definition, so the unfiltered count IS the
-    # tenant's. IngestJob.tenant_id is already indexed
-    # (ix_catalog_ingest_jobs_tenant_id), so the multi-tenant filter needs
-    # no schema work.
+    # Tenant ceiling above the per-user cap. Single-tenant mode has one tenant
+    # by definition, so the unfiltered count is the tenant's;
+    # ix_catalog_ingest_jobs_tenant_id serves the multi-tenant filter.
     tenant_stmt = select(func.count()).select_from(IngestJob).where(*active_predicate)
     if is_multi_tenant():
         tenant_stmt = tenant_stmt.where(IngestJob.tenant_id == current_tenant_var.get())

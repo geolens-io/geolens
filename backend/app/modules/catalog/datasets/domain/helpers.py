@@ -338,8 +338,8 @@ def dataset_to_response(
 async def dataset_geom_is_generic(db, table_name: str) -> bool:
     """True when the active tenant table's ``geom`` is generic GEOMETRY.
 
-    Mirrors features/service.py::_geom_column_is_generic (kept
-    here since features already imports from datasets). Keep both in sync.
+    Mirrors features/service.py::_geom_column_is_generic, which is copied here
+    because features already imports from datasets.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var

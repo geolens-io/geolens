@@ -231,15 +231,12 @@ async def get_dataset_detail(
         [dataset.record.created_by, dataset.record.updated_by],
     )
 
-    # Fetch RasterAsset, the VRT member count, and DatasetAsset rows
-    # sequentially on the caller's own session through CatalogPort so catalog
-    # does not import processing-owned raster ORM classes directly.
-    #
-    # AsyncSession is not safe for concurrent use, and giving each branch its
-    # own session would nest a pool checkout on top of the caller's held
-    # connection, exhausting
-    # the default 10+3 pool at ~13 concurrent detail requests. These are
-    # three fast point lookups, so sequential cost is negligible by comparison.
+    # Raster, VRT member count and DatasetAsset lookups run sequentially on the
+    # caller's own session through CatalogPort, so catalog doesn't import
+    # processing-owned raster ORM classes. AsyncSession isn't safe for
+    # concurrent use, and a session per branch would nest a pool checkout on the
+    # caller's held connection, exhausting the 10+3 pool at ~13 concurrent
+    # detail requests. Three fast point lookups cost little sequentially.
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"

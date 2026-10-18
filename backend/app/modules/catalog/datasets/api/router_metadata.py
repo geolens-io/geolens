@@ -322,12 +322,10 @@ async def get_column_values(
             detail="Dataset not found",
         )
 
-    # Visibility check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # Raster/VRT datasets have a synthetic table_name with no
-    # backing data.<table>, so a column query would raise
-    # UndefinedTableError -> 500. Return a fast 404 first instead.
+    # Raster/VRT datasets have a synthetic table_name with no backing
+    # data.<table>; answer 404 instead of an UndefinedTableError 500.
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -377,7 +375,6 @@ async def get_column_stats_endpoint(
             detail="Dataset not found",
         )
 
-    # Visibility check
     await check_dataset_access(db, dataset, dataset_id, user)
 
     try:

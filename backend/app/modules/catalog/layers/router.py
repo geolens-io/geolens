@@ -65,9 +65,8 @@ def _require_data_table(dataset) -> None:
 async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
     """Roll back and map a DDL DB error to the right status. Never returns.
 
-    Classify by SQLSTATE like the feature-write path — a bad
-    request is a 400, an outage a 503 — since add/rename/drop only pre-mapped
-    ValueError.
+    Classified by SQLSTATE like the feature-write path: a bad request is a
+    400, an outage a 503.
     """
     await db.rollback()
     if is_operational(exc):
@@ -75,8 +74,8 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
         )
-    # The SQLSTATE goes to the log, not the response. Interpolating
-    # `exc.orig` published the driver exception and its message to the caller.
+    # Log the SQLSTATE only; `exc.orig` would expose the driver message to the
+    # caller.
     logger.warning(
         "layer.ddl failed", action=action, sqlstate=sqlstate(exc), exc_info=exc
     )

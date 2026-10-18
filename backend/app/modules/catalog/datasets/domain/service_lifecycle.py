@@ -97,9 +97,9 @@ async def _relation_oid(
     so a role that doesn't own the relation could be blind to it; pg_class
     is visible to every role and every relation kind.
 
-    Returns the oid rather than a bare bool so ONE probe answers
-    both questions the delete asks -- whether anything occupies the name,
-    and which relation it is. None is the only "absent" answer.
+    Returns the oid rather than a bool so one probe answers both questions the
+    delete asks: whether anything occupies the name, and which relation it is.
+    None is the only "absent" answer.
     """
     result = await session.execute(
         text(
@@ -171,11 +171,10 @@ async def delete_dataset(
     # while an extra tombstone only requires a new name for registration.
     name_is_freed = True
 
-    # Identity of the relation this delete frees, read while
-    # it's still there. Stays None where no relation held the name -- the
-    # raster/VRT branch (synthetic `raster_<hex>` table_name) and a detach
-    # whose table was already dropped. NULL means "nothing to identify",
-    # never "no owner".
+    # Identity of the relation this delete frees, read while it's still
+    # there. None where no relation held the name (the raster/VRT branch with
+    # its synthetic `raster_<hex>` table_name, or a detach whose table was
+    # already dropped): "nothing to identify", never "no owner".
     relation_oid: int | None = None
 
     # Lock job rows before the table and the pair; a worker
@@ -283,12 +282,11 @@ async def delete_dataset(
         # hold GeoLens-produced artifacts keyed by dataset id, never the
         # operator's table.
         #
-        # Detach leaves the table as REGISTRATION left it (geom_4326
-        # column/index, reader grant, linearization), not untouched --
-        # undoing any of it writes to a relation GeoLens doesn't own, and
-        # is worse than leaving it (linearization isn't reversible; a
-        # column drop rewrites the table for nothing). Re-registering
-        # reapplies all three idempotently.
+        # Detach leaves the table as registration left it (geom_4326
+        # column/index, reader grant, linearization), not untouched: undoing
+        # any of it writes to a relation GeoLens doesn't own, and
+        # linearization isn't reversible. Re-registering reapplies all three
+        # idempotently.
         # Always a GeoLens copy, so it goes in both arms.
         await drop_recorded_previous_version(session, dataset, schema=data_schema)
         # Ahead of the reap, behind the DROP. See the raster branch.
@@ -321,13 +319,12 @@ async def delete_dataset(
             )
         )
     elif relation_oid is not None:
-        # No name was released, so nothing goes in the
-        # retirement set -- recorded HERE or never, since created_by dies
-        # with the record row and the oid dies when the operator drops
-        # the relation. Separate table so no retirement-set reader has to
-        # remember a predicate. `is not None` is belt-and-braces: on this
-        # branch name_is_freed is False because the probe found a
-        # relation, so None here would mean the two answers disagreed.
+        # No name was released, so nothing goes in the retirement set. Recorded
+        # here or never: created_by dies with the record row and the oid dies
+        # when the operator drops the relation. A separate table spares every
+        # retirement-set reader a predicate. `is not None` is belt-and-braces:
+        # name_is_freed is False on this branch because the probe found a
+        # relation, so None would mean the two answers disagreed.
         session.add(
             DetachedRelation(
                 table_name=table_name,
@@ -354,11 +351,10 @@ async def delete_dataset(
         if tile_cache is not None:
             await tile_cache.invalidate_table(table_name)
 
-    # The matching eviction of the tile router's table_name ->
-    # metadata map is NOT here, it is at the two delete endpoints after
-    # their commit -- the DROP above doesn't lock catalog.datasets, so a
-    # concurrent tile request inside this still-open transaction would
-    # re-cache the dataset we just evicted. Only a commit makes it visible.
+    # The tile router's table_name -> metadata map is evicted at the two delete
+    # endpoints after their commit, not here: the DROP above doesn't lock
+    # catalog.datasets, so a concurrent tile request inside this open
+    # transaction would re-cache the dataset just evicted.
 
     # Audit trail for an irreversible operation. The DB-side row deletion is
     # logged by the calling router's audit_emit(), which also reaps storage

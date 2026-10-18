@@ -395,17 +395,16 @@ async def run_analysis_preview(
         count_sql = render_select_by_location_count(
             table_ref, mask_table_ref=mask_table_ref, mask=request.mask
         )
-    # Names of the properties this operation adds, in the order the SELECT
-    # emits them (immediately after gid and the geometry). Must stay in step
-    # with build_preview_sql's extra_cols above — the rows come back positional.
+    # Names of the properties this operation adds, in SELECT order (after gid
+    # and the geometry). The rows come back positional, so this follows
+    # build_preview_sql's extra_cols.
     extra_columns = _preview_extra_columns(request, join_table_ref)
     # Read ORM state before rollback releases the caller's connection.
     # execute_safe needs its own connection for READ ONLY and SET LOCAL ROLE.
     source_feature_count = dataset.feature_count
-    # Whether the cached snapshot above gets overridden by a live count over
-    # the viewport and the source filter. Cheap check only; the count itself
-    # runs inside the _preview_slots block below via execute_safe, which opens
-    # its own connection and has no ordering dependency on the rollback below.
+    # Whether a live count over the viewport and source filter overrides the
+    # cached snapshot above. Cheap check only; the count runs inside the
+    # _preview_slots block below via execute_safe, on its own connection.
     live_count_needed = (
         request.bbox is not None or source_filter is not None
     ) and request.operation not in _ROW_FILTERING_OPERATIONS
@@ -426,10 +425,9 @@ async def run_analysis_preview(
             "Try again in a moment.",
         )
     async with _preview_slots:
-        # The live denominator lives in this slot too, not before it. Read
-        # first, before the geometry query, so a preview whose denominator
-        # loses the race for the sandbox's per-user advisory lock still gets
-        # a geometry result even if the count comes back None.
+        # The live denominator is read in this slot too, and first, so a
+        # preview whose denominator loses the race for the sandbox's per-user
+        # advisory lock still gets a geometry result even if the count is None.
         source_feature_count = (
             await _resolve_live_source_count(
                 db, table_ref, request.bbox, user_id, filter_binds
@@ -445,11 +443,11 @@ async def run_analysis_preview(
             max_result_bytes=DEFAULT_MAX_RESULT_BYTES,
             binds=binds_referenced_by(sql, filter_binds),
         )
-        # Inside the same slot as the geometry query, not after
-        # it -- both open their own sandbox connection, so releasing the
-        # semaphore between them would let _MAX_CONCURRENT_PREVIEWS stop
-        # bounding connections while the uncapped, both-layer count query
-        # is still running (the geometry query stops at PREVIEW_FEATURE_CAP).
+        # Same slot as the geometry query: both open their own sandbox
+        # connection, so releasing the semaphore between them would let
+        # _MAX_CONCURRENT_PREVIEWS stop bounding connections while the uncapped,
+        # both-layer count query still runs (the geometry query stops at
+        # PREVIEW_FEATURE_CAP).
         resolved_match_count = (
             await _resolve_match_count(db, count_sql, user_id, filter_binds)
             if count_sql is not None

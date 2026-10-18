@@ -226,8 +226,8 @@ async def _visible_relationships(
 
     # FK columns store record_id, but dereferenceable endpoints resolve by
     # Dataset.id, so resolve the source's Dataset.id here (dataset_id is its
-    # record_id). Create-input still takes target_dataset_id as a
-    # record_id -- intentional asymmetry, unchanged here.
+    # record_id). Create-input still takes target_dataset_id as a record_id
+    # (intentional asymmetry).
     source_dataset = (
         await session.execute(select(Dataset).where(Dataset.record_id == dataset_id))
     ).scalar_one_or_none()
@@ -548,10 +548,9 @@ async def _fetch_target_rows(
     prop_cols = await live_property_columns(session, target_table)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     table_ref = get_catalog_port().quote_table(target_table)
-    # The match runs against the BASE table, inside the
-    # projection -- a relationship may legitimately target a column the
-    # projection drops (e.g. `geom`/`geom_4326`), and predicating on the
-    # projected alias made such a fetch an undefined-column error.
+    # The match runs against the BASE table, inside the projection: a
+    # relationship may target a column the projection drops (e.g. `geom`,
+    # `geom_4326`), which the projected alias can't be predicated on.
     rows_result = await session.execute(
         text(
             f"SELECT gid, to_jsonb(t.*) - 'gid' AS properties "

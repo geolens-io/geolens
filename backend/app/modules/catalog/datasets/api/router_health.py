@@ -1,14 +1,14 @@
-"""On-demand source-health probe for live-referenced dataset origins (#1222).
+"""On-demand source-health probe for live-referenced dataset origins.
 
-One of two writers of ``datasets.source_health``/``last_checked_at``
-(the other is the refresh executor, #1220). Only ``stac``/``service``
-origins are probeable; everything else 409s rather than returning
-``unknown``, keeping "nothing to probe" distinct from "couldn't tell".
+One of two writers of ``datasets.source_health``/``last_checked_at`` (the
+other is the refresh executor). Only ``stac``/``service`` origins are
+probeable; everything else 409s rather than returning ``unknown``, keeping
+"nothing to probe" distinct from "couldn't tell".
 
-Owner-or-admin, not read-gated: probing is an ACTION (outbound request
-plus a write), so visibility alone would let anyone amplify traffic at
-somebody else's origin. Readers still see the stored state via
-``DatasetResponse`` (#1218); they just can't trigger a re-check.
+Owner-or-admin, not read-gated: probing is an ACTION (outbound request plus a
+write), so visibility alone would let anyone amplify traffic at somebody
+else's origin. Readers still see the stored state via ``DatasetResponse``;
+they just can't trigger a re-check.
 """
 
 from __future__ import annotations
@@ -98,9 +98,9 @@ async def _stac_probe_targets(
 ) -> tuple[str | None, str | None]:
     """Resolve what a STAC probe would contact, on the request's DB session.
 
-    Split from the probing itself so the handler can
-    release its pooled connection before the outbound wait — target
-    resolution is the only part that needs the database.
+    Split from the probing itself so the handler can release its pooled
+    connection before the outbound wait; only target resolution needs the
+    database.
     """
     asset_uri = await _remote_stac_asset_uri(db, dataset.id) or dataset.origin_uri
     item_href = (dataset.origin_ref or {}).get("item_href")

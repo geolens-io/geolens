@@ -1,26 +1,23 @@
 """One-request refresh of a dataset from its stored origin binding.
 
-ADR-002 Decisions 5a, 5b, 5c and 6 (#1220). Re-pulling a service dataset through
-the re-upload dialog means restating the URL, layer, etc. the catalog
-already knows, a chance to state it differently and silently re-point the
-dataset. This door reads the pointer instead: the request body carries no URL, type, or layer, only
-an optional transient credential (see ``platform/refresh/credentials.py``).
+ADR-002 Decisions 5a, 5b, 5c and 6. Re-pulling a service dataset through the
+re-upload dialog means restating the URL and layer the catalog already knows,
+a chance to state it differently and silently re-point the dataset. This door
+reads the pointer instead: the request body carries no URL, type or layer,
+only an optional transient credential (see ``platform/refresh/credentials.py``).
 
-Separate module rather than more of ``router_reupload.py`` (already the
-largest file in the package, at its size cap); shares almost nothing
-with preview/commit beyond two helpers. The admission control, run row,
-and worker dispatch machinery IS deliberately the same
-(``create_pending_run``, with a dedicated verified-refresh task name) -- a
-second admission path is how the two doors end up with different rules.
+Separate from ``router_reupload.py`` (at its size cap); it shares almost
+nothing with preview/commit beyond two helpers. The admission control, run
+row and worker dispatch machinery is deliberately the same
+(``create_pending_run`` with a dedicated verified-refresh task name): a second
+admission path is how two doors end up with different rules.
 
-A second execution strategy sits behind that same
-machinery: one endpoint, one Rule 1 gate, one admission function, one
-run ledger, varying only the binding unpacked and the task deferred.
-Registered PostGIS differs most (no URL, no SSRF check, no credential)
-and still goes through the same
+Each execution strategy sits behind that machinery: one endpoint, one Rule 1
+gate, one admission function, one run ledger, varying only the binding
+unpacked and the task deferred. Registered PostGIS differs most (no URL, no
+SSRF check, no credential) and still goes through the same
 ``create_pending_run``/``defer_with_orphan_guard``/
-``make_ingest_job_failed_rollback`` -- parts that must not have two
-implementations.
+``make_ingest_job_failed_rollback``, which must not have two implementations.
 """
 
 from __future__ import annotations
@@ -228,15 +225,13 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
             # identifier that nothing reads and the next reader would trust.
             layer_name="",
         )
-    # layer_id must carry the identity here too; setting it to None would
-    # respell the binding. `build_gdal_source` ignores
-    # layer_id for WFS/OGC API, but the worker ALSO composes the stored
-    # pointer as `base/layer_id`, same as the import path (probe.py sets
-    # `layer_id = layer["name"]` for these services), so passing None
-    # would rewrite origin_uri/source_url to the bare base on every refresh,
-    # silently respelling a verified-unchanged binding. The duplicate-source
-    # guard matches on origin_uri, so a re-import of the same layer would
-    # stop looking like a duplicate after one refresh.
+    # layer_id must carry the identity here too; None would respell the
+    # binding. `build_gdal_source` ignores layer_id for WFS/OGC API, but the
+    # worker ALSO composes the stored pointer as `base/layer_id`, as the import
+    # path does (probe.py sets `layer_id = layer["name"]`), so None would
+    # rewrite origin_uri/source_url to the bare base on every refresh. The
+    # duplicate-source guard matches on origin_uri, so a re-import of the same
+    # layer would stop looking like a duplicate after one refresh.
     return _ServiceOrigin(
         source_format=stored_format or "",
         service_label=service_label,
@@ -278,23 +273,20 @@ async def _recheck_service_token_after_reservation(
 ) -> None:
     """Catch a marker that APPEARED while the refresh was being reserved.
 
-    A race the pre-reservation guard can't close -- an
-    authenticated re-upload of the same origin can mark the dataset
-    inside the reservation window, after a token-less refresh already
-    read it unmarked, sending dispatch token-less into the worker
-    failure the guard exists to prevent. The post-reservation
-    ``_ServiceOrigin`` equality check can't catch it (auth state
-    changed, not the source), and the marker must not be folded into
-    that dataclass either -- it would answer ``origin_changed``, whose
-    copy tells the caller to check the new source when the fix is a
-    token. So the decision is re-applied here instead.
+    A race the pre-reservation guard can't close: an authenticated re-upload
+    of the same origin can mark the dataset inside the reservation window,
+    after a token-less refresh already read it unmarked, sending dispatch
+    token-less into the worker failure the guard exists to prevent. The
+    post-reservation ``_ServiceOrigin`` equality check can't catch it (auth
+    state changed, not the source), and folding the marker into that dataclass
+    would answer ``origin_changed``, whose copy tells the caller to check the
+    new source when the fix is a token. So the decision is re-applied here.
 
-    No probe: a marker that just appeared was written by an
-    authenticated pull seconds ago -- the strongest evidence possible.
-    A TRANSITION, not a second opinion: ``marked_before`` was already
-    adjudicated by the pre-check (probed ArcGIS, or refused WFS
-    outright), so re-deciding on the marker alone would overturn a
-    healthy probe with no new evidence.
+    No probe: a marker that just appeared was written by an authenticated pull
+    seconds ago, the strongest evidence possible. A TRANSITION, not a second
+    opinion: ``marked_before`` was already adjudicated by the pre-check
+    (probed ArcGIS, or refused WFS outright), so re-deciding on the marker
+    alone would overturn a healthy probe with no new evidence.
     """
     if token or marked_before or not service_auth_required(dataset.origin_ref):
         return
@@ -307,34 +299,32 @@ async def _recheck_service_token_after_reservation(
 async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     """Handle a token-less refresh of an origin whose last pull used a token.
 
-    Returns the dataset to carry forward (re-read if the ArcGIS probe
-    path had to release the session).
+    Returns the dataset to carry forward (re-read if the ArcGIS probe path had
+    to release the session).
 
-    CALLER CONTRACT: the ArcGIS probe path may roll back, expiring EVERY
-    ORM instance in the session -- anything the caller loaded earlier
-    and still needs (including ``user``) must be re-read first.
+    CALLER CONTRACT: the ArcGIS probe path may roll back, expiring EVERY ORM
+    instance in the session; anything the caller loaded earlier and still
+    needs (including ``user``) must be re-read first.
 
-    Refusing here, naming the field that fixes it, beats
-    dispatching a token-less refresh that 202s and fails in the worker.
-    The marker alone isn't proof (the worker can't observe a challenge,
-    so ``auth_required`` just means the last pull used a token, even if
-    the service was public), so where possible the door asks the origin.
+    Refusing here, naming the field that fixes it, beats dispatching a
+    token-less refresh that 202s and fails in the worker. The marker alone
+    isn't proof (the worker can't observe a challenge, so ``auth_required``
+    just means the last pull used a token, even if the service was public),
+    so where possible the door asks the origin.
 
-    ArcGIS is asked, at the same ``<layer>/query`` resource
-    the worker fetches (499/498 = token required/rejected); a healthy
-    answer means a false marker costs one probe, never a refusal. WFS
-    and OGC API Features are refused outright, no probe: their
-    capabilities/landing-page resource is DIFFERENT from what the
-    worker fetches, so a healthy answer there is evidence of nothing.
-    Probing the feature endpoint anonymously is not on the table either:
-    composing a GetFeature/``/items`` request means reproducing the
-    worker's URL-building path, and a wrong one answers 400 and reads
-    as "not an auth problem".
+    ArcGIS is asked at the same ``<layer>/query`` resource the worker fetches
+    (499/498 = token required/rejected); a healthy answer means a false
+    marker costs one probe, never a refusal. WFS and OGC API Features are
+    refused outright, no probe: their capabilities/landing-page resource
+    differs from what the worker fetches, so a healthy answer there is
+    evidence of nothing. Probing the feature endpoint anonymously would mean
+    reproducing the worker's URL-building path, and a wrong URL answers 400
+    and reads as "not an auth problem".
 
     Escape hatch for both: a successful token-less pull rebuilds the ref
-    without the key, and the re-upload dialog still allows one. Only an
-    auth challenge refuses on the ArcGIS path -- every other outcome
-    fails open, since a third party's bad day shouldn't become a refusal.
+    without the key, and the re-upload dialog still allows one. Only an auth
+    challenge refuses on the ArcGIS path; every other outcome fails open,
+    since a third party's bad day shouldn't become a refusal.
     """
     if token or not service_auth_required(dataset.origin_ref):
         return dataset
@@ -398,13 +388,11 @@ class _PostgisOrigin:
 def _resolve_postgis_origin(dataset) -> _PostgisOrigin:
     """Unpack a registered table's binding, or explain why it cannot refresh.
 
-    Same two refusals, and the same distinction between them, as
-    :func:`_resolve_service_origin`: ``refresh_not_applicable`` for a kind
-    with no origin to re-measure, ``origin_unavailable`` for a registered
-    dataset whose binding predates #1218 and carries no table name. The
-    second is recoverable by re-registering the table; the first is not
-    recoverable at all, and telling the two apart is the difference between
-    useful advice and a shrug.
+    Same two refusals as :func:`_resolve_service_origin`:
+    ``refresh_not_applicable`` for a kind with no origin to re-measure,
+    ``origin_unavailable`` for a registered dataset whose binding carries no
+    table name (it predates the field). The second is recoverable by
+    re-registering the table; the first is not.
     """
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
     if origin_kind != "postgis":
@@ -446,15 +434,13 @@ async def _dispatch_postgis_refresh(
 ) -> DatasetRefreshResponse:
     """Admit and dispatch a re-measurement of a registered table.
 
-    The ordering is the service path's, minus the steps that only a remote
-    origin has, and for the same reasons — see the long note in
-    :func:`refresh_dataset`. In particular the binding that gets dispatched is
-    read AFTER the reservation exists, so a re-upload that commits while this
-    request is being admitted cannot have its rebind dispatched from a
-    pre-swap snapshot. There is no SSRF step because there is no URL, and no
-    credential step because there is nothing to authenticate to: the origin is
-    a relation in this database, reached over the connection the request is
-    already using.
+    The ordering is the service path's minus the steps only a remote origin
+    has; see the long note in :func:`refresh_dataset`. The dispatched binding
+    is read AFTER the reservation exists, so a re-upload that commits while
+    this request is being admitted cannot have its rebind dispatched from a
+    pre-swap snapshot. No SSRF step (no URL) and no credential step (the
+    origin is a relation in this database, reached over the request's own
+    connection).
     """
     # A pre-check, exactly as on the service path: it answers the cheap
     # refusals before the admission index is touched. The value that gets
@@ -482,12 +468,12 @@ async def _dispatch_postgis_refresh(
         db,
         created_by=user.id,
         dataset_id=dataset_id,
-        # Deliberately NOT `reupload: True`. That marker means "a task is
+        # Deliberately NOT `reupload: True`: that marker means "a task is
         # replacing this dataset's data", and two pieces of shared SQL key off
-        # it — the legacy-live admission probe and the abandoned-run sweep's
-        # other-live-task clause — both of which reason about swaps this task
-        # never performs. `refresh` alone is the honest marker, and it is the
-        # one the job list already reads to tell a refresh from an import.
+        # it (the legacy-live admission probe and the abandoned-run sweep's
+        # other-live-task clause), both of which reason about swaps this task
+        # never performs. `refresh` alone is the marker the job list reads to
+        # tell a refresh from an import.
         user_metadata={
             "refresh": True,
             "dataset_id": str(dataset_id),
@@ -610,14 +596,11 @@ class _StacOrigin:
 def _resolve_stac_origin(dataset) -> _StacOrigin:
     """Unpack a STAC dataset's binding, or explain why it cannot refresh.
 
-    The same two refusals, with the same distinction, as the two resolvers
-    above: ``refresh_not_applicable`` for a kind with no origin of this
-    shape, ``origin_unavailable`` for a STAC dataset whose binding records no
-    item href — imported before #1222 taught search to capture the
-    ``rel=self`` link, or from a catalog that publishes none. The second is
-    recoverable by re-importing the item; the first is not recoverable at
-    all, and telling them apart is the difference between useful advice and a
-    shrug.
+    The same two refusals as the resolvers above: ``refresh_not_applicable``
+    for a kind with no origin of this shape, ``origin_unavailable`` for a STAC
+    dataset whose binding records no item href (imported before search
+    captured the ``rel=self`` link, or from a catalog that publishes none).
+    The second is recoverable by re-importing the item; the first is not.
     """
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
     if origin_kind != "stac":
@@ -653,14 +636,13 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
     if not states_verifiable_identity(
         item_href=item_href, item_id=item_id, collection_id=collection_id
     ):
-        # Refused here rather than discovered by
-        # the worker, so the caller learns immediately and no run row is
-        # spent. A binding written before the item id was recorded, whose
-        # catalog publishes item URLs that state no identity either, gives a
-        # refresh nothing to check the publisher's answer against — and an
-        # unverified first answer would be adopted AND recorded as durable
-        # truth. Re-importing records the identity and the dataset refreshes
-        # normally thereafter.
+        # Refused here rather than discovered by the worker, so the caller
+        # learns immediately and no run row is spent. A binding written before
+        # the item id was recorded, whose catalog publishes item URLs that
+        # state no identity either, gives a refresh nothing to check the
+        # publisher's answer against, and an unverified first answer would be
+        # adopted AND recorded as durable truth. Re-importing records the
+        # identity.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -1077,22 +1059,21 @@ async def refresh_dataset(
             detail=f"This dataset's stored source URL is not reachable: {exc}",
         ) from exc
 
-    # Placed after the postgis/stac early returns (never fires
-    # for a non-service origin) and after the SSRF block, since its
-    # ArcGIS branch FETCHES the stored URL as a token-less probe. Still
-    # before `create_pending_run`, so a refusal here burns no run row.
+    # After the postgis/stac early returns (never fires for a non-service
+    # origin) and the SSRF block, since its ArcGIS branch FETCHES the stored
+    # URL as a token-less probe. Before `create_pending_run`, so a refusal
+    # burns no run row.
     #
-    # Returns the dataset because its probe path releases the session
-    # across the outbound wait, so the caller must rebind to the re-read
-    # instance (used by `dataset.feature_count`, the post-reservation
-    # `db.refresh`). `candidate` is NOT recomputed: it stays the
-    # pre-check binding, and a rebind during the probe window is exactly
-    # what `origin != candidate` catches with 409 after the reservation.
+    # Returns the dataset because its probe path releases the session across
+    # the outbound wait, so the caller must rebind to the re-read instance
+    # (used by `dataset.feature_count`, the post-reservation `db.refresh`).
+    # `candidate` is NOT recomputed: it stays the pre-check binding, and a
+    # rebind during the probe window is what `origin != candidate` catches
+    # with 409 after the reservation.
     #
-    # `user.id` is captured now since `user` (an `Identity`-satisfying
-    # ORM instance in THIS session) also expires on that rollback, and a
-    # sync lazy load inside a coroutine raises MissingGreenlet rather
-    # than re-querying.
+    # `user.id` is captured now since `user` (an `Identity`-satisfying ORM
+    # instance in THIS session) also expires on that rollback, and a sync lazy
+    # load inside a coroutine raises MissingGreenlet rather than re-querying.
     user_id = user.id
     # What the PRE-CHECK saw, so the post-reservation recheck
     # can tell a marker that appeared in the window apart from one this
@@ -1150,8 +1131,8 @@ async def refresh_dataset(
     await db.flush()
 
     # Admission control and the history row, through the one implementation
-    # `reupload_commit` uses. `trigger="api"` names this door; the CLI issue
-    # (#1227) passes "cli" through the same function.
+    # `reupload_commit` uses. `trigger="api"` names this door; the CLI passes
+    # "cli" through the same function.
     try:
         run = await create_pending_run(
             db,

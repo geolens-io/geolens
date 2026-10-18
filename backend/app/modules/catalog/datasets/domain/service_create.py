@@ -145,8 +145,8 @@ async def create_dataset(
     visibility: str = "private",
     record_status: str = "published",
     ingestion: IngestionResult | None = None,
-    # Legacy kwargs, kept for call sites that still pass ingestion fields
-    # directly. New call sites should use `ingestion=IngestionResult(...)`.
+    # Legacy kwargs for call sites that pass ingestion fields directly; prefer
+    # `ingestion=IngestionResult(...)`.
     srid: int | None = None,
     geometry_type: str | None = None,
     feature_count: int | None = None,
@@ -219,13 +219,12 @@ async def create_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
-        # First ingest IS the first successful materialization,
-        # so stamp it here rather than leaving every dataset reporting null.
-        #
-        # A Python datetime, NOT func.now(): a SQL expression leaves the
-        # attribute EXPIRED after flush, so the next read issues a lazy
-        # SELECT that explodes once the session is closed, exactly where
-        # dataset_to_response reads it. Every stamping site does the same.
+        # First ingest is the first successful materialization, so stamp it
+        # here rather than leaving the dataset reporting null. A Python
+        # datetime, not func.now(): a SQL expression leaves the attribute
+        # expired after flush, and the next read's lazy SELECT fails once the
+        # session is closed, exactly where dataset_to_response reads it. Every
+        # stamping site does the same.
         last_refreshed_at=datetime.now(timezone.utc),
         srid=ing.srid,
         geometry_type=ing.geometry_type,

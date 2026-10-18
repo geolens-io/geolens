@@ -291,17 +291,16 @@ def _assert_compatible_record_type(
     """Raise HTTP 400 when the source is incompatible with dataset.record.record_type.
 
     Called from all three reupload doors (multipart, S3, service preview)
-    after dataset lookup, before pipeline work, so this gives one
-    identical error class instead of a deep-pipeline 500.
+    after dataset lookup, before pipeline work, so this gives one identical
+    error class instead of a deep-pipeline 500.
 
     VRT is rejected here since it's defined by membership, not a file, and
     so is any type that neither a feature table nor a raster asset backs (a
     tileset, a point cloud, an unknown type): none has a replace path.
-    Raster IS supported (#1221), constrained to raster payloads; file paths
+    Raster is supported, constrained to raster payloads; file paths
     additionally reject raster inputs for vector/table datasets.
 
-    Audit action `reupload.commit` is shipped -- see
-    test_provenance_attribution.py. Do not rename to `dataset.reupload`.
+    Audit action `reupload.commit` is pinned by test_provenance_attribution.py.
     """
     record_type: str = dataset.record.record_type
     ext: str = Path(filename or "").suffix.lower()
@@ -936,9 +935,9 @@ def _require_reupload_source(job, is_service_refresh: bool) -> None:
     """Reject a source-less job BEFORE reserving the dataset.
 
     A presigned reupload whose upload never completed has an EMPTY-STRING
-    file_path (not None -- hence the truthiness test) and no source_url.
-    Creating the run first and 400ing after left that reservation active,
-    so a later completed upload hit dataset_busy, unreleasable by the
+    file_path (not None, hence the truthiness test) and no source_url.
+    Creating the run first and 400ing after would leave the reservation
+    active, so a later completed upload hits dataset_busy, unreleasable by the
     sweep for up to the 24-hour bound-job timeout. The queue-time is-None
     check stays as defense in depth.
     """
@@ -954,18 +953,18 @@ async def _refuse_if_origin_changed(
 ) -> None:
     """Refuse a commit whose expected origin is no longer the dataset's.
 
-    `geolens replace` and the re-upload dialog both decide
-    from a SINGLE pre-upload read whether they're replacing a
-    service/STAC/registered-table dataset. Between that read and commit
-    sits an upload, a preview, and a human -- a service/STAC re-upload
-    committing in that window would rebind the dataset invisibly, since
-    the swap always rebinds to `upload` unconditionally.
+    `geolens replace` and the re-upload dialog both decide from a SINGLE
+    pre-upload read whether they're replacing a service/STAC/registered-table
+    dataset. Between that read and commit sits an upload, a preview, and a
+    human; a service/STAC re-upload committing in that window would rebind the
+    dataset invisibly, since the swap always rebinds to `upload`
+    unconditionally.
 
     Called AFTER `create_pending_run`: the one-active-run slot means a
     READ COMMITTED re-read sees any origin change already committed.
     Same `origin_changed` code as the refresh door's re-read
-    (`router_refresh.py`). ``None`` returns immediately: an older
-    CLI/SDK gets the pre-#1768 behaviour.
+    (`router_refresh.py`). ``None`` returns immediately, for an older CLI/SDK
+    that sends no expectation.
     """
     if expected_origin_kind is None:
         return
@@ -1007,12 +1006,11 @@ async def _dispatch_reupload_task(
 ) -> None:
     """Defer the worker task this committed reupload needs.
 
-    Three destinations, one admission gate already reserved by the
-    caller; this only picks the executor and queue. Every branch goes
-    through ``defer_with_orphan_guard`` so a Procrastinate outage flips
-    the job to ``failed`` and finalizes the run instead of leaving a
-    ghost ``pending`` row. Extracted from ``reupload_commit`` when the
-    raster branch (#1221) pushed it past the McCabe gate.
+    Three destinations, one admission gate already reserved by the caller;
+    this only picks the executor and queue. Every branch goes through
+    ``defer_with_orphan_guard`` so a Procrastinate outage flips the job to
+    ``failed`` and finalizes the run instead of leaving a ghost ``pending``
+    row.
 
     ``credential_ref`` is the staged service credential from
     ``resolve_dispatch_credential``, forwarded verbatim; the token itself
@@ -1172,12 +1170,12 @@ async def reupload_commit(
     if request.layer_name is not None:
         job.source_layer = request.layer_name
 
-    # ADR-002 Decision 4b (#1219): the run row is written HERE, before
-    # the task is deferred, not at swap commit -- a worker dying mid-fetch
-    # would otherwise leave no history row at all. `trigger` is `manual`
-    # since a human clicked commit. Decision 5b: the insert is also the
-    # admission gate (partial unique index, one active run per dataset),
-    # refusing a second concurrent commit HERE rather than at the worker.
+    # ADR-002 Decision 4b: the run row is written HERE, before the task is
+    # deferred, not at swap commit -- a worker dying mid-fetch would otherwise
+    # leave no history row at all. `trigger` is `manual` since a human clicked
+    # commit. Decision 5b: the insert is also the admission gate (partial
+    # unique index, one active run per dataset), refusing a second concurrent
+    # commit HERE rather than at the worker.
     is_service_refresh = bool(job.source_url and not job.file_path)
     _require_reupload_source(job, is_service_refresh)
 
@@ -1580,11 +1578,11 @@ async def complete_presigned_reupload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                # Do NOT delete the assembled object -- the
-                # spent upload id means the object's presence is the only
-                # record assembly succeeded, which `should_assemble_multipart`
-                # reads to let a retry skip re-assembly. Deleting it left a
-                # retry 502ing forever with a spent id and no way back.
+                # Do NOT delete the assembled object: the upload id is spent,
+                # so the object's presence is the only record assembly
+                # succeeded, which `should_assemble_multipart` reads to let a
+                # retry skip re-assembly. Deleting it would leave retries
+                # 502ing forever.
                 raise completion_cancel
         except Exception as exc:  # broad: storage providers raise varied SDK errors
             await get_catalog_port().abort_presigned_multipart_upload(

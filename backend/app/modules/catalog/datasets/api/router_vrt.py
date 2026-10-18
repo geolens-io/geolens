@@ -208,7 +208,6 @@ async def get_vrt_status(
                 elapsed_seconds=elapsed,
             )
 
-    # Source health check
     source_rows = await db.execute(
         text("""
             SELECT
@@ -272,14 +271,12 @@ async def get_vrt_status(
                 for row in sources_to_check
             )
         )
-        # A replaced member probes healthy on its own, but the
-        # parent's stored VRT still names the old COG -- surface that as
-        # the member's own "stale" state instead of "fine".
-        # Compares STATE (what the member IS vs what the VRT
-        # was built FROM), not timestamps -- a replacement's `ingested_at`
-        # commits after a concurrent rebuild's read, so a timestamp
-        # comparison can read a healthy member as stale. `built_from` NULL
-        # means older VRTs, which fall back to the timestamp comparison.
+        # A replaced member probes healthy on its own, but the parent's stored
+        # VRT still names the old COG, so report it as "stale". Compares STATE
+        # (what the member is vs what the VRT was built from), not timestamps:
+        # a replacement's `ingested_at` commits after a concurrent rebuild's
+        # read and would read a healthy member as stale. A NULL `built_from`
+        # (older VRTs) falls back to the timestamp comparison.
         built_from = vrt_asset.built_from or None
         built_at = vrt_asset.last_regenerated_at or vrt_asset.ingested_at
         for row, file_exists in zip(sources_to_check, exists_results):
@@ -387,7 +384,6 @@ async def list_vrt_generations(
     )
     total = count_result.scalar() or 0
 
-    # Paginated results
     gen_result = await db.execute(
         select(VrtGeneration)
         .where(VrtGeneration.vrt_dataset_id == dataset_id)

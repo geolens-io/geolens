@@ -889,22 +889,20 @@ async def get_geodcat_ap_record(
 # COG download
 # ---------------------------------------------------------------------------
 
-# A range can be most of a multi-GB COG, so it is read in bounded
-# pieces rather than buffered whole — the same reason the full-object path
-# streams via get_stream(). The chunk size belongs to the provider.
+# A range can be most of a multi-GB COG, so it is read in bounded pieces rather
+# than buffered whole, as the full-object path streams via get_stream(). The
+# chunk size belongs to the provider.
 
-# The byte-range parser lives in `app/platform/http/ranges.py`. The export
-# download at `processing/export/router.py` serves ranges off a stored
-# artifact too, and `processing/` may not import `modules/catalog/`, so the
-# choice was one parser in a shared home or two that agree until one is fixed.
+# The byte-range parser lives in `app/platform/http/ranges.py`: the export
+# download at `processing/export/router.py` serves ranges off a stored artifact
+# too, and `processing/` may not import `modules/catalog/`.
 
 
 # The range read is a single provider call (`get_range_stream`, see
 # `platform/storage/provider.py`), not a loop of `storage.get_range` per
 # chunk: a 5 GiB COG would issue 5,120 object-store requests serially while
 # the rate limiter counted one. The bound belongs in the provider, the only
-# layer that can ask for a window once -- a helper turning one range into N
-# reads has no correct chunk size, only less-wrong ones.
+# layer that can ask for a window once.
 
 
 async def _resolve_download_user(
@@ -935,11 +933,10 @@ async def _resolve_download_user(
     if user is not None:
         return user
 
-    # Check presence (`is not None`), not truthiness -- a bare
-    # `?token=` (empty value) is PRESENT-but-malformed (jwt.decode("")
-    # raises, caught below as 401), not ABSENT. `if qt:` treated it as
-    # absent and fell through to a silent anonymous success on a public
-    # dataset instead of the 401 every other malformed-token case raises.
+    # Check presence (`is not None`), not truthiness: a bare `?token=` (empty
+    # value) is PRESENT-but-malformed (jwt.decode("") raises, caught below as
+    # 401), not ABSENT, and must not fall through to anonymous success on a
+    # public dataset.
     qt = request.query_params.get("token")
     if qt is not None:
         # No audience claim is verified here because
@@ -1267,9 +1264,8 @@ async def download_cog(
 def _managed_key(raster_asset) -> str:
     """The physical storage key for an asset whose bytes this service owns.
 
-    One call site became three when the precondition block had to stat
-    the object before answering, crossing the tenant
-    namespace seam ``resolve_storage_key`` exists to own.
+    Centralized so every stat and read crosses the tenant namespace seam
+    through ``resolve_storage_key``.
     """
     return resolve_storage_key(
         raster_asset.asset_uri, tenant_id=current_tenant_var.get()
@@ -1497,11 +1493,11 @@ async def _cog_size_once(
 ) -> int:
     """The object's size, stat'ing only if the caller has not already.
 
-    The precondition block has to stat before it can
-    answer a 304 — a row whose bytes are gone must 404 whether or not the
-    client sent a validator. Handing that measurement down is what keeps the
-    single-stat property: a conditional
-    request that goes on to transfer bytes still touches object metadata once.
+    The precondition block has to stat before it can answer a 304: a row whose
+    bytes are gone must 404 whether or not the client sent a validator.
+    Handing that measurement down keeps the single-stat property: a
+    conditional request that goes on to transfer bytes still touches object
+    metadata once.
     """
     if already_known is not None:
         return already_known
