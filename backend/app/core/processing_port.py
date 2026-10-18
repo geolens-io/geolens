@@ -441,7 +441,7 @@ class ProcessingPort(Protocol):
     def get_attribute_metadata_orm_class(self) -> type: ...
 
     # The STAC refresh strategy re-reads the item document its
-    # asset was published in, through Rule 2's safe client and the #1222
+    # asset was published in, through Rule 2's safe client and the
     # health classifier — both live in the catalog domain, so the strategy
     # asks for the answer through this port and holds no HTTP client of its
     # own. Returns a ``StacResolution``, typed Any since core/ may not

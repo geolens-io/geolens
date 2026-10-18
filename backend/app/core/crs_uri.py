@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import re
 
-# ── Compiled regex constants (module-level: compiled once, never recompiled) ──
 
 # Forms 1 + 2: OGC CRS84 via HTTP or HTTPS.
 # Trailing slash is optional; case-sensitive by design (OGC URIs are case-sensitive).
@@ -49,21 +48,17 @@ def parse_crs_uri(value: str | None) -> int | None:
     if not value:
         return None
 
-    # Form 1 + 2: OGC CRS84 HTTP/HTTPS → 4326
     if _RE_OGC_CRS84_HTTP.match(value):
         return 4326
 
-    # Form 3: EPSG via HTTP/HTTPS numeric path segment → {N}
     m = _RE_EPSG_HTTP.match(value)
     if m:
         return int(m.group(1))
 
-    # Form 4: EPSG URN → {N}
     m = _RE_EPSG_URN.match(value)
     if m:
         return int(m.group(1))
 
-    # Form 5: OGC CRS84 URN → 4326
     if _RE_OGC_CRS84_URN.match(value):
         return 4326
 

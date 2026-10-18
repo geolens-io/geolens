@@ -8,9 +8,9 @@ from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-# One redactor for every log line carrying a request path,
-# moved to core/ so the two 5xx handlers (which logged the raw path) can
-# use it too. Re-exported here since callers/tests import it from here.
+# One redactor for every log line carrying a request path, shared with the
+# two 5xx handlers via core/. Re-exported here since callers/tests import it
+# from here.
 from app.core.logging_config import safe_access_log_path
 from app.core.service_tokens import reset_registered_credential_secrets
 
@@ -52,9 +52,7 @@ class RequestLoggingMiddleware:
         # function body, since FastAPI resolves dependencies first (one
         # can block on a DB pool checkout up to db_pool_timeout).
         #
-        # ``monotonic``, not ``perf_counter``: both are monotonic and
-        # ns-resolution here, and one read serves both the deadline and
-        # the duration this middleware logs.
+        # One ``monotonic`` read serves both the deadline and the logged duration.
         started_at = time.monotonic()
         request.state.started_at_monotonic = started_at
         response_started = False

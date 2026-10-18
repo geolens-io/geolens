@@ -57,12 +57,10 @@ def install_api_statement_timeout(engine) -> None:
     if getattr(sync_engine, _INSTALLED_ATTR, False) is True:
         return
 
-    # Plain `SET LOCAL`, NOT `SELECT set_config(..., true)`
-    # -- the SELECT form takes the transaction's first snapshot and then
-    # Postgres refuses `SET TRANSACTION ISOLATION LEVEL`/`DEFERRABLE` (25001);
-    # READ ONLY is unaffected either way. `SET` takes no bind parameter, so the
-    # value is interpolated; `timeout_ms` is a validated ge=0 int Settings
-    # field, and the int() round-trip below is the injection guard.
+    # Plain `SET LOCAL`, not `SELECT set_config(...)` (see the module docstring).
+    # `SET` takes no bind parameter, so the value is interpolated; `timeout_ms` is
+    # a validated ge=0 int Settings field, and the int() round-trip below is the
+    # injection guard.
     literal_ms = int(timeout_ms)
     if literal_ms < 0:
         raise ValueError(f"statement timeout must be non-negative, got {literal_ms}")

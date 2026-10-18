@@ -464,9 +464,7 @@ async def get_dataset_collection(
         links=links,
     )
 
-    # Emit OGC collection-serve usage event through the
-    # billing-import-free seam so the cloud overlay can update last_accessed_at.
-    # Best-effort fire-and-forget — errors logged, response unaffected.
+    # Usage event for the cloud overlay (best-effort; errors logged).
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
@@ -735,9 +733,9 @@ async def get_collection_items(
             ),
         )
 
-    # `filter=` is now evaluated server-side (compiled below,
-    # after the cold-rehydrate seam). Filter geometries are WGS84-only —
-    # reject any other filter-crs instead of misinterpreting coordinates.
+    # `filter=` is evaluated server-side (compiled below, after the
+    # cold-rehydrate seam). Filter geometries are WGS84-only: reject any other
+    # filter-crs instead of misinterpreting coordinates.
     if filter_crs is not None and filter_crs != _CRS84_URI:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -795,32 +793,30 @@ async def get_collection_items(
         if _ogc_cold_result is not None:
             return _ogc_cold_result
 
-    # Reuse existing feature service. Pass the cached feature_count so the
-    # pagination COUNT(*) collapses into a constant-time lookup, and honor
-    # include_geometry so clients that don't need geometry avoid the
-    # ST_AsGeoJSON cost. When after_gid is provided, the service uses keyset pagination and
-    # ignores offset.
-    # The raster/VRT guard above only covers datasets that never
-    # had a backing table. A genuinely-missing VECTOR table (cold-evicted /
-    # partial ingest) still raises here; mirror list_features and return
-    # 503, not an unhandled 500 that holds a DB connection.
-    # Compile the CQL2 filter against the live table schema —
-    # the same schema authority the queryables document publishes. This runs
-    # after the cold-rehydrate seam so a cold table warms (202) instead of
-    # misreporting its columns as unknown queryables.
+    # Pass the cached feature_count so the pagination COUNT(*) is a
+    # constant-time lookup, and honor include_geometry so clients that don't need
+    # geometry avoid the ST_AsGeoJSON cost. With after_gid the service uses keyset
+    # pagination and ignores offset.
+    #
+    # The raster/VRT guard above only covers datasets that never had a backing
+    # table. A genuinely-missing VECTOR table (cold-evicted / partial ingest)
+    # still raises here; mirror list_features and return 503, not an unhandled
+    # 500 that holds a DB connection.
+    #
+    # The CQL2 filter compiles against the live table schema, the same authority
+    # the queryables document publishes, after the cold-rehydrate seam so a cold
+    # table warms (202) instead of misreporting its columns as unknown queryables.
     cql2_where: str | None = None
     cql2_binds: list = []
     if filter_expr is not None:
-        # Ordering is deliberate: a parse failure is the caller's bug (400,
-        # no database access); a missing table
-        # yields an empty live schema, and compiling against it would 400
-        # every attribute filter as an unknown property, so table
-        # availability stays the retryable 503; schema-dependent validation
-        # runs last.
+        # Ordering is deliberate: a parse failure is the caller's bug (400, no
+        # database access); a missing table yields an empty live schema, and
+        # compiling against it would 400 every attribute filter as an unknown
+        # property, so table availability stays the retryable 503; schema-dependent
+        # validation runs last.
         filter_ast = parse_feature_cql2(filter_expr, filter_lang)
-        # The schema-introspection queries carry no
-        # caller input, so any database error here is operational — classify
-        # it exactly like the feature query's 503, not a 500.
+        # The schema-introspection queries carry no caller input, so any database
+        # error here is operational: classify it like the feature query's 503.
         try:
             if not await feature_table_exists(db, dataset.table_name):
                 raise HTTPException(
@@ -985,9 +981,7 @@ async def get_collection_items(
         links=links,
     )
 
-    # Emit OGC items-serve usage event through the
-    # billing-import-free seam so the cloud overlay can update last_accessed_at.
-    # Best-effort fire-and-forget — errors logged, response unaffected.
+    # Usage event for the cloud overlay (best-effort; errors logged).
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
@@ -1046,7 +1040,6 @@ async def get_collection_item_feature(
 
     has_geometry = dataset.geometry_type is not None
 
-    # Cold-rehydrate seam — BEFORE feature-by-id query.
     if dataset.table_name and dataset.record:
         _item_cold_tid = current_tenant_var.get(None)
         _item_cold_result = await _check_cold_rehydrate(

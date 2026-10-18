@@ -60,7 +60,6 @@ async def _check_database() -> None:
     from app.core.db import engine  # late-bind for tests
 
     async with engine.connect() as conn:
-        # Cheap connectivity check
         await conn.execute(text("SELECT 1"))
         # Exercise the search_path and catalog schema. `to_regclass` returns
         # NULL rather than raising for a missing table, so the value itself

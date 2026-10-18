@@ -54,7 +54,7 @@ class PublishedDistribution:
 
     Field-compatible with the ``RecordDistribution`` attributes the profile
     serializers read, so each of them maps over this type instead of the ORM
-    rows and no longer resolves URLs itself.
+    rows.
     """
 
     distribution_type: str

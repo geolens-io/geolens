@@ -1,4 +1,4 @@
-"""ADR-002 Decision 3 (#1953): what may become a stored failure reason.
+"""ADR-002 Decision 3: what may become a stored failure reason.
 
 The single enforcement point for the clause "a stored reason string carries
 no raw exception, no URL with query-string credentials, and no GDAL command
@@ -169,7 +169,7 @@ def prefixed_failure_reason(prefix: str, reason: str | BaseException) -> str:
 def coded_failure_reason(prefix: str, exc: BaseException) -> str:
     """A composed reason naming the exception's TYPE, never its message.
 
-    The durable half of #1755's ``DeferFailed.cause_class``
+    The durable half of the ``DeferFailed.cause_class``
     argument. A class name is a Python identifier and can carry no
     credential, so it survives Decision 3 where ``str(exc)`` does not.
     """

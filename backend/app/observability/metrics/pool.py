@@ -10,7 +10,7 @@ these gauges are genuinely per-worker values. Under PROMETHEUS_MULTIPROC_DIR
 every sample by pid, turning one series into N and silently breaking any
 existing alert/dashboard expression that reads the bare metric name. Declare
 'livesum' explicitly so a scrape keeps returning one series -- the fleet-wide
-total across live workers -- matching the metric's pre-fix single-value shape.
+total across live workers.
 """
 
 import asyncio

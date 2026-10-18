@@ -8,15 +8,13 @@ _engine_kwargs: dict = {
     "connect_args": settings.database_connect_args,
     "pool_pre_ping": settings.database_pool_pre_ping,
     "echo": False,
-    # Keep bound parameters out of StatementError.__str__. Without
-    # this, SQLAlchemy renders "[SQL: ...] [parameters: (...)]" into the
-    # exception message that api/main.py's DB error handler logs with a
-    # traceback. The log redactor in core/logging_config.py only rewrites
-    # top-level event_dict keys by name, so it can't see values embedded in
-    # the `exception` string: a connection reset mid-INSERT on catalog.users
-    # would put password_hash, email and username in stdout, and any feature
-    # write would leak arbitrary tenant row data. Statement text still
-    # reaches the log, as the handler's docstring requires.
+    # Keep bound parameters out of StatementError.__str__. Otherwise SQLAlchemy
+    # renders "[SQL: ...] [parameters: (...)]" into the exception message that
+    # api/main.py's DB error handler logs with a traceback, and the log redactor in
+    # core/logging_config.py only rewrites top-level event_dict keys by name: a
+    # connection reset mid-INSERT on catalog.users would put password_hash, email
+    # and username in stdout, and any feature write would leak tenant row data.
+    # Statement text still reaches the log, as the handler's docstring requires.
     "hide_parameters": True,
 }
 

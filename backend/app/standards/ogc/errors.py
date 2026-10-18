@@ -160,10 +160,10 @@ SERVICE_UNAVAILABLE_RESPONSE = {
     "description": "Service unavailable — required publication metadata is missing",
 }
 
-# A 503 from a queue dispatch failure is a different condition
-# from the publication-metadata one above, and the description ships to
-# clients in the committed OpenAPI document and both generated SDKs.
-# Reusing the constant told every SDK consumer the wrong reason.
+# A 503 from a queue dispatch failure is a different condition from the
+# publication-metadata one above; the description ships to clients in the
+# committed OpenAPI document and both generated SDKs, so it must name the
+# right reason.
 QUEUE_UNAVAILABLE_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Service unavailable — the background job queue could not be reached",
@@ -424,9 +424,8 @@ def register_error_handlers(app: FastAPI) -> None:
 
         logger.exception(
             "Unhandled error",
-            # Same capability-in-the-path rule the access log
-            # follows since #821 — without it, a 500 on
-            # /api/maps/shared/{token} would log the token verbatim.
+            # Same capability-in-the-path rule the access log follows: without it, a
+            # 500 on /api/maps/shared/{token} would log the token verbatim.
             path=safe_access_log_path(request.url.path),
             method=request.method,
             query=redact_query_credentials(str(request.url.query))

@@ -336,8 +336,8 @@ async def apply_tenancy_rls(conn) -> None:
 async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> None:
     """Convenience wrapper: open a connection from the global engine and apply RLS.
 
-    Called by ``bootstrap()`` so mode flips require no new migration — the
-    policies are already in the schema and this call enables them at boot.
+    Called by ``bootstrap()``: the policies are already in the schema, so a
+    mode flip needs no migration.
 
     single_tenant: RLS is a no-op regardless (``apply_tenancy_rls`` returns
     before any SQL); only the role check waits on ``GEOLENS_RUNTIME_DB_ROLE``.

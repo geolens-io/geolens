@@ -59,8 +59,8 @@ class DatasetQueryables(BaseModel):
     )
 
 
-# Maps OGC queryable property names to SQLAlchemy model columns.
-# After records+datasets split, shared metadata fields are on Record.
+# Maps OGC queryable property names to SQLAlchemy model columns. Shared
+# metadata fields live on Record.
 FIELD_MAPPING = {
     "title": Record.title,
     "description": Record.summary,
@@ -125,9 +125,9 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid CQL2 expression: {e}",
             )
-        # pygeofilter's json walker raises bare Exception on an
-        # embedded filter-lang key and RecursionError on deep nesting — both
-        # 500'd. Every parse failure on caller input is a 400.
+        # pygeofilter's json walker raises bare Exception on an embedded filter-lang
+        # key and RecursionError on deep nesting; every parse failure on caller input
+        # is a 400.
         try:
             return parse(filter_dict)
         except HTTPException:
@@ -357,7 +357,7 @@ def build_record_schema_response(public_api_url: str) -> dict:
     return schema
 
 
-# Per-dataset feature-collection filtering (OGC Features Part 3, #1614)
+# Per-dataset feature-collection filtering (OGC Features Part 3)
 #
 # The Records collection above filters ORM columns through a static
 # FIELD_MAPPING. Feature collections filter *arbitrary per-dataset data
@@ -388,24 +388,19 @@ MAX_FEATURE_FILTER_LENGTH = 10_000
 # hits the character cap around 2,000 members anyway.
 MAX_FEATURE_FILTER_BINDS = 1_000
 
-# One compiled scanner for the whole bind rename, replacing a
-# per-bind ``re.subn`` over the whole statement — N passes over an O(N)
-# string, which an anonymous caller could turn into seconds of blocking.
-# ``(?<!:)`` skips ``::casts``. The greedy ``\w+`` consumes the whole
-# identifier, so ``:param_1`` can't match the leading half of
-# ``:param_10`` (the property the old loop got from its trailing ``\b``).
-# A non-compiled-bind name is matched and handed straight back, same as
-# the per-key loop's default.
+# One compiled scanner for the whole bind rename: a per-bind ``re.subn`` is N
+# passes over an O(N) string, which an anonymous caller could turn into
+# seconds of blocking. ``(?<!:)`` skips ``::casts``. The greedy ``\w+``
+# consumes the whole identifier, so ``:param_1`` can't match the leading half
+# of ``:param_10``. A name that is not a compiled bind is handed back as is.
 _BIND_NAME_RE = re.compile(r"(?<!:):(\w+)")
 
-# A filter can nest deeper than the interpreter recursion
-# limit while staying inside MAX_FEATURE_FILTER_LENGTH — ``a=1 OR `` is 8
-# chars, so a 10,000-char filter reaches ~1,250 levels against a default
-# limit of 1,000 (measured: an anonymous 500 from depth 1,100).
-# RecursionError subclasses RuntimeError, so it escaped every
-# ValueError-only except clause except ``parse_cql2_filter``, which
-# covers only the parse. Both remaining recursive walks raise it through
-# this same coded 400.
+# A filter can nest deeper than the interpreter recursion limit while staying
+# inside MAX_FEATURE_FILTER_LENGTH: ``a=1 OR `` is 8 chars, so a 10,000-char
+# filter reaches ~1,250 levels against a default limit of 1,000.
+# RecursionError subclasses RuntimeError, so it escapes every ValueError-only
+# except clause except ``parse_cql2_filter``, which covers only the parse. The
+# remaining recursive walks raise it through the same coded 400.
 _FILTER_TOO_DEEP_DETAIL = "Invalid CQL2 expression: filter nests too deeply"
 
 _GEOMETRY_MARKER = "geometry"
@@ -521,9 +516,9 @@ def _finite_coords(obj) -> bool:
 def _finite_geojson(geom) -> bool:
     """True when every coordinate in a GeoJSON geometry dict is finite.
 
-    The JSON normalizer returns geometry dicts verbatim,
-    so a Point with a NaN coordinate slipped past the finiteness rule and
-    compiled to a degenerate geometry that silently matched nothing.
+    The JSON normalizer returns geometry dicts verbatim, so a NaN coordinate
+    would otherwise compile to a degenerate geometry that silently matches
+    nothing.
     """
     if not isinstance(geom, dict):
         return False
@@ -724,7 +719,7 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
 
     Catching type mismatches here turns the mainline user typo (``name > 5``
     on a text column) into a 400 naming the mismatch, instead of a database
-    error surfacing as a misleading 503/500 (QA finding B3). Also normalizes
+    error surfacing as a misleading 503/500. Also normalizes
     tz-aware datetime literals for timestamp-without-tz columns, which asyncpg
     would otherwise refuse at bind time.
     """
@@ -1047,10 +1042,8 @@ def compile_feature_cql2_ast(
         )
 
     binds: list = []
-    # The rendered replacement per compiled bind name, collected
-    # here and applied in the single pass below. Nothing in this loop touches
-    # ``sql``, so the cost of the rename no longer grows with the square of
-    # the bind count.
+    # The rendered replacement per compiled bind name, applied in the single pass
+    # below so the rename cost doesn't grow with the square of the bind count.
     rendered: dict[str, str] = {}
     for i, (key, value) in enumerate(params):
         new_key = f"{bind_prefix}_{i}"
@@ -1063,11 +1056,10 @@ def compile_feature_cql2_ast(
         if bp is None:
             bp = compiled.binds.get(re.sub(r"_\d+$", "", key))
         if bp is not None and isinstance(bp.type, sa_types.REAL):
-            # The asyncpg dialect renders the SAME ::FLOAT bind cast for REAL
-            # as for FLOAT (verified against 2.0.52), and a float8-cast bind
-            # promotes the stored float4 in comparison — 0.1 never matches.
-            # An explicit outer cast is constant-folded at plan time, so the
-            # comparison happens in float4 and stays index-friendly.
+            # Same float8-cast promotion as above (the asyncpg dialect renders the same
+            # ::FLOAT cast for REAL; verified against 2.0.52). An explicit outer cast is
+            # constant-folded at plan time, so the comparison happens in float4 and stays
+            # index-friendly.
             rendered[key] = f"CAST(:{new_key} AS REAL)"
         else:
             rendered[key] = f":{new_key}"
@@ -1096,10 +1088,8 @@ def compile_feature_cql2_ast(
         )
 
     if rendered:
-        # ONE scan. re.sub never rescans what a replacement
-        # emitted, so a new ``:cql2_N`` name cannot be re-matched by a later
-        # bind -- the property the old sequential loop had to detect after the
-        # fact through its per-key count.
+        # ONE scan. re.sub never rescans what a replacement emitted, so a new
+        # ``:cql2_N`` name cannot be re-matched by a later bind.
         seen: dict[str, int] = {}
 
         def _rename(match: re.Match) -> str:
@@ -1111,8 +1101,7 @@ def compile_feature_cql2_ast(
             return replacement
 
         sql = _BIND_NAME_RE.sub(_rename, sql)
-        # Same contract as the per-key ``n != 1`` check this replaced: every
-        # compiled bind must appear in the rendered statement exactly once, or
+        # Every compiled bind must appear in the rendered statement exactly once, or
         # the fragment is not safe to append and the request is refused.
         if any(seen.get(key, 0) != 1 for key in rendered):
             raise HTTPException(

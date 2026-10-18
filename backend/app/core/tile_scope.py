@@ -20,7 +20,7 @@ def tile_signature_scope(resource: str, publication_version: int | None) -> str:
     for a vector one. Folding in ``publication_version`` binds the capability
     to the state that granted it: a publication-status or visibility
     transition rolls that counter, so an unpublish or a move to private
-    retires outstanding signatures with no read on the tile path (#1963).
+    retires outstanding signatures with no read on the tile path.
 
     NOT ``tile_cache_version``, which also rolls on feature edits, column DDL
     and reupload; binding to it would retire every live template on an
@@ -37,10 +37,10 @@ def tile_template_params(
 ) -> dict[str, int]:
     """Return the cache-key query params an emitted tile template carries.
 
-    ``v`` is the content version nginx's raster cache already keys on (#1372).
+    ``v`` is the content version nginx's raster cache already keys on.
     ``pv`` is the publication version: a status or visibility transition rolls
     it, so a template the product emits afterwards cannot read an entry stored
-    before the change (#2007). Neither can hold a credential, which is what
+    before the change. Neither can hold a credential, which is what
     makes them safe cache-key segments.
 
     A falsy ``v`` is omitted, keeping the unversioned form older clients send.
@@ -71,7 +71,7 @@ def republished_tile_url(url: str, publication_version: int | None) -> str:
     """Return a stored tile template carrying the CURRENT publication version.
 
     A ``record_distributions`` row is written once at ingest, so it cannot hold
-    a value that rolls (#2007). A feed republishes the row's template with the
+    a value that rolls. A feed republishes the row's template with the
     dataset's counter instead of as stored, which is the same reason the raster
     template is synthesized per request rather than persisted.
 

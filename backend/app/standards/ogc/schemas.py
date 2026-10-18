@@ -37,7 +37,6 @@ class ConformanceResponse(BaseModel):
     )
 
 
-# Per-dataset collection metadata per OGC API Features
 class OGCCollectionMetadata(BaseModel):
     """Per-dataset collection metadata per OGC API Features."""
 
@@ -67,7 +66,6 @@ class OGCCollectionMetadata(BaseModel):
     )
 
 
-# Feature collection response for /collections/{id}/items
 class OGCFeatureItemsResponse(BaseModel):
     """FeatureCollection response as defined by OGC API - Features."""
 
@@ -88,7 +86,6 @@ class OGCFeatureItemsResponse(BaseModel):
     links: list[OGCLink] = Field(description="Pagination and self-reference links.")
 
 
-# Single feature response for /collections/{id}/items/{featureId}
 class OGCSingleFeatureResponse(BaseModel):
     """Single GeoJSON Feature response."""
 

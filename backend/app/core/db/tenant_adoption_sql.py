@@ -8,8 +8,7 @@ stay separately readable — a faithful port of
 against that file rather than the surrounding Python. Historical migrations
 must stay self-contained, so this is a port, not an import.
 
-Three deliberate divergences from 0019, all because the head schema moved
-(#998):
+Three deliberate divergences from 0019, all because the head schema moved:
 
 - Migration 0024 removed the object-ACL pass 0019 relied on (parking every
   tenant relation on the provisioner). Relations now move straight to the
@@ -112,9 +111,8 @@ _MEMBERSHIP_SET_ONLY = """(
 #: identity column (dependency ``i``). Postgres refuses ``ALTER SEQUENCE …
 #: OWNER TO`` on those ("cannot change owner of sequence") and moves them with
 #: their table instead, so the transfer must skip them and let ``ALTER TABLE``
-#: carry them. 0019 did not exclude them, so the ordinary ``ogr2ogr`` output
-#: of a vector ingest — every ``ogc_fid`` serial — would have stopped its
-#: adoption loop dead.
+#: carry them. 0019 did not exclude them, which would stop the adoption loop on
+#: the ordinary ``ogr2ogr`` output of a vector ingest (every ``ogc_fid`` serial).
 _COLUMN_OWNED_SEQUENCE = """(
           relation.relkind = 'S'
           AND EXISTS (

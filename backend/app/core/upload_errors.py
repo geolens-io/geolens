@@ -31,8 +31,8 @@ def geometry_loss_refusal(
 ) -> str | None:
     """The refusal when a replacement would strip a vector dataset's geometry.
 
-    A geometry-less CSV over a vector dataset committed with no
-    warning and reclassified it ``table`` — the cross-record-type swap the
+    A geometry-less CSV over a vector dataset would otherwise commit with no
+    warning and reclassify it ``table``, the cross-record-type swap the
     re-upload doors already refuse when they can read it off an extension.
 
     Both dataset facts are read: ``record_type`` is derived from the measured

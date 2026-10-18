@@ -99,10 +99,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await self._dispatch(request, call_next)
-        # One call at the one exit. Every representation this
-        # middleware returns is origin-dependent, so the declaration
-        # belongs here — two of the four policy-writer branches return
-        # without calling it, which would silently skip it otherwise.
+        # One call at the one exit: every representation this middleware returns is
+        # origin-dependent, and two of the four policy-writer branches return without
+        # calling it.
         _merge_vary_origin(response)
         return response
 
@@ -117,11 +116,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
         origin = request.headers.get("origin")
 
-        # No origin header -- not a CORS request, pass through
         if not origin:
             return await call_next(request)
 
-        # Resolve allowed origins (in-memory cache avoids pool checkout)
         allowed = await self._is_origin_allowed(origin)
 
         if not allowed:
@@ -143,16 +140,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
                 self._set_public_cors_headers(response, request, allow_methods)
                 return response
 
-            # Origin not permitted -- pass through without CORS headers.
             return await call_next(request)
 
-        # Preflight (OPTIONS)
         if request.method == "OPTIONS":
             response = Response(status_code=status.HTTP_200_OK)
             self._set_cors_headers(response, origin)
             return response
 
-        # Normal request -- call downstream, add CORS headers to response
         response = await call_next(request)
         self._set_cors_headers(response, origin)
         return response
@@ -165,7 +159,6 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if now - cached_at < _ORIGINS_CACHE_TTL:
             return origin in cached_origins
 
-        # Cache miss — need a DB session
         from app.core.db import async_session
         from app.core.persistent_config import CORS_ALLOWED_ORIGINS
 
@@ -190,14 +183,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     def _set_cors_headers(response: Response, origin: str) -> None:
         """Add standard CORS headers to the response.
 
-        HEAD, conditional/range headers are here because
-        #1528 gave the COG download route HEAD, byte ranges, ``ETag``,
-        and ``If-Range`` — without these a preflight was refused and JS
-        couldn't read ``ETag``/``Content-Range`` (unexposed = invisible).
-        ``Range`` is listed despite Fetch's safelist since pairing with
-        ``If-Range`` forces a preflight anyway; ``Content-Length`` is NOT
-        listed since it's already safelisted.
-        ``tests/test_cors_range_headers_1540.py`` reads the download
+        HEAD and the conditional/range headers are listed because the COG
+        download route serves HEAD, byte ranges, ``ETag`` and ``If-Range``;
+        without them a preflight is refused and JS couldn't read
+        ``ETag``/``Content-Range`` (unexposed = invisible). ``Range`` is listed
+        despite Fetch's safelist since pairing with ``If-Range`` forces a
+        preflight anyway; ``Content-Length`` is NOT listed since it's already
+        safelisted. ``tests/test_cors_range_headers_1540.py`` reads the download
         route's own source and fails if either list here misses a header.
 
         Echoes the caller's origin, so ``dispatch`` merges

@@ -67,10 +67,9 @@ _sync_rate_limit_cache: dict[str, tuple[Any, float]] = {}
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
 _DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
-# Ceiling for the OGC Features `limit` page size. Conservative by default
-# (#665 review): the offset path is O(N) in memory on an anonymous endpoint,
-# so a low default protects resource-limited deployments; operators raise
-# it from the dashboard for bulk export.
+# Ceiling for the OGC Features `limit` page size. Conservative by default:
+# the offset path is O(N) in memory on an anonymous endpoint, so a low default
+# protects resource-limited deployments; operators raise it for bulk export.
 _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 1000
 
 
@@ -284,9 +283,9 @@ class PersistentConfig(Generic[T]):
 
         self._on_change(value)
 
-        # Warm the sync cache with the NEW value — set() only ever
-        # warmed it with the OLD value (via get(db) above), so slowapi kept
-        # enforcing the previous limit for up to _CACHE_TTL per process.
+        # Warm the sync cache with the NEW value; set() warmed it with the OLD
+        # one (via get(db) above), so slowapi would keep enforcing the previous
+        # limit for up to _CACHE_TTL per process.
         self._update_sync_cache(value)
 
     async def reset(
@@ -352,10 +351,8 @@ class PersistentConfig(Generic[T]):
         if self.key in (
             "login_rate_limit",
             "global_rate_limit",
-            # Also warm the cache for the two new
-            # rate-limit knobs so DB-overridden values are picked up by slowapi
-            # at request time. Without these entries, get_cached_*_rate_limit()
-            # always fell through to _DEFAULT_* and ignored admin-set values.
+            # Also warm the two rate-limit knobs so slowapi picks up DB-overridden
+            # values at request time instead of falling through to _DEFAULT_*.
             "semantic_search_rate_limit",
             "basemap_proxy_rate_limit",
         ):
@@ -377,9 +374,9 @@ async def apply_side_effects_batch(
     Scope: this makes the WRITER atomic, not a reader — two separate
     ``get`` calls can still straddle this step and see one key's new value
     against another's cached-old one. ``get_uncached`` is the per-key
-    opt-out (#1539); the embedding endpoint has no uncached variant yet, so
-    it can still lag by a full ``_CACHE_TTL`` regardless of this eviction —
-    closing that needs the read protocol widened, not another eviction fix.
+    opt-out; the embedding endpoint has no uncached variant yet, so it can
+    still lag by a full ``_CACHE_TTL`` regardless of this eviction. Closing
+    that needs the read protocol widened, not another eviction fix.
     """
     if not items:
         return
@@ -416,7 +413,7 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 # When self-serve registration is ON, email verification is the
 # activation gate. Default True for the secure path; independent of
 # REGISTRATION_ENABLED, which gates availability, not activation.
-# SECURITY (#267): with SMTP, this is NOT username-enumeration-safe — the
+# SECURITY: with SMTP, this is NOT username-enumeration-safe — the
 # /auth/register response is uniform, but a verification email sends only
 # when the identity was free, letting a registrant infer it out-of-band.
 # Mitigated by /register rate limiting, not eliminated.
@@ -1035,8 +1032,7 @@ TILE_CACHE_TTL = PersistentConfig[int](
     label="Tile Cache TTL (s)",
 )
 
-# Import default basemaps/map-defaults from the existing router constants
-# to avoid circular imports, define them inline
+# Defined inline to avoid a circular import of the router constants.
 _DEFAULT_BASEMAPS = [
     {
         "id": "openfreemap-positron",
@@ -1091,7 +1087,6 @@ MAP_DEFAULTS = PersistentConfig[dict[str, float]](
 )
 
 
-# -- Plugins --
 ENABLED_PLUGINS = PersistentConfig[list[str] | None](
     key="enabled_plugins",
     type_=list[str] | None,

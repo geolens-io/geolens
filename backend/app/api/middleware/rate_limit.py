@@ -39,10 +39,10 @@ def find_route_handler(
         return handler
     from fastapi.routing import iter_route_contexts
 
-    # Route regexes never include the ASGI root_path; starlette's own
-    # matching strips it too (starlette._utils.get_route_path, mirrored here
-    # to avoid the private import). Without this, ROOT_PATH deployments
-    # would silently lose the global rate limit (#747).
+    # Route regexes never include the ASGI root_path; starlette's own matching
+    # strips it too (starlette._utils.get_route_path, mirrored here to avoid the
+    # private import). Without this, ROOT_PATH deployments would silently lose the
+    # global rate limit.
     path = scope.get("path", "")
     root_path = scope.get("root_path", "")
     if root_path and path.startswith(root_path):

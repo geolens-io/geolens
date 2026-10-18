@@ -115,9 +115,9 @@ def has_url_credentials(url: str) -> bool:
     try:
         parts = urlsplit(url)
     except ValueError:
-        # Mirrors #1119. Caller (_metadata_contains_secret) calls
-        # this outside its try block, so a raise is an unhandled 500. Return
-        # True, not False: "can't parse" must refuse, never silently admit.
+        # Caller (_metadata_contains_secret) calls this outside its try block, so a
+        # raise is an unhandled 500. Return True, not False: "can't parse" must
+        # refuse, never silently admit.
         return True
     return bool(parts.username or parts.password) or query_has_credentials(parts.query)
 
@@ -164,11 +164,10 @@ def redact_query_credentials(query: str) -> str:
 _UNPARSED_USERINFO_RE = re.compile(r"//[^/?#]*@")
 _UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#]+)=([^&#]*)")
 
-# Urlsplit deletes \t\r\n from anywhere in the string
-# before parsing (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`); every reader here
-# must strip them too or it scrubs a different string than urlsplit saw —
-# this gap let a credential through past a stray control char in the GDAL-
-# stderr path. Cost accepted: a multi-line blob collapses to one line.
+# Urlsplit deletes \t\r\n from anywhere in the string before parsing (CPython's
+# `_UNSAFE_URL_BYTES_TO_REMOVE`); every reader here must strip them too or it
+# scrubs a different string than urlsplit saw. Cost accepted: a multi-line
+# blob collapses to one line.
 _URLSPLIT_STRIPS = ("\t", "\r", "\n")
 
 
@@ -473,9 +472,9 @@ def _secret_variants(secret: str) -> list[str]:
     cleartext prose ("bad password for alice") rather than the base64 blob,
     so the decoded username/password join the variants too.
     """
-    # No length floor here or on the secret: an earlier floor
-    # silently stopped scrubbing short-but-valid credentials
-    # (e.g. an 8-char API key). Under-scrubbing a valid secret is not a trade.
+    # No length floor here or on the secret: a floor would silently stop
+    # scrubbing short-but-valid credentials (e.g. an 8-char API key).
+    # Under-scrubbing a valid secret is not a trade.
     forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
     if separator and tail:

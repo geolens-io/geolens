@@ -32,11 +32,10 @@ EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
 
 
-# `LocalStorageProvider.put`'s write-through scratch
-# pattern (`<name>.<32 hex>.tmp`). A SIGKILL/OOM/power loss skips the normal
-# cleanup and leaves residue under any prefix (COGs, originals, VRTs, map
-# assets); only the export cache used to know this pattern and only scanned
-# its own prefix, so everything else leaked.
+# `LocalStorageProvider.put`'s write-through scratch pattern
+# (`<name>.<32 hex>.tmp`). A SIGKILL/OOM/power loss skips the normal cleanup
+# and leaves residue under any prefix (COGs, originals, VRTs, map assets), not
+# only the export cache's.
 _LOCAL_TMP_RE = re.compile(r"\.[0-9a-f]{32}\.tmp$")
 
 # The local extract of a protected OGC API
@@ -54,8 +53,7 @@ _OAPIF_ITEMS_RE = re.compile(
 )
 
 # Every scratch name this codebase creates under the staging root. A new one
-# belongs HERE, in the same commit that starts writing it (the leak class r28
-# closed).
+# belongs HERE, in the same commit that starts writing it.
 #
 # NOT included: `gdal_auth_*.hdr` — lives on the container tmpfs under
 # `GDAL_HEADER_DIR`, never the staging root; `sweep_stale_gdal_header_files`
@@ -109,11 +107,11 @@ def sweep_orphaned_write_scratch_occasionally(
 ) -> int:
     """``sweep_orphaned_write_scratch``, at most once per horizon per process.
 
-    Unguarded, this rode the credential sweeper's 300s
-    cadence, so every replica did a full O(everything stored) recursive walk
-    every five minutes to find nothing eligible before the four-hour horizon.
-    The interval IS the horizon (from the same argument, so they can't drift
-    apart); worst-case retention is two horizons instead of one.
+    Guarded so replicas don't each do a full O(everything stored) recursive
+    walk on the credential sweeper's 300s cadence to find nothing eligible
+    before the four-hour horizon. The interval IS the horizon (from the same
+    argument, so they can't drift apart); worst-case retention is two horizons
+    instead of one.
     """
     global _last_scratch_sweep_at
     now = time.time()
@@ -250,9 +248,9 @@ GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
 # current default; set explicitly so a later default change can't silently
 # widen what the credential follows.
 #
-# NOT `GDAL_HTTP_FOLLOWLOCATION` (#937) — not a real GDAL option, never
-# stopped a redirect, must never be re-added anywhere. This IS a real option,
-# read by GDAL's /vsicurl and http drivers.
+# NOT `GDAL_HTTP_FOLLOWLOCATION`: not a real GDAL option, never stopped a
+# redirect, must never be re-added anywhere. This IS a real option, read by
+# GDAL's /vsicurl and http drivers.
 GDAL_HEADER_FILE_REDIRECT_ENV: dict[str, str] = {
     "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT": "IF_SAME_HOST",
 }

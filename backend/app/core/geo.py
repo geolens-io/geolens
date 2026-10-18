@@ -148,17 +148,17 @@ def extent_to_span_bbox(extent: object | None) -> list[float] | None:
 # Shared floor for any float comparison gating a longitude shift,
 # re-frame, or domain choice. +/-360 round-trips disagree by ~1e-14 degrees on
 # the same edge, and a bare `<` lets that noise move geometry by a third of a
-# world (hit in ``_narrower_domain`` #886/#928, the VRT frame chooser/rewrite).
+# world (hit in ``_narrower_domain`` and the VRT frame chooser/rewrite).
 LON_EPSILON_DEGREES = 1e-9
 
 
 def extent_lon_span(extent: object | None) -> float | None:
     """Longitudinal width of an extent in degrees, honest across ±180.
 
-    Companion to :func:`extent_to_span_bbox`, which reports the
-    over-broad -180..180 for a crossing extent -- ``maxx - minx`` on that then
-    understated a 10°-wide Pacific raster's resolution by 36x and cost it five
-    zoom levels. Reads the ``west > east`` pair instead and closes it short way.
+    Companion to :func:`extent_to_span_bbox`, which reports the over-broad
+    -180..180 for a crossing extent; ``maxx - minx`` on that would understate a
+    10°-wide Pacific raster's resolution by 36x. Reads the ``west > east`` pair
+    instead and closes it the short way.
     """
     bbox = extent_to_bbox(extent)
     if bbox is None:
@@ -401,7 +401,7 @@ async def seam_extent_wkt_for_table(
 ) -> str | None:
     """Two-ring extent WKT for a data table that honestly crosses ±180, else None.
 
-    producer-side twin of :func:`rollup_bbox` for the per-dataset
+    Producer-side twin of :func:`rollup_bbox` for the per-dataset
     extent writers. A naive ``ST_Extent`` over a Pacific-crossing table reads
     near-global (150..250 shifted folds to -170..170, 340 degrees for a
     100-degree footprint); this aggregates both longitude domains via
@@ -674,9 +674,9 @@ async def unknown_srid_refusal(
 ) -> str | None:
     """The refusal when a caller-supplied SRID is in neither EPSG registry.
 
-    Both commit doors and the manifest accepted an unassigned EPSG
-    code, then ingested under the DETECTED CRS instead — the coordinates were
-    read under a system nobody asked for, with no note in the response.
+    An unassigned EPSG code would otherwise ingest under the DETECTED CRS,
+    reading the coordinates under a system nobody asked for with no note in
+    the response.
 
     Both registries count, because both consume the value:
     a vector override reaches PostGIS ``ST_Transform``, a raster one reaches
@@ -732,9 +732,7 @@ def _parse_crs(crs_wkt: str) -> object | None:
 def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     """Classify a CRS WKT as geographic (lon/lat axes) or projected.
 
-    The frontend rendered geographic-CRS pixel resolutions as
-    meters ("60 arc-second" ETOPO showed "2 cm"). Unclassifiable/engineering/
-    local/unknown CRSs return None.
+    Unclassifiable/engineering/local/unknown CRSs return None.
 
     PROJ decides whenever it can parse the WKT. The keyword sniff
     below is the fallback for WKT PROJ rejects (abbreviated/truncated/legacy).
@@ -951,10 +949,8 @@ def pixel_size_from_affine(
     along the row axis by ``(b, e)``. The LENGTHS of those two vectors are the
     resolutions; ``a`` and ``e`` alone are their projections onto x and y.
 
-    Rotate a 10 m-pixel raster by 30° and the affine reads ``a=8.66, d=5.0``:
-    ``abs(a)`` reports 8.66 m, a 13% understatement that reaches the UI and
-    STAC's ``gsd``. Confirmed against the distance between adjacent pixel
-    centres, which is 10.0.
+    Rotate a 10 m-pixel raster by 30° and ``abs(a)`` reports 8.66 m, a 13%
+    understatement that reaches the UI and STAC's ``gsd``.
 
     For an axis-aligned raster ``b`` and ``d`` are zero and this returns
     exactly ``abs(a)``/``abs(e)``. Both raster ingest paths call this so a

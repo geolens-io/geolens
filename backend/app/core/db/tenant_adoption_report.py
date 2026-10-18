@@ -1,15 +1,14 @@
 """Report types and verdicts for :mod:`app.core.db.tenant_adoption`.
 
-Split out at the module's existing boundary: this module is what adoption
-*found* (boundary function state, fixed cluster roles, tenant ownership,
-row-security posture) plus the predicate deciding whether anything is left to
-do and the text an operator reads. :mod:`app.core.db.tenant_adoption` is what
-adoption *does* — the queries, the DDL, the CLI.
+This module holds what adoption *found* (boundary function state, fixed cluster
+roles, tenant ownership, row-security posture), the predicate deciding whether
+anything is left to do, and the text an operator reads.
+:mod:`app.core.db.tenant_adoption` is what adoption *does*: the queries, the
+DDL, the CLI.
 
 ``AdoptionReport.ok`` sits next to what it consults deliberately: it is the
-process exit code, so every printable condition must reach it. A report could
-say something is broken while the
-check still exited 0.
+process exit code, so every printable condition must reach it, or a report
+could say something is broken while the check still exited 0.
 """
 
 from __future__ import annotations

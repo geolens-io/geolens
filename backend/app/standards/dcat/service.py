@@ -356,7 +356,6 @@ def record_to_dcat(
     if distributions:
         result["dcat:distribution"] = [_distribution_to_dcat(d) for d in distributions]
 
-    # Temporal extent
     if record.temporal_start or record.temporal_end:
         temporal: dict = {"@type": "dcterms:PeriodOfTime"}
         if record.temporal_start:
@@ -365,7 +364,6 @@ def record_to_dcat(
             temporal["dcat:endDate"] = record.temporal_end.isoformat()
         result["dcterms:temporal"] = temporal
 
-    # Spatial extent
     spatial_extent = shown_extent(record, dataset.id, vrt_extents)
     if spatial_extent is not None:
         from app.core.geo import extent_to_span_bbox
@@ -375,7 +373,7 @@ def record_to_dcat(
         # becomes the complementary 340°. Take the monotonic span, so a
         # seam-crossing extent serializes over-broad (-180..180) but honest.
         # extent_to_span_bbox swallows geoalchemy/shapely parse failures and
-        # returns None, which degrades to no dcterms:spatial as before.
+        # returns None, which degrades to no dcterms:spatial.
         bounds = extent_to_span_bbox(spatial_extent)
         if bounds is None:
             logger.debug(
@@ -393,7 +391,6 @@ def record_to_dcat(
                 ),
             }
 
-    # Theme categories
     if record.theme_category:
         result["dcat:theme"] = [
             {

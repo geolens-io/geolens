@@ -297,18 +297,14 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
 
 
 async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
-    """Sweep exports/ in a worker thread; log only when something was removed
-    (quiet on a no-op cycle, like the sibling branches in
-    ``_stale_jobs_sweeper``). Split out so this branch doesn't push
-    ``lifespan``'s McCabe complexity over its gate.
+    """Sweep exports/ in a worker thread; log only when something was removed.
 
-    Uses ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS``, not the
-    boot-time callers' default — this runs continuously on a short cadence,
-    so it needs a wider safety margin before treating a directory as
-    abandoned. Runs via ``run_in_thread_draining``, not inline and not a bare
-    ``asyncio.to_thread``: this runs on a live server, so inline would stall
-    request handling during ``shutil.rmtree``; draining lets a graceful
-    shutdown wait for an in-flight rmtree instead of abandoning it mid-write.
+    Split out to keep ``lifespan`` under the McCabe gate. Uses
+    ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS``, not the boot-time default: this runs
+    continuously on a short cadence and needs a wider safety margin before
+    treating a directory as abandoned. Runs via ``run_in_thread_draining`` so
+    ``shutil.rmtree`` doesn't stall request handling and a graceful shutdown
+    waits for an in-flight rmtree instead of abandoning it mid-write.
     """
     deleted, _ = await run_in_thread_draining(
         _sweep_orphaned_exports_periodic, exports_dir
@@ -324,8 +320,8 @@ def install_api_query_deadline() -> None:
     directly via ``async_session()`` in 20+ modules, so binding it in
     ``get_db`` would leave those with no deadline. Called at import
     (covers transactions before lifespan runs) and again from the
-    lifespan (idempotent; covers a rebound test engine). Engine is
-    late-bound for the same reason.
+    lifespan (idempotent; covers a rebound test engine, which is also why
+    the engine is late-bound).
 
     The worker never imports this module, so its engine keeps no
     deadline on purpose — it runs single statements for minutes.
@@ -343,8 +339,7 @@ install_api_query_deadline()
 async def lifespan(app: FastAPI):
     from app.core.db import engine  # late-bind for tests
 
-    # Idempotent re-install against `app.core.db.engine` now —
-    # covers a test fixture that rebound it since import time.
+    # Idempotent re-install; covers a test fixture that rebound the engine.
     install_api_query_deadline()
 
     for attempt in range(1, 4):
@@ -384,17 +379,14 @@ async def lifespan(app: FastAPI):
     # there and flushed here into the configured stream.
     emit_startup_notices()
 
-    # Shared bootstrap — extension load, enterprise-overlay-requested check,
-    # edition init, extension router include, storage + S3 health probe, billing
-    # on_startup dispatch, cache init. bootstrap() is the single source of truth
-    # for this sequence; both API and worker delegate here to prevent drift.
+    # Shared bootstrap (extension load, overlay check, edition init, storage/S3
+    # probe, billing on_startup, cache init); the worker delegates to it too.
     await bootstrap(app=app)
 
-    # Run the same affirmative port assertion the worker runs
-    # (worker.py) so both entrypoints fail closed together. Without it, a
-    # license-key activation with a missing overlay would crash the worker while
-    # the API kept serving on Default community ports — the API-up/worker-down
-    # split-brain this check exists to prevent. No-op in community/single-tenant.
+    # Same affirmative port assertion the worker runs, so both entrypoints fail
+    # closed together: a license-key activation with a missing overlay would
+    # otherwise crash the worker while the API kept serving on community ports.
+    # No-op in community/single-tenant.
     assert_enterprise_ports_resolved()
 
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
@@ -744,13 +736,10 @@ _OPENAPI_TAGS = [
 _is_production = settings.is_production
 
 
-# Version is read from the installed backend distribution metadata
-# (backend/pyproject.toml [project].version) rather than a hand-maintained
-# literal, so `make version-check` can enforce that all version sites agree.
-#
-# Fallback below covers running from a source checkout with no `uv pip
-# install -e .` (no metadata to read); keep it in lockstep with
-# pyproject.toml — `make bump` rewrites it.
+# Read from the installed backend distribution metadata so
+# `make version-check` can enforce that all version sites agree. The fallback
+# below covers a source checkout with no `uv pip install -e .`; `make bump`
+# rewrites it.
 _FALLBACK_APP_VERSION = "1.26.0"
 
 
@@ -957,7 +946,6 @@ app.add_exception_handler(DBAPIError, _database_error_handler)
 # that spawns a separate task, so a route handler's ContextVar
 # (credential-secret registry, core/service_tokens.py) never propagates back
 # out. Innermost, it scrubs an unhandled exception before any layer reads it.
-# See this middleware's own docstring.
 app.add_middleware(CredentialScrubASGIMiddleware)
 
 # Gate https_only on the production indicator — dev/test
@@ -1096,7 +1084,6 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
             continue
         no_slash = ctx.path.rstrip("/")
 
-        # Skip if a no-slash sibling is already registered for this method.
         for method in route.methods:
             if method in ("HEAD", "OPTIONS"):
                 continue
@@ -1422,14 +1409,14 @@ def _repair_depends_bound_query_model(schema: dict) -> None:
 def _normalize_validation_error_contract(schema: dict) -> None:
     """Publish the RFC 7807 body every validation failure actually returns.
 
-    FastAPI stamps ``422 -> HTTPValidationError`` (an
-    ``application/json`` body of ``{detail: [{loc, msg, type}, ...]}``) on every
-    operation with request validation. The ``RequestValidationError`` handler in
+    FastAPI stamps ``422 -> HTTPValidationError`` (an ``application/json`` body
+    of ``{detail: [{loc, msg, type}, ...]}``) on every operation with request
+    validation. The ``RequestValidationError`` handler in
     ``standards/ogc/errors.py`` overrides that at runtime with a problem+json
-    ``ProblemDetail`` whose ``detail`` is flattened to one string, so both the
-    media type and the body shape were wrong — and generated clients inherit
-    both. The standards-path loop below already applies the same correction
-    under the OGC status rule; this covers every other operation.
+    ``ProblemDetail`` whose ``detail`` is flattened to one string, and generated
+    clients inherit the published shape. The standards-path loop below applies
+    the same correction under the OGC status rule; this covers every other
+    operation.
     """
     validation_response = {
         "description": "Validation error",
@@ -1646,7 +1633,6 @@ async def health(request: Request):
     now = time.monotonic()
     health_alert_task: BackgroundTask | None = None
     if current_status != "healthy":
-        # Determine the failing component(s) for the notification body.
         providers: dict = result.get("providers", {})
         failing = [
             name
@@ -1665,7 +1651,6 @@ async def health(request: Request):
             or now - _last_health_alert_at >= _HEALTH_ALERT_COOLDOWN_SECS
         ):
             _last_health_alert_at = now
-            # Lazy import.
             from app.platform.notifications.events import (  # LAZY
                 build_event_notification,
                 emit_event_safe,

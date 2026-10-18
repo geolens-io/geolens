@@ -15,7 +15,7 @@ Usage::
 
 from __future__ import annotations
 
-#: Literal value for single-tenant mode (default; byte-identical to pre-1207 behavior).
+#: Literal value for single-tenant mode (default).
 TENANCY_MODE_SINGLE = "single_tenant"
 
 #: Literal value for multi-tenant mode (requires cloud overlay + tenant RLS layer).

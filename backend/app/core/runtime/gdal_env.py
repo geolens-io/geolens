@@ -1,8 +1,8 @@
 """Derive GDAL's AWS_* config for its S3 VSI reads from the app's S3_* settings.
 
-With STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2),
-GDAL S3 VSI reads targeted the default AWS endpoint and failed, since only the
-application-side SDK honored S3_ENDPOINT/S3_ADDRESSING_STYLE, not GDAL.
+With STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2), GDAL S3 VSI
+reads would target the default AWS endpoint, since only the application-side
+SDK honors S3_ENDPOINT/S3_ADDRESSING_STYLE.
 
 `configure_gdal_s3_env()` runs once at api/worker start, before any
 GDAL/rasterio use, applying values via `os.environ.setdefault` so explicit

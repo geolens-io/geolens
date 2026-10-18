@@ -156,11 +156,6 @@ def _parse_collection_uuid(collection_id: str) -> uuid.UUID | None:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 async def _resolve_urls(db: AsyncSession, request: Request) -> tuple[str, str]:
     """Return (stac_api_url, public_api_url) with a single settings lookup."""
     public_api_url = await get_public_api_url(db, request=request)
@@ -203,10 +198,9 @@ def _parse_extent_row(
 ) -> tuple[list[float] | None, list[str | None] | None, str | None]:
     """Parse a spatial/temporal extent + license DB row into STAC-ready values.
 
-    The leading six columns come from ``rollup_bbox_columns``, and
-    the STAC Collection ``extent.spatial.bbox`` takes the spec form -- STAC
-    inherits RFC 7946 §5.2, so a rollup that crosses the antimeridian must be
-    served as ``west > east`` rather than the global bbox a naive fold produced.
+    The leading six columns come from ``rollup_bbox_columns``. STAC inherits
+    RFC 7946 §5.2 for ``extent.spatial.bbox``, so a rollup that crosses the
+    antimeridian is served as ``west > east`` rather than a global bbox.
     """
     temporal_extent = None
     spatial_extent = rollup_bbox(ext_row[:6]) if ext_row else None
@@ -323,7 +317,6 @@ async def _dataset_to_stac_item(
         ),
     )
 
-    # Re-build assets with storage_provider for presigned URLs
     try:
         storage = get_storage()
     except RuntimeError:
@@ -342,7 +335,6 @@ async def _dataset_to_stac_item(
         ),
     )
 
-    # Look up collection membership if not provided
     if collection_id is None:
         cd_result = await db.execute(
             select(CollectionDataset.collection_id)
@@ -603,11 +595,6 @@ async def _anon_cache_put(key: str | None, result: BaseModel) -> None:
             )
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
 # response_model_exclude_none (here and on the collection routes): optional
 # StacLink fields must be omitted rather than serialized as null — the STAC
 # link schema types `method` as a ^[A-Z]+$ string.
@@ -747,17 +734,13 @@ async def _build_collection_list(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # Run these four aggregates sequentially on the caller's session. Giving
-    # each branch its own async_session() creates a nested pool checkout on top of
-    # the connection this request already holds via `db` (get_db never
-    # commits on the read path, so it stays checked out for the whole
-    # request). 5 checkouts per anonymous, uncached request exhausts the
-    # default 13-connection pool at 3 concurrent requests. Run them
-    # sequentially on the caller's own session instead, the same trade
-    # used by the dataset-detail fetch. These are grouped aggregates over the
-    # same joined set, so sequencing's
-    # wall-clock cost is negligible next to that risk, and unlike
-    # dataset-detail this endpoint is anonymous.
+    # Run these four aggregates sequentially on the caller's session: a session
+    # of their own each would nest a pool checkout on top of the connection this
+    # request already holds (get_db never commits on the read path), and 5
+    # checkouts per anonymous, uncached request exhaust the default 13-connection
+    # pool at 3 concurrent requests. They are grouped aggregates over the same
+    # joined set, so the wall-clock cost is negligible; unlike dataset-detail,
+    # this endpoint is anonymous.
 
     async def _fetch_extents() -> dict[str, tuple]:
         extent_stmt = (
@@ -1091,7 +1074,6 @@ async def get_collection_items(
     # limit actually served.
     limit = min(limit, _STAC_MAX_LIMIT)
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1099,10 +1081,8 @@ async def get_collection_items(
         db, collection_id, user, user_roles
     )
 
-    # Base query filtered to this collection
     stmt = _base_published_raster_query(user, user_roles).where(collection_scope)
 
-    # Filter by bbox (antimeridian-aware)
     if bbox:
         try:
             bbox_vals = parse_bbox(bbox)
@@ -1113,17 +1093,14 @@ async def get_collection_items(
             )
         stmt = stmt.where(_visible_bbox_filter(user, user_roles, bbox_vals))
 
-    # Filter by datetime
     if datetime_param:
         stmt = _apply_datetime_filter(stmt, datetime_param)
 
-    # Count total
     count_stmt = select(func.count()).select_from(
         stmt.with_only_columns(Dataset.id).subquery()
     )
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    # Paginate
     # Record.created_at can tie, so add Dataset.id to keep pagination stable.
     stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
@@ -1295,7 +1272,6 @@ async def get_collection_item(
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1341,7 +1317,6 @@ async def get_item(
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1394,7 +1369,6 @@ def _build_search_filters(
     """
     filters = []
 
-    # Filter by ids — accept comma-separated string or list
     if ids:
         id_strings = ids.split(",") if isinstance(ids, str) else ids
         parsed_ids = []
@@ -1408,7 +1382,6 @@ def _build_search_filters(
         else:
             return [], True
 
-    # Filter by collections — accept comma-separated string or list
     if collections:
         coll_strings = (
             collections.split(",") if isinstance(collections, str) else collections
@@ -1449,7 +1422,6 @@ def _build_search_filters(
             detail="Only one of bbox and intersects may be specified",
         )
 
-    # Filter by intersects (GeoJSON geometry) — accept string or dict
     if intersects:
         intersects_str = (
             intersects if isinstance(intersects, str) else json.dumps(intersects)
@@ -1581,7 +1553,6 @@ async def _execute_search(
         collections=collections,
     )
 
-    # Early return when ids param was given but all values were invalid
     if ids_empty:
         result = StacItemCollection(
             features=[],
@@ -1606,7 +1577,6 @@ async def _execute_search(
     if datetime_str:
         stmt = _apply_datetime_filter(stmt, datetime_str)
 
-    # Count total matches
     count_stmt = select(func.count()).select_from(
         stmt.with_only_columns(Dataset.id).subquery()
     )
@@ -1767,7 +1737,6 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
     return await _execute_search(
@@ -1781,8 +1750,7 @@ async def search_get(
         collections=collections,
         ids=ids,
         intersects=intersects,
-        # STAC Item Search: limits above the server maximum are clamped, not
-        # rejected (stac-api-validator enforces this).
+        # Clamped, not rejected (see the page-size ceiling above).
         limit=min(limit, _STAC_MAX_LIMIT),
         offset=offset,
         public_app_url=public_app_url,
@@ -1813,10 +1781,7 @@ class StacSearchBody(BaseModel):
     limit: int = Field(
         default=10,
         ge=1,
-        # GET and POST share the same ceiling. Clamp on all three
-        # item-returning handlers — the Item Search spec (and stac-api-validator)
-        # requires over-limit values to be clamped to the server maximum, not
-        # rejected.
+        # Clamped, not rejected (see the page-size ceiling above).
         description=(
             f"Maximum number of items returned. Values above {_STAC_MAX_LIMIT} "
             f"are clamped to {_STAC_MAX_LIMIT}."
@@ -1856,7 +1821,6 @@ async def search_post(
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1871,8 +1835,7 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        # Over-limit values clamp to the operational ceiling, required by
-        # the Item Search spec instead of a le=200 rejection.
+        # Clamped, not rejected (see the page-size ceiling above).
         limit=max(1, min(body.limit, _STAC_MAX_LIMIT)),
         offset=max(0, body.offset),
         public_app_url=public_app_url,
@@ -1880,18 +1843,12 @@ async def search_post(
     )
 
 
-# ---------------------------------------------------------------------------
-# Datetime filter helper
-# ---------------------------------------------------------------------------
-
-
 def _apply_datetime_filter(stmt, datetime_str: str):
     """Apply OGC datetime interval filter to a query.
 
     Delegates parsing to the canonical ``parse_ogc_datetime`` helper in
     search/service.py so STAC and OGC Records share one implementation.
-    Malformed inputs raise HTTP 400 (was silently ignored before — that
-    masked client mistakes).
+    Malformed inputs raise HTTP 400 rather than being silently ignored.
     """
     from app.modules.catalog.search.service import parse_ogc_datetime, utc_midnight
 

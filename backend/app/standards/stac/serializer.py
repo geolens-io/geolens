@@ -214,11 +214,6 @@ def _projection_code(properties: dict) -> str | None:
     return str(value)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def ogc_record_to_stac_item(
     record: dict,
     *,
@@ -252,17 +247,15 @@ def ogc_record_to_stac_item(
     """
     props = record["properties"]
 
-    # -- Core properties (datetime is ALWAYS present, may be null) ----------
+    # datetime is ALWAYS present, may be null.
     stac_props: dict = {
         "datetime": props.get("datetime"),
     }
 
-    # Temporal range
     if props.get("start_datetime"):
         stac_props["start_datetime"] = props["start_datetime"]
         stac_props["end_datetime"] = props.get("end_datetime")
 
-    # Descriptive
     if props.get("title"):
         stac_props["title"] = props["title"]
     if props.get("description"):
@@ -303,7 +296,6 @@ def ogc_record_to_stac_item(
     elif STAC_RASTER_EXTENSION_URI in stac_extensions:
         stac_extensions.remove(STAC_RASTER_EXTENSION_URI)
 
-    # -- Build Item ---------------------------------------------------------
     item: dict = {
         "type": "Feature",
         "stac_version": "1.0.0",

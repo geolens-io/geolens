@@ -1,11 +1,11 @@
 """Prometheus series for the dataset-refresh lifecycle.
 
-ADR-002 Amendment A10 (#1268). Gauges, not counters at the event:
+ADR-002 Amendment A10. Gauges, not counters at the event:
 the worker is a different process with no scrape endpoint and shares no
 PROMETHEUS_MULTIPROC_DIR, so a counter incremented there is written to a
 file nothing reads; and every API worker would count the same run, since
 MultiProcessCollector SUMS counters across processes under
-UVICORN_WORKERS>=2 (the #1240 class of bug).
+UVICORN_WORKERS>=2.
 
 State lives in ``catalog.dataset_refresh_runs`` (durable, outlives both
 processes); every worker publishes the same computed answer as a
@@ -83,7 +83,7 @@ refresh_sweep_reconciled_total = Counter(
     "Refresh runs finalized by the stale-run sweep rather than by a worker",
 )
 
-# Probe series (#1222's endpoint), also request-scoped and therefore safe as
+# Probe series, also request-scoped and therefore safe as
 # real instruments. `detail` is the probe's closed DETAIL_CODES vocabulary
 # plus "none", so the label set is bounded by construction — the reason that
 # vocabulary is closed in the first place.
@@ -102,7 +102,7 @@ origin_probe_duration_seconds = Histogram(
 
 # Gauge children are never removed, only zeroed: a label combination that
 # stops appearing must read 0 rather than freeze at its last value, which is
-# the #655 lesson from the job-queue gauges.
+# the same rule as the job-queue gauges.
 _seen_active: set[str] = set()
 _seen_recent: set[tuple[str, str, str]] = set()
 _seen_wait: set[tuple[str, str]] = set()

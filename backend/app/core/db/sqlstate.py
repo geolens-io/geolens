@@ -57,8 +57,8 @@ _OPERATIONAL_CLASSES = frozenset(
 #
 # Class 22 is data_exception as a whole. asyncpg reports a client-side encode
 # failure (an int outside int8, say) as plain 22000 on a bare
-# ``sqlalchemy.exc.DBAPIError``, NOT a ``DataError`` — catching ``DataError``
-# alone missed it and both routers 500'd.
+# ``sqlalchemy.exc.DBAPIError``, NOT a ``DataError``, so catching ``DataError``
+# alone misses it.
 TYPE_FAULT_SQLSTATES = frozenset(
     {
         "42883",  # undefined_function — no operator for the pair

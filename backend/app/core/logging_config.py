@@ -34,23 +34,21 @@ message like `HTTP Request: GET https://user:SECRET@example.com/path
 whole-event parse missed, and stays safe since the regex's character class
 excludes whitespace -- a match can never contain what the strip removes.
 
-`format_exc_info` runs UNCONDITIONALLY (not gated
-on `json_logs or production`), and dev's `ConsoleRenderer` takes the same
-`plain_traceback` formatter production does -- the only formatter compatible
-with a pre-rendered `exception` field (see the comment in `setup_logging`).
-Locals are where a secret variable itself leaks regardless of any string
-scrub, so removing rich from dev closes that path too. Dev keeps every other
-`ConsoleRenderer` default; only the exception formatter changed.
+`format_exc_info` runs UNCONDITIONALLY (not gated on `json_logs or
+production`), and dev's `ConsoleRenderer` takes the same `plain_traceback`
+formatter production does -- the only formatter compatible with a pre-rendered
+`exception` field (see the comment in `setup_logging`). Locals are where a
+secret variable itself leaks regardless of any string scrub, so dev renders no
+rich tracebacks either.
 
-The STRUCTURED half of the record needs the same care as the `event`
-string, and a top-level key check is not enough.
-`structlog.stdlib.ExtraAdder()` lifts a stdlib record's whole `extra`
-mapping in, and Procrastinate's worker puts `task_kwargs` there twice (raw
-plus a rendered `call_string` copy), so a wire credential on a default
-install (no credential store) hit the operator log twice per line on three
-INFO lines before the task body ran. `_redact_sensitive_fields` walks
-container values through `redact_nested()`, which redacts denylisted keys at
-depth and applies `_scrub_text` to nested strings.
+The STRUCTURED half of the record needs the same care as the `event` string,
+and a top-level key check is not enough. `structlog.stdlib.ExtraAdder()` lifts a
+stdlib record's whole `extra` mapping in, and Procrastinate's worker puts
+`task_kwargs` there twice (raw plus a rendered `call_string` copy), so a wire
+credential on a default install (no credential store) would reach the operator
+log. `_redact_sensitive_fields` walks container values through
+`redact_nested()`, which redacts denylisted keys at depth and applies
+`_scrub_text` to nested strings.
 """
 
 import dataclasses
@@ -121,11 +119,10 @@ def safe_access_log_path(path: str) -> str:
     return _CAPABILITY_PATH_RE.sub(r"\g<prefix>[REDACTED]", path, count=1)
 
 
-# Names redacted here MUST be `_SENSITIVE_FIELDS`
-# itself, not a hand-kept subset -- an earlier cut covered only 2 of 14
-# denylist names, so the other 12 were redacted as keys but emitted verbatim
-# in the `call_string` text beside them. `test_repr_scrub_covers_every_denylisted_name`
-# pins the equality so this can't drift again.
+# Names redacted here MUST be `_SENSITIVE_FIELDS` itself, not a hand-kept
+# subset, or a name is redacted as a key but emitted verbatim in the
+# `call_string` text beside it. `test_repr_scrub_covers_every_denylisted_name`
+# pins the equality.
 #
 # Longest-first keeps the alternation deterministic (no name shadows a
 # suffix); `re.escape` handles regex-significant names (`x-api-key`);
@@ -226,25 +223,24 @@ def _redact_query_tail_match(match: re.Match[str]) -> str:
 def _scrub_text(value: str) -> str:
     """Redact URL credentials and rendered token values in free text.
 
-    Scrubs PER URL-SHAPED SUBSTRING, not the whole
-    string -- see the module docstring for why a whole-string gate missed a
-    userinfo credential. `_redact_url_match()` escalates to the
-    whole query when a partial parse would leave part of a credential behind.
+    Scrubs PER URL-SHAPED SUBSTRING, not the whole string -- see the module
+    docstring for why a whole-string gate missed a userinfo credential.
+    `_redact_url_match()` escalates to the whole query when a partial parse
+    would leave part of a credential behind.
 
-    Factored out of `_redact_sensitive_fields` so the
-    same scrub applies to a rendered `exception` string as to `event` -- e.g.
-    `httpx.HTTPStatusError`'s message quotes the failing URL verbatim.
+    Factored out of `_redact_sensitive_fields` so the same scrub applies to a
+    rendered `exception` string as to `event` -- e.g. `httpx.HTTPStatusError`'s
+    message quotes the failing URL verbatim.
 
-    The `_QUERY_TAIL_RE` pass runs independently of
-    `URL_LIKE_RE` above it -- see its own comment for why the URL match alone
-    isn't reliable enough to gate a query redaction on.
+    The `_QUERY_TAIL_RE` pass runs independently of the `URL_LIKE_RE` pass --
+    see its own comment for why the URL match alone isn't reliable enough.
 
-    `scrub_registered_credentials` runs LAST, since
-    every pattern-based pass above only recognises a credential by SHAPE
-    (known query-parameter name, or userinfo), missing one reflected into a
-    path or an unknown query key by a same-origin redirect.
-    `register_credential_secret` (`core/service_tokens.py`) runs wherever a
-    credential header is composed, so this closes it by EXACT VALUE instead.
+    `scrub_registered_credentials` runs LAST: every pattern-based pass above
+    recognises a credential only by SHAPE (known query-parameter name, or
+    userinfo), missing one reflected into a path or an unknown query key by a
+    same-origin redirect. `register_credential_secret`
+    (`core/service_tokens.py`) runs wherever a credential header is composed,
+    so this closes it by EXACT VALUE instead.
     """
     value = URL_LIKE_RE.sub(_redact_url_match, value)
     value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
@@ -344,7 +340,7 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
 
     ``frozenset``, ``deque`` and dataclass instances are walked; anything
     else is returned as-is. A dataclass yields field name to redacted value
-    via ``dataclasses.fields`` (#1857).
+    via ``dataclasses.fields``.
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
@@ -418,19 +414,16 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
         structlog.processors.TimeStamper(fmt="iso", utc=True),
     ]
 
-    # Resolve `exc_info` into a plain `exception` string inside
-    # the processor chain, so no renderer is ever handed a traceback object
-    # to pretty-print. Also the ProcessorFormatter's `foreign_pre_chain`
-    # below, so it covers stdlib records (uvicorn.error) too.
+    # Resolve `exc_info` into a plain `exception` string inside the processor
+    # chain, so no renderer is ever handed a traceback object to pretty-print.
+    # Also the ProcessorFormatter's `foreign_pre_chain` below, so it covers stdlib
+    # records (uvicorn.error) too.
     #
-    # Runs BEFORE `_redact_sensitive_fields`, since an
-    # exception's own message can carry a credential
-    # (`httpx.HTTPStatusError` quotes the failing URL verbatim) and the
-    # redactor can only scrub a field that already exists.
-    #
-    # Now UNCONDITIONAL -- gating on `json_logs or
-    # production` left dev printing raw, unscrubbed tracebacks. dev's
-    # `ConsoleRenderer` below now always uses `plain_traceback` too.
+    # Runs BEFORE `_redact_sensitive_fields`, since an exception's own message can
+    # carry a credential (`httpx.HTTPStatusError` quotes the failing URL verbatim)
+    # and the redactor can only scrub a field that already exists. Unconditional,
+    # so dev never prints raw, unscrubbed tracebacks; dev's `ConsoleRenderer` below
+    # uses `plain_traceback` too.
     shared_processors.append(structlog.processors.format_exc_info)
 
     shared_processors += [

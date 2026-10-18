@@ -18,7 +18,7 @@ asyncpg:
     ``NumericValueOutOfRangeError``, SQLSTATE 22003.
 
 The first two silently answer a different question than the caller asked;
-the third was an unhandled 500. Checking the range before the query makes
+the third is an unhandled 500. Checking the range before the query makes
 all three a 400 naming the property and the bound it broke, instead of
 leaving the outcome to whichever cast the compiler chose.
 
@@ -67,8 +67,8 @@ def check_int8_range(name: str, value: int) -> None:
     """Raise ValueError when an integer bind cannot be encoded as int8.
 
     For pagination integers, which are caller-supplied and reach the driver
-    untyped. FastAPI's ``int`` has no upper bound, so ``?offset=10**23`` used
-    to surface as a 500 from the asyncpg encode path on both routers.
+    untyped. FastAPI's ``int`` has no upper bound, so ``?offset=10**23``
+    would otherwise surface as a 500 from the asyncpg encode path on both routers.
     """
     if not INT8_MIN <= value <= INT8_MAX:
         raise ValueError(

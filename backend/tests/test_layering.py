@@ -1298,15 +1298,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1734,
     # Adoption DDL mirrors the current schema without importing historical migrations.
-    "backend/app/core/db/tenant_adoption_sql.py": 2090,
+    "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
     "backend/app/core/db/tenant_adoption.py": 1256,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1122,
+    "backend/app/standards/ogc/filtering.py": 1111,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1705,
+    "backend/app/api/main.py": 1690,
     # Map request validation and published response contracts share this module.
     "backend/app/modules/catalog/maps/schemas.py": 1393,
     # Metadata facade preserves the import and patch surface used by extensions and
@@ -1348,10 +1348,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1157,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
-    "backend/app/core/config.py": 1487,
+    "backend/app/core/config.py": 1443,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1171,
+    "backend/app/core/persistent_config.py": 1166,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
@@ -1398,7 +1398,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1939,
+    "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2860,

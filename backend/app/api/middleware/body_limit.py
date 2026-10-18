@@ -8,10 +8,9 @@ boot-time env value, so a raised UPLOAD_MAX_SIZE_MB takes effect without
 a restart. The cap is per route: only POST /ingest/upload and
 POST /datasets/{id}/reupload get UPLOAD_MAX_SIZE_MB (500 MB); GeoJSON
 feature mutations get a 1 MB pre-decode cap; everything else gets
-DEFAULT_BODY_LIMIT_BYTES (10 MB). Every deployment strips the app's
-`/api` prefix before this middleware sees the path, so a literal-prefix
-match once silently capped every upload at 10 MB until
-`_is_upload_route` normalised it away.
+DEFAULT_BODY_LIMIT_BYTES (10 MB). Deployments strip the app's `/api` prefix
+before this middleware sees the path, so `_is_upload_route` normalises it
+rather than matching a literal prefix.
 """
 
 import time
@@ -101,11 +100,11 @@ def _is_upload_route(path: str, method: str = "POST") -> bool:
         POST /ingest/upload                   (ingest.upload_file)
         POST /datasets/{dataset_id}/reupload  (datasets.reupload_dataset)
 
-    Their presigned/commit/preview sub-routes carry only small JSON (PR
-    #249: a prefix/substring match once let a 500 MB body through
-    there). Mirrors FastAPI routing EXACTLY — method, case-sensitivity,
-    no trailing slash, UUID-parsed dataset_id — so the cap is never
-    handed to a request routing would reject anyway.
+    Their presigned/commit/preview sub-routes carry only small JSON; a
+    prefix/substring match would let a 500 MB body through there. Mirrors
+    FastAPI routing EXACTLY — method, case-sensitivity, no trailing slash,
+    UUID-parsed dataset_id — so the cap is never handed to a request routing
+    would reject anyway.
     """
     if method.upper() != "POST":
         return False
@@ -252,12 +251,10 @@ class RequestBodyLimitMiddleware:
         path = scope.get("path", "")
         method = scope.get("method", "")
         if _is_upload_route(path, method):
-            # Upload/reupload: use the admin-configurable limit (500 MB default)
             max_bytes = _get_upload_limit()
         elif _is_feature_write_route(path, method):
             max_bytes = FEATURE_WRITE_BODY_LIMIT_BYTES
         else:
-            # All other routes: small default cap (10 MB)
             max_bytes = _get_upload_limit(route_override=DEFAULT_BODY_LIMIT_BYTES)
 
         # Fast path: Content-Length header present — reject before reading the body

@@ -37,8 +37,7 @@ def is_usable_public_origin(value: str | None) -> bool:
     The shape rule for ``PUBLIC_APP_URL``, mirrored by
     ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts`` — an
     absolute HTTP(S) URL, with a host, no query/fragment, and no ``/api``
-    path (the same clause ``validate_public_app_url`` already
-    had). Everything else is untrusted; each consumer refuses or falls
+    path. Everything else is untrusted; each consumer refuses or falls
     back accordingly rather than issuing a domain lock it can't satisfy.
     """
     if value is None:
@@ -121,8 +120,7 @@ def _remove_dot_segments(path: str) -> str:
 def is_loopback_host(host: str) -> bool:
     """True when a browser served from ``host`` is talking to its own machine.
 
-    The predicate this replaces was an enumerated set of three
-    spellings (``localhost``, ``127.0.0.1``, ``::1``). Loopback is a RANGE:
+    Loopback is a RANGE, not just ``localhost``, ``127.0.0.1`` and ``::1``:
     ``127.0.0.0/8`` in its entirety, so e.g. ``127.0.0.2`` must not be
     read as non-loopback and get a domain lock issued that every
     recipient resolves to their own machine. ``*.localhost`` counts too
@@ -588,7 +586,7 @@ async def get_configured_public_app_url(db: AsyncSession) -> str | None:
     generation need the operator's own origin: a derived API origin can be
     a real, non-loopback host that still isn't where the embed shell is
     served, and a request-derived origin is the
-    vacuous-``self`` trap #1531 already ruled out. Unset is a legitimate
+    vacuous-``self`` trap. Unset is a legitimate
     answer here.
 
     Returns the value with any trailing slash trimmed, or None when unset,

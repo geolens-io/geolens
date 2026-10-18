@@ -191,7 +191,6 @@ def record_to_geodcat_ap(
             _distribution_to_geodcat_ap(d, record=record) for d in distributions
         ]
 
-    # Temporal extent.
     if record.temporal_start or record.temporal_end:
         temporal: dict = {"@type": "dcterms:PeriodOfTime"}
         if record.temporal_start:
@@ -287,11 +286,6 @@ def geodcat_ap_fallback_fields(dataset: Dataset) -> tuple[str, ...]:
     if not has_text(dataset.record.summary):
         return ("dcterms:description",)
     return ()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _apply_responsible_parties(result: dict, contacts: list[RecordContact]) -> None:
