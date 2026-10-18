@@ -177,9 +177,11 @@ async def test_shared_map_with_embed_token_returns_frame_ancestors_from_allowed_
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
     assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
+    # codeql[py/incomplete-url-substring-sanitization] asserts a header value contains a fixture origin; nothing is sanitized
     assert "https://partner.example" in csp, (
         f"Expected partner.example in CSP, got: {csp!r}"
     )
+    # codeql[py/incomplete-url-substring-sanitization] asserts a header value contains a fixture origin; nothing is sanitized
     assert "https://other.example" in csp, (
         f"Expected other.example in CSP, got: {csp!r}"
     )
@@ -254,6 +256,7 @@ async def test_shared_map_with_non_expiring_embed_token_uses_allowed_origins(
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
     assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
+    # codeql[py/incomplete-url-substring-sanitization] asserts a header value contains a fixture origin; nothing is sanitized
     assert "https://embed.example.com" in csp, (
         f"Non-expiring EmbedToken allowed_origins must appear in CSP (CR-04), got: {csp!r}"
     )

@@ -287,6 +287,7 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     api_key = _supplied_api_key(request)
     if not api_key:
         return None
+    # codeql[py/weak-sensitive-data-hashing] API keys are server-minted 256-bit random tokens; SHA-256 makes a lookup key, not password storage
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     result = await db.execute(
         select(ApiKey)

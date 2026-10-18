@@ -41,6 +41,7 @@ class LocalStorageProvider:
             raise ValueError(
                 f"Storage key must be relative, got absolute path: {key!r}"
             )
+        # codeql[py/path-injection] this join is the containment check: the key is rejected unless the resolved path stays under the resolved base
         candidate = (self.base_dir / key).resolve()
         resolved_base = self.base_dir.resolve()
         if candidate != resolved_base and not candidate.is_relative_to(resolved_base):
@@ -291,6 +292,7 @@ class LocalStorageProvider:
         the tree through one.
         """
         try:
+            # codeql[py/path-injection] root is the prefix _resolve_contained returned, or a directory found walking under it without following symlinks
             with os.scandir(root) as entries:
                 ordered = sorted(
                     entries,
@@ -332,8 +334,10 @@ class LocalStorageProvider:
             return
         # File prefix: one bounded directory glob — the pre-delete re-read's shape.
         parent = resolved_prefix.parent
+        # codeql[py/path-injection] parent is the directory holding a prefix _resolve_contained returned, so it is the base or inside it
         if not parent.exists():
             return
+        # codeql[py/path-injection] parent is inside the base, and a single-component pattern cannot leave it
         for path in sorted(parent.glob(resolved_prefix.name + "*")):
             if not path.is_file():
                 continue

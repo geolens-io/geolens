@@ -280,6 +280,7 @@ class TestResolveGithubIdentity:
             "https://ghe.example.com/api/v3/user",
             "https://ghe.example.com/api/v3/user/emails",
         ], f"GHE endpoints not used: {called_urls}"
+        # codeql[py/incomplete-url-substring-sanitization] asserts no mocked request URL names the public API host; nothing is sanitized
         assert not any("api.github.com" in u for u in called_urls), (
             f"enterprise token must not be sent to public GitHub: {called_urls}"
         )

@@ -280,14 +280,17 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
 # A pure move carries a marker and its call into a new file
 # together, so the placement test above keeps passing even when the two come
 # apart, and CodeQL's PR run cannot dismiss what it re-reports at a new location.
-PATH_SINK_METHODS = frozenset({"open", "stat", "unlink"})
+PATH_SINK_METHODS = frozenset({"exists", "glob", "open", "stat", "unlink"})
 
 
 def _builds_a_path(value: ast.expr, known: set[str]) -> bool:
-    """A ``Path(...)`` call, a name already proven to hold one, or a ``/`` join
-    with one such operand. A bare division proves nothing: ``done / total`` is
-    arithmetic, and accepting it would type its target as a path module-wide.
+    """A ``Path(...)`` call, a name already proven to hold one, its ``.parent``,
+    or a ``/`` join with one such operand. A bare division proves nothing:
+    ``done / total`` is arithmetic, and accepting it would type its target as a
+    path module-wide.
     """
+    if isinstance(value, ast.Attribute) and value.attr == "parent":
+        return isinstance(value.value, ast.Name) and value.value.id in known
     if isinstance(value, ast.Call):
         func = value.func
         name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
@@ -380,10 +383,11 @@ def _bound_names(nodes: list[ast.AST]) -> set[str]:
 def _path_sink_lines(source: str) -> set[int]:
     """1-based start line of every call that acts on a filesystem path.
 
-    Accepts the builtin ``open``, and a ``PATH_SINK_METHODS`` call whose
-    receiver the enclosing scope types as a path. Both halves are needed: the
-    method names alone match any object that happens to expose one, and CodeQL
-    does not report ``py/path-injection`` at those.
+    Accepts the builtin ``open``, a ``PATH_SINK_METHODS`` call whose receiver
+    the enclosing scope types as a path, the ``/`` join a ``.resolve()`` is
+    called on, and the argument of ``os.scandir``. The receiver check is
+    needed: the method names alone match any object that happens to expose
+    one, and CodeQL does not report ``py/path-injection`` at those.
 
     The set is exactly the shapes the markers sit above today. A sink written
     another way (``shutil.copy``, ``os.remove``) fails this test instead of
@@ -404,13 +408,27 @@ def _path_sink_lines(source: str) -> set[int]:
                 if isinstance(func, ast.Name):
                     if func.id == "open" and not shadowed:
                         lines.add(node.lineno)
+                elif not isinstance(func, ast.Attribute):
+                    continue
                 elif (
-                    isinstance(func, ast.Attribute)
-                    and func.attr in PATH_SINK_METHODS
+                    func.attr in PATH_SINK_METHODS
                     and isinstance(func.value, ast.Name)
                     and func.value.id in names
                 ):
                     lines.add(node.lineno)
+                elif (
+                    func.attr == "resolve"
+                    and isinstance(func.value, ast.BinOp)
+                    and isinstance(func.value.op, ast.Div)
+                ):
+                    lines.add(func.value.lineno)
+                elif (
+                    func.attr == "scandir"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "os"
+                    and node.args
+                ):
+                    lines.add(node.args[0].lineno)
 
     visit(ast.parse(source), set(), False)
     return lines
@@ -432,6 +450,19 @@ def _print_call_lines(source: str) -> set[int]:
     }
 
 
+def _hashlib_argument_lines(source: str) -> set[int]:
+    """1-based start line of the data passed to a ``hashlib.<algorithm>(...)`` call."""
+    return {
+        node.args[0].lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and node.args
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "hashlib"
+    }
+
+
 # The construct each rule reports at. `py/full-ssrf` is absent because the two
 # tests above already pin its markers in both directions, against one shared
 # definition of an SSRF sink.
@@ -439,6 +470,7 @@ MARKER_CONSTRUCTS = {
     "py/sql-injection": _dynamic_sql_lines,
     "py/path-injection": _path_sink_lines,
     "py/clear-text-logging-sensitive-data": _print_call_lines,
+    "py/weak-sensitive-data-hashing": _hashlib_argument_lines,
 }
 RULES_CHECKED_ELSEWHERE = frozenset({"py/full-ssrf"})
 

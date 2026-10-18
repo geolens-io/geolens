@@ -58,6 +58,7 @@ def test_fouc_script_externalized():
     # The FOUC logic must be referenced as an external file (script-src 'self'),
     # and there must be no inline <script> body for the CSP to block.
     assert "/theme-init.js" in html, "index.html must load /theme-init.js (SEC-020)"
+    # codeql[py/bad-tag-filter] asserts against the repo's own index.html, not a sanitizer
     assert not re.search(r"<script>\s*\S", html), (
         "index.html must not contain an inline <script> block (SEC-020 / script-src 'self')"
     )
