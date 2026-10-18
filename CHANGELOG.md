@@ -109,7 +109,11 @@ and releases use semantic versioning.
   extent, and a run cut short before that is finished by the next one. Rows
   with no value in the column are kept, and a timestamp without time zone is
   read as UTC. Retention is off by default. Saving a setting that would
-  delete rows right away first shows how many and asks to confirm. (#3110)
+  delete rows right away first shows how many and asks to confirm. While
+  retention reads a column, the schema editor and the column routes refuse to
+  rename, retype or remove it, or to give another column its name, with a 409
+  `retention_column_in_use`; turn retention off or move it first. (#3110,
+  #3150)
 - Append-only dataset keys, for an integration that only adds features, such
   as a webhook posting device positions. Tick "Add features only" when
   creating a key on the dataset's Access tab, or send
