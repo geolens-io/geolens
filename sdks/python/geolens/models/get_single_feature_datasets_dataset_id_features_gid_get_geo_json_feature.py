@@ -38,8 +38,8 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection | None | Unset):
         table_id (None | str | Unset): Opaque id of the data table this feature was read from or written to. A reupload
             or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it
-            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if
-            the table was replaced since.
+            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have
+            the write refused if the table was replaced since.
     """
 
     id: int

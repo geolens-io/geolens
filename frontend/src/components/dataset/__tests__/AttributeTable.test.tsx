@@ -35,6 +35,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 }));
 vi.mock('@/hooks/use-features', () => ({
   useUpdateFeature: vi.fn(),
+  useDeleteFeatures: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 // Pass debounced value through so filter state changes propagate immediately
 vi.mock('@/hooks/use-debounce', () => ({

@@ -31,8 +31,8 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite:
         type_ (Literal['FeatureCollection'] | Unset):  Default: 'FeatureCollection'.
         table_id (None | str | Unset): Opaque id of the data table this feature was read from or written to. A reupload
             or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it
-            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if
-            the table was replaced since.
+            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have
+            the write refused if the table was replaced since.
         tile_cache_version (int | None | Unset): The dataset's tile_cache_version after this write committed. Send it as
             the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is
             forced to re-read the dataset instead of serving that worker's own cached snapshot.

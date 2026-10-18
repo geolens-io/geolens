@@ -208,8 +208,8 @@ TABLE_ID_DESCRIPTION = (
     "Opaque id of the data table this feature was read from or written to. "
     "A reupload or an overwrite of the dataset's data replaces the table, and "
     "the replacement can reuse feature ids. Send it back as the `table_id` "
-    "query parameter of a PUT, PATCH or DELETE of this feature to have the "
-    "write refused if the table was replaced since."
+    "query parameter of a PUT, PATCH or DELETE of this feature, or of a batch "
+    "delete, to have the write refused if the table was replaced since."
 )
 
 
@@ -302,6 +302,28 @@ class FeatureCollectionCreate(BaseModel):
             "Features to insert in one transaction, at most "
             f"{MAX_FEATURES_PER_BATCH}. If any is refused, none is inserted."
         ),
+    )
+
+
+class FeatureBatchDelete(BaseModel):
+    """The features a batch delete removes."""
+
+    gids: list[int] = Field(
+        min_length=1,
+        max_length=MAX_FEATURES_PER_BATCH,
+        description=(
+            f"Ids of the features to delete, at most {MAX_FEATURES_PER_BATCH}. "
+            "If any does not exist, none is deleted."
+        ),
+    )
+
+
+class FeatureBatchDeleted(BaseModel):
+    """The result of a batch delete."""
+
+    deleted: int = Field(description="Number of features deleted.")
+    tile_cache_version: int | None = Field(
+        default=None, description=TILE_CACHE_VERSION_DESCRIPTION
     )
 
 

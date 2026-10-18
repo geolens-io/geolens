@@ -203,7 +203,21 @@
     "columns": "Columnas",
     "loadFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",
     "tableLabel": "Atributos de entidades",
-    "cellEditorLabel": "Editar {{column}} del elemento {{gid}}"
+    "cellEditorLabel": "Editar {{column}} del elemento {{gid}}",
+    "selectPage": "Seleccionar todas las filas de esta página",
+    "selectRow": "Seleccionar fila {{gid}}",
+    "deleteRows_one": "Eliminar {{formattedCount}} fila",
+    "deleteRows_many": "Eliminar {{formattedCount}} filas",
+    "deleteRows_other": "Eliminar {{formattedCount}} filas",
+    "deleteRowsTitle": "Eliminar filas",
+    "deleteRowsDescription_one": "¿Eliminar {{formattedCount}} fila seleccionada? No se puede deshacer.",
+    "deleteRowsDescription_many": "¿Eliminar {{formattedCount}} filas seleccionadas? No se puede deshacer.",
+    "deleteRowsDescription_other": "¿Eliminar {{formattedCount}} filas seleccionadas? No se puede deshacer.",
+    "rowsDeleted_one": "{{formattedCount}} fila eliminada",
+    "rowsDeleted_many": "{{formattedCount}} filas eliminadas",
+    "rowsDeleted_other": "{{formattedCount}} filas eliminadas",
+    "deleteRowsFailed": "No se pudieron eliminar las filas",
+    "deleteRowsMissing": "Algunas filas seleccionadas ya no existen, así que no se eliminó nada."
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",

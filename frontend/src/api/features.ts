@@ -107,3 +107,25 @@ export async function deleteFeature(
   const parsed = version != null ? Number(version) : NaN;
   return { tile_cache_version: Number.isFinite(parsed) ? parsed : null };
 }
+
+interface FeatureBatchDeleteResult {
+  deleted: number;
+  tile_cache_version?: number | null;
+}
+
+/**
+ * Delete features by gid in one request. Either all of them are deleted or
+ * none is: a gid that doesn't exist fails with 404 `feature_not_found`, and a
+ * `tableId` whose table was replaced fails with 409 `dataset_replaced`.
+ */
+export async function deleteFeatures(
+  datasetId: string,
+  gids: number[],
+  tableId?: string | null,
+): Promise<FeatureBatchDeleteResult> {
+  const path = `/datasets/${encodeURIComponent(datasetId)}/features/delete/`;
+  return apiFetch<FeatureBatchDeleteResult>(
+    tableId ? `${path}?table_id=${encodeURIComponent(tableId)}` : path,
+    { method: 'POST', body: JSON.stringify({ gids }) },
+  );
+}

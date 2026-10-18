@@ -10,6 +10,7 @@ vi.mock('@/api/features', () => ({
   createFeature: vi.fn(),
   updateFeature: vi.fn(),
   deleteFeature: vi.fn(),
+  deleteFeatures: vi.fn(),
 }));
 
 vi.mock('@/api/datasets', () => ({
@@ -17,12 +18,13 @@ vi.mock('@/api/datasets', () => ({
   dropColumn: vi.fn(),
 }));
 
-import { createFeature, updateFeature, deleteFeature } from '@/api/features';
+import { createFeature, updateFeature, deleteFeature, deleteFeatures } from '@/api/features';
 import { addColumn, dropColumn } from '@/api/datasets';
 import {
   useCreateFeature,
   useUpdateFeature,
   useDeleteFeature,
+  useDeleteFeatures,
   useAddColumn,
   useDropColumn,
 } from '@/hooks/use-features';
@@ -30,6 +32,7 @@ import {
 const mockCreateFeature = vi.mocked(createFeature);
 const mockUpdateFeature = vi.mocked(updateFeature);
 const mockDeleteFeature = vi.mocked(deleteFeature);
+const mockDeleteFeatures = vi.mocked(deleteFeatures);
 const mockAddColumn = vi.mocked(addColumn);
 const mockDropColumn = vi.mocked(dropColumn);
 
@@ -255,5 +258,39 @@ describe('schema error feedback belongs to the current editor', () => {
     const { result } = renderHook(() => useDropColumn());
     await expect(result.current.mutateAsync({ datasetId: 'old-dataset', columnName: 'old_column' })).rejects.toThrow('Drop failed');
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDeleteFeatures', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  function invalidatedKeys(spy: ReturnType<typeof spyInvalidate>) {
+    return spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] })?.queryKey);
+  }
+
+  it('refreshes the dataset and its rows after a delete', async () => {
+    const spy = spyInvalidate();
+    mockDeleteFeatures.mockResolvedValueOnce({ deleted: 2, tile_cache_version: 3 });
+
+    const { result } = renderHook(() => useDeleteFeatures());
+    await result.current.mutateAsync({ datasetId: 'ds-9', gids: [1, 2], tableId: '77' });
+
+    expect(mockDeleteFeatures).toHaveBeenCalledWith('ds-9', [1, 2], '77');
+    const keys = invalidatedKeys(spy);
+    expect(keys).toContainEqual(queryKeys.datasets.detail('ds-9'));
+    expect(keys).toContainEqual(queryKeys.datasets.rowsPrefix('ds-9'));
+  });
+
+  it('refreshes the rows when the batch is refused, since the page is out of date', async () => {
+    const spy = spyInvalidate();
+    mockDeleteFeatures.mockRejectedValueOnce(new Error('refused'));
+
+    const { result } = renderHook(() => useDeleteFeatures());
+    await expect(
+      result.current.mutateAsync({ datasetId: 'ds-9', gids: [1] }),
+    ).rejects.toThrow('refused');
+
+    expect(invalidatedKeys(spy)).toContainEqual(queryKeys.datasets.rowsPrefix('ds-9'));
   });
 });

@@ -27,6 +27,9 @@ class DatasetRowsResponse:
         approximate_total (int): Estimated total row count (may use pg stats)
         next_cursor (int | None | Unset): Cursor value for the next page, null if last
         sortable_columns (list[str] | Unset): Columns the rows endpoint accepts as `sort`.
+        table_id (None | str | Unset): Opaque id of the data table these rows were read from. Send it as the `table_id`
+            query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the
+            table since.
     """
 
     columns: list[ColumnChange]
@@ -34,6 +37,7 @@ class DatasetRowsResponse:
     approximate_total: int
     next_cursor: int | None | Unset = UNSET
     sortable_columns: list[str] | Unset = UNSET
+    table_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,6 +63,12 @@ class DatasetRowsResponse:
         if not isinstance(self.sortable_columns, Unset):
             sortable_columns = self.sortable_columns
 
+        table_id: None | str | Unset
+        if isinstance(self.table_id, Unset):
+            table_id = UNSET
+        else:
+            table_id = self.table_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -72,6 +82,8 @@ class DatasetRowsResponse:
             field_dict["next_cursor"] = next_cursor
         if sortable_columns is not UNSET:
             field_dict["sortable_columns"] = sortable_columns
+        if table_id is not UNSET:
+            field_dict["table_id"] = table_id
 
         return field_dict
 
@@ -108,12 +120,22 @@ class DatasetRowsResponse:
 
         sortable_columns = cast(list[str], d.pop("sortable_columns", UNSET))
 
+        def _parse_table_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        table_id = _parse_table_id(d.pop("table_id", UNSET))
+
         dataset_rows_response = cls(
             columns=columns,
             rows=rows,
             approximate_total=approximate_total,
             next_cursor=next_cursor,
             sortable_columns=sortable_columns,
+            table_id=table_id,
         )
 
         dataset_rows_response.additional_properties = d

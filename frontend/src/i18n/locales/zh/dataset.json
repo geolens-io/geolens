@@ -203,7 +203,21 @@
     "columns": "列",
     "loadFailed": "数据加载失败，请重试。",
     "tableLabel": "要素属性",
-    "cellEditorLabel": "编辑要素 {{gid}} 的 {{column}}"
+    "cellEditorLabel": "编辑要素 {{gid}} 的 {{column}}",
+    "selectPage": "选择本页所有行",
+    "selectRow": "选择行 {{gid}}",
+    "deleteRows_one": "删除 {{formattedCount}} 行",
+    "deleteRows_many": "删除 {{formattedCount}} 行",
+    "deleteRows_other": "删除 {{formattedCount}} 行",
+    "deleteRowsTitle": "删除行",
+    "deleteRowsDescription_one": "删除所选的 {{formattedCount}} 行？此操作无法撤销。",
+    "deleteRowsDescription_many": "删除所选的 {{formattedCount}} 行？此操作无法撤销。",
+    "deleteRowsDescription_other": "删除所选的 {{formattedCount}} 行？此操作无法撤销。",
+    "rowsDeleted_one": "已删除 {{formattedCount}} 行",
+    "rowsDeleted_many": "已删除 {{formattedCount}} 行",
+    "rowsDeleted_other": "已删除 {{formattedCount}} 行",
+    "deleteRowsFailed": "删除行失败",
+    "deleteRowsMissing": "部分所选行已不存在，因此未删除任何内容。"
   },
   "changeHistory": {
     "title": "更改历史（{{count}}）",

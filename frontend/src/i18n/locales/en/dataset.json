@@ -203,7 +203,21 @@
     "columns": "Columns",
     "loadFailed": "Failed to load data. Please try again.",
     "tableLabel": "Feature attributes",
-    "cellEditorLabel": "Edit {{column}} for feature {{gid}}"
+    "cellEditorLabel": "Edit {{column}} for feature {{gid}}",
+    "selectPage": "Select all rows on this page",
+    "selectRow": "Select row {{gid}}",
+    "deleteRows_one": "Delete {{formattedCount}} row",
+    "deleteRows_many": "Delete {{formattedCount}} rows",
+    "deleteRows_other": "Delete {{formattedCount}} rows",
+    "deleteRowsTitle": "Delete rows",
+    "deleteRowsDescription_one": "Delete {{formattedCount}} selected row? This cannot be undone.",
+    "deleteRowsDescription_many": "Delete {{formattedCount}} selected rows? This cannot be undone.",
+    "deleteRowsDescription_other": "Delete {{formattedCount}} selected rows? This cannot be undone.",
+    "rowsDeleted_one": "{{formattedCount}} row deleted",
+    "rowsDeleted_many": "{{formattedCount}} rows deleted",
+    "rowsDeleted_other": "{{formattedCount}} rows deleted",
+    "deleteRowsFailed": "Failed to delete rows",
+    "deleteRowsMissing": "Some selected rows no longer exist, so nothing was deleted."
   },
   "changeHistory": {
     "title": "Change History ({{count}})",

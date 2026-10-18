@@ -31,6 +31,8 @@ DATASET_WRITE_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("PUT", "/datasets/{dataset_id}/features/{gid}"),
         ("PATCH", "/datasets/{dataset_id}/features/{gid}"),
         ("DELETE", "/datasets/{dataset_id}/features/{gid}"),
+        ("POST", "/datasets/{dataset_id}/features/delete/"),
+        ("POST", "/datasets/{dataset_id}/features/delete"),
         ("GET", "/datasets/{dataset_id}/features.geojson"),
         ("GET", "/collections/{dataset_id}/items"),
         ("GET", "/collections/{dataset_id}/items/"),

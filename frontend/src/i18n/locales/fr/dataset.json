@@ -203,7 +203,21 @@
     "columns": "Colonnes",
     "loadFailed": "Impossible de charger les données. Veuillez réessayer.",
     "tableLabel": "Attributs des entités",
-    "cellEditorLabel": "Modifier {{column}} pour l’entité {{gid}}"
+    "cellEditorLabel": "Modifier {{column}} pour l’entité {{gid}}",
+    "selectPage": "Sélectionner toutes les lignes de cette page",
+    "selectRow": "Sélectionner la ligne {{gid}}",
+    "deleteRows_one": "Supprimer {{formattedCount}} ligne",
+    "deleteRows_many": "Supprimer {{formattedCount}} lignes",
+    "deleteRows_other": "Supprimer {{formattedCount}} lignes",
+    "deleteRowsTitle": "Supprimer des lignes",
+    "deleteRowsDescription_one": "Supprimer {{formattedCount}} ligne sélectionnée ? Cette action est irréversible.",
+    "deleteRowsDescription_many": "Supprimer {{formattedCount}} lignes sélectionnées ? Cette action est irréversible.",
+    "deleteRowsDescription_other": "Supprimer {{formattedCount}} lignes sélectionnées ? Cette action est irréversible.",
+    "rowsDeleted_one": "{{formattedCount}} ligne supprimée",
+    "rowsDeleted_many": "{{formattedCount}} lignes supprimées",
+    "rowsDeleted_other": "{{formattedCount}} lignes supprimées",
+    "deleteRowsFailed": "Échec de la suppression des lignes",
+    "deleteRowsMissing": "Certaines lignes sélectionnées n'existent plus, rien n'a donc été supprimé."
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",

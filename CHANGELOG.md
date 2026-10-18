@@ -30,6 +30,23 @@ and releases use semantic versioning.
   `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
   shapes, so TypeScript callers that read `id` from the result narrow it
   first.
+- The dataset page's Data tab can delete rows. When the table is editable,
+  each row has a checkbox and the header selects the whole page; a Delete
+  action asks for confirmation, stating the count, and deletes the selected
+  rows in one request. There is no undo. Rows without a geometry, which the map
+  can't select, can be deleted this way. The selection covers one page and
+  clears when the page, sort or filter changes.
+- `POST /datasets/{dataset_id}/features/delete/` deletes up to 1,000 features
+  by gid, sent as `{"gids": [...]}`, in one transaction. Either every listed
+  feature is deleted or none is: a gid that doesn't exist gets a 404 with
+  `detail.code` `feature_not_found` and the missing ids in `detail.gids`. It
+  takes the checks and the optional `table_id` that a single
+  `DELETE /datasets/{dataset_id}/features/{gid}` takes, so a stale `table_id`
+  gets the same 409 `dataset_replaced`. It answers 200 with `deleted` and
+  `tile_cache_version`, rolls the tile cache once and writes one
+  `feature.bulk_delete` audit entry. A `dataset_write` key may call it on its
+  own dataset; an append-only key can't. `GET /datasets/{dataset_id}/rows/`
+  now returns the `table_id` its rows were read from.
 - `POST /datasets/{dataset_id}/features/dry-run/` checks a feature create
   without writing it, so an integration can verify a webhook destination
   without leaving a test feature behind. It takes the body the create route

@@ -3579,7 +3579,7 @@ class TestNoCatalogModuleWritesAnAbsoluteTileVersion:
         # site rolls tiles for a table replaced outside GeoLens and writes nothing.
         assert self._by_file("record_live_data_write") == {
             "features/retention.py": 1,
-            "features/router.py": 6,
+            "features/router.py": 7,
             "layers/router.py": 4,
         }
 

@@ -63,6 +63,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "embed_token.revoke",
         "embed_token.update",
         "embedding.backfill",
+        "feature.bulk_delete",
         "feature.bulk_insert",
         "feature.delete",
         "feature.insert",

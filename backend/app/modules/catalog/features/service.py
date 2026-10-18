@@ -1245,6 +1245,37 @@ async def delete_feature(
     return _prior_bounds_from_row(row)
 
 
+class MissingFeaturesError(Exception):
+    """A batch delete named features that do not exist."""
+
+    def __init__(self, gids: list[int]) -> None:
+        super().__init__(f"Features not found: {', '.join(map(str, gids))}")
+        self.gids = gids
+
+
+async def delete_features(
+    db: AsyncSession, table_name: str, gids: Sequence[int]
+) -> tuple[list[int], list[Bounds | None]]:
+    """Hard-delete features by gid, returning the gids and envelopes removed.
+
+    A gid sent twice is deleted once. Raises ``MissingFeaturesError`` naming
+    every gid that does not exist; the rows that did are already deleted in
+    the transaction, so the caller must roll it back.
+    """
+    wanted = list(dict.fromkeys(gids))
+    result = await db.execute(
+        text(
+            f"DELETE FROM {get_catalog_port().quote_table(table_name)} "
+            f"WHERE gid = ANY(:gids) RETURNING gid, {_PRIOR_BOUNDS_COLS}"
+        ).bindparams(gids=wanted)
+    )
+    removed = {row.gid: _prior_bounds_from_row(row) for row in result}
+    missing = [gid for gid in wanted if gid not in removed]
+    if missing:
+        raise MissingFeaturesError(missing)
+    return wanted, [removed[gid] for gid in wanted]
+
+
 async def _refresh_count_and_extent(
     session: AsyncSession, table_name: str
 ) -> tuple[int, str | None]:

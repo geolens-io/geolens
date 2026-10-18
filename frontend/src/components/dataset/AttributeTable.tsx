@@ -13,10 +13,21 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { toast } from 'sonner';
 import { ApiError } from '@/api/client';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
-import { useUpdateFeature } from '@/hooks/use-features';
+import { useDeleteFeatures, useUpdateFeature } from '@/hooks/use-features';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { DEFAULT_ROWS_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -30,7 +41,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
-import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
+import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 
 // Sorting is server-side (manualSorting), so no sorted row model is registered:
@@ -64,6 +75,12 @@ const SHORT_TYPES: Record<string, string> = {
 
 function shortType(type: string): string {
   return SHORT_TYPES[type] ?? type.toLowerCase();
+}
+
+/** The detail code of a structured API refusal, if it has one. */
+function refusalCode(err: unknown): string | undefined {
+  if (!(err instanceof ApiError)) return undefined;
+  return (err.body as { code?: string } | undefined)?.code;
 }
 
 interface EditingCell {
@@ -189,6 +206,9 @@ export function AttributeTable({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const updateFeature = useUpdateFeature();
+  const deleteFeatures = useDeleteFeatures();
+  const [selection, setSelection] = useState<ReadonlySet<number>>(() => new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const authIdentity = useAuthStore((state) => `${state.sessionEpoch}:${state.user?.id ?? ''}`);
   const requestScopeRef = useRef({ datasetId, authIdentity });
   if (
@@ -251,6 +271,61 @@ export function AttributeTable({
   if (sort && error instanceof ApiError && error.status === 400) {
     setSorting([]);
   }
+
+  // A selection belongs to one page of one query. Like paging above, it is
+  // reset during render so no frame offers to delete rows from the old page.
+  const selectionScope = JSON.stringify([datasetId, authIdentity, pagingScope, pageSize, cursor]);
+  const [selectedScope, setSelectedScope] = useState(selectionScope);
+  if (selectedScope !== selectionScope) {
+    setSelectedScope(selectionScope);
+    setSelection(new Set());
+  }
+  const pageGids = useMemo(
+    () => (data?.rows ?? []).map((row) => row.gid as number),
+    [data?.rows],
+  );
+  const selectedGids = useMemo(
+    () => pageGids.filter((gid) => selection.has(gid)),
+    [selection, pageGids],
+  );
+  const selectable = canEdit && pageGids.length > 0;
+
+  const toggleRow = useCallback((gid: number, checked: boolean) => {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(gid);
+      else next.delete(gid);
+      return next;
+    });
+  }, []);
+
+  const togglePage = useCallback((checked: boolean) => {
+    setSelection(new Set(checked ? pageGids : []));
+  }, [pageGids]);
+
+  const handleDeleteRows = useCallback(async () => {
+    const gids = selectedGids;
+    const submittedScope = requestScopeRef.current;
+    try {
+      const result = await deleteFeatures.mutateAsync({
+        datasetId,
+        gids,
+        tableId: data?.table_id,
+      });
+      if (requestScopeRef.current !== submittedScope) return;
+      setSelection((prev) => new Set([...prev].filter((gid) => !gids.includes(gid))));
+      toast.success(t('attributes.rowsDeleted', {
+        count: result.deleted,
+        formattedCount: formatNumber(result.deleted),
+      }));
+    } catch (err) {
+      if (requestScopeRef.current !== submittedScope) return;
+      const code = refusalCode(err);
+      if (code === 'dataset_replaced') toast.error(t('map.featureDatasetReplaced'));
+      else if (code === 'feature_not_found') toast.error(t('attributes.deleteRowsMissing'));
+      else toast.error(formatMutationError('dataset:attributes.deleteRowsFailed', err));
+    }
+  }, [selectedGids, datasetId, data?.table_id, deleteFeatures, t]);
 
   const handleFilterChange = useCallback((colName: string, value: string) => {
     setColumnFilters((prev) => ({ ...prev, [colName]: value }));
@@ -521,6 +596,22 @@ export function AttributeTable({
     </DropdownMenu>
   ) : null;
 
+  const deleteRowsAction = selectedGids.length > 0 ? (
+    <Button
+      variant="destructive"
+      size="sm"
+      className="h-7 text-xs gap-1.5"
+      onClick={() => setDeleteConfirmOpen(true)}
+      disabled={deleteFeatures.isPending}
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+      {t('attributes.deleteRows', {
+        count: selectedGids.length,
+        formattedCount: formatNumber(selectedGids.length),
+      })}
+    </Button>
+  ) : null;
+
   // The root is a shrinkable flex column: inside a height-bounded parent
   // (DataTab) the scroll region absorbs the overflow, so the toolbar and the
   // pagination bar stay on screen.
@@ -530,6 +621,7 @@ export function AttributeTable({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {heading}
           <div className="ms-auto flex items-center gap-1">
+            {deleteRowsAction}
             {columnsMenu}
             {actions}
           </div>
@@ -566,7 +658,12 @@ export function AttributeTable({
   const paddingBottom = lastItem
     ? virtualizer.getTotalSize() - (lastItem.start + lastItem.size)
     : 0;
-  const visibleColumnCount = table.getVisibleLeafColumns().length;
+  const visibleColumnCount = table.getVisibleLeafColumns().length + (selectable ? 1 : 0);
+  const pageChecked = selectedGids.length === 0
+    ? false
+    : selectedGids.length === pageGids.length
+      ? true
+      : 'indeterminate';
 
   return shell(
     <>
@@ -594,6 +691,16 @@ export function AttributeTable({
           <TableHeader className="sticky top-0 z-10 bg-muted">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                {selectable ? (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label={t('attributes.selectPage')}
+                      checked={pageChecked}
+                      disabled={isPlaceholderData}
+                      onCheckedChange={(value) => togglePage(value === true)}
+                    />
+                  </TableHead>
+                ) : null}
                 {headerGroup.headers.map((header) => {
                   // Announce sort state on the column header.
                   const sorted = header.column.getIsSorted();
@@ -634,6 +741,7 @@ export function AttributeTable({
             ))}
             {/* Filter row */}
             <TableRow>
+              {selectable ? <TableHead className="py-1" /> : null}
               {table.getHeaderGroups()[0]?.headers.map((header) => (
                 <TableHead key={`filter-${header.id}`} className="py-1">
                   {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
@@ -652,7 +760,7 @@ export function AttributeTable({
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={visibleColumnCount} className="text-center text-muted-foreground py-8">
                   {t('attributes.noResults')}
                 </TableCell>
               </TableRow>
@@ -665,12 +773,23 @@ export function AttributeTable({
                 ) : null}
                 {virtualItems.map((virtualRow) => {
                   const row = rows[virtualRow.index];
+                  const gid = row.original.gid as number;
                   return (
                     <TableRow
                       key={row.id}
                       data-index={virtualRow.index}
                       className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
                     >
+                      {selectable ? (
+                        <TableCell className={`w-10 ${cellClass}`}>
+                          <Checkbox
+                            aria-label={t('attributes.selectRow', { gid })}
+                            checked={selectedGids.includes(gid)}
+                            disabled={isPlaceholderData}
+                            onCheckedChange={(value) => toggleRow(gid, value === true)}
+                          />
+                        </TableCell>
+                      ) : null}
                       {row.getVisibleCells().map((cell) => (
                         <TableCell key={cell.id} className={`max-w-xs truncate ${cellClass}`}>
                           <table.FlexRender cell={cell} />
@@ -689,6 +808,32 @@ export function AttributeTable({
           </TableBody>
         </table>
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('attributes.deleteRowsTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('attributes.deleteRowsDescription', {
+                count: selectedGids.length,
+                formattedCount: formatNumber(selectedGids.length),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                handleDeleteRows();
+                setDeleteConfirmOpen(false);
+              }}
+            >
+              {t('common:delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

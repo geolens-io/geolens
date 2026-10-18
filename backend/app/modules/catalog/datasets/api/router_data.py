@@ -42,6 +42,7 @@ from app.modules.catalog.maps.schemas import MapListResponse
 from app.modules.catalog.records.inherited import (
     inherited_keyword_disclosure_warning,
 )
+from app.modules.catalog.features.idempotency import current_table_oid
 from app.modules.catalog.datasets.domain.service import (
     InvalidSortColumn,
     get_dataset,
@@ -152,10 +153,11 @@ async def get_dataset_rows_endpoint(
             col_name = key[7:-1]
             filters[col_name] = value
 
+    table_name = dataset.table_name
     try:
         rows, approx_total, columns, next_cursor = await get_dataset_rows(
             db,
-            dataset.table_name,
+            table_name,
             limit=limit,
             after_gid=after,
             column_info=dataset.column_info,
@@ -179,6 +181,8 @@ async def get_dataset_rows_endpoint(
             )
         raise
 
+    # Still inside the transaction that read the rows, so it names their table.
+    table_oid = await current_table_oid(db, table_name)
     return DatasetRowsResponse(
         rows=rows,
         approximate_total=approx_total,
@@ -187,6 +191,7 @@ async def get_dataset_rows_endpoint(
         # `columns`, not `dataset`: an absent data table rolls the session back,
         # which expires the ORM object, and a lazy load here has no greenlet.
         sortable_columns=sortable_columns(columns),
+        table_id=None if table_oid is None else str(table_oid),
     )
 
 

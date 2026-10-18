@@ -1152,6 +1152,15 @@ class DatasetRowsResponse(BaseModel):
         default_factory=list,
         description="Columns the rows endpoint accepts as `sort`.",
     )
+    table_id: str | None = Field(
+        default=None,
+        description=(
+            "Opaque id of the data table these rows were read from. Send it as "
+            "the `table_id` query parameter of a feature write or batch delete "
+            "to have it refused if a reupload or overwrite replaced the table "
+            "since."
+        ),
+    )
 
 
 class ColumnValuesResponse(BaseModel):

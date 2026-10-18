@@ -203,7 +203,21 @@
     "columns": "Spalten",
     "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen.",
     "tableLabel": "Feature-Attribute",
-    "cellEditorLabel": "{{column}} für Feature {{gid}} bearbeiten"
+    "cellEditorLabel": "{{column}} für Feature {{gid}} bearbeiten",
+    "selectPage": "Alle Zeilen auf dieser Seite auswählen",
+    "selectRow": "Zeile {{gid}} auswählen",
+    "deleteRows_one": "{{formattedCount}} Zeile löschen",
+    "deleteRows_many": "{{formattedCount}} Zeilen löschen",
+    "deleteRows_other": "{{formattedCount}} Zeilen löschen",
+    "deleteRowsTitle": "Zeilen löschen",
+    "deleteRowsDescription_one": "{{formattedCount}} ausgewählte Zeile löschen? Das kann nicht rückgängig gemacht werden.",
+    "deleteRowsDescription_many": "{{formattedCount}} ausgewählte Zeilen löschen? Das kann nicht rückgängig gemacht werden.",
+    "deleteRowsDescription_other": "{{formattedCount}} ausgewählte Zeilen löschen? Das kann nicht rückgängig gemacht werden.",
+    "rowsDeleted_one": "{{formattedCount}} Zeile gelöscht",
+    "rowsDeleted_many": "{{formattedCount}} Zeilen gelöscht",
+    "rowsDeleted_other": "{{formattedCount}} Zeilen gelöscht",
+    "deleteRowsFailed": "Zeilen konnten nicht gelöscht werden",
+    "deleteRowsMissing": "Einige ausgewählte Zeilen existieren nicht mehr, daher wurde nichts gelöscht."
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",

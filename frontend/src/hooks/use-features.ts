@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { createFeature, updateFeature, deleteFeature } from '@/api/features';
+import { createFeature, updateFeature, deleteFeature, deleteFeatures } from '@/api/features';
 import { addColumn, dropColumn, getColumnReferences } from '@/api/datasets';
 import type { Geometry } from 'geojson';
 import { logger } from '@/lib/logger';
@@ -103,6 +103,29 @@ export function useDeleteFeature() {
     },
     onError: (err) => {
       logger.error('[useDeleteFeature]', err);
+    },
+  });
+}
+
+export function useDeleteFeatures() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      gids,
+      tableId,
+    }: {
+      datasetId: string;
+      gids: number[];
+      tableId?: string | null;
+    }) => deleteFeatures(datasetId, gids, tableId),
+    // A refused batch (missing rows, replaced table) also means the page the
+    // selection came from is out of date.
+    onSettled: (_data, _err, variables) => {
+      invalidateFeatureCaches(qc, variables.datasetId);
+    },
+    onError: (err) => {
+      logger.error('[useDeleteFeatures]', err);
     },
   });
 }

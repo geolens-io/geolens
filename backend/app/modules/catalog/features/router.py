@@ -74,6 +74,8 @@ from app.modules.catalog.features.idempotency import (
 from app.modules.catalog.features.schemas import (
     TILE_CACHE_VERSION_DESCRIPTION,
     TILE_CACHE_VERSION_HEADER,
+    FeatureBatchDelete,
+    FeatureBatchDeleted,
     FeatureCollectionCreate,
     FeatureCreate,
     FeatureCreateBody,
@@ -91,8 +93,10 @@ from app.modules.catalog.features.schemas import (
 from app.modules.catalog.features.service import (
     Bounds,
     FeatureBatchError,
+    MissingFeaturesError,
     UnwritablePropertyError,
     delete_feature,
+    delete_features,
     dry_run_blocker,
     effective_geometry_type,
     geojson_bounds,
@@ -1654,3 +1658,79 @@ async def delete_single_feature(
         else None
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT, headers=headers)
+
+
+@features_router.post(
+    "/{dataset_id}/features/delete/",
+    response_model=FeatureBatchDeleted,
+    responses=ERROR_RESPONSES_WRITE,
+)
+async def delete_features_batch(
+    dataset_id: uuid.UUID,
+    body: FeatureBatchDelete,
+    table_id: str = Query(
+        default=None,
+        min_length=1,
+        max_length=20,
+        description=_TABLE_ID_PARAM_DESCRIPTION,
+    ),
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> FeatureBatchDeleted:
+    """Delete up to 1,000 features by gid in one transaction (hard delete).
+
+    Either every listed feature is deleted or none is. If any gid does not
+    exist, the request is refused with 404, `detail.code` `feature_not_found`
+    and the missing ids in `detail.gids`. A gid listed twice is deleted once.
+    Takes the checks and the `table_id` a single delete takes, and writes one
+    `feature.bulk_delete` audit entry.
+    """
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db, dataset_id)
+    _require_feature_table(dataset)
+
+    try:
+        await _hold_table(db, dataset, table_id)
+        gids, prior_bounds = await delete_features(db, dataset.table_name, body.gids)
+    except MissingFeaturesError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "feature_not_found", "message": str(e), "gids": e.gids},
+        )
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
+
+    await _refresh_metadata_guarded(
+        db, dataset, count_delta=-len(gids), touched_bounds=prior_bounds
+    )
+    dataset.record.updated_by = user.id
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="feature.bulk_delete",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"gids": gids, "count": len(gids), **api_key_audit_details(db)},
+        ),
+    )
+    tile_version = await record_live_data_write(db, dataset)
+    await db.commit()
+
+    logger.info(
+        "feature.bulk_delete",
+        dataset_id=str(dataset_id),
+        tile_cache_version=tile_version,
+        count=len(gids),
+        user_id=str(user.id),
+    )
+    return FeatureBatchDeleted(deleted=len(gids), tile_cache_version=tile_version)

@@ -658,6 +658,46 @@ async def test_a_bulk_insert_into_another_dataset_is_refused(
     )
 
 
+async def test_a_dataset_key_batch_deletes_only_in_its_own_dataset(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    bound, other = datasets
+    raw_key = (await _mint(client, headers, bound.id))["key"]
+    key = {"X-Api-Key": raw_key}
+    made = {}
+    for dataset in datasets:
+        resp = await client.post(
+            f"/datasets/{dataset.id}/features/",
+            json=_collection("a", "b", "c"),
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+        made[dataset.id] = [f["id"] for f in resp.json()["features"]]
+
+    for url, gid in (
+        (f"/datasets/{bound.id}/features/delete/", made[bound.id][0]),
+        (f"/datasets/{bound.id}/features/delete", made[bound.id][1]),
+    ):
+        resp = await client.post(url, json={"gids": [gid]}, headers=key)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["deleted"] == 1
+
+    await _assert_refused_like_an_invalid_key(
+        client,
+        "POST",
+        f"/datasets/{other.id}/features/delete/",
+        raw_key,
+        json={"gids": made[other.id]},
+    )
+    remaining = (
+        await test_db_session.execute(
+            text(f"SELECT count(*) FROM data.{other.table_name}")
+        )
+    ).scalar_one()
+    assert remaining == 3
+
+
 async def test_the_owner_sees_and_revokes_every_key_on_the_dataset(
     client: AsyncClient, owner, datasets, admin_auth_header
 ):
@@ -1105,6 +1145,8 @@ async def test_an_append_key_is_refused_on_every_other_route(
         ("PUT", f"{base}/{gid}", write),
         ("PATCH", f"{base}/{gid}", {"json": {"properties": {"name": "x"}}}),
         ("DELETE", f"{base}/{gid}", {}),
+        ("POST", f"{base}/delete/", {"json": {"gids": [gid]}}),
+        ("POST", f"{base}/delete", {"json": {"gids": [gid]}}),
         ("POST", f"{base}/dry-run/", write),
         ("POST", f"{base}/dry-run", write),
         (

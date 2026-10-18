@@ -4122,6 +4122,12 @@ export type DatasetRowsResponse = {
      * Columns the rows endpoint accepts as `sort`.
      */
     sortable_columns?: Array<string>;
+    /**
+     * Table Id
+     *
+     * Opaque id of the data table these rows were read from. Send it as the `table_id` query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the table since.
+     */
+    table_id?: string | null;
 };
 
 /**
@@ -5043,6 +5049,40 @@ export type FanOutLayerResult = {
      * User-safe error description when status='failed'. Never contains internal file paths.
      */
     error?: string | null;
+};
+
+/**
+ * FeatureBatchDelete
+ *
+ * The features a batch delete removes.
+ */
+export type FeatureBatchDelete = {
+    /**
+     * Gids
+     *
+     * Ids of the features to delete, at most 1000. If any does not exist, none is deleted.
+     */
+    gids: Array<number>;
+};
+
+/**
+ * FeatureBatchDeleted
+ *
+ * The result of a batch delete.
+ */
+export type FeatureBatchDeleted = {
+    /**
+     * Deleted
+     *
+     * Number of features deleted.
+     */
+    deleted: number;
+    /**
+     * Tile Cache Version
+     *
+     * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+     */
+    tile_cache_version?: number | null;
 };
 
 /**
@@ -19849,7 +19889,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         /**
          * Table Id
          *
-         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
          */
         table_id?: string | null;
         /**
@@ -19915,7 +19955,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
             /**
              * Table Id
              *
-             * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+             * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
              */
             table_id?: string | null;
             /**
@@ -19928,7 +19968,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         /**
          * Table Id
          *
-         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
          */
         table_id?: string | null;
         /**
@@ -19941,6 +19981,75 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
 };
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostResponse = CreateFeatureDatasetsDatasetIdFeaturesPostResponses[keyof CreateFeatureDatasetsDatasetIdFeaturesPostResponses];
+
+export type DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostData = {
+    body: FeatureBatchDelete;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * Table Id
+         *
+         * The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.
+         */
+        table_id?: string;
+    };
+    url: '/datasets/{dataset_id}/features/delete/';
+};
+
+export type DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostError = DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostErrors[keyof DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostErrors];
+
+export type DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: FeatureBatchDeleted;
+};
+
+export type DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostResponse = DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostResponses[keyof DeleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePostResponses];
 
 export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostData = {
     /**
@@ -20285,7 +20394,7 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
         /**
          * Table Id
          *
-         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
          */
         table_id?: string | null;
     };
@@ -20412,7 +20521,7 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
         /**
          * Table Id
          *
-         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
          */
         table_id?: string | null;
         /**
@@ -20545,7 +20654,7 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
         /**
          * Table Id
          *
-         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.
          */
         table_id?: string | null;
         /**

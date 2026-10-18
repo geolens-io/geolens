@@ -7018,6 +7018,18 @@
             },
             "title": "Sortable Columns",
             "type": "array"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque id of the data table these rows were read from. Send it as the `table_id` query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the table since.",
+            "title": "Table Id"
           }
         },
         "required": [
@@ -8598,6 +8610,53 @@
           "status"
         ],
         "title": "FanOutLayerResult",
+        "type": "object"
+      },
+      "FeatureBatchDelete": {
+        "description": "The features a batch delete removes.",
+        "properties": {
+          "gids": {
+            "description": "Ids of the features to delete, at most 1000. If any does not exist, none is deleted.",
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Gids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gids"
+        ],
+        "title": "FeatureBatchDelete",
+        "type": "object"
+      },
+      "FeatureBatchDeleted": {
+        "description": "The result of a batch delete.",
+        "properties": {
+          "deleted": {
+            "description": "Number of features deleted.",
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "tile_cache_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+            "title": "Tile Cache Version"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "FeatureBatchDeleted",
         "type": "object"
       },
       "FeatureCollectionCreate": {
@@ -38909,7 +38968,7 @@
                               "type": "null"
                             }
                           ],
-                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                           "title": "Table Id"
                         },
                         "tile_cache_version": {
@@ -39053,7 +39112,7 @@
                                     "type": "null"
                                   }
                                 ],
-                                "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                                "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                                 "title": "Table Id"
                               },
                               "tile_cache_version": {
@@ -39088,7 +39147,7 @@
                               "type": "null"
                             }
                           ],
-                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                           "title": "Table Id"
                         },
                         "tile_cache_version": {
@@ -39231,6 +39290,173 @@
           }
         ],
         "summary": "Create Feature",
+        "tags": [
+          "Features"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/features/delete/": {
+      "post": {
+        "description": "Delete up to 1,000 features by gid in one transaction (hard delete).\n\nEither every listed feature is deleted or none is. If any gid does not\nexist, the request is refused with 404, `detail.code` `feature_not_found`\nand the missing ids in `detail.gids`. A gid listed twice is deleted once.\nTakes the checks and the `table_id` a single delete takes, and writes one\n`feature.bulk_delete` audit entry.",
+        "operationId": "delete_features_batch_datasets__dataset_id__features_delete__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "description": "The `table_id` the feature was read with. If the dataset's data has been replaced since, the request is refused with 409 and code `dataset_replaced`, and nothing is written.",
+              "maxLength": 20,
+              "minLength": 1,
+              "title": "Table Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureBatchDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureBatchDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Delete Features Batch",
         "tags": [
           "Features"
         ]
@@ -39947,7 +40173,7 @@
                           "type": "null"
                         }
                       ],
-                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                       "title": "Table Id"
                     }
                   },
@@ -40233,7 +40459,7 @@
                           "type": "null"
                         }
                       ],
-                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                       "title": "Table Id"
                     },
                     "tile_cache_version": {
@@ -40541,7 +40767,7 @@
                           "type": "null"
                         }
                       ],
-                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature, or of a batch delete, to have the write refused if the table was replaced since.",
                       "title": "Table Id"
                     },
                     "tile_cache_version": {

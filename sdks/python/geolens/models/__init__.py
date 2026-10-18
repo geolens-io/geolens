@@ -362,6 +362,8 @@ from .fan_out_commit_response import FanOutCommitResponse
 from .fan_out_layer_request import FanOutLayerRequest
 from .fan_out_layer_result import FanOutLayerResult
 from .fan_out_layer_result_status import FanOutLayerResultStatus
+from .feature_batch_delete import FeatureBatchDelete
+from .feature_batch_deleted import FeatureBatchDeleted
 from .feature_collection_create import FeatureCollectionCreate
 from .feature_create import FeatureCreate
 from .feature_create_properties_type_0 import FeatureCreatePropertiesType0
@@ -1205,6 +1207,8 @@ __all__ = (
     "FanOutLayerRequest",
     "FanOutLayerResult",
     "FanOutLayerResultStatus",
+    "FeatureBatchDelete",
+    "FeatureBatchDeleted",
     "FeatureCollectionCreate",
     "FeatureCreate",
     "FeatureCreatePropertiesType0",
