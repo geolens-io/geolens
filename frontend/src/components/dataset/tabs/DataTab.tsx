@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
+import { useAuthStore } from '@/stores/auth-store';
 import { Maximize2, Minimize2, AlignJustify, List } from 'lucide-react';
 
 interface DataTabProps {
@@ -38,6 +39,9 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   const [compact, setCompact] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const top = useDocumentTop(rootRef);
+  // Signed-in readers get the fixed Ask AI launcher (bottom-10, about 40px
+  // tall) over the page's bottom-right corner, where the Next button sits.
+  const bottomGap = useAuthStore((s) => s.token != null) ? '5.5rem' : '1rem';
 
   const actions = (
     <>
@@ -69,7 +73,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   // so the table box and its pagination fit without page scroll; the
   // expanded view fills that height. The floor keeps a usable table on short
   // viewports.
-  const fill = top == null ? undefined : `max(20rem, calc(100dvh - ${top}px - 1rem))`;
+  const fill = top == null ? undefined : `max(20rem, calc(100dvh - ${top}px - ${bottomGap}))`;
   return (
     <div
       ref={rootRef}
