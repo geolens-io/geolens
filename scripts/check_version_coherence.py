@@ -18,12 +18,10 @@ would publish notes that never mention it. Nothing else in CI reads CHANGELOG.md
 Also asserts the reference-style link block at the bottom of CHANGELOG.md
 agrees with the canonical version: a `[<version>]:` compare link
 must exist for the canonical version, and `[Unreleased]:` must compare from
-`v<version>...HEAD`, not an older tag. Both edits are mechanical in
-bump_version.py but were once manual and
-unenforced, so a release could ship with an unlinked heading while
-`[Unreleased]` kept claiming every change in the release that just shipped
-(seen on v1.17.0, #1714). scripts/bump_version.py writes both lines
-mechanically; this is the backstop.
+`v<version>...HEAD`, not an older tag. Otherwise a release could ship with an
+unlinked heading while `[Unreleased]` kept claiming every change in the release
+that just shipped. scripts/bump_version.py writes both lines; this is the
+backstop.
 
 Sites checked:
   - backend/pyproject.toml                  [project].version (canonical)
@@ -411,12 +409,9 @@ def main() -> int:
     # Canonical = backend distribution version (what the app derives at runtime).
     canonical = sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"]
 
-    # Print every site BEFORE any check can return. Both CHANGELOG
-    # failure paths used to sit above this listing, so a `make version-check`
-    # that failed on the CHANGELOG never said whether the lockfiles and
-    # manifests had stamped — which is the whole reason you run it mid-bump.
-    # For the same reason both halves are now collected and reported together
-    # instead of returning on the first.
+    # Print every site BEFORE any check can return, so a failed CHANGELOG check
+    # still shows whether the lockfiles and manifests are stamped: the reason to
+    # run this mid-bump. Both CHANGELOG halves are likewise reported together.
     print(
         f"Version sites ({len(sites)}), "
         f"canonical (backend/pyproject.toml) = {canonical}:"
@@ -464,12 +459,11 @@ def main() -> int:
             f"  [ok] {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines)."
         )
 
-    # The reference-style compare links at the bottom of the file
-    # are not part of the `## [version]` section check above, and nothing else
-    # in CI reads them — a release can land with a correct header and section
-    # while `[Unreleased]` still compares from the previous tag and the new
-    # version has no link at all (v1.17.0, #1714). scripts/bump_version.py
-    # writes both lines mechanically; this asserts they landed.
+    # The reference-style compare links at the bottom of the file are outside
+    # the `## [version]` section check above and nothing else in CI reads them,
+    # so a release could land with `[Unreleased]` still comparing from the
+    # previous tag and no link for the new version. scripts/bump_version.py
+    # writes both lines; this asserts they landed.
     link_failures = _check_changelog_links(canonical)
     if link_failures:
         failed = True

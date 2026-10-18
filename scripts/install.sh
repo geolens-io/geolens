@@ -182,12 +182,11 @@ prompt_value() {
 
 # Wait up to 300s for the stack to become healthy. The migrate one-shot must
 # exit 0; every healthcheck-having service must report (healthy). A migrate
-# failure is a real failure (return 1, with its log tail). A timeout is NOT
+# failure is a real failure (return 1, with its log tail). A timeout is not
 # (return 2): on hosts that emulate amd64 (Apple Silicon and other ARM
 # machines) the database image runs under QEMU and first boot can outlast any
-# reasonable budget while still converging — treating that as a dead stack
-# false-alarmed real installs. Budget raised from 90s and the
-# timeout softened to "still starting" guidance.
+# reasonable budget while still converging, so a timeout gets "still starting"
+# guidance instead of a dead-stack alarm.
 wait_for_healthy() {
   attempts=60
   sleep_s=5
@@ -234,7 +233,7 @@ wait_for_healthy() {
   # timeout is not converging (bad image, OOM-kill, broken config) — fail with its
   # logs like the migrate path, instead of the exit-0 "still starting" guidance
   # below. `Exited (0)` and `starting`/`health: starting` are excluded, so the
-  # ARM/QEMU first-boot case (#441) stays non-fatal (return 2).
+  # ARM/QEMU first-boot case stays non-fatal (return 2).
   stuck=$(compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null \
     | grep -E '\|(Restarting|Exited \([1-9])' || true)
   if [ -n "$stuck" ]; then
@@ -465,13 +464,13 @@ main() {
   db_port="$(get_env_value DB_PORT)"
   api_port="$(get_env_value API_PORT)"
   fe_port="$(get_env_value FRONTEND_PORT)"
-  # When a key is missing from .env, defaulting only this shell
-  # variable made the installer probe (and later print) a port compose would
-  # never bind — compose falls back to its own no-.env baseline of 5432/8000,
-  # which is a deliberate, separately pinned decision. Persist the documented
-  # value instead, so the port we check, the port compose binds, and the port
-  # we print to the operator are the same one. A verbatim install is
-  # unaffected: .env.example already ships all three keys.
+  # When a key is missing from .env, compose falls back to its own no-.env
+  # baseline of 5432/8000, a deliberate, separately pinned decision, so
+  # defaulting only this shell variable would make the installer probe (and
+  # print) a port compose never binds. Persist the documented value instead,
+  # so the port we check, the port compose binds, and the port we print are
+  # the same. A verbatim install is unaffected: .env.example already ships
+  # all three keys.
   if [ -z "$db_port" ]; then
     db_port=5434
     update_env_value DB_PORT "$db_port"

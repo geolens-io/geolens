@@ -388,10 +388,9 @@ CITY_LABEL_CONFIG = {
     "textOffset": [0, 0.5],
     "allowOverlap": False,
 }
-# Ramp from 2.5, the floor of the live service's feed. It used to start at 4,
-# the floor of the old M4.5+ download; left there, every quake in the 2.5-4
-# band - most of the ~2,300 - pins to the same minimum weight and the surface
-# grades by density alone instead of by magnitude.
+# Ramp from 2.5, the floor of the live service's feed. Starting higher would pin
+# every quake in the 2.5-4 band (most of the ~2,300) to the same minimum weight,
+# so the surface would grade by density alone instead of by magnitude.
 QUAKE_HEATMAP_WEIGHT = [
     "interpolate",
     ["linear"],
@@ -1928,7 +1927,7 @@ def _rows_to_rebind(newest: str | None, retained: list[str]) -> list[str]:
     is what the seeder's other passes target and therefore the primary. They
     overlap in the ordinary case and must not be rebound twice.
 
-    Older duplicates exist because --force used to stack a second map beside
+    Older duplicates can exist because --force stacks a second map beside
     the first rather than replacing it. They are not cosmetic here: the scene
     deletion cascades EVERY retained row's layers away at once, so a row left
     unrebound keeps its uuid and becomes an EMPTY map. Guessing which
@@ -3013,9 +3012,8 @@ def build_restless_earth(
                 "colors": quake_colors,
                 "sizeLabel": "Magnitude",
             },
-            # Service column vocabulary, not the old seeder-derived one: every
-            # refresh rebuilds column_info from the service, so depth_km and
-            # time_utc are gone for good and these names are permanent.
+            # Service column vocabulary: every refresh rebuilds column_info
+            # from the service, so these names are the permanent ones.
             "popup_config": QUAKE_POPUP_CONFIG,
         },
     )
@@ -4023,8 +4021,8 @@ def build_hurricanes(api: Api, force: bool = False, force_pinned: bool = False) 
             "style_config": {
                 "render_mode": "arrow",
                 "builder": {
-                    # White arrows read clearly against the magenta Cat-5 line;
-                    # the old dark-purple (#701a75) was nearly invisible on it.
+                    # White arrows read clearly against the magenta Cat-5
+                    # line; dark purple is nearly invisible on it.
                     "arrow_color": "#ffffff",
                     "arrow_size": 16,
                     "arrow_spacing": 90,
@@ -4056,7 +4054,7 @@ def build_hurricanes(api: Api, force: bool = False, force_pinned: bool = False) 
             "dataset_id": tracks_ds,
             "sort_order": 1,
             # Single source of dimming: layer opacity 1.0 × line-opacity 0.85 keeps
-            # the intended ~0.85. The old 0.9 compounded to a washed-out 0.765.
+            # the intended ~0.85; 0.9 here would compound to a washed-out 0.765.
             "opacity": 1.0,
             "display_name": "Storm tracks (by intensity at each leg)",
             "style_config": {
@@ -5453,14 +5451,13 @@ def build_embed_demo(api: Api, force: bool = False, force_pinned: bool = False) 
 
 # Collection membership: dataset TITLES per collection. Missing titles (e.g.
 # terrain skipped) are silently ignored; add_to_collection is idempotent, so
-# membership tops up on every run (fix #389).
+# membership tops up on every run.
 COLLECTIONS = {
     "Restless Planet": (
         # Worded for the STAC surface as much as for the catalog. STAC exposes
-        # only a collection's RASTER members, so this description used to
-        # promise earthquakes and eruptions to a STAC client that could see
-        # neither - it lists what the collection HOLDS without claiming what any
-        # one surface will show.
+        # only a collection's RASTER members, so the description lists what the
+        # collection HOLDS without promising earthquakes or eruptions to a STAC
+        # client that could see neither.
         # No "live" here, deliberately. This text is written by a pass that
         # runs whether or not the service conversion succeeded, and unlike the
         # map notes it has no natural gate to hang on - a collection is a label
@@ -5783,9 +5780,8 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # Gated for the same reason as the circles dataset, and this one needs
         # it more: its title never changes, so the rename-after-conversion gate
         # that protects the circles dataset does not cover it at all.
-        # The old summary read as an internal rendering workaround;
-        # describe it as the map's density layer instead. Now also corrected to
-        # M2.5+, which is what the live service actually serves.
+        # Described as the map's density layer, at M2.5+ as the live service
+        # serves it.
         "requires_origin": "service",
         "gated": {
             "update_frequency": "continual",

@@ -117,16 +117,13 @@ AZURE_TITILER_KEYS = frozenset(
 # uses to persist a value into .env.
 WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 
-# Operator docs prescribed `scripts/prepare-tenant-rls.py`, a script
-# that never existed in any repo — the multi-tenant restore recipe was
-# unrunnable as written and nothing caught it. Every `scripts/<file>` path a
-# doc tells an operator to run must resolve to a real file.
+# Every `scripts/<file>` path a doc tells an operator to run must resolve to a
+# real file, or the recipe is unrunnable as written.
 SCRIPT_DOC_FILES = (
     "RUNBOOK.md",
     "README.md",
-    # The translations carry the same operator-facing install/upgrade commands
-    # so a path mistyped only in a translation is
-    # exactly as broken for the reader who follows it.
+    # The translations carry the same operator-facing install/upgrade commands,
+    # so a path mistyped only in a translation breaks the reader who follows it.
     "README.de.md",
     "README.es.md",
     "README.fr.md",
@@ -136,10 +133,8 @@ SCRIPT_DOC_FILES = (
     ".env.example",
     ".env.test.example",
 )
-# Nested path components and any extension are both in scope:
-# RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh
-# and README references scripts/README.md, and a pattern restricted to
-# single-component .py/.sh/.mjs/.sql paths silently skipped both. A trailing
+# Nested path components and any extension are both in scope, for example
+# scripts/tests/test-backup-restore-roundtrip.sh and scripts/README.md. A trailing
 # extension is still required so that prose like "the scripts/ directory" and
 # bare directory names do not get resolved as files.
 #

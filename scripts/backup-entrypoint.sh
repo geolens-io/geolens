@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ==============================================================================
-# GeoLens Automated Backup Entrypoint
-# ==============================================================================
+# GeoLens automated backup entrypoint.
 # Runs pg_dump on a cron schedule with daily/weekly retention and optional
 # S3 upload. Each cycle also captures the cluster globals (roles + cluster-wide
 # grants), which a database-only pg_dump cannot carry. Designed for the
@@ -28,7 +26,6 @@ set -euo pipefail
 # The uploader (awscli) follows whatever scheme S3_ENDPOINT carries — use an
 # http:// endpoint for plain-HTTP MinIO. There is no separate allow-http knob
 # here; S3_ALLOW_HTTP only affects the app's own object-storage client.
-# ==============================================================================
 
 # Overridable only so scripts/tests/test-backup-restore-roundtrip.sh can drive a
 # real cycle into a temp directory instead of re-implementing one. Nothing in
@@ -38,10 +35,10 @@ BACKUP_DIR="${BACKUP_DIR:-/backups}"
 DAILY_DIR="${BACKUP_DIR}/daily"
 WEEKLY_DIR="${BACKUP_DIR}/weekly"
 
-# BKP-01 (Phase 1219): the upload_staging volume is mounted read-only at
-# /staging. Each backup cycle tars it alongside the pg_dump so a restore can
-# reproduce a WORKING instance (DB rows + the staged source objects). Override
-# the mount point if the compose file changes it.
+# The upload_staging volume is mounted read-only at /staging. Each backup
+# cycle tars it alongside the pg_dump so a restore reproduces a working
+# instance (DB rows plus the staged source objects). Override the mount point
+# if the compose file changes it.
 STAGING_DIR="${STAGING_DIR:-/staging}"
 
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
@@ -80,32 +77,28 @@ for _ret_var in BACKUP_RETENTION_DAILY BACKUP_RETENTION_WEEKLY; do
 done
 unset _ret_var _ret_val
 
-# ---------------------------------------------------------------------------
-# pg_dump
-# ---------------------------------------------------------------------------
 run_backup() {
     local timestamp
     timestamp="$(date '+%Y%m%d_%H%M%S')"
-    # Decide "is this a weekly cycle?" ONCE, with the
-    # timestamp that names the cycle, and reuse it for every artifact. Asking
-    # the weekday again at the moment each one is written would let a Sunday
-    # cycle that crosses midnight — a 23:59 schedule, or a large staging
-    # archive — copy the dump into weekly/ and then answer Monday for its
-    # companions, leaving a weekly dump with no paired globals.
+    # Decide "is this a weekly cycle?" once, with the timestamp that names
+    # the cycle, and reuse it for every artifact. Asking the weekday again
+    # as each one is written would let a Sunday cycle that crosses
+    # midnight (a 23:59 schedule, or a large staging archive) copy the
+    # dump into weekly/ and then answer Monday for its companions, leaving
+    # a weekly dump with no paired globals.
     CYCLE_IS_WEEKLY=0
     [ "$(date '+%u')" = "7" ] && CYCLE_IS_WEEKLY=1
     local filename="${POSTGRES_DB}_${timestamp}.dump"
     local filepath="${DAILY_DIR}/${filename}"
-    # Declared here, before the FIRST early-exit
-    # candidate after the dump is published (the pg_restore verification
-    # below), so every failure between "dump published" and "retention" can
-    # record itself and fall through to retention instead of returning early.
-    # A `return` in that stretch would skip prune_old_backups/
-    # prune_s3_prefix entirely — for a Sunday cycle whose weekly copy failed
-    # (typically a nearly full volume), NEITHER daily nor weekly would
-    # ever expire, so the next cycle would run out of space before it could
-    # prune either. dump_ok tracks whether $filepath itself is still there to copy
-    # or upload after a verification failure removes it.
+    # Declared before the first early-exit candidate after the dump is
+    # published (the pg_restore verification below), so every failure
+    # between "dump published" and "retention" records itself and falls
+    # through to retention. A `return` there would skip
+    # prune_old_backups/prune_s3_prefix: for a Sunday cycle whose weekly
+    # copy failed (typically a nearly full volume), neither daily nor
+    # weekly would ever expire, and the next cycle would run out of space
+    # before it could prune. dump_ok tracks whether $filepath is still
+    # there to copy or upload after a verification failure removes it.
     local cycle_failed=0
     local dump_ok=1
 
@@ -137,25 +130,24 @@ run_backup() {
         return 1
     fi
 
-    # Verify the dump NOW, while the previous cycle's good copy is still inside
-    # retention — a corrupt dump is byte-for-byte indistinguishable from a good
-    # one until something parses it, and discovering that during a restore is
+    # Verify the dump now, while the previous cycle's good copy is still
+    # inside retention: a corrupt dump is indistinguishable from a good
+    # one until something parses it, and finding out during a restore is
     # too late.
     #
-    # MUST be `-f /dev/null`, NOT `--list`. In a -Fc archive the table of
+    # Use `-f /dev/null`, not `--list`. In a -Fc archive the table of
     # contents sits at the front, so `--list` succeeds on a dump truncated
-    # anywhere after it — measured: a 60%-truncated dump passes `--list` and
-    # fails `-f /dev/null`. Truncation (disk filled mid-dump, half-written
-    # file) is precisely the corruption this is meant to catch, so the cheaper
-    # check would be theatre. `-f /dev/null` decompresses every data block and
-    # writes the SQL nowhere; it costs ~0.1s per 20 MB and touches no database.
+    # anywhere after it (a 60%-truncated dump passes `--list` and fails
+    # `-f /dev/null`). Truncation from a full disk is the corruption this
+    # must catch. `-f /dev/null` decompresses every data block and writes
+    # the SQL nowhere; it costs ~0.1s per 20 MB and touches no database.
     if ! pg_restore -f /dev/null < "$filepath" > /dev/null 2>&1; then
         log "ERROR: ${filename} failed verification (pg_restore could not read it) — discarding the corrupt dump"
         rm -f "$filepath"
-        # Mark failed and fall through to
-        # retention instead of returning — this dump is gone, but old dumps
-        # (local and offsite) still need pruning, and staging/globals for
-        # THIS cycle are independent of $filepath and can still succeed.
+        # Mark failed and fall through to retention rather than
+        # returning: this dump is gone, but old dumps (local and
+        # offsite) still need pruning, and staging/globals for this
+        # cycle are independent of $filepath.
         cycle_failed=1
         dump_ok=0
     else
@@ -167,47 +159,47 @@ run_backup() {
     if [ "$dump_ok" -eq 1 ] && [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         if ! publish_weekly_copy "$filepath"; then
             log "ERROR: could not write the weekly dump copy to ${WEEKLY_DIR}"
-            # Mark failed and fall through —
-            # a nearly full volume is the typical cause, and the fix for
-            # that is retention pruning, which a `return` here used to skip
-            # for BOTH daily and weekly, letting the volume run out of space
-            # before it could ever prune either.
+            # Mark failed and fall through: a nearly full volume
+            # is the typical cause, and the fix is retention
+            # pruning, which a `return` would skip for both daily
+            # and weekly.
             cycle_failed=1
         else
             log "Weekly copy saved: ${filename}"
         fi
     fi
 
-    # BKP-01: archive the object-storage staging volume alongside the dump.
-    # Named with the SAME timestamp as the dump so restore can pair them.
-    # A fatal tar failure marks the cycle failed (like the S3 path below) rather than
-    # returning early: retention pruning further down must always run, and the
-    # `|| cycle_failed=1` also keeps `set -e` from aborting on the non-zero
-    # command substitution. The cycle then exits non-zero and `.last-success`
-    # is never touched, so the healthcheck sees the missed staging archive.
-    # cycle_failed is declared near the top of this function — NOT
-    # re-declared `local` here, which would reset
-    # any failure the verification or weekly-copy steps above already
-    # recorded back to 0.
+    # Archive the object-storage staging volume alongside the dump, named
+    # with the same timestamp so restore can pair them.
+    #
+    # A fatal tar failure marks the cycle failed (like the S3 path below)
+    # rather than returning early: retention pruning below must always
+    # run, and `|| cycle_failed=1` keeps `set -e` from aborting on the
+    # non-zero command substitution. The cycle then exits non-zero and
+    # `.last-success` is never touched, so the healthcheck sees the missed
+    # staging archive. cycle_failed is declared near the top of this
+    # function and must not be re-declared `local` here, which would reset
+    # any failure the verification or weekly-copy steps already recorded.
     local staging_archive=""
     staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1
 
-    # Cluster globals (roles, their passwords, and cluster-wide
-    # grants) alongside the dump. A database-only pg_dump can never restore
-    # them, so without this artifact the fresh-cluster path in RUNBOOK § 2 has
-    # no input. Unlike the staging archive there is no partial-success case, so
-    # any failure marks the cycle failed the way the S3 path does.
+    # Cluster globals (roles, their passwords, cluster-wide grants)
+    # alongside the dump. A database-only pg_dump cannot restore them, so
+    # without this artifact the fresh-cluster path in RUNBOOK § 2 has no
+    # input. Unlike the staging archive there is no partial-success case,
+    # so any failure marks the cycle failed the way the S3 path does.
     local globals_dump=""
     globals_dump="$(backup_globals "$timestamp")" || cycle_failed=1
 
-    # S3 upload — record any failure but DON'T return yet. The local dump (and
-    # the staging archive, if any) already landed on disk; retention pruning
-    # below must still run so a transient S3 outage can't let them accumulate.
+    # S3 upload: record any failure but do not return yet. The local dump
+    # (and the staging archive, if any) already landed on disk; retention
+    # pruning below must still run so a transient S3 outage cannot let
+    # them accumulate.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
         local upload_failed=0
-        # $filepath no longer exists when
-        # verification discarded it above (dump_ok=0) — nothing to upload,
-        # and not itself a new failure (already counted via cycle_failed).
+        # $filepath no longer exists when verification discarded it
+        # above (dump_ok=0); there is nothing to upload, and that is
+        # not a new failure (already counted via cycle_failed).
         if [ "$dump_ok" -eq 1 ]; then
             upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
         fi
@@ -294,14 +286,12 @@ publish_weekly_copy() {
     return 1
 }
 
-# ---------------------------------------------------------------------------
-# BKP-01: object-storage (upload_staging) archive
-# ---------------------------------------------------------------------------
-# Tars the read-only /staging mount into staging-<timestamp>.tar.gz next to the
-# dump. Prints the archive path on stdout (consumed by run_backup); all human
-# logging goes to stderr so it never contaminates that path. Skips cleanly when
-# the staging mount is absent or empty so a fresh install (no uploads yet) still
-# produces a valid DB-only backup cycle.
+# Object-storage (upload_staging) archive: tars the read-only /staging mount
+# into staging-<timestamp>.tar.gz next to the dump. Prints the archive path on
+# stdout (consumed by run_backup); all human logging goes to stderr so it
+# never contaminates that path. Skips cleanly when the staging mount is absent
+# or empty so a fresh install (no uploads yet) still produces a valid DB-only
+# backup cycle.
 backup_staging() {
     local timestamp="$1"
     local archive="${DAILY_DIR}/staging-${timestamp}.tar.gz"
@@ -326,13 +316,12 @@ backup_staging() {
     # and indistinguishable from a good one until restore.sh tries to
     # extract it.
     tar czf "${archive}.tmp" -C "$STAGING_DIR" . || tar_rc=$?
-    # GNU tar exit 1 means "some files differ" — api/worker wrote
-    # to staging mid-archive. The archive IS written and every quiescent file
-    # in it is sound; only files caught mid-write are fuzzy and re-archive
-    # next cycle. Failing the whole cycle on exit 1 traded a usable DB dump +
-    # near-complete staging archive for nothing, and on a busy install the
-    # freshness healthcheck sat unhealthy indefinitely. Only exit >= 2
-    # (fatal tar error) fails the cycle.
+    # GNU tar exit 1 means "some files differ": api/worker wrote to
+    # staging mid-archive. The archive is written and every quiescent file
+    # in it is sound; files caught mid-write are re-archived next cycle.
+    # Failing the cycle on exit 1 would leave the freshness healthcheck
+    # unhealthy indefinitely on a busy install, so only exit >= 2 (fatal
+    # tar error) fails it.
     if [ "$tar_rc" -ge 2 ]; then
         log "ERROR: object-storage archive failed — this cycle will be reported as failed" >&2
         rm -f "${archive}.tmp"
@@ -341,10 +330,10 @@ backup_staging() {
     if [ "$tar_rc" -eq 1 ]; then
         log "WARNING: staging changed during archiving (tar exit 1) — archive kept; changed files re-archive next cycle" >&2
     fi
-    # Verify the archive is a well-formed, fully readable tar
-    # stream before publishing it under its final name — the tar-side
-    # analogue of the dump's `pg_restore -f /dev/null` check. Neither tar exit
-    # code above (0 or 1) catches a truncated gzip member from a disk that
+    # Verify the archive is a well-formed, fully readable tar stream
+    # before publishing it under its final name, the tar-side analogue of
+    # the dump's `pg_restore -f /dev/null` check. Neither tar exit code
+    # above (0 or 1) catches a truncated gzip member from a disk that
     # filled mid-write.
     if ! tar tzf "${archive}.tmp" > /dev/null 2>&1; then
         log "ERROR: ${archive}.tmp failed verification (tar could not read it) — discarding the corrupt archive" >&2
@@ -359,16 +348,14 @@ backup_staging() {
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
-    # A weekly-copy failure here must not
-    # `return` before the final printf below — $archive is already
-    # published under DAILY_DIR at this point, and run_backup's caller does
-    # `staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1`.
-    # Returning early left $staging_archive empty, so the valid daily
-    # artifact was never handed to upload_to_s3 either — a nearly full
-    # WEEKLY_DIR volume silently orphaned a perfectly good daily archive
-    # from the offsite copy too. weekly_failed keeps the cycle marked
-    # failed (matching how run_backup's own weekly dump-copy failure
-    # behaves) while still printing the path every other path already does.
+    # A weekly-copy failure must not `return` before the final printf:
+    # $archive is already published under DAILY_DIR, and run_backup's
+    # caller does `staging_archive="$(backup_staging "$timestamp")" ||
+    # cycle_failed=1`. Returning early would leave $staging_archive empty,
+    # so the valid daily artifact would never reach upload_to_s3, and a
+    # nearly full WEEKLY_DIR volume would orphan it from the offsite copy.
+    # weekly_failed keeps the cycle marked failed (as with run_backup's
+    # own weekly dump-copy failure) while still printing the path.
     local weekly_failed=0
     if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
         if ! publish_weekly_copy "$archive"; then
@@ -384,19 +371,16 @@ backup_staging() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Cluster globals (roles + cluster-wide grants)
-# ---------------------------------------------------------------------------
-# Writes globals-<timestamp>.sql next to the dump, same timestamp so a restore
-# can pair them. Prints the path on stdout (consumed by run_backup); all human
-# logging goes to stderr so it never contaminates that path.
+# Cluster globals (roles + cluster-wide grants). Writes
+# globals-<timestamp>.sql next to the dump, with the same timestamp so a
+# restore can pair them. Prints the path on stdout (consumed by run_backup);
+# all human logging goes to stderr so it never contaminates that path.
 #
-# umask 077 is not optional. `pg_dumpall --globals-only` emits role password
-# verifiers; under the default 022 umask the file lands world-readable in the
-# backup volume and, with BACKUP_S3_ENABLED=true, in the bucket. The subshell
-# scopes the umask to the redirect that creates the file and nothing else —
-# this is the form RUNBOOK § "Role reconstruction after a fresh-cluster restore"
-# documents.
+# umask 077 is required: `pg_dumpall --globals-only` emits role password
+# verifiers, and under the default 022 umask the file lands world-readable in
+# the backup volume and, with BACKUP_S3_ENABLED=true, in the bucket. The
+# subshell scopes the umask to the redirect that creates the file; RUNBOOK §
+# "Role reconstruction after a fresh-cluster restore" documents this form.
 #
 # Unlike backup_staging there is no salvageable partial: a truncated globals
 # file replays as a partial set of roles, which is worse than none, so any
@@ -407,12 +391,11 @@ backup_globals() {
     local weekly_failed=0
 
     log "Dumping cluster globals: $(basename "$globals_file")" >&2
-    # Write to .tmp and rename on success, for the same reason the
-    # dump does. A container killed mid-write (OOM, `compose stop`) never
-    # reaches the cleanup below, so writing straight to the final name would
-    # leave a truncated globals file sitting next to a complete dump, looking
-    # like the valid paired artifact. The rename makes globals-*.sql appear
-    # only atomically; the .tmp is swept at the top of the next cycle.
+    # Write to .tmp and rename on success, as the dump does. A container
+    # killed mid-write (OOM, `compose stop`) never reaches the cleanup
+    # below, so writing to the final name would leave a truncated globals
+    # file beside a complete dump, looking like the valid pair. The .tmp
+    # is swept at the top of the next cycle.
     local rc=0
     (umask 077; pg_dumpall -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
         --globals-only > "${globals_file}.tmp") || rc=$?
@@ -453,17 +436,13 @@ backup_globals() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# S3 upload via awscli with AWS Signature V4
-#
-# Uses SigV4 — the only signature version accepted by Cloudflare R2 and
-# required by modern AWS S3 (and MinIO). Credentials are passed through the
-# environment (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) — never on argv,
-# which would expose secrets in the process list. The endpoint, region, and
-# addressing style are read from S3_ENDPOINT, S3_REGION, and
-# S3_ADDRESSING_STYLE respectively. A failed upload returns non-zero and logs
-# an ERROR so silent offsite backup loss is detectable in container logs.
-# ---------------------------------------------------------------------------
+# S3 upload via awscli with AWS Signature V4, the only signature version
+# accepted by Cloudflare R2 and required by modern AWS S3 (and MinIO).
+# Credentials go through the environment (AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY), never argv, which would expose them in the process
+# list. Endpoint, region and addressing style come from S3_ENDPOINT, S3_REGION
+# and S3_ADDRESSING_STYLE. A failed upload returns non-zero and logs an ERROR
+# so silent offsite backup loss is detectable in container logs.
 upload_to_s3() {
     local filepath="$1"
     local s3_key="$2"
@@ -503,80 +482,48 @@ upload_to_s3() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Shared S3 prefix listing
-# ---------------------------------------------------------------------------
-# `aws s3 ls s3://bucket/prefix/` on a prefix with NO objects exits 1 with
-# EMPTY stdout AND empty stderr — documented AWS CLI behavior, not a
-# failure. That is the ORDINARY case for backups/weekly/ before the first
-# Sunday cycle (or any prefix on a fresh install), and treating exit != 0 as
-# unconditionally fatal broke a cycle whose daily upload had already
-# succeeded (CI: "Backup Restore Round-trip", bundled mode — one cycle in,
-# backups/weekly/ has nothing yet).
+# Shared S3 prefix listing.
 #
-# A real failure (bad creds, unreachable endpoint, missing s3:ListBucket)
-# DOES write to stderr and/or exits with something other than 0 or 1 — those
-# still propagate as an error, since a listing that silently returns nothing
-# every cycle would mean retention never runs at all. Both prune_s3_prefix
-# calls (daily, then weekly) go through this one helper, so the same rule
-# applies to both prefixes and to the orphaned-companion pass inside
-# prune_s3_prefix, which reuses the same listing rather than fetching again.
+# `aws s3 ls s3://bucket/prefix/` on a prefix with no objects exits 1 with
+# empty stdout and stderr (documented AWS CLI behavior). That is the ordinary
+# case for backups/weekly/ before the first Sunday cycle, so exit != 0 cannot
+# be unconditionally fatal. A real failure (bad creds, unreachable endpoint,
+# missing s3:ListBucket) writes to stderr or exits with something other than 0
+# or 1 and still propagates, since a listing that silently returns nothing
+# every cycle would mean retention never runs. Both prune_s3_prefix calls
+# (daily, weekly) and its orphaned-companion pass share this listing.
 #
 # The listing uses `aws s3api list-objects-v2 --output json`, not the
-# human-oriented `aws s3 ls` text table (whitespace-separated
-# date/time/size/key columns). There is no whitespace-safe way to recover a
-# key from a whitespace-column text format when the key itself may contain
-# arbitrary whitespace: `awk '{print $NF}'` truncates a key with a space to
-# its last word, and `read` strips LEADING whitespace off the last field it
-# assigns, so a key like " geo_<ts>.dump" (POSTGRES_DB=" geo") would lose its
-# leading space.
+# whitespace-column `aws s3 ls` text: a key containing whitespace cannot be
+# recovered reliably from that format (`awk '{print $NF}'` truncates a key
+# with a space, and `read` strips leading whitespace from the last field).
 #
-# Keys are written one per NUL-terminated record, not one per
-# newline-terminated line. common.sh decodes Compose's documented
-# `\n`/`\r`/`\t` escapes in a double-quoted .env value, which means
-# POSTGRES_DB (and therefore every dump/companion filename built from it) can
-# legally contain an embedded NEWLINE, not just a tab. A newline-terminated
-# `print(key)` would turn ONE such key into what LOOKS like two separate
-# listing lines to every downstream `while read` loop, which would keep only
-# the suffix after the embedded newline and issue `aws s3 rm` against a key
-# that was never in the bucket: the real dump would survive, and retention
-# would report the cycle unhealthy forever, every cycle, with no way to
-# self-heal. NUL is the one byte an S3 key can never contain (AWS rejects it
-# outright), so it is the only delimiter that is unconditionally safe
-# regardless of what the key holds — newline and tab both remain legal key
-# bytes and are NOT safe delimiters. `sys.stdout.buffer.write(...)` (not
-# `print`) writes raw bytes with an explicit trailing `\0`, matching what
-# `while IFS= read -r -d '' rec; do ...; done` expects on the bash side.
+# Keys are written as NUL-terminated records, not newline-terminated lines.
+# common.sh decodes Compose's `\n`/`\r`/`\t` escapes in a double-quoted .env
+# value, so POSTGRES_DB (and every dump/companion filename built from it) can
+# contain an embedded newline. A newline-terminated listing would turn one
+# such key into what looks like two keys to every downstream `while read`
+# loop, which would then `aws s3 rm` a key that was never in the bucket,
+# leaving the real dump in place and the cycle unhealthy forever. NUL is the
+# one byte an S3 key cannot contain, so it is the only safe delimiter.
+# `sys.stdout.buffer.write(...)` (not `print`) writes the raw bytes with an
+# explicit trailing `\0`, matching `while IFS= read -r -d '' rec`.
 #
-# Bash strings (and therefore `$(...)` command substitution) cannot hold a
-# NUL byte at all, so this function does not return the listing via stdout
-# captured into a variable — it WRITES the NUL-terminated listing to the file
-# path the caller passes as $2. Every
-# caller reads that file with `read -r -d ''` into a bash ARRAY (see
-# prune_s3_prefix below); an array element is never re-split on anything,
-# so a key survives with every embedded newline, tab, or leading/internal
-# space intact all the way to the `aws s3 rm` argv it is finally used in.
+# Bash strings cannot hold a NUL byte, so the function writes the listing to
+# the file path passed as $2 instead of returning it on stdout. Callers read
+# that file with `read -r -d ''` into a bash array (see prune_s3_prefix), and
+# array elements are never re-split, so a key keeps every embedded newline,
+# tab and space all the way to the `aws s3 rm` argv.
 #
-# On sh/dash portability: `read -d ''` and bash arrays are bash-only
-# (POSIX sh has neither). This file's shebang is already `#!/usr/bin/env
-# bash` (never `sh`), it is invoked directly by exec-form `entrypoint:
-# ["/scripts/backup-entrypoint.sh"]` in both compose files and by
-# `ENTRYPOINT` in the Dockerfile — never via `sh -c` or `sh
-# backup-entrypoint.sh` — and it has relied on other bash-only features
-# ([[ ]], `aws_args=()` arrays, `<<<`, `< <(...)`) throughout since long
-# before this fix. The postgres:18 base image carries bash for exactly
-# this reason. There is no sh/dash-invoked consumer of these functions to
-# support, so the whole selection/deletion decision stays in bash rather
-# than moving into python and handing bash only a NUL-separated delete
-# list for `xargs -0` — that split would buy nothing here and would cost
-# the existing per-key error handling (a failed `aws s3 rm` must not drop
-# its dump from the kept set; see the deletion loop below) a second
-# bash<->python round trip to preserve.
+# This file is bash-only ([[ ]], arrays, `read -d ''`): the shebang is bash
+# and the compose files and Dockerfile invoke it directly, never via sh. The
+# selection and deletion decision stays in bash rather than moving to python
+# with an `xargs -0` delete list, which would lose the per-key error handling
+# (a failed `aws s3 rm` must not drop its dump from the kept set).
 #
-# Prints one object key per NUL-terminated record to the file at $2 on
-# success (including the empty-prefix case, where the file ends up empty)
-# and returns 0; returns 1 only for a genuine failure, with the reason
-# logged.
+# Prints one object key per NUL-terminated record to the file at $2 on success
+# (an empty prefix leaves it empty) and returns 0; returns 1 only for a
+# genuine failure, with the reason logged.
 s3_list_prefix() {
     local prefix="$1"
     local out_file="$2"
@@ -589,26 +536,18 @@ s3_list_prefix() {
         --prefix "backups/${prefix}/" --output json "$@" \
         > "$out" 2> "$err" || rc=$?
 
-    # The empty-prefix carve-out was measured against `aws s3
-    # ls` specifically (exit 1, both streams empty, not a failure).
-    # `list-objects-v2` is a direct API call — a prefix with zero objects is
-    # an ordinary 200 response with no `Contents` key, not a nonzero exit —
-    # but the exact "exit 1, both streams empty" shape is kept as a
-    # defensive carve-out (including the "unusual
-    # non-1 exit code with no output is still a failure" scoping) rather
-    # than assumed impossible across every awscli version this image might
-    # run.
+    # The empty-prefix carve-out matches `aws s3 ls` (exit 1, both streams
+    # empty). `list-objects-v2` returns an ordinary 200 with no `Contents`
+    # key for an empty prefix, but the exit-1-with-no-output shape is kept
+    # as a defensive carve-out across awscli versions. Any other non-zero
+    # exit, or any output, is a failure.
     if [ "$rc" -eq 0 ] || { [ "$rc" -eq 1 ] && [ ! -s "$out" ] && [ ! -s "$err" ]; }; then
-        # The JSON tool
-        # actually available in this image — checked against the built
-        # backup stage (Dockerfile): no jq, but the `awscli` apt package
-        # pulls in python3 as a transitive dependency (verified present:
-        # `aws` itself is a python3 script). Writes each `.Contents[].Key`
-        # value, with the "backups/<prefix>/" directory portion stripped
-        # (the bare filename callers expect)
-        # and every remaining byte — including embedded newlines/tabs and
-        # leading/internal spaces — untouched, NUL-terminated to $out_file.
-        # An empty or Contents-less response writes nothing.
+        # The image has no jq, but the `awscli` apt package pulls in
+        # python3 (`aws` is itself a python3 script). Write each
+        # `.Contents[].Key`, with the "backups/<prefix>/" portion
+        # stripped to the bare filename callers expect and every other
+        # byte untouched, NUL-terminated to $out_file. An empty or
+        # Contents-less response writes nothing.
         if python3 -c '
 import json, sys
 
@@ -631,63 +570,45 @@ for obj in data.get("Contents", []):
         return 1
     fi
 
-    # This function's caller reads the
-    # listing from a file it wrote rather than stdout captured
-    # via `$(...)`, but the same reasoning still applies to `log` here: the
-    # file's log() is a plain `echo`, no redirect, and belongs on stderr so
-    # it reaches the container log instead of getting lost. Every log call
-    # in a function whose stdout is otherwise consumed by the caller (this
-    # one, backup_staging, backup_globals) must go to stderr for the same
-    # reason; the latter two already do.
+    # log() is a plain echo, so this error goes to stderr to reach the
+    # container log. Functions whose stdout the caller consumes
+    # (backup_staging, backup_globals) keep log output off stdout for the
+    # same reason.
     log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${rc}): $(cat "$err" 2>/dev/null) — offsite objects were not pruned this cycle" >&2
     rm -f "$out" "$err"
     return 1
 }
 
-# ---------------------------------------------------------------------------
-# S3 retention pruning
-# ---------------------------------------------------------------------------
-# Applies the local retention to backups/<prefix>/: keep the newest *.dump
-# object of each of the `keep` most recent days or weeks, by the embedded
-# timestamp (mark_retained, as prune_old_backups does), then drop any
-# *.sql/*.tar.gz companion whose paired dump is no longer kept (the S3
+# S3 retention pruning. Applies the local retention to backups/<prefix>/: keep
+# the newest *.dump object of each of the `keep` most recent days or weeks, by
+# the embedded timestamp (mark_retained, as prune_old_backups does), then drop
+# any *.sql/*.tar.gz companion whose paired dump is no longer kept (the S3
 # analogue of prune_orphaned_companions). It runs only with
 # BACKUP_S3_ENABLED=true and reads the same BACKUP_RETENTION_* values.
 #
-# The S3 analogue of newest_complete_ts()
-# below — the timestamp of the newest set that is COMPLETE (a *.dump object
-# with the globals-*.sql that pairs with it), read from the SAME listing
-# prune_s3_prefix already fetched (no second S3 round trip). Without this,
-# a partial upload cycle (the dump uploads, the globals upload fails) can
-# destroy the only complete offsite set: the partial cycle's own dump still
-# counts toward `keep`, evicts the previous COMPLETE dump under
-# BACKUP_RETENTION_DAILY=1, and that complete dump's globals companion is
-# pruned right behind it as an orphan in the very same cycle — a
-# disaster-recovery restore then has a dump but no globals to rebuild roles
-# on a fresh cluster.
+# s3_newest_complete_ts is the S3 analogue of newest_complete_ts: the
+# timestamp of the newest set that is complete (a *.dump object with the
+# globals-*.sql that pairs with it), read from the listing prune_s3_prefix
+# already fetched. Without it, a partial upload cycle (the dump uploads, the
+# globals upload fails) can destroy the only complete offsite set: the partial
+# dump counts toward `keep`, evicts the previous complete dump under
+# BACKUP_RETENTION_DAILY=1, and that dump's globals is pruned as an orphan in
+# the same cycle, leaving a dump with no globals to rebuild roles on a fresh
+# cluster.
 #
-# Takes the listing as POSITIONAL
-# PARAMETERS ("$@"), one key per parameter, instead of a newline-joined
-# string — the caller expands a bash array into this call, and array
-# elements are never re-split, so a key containing a newline or tab is one
-# parameter here, not several. The `_${ts}.dump` membership check below
-# used to be `grep -qE ... <<< "$names"` over a newline-joined blob, which
-# would have matched a `.dump` suffix trapped inside a DIFFERENT key's
-# embedded newline; a plain `[[ glob ]]` test against each parameter in
-# turn cannot cross a parameter boundary at all.
+# The listing arrives as positional parameters ("$@"), one key per parameter,
+# because the caller expands a bash array and array elements are never
+# re-split: a key containing a newline or tab stays one parameter. The
+# `_${ts}.dump` membership check is a plain `[[ glob ]]` test per parameter,
+# which cannot match across a parameter boundary.
 #
-# Timestamp extraction is a bash `=~` match
-# against the whole $name string, never a value piped into sed/grep/awk.
-# `name` is a bucket key, and a key built from POSTGRES_DB (the dump side of
-# this same listing) can carry an embedded newline. A line-oriented tool
-# reads that as MULTIPLE records — `sed -n '...p'` on a two-line string
-# prints every matching line, turning a single `$(...)` capture into a
-# multi-line $ts that then fails to equal a genuine single-line timestamp
-# anywhere it is compared. `[[ str =~ regex ]]` matches the ENTIRE string in
-# one shot with no line splitting, so an embedded newline can only ever make
-# the anchored ^...$ pattern fail to match at all — never produce a second,
-# spurious match. See prune_s3_prefix's ts extraction below for the exact
-# case this was reported against.
+# Timestamps are extracted with bash `=~` against the whole name, never a
+# value piped into sed/grep/awk. A key built from POSTGRES_DB can carry an
+# embedded newline, which a line-oriented tool reads as multiple records,
+# turning one capture into a multi-line $ts that never equals a genuine
+# timestamp. `[[ str =~ regex ]]` matches the entire string, so an embedded
+# newline can only make the anchored ^...$ pattern fail, never produce a
+# second match.
 s3_newest_complete_ts() {
     local name ts best="" n2 matched
     for name in "${@:-}"; do
@@ -736,18 +657,16 @@ prune_s3_prefix() {
     aws_args+=(--region "${S3_REGION:-us-east-1}")
 
     # A genuine listing failure (bad creds, unreachable endpoint, missing
-    # s3:ListBucket) must not be swallowed: unlike a single upload retrying
-    # next cycle, a listing that silently returns nothing every cycle would
-    # mean retention never runs at all — precisely the bug this fixes. An
-    # EMPTY prefix (no objects at all — e.g. weekly/ before the first Sunday
-    # cycle) is not a failure; s3_list_prefix distinguishes the two (see its
-    # comment above).
+    # s3:ListBucket) must not be swallowed: a listing that silently
+    # returns nothing every cycle would mean retention never runs. An
+    # empty prefix (e.g. weekly/ before the first Sunday cycle) is not a
+    # failure; s3_list_prefix distinguishes the two.
     #
-    # The listing is now a NUL-terminated
-    # file, read once into a bash ARRAY — every pass below (protection,
-    # retention counting, orphan detection) iterates or expands that array,
-    # never a newline-joined string, so an embedded newline or tab in a key
-    # can never be mistaken for a record or field boundary again.
+    # The listing is a NUL-terminated file read once into a bash array.
+    # Every pass below (protection, retention counting, orphan detection)
+    # iterates or expands that array, never a newline-joined string, so an
+    # embedded newline or tab in a key cannot be mistaken for a record or
+    # field boundary.
     local listing_file
     listing_file="$(mktemp)" || return 1
     if ! s3_list_prefix "$prefix" "$listing_file" "${aws_args[@]:-}"; then
@@ -762,71 +681,59 @@ prune_s3_prefix() {
     done < "$listing_file"
     rm -f "$listing_file"
 
-    # A `| while` loop runs in a SUBSHELL — a `local`
-    # variable set inside it (a failure flag) never reaches this function's
-    # own scope. `aws s3 rm` failing would just log an ERROR
-    # from *inside* that subshell while the loop (and therefore the pipeline,
-    # and therefore this function) still exited 0: `cycle_failed` in
-    # run_backup would never get set, `.last-success` would be touched, and the
-    # offsite bucket would keep growing with the healthcheck reporting green.
-    # Neither deletion loop below uses `| while` (both are plain `for` over
-    # bash arrays, which never subshell), so `rm_failed=1` correctly persists
-    # past both.
+    # A `| while` loop runs in a subshell, so a failure flag set inside it
+    # never reaches this function's scope: a failing `aws s3 rm` would log
+    # an ERROR yet the function would exit 0, `cycle_failed` in run_backup
+    # would stay unset, `.last-success` would be touched, and the bucket
+    # would keep growing with the healthcheck green. Neither deletion loop
+    # below uses `| while` (both are plain `for` over bash arrays), so
+    # `rm_failed=1` persists.
     local rm_failed=0
 
-    # Protect the newest COMPLETE set (a dump
-    # with the globals that pairs with it) the same way prune_old_backups
-    # does locally — held back IN ADDITION to the retention window, not
-    # inside it, so a retention of 1 keeps the complete set and prunes the
-    # newest incomplete dump instead of the other way around. See
-    # s3_newest_complete_ts's comment above for why this matters more here
-    # than it might look: a partial upload cycle can otherwise take out the
-    # only restorable-onto-a-fresh-cluster set in a single pass.
+    # Protect the newest complete set (a dump with the globals that pairs
+    # with it) as prune_old_backups does locally. It is held back in
+    # addition to the retention window, not inside it, so a retention of 1
+    # keeps the complete set and prunes the newest incomplete dump
+    # instead. See s3_newest_complete_ts: a partial upload cycle can
+    # otherwise remove the only set restorable onto a fresh cluster.
     local protect=""
     if [ "${#all_names[@]}" -gt 0 ]; then
         protect="$(s3_newest_complete_ts "${all_names[@]:-}")"
     fi
 
-    # Dump timestamp/name are two PARALLEL
-    # arrays, indexed together, not a single "ts\tname" string. A
-    # tab-joined text record would be safe against a tab INSIDE one record,
-    # but it is still a newline-delimited multi-record blob under
-    # the hood (`dumps="$(... | sort)"`, then `grep`/`cut`/`head`/`tail`
-    # over it), never safe against a newline splitting one record into
-    # two. Splitting ts and name into
-    # separate arrays removes every text-joining step a key's own bytes
-    # could collide with; nothing about a dump name is ever fed through
-    # `sort`, `grep`, `cut`, `head`, or `tail` again.
+    # Dump timestamp and name are two parallel arrays indexed together,
+    # not a "ts\tname" string. A tab-joined record is safe against a tab
+    # inside one record but is still a newline-delimited blob under
+    # `sort`, `grep`, `cut`, `head` and `tail`, unsafe against a newline
+    # splitting one record into two. Separate arrays leave no text-joining
+    # step for a key's own bytes to collide with.
     local -a dump_ts=() dump_name=()
     local -a protect_ts=() protect_name=()
     local ts
     for name in "${all_names[@]:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == *.dump ]]; then
-            # Extract with a bash match, not `printf '%s' "$name" | sed -nE
-            # '...p'`. `name` is a bucket key derived from POSTGRES_DB
-            # (backup_globals writes `${POSTGRES_DB}_${timestamp}.dump`), so
-            # an embedded newline in POSTGRES_DB puts one inside `name`. sed
-            # processes its input line by line regardless of where that
-            # input came from: `evil_20250101_000000.dump\ngeo_20260101_00`
-            # `0000.dump` (one S3 key, one newline) reads as TWO lines, both
-            # matching the same anchored pattern, and `-n '...p'` prints
-            # both — `ts` becomes a two-line string
-            # "20250101_000000\n20260101_000000" instead of a single
-            # timestamp. That value then never string-equals `$protect`
-            # even when the real (second-line) timestamp is the protected
-            # one, so the protected complete dump falls into the ordinary
-            # count-based `dump_ts`/`dump_name` bucket instead of
-            # `protect_ts`/`protect_name` — at BACKUP_RETENTION_DAILY=1 a
-            # newer partial-upload cycle can then evict it, and the orphan
-            # pass right below deletes its now-unpaired globals file.
+            # Extract with a bash match, not `printf '%s' "$name"
+            # | sed -nE '...p'`. `name` is a bucket key derived
+            # from POSTGRES_DB (backup_globals writes
+            # `${POSTGRES_DB}_${timestamp}.dump`), so an embedded
+            # newline in POSTGRES_DB puts one inside `name`. sed
+            # would read one key as two lines, both matching, and
+            # print both, so `ts` would become a two-line string
+            # that never equals `$protect`. The protected dump
+            # would then fall into the ordinary count-based
+            # `dump_ts`/`dump_name` bucket instead of
+            # `protect_ts`/`protect_name`: at
+            # BACKUP_RETENTION_DAILY=1 a newer partial-upload
+            # cycle could evict it, and the orphan pass would
+            # delete its globals file.
             #
-            # `[[ str =~ regex ]]` matches the whole $name string in one
-            # shot — there is no per-line splitting to exploit, so an
-            # embedded newline can only make the anchored ^...$ pattern fail
-            # to match (name skipped, same as any other malformed key), never
-            # yield a second match. The `else continue` arm exits 0 on "no
-            # match", never a hard error on the ordinary empty-listing cycle.
+            # `[[ str =~ regex ]]` matches the whole $name in one
+            # shot, so an embedded newline can only make the
+            # anchored pattern fail (name skipped, like any
+            # malformed key), never yield a second match. The
+            # `else continue` arm exits 0 on no match, never a
+            # hard error on an empty-listing cycle.
             if [[ "$name" =~ ^.*[_-]([0-9]{8}_[0-9]{6})\.dump$ ]]; then
                 ts="${BASH_REMATCH[1]}"
             else
@@ -842,14 +749,12 @@ prune_s3_prefix() {
         fi
     done
 
-    # Sort dump_ts/dump_name together, oldest first, via a NUL-safe INDEX
-    # permutation: real `sort` runs over "<timestamp> <index>" lines —
-    # both fields are always plain, whitespace-free ASCII (the timestamp
-    # is a strict digit/underscore match; the index is a small integer) —
-    # never over a dump NAME, so a name's own newlines/tabs never reach a
-    # text-processing tool that would treat them as record or field
-    # separators. The sorted index order is then used to permute the
-    # actual (ts, name) arrays.
+    # Sort dump_ts/dump_name together, oldest first, via a NUL-safe index
+    # permutation: `sort` runs over "<timestamp> <index>" lines (both
+    # plain whitespace-free ASCII), never over a dump name, so a name's
+    # newlines or tabs never reach a text tool that would treat them as
+    # separators. The sorted index order then permutes the (ts, name)
+    # arrays.
     if [ "${#dump_ts[@]}" -gt 0 ]; then
         local _i sort_input=""
         for ((_i = 0; _i < ${#dump_ts[@]}; _i++)); do
@@ -915,14 +820,12 @@ prune_s3_prefix() {
     for name in "${all_names[@]:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
-            # Same site as the dump loop
-            # above — this key can be a globals-*.sql or staging-*.tar.gz
-            # companion, and while neither embeds POSTGRES_DB directly, this
-            # loop runs over the SAME $all_names listing that also holds
-            # POSTGRES_DB-derived dump keys, so the identical embedded-
-            # newline hazard applies to whatever key lands here. Matched with
-            # `[[ =~ ]]` against the whole string instead of piping through
-            # sed, for the same reason.
+            # Same hazard as the dump loop above: this key can be
+            # a globals-*.sql or staging-*.tar.gz companion, and
+            # this loop runs over the same $all_names listing that
+            # holds the POSTGRES_DB-derived dump keys. Matched
+            # with `[[ =~ ]]` against the whole string rather than
+            # piped through sed, for the same reason.
             if [[ "$name" =~ ^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$ ]]; then
                 ts="${BASH_REMATCH[1]}"
             else
@@ -946,51 +849,35 @@ prune_s3_prefix() {
         fi
     done
 
-    # Surface a partial-prune cycle to the caller so
-    # run_backup marks it failed (cycle_failed=1) — the same treatment a
-    # listing failure above already gets, and the same reason: retention
-    # that "mostly" ran and quietly leaves objects behind is the exact bug
-    # this function exists to fix.
+    # Surface a partial-prune cycle to run_backup so it marks the cycle
+    # failed (cycle_failed=1), as a listing failure above does: retention
+    # that mostly ran and quietly leaves objects behind is a failure.
     if [ "$rm_failed" -eq 1 ]; then
         return 1
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Retention pruning
-# ---------------------------------------------------------------------------
-# Ordered by the timestamp in the filename, not by mtime. Two reasons: the
-# embedded timestamp is the cycle's identity, while mtime is whenever the file
-# was last written (the weekly copies all carry their `cp` time, so mtime order
-# there is the copy order, not the backup order); and `find -printf` is a GNU
-# extension, so mtime ordering made this function silently unrunnable outside
-# the container — including in scripts/tests/test-backup-restore-roundtrip.sh,
-# which is documented as a standalone local tool.
+# Retention pruning. Ordered by the timestamp in the filename, not by mtime:
+# the embedded timestamp is the cycle's identity, while mtime is when the file
+# was last written (weekly copies carry their `cp` time), and `find -printf`
+# is a GNU extension that would make this unrunnable outside the container,
+# including in scripts/tests/test-backup-restore-roundtrip.sh, a standalone
+# local tool.
 #
-# Sorted on the EXTRACTED timestamp, not the whole path: the database name is
-# the prefix, so sorting the path puts it ahead of the timestamp, and after a
-# POSTGRES_DB rename to a lexically earlier name every fresh dump would sort as
-# the oldest and be pruned first. Files whose name carries no timestamp are not
-# ours; they are neither counted nor deleted.
+# Sorted on the extracted timestamp, not the whole path: the database name is
+# the prefix, so after a POSTGRES_DB rename to a lexically earlier name every
+# fresh dump would sort as the oldest and be pruned first. Files whose name
+# carries no timestamp are not ours; they are neither counted nor deleted.
 #
-# Returning a newline-joined "<ts>\t<path>" text blob (built by piping
-# `find ... | while IFS= read -r dump` through a sed timestamp extraction, then
-# consumed downstream by grep/wc/head/cut/while-read) would be the "line-oriented
-# tool over an env-derived value" shape that prune_s3_prefix avoids with
-# parallel arrays (see the comment on prune_s3_prefix's own array
-# declarations above). A dump filename is `${POSTGRES_DB}_${timestamp}.dump`,
-# and a filesystem name allows an embedded newline exactly as freely as an S3
-# key does — here it would bite even before the sed step: `find`'s own output
-# is one pathname per line, so a single file whose NAME contains a literal
-# newline byte already reads back as TWO separate `dump` values from
-# `while IFS= read -r dump`, before any text-processing tool downstream gets a
-# chance to make it worse.
-#
-# Populates the parallel DL_TS/DL_PATH globals instead (same naming pattern
-# as scripts/lib/common.sh's `_ern_*`/`_eir_*` out-parameters) — every step
-# (`find -print0`, the array append, the index-permutation sort
-# prune_s3_prefix uses below) treats one dump as one array element, never as
-# text a line-oriented tool could re-split. Oldest first.
+# The result is returned in the parallel DL_TS/DL_PATH globals (the same
+# out-parameter pattern as common.sh's `_ern_*`/`_eir_*`), oldest first,
+# rather than as a newline-joined "<ts>\t<path>" blob. A dump filename is
+# `${POSTGRES_DB}_${timestamp}.dump`, and a filesystem name can contain an
+# embedded newline as freely as an S3 key; `find`'s one-pathname-per-line
+# output would read such a file back as two `dump` values before any
+# downstream tool ran. Every step (`find -print0`, the array append, the
+# index-permutation sort that prune_s3_prefix also uses) treats one dump as
+# one array element.
 dump_listing_arrays() {
     local dir="$1"
     DL_TS=()
@@ -1007,10 +894,9 @@ dump_listing_arrays() {
         DL_PATH+=("$dump")
     done < <(find "$dir" -maxdepth 1 -name "*.dump" -type f -print0)
 
-    # Same NUL-safe index-permutation sort prune_s3_prefix uses (lines
-    # above): `sort` only ever sees "<timestamp> <index>" lines, both plain
-    # whitespace-free ASCII, never a path — the sorted index order then
-    # permutes DL_TS/DL_PATH in place.
+    # Same NUL-safe index-permutation sort as prune_s3_prefix: `sort` only
+    # sees "<timestamp> <index>" lines, never a path, and the sorted index
+    # order permutes DL_TS/DL_PATH in place.
     if [ "${#DL_TS[@]}" -gt 0 ]; then
         local _i sort_input=""
         for ((_i = 0; _i < ${#DL_TS[@]}; _i++)); do
@@ -1033,32 +919,28 @@ dump_listing_arrays() {
     fi
 }
 
-# The timestamp of the newest set that is COMPLETE — a dump with the
-# globals dump that pairs with it. prune_old_backups keeps that one out of the
+# The timestamp of the newest set that is complete: a dump with the globals
+# dump that pairs with it. prune_old_backups keeps that one out of the
 # retention window.
 #
 # Without the exemption a run of pg_dumpall failures walks every complete set
-# out of retention: each failed cycle still produces a valid dump (discarding it
-# would make the failure strictly worse — data without roles beats nothing), so
-# it counts toward the window and evicts an older complete set, whose globals
-# then goes with it as an orphan. After a full window of failures the operator
-# has been told loudly every cycle (`.last-success` stale, healthcheck
-# unhealthy) and still has dumps, but nothing that restores onto a fresh
-# cluster. Holding one complete set back costs at most one extra dump plus a
-# few KB of SQL and is the difference between a degraded DR path and none.
+# out of retention: each failed cycle still produces a valid dump (discarding
+# it would be worse; data without roles beats nothing), so it counts toward
+# the window and evicts an older complete set, whose globals goes with it as
+# an orphan. After a full window of failures the operator has been warned
+# every cycle (`.last-success` stale, healthcheck unhealthy) and still has
+# dumps, but nothing that restores onto a fresh cluster. Holding one complete
+# set back costs at most one extra dump plus a few KB of SQL.
 newest_complete_ts() {
     local dir="$1"
     local globals ts best=""
     for globals in "$dir"/globals-*.sql; do
         [ -f "$globals" ] || continue
-        # Bash `=~` on the whole string, not
-        # a value piped into sed — see dump_listing_arrays's comment above
-        # for why. globals-*.sql is script-generated (never carries
-        # POSTGRES_DB), but every extraction site in this file is converted
-        # for the same reason prune_s3_prefix converted BOTH of its sites:
-        # consistency, and no exemption that depends on
-        # "this particular filename happens not to embed operator input
-        # today."
+        # Bash `=~` on the whole string, not a value piped into sed;
+        # see dump_listing_arrays. globals-*.sql is script-generated
+        # and never carries POSTGRES_DB, but every extraction site in
+        # this file uses the same form so none depends on a filename
+        # not embedding operator input.
         if [[ "${globals##*/}" =~ ^globals-([0-9]{8}_[0-9]{6})\.sql$ ]]; then
             ts="${BASH_REMATCH[1]}"
         else
@@ -1138,12 +1020,10 @@ prune_old_backups() {
     local protect
     protect="$(newest_complete_ts "$dir")"
 
-    # Filter DL_TS/DL_PATH by array index,
-    # never by grepping a "<ts>\t<path>" text line — a $protect comparison
-    # against a validated, digits-only $ts (both sides guaranteed newline-
-    # free by dump_listing_arrays's own regex capture) can't be fooled by
-    # an embedded newline anywhere; there is no text stream left for one to
-    # hide in.
+    # Filter DL_TS/DL_PATH by array index, never by grepping a
+    # "<ts>\t<path>" text line: $protect is compared against a validated,
+    # digits-only $ts (newline-free by dump_listing_arrays's regex
+    # capture), so an embedded newline has no text stream to hide in.
     local -a cand_ts=() cand_path=()
     local _i
     for ((_i = 0; _i < ${#DL_TS[@]}; _i++)); do
@@ -1173,20 +1053,19 @@ prune_old_backups() {
     done
 }
 
-# Companion artifacts (the object-storage archive and the
-# globals dump) are pruned by PAIRING, not by their own count.
+# Companion artifacts (the object-storage archive and the globals dump) are
+# pruned by pairing, not by their own count.
 #
-# Counting them independently looked equivalent and is not, because a companion
-# can be absent for a cycle that still produces a dump: backup_staging skips a
+# Independent counts look equivalent but are not, because a companion can be
+# absent for a cycle that still produces a dump: backup_staging skips a
 # missing or empty staging mount, and a failed pg_dumpall leaves a good dump
 # with no globals. Once the counts diverge, `keep the newest N of each` prunes
-# a dump whose companion is younger than N and therefore survives — so after
-# enough such cycles every complete set is gone while the orphans remain.
+# a dump whose companion is younger than N and so survives, and after enough
+# such cycles every complete set is gone while the orphans remain.
 #
 # The dumps are the primary artifact and prune_old_backups is the authority on
-# retention. This runs AFTER it and drops any companion whose dump is no longer
-# there, which keeps the invariant that matters for a restore: every companion
-# present has the dump it pairs with.
+# retention. This runs after it and drops any companion whose dump is no
+# longer there, so every companion present has the dump it pairs with.
 prune_orphaned_companions() {
     local dir="$1"
 
@@ -1195,9 +1074,9 @@ prune_orphaned_companions() {
         # Unmatched globs expand to themselves; -f skips those.
         [ -f "$companion" ] || continue
         base="$(basename "$companion")"
-        # Anchored at the end, like restore.sh's parse. Bash `=~` on the
-        # whole string, not piped into sed — see dump_listing_arrays's
-        # comment above.
+        # Anchored at the end, like restore.sh's parse. Bash `=~` on
+        # the whole string, not piped into sed; see
+        # dump_listing_arrays.
         if [[ "$base" =~ ^.*-([0-9]{8}_[0-9]{6})\..*$ ]]; then
             ts="${BASH_REMATCH[1]}"
         else
@@ -1211,19 +1090,17 @@ prune_orphaned_companions() {
     done
 }
 
-# ---------------------------------------------------------------------------
-# GAP-005 (Phase 1184): BACKUP_SCHEDULE validation
-# ---------------------------------------------------------------------------
+# BACKUP_SCHEDULE validation.
 # The sleep-loop fallback scheduler (used when no cron daemon is available)
-# only supports expressions of the form "M H * * *" (a literal minute + hour,
-# with all three remaining fields set to *). Any other form silently never
-# fires — the comparison `[ "$current_min" = "*/15" ]` never matches.
+# only supports "M H * * *": a literal minute and hour with the other three
+# fields set to *. Any other form never fires, since the comparison
+# `[ "$current_min" = "*/15" ]` never matches.
 #
-# Validation approach: FAIL FAST at startup if BACKUP_SCHEDULE uses a form the
-# simple scheduler cannot honour. If crond/cron is available the expression is
-# passed through to the system cron, which handles the full 5-field syntax —
-# but we still validate so that a misconfigured schedule surfacing on a crond
-# host does not silently break when run on an image without crond.
+# Fail fast at startup if BACKUP_SCHEDULE uses a form the simple scheduler
+# cannot honour. If crond/cron is available the expression goes to the system
+# cron, which handles the full 5-field syntax, but it is still validated so a
+# schedule that works on a crond host does not silently break on an image
+# without crond.
 #
 # Supported: M H * * *   where M is 0-59 and H is 0-23 (literal integers)
 # Unsupported: */N steps, ranges, lists, or non-* dom/month/dow fields.
@@ -1293,8 +1170,8 @@ if [ "${1:-}" = "--run-backup" ]; then
     exit $?
 fi
 
-# GAP-005: validate the schedule expression before doing anything else so
-# an unsupported expression fails loudly instead of silently never firing.
+# Validate the schedule before doing anything else so an unsupported
+# expression fails loudly instead of silently never firing.
 validate_cron_expr "$CRON_EXPR"
 
 # First-run entry point

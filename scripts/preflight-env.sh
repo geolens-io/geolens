@@ -43,10 +43,9 @@ EOF
     exit 1
 fi
 
-# Read through the shared parser, never a local one.
-# A value may be quoted and may carry a trailing `# comment`, both valid
-# Compose forms; a second parser here read the comment as part of the value
-# and failed a well-formed key. get_env_value still never sources .env.
+# Read through the shared parser, never a local one: a value may be quoted and
+# may carry a trailing `# comment` (both valid Compose forms), which a naive
+# parser would fold into the value. get_env_value never sources .env.
 # shellcheck source=scripts/lib/common.sh
 . "$PROJECT_ROOT/scripts/lib/common.sh"
 

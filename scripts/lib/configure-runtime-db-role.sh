@@ -723,7 +723,7 @@ SELECT format(
 WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
 \gexec
 
--- fix(#1287 review): embedding-dimension changes are the one live admin path
+-- Embedding-dimension changes are the one live admin path
 -- that needs catalog relation-owner DDL. Keep the runtime login non-owning and
 -- expose only this bounded operation through a hardened definer function.
 -- Dynamic SQL is limited to a validated integer; every object and extension

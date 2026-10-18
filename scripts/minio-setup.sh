@@ -20,9 +20,8 @@ export MC_CONFIG_DIR
 mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
 mc mb --ignore-existing local/geolens
 
-# Write the CORS policy to a temp file using a heredoc.
-# The heredoc is safe here because this is a real script file, not an
-# inline YAML scalar — newlines are preserved verbatim.
+# The heredoc is safe here because this is a real script file, not an inline
+# YAML scalar: newlines are preserved verbatim.
 cat > /tmp/cors.json << 'CORSJSON'
 {
   "CORSRules": [
@@ -39,8 +38,8 @@ CORSJSON
 
 mc anonymous set-json /tmp/cors.json local/geolens || true
 
-# ops(#1211): deliberately NO `mc ilm` rule here for aborting abandoned
-# multipart uploads. mc has no abort-incomplete-multipart flag (verified
+# There is deliberately no `mc ilm` rule here for aborting abandoned
+# multipart uploads. mc has no abort-incomplete-multipart flag (checked
 # against the pinned RELEASE.2026-09-16T00-00-00Z image), and MinIO strips
 # AbortIncompleteMultipartUpload from imported lifecycle JSON
 # (minio/minio#19115, closed "working as intended"). The cleanup is

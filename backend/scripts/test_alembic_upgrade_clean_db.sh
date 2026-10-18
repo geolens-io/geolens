@@ -23,16 +23,10 @@
 
 set -euo pipefail
 
-# -----------------------------------------------------------------------
-# Config
-# -----------------------------------------------------------------------
-#
-# POSTGIS_IMAGE_TAG: base PostGIS+PostgreSQL tag. MUST match the FROM line
-# in `db/Dockerfile`. If `db/Dockerfile` bumps PostGIS, also bump it here
-# (and re-confirm pgvector still installs against the new postgres major
-# in the same Dockerfile). The script builds the local ./db image (which
-# layers pgvector on top), so the resulting test image always matches the
-# production-tier image used by `docker compose up`.
+# POSTGIS_IMAGE_TAG: base PostGIS+PostgreSQL tag. Must match the FROM line in
+# `db/Dockerfile`; when that bumps PostGIS, bump it here and re-confirm pgvector
+# still installs against the new postgres major. The script builds the local
+# ./db image, so the test image matches the one `docker compose up` uses.
 POSTGIS_IMAGE_TAG="18-3.6"
 
 CONTAINER_NAME="geolens-alembic-test-$$"
@@ -43,9 +37,6 @@ PG_USER="geolens"
 PG_PASSWORD="test"
 PG_DB="geolens"
 
-# -----------------------------------------------------------------------
-# Locate repo root (script works from any cwd)
-# -----------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
@@ -53,9 +44,7 @@ DB_BUILD_CONTEXT="${REPO_ROOT}/db"
 INIT_DB_SCRIPT="${REPO_ROOT}/scripts/init-db.sh"
 ROLE_RECONCILER="${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh"
 
-# -----------------------------------------------------------------------
-# Cleanup (registered BEFORE the container starts so Ctrl-C drops it)
-# -----------------------------------------------------------------------
+# Registered before the container starts so Ctrl-C drops it.
 cleanup() {
   local exit_code=$?
   # Only emit the cleanup banner if the container was actually started
@@ -68,9 +57,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# -----------------------------------------------------------------------
-# Pre-flight checks
-# -----------------------------------------------------------------------
 echo "==> test_alembic_upgrade_clean_db.sh — clean-DB alembic upgrade smoke (KNOWN-02)"
 echo "    Container: ${CONTAINER_NAME}"
 echo "    Port:      ${PG_PORT}"
@@ -113,11 +99,8 @@ if [ ! -f "${BACKEND_DIR}/alembic.ini" ]; then
 fi
 
 # Refuse to run if the chosen port is in use; a stale container or other
-# postgres on this port would silently mask migration failures.
-# lsof is macOS/BSD-native; on Linux it may be
-# absent. Fall back to nc -z (universally available on macOS and Linux) so
-# the port-in-use guard works in both CI environments. The script
-# auto-detects which tool is available.
+# postgres on this port would silently mask migration failures. lsof may be
+# absent on Linux, so fall back to nc -z.
 _port_in_use() {
   lsof -iTCP:"${PG_PORT}" -sTCP:LISTEN -n -P >/dev/null 2>&1 \
     || nc -z 127.0.0.1 "${PG_PORT}" 2>/dev/null
@@ -128,15 +111,10 @@ if _port_in_use; then
   exit 1
 fi
 
-# -----------------------------------------------------------------------
-# Build the test image (cache hit is fast; first run takes ~2-3 min for pgvector)
-# -----------------------------------------------------------------------
+# Build the test image (a cache hit is fast; the first run takes ~2-3 min for pgvector)
 echo "==> Building ${TEST_IMAGE} from ${DB_BUILD_CONTEXT} (cache-friendly)..."
 docker build -q -t "${TEST_IMAGE}" "${DB_BUILD_CONTEXT}" >/dev/null
 
-# -----------------------------------------------------------------------
-# Start the throwaway container
-# -----------------------------------------------------------------------
 echo "==> Starting container..."
 docker run -d \
   --name "${CONTAINER_NAME}" \
@@ -148,24 +126,17 @@ docker run -d \
   -v "${ROLE_RECONCILER}:/usr/local/bin/configure-runtime-db-role:ro" \
   "${TEST_IMAGE}" >/dev/null
 
-# -----------------------------------------------------------------------
-# Poll readiness — three concerns:
-#   1. pg_isready alone is not enough because init-db.sh runs AFTER initial
-#      readiness. Poll for the `vector` extension explicitly so we don't
-#      race the extension-creation step.
-#   2. docker-entrypoint.sh's init-script phase
-#      runs against a temporary Postgres listening ONLY on the Unix socket;
-#      `pg_isready` and `docker exec ... psql` succeed via the socket during
-#      this phase. After all init scripts finish, the temporary server
-#      shuts down and the production server is started with TCP listening.
-#      A TCP-only client (asyncpg from alembic) connecting during the
-#      bootstrap-to-production transition gets `ConnectionDoesNotExistError`.
-#      The fix is to ALSO probe via TCP from the host (outside the container),
-#      which only succeeds once the production server is up on the mapped port.
-#   3. The TCP probe uses `pg_isready` from the host if available, otherwise
-#      `nc -z` on the port. Either way, the probe runs OUTSIDE `docker exec`
-#      so it goes through the host port-mapping.
-# -----------------------------------------------------------------------
+# Readiness needs three probes:
+#   1. pg_isready alone is not enough: init-db.sh runs after initial readiness,
+#      so poll for the `vector` extension to avoid racing its creation.
+#   2. docker-entrypoint.sh runs init scripts against a temporary Postgres
+#      listening only on the Unix socket, so pg_isready and `docker exec psql`
+#      succeed during bootstrap. The temporary server then shuts down and the
+#      production server starts with TCP. A TCP-only client (asyncpg from
+#      alembic) connecting in between gets `ConnectionDoesNotExistError`, so
+#      also probe TCP from the host, which only succeeds once the production
+#      server is up on the mapped port.
+#   3. The host probe uses `pg_isready` if available, otherwise `nc -z`.
 _tcp_ready() {
   if command -v pg_isready >/dev/null 2>&1; then
     pg_isready -h 127.0.0.1 -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}" -q -t 2 2>/dev/null
@@ -177,10 +148,8 @@ _tcp_ready() {
 echo -n "==> Waiting up to ${WAIT_SECONDS}s for DB readiness + extensions..."
 elapsed=0
 while [ "${elapsed}" -lt "${WAIT_SECONDS}" ]; do
-  # Step 1: in-container readiness (Unix socket; passes during bootstrap)
-  # Step 2: in-container extension probe (confirms init-db.sh + 10_postgis.sh ran)
-  # Step 3: host-side TCP readiness (confirms production server up — bootstrap
-  #         restart finished, host port-mapping is live)
+  # In-container readiness (Unix socket), then the extension probe (confirms
+  # init-db.sh and 10_postgis.sh ran), then host-side TCP readiness.
   if docker exec "${CONTAINER_NAME}" pg_isready -U "${PG_USER}" -d "${PG_DB}" >/dev/null 2>&1; then
     if docker exec "${CONTAINER_NAME}" \
          psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
@@ -205,59 +174,45 @@ if [ "${elapsed}" -ge "${WAIT_SECONDS}" ]; then
   exit 1
 fi
 
-# -----------------------------------------------------------------------
-# Run alembic upgrade head from backend/
-# -----------------------------------------------------------------------
+# Run the migrations from backend/.
 echo "==> Running migration boundary/backfill smoke against the throwaway DB..."
 cd "${BACKEND_DIR}"
 
-# Export the URL in the shape backend/app/core/config.py honors (DATABASE_URL_OVERRIDE
-# is the documented override surface; alembic/env.py reads settings.database_url
-# which honors the override). database_ssl_mode=disable is set to skip the SSL
-# negotiation that .env may default to "prefer" — the throwaway container does
-# not have TLS configured.
+# DATABASE_URL_OVERRIDE is the documented override that settings.database_url
+# (read by alembic/env.py) honors. SSL is disabled because .env may default to
+# "prefer" and the throwaway container has no TLS.
 export DATABASE_URL_OVERRIDE="postgresql+asyncpg://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${PG_DB}"
 export DATABASE_SSL_MODE="disable"
-# Make sure POSTGRES_* are also exported in case any downstream tool reads them
-# instead of database_url_override (defense-in-depth — settings.database_url
-# falls back to building a URL from these if no override is set).
+# Also export POSTGRES_* in case a downstream tool reads them; settings.database_url
+# builds a URL from these when no override is set.
 export POSTGRES_USER="${PG_USER}"
 export POSTGRES_PASSWORD="${PG_PASSWORD}"
 export POSTGRES_HOST="localhost"
 export POSTGRES_PORT="${PG_PORT}"
 export POSTGRES_DB="${PG_DB}"
 
-# alembic/env.py does `from app.core.config import settings`, which instantiates
-# Settings() at import. With no repo-root .env present in CI, three required
-# fields (JWT_SECRET_KEY, GEOLENS_ADMIN_USERNAME/PASSWORD) are unset and the
-# fail-fast in app/core/config.py aborts before any migration runs. This smoke
-# only exercises the migration chain against a throwaway DB and never serves
-# auth, so padding values are correct here. ${VAR:-default} preserves any real
-# value. JWT_SECRET_KEY must be >=32 chars and not a known-public literal.
+# alembic/env.py imports app.core.config.settings, which instantiates Settings()
+# at import. With no repo-root .env (CI), three required fields (JWT_SECRET_KEY,
+# GEOLENS_ADMIN_USERNAME/PASSWORD) are unset and the fail-fast aborts before any
+# migration runs. This smoke never serves auth, so padding values are fine;
+# ${VAR:-default} preserves any real value. JWT_SECRET_KEY must be >=32 chars
+# and not a known-public literal.
 export JWT_SECRET_KEY="${JWT_SECRET_KEY:-alembic-clean-db-smoke-padding-key-32chars}"
 export GEOLENS_ADMIN_USERNAME="${GEOLENS_ADMIN_USERNAME:-admin}"
 export GEOLENS_ADMIN_PASSWORD="${GEOLENS_ADMIN_PASSWORD:-admin}"
 
-# backend/ has no [build-system] in pyproject.toml, so
-# the `app` package is not installed into the venv's site-packages — it is
-# imported via the cwd entry on sys.path. When `uv run --no-dev` invokes the
-# `alembic` console script entry point, the launcher does not implicitly add
-# cwd to sys.path the way `python -c "..."` does. The alembic `env.py` then
-# fails at `from app.core.config import settings` with ModuleNotFoundError.
-# PYTHONPATH=. restores the cwd-on-sys.path behavior.
+# backend/ has no [build-system] in pyproject.toml, so the `app` package is
+# imported via the cwd entry on sys.path. `uv run --no-dev` launching the
+# `alembic` console script does not add cwd to sys.path the way `python -c`
+# does, so env.py would fail with ModuleNotFoundError. PYTHONPATH=. restores it.
 export PYTHONPATH=.
 
-# app/core/config.py's database_connect_args returns
-# `{}` (no ssl key) when database_ssl_mode='disable'. asyncpg's
-# connect_utils.py:655-656 then defaults `ssl='prefer'` on TCP, which
-# triggers a STARTTLS upgrade attempt against the throwaway PostGIS
-# container — which has no SSL configured — and the connection drops with
-# `ConnectionError: unexpected connection_lost() call`. PGSSLMODE is the
-# documented asyncpg env-var hook that pre-empts the prefer default
-# (connect_utils.py:653: `if ssl is None: ssl = os.getenv('PGSSLMODE')`).
-# Setting PGSSLMODE=disable here is local to this script — it does NOT
-# affect the running geolens stack, which connects via the app config's
-# `prefer` default and a Postgres server that may legitimately offer SSL.
+# database_connect_args in app/core/config.py returns no ssl key when
+# database_ssl_mode='disable', and asyncpg then defaults to ssl='prefer' on
+# TCP. The throwaway PostGIS container has no SSL configured, so the STARTTLS
+# attempt drops the connection (`unexpected connection_lost() call`). asyncpg
+# reads PGSSLMODE when ssl is unset, which pre-empts that default. This only
+# affects this script, not the running geolens stack.
 export PGSSLMODE=disable
 
 TENANT_ID="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -326,13 +281,9 @@ echo "==> Running 0019 downgrade -> re-upgrade with deployed memberships..."
 uv run --no-dev alembic downgrade 0018_tenant_insert_stamping
 uv run --no-dev alembic upgrade head
 
-# -----------------------------------------------------------------------
-# Drift gate: the freshly-upgraded schema must match the ORM models. This
-# catches a baseline (or any migration) that has drifted from the models —
-# e.g. a column added to a model without a corresponding migration. With the
-# squashed single baseline this is the gate that keeps 0001_baseline and the
-# models in lockstep. `alembic check` exits non-zero on any pending diff.
-# -----------------------------------------------------------------------
+# Drift gate: the upgraded schema must match the ORM models, so a column added
+# to a model without a migration fails here. `alembic check` exits non-zero on
+# any pending diff.
 echo ""
 echo "==> Running 'alembic check' (model/migration drift gate)..."
 check_rc=0
@@ -344,9 +295,6 @@ if [ "${check_rc}" -ne 0 ]; then
   exit "${check_rc}"
 fi
 
-# -----------------------------------------------------------------------
-# Success
-# -----------------------------------------------------------------------
 echo ""
 echo "OK: alembic upgrade head + check passed against a fresh DB (${TEST_IMAGE})"
 exit 0

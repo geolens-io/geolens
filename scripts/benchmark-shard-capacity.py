@@ -50,10 +50,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Optional psycopg2 / psycopg import (stdlib-friendly fallback to error)
-# ---------------------------------------------------------------------------
-
 try:
     import psycopg2
     import psycopg2.extras
@@ -65,10 +61,6 @@ except ImportError:
     sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 _BENCH_SCHEMA = "bench_t_cap"
 _BENCH_ROLE = "geolens_reader_bench_t_cap"
 _DEFAULT_OUTPUT = "shard-capacity-benchmark.md"
@@ -77,11 +69,6 @@ _AUTOVAC_WORKER_THRESHOLD = 2  # signal 2 threshold: >= this workers → saturat
 _PGDUMP_SUPERLINEAR_RATIO = (
     2.0  # signal 3: pg_dump grows >2× per doubling = super-linear
 )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _dsn_from_env() -> str:
@@ -330,11 +317,6 @@ def _verify_cleanup(conn) -> bool:
     return result is None
 
 
-# ---------------------------------------------------------------------------
-# Analysis
-# ---------------------------------------------------------------------------
-
-
 def _find_inflection(
     steps: list[dict],
     hit_ratio_floor: float = _HIT_RATIO_FLOOR,
@@ -399,11 +381,6 @@ def _find_inflection(
         "signal": ceiling_signal,
         "notes": " | ".join(ceiling_notes),
     }
-
-
-# ---------------------------------------------------------------------------
-# Report writing
-# ---------------------------------------------------------------------------
 
 
 def _write_findings(
@@ -510,15 +487,15 @@ def _write_findings(
         "    --output shard-capacity-benchmark-azure.md",
         "```",
         "",
-        "## Phase Context",
+        "## Context",
         "",
-        "- **Phase 1209 (Per-Tenant Data Plane)** established per-tenant `data_t_{tenant_id}`",
-        "  schemas as the isolation boundary for geospatial data in `multi_tenant` mode.",
-        "- **Phase 1214 (Shard Promote/Rebalance)** will use this ceiling to decide when",
+        "- **Per-tenant data schemas** (`data_t_{tenant_id}`)",
+        "  are the isolation boundary for geospatial data in `multi_tenant` mode.",
+        "- **Shard promote/rebalance** uses this ceiling to decide when",
         "  a shard needs to be split. The `shard_id` column on `catalog.tenants` (migration",
         "  `0007_tenant_data_schemas`) is the routing map entry point.",
-        "- This benchmark must be re-run on the production SKU BEFORE Phase 1214 sets",
-        "  the shard-split threshold. The prior heuristic of 25k tables was never measured;",
+        "- This benchmark must be re-run on the production SKU BEFORE the",
+        "  shard-split threshold is set. The earlier heuristic of 25k tables was never measured;",
         "  this document replaces it with a real number.",
     ]
     content = "\n".join(lines) + "\n"
@@ -527,11 +504,6 @@ def _write_findings(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(content, encoding="utf-8")
     print(f"\n  Findings doc written to: {output.resolve()}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:

@@ -25,12 +25,11 @@ probe_writable_dir() {
 
 mkdir -p "${STAGING_DIR}" "${APP_HOME}" "${UV_CACHE_DIR}"
 
-# prometheus_client multiprocess mode, api service only (see
-# #651: the worker's own /metrics endpoint stays single-process). Created
-# here, alongside the other runtime-writable dirs, so the chown/chmod block
-# below covers it too -- this container starts as root and drops to appuser
-# via setpriv before exec, and prometheus_client's mmap-backed metric files
-# are written by that dropped-privilege process, not by this root shell.
+# prometheus_client multiprocess mode, api service only (the worker's own
+# /metrics endpoint stays single-process). Created here, alongside the other
+# runtime-writable dirs, so the chown/chmod block below covers it: this
+# container starts as root and drops to appuser via setpriv before exec, and
+# the mmap-backed metric files are written by that dropped-privilege process.
 if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
     mkdir -p "${PROMETHEUS_MULTIPROC_DIR}"
 fi
@@ -54,23 +53,18 @@ export XDG_CACHE_HOME="${APP_CACHE_DIR}"
 export UV_CACHE_DIR
 export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
-# Enterprise overlay — runtime install path (legacy / dev only).
+# Enterprise overlay: runtime install path (legacy / dev only).
 #
-# WARNING: This runtime `uv add --editable` CANNOT succeed when the
-# container runs with read_only: true rootfs (the default hardened deployment).
-# The baked /app/.venv is on the read-only layer and uv cannot write into it.
-# If this block runs and the install fails, the app will boot as community
-# edition; GEOLENS_EDITION=enterprise will now trigger a loud startup failure
-# (RuntimeError) rather than a silent OSS fallback.
+# This runtime `uv add --editable` cannot succeed under a read_only rootfs (the
+# default hardened deployment): the baked /app/.venv is on the read-only layer.
+# If the install fails, the app boots as community edition and
+# GEOLENS_EDITION=enterprise triggers a loud startup failure (RuntimeError)
+# instead of a silent OSS fallback.
 #
-# Production paid deployments use the overlay repository's immutable image
-# build, which installs its locked wheel at build time into the completed core
-# runtime. The public Dockerfile does not copy private packages.
-#
-# This block is retained for dev/CI scenarios where the container runs without
-# read_only (e.g. `docker compose up` for local development with a mounted
-# enterprise directory).  It will fail silently under read_only — the startup
-# check will then refuse to boot as OSS.
+# Production paid deployments use the overlay repository's immutable image,
+# which installs its locked wheel at build time. The public Dockerfile does not
+# copy private packages. This block remains for dev/CI runs without read_only
+# (for example `docker compose up` with a mounted enterprise directory).
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
@@ -84,21 +78,18 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     fi
 fi
 
-# Run database migrations (idempotent — safe to run on every startup).
+# Run database migrations (idempotent, safe on every startup).
 # The dedicated migrate service normally runs first; this default-on step is a
 # fail-closed safety net for deployments that start the API directly. A
-# deployment with a dedicated, ordered migrate service may explicitly set
+# deployment with a dedicated, ordered migrate service may set
 # GEOLENS_API_RUN_MIGRATIONS=false so the least-privilege API login never tries
 # to execute DDL. Any value other than the exact strings "true" and "false" is
 # rejected: a typo must never silently disable the safety net.
 #
-# `alembic upgrade heads` is idempotent — re-running against an
-# already-migrated DB is a no-op that exits 0. So a NON-zero exit is a REAL
-# error (migration failure, DB unreachable, broken chain), not a benign
-# "already applied" case. Booting the API on top of a failed/partial
-# migration silently serves a broken schema. Refuse to start instead: print
-# a clear FATAL to stderr and exit with the migration's return code (we never
-# reach the uvicorn exec below).
+# `alembic upgrade heads` against an already-migrated DB is a no-op that exits
+# 0, so a non-zero exit is a real error (migration failure, DB unreachable,
+# broken chain). Booting on a failed or partial migration would serve a broken
+# schema, so print FATAL to stderr and exit with the migration's return code.
 if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ] \
     && [ "${GEOLENS_API_RUN_MIGRATIONS:-true}" != "false" ]; then
     echo "FATAL: GEOLENS_RUNTIME_DB_ROLE requires GEOLENS_API_RUN_MIGRATIONS=false." >&2
@@ -135,16 +126,12 @@ case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
         ;;
 esac
 
-# Clear stale prometheus_client multiprocess mmap files
-# before any worker starts (the directory itself was created and chowned
-# above). A leftover .db file from a previous container generation (e.g. a
-# different UVICORN_WORKERS topology) would otherwise pollute this
-# generation's Counter/Histogram sums -- multiprocess.MultiProcessCollector
-# aggregates every *.db file under the directory regardless of which process
-# generation wrote it. Runs once here, in the parent process before uvicorn
-# forks its workers. The directory itself lives on the api service's tmpfs
-# /tmp mount, so a container restart already discards it; this guards the
-# case an operator points the var at a non-ephemeral path instead.
+# Clear stale prometheus_client multiprocess mmap files before any worker
+# starts. MultiProcessCollector aggregates every *.db file under the directory
+# regardless of which container generation wrote it, so a leftover file (e.g.
+# from a different UVICORN_WORKERS topology) would pollute the Counter and
+# Histogram sums. The directory normally lives on the api tmpfs /tmp mount,
+# which a restart discards; this guards an operator-set non-ephemeral path.
 if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
     rm -f "${PROMETHEUS_MULTIPROC_DIR}"/*.db 2>/dev/null || true
 fi

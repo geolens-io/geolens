@@ -40,26 +40,21 @@ export XDG_CACHE_HOME="${APP_CACHE_DIR}"
 export UV_CACHE_DIR
 export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
-# Enterprise overlay — runtime install path (legacy / dev only).
+# Enterprise overlay: runtime install path (legacy / dev only).
 #
-# WARNING: This runtime `uv add --editable` CANNOT succeed when the
-# container runs with read_only: true rootfs (the default hardened deployment).
-# The baked /app/.venv is on the read-only layer and uv cannot write into it.
-# If this block runs and the install fails, the app will boot as community
-# edition; GEOLENS_EDITION=enterprise will now trigger a loud startup failure
-# rather than a silent OSS fallback.
+# This runtime `uv add --editable` cannot succeed under a read_only rootfs (the
+# default hardened deployment): the baked /app/.venv is on the read-only layer.
+# If the install fails, the app boots as community edition and
+# GEOLENS_EDITION=enterprise triggers a loud startup failure instead of a
+# silent OSS fallback. check_enterprise_overlay_requested and
+# assert_enterprise_ports_resolved run in the worker bootstrap as well as the
+# API lifespan, so an enterprise worker that cannot load the overlay refuses to
+# boot rather than running community ports.
 #
-# Production paid deployments use the overlay repository's immutable image
-# build, which installs its locked wheel at build time into the completed core
-# runtime. The public Dockerfile does not copy private packages.
-#
-# This block is retained for dev/CI scenarios where the container runs without
-# read_only (e.g. `docker compose up` for local development with a mounted
-# enterprise directory).  It will fail silently under read_only — the startup
-# checks (check_enterprise_overlay_requested and
-# assert_enterprise_ports_resolved) now run inside the WORKER bootstrap as well
-# as the API lifespan, so a GEOLENS_EDITION=enterprise worker that cannot load
-# the overlay will refuse to boot rather than silently running community ports.
+# Production paid deployments use the overlay repository's immutable image,
+# which installs its locked wheel at build time. The public Dockerfile does not
+# copy private packages. This block remains for dev/CI runs without read_only
+# (for example `docker compose up` with a mounted enterprise directory).
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
@@ -73,14 +68,12 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     fi
 fi
 
-# The worker does NOT run database migrations here. It relies on
+# The worker does not run database migrations. It relies on
 # `depends_on: migrate (service_completed_successfully)` in docker-compose so
-# the dedicated migrate service has already upgraded the schema before the
-# worker starts. There is therefore no migration step to fail-close on in this
-# entrypoint (the fail-closed guard lives in api-entrypoint.sh's migration
-# step). The worker's own fail-loud startup guards (overlay check,
-# port-resolution assertion, and schema-skew guard) run inside
-# the Python bootstrap in app/platform/jobs/worker.py:main().
+# the dedicated migrate service has already upgraded the schema. The fail-closed
+# migration guard lives in api-entrypoint.sh; the worker's own fail-loud startup
+# guards (overlay check, port-resolution assertion, schema-skew guard) run in
+# the Python bootstrap, app/platform/jobs/worker.py:main().
 if [ "$#" -eq 0 ]; then
     set -- sh -c "uv run --no-dev python -m app.worker"
 fi

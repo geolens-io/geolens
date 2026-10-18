@@ -33,11 +33,6 @@ _LAT_MAX = 85.0511
 _LAT_MIN = -85.0511
 
 
-# ---------------------------------------------------------------------------
-# Tile math (pure functions — testable without I/O)
-# ---------------------------------------------------------------------------
-
-
 def lng_to_tile_x(lng: float, z: int) -> int:
     """Convert a WGS84 longitude to a tile X index at zoom level z."""
     return int((lng + 180.0) / 360.0 * (1 << z))
@@ -133,10 +128,6 @@ def spec_bbox_to_tiles(
         yield from bbox_to_tiles(west, south, east, north, z=z)
 
 
-# ---------------------------------------------------------------------------
-# Dataset query
-# ---------------------------------------------------------------------------
-
 _DATASET_QUERY = """
     SELECT
         d.id AS dataset_id,
@@ -165,11 +156,6 @@ _STILL_CURRENT = (
 
 class _DatasetChanged(Exception):
     """The dataset left the catalog or moved to another cache generation."""
-
-
-# ---------------------------------------------------------------------------
-# Main seeding logic
-# ---------------------------------------------------------------------------
 
 
 async def _seed_dataset(

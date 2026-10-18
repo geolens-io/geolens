@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# =============================================================================
-# scripts/analyze-query-plans.sh
-# Reusable query plan analysis diagnostic for GeoLens PostgreSQL.
+# Query plan analysis diagnostic for GeoLens PostgreSQL.
 #
 # Flags sequential scans, stale statistics, missing gid indexes, and
 # top queries by execution time. Run from the project root.
-#
-# Permanent project fixture.
-# =============================================================================
 
 set -euo pipefail
 
@@ -21,9 +16,6 @@ echo " $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 echo "=============================================="
 echo
 
-# ---------------------------------------------------------------------------
-# Section 1: Sequential Scan Detection
-# ---------------------------------------------------------------------------
 echo "=== Section 1: Sequential Scan Detection ==="
 echo "Tables with >1000 live tuples where seq_scan dominates idx_scan:"
 echo
@@ -40,9 +32,6 @@ LIMIT 20;
 "
 echo
 
-# ---------------------------------------------------------------------------
-# Section 2: Stale Table Statistics
-# ---------------------------------------------------------------------------
 echo "=== Section 2: Stale Table Statistics ==="
 echo "Tables with >100 live tuples where ANALYZE has not run recently:"
 echo
@@ -65,9 +54,6 @@ ORDER BY status DESC, n_live_tup DESC;
 "
 echo
 
-# ---------------------------------------------------------------------------
-# Section 3: Missing GID Indexes
-# ---------------------------------------------------------------------------
 echo "=== Section 3: Missing GID Indexes ==="
 echo "Data-schema tables with >1000 rows that lack a gid index:"
 echo
@@ -86,9 +72,6 @@ ORDER BY t.n_live_tup DESC;
 "
 echo
 
-# ---------------------------------------------------------------------------
-# Section 4: Top Queries by Time
-# ---------------------------------------------------------------------------
 echo "=== Section 4: Top Queries by Execution Time ==="
 echo "Top 10 queries from pg_stat_statements:"
 echo

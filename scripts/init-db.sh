@@ -1,18 +1,11 @@
 #!/bin/bash
 set -e
 
-# The heredoc delimiter must be QUOTED ('EOSQL') so bash
-# does NOT perform command substitution on the backticks (`...`) inside the
-# SQL comments below. Prior to this fix, unquoted `<<-EOSQL` caused bash to
-# try executing `GRANT SELECT ON ALL TABLES`, `grant_reader_access`, and
-# `backend/app/processing/ingest/metadata.py` as shell commands, aborting
-# the script with `set -e` BEFORE psql ever ran. The bug was latent because
-# the live geolens-db container's pgdata volume is persistent (init-db.sh
-# only runs once on a fresh volume), and the backtick comments were added
-# AFTER that one-time init. This surfaced when the alembic-clean-db script
-# (which builds a
-# fresh DB on every run) finally exercised init-db.sh against a clean
-# volume.
+# The heredoc delimiter must be quoted ('EOSQL'): the SQL comments contain
+# backticks, and an unquoted delimiter would make bash run `GRANT SELECT ON ALL
+# TABLES`, `grant_reader_access` and similar as commands, aborting under
+# `set -e` before psql runs.
+#
 # Runs both as the container's docker-entrypoint-initdb.d hook (local socket,
 # no host/port set) and from a host against a managed database (POSTGRES_HOST
 # etc. exported). Host/port args are added only when set, which is what keeps

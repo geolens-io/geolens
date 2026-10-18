@@ -59,18 +59,13 @@ import re
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Paths (relative to repo root)
-# ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _OPENAPI_JSON = _REPO_ROOT / "backend" / "openapi.json"
 _FE_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "api.ts"
 
-# ---------------------------------------------------------------------------
 # Five tenant-bound models (each will gain tenant_id)
 # These are the MINIMUM models to hand-audit before tenancy lands.
-# ---------------------------------------------------------------------------
 
 TENANT_BOUND_MODELS: list[str] = [
     "MapResponse",
@@ -80,11 +75,9 @@ TENANT_BOUND_MODELS: list[str] = [
     "MapLayerResponse",  # 'tiles' surface — vector/raster tile token consumers
 ]
 
-# ---------------------------------------------------------------------------
 # Maintained model allowlist (superset of TENANT_BOUND_MODELS)
 # These are the models actively maintained in both FE + BE; new drift here
 # signals a real contract break.
-# ---------------------------------------------------------------------------
 
 MAINTAINED_MODELS: list[str] = TENANT_BOUND_MODELS + [
     "AdminEmbedTokenResponse",
@@ -110,12 +103,10 @@ MAINTAINED_MODELS: list[str] = TENANT_BOUND_MODELS + [
     "UserResponse",
 ]
 
-# ---------------------------------------------------------------------------
 # Known drift: pre-existing backend-property-missing-in-FE cases.
 # These are NOT regressions — they reflect intentional FE omissions or
 # backend additions not yet propagated to a hand-written FE mirror.
 # TODO: resolve each by either adding the FE field or annotating intent.
-# ---------------------------------------------------------------------------
 
 KNOWN_DRIFT: dict[str, list[str]] = {
     # EmbedTokenCreatedResponse / AdminEmbedTokenResponse: FE uses 'extends'
@@ -125,10 +116,6 @@ KNOWN_DRIFT: dict[str, list[str]] = {
     "EmbedTokenCreatedResponse": [],
     "AdminEmbedTokenResponse": [],
 }
-
-# ---------------------------------------------------------------------------
-# FE TypeScript parser
-# ---------------------------------------------------------------------------
 
 
 _GENERATED_ALIAS = re.compile(
@@ -258,11 +245,6 @@ def _resolve_fe_props(
     return props
 
 
-# ---------------------------------------------------------------------------
-# OpenAPI schema parser
-# ---------------------------------------------------------------------------
-
-
 def _load_openapi_schemas(openapi_path: Path) -> dict[str, set[str]]:
     """Load ``components.schemas`` from openapi.json and return name → property set."""
     with openapi_path.open() as f:
@@ -273,11 +255,6 @@ def _load_openapi_schemas(openapi_path: Path) -> dict[str, set[str]]:
         for name, schema in schemas.items()
         if schema.get("properties")
     }
-
-
-# ---------------------------------------------------------------------------
-# Drift checker
-# ---------------------------------------------------------------------------
 
 
 class DriftReport:
@@ -339,12 +316,10 @@ def check_drift(
 
         missing = sorted(be_props - fe_props)
 
-        # Compute "known drift now resolved" BEFORE the
-        # early-continue below. A model with ZERO current drift would skip
-        # this block entirely, leaving a KNOWN_DRIFT entry for a model the
-        # FE mirror has fully caught up on invisible to this reporter
-        # forever — a standing license to regress with no signal telling
-        # anyone to remove it.
+        # Compute "known drift now resolved" BEFORE the early-continue below.
+        # A model with ZERO current drift would skip this block, leaving a
+        # stale KNOWN_DRIFT entry that licenses regressions with no signal to
+        # remove it.
         known = KNOWN_DRIFT.get(name, [])
         resolved = [p for p in known if p and p not in missing]
         if resolved:
@@ -365,17 +340,11 @@ def check_drift(
     return report
 
 
-# ---------------------------------------------------------------------------
-# Reporting
-# ---------------------------------------------------------------------------
-
-
 def _print_report(report: DriftReport, verbose: bool = False) -> None:
     if report.skipped:
-        # Printed unconditionally (not just under --verbose) —
-        # this now fails the build (DriftReport.should_fail()), so a
-        # skipped, uncomparable maintained model must be visible without
-        # needing to know to pass a flag; the pytest wrapper does not.
+        # Printed unconditionally, not just under --verbose: a skipped,
+        # uncomparable maintained model fails the build (DriftReport.should_fail()),
+        # so it must be visible without passing a flag; the pytest wrapper does not.
         print(
             "[FAIL] Maintained models not checkable (absent from openapi.json or api.ts):"
         )
@@ -421,11 +390,6 @@ def _print_report(report: DriftReport, verbose: bool = False) -> None:
         )
     elif not report.known_drift and not report.skipped:
         print("[PASS] No drift detected between backend schemas and FE type mirrors.")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

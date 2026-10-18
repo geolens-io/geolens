@@ -54,7 +54,7 @@ Determinism
 Output serialization matches ``backend/scripts/dump_openapi.py``: every
 dict key sorted EXCEPT each schema's ``properties`` map, whose insertion
 order is Pydantic field declaration order and drives generated SDK
-constructor argument order (fix #1257). The flattened intermediate stays
+constructor argument order. The flattened intermediate stays
 reproducible across machines.
 
 Usage
@@ -378,7 +378,7 @@ def main() -> int:
 
     # Same serialization style as dump_openapi.py: sorted keys except each
     # schema's `properties` map, whose order drives generated SDK
-    # constructor argument order (fix #1257).
+    # constructor argument order.
     output_text = json.dumps(_ordered_for_snapshot(flattened), indent=2) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output_text)

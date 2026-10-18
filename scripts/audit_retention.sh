@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Archive-then-delete retention for catalog.audit_logs.
 #
-# RUNBOOK.md §8 is the operator-facing documentation. This script is the
-# procedure itself; the RUNBOOK no longer carries a copy of the SQL.
+# RUNBOOK.md §8 is the operator-facing documentation; this script is the
+# procedure itself.
 #
 # The table has no built-in expiry and no in-app pruning endpoint, so a
 # retention window is applied out of band. Deleting rows that were never
@@ -148,9 +148,6 @@ No row is deleted unless every archive for the window passed every check.
 EOF
 }
 
-# ---------------------------------------------------------------------------
-# Arguments
-# ---------------------------------------------------------------------------
 
 API_URL=""
 DAYS=""
@@ -246,12 +243,8 @@ fi
 need_command curl
 need_command jq
 
-# ---------------------------------------------------------------------------
-# Connection
-# ---------------------------------------------------------------------------
-#
-# Three paths, checked in order. The first two reach a managed or external
-# Postgres directly; only the last needs a local db container.
+# Three connection paths, checked in order. The first two reach a managed or
+# external Postgres directly; only the last needs a local db container.
 if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
     if [ -n "$DB_URL" ]; then
         _url_in="$DB_URL"
@@ -307,7 +300,7 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
     #     the wrong password in userinfo and the right one in the query
     #     connects, and the reverse fails.
     #
-    # Enumerating the rest of the grammar so a later round does not have to:
+    # The rest of the grammar:
     # `passfile=` names a path rather than holding a secret, so it is left
     # working untouched, and no other documented URI parameter carries a
     # credential. userinfo and query `password` are the whole space.
@@ -470,10 +463,8 @@ psql_value() {
         | "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 -tA "$@"
 }
 
-# ---------------------------------------------------------------------------
-# Scope predicate: ONE definition, used by the count, the window search and the
-# delete. They cannot drift, because there is only one string.
-# ---------------------------------------------------------------------------
+# Scope predicate: one definition, used by the count, the window search and the
+# delete, so they cannot drift.
 if [ "$MODE" = "tenant" ]; then
     SCOPE_SQL="tenant_id = :'tenant_id'::uuid"
 else
@@ -502,9 +493,6 @@ window_predicate() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Preflight
-# ---------------------------------------------------------------------------
 
 say "Connecting via $CONN_DESC ..."
 # Connectivity and "does this table exist" only. The credential's ability to
@@ -604,9 +592,6 @@ if [ "$TOTAL_IN_WINDOW" -eq 0 ]; then
     exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Archive
-# ---------------------------------------------------------------------------
 
 # 0700 when this script creates it; an existing directory keeps whatever the
 # operator gave it. See the umask near the top of the file.
@@ -852,10 +837,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Delete
-# ---------------------------------------------------------------------------
-#
+# Delete.
 # Batched: the only DELETE-supporting index is
 # ix_catalog_audit_logs_created_action_resource (created_at DESC, action,
 # resource_type), so an unbounded DELETE on a multi-million-row table holds

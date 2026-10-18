@@ -1,35 +1,23 @@
 #!/bin/sh
-# RUNBOOK.md told operators to
-# `set -a; . ./.env; set +a` in three places (globals restore, runtime-role
-# verification, role rotation) — exactly the shell-sourcing restore.sh's own
-# header explains get_env_value exists to avoid: `.` executes the file, so
-# an operator-typed value containing a bare space becomes "set VAR=<first
-# word>, run <second word> as a command" (a 127 under `set -e`) and a value
-# containing backticks or $(...) is EXECUTED with the operator's privileges.
-# This wrapper reads exactly one key through get_env_value's awk parser
-# instead, matching how restore.sh/check-env.sh/upgrade.sh already read
-# .env — a value is data here, never code.
+# Prints one key from a .env file for RUNBOOK.md snippets. Sourcing the file
+# (`set -a; . ./.env; set +a`) executes it: an operator-typed value with a bare
+# space becomes "set VAR=<first word>, run <second word> as a command" (a 127
+# under `set -e`), and a value with backticks or $(...) runs with the
+# operator's privileges. This wrapper reads the key through get_env_value's awk
+# parser, as restore.sh, check-env.sh and upgrade.sh do, so a value is data.
 #
 # Usage: scripts/env-value.sh KEY [FILE]   (FILE defaults to ./.env)
 #
 # Exit status matches get_env_value: 0 with the value on stdout (possibly
 # empty, if the key is present but blank) when the key was found; 1 with no
-# output when the key has no line in the file at all, or the file itself
-# does not exist.
+# output when the key has no line in the file, or the file does not exist.
 #
-# This is deliberately
-# still stdout-based, unlike scripts/lib/common.sh's own env_value_into
-# (which restore.sh/check-env.sh/upgrade.sh now call internally instead of
-# capturing get_env_value's stdout, so a trailing decoded newline in a
-# value survives). env_value_into only works within the SAME shell process
-# that sourced common.sh; this script is invoked as a SEPARATE subprocess
-# (RUNBOOK.md's copy-pasted snippets run `$(scripts/env-value.sh KEY)` in
-# an operator's own shell), so there is no caller-side variable for it to
-# assign into across that boundary — a caller here still needs to capture
-# via command substitution, which strips a trailing newline the same way
-# it always has. This only matters for a value deliberately ending in one;
-# every value RUNBOOK.md actually reads through this wrapper (passwords,
-# role names, database names) is not expected to.
+# Output is stdout-based, unlike common.sh's env_value_into, which only works
+# within the shell that sourced common.sh and preserves a trailing decoded
+# newline. This script runs as a separate subprocess, so callers capture it
+# with command substitution, which strips a trailing newline. That only matters
+# for a value deliberately ending in one; the passwords, role names and
+# database names RUNBOOK.md reads this way do not.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

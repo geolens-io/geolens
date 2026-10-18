@@ -14,7 +14,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESULTS_DIR="$PROJECT_ROOT/tests/load/results"
 LOAD_DIR="$PROJECT_ROOT/tests/load"
 
-# Helper: run psql in the db container
 db_psql() {
   docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
     psql -U geolens -d geolens "$@"
@@ -25,9 +24,6 @@ echo "  GeoLens Baseline Measurement"
 echo "========================================"
 echo ""
 
-# ---------------------------------------------------------------
-# 1. Preflight checks
-# ---------------------------------------------------------------
 echo "[1/9] Preflight checks..."
 
 if [[ -z "${GEOLENS_API_KEY:-}" ]]; then
@@ -36,21 +32,18 @@ if [[ -z "${GEOLENS_API_KEY:-}" ]]; then
   exit 1
 fi
 
-# Check db container is running
 if ! docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps db --format json 2>/dev/null | grep -q '"running"'; then
   echo "ERROR: Database container is not running."
   echo "Start it with: docker compose up -d db"
   exit 1
 fi
 
-# Verify pg_stat_statements is accessible
 if ! db_psql -c "SELECT count(*) FROM pg_stat_statements" > /dev/null 2>&1; then
   echo "ERROR: pg_stat_statements extension is not available."
   echo "Fix: docker compose exec db psql -U geolens -d geolens -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'"
   exit 1
 fi
 
-# Verify datasets exist
 DATASET_COUNT=$(db_psql -tAc "SELECT count(*) FROM catalog.datasets" 2>/dev/null || echo "0")
 DATASET_COUNT=$(echo "$DATASET_COUNT" | tr -d '[:space:]')
 if [[ "$DATASET_COUNT" -lt 100 ]]; then
@@ -63,17 +56,11 @@ echo "  pg_stat_statements: accessible"
 echo "  Datasets: $DATASET_COUNT"
 echo ""
 
-# ---------------------------------------------------------------
-# 2. Reset counters
-# ---------------------------------------------------------------
 echo "[2/9] Resetting pg_stat_statements counters..."
 db_psql -c "SELECT pg_stat_statements_reset()" > /dev/null
 echo "  Note: pg_stat_user_tables scan counters are cumulative and cannot be reset."
 echo ""
 
-# ---------------------------------------------------------------
-# 3. Warm-up run (10s, 2 users)
-# ---------------------------------------------------------------
 echo "[3/9] Warm-up run (10s, 2 users)..."
 (cd "$LOAD_DIR" && GEOLENS_API_KEY="$GEOLENS_API_KEY" \
   locust --headless -u 2 -r 2 --run-time 10s -f locustfile.py 2>&1 | tail -5)
@@ -82,18 +69,12 @@ echo "  Warm-up complete, resetting pg_stat_statements..."
 db_psql -c "SELECT pg_stat_statements_reset()" > /dev/null
 echo ""
 
-# ---------------------------------------------------------------
-# 4. Measured run (60s, 10 users)
-# ---------------------------------------------------------------
 echo "[4/9] Measured run (60s, 10 users)..."
 (cd "$LOAD_DIR" && GEOLENS_API_KEY="$GEOLENS_API_KEY" \
   locust --headless -u 10 -r 2 --run-time 60s \
   --csv "$RESULTS_DIR/baseline" -f locustfile.py)
 echo ""
 
-# ---------------------------------------------------------------
-# 5. Query pg_stat_statements top-10
-# ---------------------------------------------------------------
 echo "[5/9] Top-10 slowest queries by total execution time..."
 
 TOP10_SQL="SELECT queryid,
@@ -112,9 +93,6 @@ LIMIT 10;"
 db_psql -c "$TOP10_SQL" | tee "$RESULTS_DIR/top10_queries.txt"
 echo ""
 
-# ---------------------------------------------------------------
-# 6. Sequential scan detection
-# ---------------------------------------------------------------
 echo "[6/9] Sequential scan detection..."
 
 SEQ_SCAN_SQL="SELECT schemaname,
@@ -133,9 +111,6 @@ LIMIT 20;"
 db_psql -c "$SEQ_SCAN_SQL" | tee "$RESULTS_DIR/seq_scans.txt"
 echo ""
 
-# ---------------------------------------------------------------
-# 7. Capture auto_explain logs
-# ---------------------------------------------------------------
 echo "[7/9] Capturing auto_explain logs from database..."
 docker compose -f "$PROJECT_ROOT/docker-compose.yml" logs db --since=2m \
   > "$RESULTS_DIR/db_logs.txt" 2>&1
@@ -144,9 +119,6 @@ EXPLAIN_COUNT=$(grep -c "Query Text\|query plan" "$RESULTS_DIR/db_logs.txt" 2>/d
 echo "  Found $EXPLAIN_COUNT auto_explain entries."
 echo ""
 
-# ---------------------------------------------------------------
-# 8. Prometheus metrics snapshot (pool + tile cache)
-# ---------------------------------------------------------------
 echo "[8/9] Scraping Prometheus metrics..."
 
 METRICS_URL="${GEOLENS_BASE_URL:-http://localhost:8080}/api/metrics"
@@ -162,9 +134,6 @@ else
 fi
 echo ""
 
-# ---------------------------------------------------------------
-# 9. Summary
-# ---------------------------------------------------------------
 echo "[9/9] Summary"
 echo "========================================"
 echo "  Output files:"

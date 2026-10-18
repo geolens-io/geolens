@@ -66,8 +66,7 @@ for (const vuln of Object.values(report.vulnerabilities ?? {})) {
 }
 
 // An entry whose advisory stopped firing is dead weight carrying a
-// justification that quietly goes out of date — this one claimed "1.1.16 is the
-// last of the 1.x line (unpatched)" months after 1.1.18 shipped. Warn, never
+// justification that quietly goes out of date. Warn, never
 // block: an advisory can legitimately stop appearing on one lockfile state.
 for (const [id, entry] of active) {
   if (!matched.has(id)) {

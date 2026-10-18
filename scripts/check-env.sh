@@ -7,33 +7,23 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 
-# Read only the values this check needs from .env with
-# get_env_value's awk parser, not by shell-sourcing the file — see
-# restore.sh for why: Compose's `.env` parser accepts values (a space, a
-# backtick, `$(...)`) that `sh` does not, and shell-sourcing them under
-# `set -e` either aborts on an operator-typed value or executes it.
+# Read only the values this check needs from .env with get_env_value's awk
+# parser, not by shell-sourcing the file: Compose's `.env` parser accepts
+# values (a space, a backtick, `$(...)`) that `sh` does not, and sourcing them
+# under `set -e` either aborts on an operator-typed value or executes it.
 #
-# Same guard restore.sh uses — assign only
-# when get_env_value reports the key is actually present in .env, so a
-# value supplied purely through the process environment (Compose supports
-# `POSTGRES_DB=production scripts/check-env.sh`) is not overwritten with an
-# empty string just because .env omits that key. See restore.sh's comment
-# on the same pattern for the full reasoning.
-#
-# The assignment goes straight into
-# each target via env_value_into — see restore.sh's own comment
-# on the same pattern for why a plain `_v="$(get_env_value ...)"` capture
-# is not enough on its own (it strips a trailing decoded newline
-# regardless of what get_env_value itself preserves).
+# Assign only when get_env_value reports the key is present in .env, so a value
+# supplied through the process environment (`POSTGRES_DB=production
+# scripts/check-env.sh`) is not overwritten with an empty string. The
+# assignment goes straight into each target via env_value_into, because a plain
+# `_v="$(get_env_value ...)"` capture strips a trailing decoded newline.
 if [ -f "$PROJECT_ROOT/.env" ]; then
     env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
     # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
     env_value_into POSTGRES_PASSWORD POSTGRES_PASSWORD "$PROJECT_ROOT/.env" || true
     env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
-    # Also honor an
-    # operator's COMPOSE_FILE (e.g. docker-compose.prod.yml) instead of
-    # always hardcoding the source-build file below -- this script used to
-    # be the one caller that never read it at all.
+    # Honor an operator's COMPOSE_FILE (e.g. docker-compose.prod.yml) rather
+    # than hardcoding the source-build file below.
     env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
 fi
 
@@ -60,11 +50,8 @@ done
 
 # Section 2: Database Connectivity
 echo "=== Database Connectivity ==="
-# This calls the shared
-# compose() wrapper (scripts/lib/common.sh) instead of a raw `docker
-# compose -f ...` invocation, so COMPOSE_PROJECT_NAME/COMPOSE_PROFILES from
-# $PROJECT_ROOT/.env are honored the same way restore.sh/upgrade.sh honor
-# them, regardless of this script's own cwd.
+# The shared compose() wrapper honors COMPOSE_PROJECT_NAME/COMPOSE_PROFILES from
+# $PROJECT_ROOT/.env, as restore.sh and upgrade.sh do, whatever the cwd.
 if compose exec -T db \
     pg_isready -U "${POSTGRES_USER:-geolens}" -d "${POSTGRES_DB:-geolens}" > /dev/null 2>&1; then
     pass "Database is accepting connections"

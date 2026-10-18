@@ -81,10 +81,9 @@ const PAGE_SIZE = 200; // the endpoint's cap
 /**
  * Every map the credential can see, following pagination to the end.
  *
- * A single `?limit=200` returns only the first page. On an
- * instance with more maps than that, everything after page one was skipped
- * while the script still reported "N maps visible" and exited 0 — silently
- * doing a fraction of the job, which is worse than failing.
+ * A single `?limit=200` returns only the first page; stopping there would
+ * silently skip every later map while still reporting success, which is worse
+ * than failing.
  */
 async function listMaps(token) {
   const headers = { Authorization: `Bearer ${token}` };

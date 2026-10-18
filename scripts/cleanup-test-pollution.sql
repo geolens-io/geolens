@@ -1,6 +1,6 @@
 -- cleanup-test-pollution.sql
 -- Removes test-created records from the dev database, leaving only the admin
--- user and the 4 seed datasets. Run once after enabling test isolation (15-01).
+-- user and the 4 seed datasets. Run once after enabling test isolation.
 --
 -- Usage:
 --   docker compose exec -T db psql -U geolens -d geolens < scripts/cleanup-test-pollution.sql
