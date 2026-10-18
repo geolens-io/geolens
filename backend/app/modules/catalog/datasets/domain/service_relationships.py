@@ -43,6 +43,9 @@ from app.platform.extensions import get_catalog_port, get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# With text-embedding-3-small, unrelated datasets score 0.3-0.4 and related ones 0.5+.
+_MAX_DISTANCE = 0.5
+
 __all__ = [
     "auto_detect_relationships",
     "create_relationship",
@@ -116,7 +119,7 @@ async def get_related_datasets(
     """Return top-N datasets similar to the given dataset by embedding cosine distance.
 
     Returns an empty list when the dataset has no embedding or no neighbors
-    exceed the similarity threshold (0.3, i.e. cosine distance <= 0.7).
+    reach the similarity floor (0.5, i.e. cosine distance <= 0.5).
     Results are RBAC-filtered to only include datasets visible to the requesting user.
     """
     try:
@@ -131,7 +134,7 @@ async def get_related_datasets(
         # committing a newer row, ranking against one vector and scoring
         # against another.
         neighbor_record_ids = await get_catalog_port().get_nearest_record_ids(
-            db, record_id, anchor=anchor, limit=limit * 3, max_distance=0.7
+            db, record_id, anchor=anchor, limit=limit * 3, max_distance=_MAX_DISTANCE
         )
         if not neighbor_record_ids:
             return []

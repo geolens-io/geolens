@@ -81,7 +81,7 @@ async def validate_public_visibility(
     return [row[0] for row in rows if row[1] in readable]
 
 
-# fix(#931): the two shared audiences — a private map has no audience
+# The two shared audiences — a private map has no audience
 # beyond owner/grantees, so it can never be stranded. Who a MAP reaches
 # is core's own rule, not the permission seam's, so an overlay can't narrow this.
 _SHARED_MAP_AUDIENCES = ("public", "internal")
@@ -94,13 +94,12 @@ async def _stranded_viewer_exists(
 ) -> bool:
     """Does a real account sit in the audience this change removes?
 
-    fix(#931): a narrower audience isn't someone losing access —
-    asks whether anyone stands in the cut part (both narrowing directions
-    were wrongly refused without this).
+    A narrower audience isn't someone losing access, so this asks whether
+    anyone stands in the cut part (both narrowing directions need that).
 
-    feat(#1068): the before/after difference, not a hand-excluded named
-    slice, makes exclusions follow the authority's policy, not a
-    hardcoded "admin" bypass.
+    Taking the before/after difference, not a hand-excluded named slice,
+    makes exclusions follow the authority's policy, not a hardcoded "admin"
+    bypass.
 
     Authentication checked here (the MAP's audience, not the dataset's):
     pending/suspended/deactivated accounts aren't one, mirroring
@@ -371,7 +370,7 @@ def _build_shared_layer_dict(
     """
     is_public = ds_visibility == "public"
     if ds_record_type in RASTER_FAMILY_RECORD_TYPES:
-        # fix(#1372, #2007): version the raster template so nginx's $arg_v and
+        # Version the raster template so nginx's $arg_v and
         # $arg_pv cache-key segments roll the shared tile cache when a replace
         # or a publication transition bumps either counter.
         tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
@@ -381,7 +380,7 @@ def _build_shared_layer_dict(
         # No `/tiles/public/...` route exists
         # — the single `/tiles` catch-all does its own auth check
         # (visibility + HMAC-or-anonymous), so every consumer uses one URL.
-        # fix(#2007): this template is unsigned, so `pv` is the only thing
+        # This template is unsigned, so `pv` is the only thing
         # carrying the publication counter a shared cache keys it on.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf" + (
             tile_template_query(None, ds_publication_version)
@@ -413,7 +412,7 @@ def _build_shared_layer_dict(
         "feature_count": ds_feature_count,
         # `_v=` cache-buster input (viewer parity).
         "tile_version": ds_tile_version,
-        # feat(#1472): credit line for attribution control. Not gated on
+        # Credit line for attribution control. Not gated on
         # `is_public` — a layer reaching this builder is already
         # authorized, and the source's display obligation applies regardless.
         "dataset_attribution": ds_attribution,
@@ -486,9 +485,9 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
             RasterAsset.band_info,
-            # fix(#525): tile_version reads the dedicated URL cache-buster —
+            # tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
-            # column DDL never rolled the _v= param (stale CDN/browser tiles).
+            # column DDL never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.attribution,
@@ -499,9 +498,7 @@ async def get_shared_map(
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
-        .order_by(
-            MapLayer.sort_order, MapLayer.id
-        )  # fix(#430): deterministic tie-break
+        .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
     )
     stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)

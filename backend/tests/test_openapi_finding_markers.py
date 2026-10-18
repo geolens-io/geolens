@@ -75,6 +75,10 @@ class TestDetector:
         spec = {"description": "Fixed in Phase 280 (#1946)."}
         assert not fm.scan_openapi(spec)
 
+    def test_a_provenance_prefix_fails_even_though_it_is_anchored(self):
+        hits = fm.scan_openapi({"description": "fix(#1234): rows are capped."})
+        assert [h.markers for h in hits] == [("fix(#1234)",)]
+
     def test_context_md_fails(self):
         hits = fm.scan_openapi({"description": "See CONTEXT.md for the decision."})
         assert [h.markers for h in hits] == [("CONTEXT.md",)]

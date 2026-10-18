@@ -1,4 +1,5 @@
-"""Detector for unscoped finding markers in ``backend/app`` comments and docstrings.
+"""Detector for unscoped finding markers and provenance prefixes in ``backend/app``
+comments and docstrings.
 
 Stdlib only and importable without ``app.core.config``, so the pre-commit
 hook runs ``main()`` directly. AGENTS.md > Contracts and Comments.
@@ -25,6 +26,26 @@ MARKER_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-[A-Z]?[0-9]+[A-Z0-9]*\b
 # An agent or tool name used as a comment tag. No general shape covers this
 # half, so it is a denylist and says so.
 AGENT_TAG_RE = re.compile(r"(?i)\b(ponytail)\s*:")
+
+# Internal-cadence and planning-note references, which MARKER_RE's hyphenated
+# shape cannot see. Two digits minimum, so a local "Phase 1: validate" step
+# label stays prose; a lettered lane or wave is a planning label either way.
+CADENCE_RE = re.compile(
+    r"\b(?:Phase|Pitfall|Milestone|Wave|Sprint|Lane)\s+#?\d{2,}\b"
+    r"|\b(?:Lane|Wave)\s+[A-H]\b"
+)
+
+# A private planning note by name: a quick-task id, a numbered
+# ``NNN-NN-NAME.md`` note, a ``*-PLAN.md`` or ``RESEARCH.md`` file, or a
+# ``*-FOLLOWUP`` note. Published docs (AGENTS.md, ADR-002.md) match none.
+PLANNING_NOTE_RE = re.compile(
+    r"\bquick-\d{6}\b|\b\d{2,4}-\d{2,4}-[A-Z][A-Z0-9-]*\.md\b"
+    r"|\b[\w-]*(?:PLAN|RESEARCH)\.md\b|\b[A-Z0-9][\w-]*-FOLLOWUP\b"
+)
+
+# A commit-style provenance prefix (`fix(#1234):`, `feat(#88 review)`). It
+# carries its own issue number, so the anchor rule below never applies.
+PROVENANCE_RE = re.compile(r"\b(?:fix|feat|refactor|perf|chore|test)\(#\d+[^)\n]*\)")
 
 # What makes a marker scoped: an issue or PR number a reader can look up.
 # Two digits minimum, so `Pitfall #5` and a `#1f2937` colour do not count.
@@ -67,6 +88,9 @@ TECHNICAL_VOCABULARY = frozenset(
         "SI-4",
         # Arithmetic, not an id: "keys 0..N-1", "commit N-1 renames".
         "N-1",
+        # A committed, publicly readable design record (.github/ADR-002.md),
+        # as resolvable as a CVE id or a GH-NNNN issue.
+        "ADR-002",
     }
 )
 
@@ -86,7 +110,7 @@ class Unit:
 
 @dataclass(frozen=True)
 class Hit:
-    """A documentation line carrying finding markers with no anchor near it."""
+    """A documentation line carrying an unanchored marker or a provenance prefix."""
 
     module: str
     lineno: int
@@ -94,10 +118,7 @@ class Hit:
     markers: tuple[str, ...]
 
     def describe(self) -> str:
-        return (
-            f"{self.module}:{self.lineno} ({self.kind}) "
-            f"{', '.join(self.markers)} — no #issue anchor"
-        )
+        return f"{self.module}:{self.lineno} ({self.kind}) {', '.join(self.markers)}"
 
 
 # Legacy references are scoped within three lines. Plain explanations without
@@ -164,6 +185,8 @@ def markers_in(
     """Finding markers in one unit, vocabulary removed, sorted and deduped."""
     found = {t for t in MARKER_RE.findall(text) if t not in vocabulary}
     found.update(m.group(1) for m in AGENT_TAG_RE.finditer(text))
+    found.update(CADENCE_RE.findall(text))
+    found.update(PLANNING_NOTE_RE.findall(text))
     return tuple(sorted(found))
 
 
@@ -175,13 +198,12 @@ def scan_module(module: str, source: str) -> list[Hit]:
         anchored = [ANCHOR_RE.search(line) is not None for line in lines]
         for offset, line in enumerate(lines):
             markers = markers_in(line)
-            if not markers:
-                continue
             low = max(0, offset - ANCHOR_WINDOW)
-            high = offset + ANCHOR_WINDOW + 1
-            if any(anchored[low:high]):
-                continue
-            hits.append(Hit(module, unit.lineno + offset, unit.kind, markers))
+            if markers and any(anchored[low : offset + ANCHOR_WINDOW + 1]):
+                markers = ()
+            found = markers + tuple(PROVENANCE_RE.findall(line))
+            if found:
+                hits.append(Hit(module, unit.lineno + offset, unit.kind, found))
     return hits
 
 
@@ -208,36 +230,6 @@ def scan_tree(app_root: Path = APP_ROOT) -> tuple[list[Hit], int, int]:
 MIN_SCANNED_MODULES = 350
 MIN_SCANNED_UNITS = 7000
 
-# The unanchored markers already on main, counted per MARKER and frozen per
-# module, EXACT in both directions. Residual: swapping one id for another on a
-# line already counted still passes; catching that needs a per-module multiset.
-UNANCHORED_MARKER_DEBT: dict[str, int] = {
-    "api/middleware/body_limit.py": 7,
-    "core/edition.py": 2,
-    "core/tenancy.py": 1,
-    "modules/catalog/datasets/api/router_health.py": 2,
-    "modules/catalog/datasets/api/router_refresh.py": 1,
-    "modules/catalog/datasets/domain/service.py": 1,
-    "modules/catalog/datasets/domain/source_freshness.py": 3,
-    "modules/catalog/sources/adapters/stac.py": 1,
-    "modules/catalog/sources/origin_probe.py": 2,
-    "modules/catalog/sources/stac_resolve_asset_gate.py": 1,
-    "modules/catalog/sources/stac_resolve_taxonomy.py": 1,
-    "platform/dataset_origin.py": 3,
-    "platform/refresh/credentials.py": 1,
-    "platform/refresh/models.py": 1,
-    "processing/ingest/tasks_postgis_refresh.py": 2,
-    "processing/ingest/tasks_raster.py": 1,
-    "processing/ingest/tasks_raster_replace.py": 1,
-    "processing/ingest/tasks_stac_refresh.py": 3,
-    "processing/raster/models.py": 1,
-}
-
-
-def _debt(hits: list[Hit]) -> int:
-    """One marker is one unit of debt; two on a line are two."""
-    return sum(len(hit.markers) for hit in hits)
-
 
 def check(app_root: Path = APP_ROOT) -> list[str]:
     """Every way the tree violates the gate, as printable lines."""
@@ -255,30 +247,15 @@ def check(app_root: Path = APP_ROOT) -> list[str]:
             " — the scan is not seeing the documentation"
         )
 
-    by_module: dict[str, list[Hit]] = {}
-    for hit in hits:
-        by_module.setdefault(hit.module, []).append(hit)
-
-    for module, module_hits in sorted(by_module.items()):
-        allowed = UNANCHORED_MARKER_DEBT.get(module, 0)
-        if _debt(module_hits) <= allowed:
-            continue
+    if hits:
         problems.append(
-            f"{module}: {_debt(module_hits)} unanchored finding markers, "
-            f"{allowed} recorded. Remove unnecessary tags and keep the explanation. "
-            "Anchor only an essential reference, or — if it names a "
-            "published standard — add it to TECHNICAL_VOCABULARY:"
+            f"{len(hits)} documentation lines carry unanchored finding markers "
+            "or fix(#N)-style provenance prefixes. Remove unnecessary tags and "
+            "keep the explanation; provenance belongs in Git and the PR. Anchor "
+            "only an essential marker reference, or — if it names a published "
+            "standard — add it to TECHNICAL_VOCABULARY:"
         )
-        problems.extend(f"    {hit.describe()}" for hit in module_hits)
-
-    for module, allowed in sorted(UNANCHORED_MARKER_DEBT.items()):
-        found = _debt(by_module.get(module, []))
-        if found < allowed:
-            problems.append(
-                f"{module}: {found} unanchored finding markers, {allowed} "
-                f"recorded. Lower the UNANCHORED_MARKER_DEBT entry to {found}"
-                " (or delete it) in backend/tests/finding_markers.py."
-            )
+        problems.extend(f"    {hit.describe()}" for hit in hits)
 
     return problems
 
@@ -297,20 +274,13 @@ _OPENAPI_TEXT_KEYS = frozenset({"description", "summary"})
 # empty.
 MIN_OPENAPI_DESCRIPTIONS = 3500
 
-# ADR-002 (.github/ADR-002.md) is a committed, publicly readable design
-# record, as resolvable as a CVE id or a GH-NNNN issue. Kept separate from
-# TECHNICAL_VOCABULARY, which also bounds the source-tree debt ledger above.
-_PUBLISHED_VOCABULARY = TECHNICAL_VOCABULARY | {"ADR-002"}
-
-# MARKER_RE requires a hyphen, so a bare internal-cadence reference — "Phase
-# 280", "Pitfall 11" — reaches openapi.json invisibly. Scoped to this scan
-# only, not the shared MARKER_RE, so the source-tree debt ledger is untouched.
+# Published text is held to more than source: a source comment may number
+# its own steps ("Phase 1: validate"), but in openapi.json any numbered phase
+# or pitfall is a planning reference.
 _CADENCE_RE = re.compile(r"\b(?:Phase|Pitfall|Milestone|Wave|Sprint|Lane)\s+#?\d+\b")
 
-# A private planning-doc filename: the literal ``CONTEXT.md`` or a numbered
-# ``NNN-NN-NAME.md`` note (see backend/app/processing/ingest/tasks_common.py
-# for the shape). A real published doc (AGENTS.md, ADR-002.md) has no digit
-# prefix, so this does not need to exempt them.
+# The literal ``CONTEXT.md`` too: published text has no reason to cite a repo
+# file, and the private planning notes share that name.
 _PLANNING_DOC_RE = re.compile(
     r"\bCONTEXT\.md\b|\b\d{2,4}-\d{2,4}-[A-Z][A-Z0-9-]*\.md\b"
 )
@@ -319,7 +289,7 @@ _PLANNING_DOC_RE = re.compile(
 def _openapi_markers(line: str) -> tuple[str, ...]:
     """Marker-shaped tokens in one description line: the shared detector's
     hyphenated shape, plus a bare reference it cannot see."""
-    found = set(markers_in(line, _PUBLISHED_VOCABULARY))
+    found = set(markers_in(line))
     found.update(_CADENCE_RE.findall(line))
     found.update(_PLANNING_DOC_RE.findall(line))
     return tuple(sorted(found))
@@ -351,13 +321,12 @@ def scan_openapi(spec: object) -> list[Hit]:
         anchored = [ANCHOR_RE.search(line) is not None for line in lines]
         for offset, line in enumerate(lines):
             markers = _openapi_markers(line)
-            if not markers:
-                continue
             low = max(0, offset - ANCHOR_WINDOW)
-            high = offset + ANCHOR_WINDOW + 1
-            if any(anchored[low:high]):
-                continue
-            hits.append(Hit(json_path, offset + 1, f"openapi-{key}", markers))
+            if markers and any(anchored[low : offset + ANCHOR_WINDOW + 1]):
+                markers = ()
+            found = markers + tuple(PROVENANCE_RE.findall(line))
+            if found:
+                hits.append(Hit(json_path, offset + 1, f"openapi-{key}", found))
     return hits
 
 
@@ -380,9 +349,10 @@ def check_openapi(openapi_path: Path = OPENAPI_PATH) -> list[str]:
     hits = scan_openapi(spec)
     if hits:
         problems.append(
-            f"{openapi_path} publishes finding markers with no #issue anchor —"
-            " an integrator reading the generated SDK docstring has nothing to"
-            " resolve them against. Rewrite the Field/Query description to"
+            f"{openapi_path} publishes finding markers with no #issue anchor, or"
+            " fix(#N)-style provenance prefixes — an integrator reading the"
+            " generated SDK docstring has nothing to resolve them against."
+            " Rewrite the Field/Query description to"
             " state the constraint itself, then run `make sdks`:"
         )
         problems.extend(f"    {hit.describe()}" for hit in hits)

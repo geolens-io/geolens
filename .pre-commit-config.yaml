@@ -63,7 +63,7 @@ repos:
           apply_visibility_filter. See AGENTS.md Security, Rule 1.
           This grep is the cheap commit-time layer only — it is file-scoped and
           only sees get_dataset( call sites. The authoritative per-handler check
-          is backend/tests/test_rule1_structural.py (fix(#822)), which walks the
+          is backend/tests/test_rule1_structural.py, which walks the
           FastAPI route table and covers db.get/select/service-layer fetch paths
           plus processing/ routes.
         language: system
@@ -97,18 +97,17 @@ repos:
           This hook runs backend/tests/finding_markers.py over the whole of
           backend/app. That detector parses each module, reads comments and
           docstrings only (never code, so a string literal cannot trip it), and
-          reports a coded finding id (SEC-002, T-1214-17, PERF-N5) or a
-          denylisted agent tag with no #issue anchor within two lines. A
-          published-standard token (UTF-8, ISO-8601) is exempt by name, and
-          `# noqa` / `# codeql[...]` carry no marker shape at all.
-          The markers already on main are frozen per module in that file and
-          only go down; backend/tests/test_unscoped_finding_markers.py runs the
-          same check in CI and pins the detector's behaviour.
+          reports a coded finding id (SEC-002, T-1214-17, PERF-N5), a planning
+          reference (Phase 1184, RESEARCH.md) or a denylisted agent tag with no
+          #issue anchor within two lines, and every fix(#N)-style provenance
+          prefix. A published-standard token (UTF-8, ISO-8601, ADR-002) is
+          exempt by name, and `# noqa` / `# codeql[...]` carry no marker shape
+          at all. backend/tests/test_unscoped_finding_markers.py runs the same
+          check in CI and pins the detector's behaviour.
 
           The same run also scans backend/openapi.json's `description` strings
           (#1946): a string literal the walk above cannot see, but one that
-          still reaches the published API surface and the generated SDKs, so
-          it gets zero tolerance rather than a debt ledger.
+          still reaches the published API surface and the generated SDKs.
           backend/tests/test_openapi_finding_markers.py pins that half.
 
           Drop unnecessary tags and preserve the useful explanation. Anchored

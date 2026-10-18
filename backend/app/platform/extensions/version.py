@@ -39,19 +39,19 @@ logger = logging.getLogger(__name__)
 #: v2 adds required ConnectorExtension discovery/dispatch methods and makes
 #: the existing ``connectors`` registry key conflict-guarded as a single slot.
 #
-# 2 -> 3 (feat(#683)): ProcessingPort.run_analysis_preview gained an optional
+# 2 -> 3 (#683): ProcessingPort.run_analysis_preview gained an optional
 # ``mask_dataset`` keyword (chat clips a layer by another layer). Optional
 # with a default, so unimplementing overlays are unaffected, but any overlay
 # that DOES implement the method must accept the new keyword.
 #
-# 3 -> 4 (feat(#1068)): PermissionExtension gained a required
+# 3 -> 4 (#1068): PermissionExtension gained a required
 # ``record_audience`` method — the audience-shaped reading of the same
 # policy ``filter_visible``/``can_access_dataset`` already express. An
 # overlay replacing the ``permission`` slot must implement it, and must keep
 # it in sync whenever it changes either of those two: core can't tell a
 # missing answer from a wrong one, so it takes the conservative refusal.
 #
-# 4 -> 5 (fix(#1314)): ProcessingPort gained a required
+# 4 -> 5 (#1314): ProcessingPort gained a required
 # ``reconcile_distributions`` method, called by the registered-PostGIS
 # refresh and the reupload swap whenever dataset modality changes. An
 # overlay missing it loads cleanly, then raises AttributeError inside the
@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 # upload, and the probe it skips is what stops a freed table name from
 # inheriting its predecessor's cached authorization.
 #
-# 7 -> 8 (fix(#1546)): TWO CatalogPort changes, one bump. A required
+# 7 -> 8 (#1546): TWO CatalogPort changes, one bump. A required
 # ``resolve_embedding_config`` method — semantic search filters stored
 # embeddings on the configuration that produced them, and ``modules/catalog/``
 # may not import ``app.processing.*``, so the answer crosses the port.
@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 # the rows it's ranked against within one request. An overlay on the old
 # two-argument signature raises TypeError on the first semantic search.
 #
-# 8 -> 9 (fix(#1580)): THREE CatalogPort shape changes on the related-items
+# 8 -> 9 (#1580): THREE CatalogPort shape changes on the related-items
 # path, one bump. ``get_record_embedding`` now returns ``(embedding,
 # model_name, config_fingerprint)`` instead of a bare vector, since
 # related-items compares two STORED rows and a list of floats can't say

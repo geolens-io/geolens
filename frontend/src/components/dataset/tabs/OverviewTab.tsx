@@ -251,11 +251,6 @@ export function OverviewTab({
         </CardContent>
       </Card>
 
-      {/* Related datasets & where this is used — discovery content kept high in
-          the rail so it isn't buried beneath metadata/tags/provenance */}
-      <RelatedDatasets datasetId={dataset.id} />
-      <UsedInMaps datasetId={dataset.id} />
-
       {/* VRT Derivation card — only for VRT datasets */}
       {isVrt && dataset.raster && (
         <Card density="compact">
@@ -546,6 +541,14 @@ export function OverviewTab({
 
         {/* ── Sidebar ── */}
         {sidebar}
+      </div>
+
+      {/* Discovery lists sit below the columns so a long rail doesn't leave a gap
+          under the main column. Either may render nothing: a lone card spans the
+          row, and empty:hidden drops the row's margin when both are empty. */}
+      <div className="mt-8 grid grid-cols-1 gap-4 md:grid-flow-col md:auto-cols-fr empty:hidden">
+        <RelatedDatasets datasetId={dataset.id} />
+        <UsedInMaps datasetId={dataset.id} />
       </div>
     </>
   );

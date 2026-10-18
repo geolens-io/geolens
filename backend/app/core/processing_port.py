@@ -66,7 +66,7 @@ class RecordProtocol(Protocol):
     translations: Sequence[TranslationProtocol]
     spatial_extent: Any  # geoalchemy2 type — Any keeps core/ free of geoalchemy2 import
     lineage_summary: str | None
-    # feat(#765): analysis provenance, written by processing/analysis.
+    # Analysis provenance, written by processing/analysis.
     derived_from: dict | None
     source_organization: str | None
     access_constraints: str | None
@@ -236,7 +236,7 @@ class ProcessingPort(Protocol):
         user_id: uuid.UUID,
         distance_meters: float | None = None,
         mask: dict[str, Any] | None = None,
-        # feat(#683): the clip mask can come from another dataset, not just a
+        # The clip mask can come from another dataset, not just a
         # drawn polygon. Passed as the loaded object, not an id, because the
         # caller owns its visibility check, as it owns the source dataset's.
         mask_dataset: Any | None = None,
@@ -279,7 +279,7 @@ class ProcessingPort(Protocol):
     # ``translations``: embedding backfills consume them after query
     # execution and the community ORM deliberately uses lazy="raise".
     #
-    # fix(#1506): with ``force=False`` the contract is "records with no vector
+    # With ``force=False`` the contract is "records with no vector
     # under the ACTIVE embedding model", not "records with no vector at all" —
     # an implementation that can't resolve the active model must return an
     # empty list; returning everything hands the whole catalog to a run that
@@ -370,7 +370,7 @@ class ProcessingPort(Protocol):
 
     def create_ingestion_result(self, **kwargs: Any) -> Any: ...  # -> IngestionResult
 
-    # fix(#1314): the refresh/reupload paths can change a dataset's modality,
+    # The refresh/reupload paths can change a dataset's modality,
     # so the auto-generated `record_distributions` rows must be reconciled —
     # that logic belongs beside `generate_distributions` in the catalog
     # domain, which processing/ may not import. Returns the rows created and
@@ -426,7 +426,7 @@ class ProcessingPort(Protocol):
 
     def get_record_distribution_orm_class(self) -> type: ...
 
-    # feat(#1223): the swap path recomputes schema drift against the staging
+    # The swap path recomputes schema drift against the staging
     # table rather than trusting the preview, which may be minutes stale for a
     # live service. The function is pure but lives in the catalog domain, and
     # processing/ may not import it directly.
@@ -440,13 +440,13 @@ class ProcessingPort(Protocol):
 
     def get_attribute_metadata_orm_class(self) -> type: ...
 
-    # feat(#1266): the STAC refresh strategy re-reads the item document its
+    # The STAC refresh strategy re-reads the item document its
     # asset was published in, through Rule 2's safe client and the #1222
     # health classifier — both live in the catalog domain, so the strategy
     # asks for the answer through this port and holds no HTTP client of its
     # own. Returns a ``StacResolution``, typed Any since core/ may not
     # import modules.*.
-    # feat(#1764): ``credential`` is the ``ServiceCredential`` a credentialed
+    # ``credential`` is the ``ServiceCredential`` a credentialed
     # refresh claimed for this attempt, and ``catalog_origin`` the catalog
     # address it was given for; a read steered elsewhere is made anonymously.
     # ``repair_nodata`` asks the resolver for a nodata-only backfill.

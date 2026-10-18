@@ -264,7 +264,7 @@ async def import_map_style_endpoint(
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
-    # fix(#1778): the per-map layer limit answers 422, matching
+    # The per-map layer limit answers 422, matching
     # sibling layer-carrying schemas. Must precede the ValueError arm
     # below, which it subclasses.
     except MapStyleImportLayerLimitError as exc:
@@ -486,7 +486,7 @@ async def update_map_endpoint(
             # or they keep serving tiles for a now-private map.
             await revoke_embed_tokens_by_map(db, map_id)
 
-    # feat(#1691): a non-admin may not move a map TO public when
+    # A non-admin may not move a map TO public when
     # restrict_public_visibility is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
 
@@ -863,10 +863,10 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    # fix(#1778): snapshot asset keys off the row before delete, and remove
+    # Snapshot asset keys off the row before delete, and remove
     # the objects only once the row delete commits — after commit every
     # attribute on map_obj is expired, and a lazy refresh would raise.
-    # fix(#1778): under the same row lock the two upload handlers
+    # Under the same row lock the two upload handlers
     # take, so a delete can't interleave with an in-flight replacement and
     # read a key about to be superseded.
     locked = await lock_map_for_asset_write(db, map_id)
@@ -952,9 +952,9 @@ async def _record_image_capture(
 ) -> None:
     """Persist a captured map image without marking the map edited.
 
-    fix(#1005): ``updated_at`` doubled as the thumbnail cache version, so a
-    lazy backfill bumped the edit timestamp and reordered the gallery.
-    ``thumbnail_updated_at`` splits the two meanings.
+    ``updated_at`` is the edit timestamp and ``thumbnail_updated_at`` the
+    thumbnail cache version, so a lazy backfill must not bump the former and
+    reorder the gallery.
 
     Setting ``updated_at`` to its own value is the explicit-value form
     that suppresses its ``onupdate=func.now()`` — dropping the assignment
@@ -963,7 +963,7 @@ async def _record_image_capture(
     ``synchronize_session=False``: both callers return 204, never read
     the ORM object back.
 
-    fix(#1778): does NOT commit — callers commit so each can mark
+    Does NOT commit — callers commit so each can mark
     its publication before awaiting.
     """
     await db.execute(
@@ -1050,16 +1050,16 @@ async def upload_thumbnail(
         )
 
     ext = "jpg" if "jpeg" in header else "png"
-    # fix(#1778): a fresh key per write, never one of two names per map.
+    # A fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
 
     storage = get_storage()
-    # fix(#1778): object and row publish together — a failure in
+    # Object and row publish together — a failure in
     # the update/commit would leave the image behind with nothing pointing
     # at it, and since keys are never reused, every retry adds another.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # fix(#1778): recorded BEFORE the write — a PUT can land
+        # Recorded BEFORE the write — a PUT can land
         # and still fail the client. Free to record first: rollback
         # either removes what this request wrote or no-ops on an unwritten key.
         publication.record(physical_key)
@@ -1072,17 +1072,17 @@ async def upload_thumbnail(
                 detail="Thumbnail storage unavailable",
             )
 
-        # fix(#1778): previous-key read and new-key write happen
+        # Previous-key read and new-key write happen
         # under the row lock, so two overlapping uploads can't each delete
         # the object the other is about to point at.
-        # fix(#1778): lock taken AFTER the storage write — holding
-        # it across the PUT let a stalled backend block every other writer
-        # to the map for as long as the PUT took.
+        # Lock taken AFTER the storage write — holding
+        # it across the PUT would let a stalled backend block every other writer
+        # to the map for as long as the PUT takes.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.thumbnail_uri
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
-        # fix(#1778): commit is the boundary, marked before it —
+        # Commit is the boundary, marked before it —
         # an outcome that never comes back deletes nothing.
         publication.committing()
         await db.commit()
@@ -1217,10 +1217,10 @@ async def upload_og_image(
     storage_key = new_map_asset_key("maps/og-images", map_id, ext)
 
     storage = get_storage()
-    # fix(#1778): same publication guard as the thumbnail PUT above.
+    # Same publication guard as the thumbnail PUT above.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # fix(#1778): recorded before the write, same as the thumbnail
+        # Recorded before the write, same as the thumbnail
         # PUT above and for the same reason. Does not need the row lock below,
         # same as the thumbnail PUT above.
         publication.record(physical_key)
@@ -1235,14 +1235,14 @@ async def upload_og_image(
                 detail="OG image storage unavailable",
             )
 
-        # fix(#1778) / fix(#1778): same row lock, taken after the
+        # Same row lock, taken after the
         # storage write and with the previous key re-read under it, for the
         # same reason as the thumbnail PUT above.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.og_image_uri
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
-        # fix(#1778): commit is the boundary, marked before it —
+        # Commit is the boundary, marked before it —
         # an outcome that never comes back deletes nothing.
         publication.committing()
         await db.commit()
@@ -1373,7 +1373,7 @@ async def add_layer_endpoint(
         target_id=layer.id,
         target_name=target_name,
         action="layer.add",
-        # fix(#941): unlike style/filter/label/reorder (held locally,
+        # Unlike style/filter/label/reorder (held locally,
         # flushed on save), this creates the row immediately, so the
         # summary says what was created and that it's saved now.
         summary=f"Created {target_name} layer (saved immediately)",

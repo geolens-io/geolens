@@ -136,7 +136,7 @@ async def _build_raster_assets(
     if meta is None:
         return None
 
-    # fix(#1327): count the LIVE member links (datasets/domain/service_query.py),
+    # Count the LIVE member links (datasets/domain/service_query.py),
     # not the in-flight VrtGeneration.source_count — the link write happens at
     # the artifact swap, so the generation's own count can lag what is served.
     if meta.get("vrt_type") is not None:
@@ -144,7 +144,7 @@ async def _build_raster_assets(
             await visible_vrt_source_counts(db, [dataset_id], user, user_roles)
         )[dataset_id]
 
-    # fix(#1327): current_generation_id must not reach a caller.
+    # current_generation_id must not reach a caller.
     meta.pop("current_generation_id", None)
     return meta
 
@@ -163,7 +163,7 @@ async def _handle_search(
 ) -> OGCFeatureCollectionResponse:
     """Parse parameters, run search, and return OGC FeatureCollection."""
     public_api_url = await get_public_api_url(db, request=request)
-    # fix(#315): raster/VRT raster_tiles assets are served at the
+    # Raster/VRT raster_tiles assets are served at the
     # public APP origin (/raster-tiles/...), not the /api origin.
     public_app_url = await get_public_app_url(db, request=request)
     preferred_languages = parse_accept_languages(request)
@@ -206,7 +206,7 @@ async def _handle_search(
             filters=filters,
             user_roles=user_roles,
             public_api_url=public_api_url,
-            # fix(#315): raster_tiles asset hrefs depend on the app origin, so it
+            # raster_tiles asset hrefs depend on the app origin, so it
             # must be in the key (multi-origin deploys sharing one API host).
             public_app_url=public_app_url,
             semantic_enabled=semantic_enabled_for_key,
@@ -242,7 +242,7 @@ async def _handle_search(
         extent_geojson_map,
     ) = await _bulk_fetch_dataset_metadata(db, datasets, user, user_roles)
 
-    # fix(#1103): one visibility query for the page, not one per row.
+    # One visibility query for the page, not one per row.
     lineage = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles
     )
@@ -291,8 +291,8 @@ async def _handle_search(
         and (collection_type_requested or collection_ids is not None)
     )
 
-    # fix(#315): retain the five-item page-0 augmentation for native text search.
-    # fix(#475): explicit Records collection filters participate in the combined
+    # Retain the five-item page-0 augmentation for native text search.
+    # Explicit Records collection filters participate in the combined
     # dataset-first result set, including its count and pagination.
     page0_collection_cap = 5
 
@@ -403,7 +403,7 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        # fix(#315): stable across pages; fix(#475): explicitly selected
+        # Stable across pages; explicitly selected
         # collections are counted and paginated with datasets.
         numberMatched=total + collection_total,
         numberMatchedAllTypes=matched_all_types,
@@ -428,7 +428,7 @@ def _resolve_filter_lang(
     """Resolve and validate ``filter-lang``, shared by both search handlers.
 
     Reads the raw query param, not ``params.cql2_filter_lang`` (unbindable
-    via ``collection_items``'s bare ``Depends()``, fix(#1671)). Stays ``str``
+    via ``collection_items``'s bare ``Depends()``). Stays ``str``
     so an invalid value 400s instead of FastAPI's 422; an empty value counts
     as "not supplied".
     """
@@ -450,7 +450,7 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 
 
 def _semantic_search_query_already_claimed(request: Request) -> bool:
-    """fix(#1903): true when the OTHER search route already claimed this query.
+    """True when the OTHER search route already claimed this query.
 
     Never creates a claim: this runs before the limiter's own admit/reject
     check, so a request the bucket rejects must not seed one. A non-exempt
@@ -461,7 +461,7 @@ def _semantic_search_query_already_claimed(request: Request) -> bool:
     query_text = request.query_params.get("q")
     if not query_text:
         return False
-    # fix(#1903): the route's own identity, not a path substring test --
+    # The route's own identity, not a path substring test --
     # stable even if a future route in this scope shares the "facets" text.
     route = request.scope["route"].name
     client_key = get_remote_address(request)
@@ -472,7 +472,7 @@ def _semantic_search_query_already_claimed(request: Request) -> bool:
 
 
 def _finalize_semantic_search_claim(request: Request) -> None:
-    """fix(#1903): record this request's claim once it is known to be admitted.
+    """Record this request's claim once it is known to be admitted.
 
     Call at the very top of a search handler -- reaching that point already
     proves the rate limit let the request through. A no-op when the gate
@@ -587,7 +587,7 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-# fix(#1903): the facets route's callable-limit note above applies here
+# The facets route's callable-limit note above applies here
 # symmetrically -- this route can be the SECOND of the pair too.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
@@ -646,7 +646,7 @@ async def _build_collection_metadata(
     else:
         user_roles = set()
 
-    # fix(#886): rollup_bbox_columns aggregates in two longitude domains so a
+    # rollup_bbox_columns aggregates in two longitude domains so a
     # catalog with records either side of the antimeridian keeps the narrower
     # range instead of folding to a global bbox.
     extent_stmt = (
@@ -822,7 +822,7 @@ async def list_collections(
     """List available OGC collections (catalog + per-dataset feature collections)."""
     public_api_url = await get_public_api_url(db, request=request)
     # Raster tiles are served at the public APP origin (/raster-tiles/...), not
-    # the /api origin (which has no such route). fix(#315)
+    # the /api origin (which has no such route).
     public_app_url = await get_public_app_url(db, request=request)
 
     catalog_collection = await _build_collection_metadata(db, user, public_api_url)
@@ -849,7 +849,7 @@ async def list_collections(
     count_stmt = select(func.count()).select_from(ds_base.subquery())
     total_datasets = (await db.execute(count_stmt)).scalar_one()
 
-    # fix(#1778): no ORDER BY meant OFFSET/LIMIT paging had no defined row
+    # Without an ORDER BY, OFFSET/LIMIT paging has no defined row
     # order -- add a deterministic tiebreaker before paging, matching the
     # STAC peer routers.
     ds_stmt = ds_base.order_by(Record.created_at.desc(), Dataset.id.desc())
@@ -868,7 +868,7 @@ async def list_collections(
         extent = {}
         spatial_extent = shown_extent(ds.record, ds.id, vrt_extents)
         if spatial_extent is not None:
-            # fix(#892): OGC bbox convention needs west > east across a seam;
+            # OGC bbox convention needs west > east across a seam;
             # extent_to_bbox returns None on a parse failure, which degrades
             # to no spatial extent.
             bbox = extent_to_bbox(spatial_extent)
@@ -893,7 +893,7 @@ async def list_collections(
                 ]
             }
 
-        # fix(#315): raster/VRT have no feature table -> mirror the detail
+        # Raster/VRT have no feature table -> mirror the detail
         # endpoint (coverage, no rel=items, add rel=tiles) so crawlers skip
         # the dead /items and still find the data.
         item_type = capabilities(ds.record.record_type).ogc_item_type
@@ -921,7 +921,7 @@ async def list_collections(
                 }
             )
         else:
-            # fix(#1372, #2007): versioned like every rendered template so a
+            # Versioned like every rendered template so a
             # refetching client stops sharing the unversioned cache entry.
             raster_tiles_path = f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
                 tile_template_query(ds.tile_cache_version, ds.publication_version)
@@ -1284,7 +1284,7 @@ async def get_collection_item(
             "description": da.description,
         }
         for da in await get_catalog_port().get_dataset_assets(db, record_id)
-        # fix(#1290): filtered where FETCHED so internal keys never enter a
+        # Filtered where FETCHED so internal keys never enter a
         # payload structure at all, independent of the downstream builder.
         if is_public_asset_key(da.key)
     ]
@@ -1305,7 +1305,7 @@ async def get_collection_item(
             item_raster_meta = None
 
     public_api_url = await get_public_api_url(db, request=request)
-    # fix(#315): raster_tiles asset href uses the public APP origin.
+    # raster_tiles asset href uses the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     content = dataset_to_ogc_record(
         dataset,
@@ -1314,7 +1314,7 @@ async def get_collection_item(
         raster_meta=item_raster_meta,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
-        # fix(#1103): the datasets this one was derived from are checked on
+        # The datasets this one was derived from are checked on
         # their own, separately from the requester's check above.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
@@ -1357,7 +1357,7 @@ async def _bulk_fetch_dataset_metadata(
     extent_geojson_map: dict[str, str | None] = {}
     if all_dataset_ids:
         for da in await get_catalog_port().list_dataset_assets(db, all_dataset_ids):
-            # fix(#1290): same boundary as the item endpoint above.
+            # Same boundary as the item endpoint above.
             if not is_public_asset_key(da.key):
                 continue
             stac_assets_by_dataset.setdefault(str(da.dataset_id), []).append(

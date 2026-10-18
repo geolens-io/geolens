@@ -3580,7 +3580,7 @@ export interface paths {
          *
          *     Validates sources synchronously, then defers VRT assembly to an async task.
          *     Returns a job_id for polling. Validation + queuing logic lives in
-         *     ``ingest.service.create_vrt_job`` (K5 extraction).
+         *     ``ingest.service.create_vrt_job``.
          */
         post: operations["create_vrt_ingest_vrt_create_post"];
         delete?: never;

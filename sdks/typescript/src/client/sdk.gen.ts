@@ -3784,7 +3784,7 @@ export const uploadFromUrlIngestUploadUrlPost = <ThrowOnError extends boolean = 
  *
  * Validates sources synchronously, then defers VRT assembly to an async task.
  * Returns a job_id for polling. Validation + queuing logic lives in
- * ``ingest.service.create_vrt_job`` (K5 extraction).
+ * ``ingest.service.create_vrt_job``.
  */
 export const createVrtIngestVrtCreatePost = <ThrowOnError extends boolean = false>(options: Options<CreateVrtIngestVrtCreatePostData, ThrowOnError>): RequestResult<CreateVrtIngestVrtCreatePostResponses, CreateVrtIngestVrtCreatePostErrors, ThrowOnError> => (options.client ?? client).post<CreateVrtIngestVrtCreatePostResponses, CreateVrtIngestVrtCreatePostErrors, ThrowOnError>({
     security: [

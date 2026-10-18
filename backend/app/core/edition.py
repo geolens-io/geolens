@@ -145,7 +145,7 @@ def is_enterprise() -> bool:
 def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
     """Fail loudly when Enterprise is explicitly requested but the overlay is absent.
 
-    BUG-003: the silent OSS fallback was the root cause — an operator sets
+    Without this the app falls back to Community silently: an operator sets
     ``GEOLENS_EDITION=enterprise`` and mounts the enterprise directory, but a
     read-only rootfs blocks ``uv add --editable`` from installing it into
     the baked venv; the entrypoint continues silently and the app boots as
@@ -179,8 +179,8 @@ def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
 
 
 def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
-    """GUARD-01 edition-half: fail loudly when GEOLENS_TENANCY_MODE=multi_tenant
-    but no tenancy-providing overlay is loaded.
+    """Fail loudly when GEOLENS_TENANCY_MODE=multi_tenant but no
+    tenancy-providing overlay is loaded.
 
     multi_tenant without an overlay means the isolation layer (RLS + session
     GUC) cannot be present, and serving requests without it is an

@@ -82,7 +82,7 @@ make env-test
 python3 backend/tests/finding_markers.py
 ```
 
-Keep tracked `_MODULE_LOC_CAPS` entries in `test_layering.py` at exact line counts with a brief current rationale, not a history of cap changes; follow its inclusion test for newly oversized modules. `UNANCHORED_MARKER_DEBT` in `finding_markers.py` counts markers, not lines: lower/delete entries when debt is removed; never increase them to pass a gate.
+Keep tracked `_MODULE_LOC_CAPS` entries in `test_layering.py` at exact line counts with a brief current rationale, not a history of cap changes; follow its inclusion test for newly oversized modules.
 
 `make ai-evals` costs live provider tokens and needs the dev DB/provider key (normally `ANTHROPIC_API_KEY`). Ensure `.env.test`, if present, does not override working dev credentials.
 

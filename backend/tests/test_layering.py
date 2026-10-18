@@ -1196,7 +1196,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 665,
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
@@ -1298,9 +1298,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1734,
     # Adoption DDL mirrors the current schema without importing historical migrations.
-    "backend/app/core/db/tenant_adoption_sql.py": 2093,
+    "backend/app/core/db/tenant_adoption_sql.py": 2090,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
-    "backend/app/core/db/tenant_adoption.py": 1258,
+    "backend/app/core/db/tenant_adoption.py": 1256,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
     "backend/app/standards/ogc/filtering.py": 1122,
@@ -1411,7 +1411,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1584,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1576,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,

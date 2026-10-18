@@ -4,7 +4,7 @@ Logic lives in the service_* sub-modules plus _sql_safety; cross-imports
 between them are fine. External callers MUST import from this façade, never
 a sub-module directly — enforced by
 `test_no_external_imports_of_dataset_domain_submodules` in
-`backend/tests/test_layering.py` (DECOUPLE-04).
+`backend/tests/test_layering.py`.
 """
 
 from app.modules.catalog.datasets.domain._sql_safety import (

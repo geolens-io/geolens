@@ -37,7 +37,7 @@ log = structlog.get_logger()
 def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
     """True when this access JWT was certainly issued before the user's horizon.
 
-    fix(#1455): companion to the ``token_version`` check at both call sites,
+    Companion to the ``token_version`` check at both call sites,
     kept in one place so they cannot drift apart.
 
     CONSTRAINT: safe only while ``revoke_all_tokens`` bumps ``token_version``
@@ -80,13 +80,13 @@ def download_token_is_current(payload: Mapping, user: User) -> bool:
     return not _predates_revocation_horizon(payload, user)
 
 
-# fix(#875): read_only API keys authenticate only these methods. Method-based
+# read_only API keys authenticate only these methods. Method-based
 # rather than capability-based: every read surface a key client uses is GET,
 # and classifying the whole permission matrix as read/write would be a much
 # larger, easier-to-get-subtly-wrong change.
 _READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# fix(#875): "safe method" != "no side effect" — e.g. a GET with
+# "safe method" != "no side effect" — e.g. a GET with
 # ?refresh=true persists a recomputed quality score, and the write-access gate
 # can't tell a read_only key from the owner's own session, so this table is
 # the only place that can refuse it. Keyed by route template -> the query
@@ -101,12 +101,11 @@ _READ_ONLY_KEY_WRITING_GET_ROUTES: dict[str, str] = {
 # an empty value — counts as triggering the write, so the check fails closed.
 _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f", "n"})
 
-# fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs, not
+# The ONE carve-out, as exact (METHOD, route template) pairs, not
 # bare templates — a bare template would exempt any future method on that
 # path. Matching is on the template Starlette resolved, never the concrete
 # path, so a caller cannot spoof the exemption by mirroring its characters; an
-# unresolved template is ``<unmatched-route>``, refused by default (fix(#875
-# codex r2)).
+# unresolved template is ``<unmatched-route>``, refused by default.
 #
 # POST /query/ (#565) is a read-only SELECT sandbox exempted despite being a
 # POST. POST /stac/search is STAC's required JSON-body search surface,
@@ -179,7 +178,7 @@ def _query_key_may_authenticate(
 ) -> bool:
     """Whether a key that arrived in the QUERY STRING may authenticate this.
 
-    fix(#1845): the deprecated ``?api_key=`` lane was documented read-only but
+    The deprecated ``?api_key=`` lane was documented read-only but
     unenforced, so the same credential could authorize mutations. Restriction
     is on the TRANSPORT, not the key: a URL-borne key leaks into browser
     history, logs, and ``Referer`` headers by construction, so what it may do
@@ -196,7 +195,7 @@ def _query_key_may_authenticate(
     )
 
 
-# fix(#1845): reachable by an unauthenticated caller at the rate limit, so
+# Reachable by an unauthenticated caller at the rate limit, so
 # refusal logging is throttled to one line per route template per interval,
 # bounding log volume by route-table size rather than request volume. Keyed
 # by route template only (never caller-supplied), so the key space cannot be
@@ -218,7 +217,7 @@ def _should_log_query_lane_refusal(route_template: str) -> bool:
 def _supplied_api_key(request: Request) -> str | None:
     """The API key this request may authenticate with, header first.
 
-    fix(#1845): the sole place deciding whether a query-string key counts, so
+    The sole place deciding whether a query-string key counts, so
     this resolver and ``request_carries_credentials`` cannot disagree. A
     refused query-lane key is treated as absent, not surfaced as a new error
     shape that would tell an attacker their key parsed.
@@ -298,12 +297,12 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     if api_key_obj is None:
         return None
     now = datetime.now(timezone.utc)
-    # fix(#821): an expired key behaves like an invalid one (must not bump
+    # An expired key behaves like an invalid one (must not bump
     # last_used_at below).
     if api_key_obj.expires_at is not None and api_key_obj.expires_at <= now:
         return None
-    # fix(#821): staleness gate on the owner's key_epoch, the API-key analogue
-    # of the JWT token_version check (SEC-S15) — a dedicated counter bumped
+    # Staleness gate on the owner's key_epoch, the API-key analogue
+    # of the JWT token_version check — a dedicated counter bumped
     # only by security events. Logout bumps token_version, not key_epoch, so
     # long-lived API keys survive a web UI sign-out.
     user = api_key_obj.user
@@ -347,7 +346,7 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
         # Recorded as already committed: a pending change here would be
         # written again by any later commit on `db`, maybe over a newer bump.
         set_committed_value(api_key_obj, "last_used_at", now)
-    # fix(#875): least-privilege scope enforced HERE — the one chokepoint
+    # Least-privilege scope enforced HERE — the one chokepoint
     # every API-key lane passes through (header, deprecated query, every
     # optional-user router). Must RAISE, not return None, or a scope
     # violation falls through to the anonymous/JWT path as a confusing 401.
@@ -386,7 +385,7 @@ def request_carries_credentials(request: Request) -> bool:
     (expired/revoked JWT), which should get 401 instead so refresh-on-401
     fires. Mirrors the credential sources ``_resolve_api_key`` + bearer accept.
 
-    fix(#1845): a query-string key the resolver refuses to read is NOT a
+    A query-string key the resolver refuses to read is NOT a
     credential that failed to resolve — reporting it here would wrongly 401 a
     request that should have been served anonymously.
     """
@@ -451,7 +450,7 @@ def capability_declined(
 ) -> NoReturn:
     """Report a capability that did not authorize — after the #1518 rule.
 
-    fix(#1518): a CAPABILITY handler has several exit paths where
+    A CAPABILITY handler has several exit paths where
     no capability authorized; calling this instead of a bare ``raise`` makes
     the #1518 ordering structural rather than positional, and checkable — a
     test can require every capability-declined raise to route through here.
@@ -521,7 +520,7 @@ async def _resolve_optional_identity(
     if jwt_token_version < user.token_version:
         return None
 
-    # fix(#1455): matching token_version alone doesn't prove the token
+    # Matching token_version alone doesn't prove the token
     # postdates revocation (rotation racing revocation) — see helper docstring.
     if _predates_revocation_horizon(payload, user):
         return None
@@ -540,14 +539,11 @@ async def get_optional_user(
     that SUPPLIED a credential which fails to resolve — expired, revoked,
     mistyped — gets 401.
 
-    fix(#401): a stale/revoked token used to resolve to anonymous, so a
-    credentialed caller's private dataset 404'd instead of 401ing.
-
-    fix(#1518): that fix was router-scoped and left most endpoints silently
-    downgrading a bad credential to the anonymous/public subset instead of
-    401ing. The rule now lives HERE so every site inherits it;
-    ``get_optional_user_fail_open`` is the one sanctioned way out, pinned by
-    ``tests/test_optional_auth_failure_mode_1518.py``.
+    A stale or revoked token must not resolve to anonymous: the caller would
+    silently get the anonymous/public subset, and a private dataset would
+    404 instead of 401. The rule lives HERE rather than per router, so every
+    site inherits it; ``get_optional_user_fail_open`` is the one sanctioned
+    way out, pinned by ``tests/test_optional_auth_failure_mode_1518.py``.
     """
     user = await _resolve_optional_identity(request, token, db)
     reject_unresolvable_credentials(request, user)
@@ -567,7 +563,7 @@ async def get_optional_user_fail_open(
 
     **RECOVERY** — an endpoint that recovers from a dead credential (e.g.
     ``/auth/logout``, which accepts the refresh cookie or a body token once
-    the access JWT has aged out, fix(#1446)) and raises its own 401 if nothing
+    the access JWT has aged out) and raises its own 401 if nothing
     presented resolves.
 
     **CAPABILITY** — an endpoint authorizable by something other than the
@@ -592,14 +588,14 @@ async def get_optional_user_no_security_schema(
 ) -> Identity | None:
     """``get_optional_user`` minus the OpenAPI security marker.
 
-    fix(#430): ``oauth2_scheme_optional`` stamps a bearer ``security``
+    ``oauth2_scheme_optional`` stamps a bearer ``security``
     entry onto the operation, mistyping genuinely public endpoints (e.g. STAC
     collections) as requiring auth in generated SDKs. This extracts the bearer
     token from the raw header instead — identical resolution semantics, zero
     schema footprint. Use ONLY where the public OpenAPI surface must stay
     anonymous.
 
-    fix(#1518): delegates to ``get_optional_user``, so it still inherits the
+    Delegates to ``get_optional_user``, so it still inherits the
     fail-closed rule; only the schema marker is opted out of. Pointing it at
     ``_resolve_optional_identity`` would restore the split on the public STAC
     routes without tripping the fail-open allowlist test.
@@ -685,7 +681,7 @@ async def get_current_user(
     if jwt_token_version < user.token_version:
         raise credentials_exception
 
-    # fix(#1455): matching token_version alone doesn't prove the token
+    # Matching token_version alone doesn't prove the token
     # postdates revocation (rotation racing revocation) — see helper docstring.
     if _predates_revocation_horizon(payload, user):
         raise credentials_exception

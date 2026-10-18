@@ -166,12 +166,12 @@ async def create_empty_dataset_endpoint(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
-        # fix(#1103): access-checked prose. A dataset created here has no
+        # Access-checked prose. A dataset created here has no
         # provenance to redact, and the helper says so without a query.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, await get_user_roles(db, user)
         ),
-        # feat(#1316): the caller is the dataset's own creator — always owner.
+        # The caller is the dataset's own creator — always owner.
         can_view_provenance=True,
     )
 
@@ -381,15 +381,15 @@ async def update_dataset_metadata(
         if "owner_id" in meta.model_fields_set
         else None
     )
-    # feat(#1691): a non-admin may not move a dataset TO public when the
+    # A non-admin may not move a dataset TO public when the
     # restrict_public_visibility instance setting is on.
     await check_public_visibility_allowed(
         db, user, meta.visibility, user_roles=user_roles
     )
 
-    # fix(#458): capture the pre-update value so a PATCH that echoes the
+    # Capture the pre-update value so a PATCH that echoes the
     # same tile_columns doesn't roll the tile version / purge the tile
-    # cache. fix(#528): None and [] captured distinctly -- None means
+    # cache. None and [] are captured distinctly -- None means
     # per-zoom defaults, [] means "never project attributes", so a
     # None<->[] flip IS a tile-content change.
     tile_columns_before = (
@@ -413,7 +413,7 @@ async def update_dataset_metadata(
             record_status=meta.record_status,
         )
 
-    # feat(#1070): advisory warnings from the metadata chokepoint, e.g. a
+    # Advisory warnings from the metadata chokepoint, e.g. a
     # visibility/status change exposing inherited keywords beyond the
     # analysis source's audience. Attached to the response below.
     metadata_warnings: list[str] = []
@@ -462,14 +462,14 @@ async def update_dataset_metadata(
                 ip_address=request.client.host if request.client else None,
             ),
         )
-    # fix(#458): only when the value actually changed; a no-op echo must
+    # Only when the value actually changed; a no-op echo must
     # not purge every cached tile for the table.
     tile_columns_changed = (
         "tile_columns" in meta.model_fields_set
         and dataset.tile_columns != tile_columns_before
     )
     if tile_columns_changed:
-        # fix(#1902): evaluated at write time, so a counter read before the
+        # Evaluated at write time, so a counter read before the
         # lock wait is never written back over a peer's commit.
         await bump_tile_cache_version_on(db, dataset)
     await db.commit()
@@ -491,13 +491,13 @@ async def update_dataset_metadata(
         actors_by_id=actors_by_id,
         vrt_extents=await visible_vrt_extents(db, [dataset_id], user, user_roles),
         base_url=await get_dataset_service_url(db, request=request),
-        # fix(#1103): "owner of the output" does not imply access to what
+        # "owner of the output" does not imply access to what
         # it was derived from -- a grant on the source can be revoked
         # after the analysis ran.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
-        # feat(#1316): reached only after check_dataset_write_access, the
+        # Reached only after check_dataset_write_access, the
         # owner-or-admin gate itself.
         can_view_provenance=True,
     )
@@ -620,10 +620,10 @@ async def bulk_delete_datasets_endpoint(
             # Commit per item so one item's failure cannot roll back the rows
             # of the items before it.
             await db.commit()
-            # fix(#1847): the reap is deferred past both invalidations below;
+            # The reap is deferred past both invalidations below;
             # awaiting object storage here would delay them per item.
             pending_reaps.append(deletion)
-            # fix(#1429): only now is the delete visible to a concurrent
+            # Only now is the delete visible to a concurrent
             # tile request, so only now can the table_name -> metadata map
             # be evicted without a request re-caching the deleted row.
             notify_table_invalidated(table_name)
@@ -632,7 +632,7 @@ async def bulk_delete_datasets_endpoint(
             )
             deleted += 1
         except CatalogLockConflict as exc:
-            # fix(#1847): per item, not raised -- the batch commits per
+            # Per item, not raised -- the batch commits per
             # item, so aborting would discard already-committed results.
             await _rollback_failed_item(db, user)
             results.append(
@@ -658,7 +658,7 @@ async def bulk_delete_datasets_endpoint(
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await _rollback_failed_item(db, user)
             if is_lock_conflict(exc):
-                # fix(#1847): a wait after the acquisition (the record cascade on
+                # A wait after the acquisition (the record cascade on
                 # a held child) is the same contended row, so the same code.
                 results.append(
                     BulkDeleteResultItem(
@@ -688,7 +688,7 @@ async def bulk_delete_datasets_endpoint(
     if deleted > 0:
         await invalidate_catalog_cache()
 
-    # fix(#1847): last, so no storage round trip can delay or skip the
+    # Last, so no storage round trip can delay or skip the
     # invalidations above for any item in the batch.
     await _reap_after_commit(*pending_reaps)
 
@@ -765,14 +765,14 @@ async def delete_dataset_endpoint(
     await db.commit()
 
     await invalidate_catalog_cache()
-    # fix(#1429): only now is the delete visible to a concurrent tile
+    # Only now is the delete visible to a concurrent tile
     # request, so only now can the table_name -> metadata map be evicted
     # without re-caching the deleted row -- that map decides visibility, and
     # a stale entry would authorize a successor under the deleted dataset's
     # rules.
     notify_table_invalidated(table_name)
 
-    # fix(#1847): after both invalidations -- the reap awaits object
+    # After both invalidations -- the reap awaits object
     # storage, so a slow backend or cancellation would delay/skip them,
     # leaving search and the tile map serving a deleted dataset until TTL.
     await _reap_after_commit(deletion)
