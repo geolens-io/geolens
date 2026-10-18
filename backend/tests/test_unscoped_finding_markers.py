@@ -128,6 +128,7 @@ class TestDetector:
             'def f():\n    """feat(#88): a new door."""\n',
             "# fix(getgeolens.com#86 review): read-gated.\nx = 1\n",
             "# fix(geolens-io/site#12): keep the header.\nx = 1\n",
+            "# fix(review #1800 P2 round 3): abort the upload.\nx = 1\n",
         ],
     )
     def test_a_provenance_prefix_fails_even_though_it_is_anchored(self, source):

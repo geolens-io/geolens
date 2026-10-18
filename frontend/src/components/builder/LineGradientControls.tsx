@@ -36,12 +36,11 @@ function ensureStopIds(
 }
 
 /**
- * fix(round1 #1795, P2): count adjacent pairs that are NOT strictly
- * ascending (`next <= prev`) — the same condition maplibre-gl's
- * `interpolate` parser rejects. Used to compare a proposed stop list
- * against the one it replaces, so commitStops can block a commit that makes
- * ordering WORSE without also blocking incremental repair of an
- * already-invalid legacy list (e.g. one saved by the old repeated-Add bug).
+ * Count adjacent pairs that are NOT strictly ascending (`next <= prev`), the
+ * condition maplibre-gl's `interpolate` parser rejects. Used to compare a
+ * proposed stop list against the one it replaces, so commitStops can block a
+ * commit that makes ordering WORSE without also blocking incremental repair of
+ * an already-invalid saved list.
  */
 function countOrderViolations(stops: ReadonlyArray<{ position: number }>): number {
   let count = 0;
@@ -52,15 +51,14 @@ function countOrderViolations(stops: ReadonlyArray<{ position: number }>): numbe
 }
 
 /**
- * fix(round5 #1795, P2): comparing total violation counts alone lets a
- * position edit SWAP one violation for a different one at the same total
- * count — e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1] keeps the count at 1
- * (the duplicate at (1,2) becomes a descending pair at (1,2) instead) but
- * still commits a list maplibre-gl rejects. Returns the indices (into
- * `next`) whose POSITION differs from `prev` at the same array index —
- * only meaningful when `prev` and `next` are the same length (an add/remove
- * changes the shape entirely and is governed by the total-count check
- * alone, same as a colour-only or removal edit).
+ * Comparing total violation counts alone lets a position edit SWAP one
+ * violation for another at the same count: [0, 0.5, 0.5, 1] ->
+ * [0, 0.5, 0.4, 1] keeps the count at 1 (the duplicate at (1,2) becomes a
+ * descending pair) but still commits a list maplibre-gl rejects. Returns the
+ * indices (into `next`) whose POSITION differs from `prev` at the same array
+ * index. Only meaningful when `prev` and `next` are the same length; an add or
+ * remove changes the shape and, like a colour-only edit, is governed by the
+ * total-count check alone.
  */
 function editedPositionIndices(
   prev: ReadonlyArray<{ position: number }> | null,

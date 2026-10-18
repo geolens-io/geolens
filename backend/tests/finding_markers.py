@@ -47,10 +47,10 @@ PLANNING_NOTE_RE = re.compile(
 )
 
 # A commit-style provenance prefix (`fix(#1234):`, `feat(#88 review)`,
-# `fix(site#86)`). It carries its own issue number, so the anchor rule below
-# never applies.
+# `fix(site#86)`, `fix(review #1800 round 3)`). It carries its own issue
+# number, so the anchor rule below never applies.
 PROVENANCE_RE = re.compile(
-    r"\b(?:fix|feat|refactor|perf|chore|test)\((?:[\w.-]+(?:/[\w.-]+)?)?#\d+[^)\n]*\)"
+    r"\b(?:fix|feat|refactor|perf|chore|test)\([^()\n]*#\d+[^()\n]*\)"
 )
 
 # What makes a marker scoped: an issue, PR or advisory id a reader can look up.
