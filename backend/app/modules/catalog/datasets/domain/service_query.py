@@ -30,6 +30,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_column_ref,
 )
+from app.modules.catalog.datasets.domain.service_analysis import _json_safe
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -484,7 +485,10 @@ async def _select_rows(
             f"SELECT {select_sql} FROM {table_ref}{where_sql} ORDER BY {order_sql} LIMIT :limit"
         ).bindparams(**bind_params, **anchor)
     )
-    return [dict(row._mapping) for row in result.all()]
+    return [
+        {key: _json_safe(value) for key, value in row._mapping.items()}
+        for row in result.all()
+    ]
 
 
 async def get_dataset_rows(

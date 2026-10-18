@@ -495,3 +495,56 @@ class TestRowsValidation:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Value serialization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_rows_serialize_bit_and_bytea_values(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """asyncpg hands back BitString and raw bytes, which the JSON response can't
+    carry as-is; a non-UTF-8 byte made bytea fail the same way."""
+    table = f"test_rows_bits_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table} "
+            "(gid serial PRIMARY KEY, flags bit(4), mask bit varying, raw bytea)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (flags, mask, raw) "
+            "VALUES (B'1010', B'101', '\\xff00'::bytea)"
+        )
+    )
+    await test_db_session.commit()
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        table_name=table,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "flags", "type": "bit"},
+            {"name": "mask", "type": "bit varying"},
+            {"name": "raw", "type": "bytea"},
+        ],
+    )
+    try:
+        resp = await client.get(f"/datasets/{ds.id}/rows/", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        row = resp.json()["rows"][0]
+        assert (row["flags"], row["mask"], row["raw"]) == ("1010", "101", "\\xff00")
+    finally:
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.records WHERE id IN "
+                "(SELECT record_id FROM catalog.datasets WHERE table_name = :t)"
+            ).bindparams(t=table)
+        )
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()

@@ -19,6 +19,7 @@ import asyncio
 import json
 import uuid
 
+from asyncpg import BitString
 from sqlalchemy import text
 from typing import Any
 
@@ -290,9 +291,11 @@ def _preview_extra_columns(
 def _json_safe(value: Any) -> Any:
     """Make one transferred property value JSON-serializable.
 
-    A spatial join can transfer a ``bytea`` column back as raw
-    ``bytes``, which Pydantic's JSON serializer 500s on; encode as
-    PostgreSQL's ``\\x``-hex, matching ``to_jsonb(t.*)`` in the features API.
+    A ``bytea`` column comes back as raw ``bytes`` and a ``bit`` or
+    ``bit varying`` column as asyncpg's ``BitString``; Pydantic's JSON
+    serializer 500s on both. Encode bytes as PostgreSQL's ``\\x``-hex,
+    matching ``to_jsonb(t.*)`` in the features API, and bits as their
+    ``'1010'`` text.
 
     Recursive: a ``bytea[]`` comes back as a list of ``bytes`` (a
     scalar-only check would miss it). Natively-serializable scalars
@@ -300,6 +303,8 @@ def _json_safe(value: Any) -> Any:
     """
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "\\x" + bytes(value).hex()
+    if isinstance(value, BitString):
+        return value.as_string()
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
     if isinstance(value, dict):
