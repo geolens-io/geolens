@@ -292,14 +292,13 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- fix(#998 codex r44): the automatic creator membership was tolerated
-        -- here for any login, but ADMIN alone lets its holder grant itself a
-        -- usable edge — the bootstrap takes its own edge exactly that way — so
-        -- on any login other than the one running adoption (exempted above) it
-        -- is a live escalation path, not a harmless leftover.  Refuse it with
-        -- the remedy that works on managed platforms, where the recorded
-        -- grantor is the unassumable bootstrap superuser: drop the retired
-        -- login.
+        -- The automatic creator membership is refused: ADMIN alone lets its
+        -- holder grant itself a usable edge — the bootstrap takes its own edge
+        -- exactly that way — so on any login other than the one running
+        -- adoption (exempted above) it is a live escalation path, not a
+        -- harmless leftover.  Refuse it with the remedy that works on managed
+        -- platforms, where the recorded grantor is the unassumable bootstrap
+        -- superuser: drop the retired login.
         IF EXISTS (
             SELECT 1
             FROM pg_catalog.pg_auth_members AS membership
@@ -347,7 +346,7 @@ BEGIN
                       '{CONTROL}';
         END IF;
 
-        -- fix(#1913): members are judged by oid, never by name; a role dropped
+        -- Members are judged by oid, never by name; a role dropped
         -- since the scan is then no hazard instead of an undefined-object error.
         IF direct_membership_unsafe
            OR membership_row.granted_name = '{PROVISIONER}'
@@ -553,10 +552,10 @@ BEGIN
     FOREACH routine_name IN ARRAY ARRAY[
         'provision_tenant_data_schema', 'deprovision_tenant_data_schema'
     ] LOOP
-        -- fix(#998 codex r44): transferring the owner re-attributes only the
-        -- owner's own ACL entries.  An entry some third role granted keeps its
-        -- grantor, the plain REVOKEs below cannot remove it (a non-grantor's
-        -- REVOKE is a warning-level no-op), so every --apply would repeat an
+        -- Transferring the owner re-attributes only the owner's own ACL
+        -- entries.  An entry some third role granted keeps its grantor, the
+        -- plain REVOKEs below cannot remove it (a non-grantor's REVOKE is a
+        -- warning-level no-op), so every --apply would repeat an
         -- ineffective repair while the grantee kept EXECUTE on provisioner-
         -- owned SECURITY DEFINER tenant management.  Refuse before touching
         -- the function.  Entries granted by the current owner re-attribute on
@@ -723,7 +722,7 @@ END
 $$
 """
 
-#: fix(#998): the plain ``REVOKE GRANT OPTION`` statements in
+#: The plain ``REVOKE GRANT OPTION`` statements in
 #: ``ensure_cluster_roles`` reach only entries attributable to the executing
 #: role (or the object owner, for a superuser). A grantable privilege some
 #: third role handed the provisioner survives them and would be reported as
@@ -798,7 +797,7 @@ BEGIN
                 ' FROM {PROVISIONER}; then re-run adoption';
     END LOOP;
 
-    -- fix(#998 codex r47): a schema-less default privilege owned by the
+    -- A schema-less default privilege owned by the
     -- provisioner lands on every future data_t_* schema the provisioning
     -- function creates.  The per-tenant pass also refuses it, but with zero
     -- tenants that pass never runs — this is the one place that executes on
@@ -1287,7 +1286,7 @@ BEGIN
           )
       );
 
-    -- fix(#998 codex r48): extended statistics are schema objects with an
+    -- Extended statistics are schema objects with an
     -- owner of their own; a restore leaves them under the restore login and
     -- the writer can neither ALTER nor DROP them.
     SELECT pg_catalog.count(*) INTO statistics_gap
@@ -1305,7 +1304,7 @@ BEGIN
             AND dependency.deptype = 'e'
       );
 
-    -- fix(#998 codex r49): collations are the last owned object kind adoption
+    -- Collations are the last owned object kind adoption
     -- transfers; everything rarer is refused below, so no owned object kind in
     -- a tenant schema is unhandled.
     SELECT pg_catalog.count(*) INTO collation_gap
@@ -1401,8 +1400,7 @@ BEGIN
       -- Array types follow their element type, a table's row type follows the
       -- table, and a range's generated multirange follows the range (14+):
       -- all move on their own, and ALTER TYPE on the multirange directly is
-      -- refused (fix(#998 codex r46)). An extension's types belong to the
-      -- extension.
+      -- refused. An extension's types belong to the extension.
       AND NOT EXISTS (
           SELECT 1 FROM pg_catalog.pg_type AS element
           WHERE element.typarray = type_row.oid
@@ -1425,7 +1423,7 @@ BEGIN
             AND dependency.deptype = 'e'
       );
 
-    -- fix(#998 codex r45): an otherwise-canonical tenant can still carry an
+    -- An otherwise-canonical tenant can still carry an
     -- allowed privilege issued by a third-party grantor.  The five counters
     -- above are all zero then, and returning here would skip the refusal
     -- sweep at the end — leaving --apply to exit incomplete forever without
@@ -1471,7 +1469,7 @@ BEGIN
           AND acl.grantor <> writer_oid
     ) AS foreign_grant;
 
-    -- fix(#998 codex r47): schema-less default privileges are not in
+    -- Schema-less default privileges are not in
     -- default_acl_gap (it joins on the tenant schema), so without this an
     -- otherwise-canonical tenant returned here and the schema-less refusal
     -- later in the block was unreachable.
@@ -1601,7 +1599,7 @@ BEGIN
     -- tenant schema is that the writer grants the reader explicitly on each
     -- relation, so an entry here hands out privileges on relations that do not
     -- exist yet.
-    -- fix(#998 codex r45): one statement per object kind — PostgreSQL accepts
+    -- One statement per object kind — PostgreSQL accepts
     -- a single kind per ALTER DEFAULT PRIVILEGES, so aggregating kinds (or
     -- crossing grantees between kinds) rendered a remedy that fails to parse.
     FOR default_acl_row IN
@@ -1830,8 +1828,7 @@ BEGIN
       -- Array types follow their element type, a table's row type follows the
       -- table, and a range's generated multirange follows the range (14+):
       -- all move on their own, and ALTER TYPE on the multirange directly is
-      -- refused (fix(#998 codex r46)). An extension's types belong to the
-      -- extension.
+      -- refused. An extension's types belong to the extension.
       AND NOT EXISTS (
           SELECT 1 FROM pg_catalog.pg_type AS element
           WHERE element.typarray = type_row.oid
@@ -1862,7 +1859,7 @@ BEGIN
         );
     END LOOP;
 
-    -- fix(#998 codex r48): extended statistics, same terms as the types
+    -- Extended statistics, same terms as the types
     -- above — restore-owned, and the writer cannot ALTER or DROP them.
     FOR object_row IN
         SELECT statistics_row.stxname AS relname
@@ -1888,7 +1885,7 @@ BEGIN
         );
     END LOOP;
 
-    -- fix(#998 codex r49): collations, same terms again.
+    -- Collations, same terms again.
     FOR object_row IN
         SELECT collation_row.collname AS relname
         FROM pg_catalog.pg_collation AS collation_row

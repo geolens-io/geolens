@@ -175,11 +175,11 @@ async def discover_unregistered_tables(
                 AND d.table_name IS NULL
                 AND t.table_name NOT LIKE '%\\_staging' ESCAPE '\\'
                 AND t.table_name NOT LIKE '%\\_old' ESCAPE '\\'
-                -- fix(#1858): the two patterns above are the swap's names.
+                -- The two patterns above are the swap's names.
                 -- `attempt_scoped_staging_table` produces
                 -- `<base>_staging_<32 hex>`, which ends in neither, so a
-                -- staging table leaked by a worker that died mid-import was
-                -- listed here and permanently registerable. Same expression
+                -- staging table leaked by a worker that died mid-import would
+                -- be listed here and permanently registerable. Same expression
                 -- the registration refusal uses.
                 AND t.table_name !~ :attempt_staging_pattern
                 AND t.table_name !~ :previous_version_pattern

@@ -668,8 +668,7 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
       -- Array types follow their element type, a table's row type follows the
       -- table, and a range's generated multirange follows the range (14+):
       -- all move on their own, and ALTER TYPE on the multirange directly is
-      -- refused (fix(#998 codex r46)). An extension's types belong to the
-      -- extension.
+      -- refused. An extension's types belong to the extension.
       AND NOT EXISTS (
           SELECT 1 FROM pg_catalog.pg_type AS element
           WHERE element.typarray = type_row.oid
@@ -692,9 +691,8 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
             AND dependency.deptype = 'e'
       )
                 ) AS unsafe_types,
-                -- fix(#998 codex r48): extended statistics are schema objects
-                -- with an owner of their own; the writer must be able to
-                -- ALTER and DROP them.
+                -- Extended statistics are schema objects with an owner of
+                -- their own; the writer must be able to ALTER and DROP them.
                 (
                     SELECT count(*)
                     FROM pg_catalog.pg_statistic_ext AS statistics_row
@@ -712,7 +710,7 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                             AND dependency.deptype = 'e'
                       )
                 ) AS unsafe_statistics,
-                -- fix(#998 codex r49): collations, transferred like types and
+                -- Collations, transferred like types and
                 -- statistics; the six rarer owned kinds --apply refuses.
                 (
                     SELECT count(*)
@@ -905,7 +903,7 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                 -- reader explicitly on each relation, so a default ACL here
                 -- hands out privileges on relations that do not exist yet, to
                 -- whoever it names.
-                -- fix(#998 codex r47): schema-less entries (defaclnamespace 0)
+                -- Schema-less entries (defaclnamespace 0)
                 -- owned by the tenant pair or the provisioner apply to every
                 -- schema they create in; --apply refuses them, so the dry run
                 -- must count them or call adopted what --apply would stop on.

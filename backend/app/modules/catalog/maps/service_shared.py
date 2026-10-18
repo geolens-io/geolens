@@ -45,14 +45,14 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    # fix(#1963): the counter the signed tile scope binds, so the saved-map
+    # The counter the signed tile scope binds, so the saved-map
     # style document signs at the same version the tile route verifies.
     publication_version: int | None
-    # fix(#430): dataset visibility/status so the builder can flag layers hidden
+    # Dataset visibility/status so the builder can flag layers hidden
     # from a public map's anonymous audience.
     visibility: str | None
     record_status: str | None
-    # feat(#1472): the record's required credit line, for the viewer's
+    # The record's required credit line, for the viewer's
     # attribution control.
     attribution: str | None
 
@@ -79,10 +79,10 @@ class LayerRow(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    publication_version: int | None = None  # fix(#1963): signed-scope counter
-    visibility: str | None = None  # fix(#430): dataset visibility for audience-badge
+    publication_version: int | None = None  # signed-scope counter
+    visibility: str | None = None  # Dataset visibility for audience-badge
     record_status: str | None = None
-    attribution: str | None = None  # feat(#1472): required credit line
+    attribution: str | None = None  # Required credit line
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -118,9 +118,9 @@ async def get_dataset_meta(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#525): tile_version reads the dedicated URL cache-buster —
+            # tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
-            # column DDL never rolled the _v= param (stale CDN/browser tiles).
+            # column DDL never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.visibility,
@@ -254,9 +254,9 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#525): tile_version reads the dedicated URL cache-buster —
+            # tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
-            # column DDL never rolled the _v= param (stale CDN/browser tiles).
+            # column DDL never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.visibility,
@@ -267,7 +267,7 @@ async def _fetch_layer_rows_ordered(
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
-        # fix(#430): concurrent adds can collide on sort_order (non-atomic RMW);
+        # Concurrent adds can collide on sort_order (non-atomic RMW);
         # break ties by id so stacking order is at least deterministic.
         .order_by(MapLayer.sort_order, MapLayer.id)
     )

@@ -372,7 +372,7 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
-    -- fix(#1778): deterministic under the feature cap, matching the cluster
+    -- Deterministic under the feature cap, matching the cluster
     -- query's candidate CTE. Without an ordering a tile whose bbox selects
     -- more than {_TILE_FEATURE_LIMIT} rows returns an arbitrary subset, so
     -- successive rebuilds flip the content-hash ETag and each uvicorn worker
@@ -509,7 +509,7 @@ bounds AS (
         GREATEST(ST_YMax(_env.geom) - ST_YMin(_env.geom), 1.0) AS height
     FROM _env
 ),
--- fix(#868): bucket sizes in 3857 meters. $6 (CSS px) converts to extent
+-- Bucket sizes in 3857 meters. $6 (CSS px) converts to extent
 -- units before scaling by tile width. The grid anchors to the WORLD MINIMUM:
 -- every tile at a zoom shares one grid, and any
 -- in-world point yields an in-world cell origin. A grid anchored at 0 put
@@ -523,7 +523,7 @@ grid AS (
         ST_YMin(ST_TileEnvelope(0, 0, 0)) AS world_min_y
     FROM bounds
 ),
--- fix(#868): scan envelope = tile + one full bucket, so
+-- Scan envelope = tile + one full bucket, so
 -- a cell straddling the tile border is seen with its COMPLETE membership.
 -- Expansion applies at clustering zooms ONLY: past cluster
 -- max zoom no cross-tile cells exist, and lower-gid ring candidates would
@@ -555,7 +555,7 @@ candidates AS (
     FROM {qualified_table} t, scan
     WHERE t.geom_4326 && scan.geom_4326
       AND NOT ST_IsEmpty(t.geom_4326)
-    -- fix(#868): deterministic under the input cap, so neighboring tiles
+    -- Deterministic under the input cap, so neighboring tiles
     -- that both see a straddling cell agree on membership and centroid.
     ORDER BY t.gid
     LIMIT {_CLUSTER_INPUT_LIMIT}
@@ -578,11 +578,11 @@ bucketed AS (
         END AS bucket_y
     FROM candidates, grid
 ),
--- fix(#868): the ownership anchor is the cell
+-- The ownership anchor is the cell
 -- ORIGIN (world_min + bucket index * bucket size) — pure grid geometry,
 -- independent of which points were scanned. Under input-cap saturation
 -- neighboring tiles can see different subsets of a shared cell; a
--- data-dependent anchor (the round-1 centroid) could then land in either
+-- data-dependent anchor (the cell centroid) could then land in either
 -- tile (double- or zero-emit). With the origin anchor the worst case
 -- degrades to an undercounted cluster in the owner tile, the same class
 -- any capped per-tile grid has. Past cluster max zoom the buckets are
@@ -607,7 +607,7 @@ grouped AS (
         bucket_y,
         count(*)::integer AS raw_point_count,
         min(gid)::bigint AS source_gid,
-        -- fix(#874): member spread, in exact double precision (ST_Extent would
+        -- Member spread, in exact double precision (ST_Extent would
         -- return a float4-rounded box). Feeds the expansion_zoom derivation.
         min(ST_X(geom_3857)) AS min_x,
         max(ST_X(geom_3857)) AS max_x,
@@ -615,7 +615,7 @@ grouped AS (
         max(ST_Y(geom_3857)) AS max_y,
         ST_Centroid(ST_Collect(geom_3857)) AS geom_3857
     FROM anchored, bounds
-    -- fix(#868): ownership applies BEFORE the
+    -- Ownership applies BEFORE the
     -- feature cap. A cell is emitted by exactly ONE tile, the one whose
     -- envelope contains the cell's ownership anchor — filtering here means
     -- neighbor-owned cells can never consume the output budget and displace
@@ -635,7 +635,7 @@ grouped AS (
         OR ($3::integer = 0 AND anchored.anchor_y <= ST_YMax(bounds.geom))
       )
     GROUP BY bucket_x, bucket_y
-    -- fix(#1778): same determinism rule as the vector query above -- the cap
+    -- Same determinism rule as the vector query above -- the cap
     -- has to pick the same cells every rebuild.
     ORDER BY bucket_x, bucket_y
     LIMIT {_TILE_FEATURE_LIMIT}
@@ -671,7 +671,7 @@ features AS (
                 THEN md5($1::text || ':' || $2::text || ':' || $3::text || ':' || grouped.bucket_x::text || ':' || grouped.bucket_y::text)
             ELSE NULL
         END AS cluster_id,
-        -- fix(#874): the zoom at which THIS cell actually splits, not a
+        -- The zoom at which THIS cell actually splits, not a
         -- constant. Bucket size halves per zoom, so the cell at zoom zz uses
         -- bucket / 2^(zz - z) on the same world-min-anchored grid as the
         -- `bucketed` CTE: the split zoom is the smallest zz where the cell's
@@ -696,7 +696,7 @@ features AS (
         END AS expansion_zoom,
         grouped.source_gid{unclustered_attr_select},
         ST_AsMVTGeom(
-            -- fix(#868): clamp the emitted point
+            -- Clamp the emitted point
             -- into the owning tile, one MVT extent unit inside each edge.
             -- Anchor ownership lets a cell's centroid fall up to one bucket
             -- inside the NEIGHBOR tile; a viewport that covers the centroid
@@ -704,8 +704,8 @@ features AS (
             -- geometry left outside the tile would be invisible there (no
             -- MVT buffer can fix an unrequested tile). Max positional
             -- error: one bucket = the cluster radius in CSS px. This
-            -- supersedes the round-2 radius-scaled buffer — the emitted
-            -- geometry is now always in-tile.
+            -- replaces a radius-scaled buffer — the emitted
+            -- geometry is always in-tile.
             ST_SetSRID(ST_MakePoint(
                 LEAST(GREATEST(ST_X(grouped.geom_3857), ST_XMin(bounds.geom) + bounds.width / {_MVT_EXTENT}.0), ST_XMax(bounds.geom) - bounds.width / {_MVT_EXTENT}.0),
                 LEAST(GREATEST(ST_Y(grouped.geom_3857), ST_YMin(bounds.geom) + bounds.height / {_MVT_EXTENT}.0), ST_YMax(bounds.geom) - bounds.height / {_MVT_EXTENT}.0)

@@ -249,7 +249,7 @@ async def update_collection_endpoint(
             action="collection.update",
             resource_type="collection",
             resource_id=collection_id,
-            # fix(#1484): mode="json" so a future non-JSON scalar on
+            # mode="json" so a future non-JSON scalar on
             # CollectionUpdate cannot reach the JSONB column as a raw object.
             details=body.model_dump(mode="json", exclude_none=True),
             ip_address=request.client.host if request.client else None,
@@ -448,7 +448,7 @@ async def get_collection_datasets_endpoint(
         rows = await db.execute(select(User).where(User.id.in_(actor_ids)))
         actor_map = {u.id: u for u in rows.scalars()}
 
-    # fix(#1103): one visibility query for the page, not one per row.
+    # One visibility query for the page, not one per row.
     lineage = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles
     )
@@ -466,7 +466,7 @@ async def get_collection_datasets_endpoint(
                 actors_by_id=actor_map,
                 vrt_extents=vrt_extents,
                 lineage_summary=lineage[d.record_id],
-                # feat(#1316): per-row, same reasoning as the plain dataset list.
+                # per-row, same reasoning as the plain dataset list.
                 can_view_provenance=can_view_dataset_provenance(
                     d.record, user, user_roles
                 ),

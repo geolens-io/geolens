@@ -202,8 +202,8 @@ async def ingest_raster(
             except ValueError as exc:
                 await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
                 await session.commit()
-                # fix(#1290): NO unlink here — unconditional delete
-                # destroyed a local-storage install's only copy of a file
+                # NO unlink here — an unconditional delete
+                # would destroy a local-storage install's only copy of a file
                 # that then failed validation. The terminal `finally`
                 # already knows the right distinction and runs on this
                 # return; let ONE exit decide.
@@ -264,13 +264,13 @@ async def ingest_raster(
         source_meta = source_inspection["metadata"]
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
-        # fix(#1186): derive this from the raster, not an upload-time
-        # stamp — `user_metadata["crs_missing"]` was absent for every S3
-        # (presigned) upload, so a user-supplied srid_override was
-        # silently dropped and the COG came out with no CRS.
+        # Derive this from the raster, not an upload-time
+        # stamp — `user_metadata["crs_missing"]` is absent for every S3
+        # (presigned) upload, so a user-supplied srid_override would be
+        # silently dropped and the COG would come out with no CRS.
         #
-        # fix(#1290): the missing-CRS gate and override decision are
-        # one rule now, shared with the replace tail — a supplied EPSG
+        # The missing-CRS gate and override decision are
+        # one rule, shared with the replace tail — a supplied EPSG
         # applies even when the source declares a CRS.
         assign_crs = resolve_crs_assignment(
             crs_wkt=source_meta.get("crs_wkt"), srid_override=assign_crs
@@ -312,9 +312,9 @@ async def ingest_raster(
             # can produce output up to ~3× source size (decompressed + tiled +
             # overviews); a stretched disk crashes here with opaque IOError and
             # may leave concurrent ingests in a half-converted state.
-            # fix(#448): mkdtemp() defaulted to /tmp — a 512 MB RAM-backed
+            # mkdtemp() defaults to /tmp — a 512 MB RAM-backed
             # tmpfs in the worker container — so the disk-space check below
-            # was measuring the wrong filesystem AND a big conversion could
+            # would measure the wrong filesystem AND a big conversion could
             # ENOSPC or eat the memory cap. Land it on the staging volume.
             tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
             source_bytes = os.path.getsize(file_path)
@@ -337,20 +337,20 @@ async def ingest_raster(
                 assign_crs=assign_crs,
             )
         assert local_cog_path is not None  # check_and_prepare_cog always returns a path
-        # fix(#1290): resolved state, not the request field — the
+        # Resolved state, not the request field — the
         # branch above can reach this line without converting at all, and
         # a verified COG loses nothing whatever codec it carries.
-        # fix(#1291): no `reprojected=` — `assign_crs` applies through
+        # No `reprojected=` — `assign_crs` applies through
         # `gdal_translate -a_srs`, which relabels and resamples nothing,
-        # so an override no longer forces a second permanent original.
+        # so an override does not force a second permanent original.
         source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
-        # fix(#1290): read the artifact that will actually serve —
+        # Read the artifact that will actually serve —
         # the pre-conversion read describes a different file (codec
         # differs on every conversion; under an override the CRS and
         # footprint differ too).
         #
-        # fix(#1291): the pixel grid and corner NUMBERS survive a CRS
+        # The pixel grid and corner NUMBERS survive a CRS
         # assignment unchanged (only the label changes), so reading the
         # COG interprets them in the assigned CRS — the reading the
         # caller asked for. Reading the source would use the wrong CRS.
@@ -389,13 +389,13 @@ async def ingest_raster(
             job_uuid,
             attempt_uuid,
             keys=_unpublished_keys,
-            # fix(#1778): empty, and provably so. Every key above is
+            # Empty, and provably so. Every key above is
             # under a dataset id generated three lines up, so no row can name
             # one. The replace tail passes the live asset's keys here, because
             # an identical re-upload derives the same content hash and would
             # otherwise register the objects the dataset is serving.
             already_published=(),
-            # fix(#1778): every key above sits under this id, and it
+            # Every key above sits under this id, and it
             # is generated per task invocation, so a retry cannot reproduce
             # one. That is this tail's attempt fence; the replace tail has a
             # fixed dataset id and uses its attempt id instead.
@@ -497,7 +497,7 @@ async def ingest_raster(
                     dataset_id=planned_dataset_id,
                 )
 
-            # feat(#1472): the manifest's credit line. Covers both branches
+            # The manifest's credit line. Covers both branches
             # above — a manifest raster and a manifest-driven VRT alike, since
             # neither create_*_dataset takes the field.
             await apply_manifest_record_metadata(session, record, um)
@@ -632,20 +632,20 @@ async def ingest_raster(
                 needed=not source_preserved_in_cog,
                 written_storage_keys=written_storage_keys,
             )
-            # fix(#1290): the helper registers the key itself, BEFORE
+            # The helper registers the key itself, BEFORE
             # the cancellable write — appending here as well would double-add,
             # and appending here INSTEAD would restore the cancellation hole.
             _archive_asset_key = (
                 archived_original_asset_key(source_sha256) if archived_key else None
             )
-            # fix(#1290): BEFORE the upsert, not after.
+            # BEFORE the upsert, not after.
             # `create_raster_dataset` reserved only the COG; the kept original
             # is additional and has to be admitted too. Reserving AFTER the row
-            # was written made the live recount already contain those bytes, so
-            # adding them again double-charged and falsely refused an ingest
+            # is written makes the live recount already contain those bytes, so
+            # adding them again double-charges and falsely refuses an ingest
             # that fits. This is the ordering rule the swap module's own
-            # docstring states, violated in the other tail —
-            # `test_both_tails_reserve_before_they_upsert` pins it now.
+            # docstring states; `test_both_tails_reserve_before_they_upsert`
+            # pins it for both tails.
             if archived_bytes:
                 from app.modules.quota.service import reserve_storage_bytes
 
@@ -686,9 +686,9 @@ async def ingest_raster(
             try:
                 await session.commit()
             except BaseException as exc:
-                # fix(#1778): the one await on this path whose outcome is
+                # The one await on this path whose outcome is
                 # genuinely unknown — see `publish_commit_landed`. A lost
-                # acknowledgement left the reap below deleting the COG and
+                # acknowledgement would leave the reap below deleting the COG and
                 # quicklooks the committed RasterAsset had just been pointed at.
                 if not await publish_commit_landed(
                     job_uuid,
@@ -715,7 +715,7 @@ async def ingest_raster(
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
         if publish_committed:
-            # fix(#1778): the second way this handler is reached with
+            # The second way this handler is reached with
             # a durable publish behind it, and the one the stand-down above
             # cannot cover: the optional post-commit block runs inside the same
             # try, so a Valkey outage or a busy queue lands here after the
@@ -755,14 +755,14 @@ async def ingest_raster(
                 await ledger.fail(err_session, job_uuid, attempt_uuid, reason=reason)
                 await err_session.commit()
         except DBAPIError as write_failure:
-            # fix(#1950): swallowed so the `raise` below re-raises the ingest
+            # Swallowed so the `raise` below re-raises the ingest
             # failure. Letting an expiry out would hand the operator a lock
             # timeout in place of the cause, and skip the notification.
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="ingest_raster"
             )
         finally:
-            # fix(#1213, #1950): the `finally` reapers gate on THIS
+            # The `finally` reapers gate on THIS
             # variable, so every exit from this handler sets it — the bounded
             # error write above can raise past a positional assignment.
             final_status = "failed"
@@ -807,7 +807,7 @@ async def ingest_raster(
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
         # Clean up local staging file.
-        # fix(#1290): when `file_path != original_file_path` this is
+        # When `file_path != original_file_path` this is
         # a scratch copy downloaded from object storage — always safe to
         # remove. When equal, this IS the durable original (local-mode
         # uploads land in the persistent `upload_staging` volume), so it

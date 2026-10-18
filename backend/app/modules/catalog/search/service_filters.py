@@ -323,11 +323,11 @@ def _apply_common_filters(
         stmt = stmt.where(Record.source_organization == filters.source_organization)
     if filters.datetime_param:
         dt_start, dt_end = parse_ogc_datetime(filters.datetime_param)
-        # fix(#1778): a bare `.is_(None)` here matched every null-temporal
-        # record for ANY datetime filter. Fully null-temporal records now
-        # compare against created_at instead (mirrors stac/router.py's
-        # _apply_datetime_filter); one-bound-set records keep the existing
-        # open-ended reading on the other bound.
+        # Fully null-temporal records compare against created_at (mirrors
+        # stac/router.py's _apply_datetime_filter); a bare `.is_(None)` would
+        # match every null-temporal record for ANY datetime filter.
+        # One-bound-set records keep the open-ended reading on the other
+        # bound.
         null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
         if dt_start is not None:
             stmt = stmt.where(
