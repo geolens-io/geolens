@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent } from '@testing-library/react';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { ApiError } from '@/api/client';
 
@@ -86,6 +87,46 @@ describe('AttributeTable server-side sort', () => {
       ),
     );
     expect(popHeader).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('keeps Next disabled until the sorted page arrives', async () => {
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1" />);
+    const next = await screen.findByRole('button', { name: /next/i });
+    await waitFor(() => expect(next).toBeEnabled());
+
+    let resolveSorted!: (value: unknown) => void;
+    const unsorted = getDatasetRows.getMockImplementation()!;
+    getDatasetRows.mockImplementation((id: string, params: { after?: number; sort?: unknown }) =>
+      params.sort
+        ? new Promise((resolve) => { resolveSorted = resolve; })
+        : unsorted(id, params));
+    await user.click(screen.getByRole('button', { name: /pop/ }));
+
+    // The previous order's rows stay on screen while the sorted page loads.
+    await waitFor(() => expect(resolveSorted).toBeDefined());
+    expect(next).toBeDisabled();
+    fireEvent.click(next);
+    expect(getDatasetRows).not.toHaveBeenCalledWith(
+      'ds-1',
+      expect.objectContaining({ after: 2, sort: expect.anything() }),
+    );
+
+    resolveSorted({
+      columns,
+      rows: [{ gid: 5, pop: 1, meta: null }, { gid: 6, pop: 2, meta: null }],
+      next_cursor: 6,
+      approximate_total: 6,
+      sortable_columns: ['gid', 'pop'],
+    });
+    await waitFor(() => expect(next).toBeEnabled());
+    await user.click(next);
+    await waitFor(() =>
+      expect(getDatasetRows).toHaveBeenLastCalledWith(
+        'ds-1',
+        expect.objectContaining({ after: 6, sort: { column: 'pop', desc: false } }),
+      ),
+    );
   });
 
   it('drops a sort the server refuses, such as one on a column a schema edit removed', async () => {

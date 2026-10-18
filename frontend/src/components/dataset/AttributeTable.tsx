@@ -237,7 +237,7 @@ export function AttributeTable({
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [datasetId, cursor, activeFilters, sort, pageSize]);
 
-  const { data, error, isLoading, isFetching, isError } = useDatasetRows(
+  const { data, error, isLoading, isFetching, isError, isPlaceholderData } = useDatasetRows(
     datasetId,
     pageSize,
     cursor,
@@ -734,7 +734,7 @@ export function AttributeTable({
             variant="outline"
             size="sm"
             onClick={handlePreviousPage}
-            disabled={cursorHistory.length <= 1}
+            disabled={cursorHistory.length <= 1 || isPlaceholderData}
           >
             {t('attributes.previous')}
           </Button>
@@ -742,7 +742,9 @@ export function AttributeTable({
             variant="outline"
             size="sm"
             onClick={handleNextPage}
-            disabled={data?.next_cursor == null}
+            // Placeholder rows belong to the previous page or order, so their
+            // cursor would pair the old position with the new query.
+            disabled={data?.next_cursor == null || isPlaceholderData}
           >
             {t('common:next')}
           </Button>
