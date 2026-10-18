@@ -2,8 +2,7 @@ import { lazy, Suspense, useCallback, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-// lazy-load ViewerMap so map-vendor chunk fetch
-// is deferred until the share-token resolves and rendering is imminent.
+// Lazy so the map-vendor chunk is deferred until rendering is imminent.
 const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
@@ -67,8 +66,8 @@ function PublicViewer() {
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
-  // Every branch shows the site banner (except embeds), including
-  // expired/invalid share links — maintenance notices must reach those visitors
+  // Every branch except embeds shows the site banner, expired and invalid
+  // share links included, so maintenance notices reach those visitors.
   if (isLoading) {
     return (
       <div className="flex h-dvh flex-col">
@@ -83,13 +82,13 @@ function PublicViewer() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
-      // Use an h-dvh column like the loading/main branches — SiteBanner +
-      // min-h-screen would overflow the viewport by the banner's height.
+      // An h-dvh column like the other branches; SiteBanner + min-h-screen
+      // would overflow the viewport by the banner's height.
       <div className="flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
       <main className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
-        {/* m-auto (not items-center on the parent) so a card taller than a
-            short viewport scrolls instead of clipping its top */}
+        {/* m-auto, not items-center on the parent, so a card taller than the
+            viewport scrolls instead of clipping its top */}
         <div role="alert" className="m-auto flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
             <>
@@ -152,8 +151,8 @@ function PublicViewer() {
   };
 
   return (
-    // Flex column so the banner takes height from the map viewport
-    // instead of pushing it below the fold; embeds never show the host banner
+    // A flex column so the banner takes height from the map viewport instead of
+    // pushing it below the fold; embeds never show the host banner.
     <div className="relative flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
       <main id="map-viewport" className="w-full min-h-0 flex-1 relative overflow-hidden">

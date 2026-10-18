@@ -50,9 +50,8 @@ function CardTitle({
   return (
     <div
       data-slot="card-title"
-      // Opt-in heading semantics: with `level` set, expose the title to the a11y
-      // tree as a heading of that level. Default (unset) stays a plain div, so
-      // dialog/popover/sheet card titles elsewhere are unaffected.
+      // With `level` set the title is exposed as a heading of that level; unset
+      // stays a plain div so other card titles are unaffected.
       role={level ? "heading" : undefined}
       aria-level={level}
       className={cn("leading-none font-semibold", className)}

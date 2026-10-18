@@ -96,12 +96,8 @@ export function CollectionDetailPage() {
     }
   }
 
-  /*
-   * Collection detail uses a flat card+list layout intentionally distinct
-   * from dataset detail's tabbed approach. Collections are lightweight
-   * containers — a tabbed interface would over-complicate what is
-   * essentially "metadata + member list".
-   */
+  // A flat card+list layout, not dataset detail's tabs: a collection is just
+  // metadata plus a member list.
   return (
     <PageShell maxWidth="narrow">
       <PageHeader

@@ -37,7 +37,6 @@ export function SearchTypeahead({
 
   const results = useMemo(() => data?.features ?? [], [data?.features]);
 
-  // Reset active index when results change
   useEffect(() => {
     setActiveIndex(-1);
   }, [debouncedQuery]);
@@ -60,7 +59,6 @@ export function SearchTypeahead({
     [navigate, onClose],
   );
 
-  // Keyboard navigation
   useEffect(() => {
     const input = inputRef.current;
 

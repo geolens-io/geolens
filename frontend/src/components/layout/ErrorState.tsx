@@ -8,10 +8,8 @@ interface ErrorStateProps {
   message: string;
   title?: string;
   /**
-   * Pass a query's `refetch` here and ErrorState renders a
-   * standard "Try again" button. Previously the only recovery from a failed
-   * list/detail query was a full-page reload. `action` still exists for the
-   * rare non-retry recovery (e.g. a "Go back" link).
+   * Pass a query's `refetch` to render a standard "Try again" button. `action`
+   * covers the rare non-retry recovery (e.g. a "Go back" link).
    */
   onRetry?: () => void;
   action?: ReactNode;

@@ -65,14 +65,13 @@ export function SearchPage() {
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
   const resetFilters = useSearchStore((s) => s.resetFilters);
-  // Distinguish an empty catalog from a no-match query. toParams()
-  // only emits non-default values, so any key beyond pagination means the user
-  // has an active query / filter / sort.
+  // Separates an empty catalog from a no-match query: toParams() emits only
+  // non-default values, so any key beyond pagination is an active search.
   const hasActiveSearch = useSearchStore((s) =>
     Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
   );
   const resultsRef = useRef<HTMLDivElement>(null);
-  // Return focus to the results container when pagination changes the result set.
+  // Returns focus to the results container when pagination changes the set.
   const handlePageChange = (newOffset: number) => {
     useSearchStore.getState().setPage(newOffset);
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -80,12 +79,10 @@ export function SearchPage() {
     resultsRef.current?.focus({ preventScroll: true });
   };
   const { can } = usePermissions();
-  // Gate the Import CTA on capability, not token presence alone (a
-  // viewer with a token must not see a dead-end /import). Keep the `!!token` guard
-  // too: on logout the cached ['auth','permissions'] query can briefly still return
-  // data, so `can('upload')` may lag true for the now-anonymous session — `token`
-  // clears synchronously in the auth store, closing that race. Both conditions =
-  // logged in AND allowed. See Navbar.tsx CreateMenu.
+  // Gated on capability, not token alone (a viewer must not see a dead-end
+  // /import). `!!token` stays too: on logout the cached permissions query can
+  // briefly still return data, so can('upload') may lag true, while `token`
+  // clears synchronously. See Navbar.tsx CreateMenu.
   const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
   const allTypesTotal = data ? (data.numberMatchedAllTypes ?? data.numberMatched) : undefined;
@@ -120,10 +117,9 @@ export function SearchPage() {
         {t('workspaceTitle', { defaultValue: 'Search the GeoLens catalog' })}
       </h1>
 
-      {/* Search is the catalog landing surface: its search module is the
-          primary page affordance, so a visible PageHeader would duplicate the
-          same purpose and spend scarce result-list space. Keep the semantic h1
-          above, while following the standard six-unit page rhythm here. */}
+      {/* The search module is the primary affordance on this landing surface, so
+          a visible PageHeader would duplicate it and spend result-list space;
+          the semantic h1 above stays. */}
       <PageShell maxWidth="wide" className="pb-8 pt-6">
         <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className="hidden lg:block">

@@ -59,7 +59,6 @@ export function ThemeProvider({
     theme === 'system' ? getSystemTheme() : theme,
   );
 
-  // Apply theme class to documentElement
   useEffect(() => {
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark');
@@ -69,7 +68,6 @@ export function ThemeProvider({
     setResolvedTheme(resolved);
   }, [theme]);
 
-  // Listen for OS theme changes when in "system" mode
   useEffect(() => {
     if (theme !== 'system') return;
 

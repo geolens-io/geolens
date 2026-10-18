@@ -65,19 +65,17 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
 
   const [minx, miny, maxx, maxy] = bbox;
 
-  // Convert WGS84 coordinates to SVG space (viewBox 0 0 360 180)
   const x = minx + 180;
   const y = 90 - maxy; // SVG y is inverted
   const width = maxx - minx;
   const height = maxy - miny;
 
-  // Detect dateline-crossing or compute coverage ratio
   const crossesDateline = crossesAntimeridian(bbox);
   const bboxArea = Math.abs(width) * Math.abs(height);
   const worldArea = 360 * 180;
   const coverage = bboxArea / worldArea;
 
-  // Adaptive viewBox: zoom in for datasets covering < 10% of the world
+  // Zooms in for datasets covering < 10% of the world.
   let viewBox = '0 0 360 180';
   if (!crossesDateline && coverage < 0.1) {
     const padX = Math.max(width, 20) * 0.5;
@@ -124,11 +122,9 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
           stroke="none"
         />
       ))}
-      {/* BBox rectangle(s).
-          A crossing extent is drawn as its two seam halves: one rect from
-          `maxx - minx` would be negative, so `Math.max(width, 2)` would
-          collapse it into a 2°-wide sliver pinned at the east edge. A
-          non-crossing extent yields exactly one rect. */}
+      {/* BBox rectangle(s). A crossing extent is drawn as its two seam halves:
+          one rect from `maxx - minx` would be negative and collapse into a
+          2°-wide sliver at the east edge. */}
       {splitBbox(bbox).map(([w, s, e, n], i) => (
         <rect
           key={i}

@@ -31,7 +31,7 @@ export function OAuthCallbackPage() {
     // Taken before anything else so it is gone whatever happens next.
     const expectedNonce = takeSsoNonce();
 
-    // Read tokens from URL fragment (not query params) to avoid server log exposure
+    // Fragment, not query params, to keep tokens out of server logs.
     const hash = window.location.hash.replace(/^#/, '');
     const params = new URLSearchParams(hash || window.location.search);
 
@@ -48,7 +48,7 @@ export function OAuthCallbackPage() {
     const expiresIn = params.get('expires_in');
     const nonce = params.get('nonce');
 
-    // Clean URL immediately (remove fragment with the code or tokens)
+    // Removes the fragment holding the code or tokens right away.
     window.history.replaceState({}, '', '/oauth/callback');
 
     // Only a sign-in this tab started may complete here. Anything else

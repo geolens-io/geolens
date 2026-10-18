@@ -15,15 +15,13 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
-// Bound the undo ring so a long drag/freehand trace (one full
-// store snapshot per `change` event) cannot grow memory
-// without limit for the duration of a single editing session.
+// Bounds the undo ring: a long drag or freehand trace adds one full store
+// snapshot per `change` event.
 const MAX_UNDO_HISTORY = 50;
 
 /**
- * The single filtered-snapshot reader shared by the
- * `change` handler (ring entries) and the baseline capture points below —
- * 'select'/'static' entries are select-mode's own UI decoration (selection
+ * Snapshot reader shared by the `change` handler and the baseline captures.
+ * 'select'/'static' entries are select-mode's own decoration (selection
  * handles), not the geometry being edited.
  */
 function filteredSnapshot(
@@ -35,10 +33,8 @@ function filteredSnapshot(
 }
 
 /**
- * Whether a further undo step exists. Normally true
- * while the ring holds more than one entry; once only the ring's OLDEST
- * entry remains, a further step exists only if a true pre-edit baseline was
- * captured to fall back to — otherwise this is as far back as we can go.
+ * Whether a further undo step exists: true while the ring holds more than one
+ * entry; with only the OLDEST left, only if a pre-edit baseline was captured.
  */
 function canUndoFrom(ringLength: number, hasBaseline: boolean): boolean {
   return ringLength > 1 || (ringLength === 1 && hasBaseline);
@@ -180,10 +176,8 @@ const GEOMETRY_TYPE_TO_MODES: Record<string, string[]> = {
   MULTILINESTRING: ['linestring'],
   POLYGON: ['polygon', 'rectangle', 'circle', 'freehand'],
   MULTIPOLYGON: ['polygon', 'rectangle', 'circle', 'freehand'],
-  // Empty created datasets carry the generic 'GEOMETRY'
-  // sentinel and their column accepts ANY subtype, so expose every
-  // mode — with no entry the toolbar rendered zero draw buttons and the first
-  // feature could never be added. GEOMETRYCOLLECTION stays unmapped on
+  // Empty created datasets carry the generic 'GEOMETRY' sentinel and accept
+  // ANY subtype, so expose every mode. GEOMETRYCOLLECTION stays unmapped on
   // purpose: a typed GC column rejects subtype inserts (GEOJSON_TYPE_MAP).
   GEOMETRY: ['point', 'linestring', 'polygon', 'rectangle', 'circle', 'freehand'],
 };
@@ -251,20 +245,14 @@ export function isMultiPartGeometry(geometry: Geometry): boolean {
  * @param map - MapLibre map instance (null until map loads)
  * @param onFinish - callback invoked with the completed GeoJSON Feature after draw
  * @param onEditFinish - callback invoked with tdId and feature after edit (drag/vertex), null when not in editing context
- * @param onHistoryBaseline - callback invoked when undo()
- *   pops the ring back down to its earliest recorded snapshot (canUndo
- *   transitions to false AS A RESULT OF an undo() call, not of a
- *   draw/setMode/clear/resetHistory reset). The editing layer uses this to
- *   clear isEditDirty — undoing all the way back means the displayed
- *   geometry is once again whatever was there when the ring started, so
- *   there is nothing pending to confirm away on Cancel/Done/mode-switch. A
- *   subsequent edit re-dirties normally via onEditFinish.
- * @param onSelectionLost - callback invoked when undo()
- *   restores a snapshot that no longer contains the feature that was
- *   selected before the undo (the rebuilt canvas has nothing left to
- *   re-select). The editing layer uses this to clear its own selection
- *   state, so it does not keep showing a feature as selected that Terra
- *   Draw no longer has.
+ * @param onHistoryBaseline - callback invoked when undo() pops the ring back to
+ *   its earliest snapshot (canUndo goes false because of an undo(), not a
+ *   draw/setMode/clear/resetHistory reset). The editing layer clears
+ *   isEditDirty then, since nothing is left to confirm away; a later edit
+ *   re-dirties via onEditFinish.
+ * @param onSelectionLost - callback invoked when undo() restores a snapshot
+ *   without the previously selected feature, so the editing layer can clear
+ *   its own selection state.
  * @returns setMode, stop, isReady, and feature manipulation methods
  */
 export function useTerraDraw(
@@ -284,12 +272,11 @@ export function useTerraDraw(
   clear: () => void;
   undo: () => void;
   canUndo: boolean;
-  /** Reset the undo ring without touching the canvas
-   *  callers own WHEN a pending edit's history should be discarded (save,
-   *  cancel, deselection), not this hook (see resetHistory below). */
+  /** Reset the undo ring without touching the canvas; callers decide when a
+   *  pending edit's history is discarded (save, cancel, deselection). */
   resetHistory: () => void;
 } {
-  // Use refs to avoid stale closures in event listeners
+  // Refs avoid stale closures in event listeners.
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
@@ -302,42 +289,32 @@ export function useTerraDraw(
   const onSelectionLostRef = useRef(onSelectionLost);
   onSelectionLostRef.current = onSelectionLost;
 
-  // Track the current Terra Draw instance
   const drawRef = useRef<TerraDraw | null>(null);
 
-  // Undo history state
   const historyRef = useRef<GeoJSONStoreFeatures<GeoJSONStoreGeometries>[][]>([]);
-  // The TRUE pre-edit snapshot, held OUTSIDE the bounded
-  // ring so it survives eviction once a long drag pushes past
-  // MAX_UNDO_HISTORY change events. null means "no baseline captured for
-  // this session" — undo() must never report reaching baseline in that
-  // case (see undo() below).
+  // The TRUE pre-edit snapshot, held outside the bounded ring so it survives
+  // eviction past MAX_UNDO_HISTORY events. null means no baseline was captured
+  // this session, and undo() must never report reaching baseline then.
   const baselineRef = useRef<GeoJSONStoreFeatures<GeoJSONStoreGeometries>[] | null>(null);
-  // The id of whatever feature the app most recently
-  // selected via selectFeature() below. Restoring a snapshot in undo()
-  // calls draw.clear() first, which drops Terra Draw's own select-mode
-  // state and edit handles — this ref is how undo() knows what to
-  // re-select afterward. null means "nothing selected for this session."
+  // The feature most recently selected via selectFeature(). undo() restores a
+  // snapshot after draw.clear(), which drops select-mode state and edit
+  // handles, and uses this to re-select afterward.
   const selectedFeatureIdRef = useRef<string | number | null>(null);
   const isRestoringRef = useRef(false);
-  // On the real selection path, addFeatures() and
-  // draw.selectFeature() synchronously emit `change` events — without this
-  // guard, the ring already holds those seed snapshots by the time
-  // selectFeature() below captures the session's baseline, so Undo reads as
-  // available (and isEditDirty stays set) right after just selecting a
-  // feature, before any actual edit happened.
+  // addFeatures() and draw.selectFeature() synchronously emit `change` events;
+  // without this guard the ring would already hold those seed snapshots when
+  // selectFeature() captures the baseline, so Undo would read as available
+  // (and isEditDirty stay set) before any actual edit.
   const isSeedingSessionRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
 
-  // State to trigger re-render when draw instance is ready
   const [draw, setDraw] = useState<TerraDraw | null>(null);
 
-  // Initialize Terra Draw via useEffect tied to map instance.
-  // React strict mode will: create td1 → stop td1 → create td2 (survives).
+  // Strict mode runs create td1 → stop td1 → create td2, and td2 survives.
   useEffect(() => {
     if (!map) return;
 
-    // Clean up any stale terra-draw sources/layers from previous mount
+    // Remove sources and layers left by a previous mount.
     const style = map.getStyle();
     if (style?.layers) {
       for (const layer of style.layers) {
@@ -374,7 +351,6 @@ export function useTerraDraw(
     };
   }, [map]);
 
-  // Register finish event listener
   useEffect(() => {
     if (!draw) return;
 
@@ -383,30 +359,23 @@ export function useTerraDraw(
       if (!feature) return;
 
       if (context.action === 'draw') {
-        // New feature drawn — pass to onFinish and remove from canvas
         onFinishRef.current(feature as Feature);
         draw.removeFeatures([id]);
-        // Reset undo history — the feature was committed, not an in-progress sketch
+        // The feature was committed, so the session's history and baseline no
+        // longer apply.
         historyRef.current = [];
         setCanUndo(false);
-        // The committed feature's session is over — its
-        // baseline snapshot is no longer meaningful.
         baselineRef.current = null;
-        // A fresh-draw session has no "selected existing
-        // feature" concept in the first place, but clear defensively.
         selectedFeatureIdRef.current = null;
       } else if (
         context.action === 'dragFeature' ||
         context.action === 'dragCoordinate' ||
         context.action === 'dragCoordinateResize'
       ) {
-        // Existing feature edited — pass to onEditFinish, keep on canvas.
-        // Do NOT reset history here. A drag/vertex edit
-        // only marks the edit dirty (use-feature-editing's handleEditFinish)
-        // — it is not persisted until Save, so Undo must still be able to
-        // revert it. History resets when the pending edit actually settles:
-        // on save (handleSaveEdit) or on cancel/deselection (performDeselect),
-        // both of which call the resetHistory() this hook now exposes.
+        // History is NOT reset here: a drag/vertex edit only marks the edit
+        // dirty and persists on Save, so Undo must still revert it. History
+        // resets via resetHistory() when the edit settles (save, cancel or
+        // deselection).
         onEditFinishRef.current?.(String(id), feature as Feature);
       }
     };
@@ -418,7 +387,6 @@ export function useTerraDraw(
     };
   }, [draw]);
 
-  // Register change event listener for undo history
   useEffect(() => {
     if (!draw) return;
 
@@ -427,10 +395,8 @@ export function useTerraDraw(
 
       const snapshot = filteredSnapshot(draw);
       historyRef.current.push(snapshot);
-      // Drop the oldest entry once the ring exceeds its cap —
-      // still enough undo depth for normal use, without unbounded growth.
-      // The true pre-edit baseline lives in baselineRef,
-      // OUTSIDE this ring, so eviction here never loses it.
+      // Evicting the oldest entry never loses the true pre-edit baseline,
+      // which lives in baselineRef outside the ring.
       if (historyRef.current.length > MAX_UNDO_HISTORY) {
         historyRef.current.shift();
       }
@@ -447,14 +413,11 @@ export function useTerraDraw(
     (mode: string) => {
       if (!draw?.enabled) return;
       draw.setMode(mode);
-      // Reset undo history on mode change to prevent cross-mode undo
+      // A mode switch starts a fresh session: no cross-mode undo, a new
+      // baseline (the canvas as setMode left it), and no selection.
       historyRef.current = [];
       setCanUndo(false);
-      // A mode switch starts a fresh edit/draw session
-      // capture its baseline (the canvas as setMode left it) OUTSIDE the
-      // bounded ring so it survives eviction later in this session.
       baselineRef.current = filteredSnapshot(draw);
-      // A mode switch ends whatever selection preceded it.
       selectedFeatureIdRef.current = null;
     },
     [draw],
@@ -467,7 +430,7 @@ export function useTerraDraw(
   const addFeatures = useCallback(
     (features: Feature[]): { id?: string | number; valid: boolean; reason?: string }[] => {
       if (!draw?.enabled) return [];
-      // terra-draw addFeatures expects GeoJSONStoreFeatures with properties.mode set
+      // terra-draw expects GeoJSONStoreFeatures with properties.mode set.
       return draw.addFeatures(features as Parameters<TerraDraw['addFeatures']>[0]);
     },
     [draw],
@@ -484,31 +447,19 @@ export function useTerraDraw(
   const selectFeature = useCallback(
     (id: string) => {
       if (!draw?.enabled) return;
-      // Draw.selectFeature synchronously emits its own
-      // `change` event (select-mode entering/decorating the feature) —
-      // suppress the ring listener for it so this seed event is never
-      // recorded at all.
+      // draw.selectFeature emits its own `change` event synchronously;
+      // suppress the ring listener so that seed event is never recorded.
       isSeedingSessionRef.current = true;
       draw.selectFeature(id);
       isSeedingSessionRef.current = false;
-      // Selecting an existing feature starts its edit
-      // session — capture the TRUE pre-edit snapshot now, outside the
-      // bounded ring, so a long drag that later evicts the ring's oldest
-      // entries can still undo all the way back to it.
+      // Selecting an existing feature starts its edit session: capture the
+      // TRUE pre-edit snapshot outside the ring so a long drag that evicts
+      // old entries can still undo back to it.
       baselineRef.current = filteredSnapshot(draw);
-      // Remember what's selected so undo()'s restoring
-      // draw.clear() (which drops Terra Draw's select-mode state and edit
-      // handles) can re-select it afterward.
       selectedFeatureIdRef.current = id;
-      // Unconditionally clear the ring here too — on the
-      // REAL selection path, the app calls addFeatures() (to load the
-      // existing feature onto the canvas) BEFORE calling this selectFeature(),
-      // and that addFeatures() call ALSO synchronously emits `change`,
-      // outside the guard above since it runs before this function does.
-      // Clearing here retroactively wipes out any such seed snapshots, so
-      // an edit session starts with Undo disabled and an empty ring, not
-      // "already dirty" from events that happened before anything was
-      // actually edited.
+      // The app calls addFeatures() before selectFeature(), and that also
+      // emits `change` outside the guard above. Clearing the ring wipes those
+      // seed snapshots so the session starts with Undo disabled.
       historyRef.current = [];
       setCanUndo(false);
     },
@@ -527,28 +478,18 @@ export function useTerraDraw(
     const hasBaseline = baselineRef.current !== null;
     if (!canUndoFrom(historyRef.current.length, hasBaseline)) return;
 
-    // Pop the current (top) state off the ring.
     historyRef.current.pop();
 
-    // What we restore. If the ring still holds an
-    // entry, that's the previous intermediate state, same as before. If
-    // popping just emptied the ring, the ring's own oldest entry may
-    // already have been evicted by the MAX_UNDO_HISTORY cap — so the
-    // correct "one step further back" state is the TRUE pre-edit baseline
-    // captured outside the ring, not an assumption that the ring's start
-    // IS the baseline. Both the ring-internal step and this baseline
-    // fallback flow through the SAME restoration below, so the re-select
-    // just below covers both.
+    // With the ring empty, its oldest entry may already have been evicted by
+    // the MAX_UNDO_HISTORY cap, so the step further back is the TRUE pre-edit
+    // baseline, not the ring's start.
     const prev = historyRef.current.length > 0
       ? historyRef.current[historyRef.current.length - 1]
       : baselineRef.current;
 
-    // Preserve the selected feature's id BEFORE
-    // draw.clear() below drops Terra Draw's select-mode state and edit
-    // handles — otherwise the app's own selection store still shows the
-    // feature selected, but Terra Draw no longer has it selected and the
-    // user has to click the geometry again before dragging or editing
-    // vertices.
+    // Read before draw.clear() drops select-mode state; otherwise the app's
+    // selection store would still show the feature selected while Terra Draw
+    // has lost it, and the user would have to click it again before editing.
     const selectedId = selectedFeatureIdRef.current;
 
     isRestoringRef.current = true;
@@ -556,36 +497,26 @@ export function useTerraDraw(
     if (prev && prev.length > 0) {
       draw.addFeatures(prev);
     }
-    // Re-select only if that id is still present in the
-    // restored features. Call draw.selectFeature() directly (not this
-    // hook's own selectFeature() wrapper above) — that wrapper also
-    // captures a NEW baseline and would overwrite the one this undo just
-    // fell back to.
+    // Calls draw.selectFeature() directly, not the selectFeature() wrapper,
+    // which would capture a NEW baseline over the one undo just fell back to.
     if (selectedId != null && prev?.some((f) => f.id === selectedId)) {
       draw.selectFeature(selectedId);
     } else if (selectedId != null) {
-      // The previously selected feature no longer exists in the restored
-      // snapshot — clear our own record and tell the editing layer so its
-      // selection store agrees with what Terra Draw actually has.
+      // The restored snapshot lacks the selected feature; tell the editing
+      // layer so its selection store matches Terra Draw.
       selectedFeatureIdRef.current = null;
       onSelectionLostRef.current?.(selectedId);
     }
-    // Defer flag reset so any synchronous or microtask change events are still suppressed
+    // Deferred so synchronous and microtask change events stay suppressed.
     queueMicrotask(() => {
       isRestoringRef.current = false;
     });
 
-    // We are AT the true baseline only when the ring is
-    // now empty AND a baseline was actually captured for this session — a
-    // ring merely reaching length 0 with no captured baseline (or, before
-    // this fix, just reaching length <= 1) is NOT a verified return to the
-    // original pre-edit geometry, so it must never report baseline.
+    // At the true baseline only when the ring is empty AND a baseline was
+    // captured; an empty ring without one is not a verified return to the
+    // pre-edit geometry.
     const atTrueBaseline = historyRef.current.length === 0 && hasBaseline;
     setCanUndo(canUndoFrom(historyRef.current.length, hasBaseline));
-    // Signal a verified return to the true pre-edit
-    // snapshot — the editing layer uses this to clear isEditDirty, since
-    // the displayed geometry is once again whatever was there before this
-    // edit session started.
     if (atTrueBaseline) {
       onHistoryBaselineRef.current?.();
     }
@@ -596,25 +527,18 @@ export function useTerraDraw(
     draw.clear();
     historyRef.current = [];
     setCanUndo(false);
-    // The session this baseline belonged to is over.
     baselineRef.current = null;
-    // Draw.clear above already removed it from the canvas.
     selectedFeatureIdRef.current = null;
   }, [draw]);
 
-  // The undo ring reset a caller asks for WITHOUT
-  // touching the drawn canvas — clear() above removes features too, which
-  // save/cancel/deselection do themselves (via removeFeatures) before or
-  // instead of calling this.
+  // Unlike clear(), leaves the canvas alone: save, cancel and deselection
+  // remove features themselves via removeFeatures.
   const resetHistory = useCallback(() => {
     historyRef.current = [];
     setCanUndo(false);
-    // The session this baseline belonged to has settled
-    // (save/cancel/deselection) — clear it alongside the ring.
     baselineRef.current = null;
-    // The caller (save/cancel/deselection) already owns
-    // clearing its own selection store — this just keeps our own record in
-    // sync so a stale id never survives into a later session.
+    // Keeps our record in step with the caller's selection store so a stale id
+    // never survives into a later session.
     selectedFeatureIdRef.current = null;
   }, []);
 

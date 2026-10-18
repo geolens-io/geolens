@@ -7,12 +7,10 @@ import { cn } from '@/lib/utils';
 /**
  * Password field with a built-in reveal toggle.
  *
- * Extracted from the login form so every password entry point (login, register,
- * admin user create, settings provider secrets) shares one accessible, branded
- * reveal control instead of hand-rolling `type={show ? 'text' : 'password'}`.
- * The eye button carries the same focus-visible ring as the other primitives and
- * a translated aria-label (with an English default so it stays labelled even on
- * surfaces that have not loaded the `auth` namespace).
+ * Every password entry point shares this reveal control. The eye button has
+ * the same focus-visible ring as the other primitives and a translated
+ * aria-label with an English default, so it stays labelled on surfaces that
+ * have not loaded the `auth` namespace.
  *
  * `type` is owned by the toggle and intentionally not forwarded.
  */

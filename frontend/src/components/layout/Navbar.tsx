@@ -27,9 +27,9 @@ import { CollectionCreateDialog } from '@/components/collections/CollectionCreat
 import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 
-// Full-height topbar tabs with a 2px baseline marker on the active route —
-// the same underline vocabulary as the Import page's mode tabs. ring-inset
-// keeps the focus ring visible at the header's clipped top edge.
+// Full-height topbar tabs with a 2px baseline marker on the active route, like
+// the Import page's mode tabs. ring-inset keeps the focus ring visible at the
+// header's clipped top edge.
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
     'relative inline-flex h-14 items-center px-3 text-sm font-medium transition-colors',
@@ -130,15 +130,14 @@ function UserMenu() {
   const { t: tAuth } = useTranslation('auth');
   const { t: tReport } = useTranslation('report');
   const openReport = useReportDialog((s) => s.openReport);
-  // #305: explicit light/dark override (default stays 'system', which
-  // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
+  // The default stays 'system', which honors prefers-color-scheme;
+  // resolvedTheme drives the icon and label.
   const { setTheme, resolvedTheme } = useTheme();
-  // Also admit a multi-tenant fleet operator (manage_tenants
-  // only) — the admin routes admit them via the same mode-aware predicate.
+  // Also admits a multi-tenant fleet operator (manage_tenants only), as the
+  // admin routes do via the same mode-aware predicate.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
-  // Anonymous: show sign-in button instead of user dropdown
   if (!user) {
     return (
       <Button variant="outline" size="sm" asChild>
@@ -199,7 +198,7 @@ function UserMenu() {
           </Link>
         </DropdownMenuItem>
 
-        {/* #305: light/dark toggle (no UI affordance existed before) */}
+        {/* Light/dark toggle */}
         <DropdownMenuItem
           onClick={(e) => {
             e.preventDefault();
@@ -262,12 +261,10 @@ function MobileNav() {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
-  // Also admit a multi-tenant fleet operator (manage_tenants
-  // only) — the admin routes admit them via the same mode-aware predicate.
+  // Also admits a multi-tenant fleet operator, as in the user menu.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
-  // Auto-close sheet on navigation
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
@@ -396,19 +393,16 @@ function MobileNav() {
 export function Navbar() {
   const { t } = useTranslation();
   const { can } = usePermissions();
-  // Also admit a multi-tenant fleet operator (manage_tenants
-  // only) — the admin routes admit them via the same mode-aware predicate.
+  // Also admits a multi-tenant fleet operator, as in the user menu.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
   return (
-    // Fixed (not sticky) so the navbar shares the viewport-fixed
-    // positioning context of the admin sidebar — otherwise macOS elastic
-    // overscroll slides the sticky navbar over the stationary fixed sidebar.
-    // AppLayout reserves this header's height (h-14 + safe-area) as top padding.
+    // Fixed, not sticky, so it shares the admin sidebar's viewport-fixed
+    // positioning context; otherwise macOS elastic overscroll slides a sticky
+    // navbar over the stationary sidebar. AppLayout reserves its height.
     <header className="fixed inset-x-0 top-0 z-40 border-b bg-background pt-[env(safe-area-inset-top)]">
-      {/* Full-bleed control bar — page content keeps its own max-width;
-          the frame spans the viewport like the rest of the chrome. */}
+      {/* Full-bleed bar; page content keeps its own max-width. */}
       <div className="flex h-14 w-full items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-4">
           <MobileNav />
@@ -426,8 +420,7 @@ export function Navbar() {
             <NavLink to="/maps" className={navLinkClass}>
               {t('nav.maps')}
             </NavLink>
-            {/* Operators get a first-class entry — previously buried in the
-                user dropdown only. */}
+            {/* Operators also get a top-level entry. */}
             {canAccessAdmin && (
               <NavLink to="/admin" className={navLinkClass}>
                 {t('nav.admin')}

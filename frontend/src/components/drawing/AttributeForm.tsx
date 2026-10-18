@@ -77,7 +77,6 @@ export function AttributeForm({
     buildFormValues(editableColumns, initialValues),
   );
 
-  // Re-populate form when initialValues changes (different feature selected)
   useEffect(() => {
     setValues(buildFormValues(editableColumns, initialValues));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed the form only when initialValues change; the setters are stable

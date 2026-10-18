@@ -31,13 +31,9 @@ export function CollectionsPage() {
   const [sortBy, setSortBy] = useState<'updated_at' | 'created_at' | 'name'>('updated_at');
   const [createOpen, setCreateOpen] = useState(false);
   const { t, i18n } = useTranslation('collections');
-  // (partial) — filtering is still client-side because the
-  // backend collections list endpoint takes only skip/limit, no `search`
-  // param (unlike the maps list, which MapsPage filters server-side). Raised
-  // the fetch to the backend maximum (200) so the name filter covers every
-  // collection short of that ceiling. True server-side search needs a backend
-  // `search` query param on GET /catalog/collections/ — tracked for the
-  // backend audit; the frontend switch to it is then a one-line change here.
+  // Filtering is client-side because the collections list endpoint takes only
+  // skip/limit, no `search`. The fetch uses the backend maximum (200), so the
+  // name filter covers every collection below that ceiling.
   const { data, isLoading, error, refetch } = useCollections(0, 200);
   const isEditor = useAuthStore((s) => s.isEditor());
   const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
@@ -66,8 +62,7 @@ export function CollectionsPage() {
         actions={data || isEditor ? (
           <>
             {data ? <Badge variant="secondary">{searchQuery ? totalFiltered : data.total}</Badge> : undefined}
-            {/* Hide the header create button when the list is empty — the empty
-                state provides the single primary CTA in that case. */}
+            {/* Hidden when empty: the empty state provides the primary CTA. */}
             {isEditor && !(data && data.total === 0) && (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />

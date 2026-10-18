@@ -21,8 +21,7 @@ type PageState = 'loading' | 'success' | 'error';
 
 export function VerifyEmailPage() {
   const { t } = useTranslation('auth');
-  // This page is landed on directly from an email link, so it
-  // is the one that most needs a real tab title.
+  // Landed on directly from an email link, so it needs a real tab title.
   useDocumentTitle(t('common:pageTitle.verifyEmail'));
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -88,8 +87,8 @@ export function VerifyEmailPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
-        {/* sr-only level-1 heading: the state cards below use CardTitle (a plain
-            <div>), so without this the page has no heading-one for SR nav. */}
+        {/* sr-only <h1>: the cards below use CardTitle (a plain <div>), so the
+            page would have no level-one heading. */}
         <h1 className="sr-only">{t('verifyEmail.title')}</h1>
         <GeoLensLogo size="lg" className="justify-center" />
         <p className="text-muted-foreground mt-1 text-sm">

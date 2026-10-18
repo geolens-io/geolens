@@ -36,7 +36,6 @@ import type { MapSummaryResponse } from '@/types/api';
 import { canMutateResource } from '@/lib/ownership';
 
 const PAGE_SIZE = 20;
-// Key + access via the typed storage helper.
 function getStoredView(): string {
   return readStorage(storageKeys.mapsView) ?? 'list';
 }
@@ -113,8 +112,8 @@ export function MapsPage() {
         actions={
           <div className="flex items-center gap-2">
             {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
-            {/* Hide the header create button when the empty state is showing its
-                own primary CTA (no maps, no active search/filter). */}
+            {/* Hidden while the empty state (no maps, no search/filter) shows
+                its own primary CTA. */}
             {canEditMaps && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />

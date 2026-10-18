@@ -22,14 +22,12 @@ import type {
   ScreenReaderInstructions,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-// Lazy-load BuilderMap so map-vendor chunk loads
-// only when the builder is about to render (post-data-fetch).
+// Lazy so the map-vendor chunk loads only when the builder is about to render.
 const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
-// Lazy-load editor scenes so they only ship in their own
-// chunks and are fetched only when the user opens the corresponding scene panel.
+// Lazy so each editor scene ships in its own chunk, fetched on first open.
 const DEMEditorScene = lazy(() =>
   import('@/components/builder/DEMEditorScene').then((m) => ({ default: m.DEMEditorScene }))
 );
@@ -60,8 +58,8 @@ import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { previewSaveMode } from '@/components/builder/ephemeral-preview';
-// Only mounted while the save dialog is open, and it pulls in the
-// import page's metadata form — lazy so the builder's initial chunk is unchanged.
+// Lazy: it pulls in the import page's metadata form and is mounted only while
+// open.
 const SaveChatPreviewDialog = lazy(() =>
   import('@/components/builder/SaveChatPreviewDialog').then((m) => ({ default: m.SaveChatPreviewDialog }))
 );
@@ -142,20 +140,16 @@ export function MapBuilderPage() {
   const removeLayer = useRemoveLayer();
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
-  // Saving a chat preview creates a dataset through POST
-  // /ingest/*, which needs the caller's own `upload` capability. The map's edit
-  // rights say nothing about it. can() is false while the query is in flight,
-  // which is the safe way round: the affordance appears once the capability is
-  // known rather than 403ing after the user has named a dataset.
+  // Saving a chat preview creates a dataset through POST /ingest/*, which
+  // needs the caller's own `upload` capability; the map's edit rights say
+  // nothing about it. can() is false while the query is in flight, so the
+  // affordance appears only once the capability is known.
   //
-  // `export` as well. The snapshot hands the caller a
-  // durable, caller-owned copy of source attributes they may only be able to
-  // READ, which is exactly why analysis materialize requires both
-  // (`require_permission("upload", "export")` in
-  // backend/app/modules/catalog/datasets/api/router_analysis.py). The ingest
-  // endpoints ask only for `upload` because their file normally comes from the
-  // caller's own machine; this one's does not, so the client must not offer a
-  // path around that boundary under a customized role matrix.
+  // `export` too: the snapshot is a caller-owned copy of source attributes the
+  // caller may only be able to READ, which is why analysis materialize requires
+  // both (router_analysis.py). Ingest asks only for `upload` because its file
+  // comes from the caller's machine; this one's does not, so the client must
+  // not offer a path around that boundary under a customized role matrix.
   const { can } = usePermissions();
   const canSaveDataset = can('upload') && can('export');
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
@@ -168,66 +162,55 @@ export function MapBuilderPage() {
   // pluginCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
-  // Chat run_analysis preview → Analysis panel handoff. The nonce
-  // keys a panel remount so successive handoffs re-apply the prefill.
+  // Chat run_analysis preview → Analysis panel handoff. The nonce remounts the
+  // panel so successive handoffs re-apply the prefill.
   const [analysisPrefill, setAnalysisPrefill] = useState<
     (EphemeralAnalysisHandoff & { nonce: number }) | null
   >(null);
   const [dockNotes, setDockNotes] = useState('');
-  // Projection (Mercator/Globe). Persisted on basemap_config.projection; seeded from
-  // the saved map on load and applied to the live map once it's ready (effects below).
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  // Session-local basemap visibility toggle. Client-only and
-  // intentionally NOT persisted to MapBasemapConfig — a backend field is deferred to
-  // to avoid the extra=forbid silent-422 class. Hiding is applied
-  // by rendering BLANK_BASEMAP_ID in the live map (BuilderMap's isBlank branch) while
-  // the stack row's preset name still derives from the real basemap style.
+  // Session-local and deliberately not persisted to MapBasemapConfig (a new
+  // backend field would hit the extra=forbid silent-422 class). Hiding renders
+  // BLANK_BASEMAP_ID in the live map while the stack row's preset name still
+  // derives from the real basemap style.
   const [basemapVisible, setBasemapVisible] = useState(true);
-  // Debounced viewport context for viewport-aware suggestion chips.
-  // Updated on map idle (500ms debounce) and when the selected layer changes.
   const [viewport, setViewport] = useState<ViewportContext | undefined>(undefined);
 
-  // Lifted DnD state — single DndContext wraps both the sidebar stack
-  // (UnifiedStackPanel) and the Add Dataset modal (BuilderDialogs) so catalog→stack
-  // cross-panel drag is possible. Without this, @dnd-kit collision detection only
-  // fires within one DndContext and cross-panel isOver events never fire.
+  // One DndContext wraps both the sidebar stack and the Add Dataset modal so
+  // catalog→stack drags work: @dnd-kit collision detection only fires within a
+  // single DndContext.
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
 
-  // Multi-selection state lifted to MapBuilderPage so handleDragStart
-  // can clear it directly (drag + multi-select are mutually exclusive). This mirrors
-  // the lift-DndContext architecture decision.
+  // Lifted here so handleDragStart can clear it (drag and multi-select are
+  // mutually exclusive).
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
-  // Selected rows the layer search hides are parked here instead of
-  // being pruned outright, and rejoin the selection when the search stops
-  // hiding them. Cleared on every explicit selection interaction — Escape/
-  // outside click, drag-start, bulk actions, and cmd/shift
-  // clicks, which replace the selection — so stale parked rows cannot
-  // resurrect a selection the user's gesture already discarded.
+  // Selected rows the layer search hides are parked here rather than pruned,
+  // and rejoin the selection when the search stops hiding them. Every explicit
+  // selection interaction (Escape/outside click, drag-start, bulk actions,
+  // cmd/shift clicks) clears it so stale rows cannot resurrect a selection the
+  // user's gesture discarded.
   const searchHiddenSelectionRef = useRef<Set<string>>(new Set());
-  // The layer-search query is lifted here (hybrid-controlled on
-  // UnifiedStackPanel) so selectableRowIds below can be derived from the
-  // RENDERED row set — a shift-click range must never sweep rows the search
-  // has filtered out or that live inside a collapsed group.
+  // Lifted from UnifiedStackPanel so selectableRowIds can be derived from the
+  // RENDERED row set: a shift-click range must never sweep rows the search
+  // filtered out or that sit inside a collapsed group.
   const [layerSearch, setLayerSearch] = useState('');
 
-  // aria-live announcement for keyboard/mouse catalog drag.
-  // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
-  // + timestamp suffix to force aria-live re-fire when the same message is announced twice
-  // (e.g. two consecutive "Drop cancelled." calls without an intermediate different message).
+  // Read by an sr-only aria-live region for keyboard/mouse catalog drag.
   const [dragAnnouncement, setDragAnnouncement] = useState('');
   const lastOverIdRef = useRef<string | null>(null);
 
   const announce = useCallback((text: string) => {
-    // appends zero-width space to forces aria-live re-fire for identical consecutive strings
+    // The zero-width space and timestamp make aria-live re-announce identical
+    // consecutive messages.
     setDragAnnouncement(text + '\u200B' + Date.now());
   }, []);
   const dndSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // px — drag only after moving >= 8px from pointerdown origin
+        distance: 8, // px
       },
     }),
     useSensor(KeyboardSensor, {
@@ -242,7 +225,6 @@ export function MapBuilderPage() {
     const hasServerNotes = Object.prototype.hasOwnProperty.call(mapData, 'notes') && mapData.notes !== undefined;
     if (hasServerNotes) {
       setDockNotes(mapData.notes ?? '');
-      // Key + access via the typed storage helper.
       removeStorage(storageKeys.mapNotes(id ?? ''));
     } else {
       setDockNotes(readStorage(storageKeys.mapNotes(id ?? '')) ?? '');
@@ -250,15 +232,12 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
   }, [mapData?.notes, id]);
 
-  // Composed hooks
   const dialogs = useBuilderDialogs();
-  // Callback ref bridging useBuilderLayers (rendered first, below)
-  // to useBuilderSave (rendered after it, at ~line 281+7). useBuilderSave
-  // populates this with a function that registers a server-created layer into
-  // the Save-diff baseline; useBuilderLayers' handleAddDataset /
-  // handleDuplicateRendering invoke it right after a layer-create mutation
-  // succeeds, so Save never re-diffs that layer as `added` and PATCHes a
-  // duplicate. See use-builder-save.ts for the full rationale.
+  // Bridges useBuilderLayers to useBuilderSave, which is called after it.
+  // useBuilderSave fills it with a function that registers a server-created
+  // layer into the Save-diff baseline; the layer hook calls it after a
+  // layer-create mutation so Save never re-diffs that layer as `added` and
+  // PATCHes a duplicate. See use-builder-save.ts.
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
   const layers = useBuilderLayers(
     mapData,
@@ -267,9 +246,8 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
     saveBaselineSyncRef,
-    // Reactive counterpart of mapInstanceRef, so the
-    // auto-zoom watcher can retry once the (possibly still-loading) map
-    // becomes ready, instead of silently losing a zoom that arrived first.
+    // Reactive counterpart of mapInstanceRef: lets the auto-zoom watcher retry
+    // once a still-loading map is ready instead of losing an early zoom.
     mapInstance,
     entryIntent.addDatasetId,
   );
@@ -306,28 +284,14 @@ export function MapBuilderPage() {
     },
     [setBasemapConfig, setLocalBasemap, setLocalTerrainConfig, setShowBasemapLabels],
   );
-  // Session-local show/hide of the basemap. Toggles the live
-  // map between the real basemap style and BLANK_BASEMAP_ID; not persisted.
   const handleToggleBasemapVisibility = useCallback(
     () => setBasemapVisible((v) => !v),
     [],
   );
-  // Hand-rolled string keys are intentional value-equality
-  // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
-  // refetchOnMount / window-focus invalidations) produce shape-equivalent
-  // but identity-different plugin arrays — declaring `[mapData?.plugins,
-  // enabledPluginIds]` directly as deps would reset the user's local plugin
-  // toggles on every background refetch. Coercing the deps to stable JSON
-  // strings (savedPluginKey) and a NUL-joined ID list (enabledPluginKey)
-  // gives the useEffect value-equality semantics, which is what we actually
-  // want for "restore plugins when the saved set or admin allowlist
-  // changes".
-  //
-  // If a future author "simplifies" this back to raw object/array deps,
-  // local plugin toggle state will silently regress on every refetch.
-  // Verify in the map builder: open it, toggle a
-  // plugin OFF, trigger a refetch (Cmd-R / window focus / queryClient
-  // invalidateQueries), confirm the toggle stays OFF.
+  // String keys give the restore effect value-equality deps. mapData refetches
+  // produce shape-equivalent but identity-different plugin arrays, so raw
+  // `[mapData?.plugins, enabledPluginIds]` deps would reset the user's local
+  // plugin toggles on every background refetch.
   const savedPluginKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.plugins ?? null)}` : '';
   const enabledPluginKey = enabledPluginIds == null ? '__all__' : enabledPluginIds.join('\0');
 
@@ -369,19 +333,16 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the method reference matters, not the whole `save` object
   }, [save.maybeAutoCaptureThumbnail]);
 
-  // DatasetChatPanel stashed its last spatial query result in sessionStorage
+  // DatasetChatPanel stashes its last spatial query result in sessionStorage
   // before navigating here; render it through the ephemeral-layer path. Gated
-  // on mapInstance (not mapData) so the ephemeral effect never fires against a
-  // null map ref.
+  // on mapInstance (not mapData) so it never fires against a null map ref.
   const handleChatQueryResult = layers.handleQueryResult;
   useEffect(() => {
     if (!mapInstance || !chatResultPendingRef.current) return;
     chatResultPendingRef.current = false;
     const result = takeChatResult();
-    // Forward everything the stash carries, not just the
-    // geometry. Without the completeness pair a clipped carried result reads as
-    // a complete one here, and the save this issue adds would persist it as the
-    // whole answer.
+    // Forward the completeness pair too: without it a clipped result reads as
+    // complete and a save would persist it as the whole answer.
     if (result) {
       handleChatQueryResult(result.geojson, result.bbox, {
         ...(result.truncated ? { truncated: true } : {}),
@@ -397,8 +358,6 @@ export function MapBuilderPage() {
       layers: layers.localLayers,
       mapId: id!,
       terrainConfig: layers.localTerrainConfig,
-      // Map-level legend title + persistence callbacks for the
-      // LegendPlugin edit affordance.
       legendTitle: layers.localLegendTitle,
       onLegendTitleChange: layers.handleLegendTitleChange,
       onLegendLabelChange: layers.handleLegendLabelChange,
@@ -414,8 +373,8 @@ export function MapBuilderPage() {
     ],
   );
 
-  // Subscribe to map idle events with 500ms debounce to update
-  // viewport context for suggestion chips. Unsubscribes when mapInstance changes.
+  // Viewport context for viewport-aware suggestion chips, updated on map idle
+  // with a 500ms debounce.
   useEffect(() => {
     if (!mapInstance) return;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -438,7 +397,6 @@ export function MapBuilderPage() {
     };
   }, [mapInstance]);
 
-  // Sync selectedLayerName from expandedLayerId into viewport context.
   useEffect(() => {
     setViewport((prev) => {
       const expanded = layers.expandedLayerId;
@@ -458,7 +416,6 @@ export function MapBuilderPage() {
   }, [layers.expandedLayerId, layers.localLayers]);
 
   const { byAnchor, sidebar: sidebarPlugins } = usePartitionedPlugins();
-  // activePlugins for Settings panel plugin toggles
   const activePlugins = usePluginStore((state) => state.activePlugins);
   const togglePlugin = usePluginStore((state) => state.toggle);
 
@@ -515,34 +472,29 @@ export function MapBuilderPage() {
       layerId,
       persistence: 'server',
     }),
-    // The revert routes through the mutation handlers above, so the
-    // map is re-marked dirty on the way back to its saved state. Ask the
+    // The revert re-marks the map dirty via the handlers above, so ask the
     // baseline owner to re-derive; it clears only when the WHOLE map is clean.
     onRevertToSaved: layers.requestCleanRecheck,
   }), [dispatchLayerAction, handleRenderModeChange, handleTabChange, layers.requestCleanRecheck]);
 
-  // The dock's notes live in page state the layers hook cannot
-  // compare against server data, so this is the OPAQUE marker. Controls whose
-  // fields the hook does compare (map name/description via MapTitleBar, basemap
-  // swap/remove) use the plain markDirty instead.
+  // The dock's notes live in page state the layers hook cannot compare against
+  // server data, so this is the OPAQUE marker. Controls whose fields the hook
+  // does compare (name/description, basemap swap/remove) use plain markDirty.
   const handleMarkDirty = layers.markOpaqueDirty;
 
-  // Plugin toggles live in a store outside the layer state that drives
-  // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
-  // save indicator + unsaved-changes nav guard miss plugin-only edits. The save
-  // payload already reads the store at save time (resolvePluginsPayload).
+  // Plugin toggles live outside the layer state that drives hasUnsavedChanges,
+  // so mark the map dirty here or the save indicator and unsaved-changes nav
+  // guard miss plugin-only edits.
   const handleTogglePlugin = useCallback(
     (pluginId: string) => {
       togglePlugin(pluginId);
-      // Plugin state lives in its own store — not re-derivable here.
       layers.markOpaqueDirty();
     },
     [togglePlugin, layers],
   );
 
-  // Projection persists on basemap_config.projection. Route through the basemap
-  // patch (which marks the map dirty), update local state, and apply to the live
-  // map. setProjection is guarded for test envs / older maplibre.
+  // Persisted on basemap_config.projection; the basemap patch marks the map
+  // dirty.
   const handleSetProjection = useCallback(
     (proj: 'mercator' | 'globe') => {
       setLocalProjection(proj);
@@ -556,16 +508,15 @@ export function MapBuilderPage() {
     [applyBasemapPatch, basemapState],
   );
 
-  // Seed projection from the saved map. Keyed on the saved value so background
-  // refetches don't clobber an unsaved local projection change (the value only
-  // changes when the persisted projection does).
+  // Keyed on the saved value so background refetches don't clobber an unsaved
+  // local projection change.
   const savedProjection = mapData?.basemap_config?.projection ?? 'mercator';
   useEffect(() => {
     setLocalProjection(savedProjection);
   }, [savedProjection]);
 
-  // Apply projection to the live map once it's ready (and on map swap). Globe
-  // requires a loaded style, so gate on isStyleLoaded with an idle fallback.
+  // Globe requires a loaded style, so gate on isStyleLoaded with an idle
+  // fallback.
   useEffect(() => {
     if (!mapInstance) return;
     const apply = () => {
@@ -579,10 +530,8 @@ export function MapBuilderPage() {
     else mapInstance.once?.('idle', apply);
   }, [mapInstance, localProjection]);
 
-  // '?' hotkey opens the keyboard shortcut cheat-sheet.
-  // Guarded so it does not fire while the user is typing in an input/textarea/select
-  // or a contenteditable field — mirrors the Ctrl/Cmd+S guard in use-builder-save.ts.
-  // Also no-ops when a Radix dialog/sheet is already open (same guard pattern).
+  // '?' opens the shortcut cheat-sheet, except while typing in a field or when
+  // a dialog is already open (same guard as Ctrl/Cmd+S in use-builder-save.ts).
   useEffect(() => {
     function handleShortcutKeyDown(e: KeyboardEvent) {
       if (e.key !== '?') return;
@@ -600,38 +549,28 @@ export function MapBuilderPage() {
     return () => window.removeEventListener('keydown', handleShortcutKeyDown);
   }, []);
 
-  // Basemaps data for the BasemapGroupEditorScene preset grid
-  // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
   const { data: basemaps = [] } = useBasemaps();
 
-  // Basemap group display object derived from the canonical
-  // controller state, not runtime-only sublayer state.
-  //
-  // Bugbash fix: when the basemap is blank ("No basemap"), still return a
-  // minimal non-null group so the stack renders a "Basemap · No basemap" row.
-  // Without it the row disappears entirely and the preset-picker flyout (which
-  // is the only way to choose a real basemap again after the Add-Data Basemap
-  // tab was removed) becomes unreachable. The flyout already excludes BLANK from
-  // its preset list and its SUBLAYERS section already hides itself when
-  // sublayers is empty (BasemapGroupEditorScene), so an empty-sublayer
-  // group renders cleanly and lets the user pick a real preset.
+  // Derived from the canonical controller state, not runtime-only sublayer
+  // state. A blank basemap ("No basemap") still returns a minimal group so the
+  // stack keeps a "Basemap · No basemap" row: the preset-picker flyout is the
+  // only way to choose a real basemap again, and an empty-sublayer group
+  // renders cleanly there.
   const basemapGroup = useMemo(() => {
     if (!basemapState.hasVisibleBasemap) {
       return {
         id: 'basemap-group',
         presetName: t('basemapGroup.noBasemap', { defaultValue: 'No basemap' }),
         providerLabel: undefined,
-        // Session-local visibility (was hardcoded true).
         visible: basemapVisible,
         opacity: basemapState.config.opacity ?? 1,
         sublayers: [],
-        // Semantic comparison against the default appearance — the
-        // stored config is often a materialized all-defaults object, so a
-        // non-null check would read every map as customized.
+        // Compared semantically: the stored config is often a materialized
+        // all-defaults object, so a non-null check would read every map as
+        // customized.
         hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
       };
     }
-    // Derive preset name from the basemap id (label portion after last dash, capitalized)
     const presetId = basemapState.basemapStyle;
     const presetName = presetId
       .replace(/^(openfreemap-|carto-|mapbox-|maptiler-|esri-|stamen-|stadia-)/, '')
@@ -642,11 +581,9 @@ export function MapBuilderPage() {
       id: 'basemap-group',
       presetName,
       providerLabel: undefined,
-      // Session-local visibility (was hardcoded true).
       visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
-      // See the no-basemap branch above.
       hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
     };
   }, [basemapState, basemapVisible, layers.basemapConfig, layers.showBasemapLabels, t]);
@@ -672,68 +609,53 @@ export function MapBuilderPage() {
     },
   });
 
-  // 'group' means the editor is closed (LayerEditorPanel never
-  // renders for it — see isEditorOpen above), so LayerEditorPanel's narrower
-  // editorScene prop type intentionally excludes it. Derive a panel-safe
-  // scene once rather than widening the panel's contract.
+  // 'group' means the editor is closed, so LayerEditorPanel never renders for
+  // it and its narrower editorScene prop type excludes it.
   const panelEditorScene: Exclude<BuilderEditorScene, 'group'> =
     editorScene === 'group' ? 'default' : editorScene;
 
-  // Rendered-feature count for the active editing layer.
-  // Returns null when no layer is being edited, when no filter is set, or when
-  // the layer isn't yet on the map. Used to drive the empty-state hint inside
-  // LayerFilterEditor.
+  // Null when no layer is being edited, no filter is set, or the layer isn't
+  // on the map yet. Drives the empty-state hint in LayerFilterEditor.
   const filteredFeatureCount = useFilteredFeatureCount(mapInstance, editingLayer ?? null);
 
-  // Boundary guard — true when id belongs to basemap group or its sublayers
   const isBasemapBoundaryId = useCallback((id: string): boolean => {
     if (!basemapGroup) return false;
     if (id === basemapGroup.id) return true;
     return basemapGroup.sublayers.some((s) => s.id === id);
   }, [basemapGroup]);
 
-  // Derive selectable row ids (ordered list, basemap excluded)
-  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler.
-  // Derived from the RENDERED row set (shared helper with
-  // UnifiedStackPanel) instead of the raw flat array — the raw list let a
-  // shift-click range select children of collapsed groups and rows hidden by
-  // the layer search, so bulk delete/visibility/opacity acted on rows the
-  // user could not see.
-  // Terrain-mode DEM rows render in the stack again, so they are
-  // range-selectable like any other row (the skip is obsolete).
+  // Ordered ids for shift-click ranges and Shift+Arrow, derived from the
+  // RENDERED row set (shared helper with UnifiedStackPanel): the raw flat list
+  // would let a range select children of collapsed groups and search-hidden
+  // rows, so bulk actions would hit rows the user cannot see.
   const selectableRowIds = useMemo(
     (): string[] => computeSelectableRowIds(layers.localLayers, layers.groupMeta, layerSearch),
     [layers.localLayers, layers.groupMeta, layerSearch],
   );
 
-  // Selection ids can outlive their rows — handleRemove,
-  // handleDeleteGroup, handleUngroup, and the empty-group prune all
-  // remove rows without touching selectedIds, so the bulk bar would
-  // over-report counts it could not perform. Prune against the live layer
-  // set. Skipped while a bulk delete is in flight: its optimistic removal
-  // must not eat the preserved-on-failure selection (a full-failure rollback
-  // restores the rows in the same commit that clears isDeleting).
-  // Also intersect with selectableRowIds: a row hidden by the layer search or
-  // a collapsed group must leave the ACTIVE selection, or the bulk bar keeps
-  // acting on rows the user can no longer see. Rows hidden by the layer search
-  // are parked and rejoin the selection when they become visible again.
-  // Parked rows are restored only once selectable
-  // again (search cleared/edited AND not inside a collapsed group); deleted
-  // rows are dropped for good. The park/restore bookkeeping lives outside the
-  // updater where it must be idempotent (StrictMode double-invokes updaters).
+  // Selection ids can outlive their rows (remove, delete/ungroup and the
+  // empty-group prune leave selectedIds alone), so prune against the live layer
+  // set or the bulk bar over-reports. Skipped while a bulk delete is in
+  // flight: its optimistic removal must not eat the preserved-on-failure
+  // selection (a full-failure rollback restores the rows in the same commit
+  // that clears isDeleting).
+  // Also intersect with selectableRowIds so rows hidden by the search or a
+  // collapsed group leave the ACTIVE selection. Search-hidden rows are parked
+  // and restored once selectable again (search cleared/edited AND not inside a
+  // collapsed group); deleted rows are dropped. The park/restore bookkeeping
+  // stays outside the updater, which must be idempotent (StrictMode
+  // double-invokes updaters).
   useEffect(() => {
     if (layers.isDeleting) return;
     const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
     const selectable = new Set(selectableRowIds);
     const parked = searchHiddenSelectionRef.current;
-    // Park only rows the SEARCH itself hides, not any
-    // unselectable row while a search happens to be active — a child hidden by
-    // its collapsed group must stay pruned (restoring it on a later expand
-    // would resurrect a selection the collapse discarded). Recomputing the
-    // selectable set with every group forced expanded isolates the search
-    // predicate (computeSelectableRowIds stays the single source of truth):
-    // a live row absent from THIS set fails the search; one present here but
-    // missing from selectableRowIds is hidden by collapse alone.
+    // Park only rows the SEARCH itself hides: a child hidden by its collapsed
+    // group stays pruned, since restoring it on a later expand would resurrect
+    // a selection the collapse discarded. Recomputing the selectable set with
+    // every group expanded isolates the search predicate: a live row absent
+    // from THIS set fails the search; one present here but missing from
+    // selectableRowIds is hidden by collapse alone.
     let searchHiddenIds: Set<string> | null = null;
     if (layerSearch.trim() !== '') {
       const allExpanded: Record<string, { expanded: boolean }> = {};
@@ -747,12 +669,11 @@ export function MapBuilderPage() {
         layers.localLayers.filter((layer) => !matching.has(layer.id)).map((layer) => layer.id),
       );
     }
-    // A row stays parked only while it would be
-    // selectable the moment the search cleared — the search must be what
-    // hides it AND its group must be expanded under the REAL group state. A
-    // collapse is a discarding gesture wherever it happens: after parking,
-    // while the search is active (even though the force-expanded
-    // searchHiddenIds still lists the row), or ordered the other way.
+    // A row stays parked only while it would be selectable the moment the
+    // search cleared: the search must be what hides it AND its group must be
+    // expanded under the REAL group state. A collapse discards the row
+    // wherever it happens, even while the force-expanded searchHiddenIds still
+    // lists it.
     const selectableWithoutSearch = new Set(
       computeSelectableRowIds(layers.localLayers, layers.groupMeta, ''),
     );
@@ -771,9 +692,7 @@ export function MapBuilderPage() {
       for (const rowId of prev) {
         if (liveIds.has(rowId) && selectable.has(rowId)) { next.add(rowId); continue; }
         changed = true;
-        // Park only live, search-hidden rows (an add-only mutation, safe under
-        // a double-invoked updater); rows removed from the map or swallowed by
-        // a collapsed group stay pruned for good.
+        // Add-only, so safe under a double-invoked updater.
         if (liveIds.has(rowId) && searchHiddenIds?.has(rowId)) parked.add(rowId);
       }
       for (const rowId of restored) {
@@ -783,14 +702,11 @@ export function MapBuilderPage() {
     });
   }, [layers.localLayers, layers.groupMeta, layers.isDeleting, selectableRowIds, layerSearch]);
 
-  // Multi-selection handlers driven by the
-  // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
-  // so plain/shift/cmd clicks all coordinate from the same authoritative source.
+  // Plain, shift and cmd clicks share one anchor in `lastToggleAnchor`.
   const handleCmdClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
-    // An explicit selection gesture supersedes any
-    // search-parked rows — keeping them would resurrect rows the gesture
-    // discarded once the search clears (and a later bulk op would hit them).
+    // The gesture supersedes search-parked rows; keeping them would resurrect
+    // discarded rows once the search clears.
     searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
@@ -807,8 +723,8 @@ export function MapBuilderPage() {
 
   const handleShiftClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
-    // Same as handleCmdClick — a range gesture
-    // replaces the selection, so parked rows must not outlive it.
+    // A range gesture replaces the selection, so parked rows must not outlive
+    // it.
     searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
@@ -818,8 +734,7 @@ export function MapBuilderPage() {
         prev,
         lastToggleAnchor.current,
       );
-      // Treat the helper's return as immutable. Range may include
-      // basemap-boundary ids if selectableRowIds drifts; build a fresh Set.
+      // The range may include basemap-boundary ids if selectableRowIds drifts.
       const filtered = new Set<string>();
       for (const rid of selection) {
         if (!isBasemapBoundaryId(rid)) filtered.add(rid);
@@ -829,9 +744,8 @@ export function MapBuilderPage() {
     });
   }, [isBasemapBoundaryId, selectableRowIds]);
 
-  // Plain row click must record the anchor so a subsequent shift-click
-  // has somewhere to range from. handleSelectLayer below opens the editor;
-  // this is the side-channel anchor capture without disturbing that flow.
+  // A plain row click records the anchor so a later shift-click has a range
+  // start, without disturbing handleSelectLayer's editor flow.
   const handlePlainSelectAnchor = useCallback((id: string | null) => {
     if (id && !isBasemapBoundaryId(id)) {
       lastToggleAnchor.current = id;
@@ -842,42 +756,36 @@ export function MapBuilderPage() {
     handleCmdClick(id);
   }, [handleCmdClick]);
 
-  // Every explicit selection reset also drops the search-parked
-  // rows — a dismissed selection must not resurrect when the search clears.
+  // Also drops search-parked rows so a dismissed selection doesn't resurrect
+  // when the search clears.
   const resetMultiSelection = useCallback(() => {
     setSelectedIds(new Set());
     searchHiddenSelectionRef.current.clear();
   }, []);
 
-  // Clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
   const handleClearSelection = useCallback(() => {
     resetMultiSelection();
     lastToggleAnchor.current = null;
   }, [resetMultiSelection]);
 
-  // Real bulk handlers — wired to use-builder-layers bulk ops.
-  // Each dep is the specific stable useCallback from use-builder-layers, NOT the
-  // entire `layers` object (which is a plain literal re-created on every render).
-  // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
-  // on every opacity-slider move, which fires at ~60fps.
+  // Deps are the specific stable callbacks, not the `layers` literal (new every
+  // render): depending on `layers` would defeat React.memo() on BulkActionBar
+  // and UnifiedStackPanel on every opacity-slider move (~60fps).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     applyBulkVisibility(ids);
     resetMultiSelection();
   }, [applyBulkVisibility, resetMultiSelection]);
 
   const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
-    // NOTE: Opacity slider fires onValueChange continuously during drag.
-    // Clearing selection on each intermediate event would break subsequent
-    // drag events (selection would be empty). Selection is preserved during
-    // drag; user dismisses via Escape or by clicking another row. This is
-    // a deliberate UX decision.
+    // The slider fires onValueChange continuously during a drag; clearing the
+    // selection on the first event would empty it for the rest. The user
+    // dismisses it via Escape or by clicking another row.
     applyBulkOpacity(ids, opacity);
   }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    // Only clear the selection when a group was
-    // actually created; an ineligible selection must stay intact so the user
-    // can see it, read the toast, and adjust instead of losing it silently.
+    // An ineligible selection stays intact so the user can read the toast and
+    // adjust instead of losing it silently.
     if (applyBulkGroup(ids)) resetMultiSelection();
   }, [applyBulkGroup, resetMultiSelection]);
 
@@ -886,8 +794,6 @@ export function MapBuilderPage() {
     resetMultiSelection();
   }, [applyBulkUngroup, resetMultiSelection]);
 
-  // Apply one selected/copied style to compatible peers,
-  // then clear the multi-selection (mirrors group/ungroup wrappers).
   const handleBulkApplyStyle = useCallback((ids: Set<string>) => {
     applyBulkApplyStyle(ids);
     resetMultiSelection();
@@ -897,19 +803,16 @@ export function MapBuilderPage() {
     applyBulkDelete(ids)
       .then((ok) => {
         if (ok) resetMultiSelection();
-        // on failure: selection preserved so user can retry
+        // On failure the selection is kept so the user can retry.
       })
       .catch(() => {
-        // Error already toasted inside handleBulkDelete; swallow here to prevent
-        // unhandled rejection if invalidateQueries throws after allSettled.
+        // Already toasted by the bulk handler; this only stops an unhandled
+        // rejection if invalidateQueries throws after allSettled.
       });
   }, [applyBulkDelete, resetMultiSelection]);
 
-  // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
 
-  // Sublayer visibility/opacity handlers route through the
-  // controller-backed persisted basemap_config fields.
   const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
     applyBasemapPatch(toggleBasemapSublayerVisibility(basemapState, sublayerId));
   }, [applyBasemapPatch, basemapState]);
@@ -918,9 +821,8 @@ export function MapBuilderPage() {
     applyBasemapPatch(setBasemapSublayerOpacity(basemapState, sublayerId, opacity));
   }, [applyBasemapPatch, basemapState]);
 
-  // Helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
-  // Trims the entry if every field becomes null/undefined (no-op state).
-  // Uses setBasemapConfig which auto-marks dirty.
+  // Merges one field into basemap_config.sublayer_overrides[sublayerId],
+  // trimming the entry when every field becomes null/undefined.
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
       applyBasemapPatch(updateBasemapSublayerOverride(basemapState, sublayerId, field, value));
@@ -932,21 +834,18 @@ export function MapBuilderPage() {
     applyBasemapPatch(resetBasemapAppearance());
   }, [applyBasemapPatch]);
 
-  // Existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
     return layers.localLayers
       .filter(isFolderGroupLayer)
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
 
-  // Analysis materialize jobs are tracked globally (AnalysisJobWatcher in
-  // RootLayout owns polling, the completion toast, and cache invalidation) so
-  // the signal survives this page unmounting. This page contributes only the
-  // "Add to map" capability, which needs its layer actions.
+  // Materialize jobs are tracked globally (AnalysisJobWatcher in RootLayout
+  // owns polling, the toast and cache invalidation) so the signal survives this
+  // page unmounting. This page contributes only the "Add to map" capability.
   const setAnalysisJob = useAnalysisJobStore((s) => s.setJob);
-  // The mobile rail buttons need the same ambient job signal the
-  // desktop rail shows — <800px would otherwise have no indication at all
-  // that a materialize is still running.
+  // The mobile rail buttons (<800px) need the same job signal as the desktop
+  // rail.
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
   const handleAnalysisJobChange = useCallback(
     (jobId: string | null, title?: string) => {
@@ -968,8 +867,8 @@ export function MapBuilderPage() {
   });
   useEffect(() => () => registerAnalysisAddToMap(null, null), []);
 
-  // "Save as dataset" on the ephemeral preview — open the Analysis
-  // panel prefilled with the operation behind the chat preview.
+  // "Save as dataset" on the ephemeral preview: opens the Analysis panel
+  // prefilled with the operation behind it.
   const ephemeralAnalysis = layers.ephemeralResult?.analysis;
   const handleSaveAnalysisPreview = useCallback(() => {
     if (!ephemeralAnalysis) return;
@@ -977,11 +876,9 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
 
-  // The same affordance for a preview with no analysis behind it —
-  // a plain chat query result, which can otherwise only be dismissed. The
-  // draft snapshots the FeatureCollection at the moment the dialog opens, so a
-  // new chat turn (or a dismiss) landing mid-dialog can't swap what gets saved
-  // out from under the name the user is typing.
+  // Same affordance for a plain chat query result (no analysis behind it). The
+  // draft snapshots the FeatureCollection when the dialog opens, so a new chat
+  // turn or dismiss mid-dialog can't swap what gets saved.
   const [chatSaveDraft, setChatSaveDraft] = useState<{
     geojson: GeoJSON.FeatureCollection;
     prompt?: string;
@@ -992,15 +889,12 @@ export function MapBuilderPage() {
     setChatSaveDraft({ geojson: ephemeralResult.geojson, prompt: ephemeralResult.prompt });
   }, [ephemeralResult]);
 
-  // The preview's stack-row props. Memoized because a fresh object
-  // literal on the UnifiedStackPanel prop would defeat its memo() on every
-  // render of this (very large) page.
+  // Memoized: a fresh object on the UnifiedStackPanel prop would defeat its
+  // memo() on every render.
   const previewRowProps = useMemo(() => {
     const result = layers.ephemeralResult;
     if (!result) return null;
     const featureCount = result.geojson.features.length;
-    // Which save (if any) this preview earns — the truncation
-    // guard and the upload-capability gate both live in previewSaveMode.
     const saveMode = previewSaveMode({ ...result, featureCount }, canSaveDataset);
     return {
       featureCount,
@@ -1018,18 +912,15 @@ export function MapBuilderPage() {
     };
   }, [layers.ephemeralResult, layers.handleDismissEphemeral, canSaveDataset, handleSaveAnalysisPreview, handleSaveChatPreview]);
 
-  // Stack-row kebab "Analyze this layer" — the same handoff path the
-  // chat preview uses, so the panel opens (or remounts, via the prefill nonce
-  // key) targeting exactly this layer even when the row isn't selected.
+  // Uses the chat preview's handoff path, so the panel opens (or remounts via
+  // the nonce) on exactly this layer even when the row isn't selected.
   const handleAnalyzeLayer = useCallback((layerId: string) => {
     setAnalysisPrefill({ layerId, operation: 'buffer', nonce: Date.now() });
     setRailPanel('analysis');
   }, []);
 
-  // The prefill lives only for the handoff opening it
-  // triggered. Clearing it on any navigation away from the panel (rail close,
-  // panel switch, mobile sheet dismiss) keeps a later ordinary opening from
-  // remounting the form with stale handoff params.
+  // Clearing on any navigation away from the panel keeps a later ordinary
+  // opening from remounting the form with stale handoff params.
   useEffect(() => {
     if (railPanel !== 'analysis' && analysisPrefill) setAnalysisPrefill(null);
   }, [railPanel, analysisPrefill]);
@@ -1043,8 +934,8 @@ export function MapBuilderPage() {
     mapId: id,
     layers: layers.localLayers,
     layersMapId: layers.layersMapId,
-    // The stack's selected row, so the Analysis panel can open
-    // targeting it instead of the first eligible layer.
+    // Lets the Analysis panel open on the selected row instead of the first
+    // eligible layer.
     selectedLayerId: layers.expandedLayerId,
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
@@ -1053,7 +944,6 @@ export function MapBuilderPage() {
     hasPreview: !!layers.ephemeralResult,
     previewSource: layers.ephemeralResult?.source,
     analysisPrefill,
-    // setState identity is stable — safe to pass without a memo dep.
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
@@ -1113,17 +1003,16 @@ export function MapBuilderPage() {
         })
       : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
-  // The Add Data dialog stays open for repeated adds, so the
-  // "open the editor on the new layer" step is DEFERRED — opening it per-add
-  // would stack the flyout behind the still-open dialog. The last added
-  // layer's id waits here until the dialog closes.
+  // The Add Data dialog stays open for repeated adds, so opening the editor on
+  // the new layer is deferred (per-add it would stack the flyout behind the
+  // dialog). The last added layer's id waits here until the dialog closes.
   const pendingEditorLayerIdRef = useRef<string | null>(null);
 
   const handleAddDataClick = useCallback(
     (initialQuery?: string) => {
       dialogs.setAddDataInitialQuery(initialQuery ?? '');
-      // A pending id from a previous session's mid-flight add must not leak
-      // into this one's close.
+      // A stale id from an earlier session's mid-flight add must not leak into
+      // this one's close.
       pendingEditorLayerIdRef.current = null;
       dialogs.setShowAddData(true);
     },
@@ -1141,10 +1030,8 @@ export function MapBuilderPage() {
     [dispatchLayerAction],
   );
 
-  // Adapter: UnifiedStackPanel/SidebarRail pass `string | null` (null = deselect);
-  // handleToggleExpand accepts only string ('' = toggle off).
-  // Record the row id as the shift-click anchor on every
-  // plain selection so a subsequent shift-click range-extends from this row.
+  // Adapts `string | null` (null = deselect) to handleToggleExpand's string
+  // ('' = toggle off), and records the row as the shift-click anchor.
   const handleSelectLayer = useCallback(
     (id: string | null) => {
       handlePlainSelectAnchor(id);
@@ -1154,19 +1041,16 @@ export function MapBuilderPage() {
     [layers.handleToggleExpand, handlePlainSelectAnchor],
   );
 
-  // fix(v1.6.0 audit D7): the UnifiedStackPanel props below were inline lambdas
-  // re-created on every MapBuilderPage render, so the React.memo chain
-  // (UnifiedStackPanel → SortableStackRow → StackRow) never skipped a row
-  // render. dispatchLayerAction and the other deps here are the stable
-  // useCallbacks from use-builder-layers — NOT the per-render `layers` literal.
+  // The UnifiedStackPanel row handlers below are memoized, with the stable
+  // callbacks from use-builder-layers as deps (not the per-render `layers`
+  // literal), so the React.memo chain (UnifiedStackPanel → SortableStackRow →
+  // StackRow) can skip rows.
   const handleRowToggleVisibility = useCallback((layerId: string) => {
-    // A folder group row is a synthetic row, not a map layer. Route its
-    // eye toggle to toggle_group_visibility so every child (and its
-    // companions) follows; loose/child rows use set_visibility.
-    // fix(v1.6.0 audit D7): group-ness is read through the hook's ref-backed
-    // isFolderGroupRow predicate — a localLayers.find() here would force this
-    // callback (and every row) to re-create on exactly the frames the
-    // memoization targets.
+    // A folder group row is synthetic, not a map layer: its eye toggle goes to
+    // toggle_group_visibility so every child (and its companions) follows.
+    // Group-ness comes from the hook's ref-backed isFolderGroupRow; a
+    // localLayers.find() would re-create this callback (and every row) on the
+    // frames the memoization targets.
     if (layers.isFolderGroupRow(layerId)) {
       layers.dispatchLayerAction({
         type: 'toggle_group_visibility',
@@ -1237,9 +1121,7 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
   }, [layers.handleAddDataset, handleSelectLayer]);
 
-  // handleToggleExpand already toggles-on-same-id (prev === id → close), so the
-  // old `expandedLayerId === 'settings' ? '' : 'settings'` ternary was
-  // redundant AND made the lambda depend on expandedLayerId.
+  // handleToggleExpand already closes on the same id.
   const handlePanelSettingsClick = useCallback(() => {
     layers.handleToggleExpand('settings');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
@@ -1249,18 +1131,13 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // DnD handlers hoisted from UnifiedStackPanel — same behavior,
-  // lifted to MapBuilderPage so BuilderDialogs (catalog modal) shares the context.
-  // Preserve activationConstraint distance:8 and closestCenter verbatim.
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
-    // Drag + multi-select are mutually exclusive. Clear selection at drag-start.
     resetMultiSelection();
     lastToggleAnchor.current = null;
     document.documentElement.classList.add('dragging-active');
     lastOverIdRef.current = null;
-    // Announce pick-up for catalog drags
     const data = event.active.data.current as { source?: string; name?: string } | undefined;
     if (data?.source === 'catalog' && data.name) {
       announce(t('a11y.dragPickup', { name: data.name }));
@@ -1272,7 +1149,6 @@ export function MapBuilderPage() {
     document.documentElement.classList.remove('dragging-active');
     lastOverIdRef.current = null;
     const { active, over } = event;
-    // If dropped outside any droppable, cancel cleanly with no action.
     if (!over) {
       const data = active.data.current as { source?: string; name?: string } | undefined;
       if (data?.source === 'catalog') {
@@ -1281,7 +1157,6 @@ export function MapBuilderPage() {
       return;
     }
 
-    // --- Catalog drop (cross-context: from Add Dataset modal) ---
     const data = active.data.current as
       | { source?: string; datasetId?: string; recordType?: string; name?: string }
       | undefined;
@@ -1291,22 +1166,19 @@ export function MapBuilderPage() {
       if (!datasetId) return;
       const overId = String(over.id);
 
-      // Case 3: non-basemap row dropped onto the basemap group row → silent reject.
-      // (Basemaps are no longer draggable from the catalog; basemap swaps go through the
-      // left-pane BasemapGroupEditorScene flyout instead.)
+      // Basemap swaps go through the BasemapGroupEditorScene flyout, so a
+      // catalog drop onto the basemap row is rejected.
       if (basemapGroup && overId === basemapGroup.id) {
         announce(t('a11y.dragCancelled'));
         return;
       }
 
-      // Cases 4 & 5: non-basemap row dropped onto a folder-group or loose row.
-      // When target is a folder group, parentGroupId is set so the new layer joins the group.
+      // Dropping onto a folder group makes the new layer join that group.
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
-      // Announce the REAL landing position — loose catalog
-      // drops always PREPEND at top (position 1), and group drops land
-      // after the group's last existing child; the drop-target index the SR
-      // heard before was a lie for every drop below row 1.
+      // Announce the REAL landing position: loose catalog drops PREPEND at the
+      // top (position 1) and group drops land after the group's last child, so
+      // the drop-target index would be wrong below row 1.
       let announcePosition = 1;
       if (parentGroupId) {
         const stack = layers.localLayers;
@@ -1320,33 +1192,21 @@ export function MapBuilderPage() {
         }
         announcePosition = (lastChildIdx >= 0 ? lastChildIdx + 1 : groupIdx + 1) + 1;
       }
-      // Announce fires inside onSuccessCb — only after the async mutation resolves
-      // successfully. If the mutation errors, the hook fires toast.error and the announce
-      // is never called, avoiding contradictory screen-reader output.
-      // Modal stays open — onSuccessCb is not used to auto-select the layer.
+      // The announce runs in onSuccessCb, after the mutation succeeds; on error
+      // the hook toasts instead, so screen readers never hear a contradiction.
       layers.handleAddDataset(datasetId, () => {
         announce(t('a11y.dragDropped', { name: datasetName, n: announcePosition }));
       }, parentGroupId, datasetName);
       return;
     }
 
-    // --- Intra-stack reorder ---
     if (active.id === over.id) return;
 
-    // Basemap row drag — encode position in
-    // MapBasemapConfig.basemap_position. Basemap is not in localLayers, so the
-    // standard arrayMove path below cannot reorder it. Determine the new
-    // position by comparing the drop target's index to the basemap's current
-    // position:
-    //   - basemap dragged onto ANY layer when currently 'bottom' → 'top'
-    //   - basemap dragged onto ANY layer when currently 'top' → 'bottom'
-    // This 2-position toggle matches the design contract; for visual feedback
-    // the basemap row jumps to the opposite end of the stack on drop.
+    // The basemap is not in localLayers, so arrayMove can't reorder it. Its
+    // position (MapBasemapConfig.basemap_position) is a two-way toggle: a drop
+    // on any layer flips 'bottom' to 'top' and back.
     const currentLayers = layers.localLayers;
     if (basemapGroup && active.id === basemapGroup.id) {
-      // Sliding the basemap onto itself is a no-op (early-returned by the
-      // active.id === over.id check above), so here we know `over.id` is some
-      // other row id.
       const currentPosition = basemapState.config.basemap_position ?? 'bottom';
       const nextPosition = currentPosition === 'top' ? 'bottom' : 'top';
       applyBasemapPatch(setBasemapPosition(basemapState, nextPosition));
@@ -1357,15 +1217,12 @@ export function MapBuilderPage() {
       return;
     }
 
-    // Standard intra-stack reorder for non-basemap drags.
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    // Dragging a folder group row moves the WHOLE group block (the row +
-    // all its child layers) atomically, so a single-row arrayMove can never
-    // split the group by leaving its children behind. Loose/child row drags are
-    // unchanged (the simple arrayMove below).
+    // Dragging a folder group row moves the WHOLE block (row plus children), so
+    // a single-row arrayMove can't split the group.
     const activeLayer = currentLayers[oldIndex];
     if (isFolderGroupLayer(activeLayer)) {
       const groupId = String(active.id);
@@ -1375,12 +1232,10 @@ export function MapBuilderPage() {
           (l as { parent_group_id?: string | null }).parent_group_id === groupId,
       );
       const blockIds = new Set(block.map((l) => l.id));
-      // Dropping a group onto itself or one of its own children is a no-op.
       if (blockIds.has(String(over.id))) return;
       const remaining = currentLayers.filter((l) => !blockIds.has(l.id));
       const targetIdx = remaining.findIndex((l) => l.id === over.id);
-      // Moving downward inserts the block AFTER the drop target (matching the
-      // single-row arrayMove feel); moving upward inserts before it.
+      // Moving down inserts AFTER the drop target (like arrayMove), up before.
       const insertIdx =
         targetIdx < 0
           ? remaining.length
@@ -1396,11 +1251,9 @@ export function MapBuilderPage() {
       return;
     }
 
-    // Derive group membership from the drop target — the
-    // bare arrayMove never touched parent_group_id, so dragging a child out
-    // of its group was a silent no-op (childrenByGroup renders by membership,
-    // not array position, so the row snapped back) and a loose layer dropped
-    // between group children never joined the group.
+    // Group membership comes from the drop target: arrayMove alone leaves
+    // parent_group_id untouched, and childrenByGroup renders by membership, so
+    // a child dragged out of its group would snap back.
     const overLayer = currentLayers[newIndex];
     const currentGroupId = getParentGroupId(activeLayer);
     const targetGroupId = resolveDropGroupMembership(activeLayer, overLayer);
@@ -1411,8 +1264,8 @@ export function MapBuilderPage() {
         return {
           ...l,
           parent_group_id: targetGroupId,
-          // Leaving a group also clears the persisted folderGroupId — mirrors
-          // handleMoveLayerOutOfGroup.
+          // Leaving a group also clears the persisted folderGroupId, as
+          // handleMoveLayerOutOfGroup does.
           ...(targetGroupId === null
             ? { style_config: clearPersistedFolderGroup(l.style_config) }
             : {}),
@@ -1434,8 +1287,7 @@ export function MapBuilderPage() {
     announce(t('a11y.dragCancelled'));
   }, [announce, t]);
 
-  // Announce position updates during catalog drag (best-effort).
-  // Only fires when the over-target changes (via lastOverIdRef) to avoid excessive spam.
+  // Catalog-drag position updates, only when the over-target changes.
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const data = event.active.data.current as { source?: string } | undefined;
     if (data?.source !== 'catalog') return;
@@ -1448,14 +1300,12 @@ export function MapBuilderPage() {
     announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
   }, [layers.localLayers, announce, t]);
 
-  // dnd-kit's DEFAULT announcements are hardcoded English built
-  // from the draggable id — every drag would emit "Picked up draggable item
-  // <uuid>…" into dnd-kit's own live region, in English regardless of locale,
-  // competing with the app's localized announce() region. Announce translated,
-  // human layer names instead. Catalog drags return undefined: their pickup /
-  // position / drop already flow through announce() above (the drop
-  // deliberately fires only AFTER the add-dataset mutation resolves — see
-  // handleDragEnd — which dnd-kit's synchronous onDragEnd cannot honor).
+  // dnd-kit's default announcements are English and built from the draggable
+  // id ("Picked up draggable item <uuid>"), competing with the localized
+  // announce() region. Announce translated layer names instead. Catalog drags
+  // return undefined: they flow through announce(), whose drop fires only
+  // after the add-dataset mutation resolves, which dnd-kit's synchronous
+  // onDragEnd cannot honor.
   const dndAccessibility = useMemo(() => {
     const isCatalogDrag = (active: Active) =>
       (active.data.current as { source?: string } | undefined)?.source === 'catalog';
@@ -1506,9 +1356,8 @@ export function MapBuilderPage() {
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
-    // Return focus to the element that triggered the flyout.
-    // - Settings panel: return focus to the cog button (data-testid="settings-cog-btn")
-    // - Layer editor: return focus to the row (stack-row-{id})
+    // Return focus to what opened the flyout: the settings cog button or the
+    // layer's stack row.
     if (expandedId === 'settings') {
       requestAnimationFrame(() => {
         const cogEl = document.querySelector<HTMLElement>('[data-testid="settings-cog-btn"]');
@@ -1516,10 +1365,8 @@ export function MapBuilderPage() {
       });
     } else if (expandedId) {
       requestAnimationFrame(() => {
-        // The row can be gone by the time focus returns (e.g. the
-        // layer was deleted from the editor footer). Falling back to the first
-        // stack row keeps keyboard focus in the panel instead of dropping it
-        // on <body>.
+        // The row may be gone (layer deleted from the editor footer); falling
+        // back to the first stack row keeps focus out of <body>.
         const rowEl = document.getElementById(`stack-row-${expandedId}`)
           ?? document.querySelector<HTMLElement>('[data-row-id]');
         rowEl?.focus();
@@ -1528,27 +1375,24 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs
   }, [layers.handleToggleExpand, layers.expandedLayerId]);
 
-  // Open Add Data modal for "Add layer" in folder group (groupId is not forwarded yet)
+  // groupId is not forwarded to the dialog yet.
   const handleAddLayerToFolderGroup = useCallback((_groupId: string) => {
     handleAddDataClick();
   }, [handleAddDataClick]);
 
-  // Breadcrumb click — navigate editor from Scene C → Scene B
   const onBreadcrumbClick = useCallback(() => {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Resolve the bound terrain DEM the SAME way the map renderer (BuilderMap)
-  // does: by source_dataset_id + isTerrainCapableDemLayer, NOT by
-  // render_mode === 'terrain'. A hillshade-mode DEM drives the 3D mesh too, so
-  // requiring terrain mode here made the settings report "No terrain layer is
-  // active" while the map was actively rendering terrain from it.
+  // Resolved the same way BuilderMap does: by source_dataset_id +
+  // isTerrainCapableDemLayer, NOT render_mode === 'terrain', since a
+  // hillshade-mode DEM drives the 3D mesh too.
   const boundTerrainLayer = useMemo(
     () => resolveTerrainSourceLayer(layers.localLayers, layers.localTerrainConfig),
     [layers.localLayers, layers.localTerrainConfig],
   );
-  // Match the map's effectiveTerrainEnabled: terrain only renders when the bound
-  // DEM is also visible (BuilderMap sets terrain to null for a hidden DEM).
+  // Matches BuilderMap's effectiveTerrainEnabled: terrain only renders when the
+  // bound DEM is visible.
   const isTerrainActive = Boolean(
     layers.localTerrainConfig?.enabled && boundTerrainLayer && boundTerrainLayer.visible !== false,
   );
@@ -1556,11 +1400,9 @@ export function MapBuilderPage() {
     ? (boundTerrainLayer.display_name ?? boundTerrainLayer.dataset_name ?? undefined)
     : undefined;
 
-  // A DEM whose 2D relief overlay is off (render_mode 'terrain')
-  // paints nothing unless it is the ACTIVE 3D terrain source. When it isn't, the
-  // stack row would show a normal eye-on layer that draws nothing — flag those
-  // so the row stays honest. Skip already-hidden rows (their eye is off, which
-  // already reads as "not shown").
+  // A DEM with its 2D relief overlay off (render_mode 'terrain') paints nothing
+  // unless it is the ACTIVE 3D terrain source; flag those rows so an eye-on row
+  // doesn't draw nothing silently. Already-hidden rows are skipped.
   const drawsNothingLayerIds = useMemo(() => {
     const ids = new Set<string>();
     const activeMeshId = isTerrainActive ? boundTerrainLayer?.id : undefined;
@@ -1573,16 +1415,13 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
-  // Scene-specific content + footer for LayerEditorPanel
-  // Computed after handleSelectLayer and handleAddDataClick are in scope
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
   let breadcrumbPresetName: string | undefined = undefined;
 
   if (editorScene === 'basemap-group' && basemapGroup) {
-    // Exclude BLANK_BASEMAP_ID from the presets list — the component renders
-    // a dedicated "No basemap" card before the presets loop; including 'blank' in both
-    // would produce a duplicate card if an admin ever adds it to the basemaps catalog.
+    // The scene renders its own "No basemap" card; including 'blank' would
+    // duplicate it.
     const presets = basemaps
       .filter((b) => b.id !== BLANK_BASEMAP_ID)
       .map((b) => ({
@@ -1603,9 +1442,7 @@ export function MapBuilderPage() {
               applyBasemapPatch(swapBasemapPreset(basemapState, presetId));
               layers.markDirty();
             }}
-            // onAddCustomBasemap intentionally omitted — custom-basemap support is a
-            // follow-up. With the prop optional, the button stays hidden until a real
-            // handler is wired up here (was a visible no-op stub).
+            // onAddCustomBasemap is omitted so its button stays hidden.
             onSublayerVisibilityChange={handleToggleSublayerVisibility}
             onSublayerOpacityChange={handleSublayerOpacityChange}
             onMasterOpacityChange={(opacity) => {
@@ -1633,9 +1470,8 @@ export function MapBuilderPage() {
     const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
     breadcrumbPresetName = basemapGroup.presetName;
     if (sublayer) {
-      // Translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
-      // key ('road') used in basemap_config.sublayer_overrides so reads and writes are
-      // consistent with what applySublayerOverrides expects from SUBLAYER_CLASSIFIERS.
+      // Maps the UI routing id ('basemap:roads') to the bare key ('road') that
+      // basemap_config.sublayer_overrides and applySublayerOverrides use.
       const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayer.id] ?? sublayer.id;
       sceneContent = (
         <LazyLoadErrorBoundary>
@@ -1755,7 +1591,6 @@ export function MapBuilderPage() {
         </Suspense>
       </LazyLoadErrorBoundary>
     );
-    // DEMEditorScene renders its own footer (Delete layer inline confirm)
   } else if (editorScene === 'settings') {
     sceneContent = (
       <LazyLoadErrorBoundary>
@@ -1817,35 +1652,25 @@ export function MapBuilderPage() {
     );
   }
 
-  // Three-column grid classes for the builder body.
-  // Column 1: sidebar (340px full or 64px rail at <1100px)
-  // Column 2: LayerEditorPanel flyout (380px, only when layer selected AND viewport >= 800px)
-  // Column 3 (or 2 when no editor): map canvas (1fr)
-  //
-  // Sidebar/editor widths are fixed and
-  // breakpoint-driven BY DESIGN — no user drag-resize, no persisted width.
-  // The three-column budget is tuned per breakpoint (340/380px columns keep
-  // the map ≥50% at 1280px) and a resizable panel would invalidate the
-  // responsive contract the e2e suite pins. Revisit only with a product ask.
+  // Columns: sidebar (340px, or a 64px rail below 1100px), the 380px editor
+  // flyout (only with a layer selected and viewport >= 800px), then the map.
+  // Widths are fixed and breakpoint-driven by design: the budget keeps the map
+  // at >=50% at 1280px, and a resizable panel would break the responsive
+  // contract the e2e suite pins.
   const builderBodyGridClass = cn(
     'flex-1 min-h-0 grid',
-    // Base: no editor open
     isRail ? 'grid-cols-[64px_1fr]' : 'grid-cols-[340px_1fr]',
-    // Editor open and not hidden (also for basemap group/sublayer/settings scenes which have no editingLayer)
+    // Also covers basemap/settings scenes, which have no editingLayer.
     isEditorOpen && !isEditorHidden && (
       isRail ? 'grid-cols-[64px_380px_1fr]' : 'grid-cols-[340px_380px_1fr]'
     ),
   );
 
   return (
-    // Fill the flex space <main> leaves (navbar + demo banner + footer), rather
-    // than a hardcoded 100vh-navbar calc that ignored the demo banner and made
-    // the whole page scroll. Matches PublicMapViewerPage's flex-1/min-h-0 layout.
+    // Fills the flex space <main> leaves (navbar, demo banner and footer
+    // included), like PublicMapViewerPage.
     <div className="flex flex-col flex-1 min-h-0">
-      {/* An sr-only aria-live region for keyboard/mouse catalog drag announcements.
-          Renders at root of the builder so screen readers in any panel can read it.
-          Zero-width-space + timestamp suffix in dragAnnouncement forces aria-live re-fire on
-          identical consecutive messages (e.g. two "Drop cancelled." announcements). */}
+      {/* Root-level so screen readers in any panel can read drag announcements. */}
       <div
         className="sr-only"
         role="status"
@@ -1855,17 +1680,15 @@ export function MapBuilderPage() {
       >
         {dragAnnouncement}
       </div>
-      {/* The builder's heading outline started at <h2>. The
-          map name is an editable <input>, not a heading, so this sr-only <h1>
-          anchors the outline without altering the visible title bar. */}
+      {/* The map name is an editable <input>, not a heading, so this sr-only <h1>
+          anchors the outline. */}
       <h1 className="sr-only">
         {mapData?.name
           ? t('titleBar.builderHeading', { name: mapData.name, defaultValue: 'Map builder: {{name}}' })
           : t('common:pageTitle.mapBuilder')}
       </h1>
-      {/* Below 768px the top bar cramps and the
-          builder isn't a real editing surface; tell the user rather than
-          presenting a broken-looking layout. */}
+      {/* Below 768px the builder isn't a real editing surface; say so rather than
+          present a broken-looking layout. */}
       {isMobile && (
         <div
           role="status"
@@ -1893,18 +1716,15 @@ export function MapBuilderPage() {
           onShowInfo: () => dialogs.setShowInfo(true),
           onFork: save.handleFork,
           isForkPending: save.isForkPending,
-          // New tab so the editor's in-progress builder session
-          // (and any unsaved-changes nav guard) is untouched.
+          // New tab, so this session and its unsaved-changes guard are untouched.
           onViewAsViewer: id
             ? () => window.open(`/maps/${id}?preview=viewer`, '_blank', 'noopener,noreferrer')
             : undefined,
         }}
       />
 
-      {/* Single DndContext wraps sidebar (UnifiedStackPanel) and
-          BuilderDialogs (Add Dataset modal) so catalog→stack drag shares one
-          collision-detection scope. Sensors declared via useSensors
-          at MapBuilderPage level so identity is stable across renders. */}
+      {/* One DndContext wraps the sidebar and the Add Dataset modal so
+          catalog→stack drags share a collision-detection scope. */}
       <DndContext
         sensors={dndSensors}
         accessibility={dndAccessibility}
@@ -1930,8 +1750,7 @@ export function MapBuilderPage() {
           aria-label={t('layers.title')}
           className="border-e bg-background flex flex-col overflow-hidden"
         >
-          {/* Recoverable boundary — a stack-panel render
-              error must not take down the whole builder (map + chat stay up). */}
+          {/* A stack-panel render error must not take down the map and chat. */}
           <PanelErrorBoundary panelId="builder-sidebar">
           {isRail ? (
             <SidebarRail
@@ -1950,17 +1769,11 @@ export function MapBuilderPage() {
           ) : (
             <UnifiedStackPanel
               layers={layers.localLayers}
-              // Drives the per-layer "hidden from public viewers"
-              // badge — mapData is undefined only during initial load, before
-              // the stack panel has anything to render anyway.
+              // Drives the per-layer "hidden from public viewers" badge.
               mapVisibility={mapData?.visibility}
               drawsNothingLayerIds={drawsNothingLayerIds}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
-              // fix(v1.6.0 audit D7): the row handlers here are memoized
-              // useCallbacks (defined next to handleSelectLayer) — the previous
-              // inline lambdas re-created every render and defeated the
-              // UnifiedStackPanel → StackRow memo chain.
               onToggleVisibility={handleRowToggleVisibility}
               onReorder={handleRowReorder}
               onOpacityChange={handleRowOpacityChange}
@@ -1974,8 +1787,7 @@ export function MapBuilderPage() {
               onBulkApplyStyle={handleBulkApplyStyle}
               copiedStyleGeometryClass={layers.copiedStyleGeometryClass}
               onKeyboardReorder={handleRowKeyboardReorder}
-              // The keyboard reorder mode shares the pointer
-              // path's aria-live region instead of staying silent.
+              // Keyboard reorder shares the pointer path's aria-live region.
               onAnnounce={announce}
               onAddDataClick={handleAddDataClick}
               onAddDataset={handlePanelAddDataset}
@@ -2002,8 +1814,7 @@ export function MapBuilderPage() {
               selectedIds={selectedIds}
               isMultiSelectionActive={isMultiSelectionActive}
               selectableRowIds={selectableRowIds}
-              // Hybrid-controlled search so selectableRowIds above
-              // tracks exactly what the panel renders.
+              // Keeps selectableRowIds in step with what the panel renders.
               layerSearch={layerSearch}
               onLayerSearchChange={setLayerSearch}
               onCmdClick={handleCmdClick}
@@ -2019,16 +1830,14 @@ export function MapBuilderPage() {
               deletingCount={layers.deletingCount}
               freshLayerId={layers.freshLayerId}
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
-              // The ephemeral preview as a non-persisting row pinned
-              // above the sortable region. Not a member of `layers`, so it can
-              // never be reordered, styled, grouped, or saved into the map.
+              // A non-persisting row pinned above the sortable region; not in
+              // `layers`, so it can't be reordered, styled, grouped or saved.
               preview={previewRowProps}
             />
           )}
           {/* Sidebar-placement plugins render below the layer stack. No built-in
-              uses { mode: 'sidebar' } today, so PluginSidebar returns null and
-              this is inert — but it keeps the declared sidebar placement mode
-              actually reachable for third-party plugins. */}
+              uses it, so this is inert, but it keeps the placement reachable
+              for third-party plugins. */}
           {!isRail && <PluginSidebar plugins={sidebarPlugins} ctx={pluginCtx} />}
           </PanelErrorBoundary>
         </aside>
@@ -2041,10 +1850,9 @@ export function MapBuilderPage() {
             aria-label={t('layerEditor.tabsLabel')}
             className="border-e bg-background flex flex-col overflow-hidden"
             onKeyDown={(e) => {
-              // Escape closes the desktop editor flyout;
-              // the <800px Sheet gets this from Radix for free. Only fires when
-              // focus is inside the flyout; nested Radix popovers/selects portal
-              // to <body>, so an open picker's Escape never reaches this aside.
+              // Closes the desktop flyout (the <800px Sheet gets Escape from
+              // Radix). Nested Radix popovers/selects portal to <body>, so an
+              // open picker's Escape never reaches this aside.
               if (e.key === 'Escape' && !e.defaultPrevented) {
                 e.stopPropagation();
                 handleCloseEditor();
@@ -2084,16 +1892,11 @@ export function MapBuilderPage() {
               side="right"
               overlay={false}
               showCloseButton={false}
-              /* Suppress shadcn Sheet's
-                 built-in auto-close X. The wrapped LayerEditorPanel already
-                 owns its canonical close affordance (header X at
-                 LayerEditorPanel.tsx:316-325 with aria-label
-                 "Close layer editor"). Pre-fix this overlay rendered TWO
-                 close buttons. See regression test
+              /* LayerEditorPanel owns the close button ("Close layer editor"), so
+                 suppress the Sheet's built-in X. See
                  MapBuilderPage.sheet-close-button.test.tsx. */
-              // 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
-              // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
-              // `top-left`; this is the sidebar-side fix.
+              // The 48px top offset keeps the Sheet clear of the top-left
+              // NavigationControl at <=800px.
               className="mt-12 h-[calc(100%-3rem)] w-full max-w-[380px] p-0 flex flex-col"
             >
               <SheetHeader className="sr-only">
@@ -2133,8 +1936,7 @@ export function MapBuilderPage() {
             <Suspense fallback={<LoadingState />}>
               <BuilderMap
                 layers={layers.localLayers}
-                // When the basemap is toggled off (session-local),
-                // render the blank basemap so imagery disappears while data layers remain.
+                // Hiding the basemap keeps data layers and drops the imagery.
                 basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}
                 initialViewState={layers.initialViewState}
                 terrainConfig={basemapState.terrainConfig}
@@ -2177,16 +1979,14 @@ export function MapBuilderPage() {
                   disabled={btn.disabled}
                   data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
-                  // Notes-presence folds into the button's own
-                  // accessible name (aria-label replaces the subtree, so a
-                  // label on the dot span was never exposed).
+                  // aria-label replaces the subtree, so the notes-presence state
+                  // lives in the name rather than on the dot span.
                   aria-label={
                     btn.id === 'notes' && dockNotes.trim().length > 0
                       ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
                       : btn.label
                   }
                   aria-pressed={railPanel === btn.id}
-                  // Mirrors BuilderRail's job signal.
                   aria-busy={btn.id === 'analysis' && analysisJobRunning}
                   className={cn(
                     'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
@@ -2202,11 +2002,9 @@ export function MapBuilderPage() {
                   ) : (
                     <btn.icon className="h-4 w-4" aria-hidden="true" />
                   )}
-                  {/* Presence dot on mobile Notes button — mirrors the
-                      BuilderRail rail-button dot.
-                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps
-                      parity at 414×896. Decorative: the state is announced via
-                      the button's conditional aria-label above. */}
+                  {/* Mobile counterpart of BuilderRail's notes dot (the rail is
+                      hidden at <800px). Decorative: the aria-label above carries
+                      the state. */}
                   {btn.id === 'notes' && dockNotes.trim().length > 0 && (
                     <span
                       aria-hidden="true"
@@ -2232,8 +2030,7 @@ export function MapBuilderPage() {
       </div>
 
       {/* Right rail + panel */}
-      {/* Boundary parity with the sidebar/map — a
-          HistoryPanel/Notes render error must not take down the builder. */}
+      {/* A HistoryPanel/Notes render error must not take down the builder. */}
       {!isEditorHidden && (
         <PanelErrorBoundary panelId="builder-rail">
           <BuilderRail {...railProps} />
@@ -2246,13 +2043,10 @@ export function MapBuilderPage() {
           <SheetContent
             side="right"
             showCloseButton={false}
-            /* Suppress shadcn Sheet's
-               built-in auto-close X. The wrapped BuilderRail expanded panel
-               already owns its canonical close affordance (ChevronRight at
-               BuilderRail.tsx:125-132 with aria-label "Close panel"). */
-            // 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
-            // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
-            // `top-left`; this is the sidebar-side fix.
+            /* BuilderRail's panel owns the close button ("Close panel"), so
+               suppress the Sheet's built-in X. */
+            // The 48px top offset keeps the Sheet clear of the top-left
+            // NavigationControl at <=800px.
             className="mt-12 h-[calc(100%-3rem)] w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
           >
             <SheetHeader className="sr-only">
@@ -2276,8 +2070,7 @@ export function MapBuilderPage() {
           dialogs.setShowAddData(open);
           if (!open) {
             dialogs.setAddDataInitialQuery('');
-            // The deferred editor-open — once per dialog session,
-            // on the most recently added layer.
+            // Deferred editor-open: once per dialog session, on the last add.
             if (pendingEditorLayerIdRef.current) {
               handleSelectLayer(pendingEditorLayerIdRef.current);
               pendingEditorLayerIdRef.current = null;
@@ -2285,18 +2078,15 @@ export function MapBuilderPage() {
           }
         }}
         addDataInitialQuery={dialogs.addDataInitialQuery}
-        // The click that dismisses the dialog picks its own target, so the
-        // deferred editor-open would otherwise race (and toggle shut) a click
-        // on the layer just added.
+        // The dismissing click picks its own target; the deferred editor-open
+        // would race it and toggle the editor shut.
         onAddDataPointerDownOutside={() => {
           pendingEditorLayerIdRef.current = null;
         }}
         onAddDataset={(datasetId: string) => {
           layers.handleAddDataset(datasetId, (newLayerId) => {
-            // Keep the dialog open for multi-add: the row flips to "Added"
-            // and Escape, an outside click or the close button still close
-            // it. The editor opens on close (see onShowAddDataChange above)
-            // instead of landing behind the dialog.
+            // The dialog stays open for multi-add; the editor opens on close
+            // (see onShowAddDataChange) instead of behind the dialog.
             pendingEditorLayerIdRef.current = newLayerId;
           });
         }}
@@ -2307,9 +2097,7 @@ export function MapBuilderPage() {
         })}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}
-        // Which dataset is in flight — the global isAdding
-        // flag disabled every Add button with no per-row feedback, so the user
-        // couldn't tell whether their click registered.
+        // Per-row feedback; the global isAdding disables every Add button.
         addingDatasetId={addLayer.isPending ? (addLayer.variables?.data?.dataset_id ?? null) : null}
         showShare={dialogs.showShare}
         onShowShareChange={dialogs.setShowShare}
@@ -2324,10 +2112,8 @@ export function MapBuilderPage() {
 
       </DndContext>
 
-      {/* Gate the StyleJsonDialog mount on `showStyleJson`,
-          not just on `id`. The previous form always mounted the dialog (it just
-          returned null when closed), which made React.lazy() resolve the import
-          on initial builder paint — defeating the whole lazy-load split. */}
+      {/* Mounted only while open: an always-mounted lazy component resolves its
+          import on first paint and the split buys nothing. */}
       {id && showStyleJson && (
         <LazyLoadErrorBoundary>
           <Suspense fallback={null}>
@@ -2341,10 +2127,8 @@ export function MapBuilderPage() {
         </LazyLoadErrorBoundary>
       )}
 
-      {/* Snapshot a chat query preview into a real dataset.
-          Mounted only while open, for the same reason StyleJsonDialog above is
-          — an always-mounted lazy component resolves its import on first paint
-          and the split buys nothing. */}
+      {/* Snapshots a chat query preview into a real dataset. Mounted only while
+          open, like StyleJsonDialog above. */}
       {chatSaveDraft && (
         <LazyLoadErrorBoundary>
           <Suspense fallback={null}>
@@ -2358,8 +2142,7 @@ export function MapBuilderPage() {
         </LazyLoadErrorBoundary>
       )}
 
-      {/* Keyboard shortcut cheat-sheet overlay.
-          Not lazy-loaded — component is small and needed on first ? keypress. */}
+      {/* Not lazy-loaded: small, and needed on the first ? keypress. */}
       <KeyboardShortcutsSheet
         open={showShortcuts}
         onOpenChange={setShowShortcuts}

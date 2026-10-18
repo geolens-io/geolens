@@ -62,8 +62,7 @@ export function SettingsPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('settings.storage.storageUsed')}</span>
                   <span className="font-medium">
-                    {/* A failed usage query used to read the
-                        same '—' as a legitimately empty account. Distinguish. */}
+                    {/* A failed usage query must not read like an empty account. */}
                     {usage
                       ? usage.storage_cap > 0
                         ? `${formatBytes(usage.bytes_used)} / ${formatBytes(usage.storage_cap)}`
@@ -83,8 +82,8 @@ export function SettingsPage() {
                 ) : usage ? (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
                 ) : null}
-                {/* #347: file storage only meters uploaded file bytes, so a
-                    vector-only account reads 0 B despite having datasets. */}
+                {/* File storage meters only uploaded bytes, so a vector-only
+                    account reads 0 B despite having datasets. */}
                 {usage && usage.bytes_used === 0 && usage.dataset_count > 0 && (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.fileStorageNote')}</p>
                 )}
@@ -110,9 +109,8 @@ export function SettingsPage() {
                 ) : usage ? (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
                 ) : null}
-                {/* #347: the dataset cap is enforced at upload only, so an
-                    account can sit above a later-lowered cap (e.g. 18 / 10).
-                    Label it instead of letting it read as a broken counter. */}
+                {/* The cap is enforced at upload only, so a later-lowered cap can
+                    leave an account above it (e.g. 18 / 10); label that. */}
                 {usage && usage.count_cap > 0 && usage.dataset_count > usage.count_cap && (
                   <p className="text-xs text-destructive">{t('settings.storage.overLimit')}</p>
                 )}

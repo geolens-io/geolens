@@ -151,11 +151,10 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
-  // Quicklook: useQuicklook solves the Bearer-JWT mismatch — <img src> requests
-  // do NOT carry the Authorization header, so private-dataset quicklooks 404'd
-  // anonymously. useQuicklook routes the fetch through apiFetchBlob (Bearer-
-  // attached) and returns a blob URL. Genuine file-missing
-  // 404s are cached in quicklook-cache.ts for the session so we skip re-fetching.
+  // <img src> requests carry no Authorization header, so private-dataset
+  // quicklooks would 404 anonymously. useQuicklook fetches through apiFetchBlob
+  // (Bearer attached) and returns a blob URL; genuine file-missing 404s are
+  // cached in quicklook-cache.ts for the session.
   const featureId = feature.id as string;
   const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
   const { url: quicklookBlobUrl } = useQuicklook(
@@ -164,7 +163,6 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
     properties.quicklook_version ?? null,
   );
 
-  // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
   const noUpdateMetadataLabel = t('card.noUpdateMetadata', { defaultValue: 'No update metadata' });
 
@@ -196,12 +194,10 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
       .filter((keyword) => keyword !== '' && keyword !== 'synthetic' && keyword !== 'perf-seed') ?? []
     : [];
 
-  // Footer status badge — only for non-collection, non-published records
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
 
-  // Warm the dataset detail query on hover/focus so the
-  // navigation doesn't pay chunk + query serially after the click. Cheap:
-  // prefetchQuery is a no-op when the data is already fresh.
+  // Warms the detail query on hover/focus so navigation doesn't pay chunk and
+  // query serially; prefetchQuery is a no-op when the data is fresh.
   const prefetchDetail = () => {
     if (isCollection) return;
     queryClient.prefetchQuery({

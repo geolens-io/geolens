@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSearchStore } from '@/stores/search-store';
 
-// The search workspace lives at the root path after the landing
-// page was removed. Previously this was "/search" with a redirect shim.
+// The search workspace lives at the root path.
 const SEARCH_WORKSPACE_PATH = '/';
 
 /**
@@ -13,7 +12,6 @@ const SEARCH_WORKSPACE_PATH = '/';
 export function useUrlSearchSync() {
   const isRestoringRef = useRef(false);
 
-  // On mount: read URL params and restore into store
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const parsed: Record<string, string> = {};
@@ -40,7 +38,6 @@ export function useUrlSearchSync() {
     }
   }, []);
 
-  // Subscribe to store changes and push to URL
   useEffect(() => {
     const unsub = useSearchStore.subscribe(() => {
       if (isRestoringRef.current) return;
@@ -49,7 +46,7 @@ export function useUrlSearchSync() {
       const urlParams = new URLSearchParams();
       for (const [key, value] of Object.entries(storeParams)) {
         if (key === 'keywords' && value) {
-          // Use repeated params to match API format for bookmarkability
+          // Repeated params match the API format and keep URLs bookmarkable.
           for (const kw of value.split(',')) {
             if (kw) urlParams.append('keywords', kw);
           }

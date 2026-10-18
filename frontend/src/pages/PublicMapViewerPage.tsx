@@ -3,8 +3,7 @@ import { useParams } from 'react-router';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-// lazy-load ViewerMap so map-vendor chunk fetch
-// is deferred until the share-token resolves and rendering is imminent.
+// Lazy so the map-vendor chunk is deferred until rendering is imminent.
 const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
@@ -49,13 +48,11 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     dem_vertical_units: layer.dem_vertical_units ?? null,
     is_3d: layer.is_3d ?? null,
     feature_count: layer.dataset_feature_count ?? null,
-    // Without the version stamp the anonymous viewer builds tile
-    // URLs with no _v= cache-buster, so in-place dataset refreshes (e.g.
-    // seed-showcase.py --refresh-quakes) keep serving stale tiles from cache.
+    // Without the stamp, tile URLs carry no _v= cache-buster and in-place
+    // dataset refreshes keep serving stale cached tiles.
     tile_version: layer.tile_version ?? null,
-    // This adapter drops anything it does not list, so the credit
-    // line has to be copied explicitly or /maps/{id} renders no attribution
-    // while the share link for the same map does.
+    // The adapter drops unlisted fields; without this copy /maps/{id} renders
+    // no attribution while the share link does.
     dataset_attribution: layer.dataset_attribution ?? null,
     tile_url: '',
   };
@@ -109,9 +106,8 @@ function PublicMapViewer() {
   };
 
   return (
-    // This page renders inside AppLayout's <main id="main-content">, so it must
-    // not be a second <main> landmark. The id stays: MapErrorBoundary and CSS
-    // target #map-viewport, and the skip link keeps targeting #main-content.
+    // Inside AppLayout's <main id="main-content">, so not a second <main>
+    // landmark. The id stays: MapErrorBoundary and CSS target #map-viewport.
     <div id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
       <MapErrorBoundary className="absolute inset-0">
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
@@ -151,8 +147,8 @@ function PublicMapViewer() {
         className="absolute bottom-8 start-3 z-10"
       />
 
-      {/* Read-only "Ask AI" — self-gates on AI availability + use_ai_chat, so anonymous
-          and unpermitted viewers render nothing (PR #339 follow-up). */}
+      {/* Read-only "Ask AI"; self-gates on AI availability + use_ai_chat, so
+          anonymous and unpermitted viewers render nothing. */}
       {id && (
         <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
       )}

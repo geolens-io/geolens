@@ -38,9 +38,8 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
 
   return (
     <div className="space-y-0 min-w-44">
-      {/* Custom map-level legend title + edit affordance. The title row
-          renders only when a custom title exists OR the editor is open; the
-          pencil button is always present in editable (builder) contexts. */}
+      {/* Map-level legend title: the row shows only with a custom title or the
+          editor open; the pencil is always present in editable contexts. */}
       {(legendTitle || canEdit) && (
         <div className="flex items-center justify-between gap-1 pb-1" data-testid="legend-title-row">
           {legendTitle ? (
@@ -104,18 +103,17 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
         </div>
       )}
 
-      {/* A1: pin the synthetic terrain entry at the top, mirroring the stack's
-          relief:terrain row at the top of the relief/terrain group. */}
+      {/* The synthetic terrain entry is pinned at the top, like the stack's
+          relief:terrain row. */}
       {terrainEntry && (
         <div data-testid="legend-terrain-synthetic">
           <div className="p-1 text-xs">
             <div className="flex items-center gap-1.5">
-              {/* Same ◬ chip as the stack's terrain-mode DEM row —
-                  legend and layer-list icons must agree, so derive the glyph
-                  instead of hardcoding it. */}
+              {/* Derived, not hardcoded, so the legend glyph matches the stack's
+                  terrain-mode DEM row. */}
               <RasterGlyphChip glyph={demChipGlyph('terrain')} />
-              {/* Keep the bound DEM's identity — fall back to the
-                  generic "3D terrain" label only when the layer has no name. */}
+              {/* Falls back to the generic "3D terrain" label only when the
+                  bound DEM has no name. */}
               <span className="font-medium text-foreground truncate">
                 {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}
               </span>
@@ -233,9 +231,8 @@ function LegendLayerBody({
           </>
         ) : (
           <div className="flex items-center gap-1.5">
-            {/* One shared icon component with the layer stack —
-                raster/DEM rows get the same glyph chip (▦/⛰/◬) the stack
-                shows instead of a divergent lucide icon. */}
+            {/* Shared with the layer stack, so raster/DEM rows get the same
+                glyph chip. */}
             <LayerTypeIcon
               layer={{ ...layer, dataset_geometry_type: effectiveGeom }}
               iconId={`legend-plugin-${idx}`}

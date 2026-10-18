@@ -35,12 +35,9 @@ function MapLoadingFallback({ title }: { title: string }) {
  * Anonymous and signed-in viewer users see a read-only PublicMapViewerPage.
  * Each branch is lazy-loaded so public viewers never download editor code.
  *
- * Editors had no way to preview the read-only viewer UI short of
- * opening an incognito window / share link. `?preview=viewer` lets a user
- * WITH edit rights render PublicMapViewerPage instead — the "View as viewer"
- * item in MapTitleBar's overflow menu sets this param. Only takes effect for
- * users who canEdit; it is a no-op for viewers (who already see
- * PublicMapViewerPage).
+ * `?preview=viewer` lets a user WITH edit rights render PublicMapViewerPage
+ * (MapTitleBar's "View as viewer" item sets it). It is a no-op for viewers,
+ * who already see that page.
  *
  * NOT an anonymous-data preview: API calls still carry the editor's session,
  * so private-dataset layers they can access still load. Audience data
@@ -57,25 +54,21 @@ export function MapViewerGate() {
   const shouldCheckAccess = !!id && hasToken && !!user;
   const accessQuery = useMapAccess(id, { enabled: shouldCheckAccess });
 
-  // Own the title only for the gate's own loading/error UI below. A branch
-  // sets its own once it renders; asserting one here too can stomp it if
-  // both happen to mount in the same commit.
+  // Owns the title only for the gate's own loading/error UI; asserting one
+  // here too can stomp a branch's own if both mount in the same commit.
   const isOwnLoadingOrError =
     (hasToken && !user) ||
     (shouldCheckAccess && accessQuery.isLoading) ||
     (shouldCheckAccess && accessQuery.isError);
   useDocumentTitle(isOwnLoadingOrError ? t('pageTitle.map') : null);
 
-  // React.lazy() only fires its import() at first render of
-  // <MapBuilderPage/>, so the chunk download would serialize BEHIND the
-  // /map-access round trip on this route's likely-editor path — the same
-  // "vendor download serializes behind the page chunk" shape App.tsx already
-  // works around for MapViewerGate itself. Kick the download off in
-  // parallel with the access check when the optimistic branch (editor) is
-  // likely; a wrong guess (e.g. a downgraded editor) still renders the
-  // correct branch once accessQuery resolves, just without the head start.
-  // Viewers (editorFallback false) never trigger this, preserving the "public
-  // viewers never download editor code" property in the file's doc comment.
+  // React.lazy() fires its import() only at first render of <MapBuilderPage/>,
+  // so on the likely-editor path the chunk download would serialize BEHIND the
+  // /map-access round trip (the shape App.tsx works around for this gate).
+  // Start it in parallel when the editor branch is likely; a wrong guess still
+  // renders the right branch once accessQuery resolves, minus the head start.
+  // Viewers (editorFallback false) never trigger it, so public viewers never
+  // download editor code.
   useEffect(() => {
     if (hasToken && editorFallback) {
       void import('./MapBuilderPage');

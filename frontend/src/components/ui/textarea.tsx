@@ -2,12 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-/**
- * A shared textarea primitive. Eight-plus components had
- * hand-rolled `<textarea>` styles whose focus ring, radius, and padding all
- * drifted from each other and from `<Input>`. This mirrors input.tsx's
- * treatment so a textarea and an input read as the same control family.
- */
+/** Shared textarea primitive; mirrors input.tsx so both read as one control family. */
 const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.ComponentProps<"textarea">

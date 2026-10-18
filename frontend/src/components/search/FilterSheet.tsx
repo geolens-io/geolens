@@ -56,9 +56,7 @@ function MapPickerFallback() {
   );
 }
 
-/**
- * Parse an OGC datetime interval string into [start, end] for display.
- */
+/** Parse an OGC datetime interval into [start, end] for display. */
 function parseTemporalInterval(datetime: string): [string, string] {
   if (!datetime) return ['', ''];
   const parts = datetime.split('/');
@@ -77,13 +75,10 @@ interface FilterSheetProps {
 }
 
 /**
- * Mobile filter sheet -- condensed bar with chip row plus full-screen bottom
+ * Mobile filter sheet: a condensed bar with chip row plus a full-screen bottom
  * sheet replicating all catalog filter controls for small viewports.
  *
- * Extracted from FilterPanel to keep the desktop toolbar and mobile sheet
- * independently maintainable.
- *
- * State source: All filter state is read from `useSearchStore` (zustand).
+ * State source: all filter state is read from `useSearchStore` (zustand).
  */
 export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
   const { t } = useTranslation('search');
@@ -170,13 +165,10 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
     setLocalDateTo(useSearchStore.getState().date_to);
   };
 
-  // Same rationale as FilterPanel's
-  // resetDateDraft — an identity change bumps resetEpoch even when
-  // date_from/date_to were already '', so an uncommitted draft would
-  // otherwise survive to repopulate the (now cleared) store on Apply.
-  // Closes the whole sheet (and its nested bbox popover), not just the
-  // date fields, since everything in it is this identity's in-progress
-  // filter edit.
+  // As FilterPanel's resetDateDraft: an identity change bumps resetEpoch even
+  // when the dates were already '', so a draft would survive to repopulate the
+  // cleared store on Apply. Closes the whole sheet and its nested bbox popover,
+  // since everything in it is this identity's in-progress edit.
   const resetSheetDraft = useCallback(() => {
     setLocalDateFrom(useSearchStore.getState().date_from);
     setLocalDateTo(useSearchStore.getState().date_to);

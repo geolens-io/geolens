@@ -2,30 +2,22 @@ import type React from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
-/** Anchor positions for floating plugins */
 export type PluginAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
-/** Placement configuration -- fixed at registration time */
+/** Fixed at registration time. */
 type PluginPlacement =
   | { mode: 'floating'; anchor: PluginAnchor }
-  | { mode: 'sidebar' };  // sidebar plugins render in the builder's left sidebar
+  | { mode: 'sidebar' };
 
-/** Context every plugin receives */
 export interface PluginContext {
   mapInstance: MaplibreMap | null;
   layers: MapLayerResponse[];
   mapId: string;
   /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
   terrainConfig?: MapTerrainConfig | null;
-  /**
-   * Map-level custom legend title. Null/undefined renders the legend
-   * without a heading override.
-   */
+  /** Map-level custom legend title; null/undefined means no heading override. */
   legendTitle?: string | null;
-  /**
-   * Persist a new map-level legend title. Null/empty clears it. Optional so
-   * read-only plugin contexts (e.g. tests) can omit it.
-   */
+  /** Persists the legend title; null/empty clears it. Optional for read-only contexts. */
   onLegendTitleChange?: (title: string | null) => void;
   /**
    * Persist a per-entry legend label override onto a layer's
@@ -35,7 +27,6 @@ export interface PluginContext {
   onLegendLabelChange?: (layerId: string, label: string) => void;
 }
 
-/** A registered plugin */
 export interface PluginDefinition {
   id: string;
   /** i18n key under the 'builder' namespace, e.g. 'plugins.measurement.label' */

@@ -38,7 +38,7 @@ import '@/lib/maplibre-worker';
 
 type DrawMode = 'rectangle' | 'polygon';
 
-// Persist viewport across component unmount/remount
+// Module-level so the viewport survives unmount/remount.
 let savedViewport = { longitude: 0, latitude: 20, zoom: 1 };
 
 interface SpatialFilterPanelProps {
@@ -52,10 +52,9 @@ interface SpatialFilterPanelProps {
 }
 
 /**
- * Bridge between GeoJSON.Feature<Polygon> and the store's feature type.
- * The store uses a branded/extended GeoJSON type that is structurally
- * compatible but nominally distinct — an explicit cast is required here.
- * A runtime check would be pointless since the shape is guaranteed by the caller.
+ * Bridge between GeoJSON.Feature<Polygon> and the store's feature type, which
+ * is structurally compatible but nominally distinct. The caller guarantees the
+ * shape, so a cast replaces a runtime check.
  */
 function toStoreFeature(feature: GeoJSON.Feature<GeoJSON.Polygon>): GeoJSONStoreFeatures {
   return feature as unknown as GeoJSONStoreFeatures;
@@ -199,16 +198,13 @@ export function SpatialFilterPanel({
     [initialBbox, storedPolygon],
   );
 
-  // Restore drawn feature when panel reopens
   useEffect(() => {
     if (!open) return;
 
     const td = drawRef.current;
     if (!td) return;
 
-    // If we have a drawn feature ID, it's already on the map from Terra Draw state
     if (drawnFeatureIdRef.current != null) {
-      // Feature should still be in Terra Draw's store
       const feature = td.getSnapshotFeature(drawnFeatureIdRef.current);
       if (feature) {
         // A seam box is drawn as two halves; the first alone is not the area.
@@ -218,11 +214,9 @@ export function SpatialFilterPanel({
         }
         return;
       }
-      // Feature was lost, clear ref
       drawnFeatureIdRef.current = null;
     }
 
-    // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
         restoreStoredArea(td, mapRef.current);
@@ -241,7 +235,6 @@ export function SpatialFilterPanel({
       const td = drawRef.current;
       if (!td) return;
 
-      // Clear existing drawn feature
       if (drawnFeatureIdRef.current != null) {
         try {
           td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
@@ -325,7 +318,6 @@ export function SpatialFilterPanel({
 
       restoredPolygonRef.current = null;
 
-      // Remove previous feature if exists
       if (drawnFeatureIdRef.current != null && drawnFeatureIdRef.current !== id) {
         try {
           td.removeFeatures([drawnFeatureIdRef.current, ...extraDrawnIdsRef.current]);
@@ -370,7 +362,6 @@ export function SpatialFilterPanel({
         drawRef.current = next;
       });
 
-      // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
           restoreStoredArea(td, map);
@@ -382,7 +373,6 @@ export function SpatialFilterPanel({
     [createDraw, initialBbox, restoreStoredArea],
   );
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       try {

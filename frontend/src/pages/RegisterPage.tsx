@@ -31,8 +31,7 @@ export function RegisterPage() {
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
 
-  // Emit a one-time info toast before redirecting so the user
-  // understands why they were bounced instead of silently landing on "/".
+  // A one-time toast explains the redirect instead of silently landing on "/".
   useEffect(() => {
     if (!token) return;
     toast.info(t('alreadySignedIn'));
@@ -45,7 +44,7 @@ export function RegisterPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Render nothing while the effect redirects (prevents flash of register form).
+  // Renders nothing while the effect redirects, avoiding a flash of the form.
   if (token) return null;
 
   if (isLoading) {
@@ -61,8 +60,7 @@ export function RegisterPage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">
-          {/* sr-only level-1 heading: screen-reader heading nav needs an <h1>
-              in every render branch, not just the form branch below. */}
+          {/* sr-only <h1>: every render branch needs one for heading nav. */}
           <h1 className="sr-only">{t('createAccount')}</h1>
           <GeoLensLogo size="lg" className="justify-center" />
           <p className="text-muted-foreground mt-1 text-sm">
@@ -96,8 +94,7 @@ export function RegisterPage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">
-          {/* sr-only level-1 heading: screen-reader heading nav needs an <h1>
-              in every render branch, not just the form branch below. */}
+          {/* sr-only <h1>: every render branch needs one for heading nav. */}
           <h1 className="sr-only">{t('createAccount')}</h1>
           <GeoLensLogo size="lg" className="justify-center" />
           <p className="text-muted-foreground mt-1 text-sm">
@@ -127,8 +124,8 @@ export function RegisterPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
-        {/* sr-only level-1 heading: the visual brand mark is the GeoLensLogo, but
-            screen-reader heading navigation still needs an <h1> on the page. */}
+        {/* sr-only <h1>: the visual brand mark is a logo, but screen-reader
+            heading navigation needs a heading. */}
         <h1 className="sr-only">{t('createAccount')}</h1>
         <GeoLensLogo size="lg" className="justify-center" />
         <p className="text-muted-foreground mt-1 text-sm">
@@ -136,9 +133,8 @@ export function RegisterPage() {
         </p>
       </div>
       {submitted ? (
-        // Use the server's authoritative outcome (RegisterResponse.next_step)
-        // rather than inferring from a cached /auth/config snapshot — race-free
-        // and matches exactly what the backend did.
+        // The server's outcome (RegisterResponse.next_step), not a cached
+        // /auth/config snapshot, which can race.
         nextStep === 'verify_email' ? (
           <VerificationPending email={registrantEmail} />
         ) : (

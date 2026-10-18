@@ -10,11 +10,10 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        // destructive-foreground is tuned dark-on-dark for the
-        // solid light fill; composited at dark:bg-destructive/60 it drops
-        // to 2.61:1 against WCAG's 4.5:1 floor. text-white keeps the
-        // translucent dark fill (matches upstream shadcn) at 6.24:1, and
-        // stays >5.9:1 on the light-mode solid fill too.
+        // destructive-foreground is tuned dark-on-dark for the solid light fill;
+        // on dark:bg-destructive/60 it drops to 2.61:1 against WCAG's 4.5:1
+        // floor. text-white is 6.24:1 there (as upstream shadcn) and >5.9:1 on
+        // the light-mode solid fill.
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive dark:bg-destructive/60",
         outline:
@@ -25,10 +24,9 @@ const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
-      // #305: pointer-coarse: bumps the primary action sizes to a
-      // >=44px tap target on touch devices only — desktop (fine pointer)
-      // density is unchanged. xs / icon-xs stay compact for dense lists
-      // (they already meet the 24px WCAG 2.2 AA minimum target size).
+      // pointer-coarse: gives the primary sizes a >=44px tap target on touch
+      // only; desktop density is unchanged. xs / icon-xs stay compact for dense
+      // lists and already meet WCAG 2.2 AA's 24px minimum target size.
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3 pointer-coarse:min-h-11",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",

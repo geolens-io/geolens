@@ -10,14 +10,9 @@ interface PluginPanelProps {
 }
 
 /**
- * Container for an open map builder plugin.
- *
- * Renders the plugin's icon, translated label, and close button in a header
- * row with the plugin body in a scrollable region beneath. Closing the panel
- * dispatches `usePluginStore.close()` to remove it from the open-plugin set.
- *
- * Used internally by {@link PluginHost} when rendering each visible plugin
- * from the registry; plugin authors do not import this directly.
+ * Container for an open map builder plugin: a header row (icon, translated
+ * label, close button) above a scrollable body. Closing dispatches
+ * `usePluginStore.close()`. Used by {@link PluginHost}, not by plugin authors.
  */
 export const PluginPanel = memo(function PluginPanel({ def, children }: PluginPanelProps) {
   const { t } = useTranslation('builder');

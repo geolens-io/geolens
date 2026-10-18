@@ -17,16 +17,13 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const { t } = useTranslation('search');
   const query = useSearchStore((s) => s.q);
   const resetEpoch = useSearchStore((s) => s.resetEpoch);
-  // `value` and the epoch it was typed under
-  // travel together in ONE state slot, set atomically by the same call.
-  // Deriving the paired epoch reactively (`useMemo` over
-  // `[value, resetEpoch]`) reads the CURRENT `resetEpoch` even in a
-  // render where `value` has not been reset yet, which yields a torn
-  // intermediate pairing (new epoch, stale text) when the
-  // debounce timer fires in the same batch as an identity change. Setting both
-  // fields together, only from the input's own onChange/clear handlers and
-  // from the resets below, means `entry.epoch` can only ever be the epoch
-  // that was live at the moment `entry.value` was actually produced.
+  // `value` and the epoch it was typed under live in ONE state slot, set
+  // together. Deriving the epoch reactively (`useMemo` over
+  // `[value, resetEpoch]`) would read the CURRENT epoch in a render where
+  // `value` is not yet reset, tearing the pair (new epoch, stale text) when the
+  // debounce fires in the same batch as an identity change. Setting both only
+  // from the input handlers and the resets below keeps `entry.epoch` the epoch
+  // live when `entry.value` was produced.
   const [entry, setEntry] = useState(() => ({ value: query, epoch: resetEpoch }));
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
@@ -35,30 +32,23 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Reject a debounced result whose captured
-    // epoch no longer matches the live one — it was typed under an
-    // identity that is no longer current. The reset below re-arms a fresh
-    // debounce for the cleared text under the new epoch.
+    // Rejects a result typed under a no-longer-current identity; the reset
+    // below re-arms a debounce for the cleared text under the new epoch.
     if (debouncedEntry.epoch !== useSearchStore.getState().resetEpoch) return;
     useSearchStore.getState().setQuery(debouncedEntry.value);
   }, [debouncedEntry]);
 
-  // Sync external store changes (e.g., reset filters) back to local state.
-  // Only `value` — an external `q` change is not itself an identity change,
-  // so the epoch this typed-or-cleared text is stamped with is unaffected.
+  // Only `value` syncs: an external `q` change is not an identity change, so
+  // the epoch is unaffected.
   useEffect(() => {
     setEntry((prev) => ({ ...prev, value: query }));
   }, [query]);
 
-  // An identity change bumps
-  // resetEpoch even when `q` was already '' (nothing had been committed to
-  // the store yet), so the `[query]` effect above sees no change and does
-  // not fire. Resetting `value` here changes useDebouncedValue's input,
-  // which is what actually cancels its in-flight timer (see
-  // useDebouncedValue's cleanup) — without this, a keystroke typed under
-  // the previous identity still lands in the new identity's store a few
-  // hundred ms later. Shared with FilterPanel/FilterSheet via
-  // useResetOnEpoch — see that hook for the skip-on-mount rationale.
+  // An identity change bumps resetEpoch even when `q` was already '', so the
+  // `[query]` effect above doesn't fire. Resetting `value` changes
+  // useDebouncedValue's input, which cancels its in-flight timer; otherwise a
+  // keystroke from the previous identity lands in the new store a few hundred
+  // ms later. Shared with FilterPanel/FilterSheet via useResetOnEpoch.
   const resetOnIdentityChange = useCallback(() => {
     const state = useSearchStore.getState();
     setEntry({ value: state.q, epoch: state.resetEpoch });
@@ -67,7 +57,6 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   }, []);
   useResetOnEpoch(resetEpoch, resetOnIdentityChange);
 
-  // Cleanup blur timeout on unmount
   useEffect(() => {
     return () => {
       if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
@@ -117,7 +106,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
           if (entry.value.length >= 2) setShowTypeahead(true);
         }}
         onBlur={() => {
-          // Small delay so click on typeahead result can fire first
+          // The delay lets a click on a typeahead result fire first.
           blurTimeoutRef.current = setTimeout(closeTypeahead, 200);
         }}
         placeholder={t('placeholder')}
