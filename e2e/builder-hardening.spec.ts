@@ -322,7 +322,14 @@ test.describe('Builder residual-risk hardening', () => {
 
     const { mapId } = await createLayeredMap(request, `E2E Builder Network ${Date.now()}`, 1);
     try {
+      // A flag, not unroute: unroute sends a tile still waiting in the handler
+      // to the network, and the handler's fulfill then throws.
+      let failTiles = true;
       await page.route('**/tiles/**', async (route) => {
+        if (!failTiles) {
+          await route.fallback();
+          return;
+        }
         await new Promise((resolve) => setTimeout(resolve, 150));
         await route.fulfill({ status: 503, body: '' });
       });
@@ -331,7 +338,7 @@ test.describe('Builder residual-risk hardening', () => {
       await waitForBuilder(page);
       await expect(page.locator('text=Something went wrong')).toHaveCount(0);
 
-      await page.unroute('**/tiles/**');
+      failTiles = false;
       let failedOnce = false;
       await page.route(`**/api/maps/${mapId}`, async (route) => {
         if (route.request().method() === 'PUT' && !failedOnce) {
