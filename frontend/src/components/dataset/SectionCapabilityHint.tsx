@@ -14,12 +14,10 @@ interface SectionCapabilityHintProps {
  */
 export function SectionCapabilityHint({ capability, className }: SectionCapabilityHintProps) {
   const { t } = useTranslation('dataset');
-  const signedIn = Boolean(useAuthStore((state) => state.token));
+  const signedIn = useAuthStore((state) => state.token != null);
 
-  // When the section is editable, the inline pencil + editable field shells already
-  // signal it; the extra third-person "Editors can update fields…" banner is noise,
-  // so only surface the hint for the read-only case.
-  // Signed-out visitors can't be granted edit rights by this page, so the hint is noise for them.
+  // An editable section already signals itself through its field shells, and signed-out
+  // visitors can't be granted edit rights here, so the hint is only for signed-in read-only viewers.
   if (capability.editable || !signedIn) return null;
 
   return (

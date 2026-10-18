@@ -11,6 +11,7 @@ import {
   useDatasetVersions,
 } from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
@@ -262,6 +263,19 @@ function SourceMetric({ label, children }: { label: string; children: ReactNode 
   );
 }
 
+function HistoryCard({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id}>
+      <Card>
+        <CardHeader>
+          <CardTitle level={2} id={id}>{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">{children}</CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
   const { t, i18n } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetVersions(dataset.id);
@@ -291,51 +305,42 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
     .slice(0, 5);
 
   return (
-    <section aria-labelledby="source-history-heading">
-      <Card>
-        <CardHeader>
-          <CardTitle level={2} id="source-history-heading">
-            {t('sourcePanel.history.title')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {isLoading ? (
-            <div className="space-y-2" aria-label={t('sourcePanel.history.loading')}>
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
-          ) : isError ? (
-            <p className="text-sm text-muted-foreground">{t('sourcePanel.history.loadFailed')}</p>
-          ) : (
-            <ol className="space-y-3">
-              {versions.map((version) => (
-                <li key={version.id} className="border-s-2 border-muted ps-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {t('sourcePanel.history.version', { number: version.version_number })}
-                    </span>
-                    {version.version_number === dataset.current_version && (
-                      <Badge variant="secondary">{t('sourcePanel.history.current')}</Badge>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {formatDateTimeSmart(version.uploaded_at)}
-                    {' · '}
-                    {version.source_filename ?? t('sourcePanel.history.catalogUpdate')}
-                    {version.feature_count != null
-                      ? ` · ${t('sourcePanel.history.features', {
-                          count: version.feature_count,
-                          formattedCount: version.feature_count.toLocaleString(i18n.language),
-                        })}`
-                      : ''}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
-    </section>
+    <HistoryCard id="source-history-heading" title={t('sourcePanel.history.title')}>
+      {isLoading ? (
+        <div className="space-y-2" aria-label={t('sourcePanel.history.loading')}>
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground">{t('sourcePanel.history.loadFailed')}</p>
+      ) : (
+        <ol className="space-y-3">
+          {versions.map((version) => (
+            <li key={version.id} className="border-s-2 border-muted ps-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">
+                  {t('sourcePanel.history.version', { number: version.version_number })}
+                </span>
+                {version.version_number === dataset.current_version && (
+                  <Badge variant="secondary">{t('sourcePanel.history.current')}</Badge>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatDateTimeSmart(version.uploaded_at)}
+                {' · '}
+                {version.source_filename ?? t('sourcePanel.history.catalogUpdate')}
+                {version.feature_count != null
+                  ? ` · ${t('sourcePanel.history.features', {
+                      count: version.feature_count,
+                      formattedCount: version.feature_count.toLocaleString(i18n.language),
+                    })}`
+                  : ''}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </HistoryCard>
   );
 }
 
@@ -390,224 +395,215 @@ function RefreshRunHistory({
   }, [data, isFetching, limit, runs, skip, targetRunId]);
 
   return (
-    <section aria-labelledby="refresh-history-heading">
-      <Card>
-        <CardHeader>
-          <CardTitle level={2} id="refresh-history-heading">
-            {t('sourcePanel.refresh.history.title')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {isLoading ? (
-            <div className="space-y-2" aria-label={t('sourcePanel.refresh.history.loading')}>
-              <Skeleton className="h-14 w-full" />
-            </div>
-          ) : isError ? (
-            <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.loadFailed')}</p>
-          ) : runs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.empty')}</p>
-          ) : (
-            <ol className="space-y-3">
-              {runs.map((run) => (
-                <li
-                  key={run.id}
-                  id={`refresh-run-${run.id}`}
-                  className="border-s-2 border-muted ps-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={refreshRunStatusColors[
-                        run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
-                          ? 'succeeded'
-                          : run.status
-                      ] ?? ''}
-                    >
-                      {t(
-                        `sourcePanel.refresh.history.status.${
-                          run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
-                            ? 'accepted'
-                            : run.status
-                        }`,
-                        { defaultValue: run.status },
-                      )}
-                    </Badge>
-                    {/* run.origin_kind is the run's execution door,
-                        not the dataset's origin shown by the OriginBadge above —
-                        the two can visibly disagree while work is in flight (see
-                        the CHECK constraint comment in refresh/models.py for a
-                        concrete case). The label reads "Method: <value>" and the
-                        tooltip spells out that it is not the dataset's origin,
-                        so this row never reads as a second, competing origin
-                        claim. */}
-                    <Badge
-                      variant="secondary"
-                      title={t('sourcePanel.refresh.history.mechanismTooltip')}
-                    >
-                      {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
-                    </Badge>
-                    {/* One-click cancel on the active run, Retry
-                        parity — no confirm dialog; recoverable and data-safe
-                        under the backend's no-swap fence. Keyed on the run's
-                        ingest_job_id (absent on legacy rows, so gated on it). */}
-                    {canEdit
-                      && (run.status === 'pending' || run.status === 'running')
-                      && run.ingest_job_id && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="ms-auto"
-                        onClick={() =>
-                          cancelRefreshJob.mutate(
-                            { jobId: run.ingest_job_id as string, datasetId: dataset.id },
-                            {
-                              onError: () => {
-                                toast.error(t('sourcePanel.refresh.cancelFailed'));
-                              },
-                            },
-                          )
-                        }
-                        disabled={cancelRefreshJob.isPending}
-                      >
-                        {cancelRefreshJob.isPending
-                          ? t('sourcePanel.refresh.cancelling')
-                          : t('sourcePanel.refresh.cancel')}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {formatDateTimeSmart(run.started_at)}
-                    {run.feature_count_before != null && run.feature_count_after != null
-                      ? ` · ${t('sourcePanel.refresh.history.featureDelta', {
-                          before: run.feature_count_before.toLocaleString(i18n.language),
-                          after: run.feature_count_after.toLocaleString(i18n.language),
-                        })}`
-                      : ''}
-                    {run.triggered_by_username
-                      ? ` · ${t('sourcePanel.refresh.history.triggeredBy', { username: run.triggered_by_username })}`
-                      : ''}
-                    {run.trigger === 'scheduled' && run.scheduled_for
-                      ? ` · ${t('sourcePanel.refresh.history.scheduledFor', { time: formatDateTimeUtc(run.scheduled_for) })}`
-                      : ''}
-                    {' · '}
-                    <a className="underline" href={`#refresh-run-${run.id}`}>
-                      {t('sourcePanel.refresh.history.permalink')}
-                    </a>
-                  </p>
-                  {run.status === 'failed' && run.error_message && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {describeFailureReason(
-                        run.error_message,
-                        t('common:errors.internalFailureReason'),
-                        run.error_code,
-                      )}
-                    </p>
-                  )}
-                  {run.status === 'cancelled' && run.error_message && (
-                    // Not text-destructive: the sweep also settles an abandoned
-                    // run as `cancelled` (error_code: 'abandoned'), and neither
-                    // that nor a deliberate cancel is an error to flag in red.
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {describeFailureReason(
-                        run.error_message,
-                        t('common:errors.internalFailureReason'),
-                        run.error_code,
-                      )}
-                    </p>
-                  )}
-                  {run.verification && (
-                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      {/* A file has no source to count or identify records against. */}
-                      {run.origin_kind !== 'upload' && (
-                        <p>
-                          {run.verification.source_count == null
-                            ? t('sourcePanel.refresh.history.sourceCountUnavailable')
-                            : t('sourcePanel.refresh.history.countEvidence', {
-                              source: run.verification.source_count.toLocaleString(i18n.language),
-                              fetched: (run.verification.fetched_count ?? 0).toLocaleString(i18n.language),
-                            })}
-                        </p>
-                      )}
-                      {run.origin_kind !== 'upload' && run.verification.identity_check === 'unavailable' && (
-                        <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
-                      )}
-                      {typeof run.verification.source_binding.url === 'string'
-                        && safeHttpPointer(run.verification.source_binding.url) && (
-                        <p className="break-all">
-                          {t('sourcePanel.refresh.history.sourceUsed', {
-                            source: safeHttpPointer(run.verification.source_binding.url),
-                          })}
-                        </p>
-                      )}
-                      {run.status === 'succeeded' && run.verification.review_reasons.length > 0 && (
-                        <p>{t('sourcePanel.refresh.history.acceptedReasonsLabel')}</p>
-                      )}
-                      {run.verification.review_reasons.map((reason) => (
-                        <p key={reason}>{t(`sourcePanel.refresh.history.reason.${reason}`)}</p>
-                      ))}
-                      {run.schema_diff && run.schema_diff.columns_removed.length > 0 && (
-                        <p>
-                          {t('sourcePanel.refresh.history.columnsRemoved', {
-                            columns: run.schema_diff.columns_removed.map((column) => column.name).join(', '),
-                          })}
-                        </p>
-                      )}
-                      {run.schema_diff && run.schema_diff.type_changes.length > 0 && (
-                        <p>
-                          {t('sourcePanel.refresh.history.typesChanged', {
-                            columns: run.schema_diff.type_changes.map((column) => column.name).join(', '),
-                          })}
-                        </p>
-                      )}
-                      {run.status === 'blocked'
-                        && canEdit
-                        && run.verification
-                        && (run.origin_kind === 'upload'
-                          || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
-                        && run.verification.review_fingerprint
-                        && !run.verification.acceptance_consumed_by_run_id
-                        && !heldUploadSuperseded(run, runs)
-                        && onAcceptBlockedRun && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={refreshBusy || hasSelectedFeature}
-                            onClick={() => {
-                              const sourcePolicy = run.verification?.source_binding.verification_policy;
-                              const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
-                                ? sourcePolicy
-                                : undefined;
-                              onAcceptBlockedRun(run.origin_kind === 'upload'
-                                ? { id: run.id, upload: true }
-                                : { id: run.id, verificationPolicy });
-                            }}
-                          >
-                            {t('sourcePanel.refresh.history.reviewAndRetry')}
-                          </Button>
-                          {hasSelectedFeature && (
-                            <p>{t('sourcePanel.refresh.featureEditBlockedHint')}</p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-          {data && limit < MAX_REFRESH_HISTORY_LIMIT && data.total > runs.length && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT))}
+    <HistoryCard id="refresh-history-heading" title={t('sourcePanel.refresh.history.title')}>
+      {isLoading ? (
+        <div className="space-y-2" aria-label={t('sourcePanel.refresh.history.loading')}>
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.loadFailed')}</p>
+      ) : runs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.empty')}</p>
+      ) : (
+        <ol className="space-y-3">
+          {runs.map((run) => (
+            <li
+              key={run.id}
+              id={`refresh-run-${run.id}`}
+              className="border-s-2 border-muted ps-4"
             >
-              {t('sourcePanel.refresh.history.loadMore')}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-    </section>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={refreshRunStatusColors[
+                    run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
+                      ? 'succeeded'
+                      : run.status
+                  ] ?? ''}
+                >
+                  {t(
+                    `sourcePanel.refresh.history.status.${
+                      run.status === 'blocked' && run.verification?.acceptance_consumed_by_run_id
+                        ? 'accepted'
+                        : run.status
+                    }`,
+                    { defaultValue: run.status },
+                  )}
+                </Badge>
+                {/* run.origin_kind is the run's execution door,
+                    not the dataset's origin shown by the OriginBadge above —
+                    the two can visibly disagree while work is in flight (see
+                    the CHECK constraint comment in refresh/models.py for a
+                    concrete case). The label reads "Method: <value>" and the
+                    tooltip spells out that it is not the dataset's origin,
+                    so this row never reads as a second, competing origin
+                    claim. */}
+                <Badge
+                  variant="secondary"
+                  title={t('sourcePanel.refresh.history.mechanismTooltip')}
+                >
+                  {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
+                </Badge>
+                {/* One-click cancel on the active run, Retry
+                    parity — no confirm dialog; recoverable and data-safe
+                    under the backend's no-swap fence. Keyed on the run's
+                    ingest_job_id (absent on legacy rows, so gated on it). */}
+                {canEdit
+                  && (run.status === 'pending' || run.status === 'running')
+                  && run.ingest_job_id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ms-auto"
+                    onClick={() =>
+                      cancelRefreshJob.mutate(
+                        { jobId: run.ingest_job_id as string, datasetId: dataset.id },
+                        {
+                          onError: () => {
+                            toast.error(t('sourcePanel.refresh.cancelFailed'));
+                          },
+                        },
+                      )
+                    }
+                    disabled={cancelRefreshJob.isPending}
+                  >
+                    {cancelRefreshJob.isPending
+                      ? t('sourcePanel.refresh.cancelling')
+                      : t('sourcePanel.refresh.cancel')}
+                  </Button>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatDateTimeSmart(run.started_at)}
+                {run.feature_count_before != null && run.feature_count_after != null
+                  ? ` · ${t('sourcePanel.refresh.history.featureDelta', {
+                      before: run.feature_count_before.toLocaleString(i18n.language),
+                      after: run.feature_count_after.toLocaleString(i18n.language),
+                    })}`
+                  : ''}
+                {run.triggered_by_username
+                  ? ` · ${t('sourcePanel.refresh.history.triggeredBy', { username: run.triggered_by_username })}`
+                  : ''}
+                {run.trigger === 'scheduled' && run.scheduled_for
+                  ? ` · ${t('sourcePanel.refresh.history.scheduledFor', { time: formatDateTimeUtc(run.scheduled_for) })}`
+                  : ''}
+                {' · '}
+                <a className="underline" href={`#refresh-run-${run.id}`}>
+                  {t('sourcePanel.refresh.history.permalink')}
+                </a>
+              </p>
+              {run.status === 'failed' && run.error_message && (
+                <p className="mt-1 text-xs text-destructive">
+                  {describeFailureReason(
+                    run.error_message,
+                    t('common:errors.internalFailureReason'),
+                    run.error_code,
+                  )}
+                </p>
+              )}
+              {run.status === 'cancelled' && run.error_message && (
+                // Not text-destructive: the sweep also settles an abandoned
+                // run as `cancelled` (error_code: 'abandoned'), and neither
+                // that nor a deliberate cancel is an error to flag in red.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {describeFailureReason(
+                    run.error_message,
+                    t('common:errors.internalFailureReason'),
+                    run.error_code,
+                  )}
+                </p>
+              )}
+              {run.verification && (
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {/* A file has no source to count or identify records against. */}
+                  {run.origin_kind !== 'upload' && (
+                    <p>
+                      {run.verification.source_count == null
+                        ? t('sourcePanel.refresh.history.sourceCountUnavailable')
+                        : t('sourcePanel.refresh.history.countEvidence', {
+                          source: run.verification.source_count.toLocaleString(i18n.language),
+                          fetched: (run.verification.fetched_count ?? 0).toLocaleString(i18n.language),
+                        })}
+                    </p>
+                  )}
+                  {run.origin_kind !== 'upload' && run.verification.identity_check === 'unavailable' && (
+                    <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
+                  )}
+                  {typeof run.verification.source_binding.url === 'string'
+                    && safeHttpPointer(run.verification.source_binding.url) && (
+                    <p className="break-all">
+                      {t('sourcePanel.refresh.history.sourceUsed', {
+                        source: safeHttpPointer(run.verification.source_binding.url),
+                      })}
+                    </p>
+                  )}
+                  {run.status === 'succeeded' && run.verification.review_reasons.length > 0 && (
+                    <p>{t('sourcePanel.refresh.history.acceptedReasonsLabel')}</p>
+                  )}
+                  {run.verification.review_reasons.map((reason) => (
+                    <p key={reason}>{t(`sourcePanel.refresh.history.reason.${reason}`)}</p>
+                  ))}
+                  {run.schema_diff && run.schema_diff.columns_removed.length > 0 && (
+                    <p>
+                      {t('sourcePanel.refresh.history.columnsRemoved', {
+                        columns: run.schema_diff.columns_removed.map((column) => column.name).join(', '),
+                      })}
+                    </p>
+                  )}
+                  {run.schema_diff && run.schema_diff.type_changes.length > 0 && (
+                    <p>
+                      {t('sourcePanel.refresh.history.typesChanged', {
+                        columns: run.schema_diff.type_changes.map((column) => column.name).join(', '),
+                      })}
+                    </p>
+                  )}
+                  {run.status === 'blocked'
+                    && canEdit
+                    && run.verification
+                    && (run.origin_kind === 'upload'
+                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
+                    && run.verification.review_fingerprint
+                    && !run.verification.acceptance_consumed_by_run_id
+                    && !heldUploadSuperseded(run, runs)
+                    && onAcceptBlockedRun && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={refreshBusy || hasSelectedFeature}
+                        onClick={() => {
+                          const sourcePolicy = run.verification?.source_binding.verification_policy;
+                          const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
+                            ? sourcePolicy
+                            : undefined;
+                          onAcceptBlockedRun(run.origin_kind === 'upload'
+                            ? { id: run.id, upload: true }
+                            : { id: run.id, verificationPolicy });
+                        }}
+                      >
+                        {t('sourcePanel.refresh.history.reviewAndRetry')}
+                      </Button>
+                      {hasSelectedFeature && (
+                        <p>{t('sourcePanel.refresh.featureEditBlockedHint')}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {data && limit < MAX_REFRESH_HISTORY_LIMIT && data.total > runs.length && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT))}
+        >
+          {t('sourcePanel.refresh.history.loadMore')}
+        </Button>
+      )}
+    </HistoryCard>
   );
 }
 
@@ -792,8 +788,8 @@ export function SourcePanel({
     (health === 'unknown' && origin != null && HEALTH_CHECKED_ON_REFRESH.has(origin)
       ? t('sourcePanel.healthUnknownHint')
       : null);
-  // A one-off file has no remote source to probe, so health, freshness and drift never apply.
-  const isUpload = origin === 'upload';
+  // Health, freshness, drift and scheduled sync describe a remote source; an uploaded or drawn dataset has none.
+  const hasRemoteSource = origin != null && REFRESHABLE_ORIGINS.has(origin);
   const originKey = isVrt ? 'vrt' : origin ?? 'unknown';
   const storageKey = isVrt ? 'vrt' : origin ?? 'unknown';
 
@@ -841,7 +837,7 @@ export function SourcePanel({
             <SourceMetric label={t('sourcePanel.lastRefreshed')}>
               {formatDateTimeSmart(dataset.last_refreshed_at ?? null)}
             </SourceMetric>
-            {!isUpload && (
+            {hasRemoteSource && (
               <SourceMetric label={t('sourcePanel.lastChecked')}>
                 {formatDateTimeSmart(dataset.last_checked_at ?? null)}
               </SourceMetric>
@@ -849,7 +845,7 @@ export function SourcePanel({
             <SourceMetric label={t('sourcePanel.featureCount')}>
               {formatNumber(dataset.feature_count)}
             </SourceMetric>
-            {!isUpload && (
+            {hasRemoteSource && (
               <>
               <SourceMetric label={t('sourcePanel.health')}>
                 <StatusBadge kind="health" value={health} />
@@ -875,7 +871,7 @@ export function SourcePanel({
         <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} />
       ) : (
         <>
-          {!isUpload && (
+          {hasRemoteSource && (
             <SourceSyncPanel dataset={dataset} canEdit={canEdit} onRunDispatched={onSyncRunDispatched} />
           )}
           <SourceHistory dataset={dataset} />

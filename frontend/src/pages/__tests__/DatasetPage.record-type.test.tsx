@@ -313,9 +313,9 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.queryByRole('button', { name: 'Download COG' })).not.toBeInTheDocument();
   });
 
-  it('offers only CSV in the Download menu for a table', async () => {
+  it('offers only CSV in the Download menu for a dataset with no geometry', async () => {
     vi.mocked(useDataset).mockReturnValue({
-      data: makeDataset('table'),
+      data: { ...makeDataset('table'), geometry_type: null },
       isLoading: false,
       error: null,
     } as ReturnType<typeof useDataset>);

@@ -789,10 +789,10 @@ export const DatasetMap = memo(function DatasetMap({
         : null,
     [hasBbox, minx, miny, maxx, maxy],
   );
+  const showsWorldExtent = hasBbox && isWorldSpanningExtent(bbox);
   // Only when there's no vector/raster source of this dataset's own to
   // carry it (tileKind null: tiles3d/pointcloud's footprint-only preview) —
   // otherwise that source already shows it, and this would duplicate it.
-  const showsWorldExtent = hasBbox && isWorldSpanningExtent(bbox);
   const bboxAttribution = tileKind === null ? toMapLibreAttribution(attribution) : null;
 
   const handleLoad = useCallback(

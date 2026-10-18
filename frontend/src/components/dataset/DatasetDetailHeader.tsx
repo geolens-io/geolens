@@ -92,7 +92,7 @@ export function DatasetDetailHeader({
   const isTitleEditable = canEditTitle && Boolean(onTitleSave);
 
   return (
-    <div className={cn('space-y-3', className)}>
+    <div className={cn('@container space-y-3', className)}>
       {breadcrumbs && breadcrumbs.length > 0 && (
         <Breadcrumb>
           <BreadcrumbList>
@@ -114,8 +114,8 @@ export function DatasetDetailHeader({
         </Breadcrumb>
       )}
 
-      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-2 xl:gap-4">
-        <div className="min-w-0 xl:flex-1">
+      <div className="flex flex-col @5xl:flex-row @5xl:items-start @5xl:justify-between gap-2 @5xl:gap-4">
+        <div className="min-w-0 @5xl:flex-1">
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight break-words">
             {isTitleEditable ? (
               <InlineEdit
@@ -138,7 +138,7 @@ export function DatasetDetailHeader({
         </div>
 
         {(leadingContent || primary.length > 0 || overflow.length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap xl:flex-nowrap xl:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap @5xl:flex-nowrap @5xl:shrink-0">
             {leadingContent}
             {primary.map((action) => (
               <Button

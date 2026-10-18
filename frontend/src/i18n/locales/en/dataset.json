@@ -594,7 +594,6 @@
     "noDistributions": "No additional downloads or services are listed here.",
     "connectWithClient": "Connect with QGIS, Python, or curl",
     "accessPermissions": "Who can access this dataset",
-    "auto": "auto",
     "primary": "Primary",
     "copyUrl": "Copy URL",
     "downloadUrl": "Download",

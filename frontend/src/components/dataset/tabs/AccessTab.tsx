@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -34,6 +33,8 @@ import { formatMutationError } from '@/lib/error-map';
 import { visibilityColors } from '@/lib/status-colors';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { getVisibilityLabel } from '@/i18n/labels';
+import { CopyButton } from '@/components/ui/copy-button';
+import { URL_CHIP_CLASS } from '@/components/dataset/url-chip';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
@@ -94,18 +95,6 @@ async function copyText(value: string): Promise<void> {
 
 function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   const { t } = useTranslation('dataset');
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  async function handleCopy() {
-    await copyText(tileUrl);
-    setCopied(true);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setCopied(false), 2000);
-  }
-
   return (
     <section className="mt-4" aria-labelledby="distributions-xyz-tiles">
       <h3 id="distributions-xyz-tiles" className="mb-1 text-sm font-medium">{t('distributions.tiles')}</h3>
@@ -113,19 +102,10 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <Badge variant="outline" className="text-xs">XYZ</Badge>
           <div className="flex min-w-56 flex-1 basis-56 items-center gap-2">
-            <code className="min-w-0 flex-1 rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground truncate" title={tileUrl}>
+            <code className={URL_CHIP_CLASS} title={tileUrl}>
               {tileUrl}
             </code>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={handleCopy}
-              aria-label={t('distributions.copyUrl')}
-              title={t('distributions.copyUrl')}
-            >
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            </Button>
+            <CopyButton value={tileUrl} label={t('distributions.copyUrl')} />
           </div>
         </div>
       </div>

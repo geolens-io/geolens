@@ -594,7 +594,6 @@
     "noDistributions": "此处未列出其他下载项或服务。",
     "connectWithClient": "使用 QGIS、Python 或 curl 连接",
     "accessPermissions": "谁可以访问此数据集",
-    "auto": "自动",
     "primary": "主要",
     "copyUrl": "复制 URL",
     "downloadUrl": "下载",

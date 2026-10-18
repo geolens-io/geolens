@@ -45,6 +45,35 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
+describe('floating dock inset', () => {
+  const readInset = () => document.documentElement.style.getPropertyValue('--floating-dock-inset');
+
+  it('is set only while the launcher shows', async () => {
+    setAvailable(true);
+    const { unmount } = renderPanel();
+    expect(readInset()).toBe('5.5rem');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    expect(readInset()).toBe('');
+
+    unmount();
+    expect(readInset()).toBe('');
+  });
+
+  it('is not set when AI is unavailable', () => {
+    setAvailable(false);
+    renderPanel();
+    expect(readInset()).toBe('');
+  });
+
+  it('is removed on unmount while the launcher shows', () => {
+    setAvailable(true);
+    const { unmount } = renderPanel();
+    unmount();
+    expect(readInset()).toBe('');
+  });
+});
+
 describe('DatasetChatPanel', () => {
   it('renders nothing when AI is unavailable (anon / no use_ai_chat)', () => {
     setAvailable(false);

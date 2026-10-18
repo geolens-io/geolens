@@ -9,21 +9,21 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { downloadExport } from '@/api/datasets';
-import { exportFormatsFor, exportFilename } from '@/lib/export-formats';
-import type { RecordType } from '@/types/api';
+import { exportFormatsFor, exportFilename, type ExportFormat } from '@/lib/export-formats';
 
 interface DatasetDownloadMenuProps {
   datasetId: string;
   datasetName: string;
-  recordType?: RecordType;
+  /** Null for a dataset without a geometry column, which exports CSV only. */
+  geometryType?: string | null;
 }
 
-export function DatasetDownloadMenu({ datasetId, datasetName, recordType }: DatasetDownloadMenuProps) {
+export function DatasetDownloadMenu({ datasetId, datasetName, geometryType }: DatasetDownloadMenuProps) {
   const { t } = useTranslation('dataset');
 
-  const handleSelect = async (format: string) => {
+  const handleSelect = async (format: ExportFormat) => {
     try {
-      await downloadExport(datasetId, format, exportFilename(datasetName, format) ?? `${datasetName}.${format}`);
+      await downloadExport(datasetId, format, exportFilename(datasetName, format));
     } catch {
       toast.error(t('export.failed'));
     }
@@ -38,11 +38,10 @@ export function DatasetDownloadMenu({ datasetId, datasetName, recordType }: Data
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {exportFormatsFor(recordType).map((f) => (
+        {exportFormatsFor(geometryType).map((f) => (
           <DropdownMenuItem
             key={f.value}
             onSelect={() => void handleSelect(f.value)}
-            data-testid={`dataset-header-download-${f.value}`}
           >
             {t(f.labelKey)}
           </DropdownMenuItem>

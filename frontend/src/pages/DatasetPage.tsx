@@ -560,7 +560,7 @@ export function DatasetPage() {
   ];
 
   return (
-    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]', token && featureTable && 'pb-24')}>
+    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]', 'pb-[var(--floating-dock-inset,0px)]')}>
       <DatasetDetailHeader
         title={dataset.title}
         onTitleSave={handleSaveName}
@@ -569,7 +569,7 @@ export function DatasetPage() {
         actions={headerActions}
         statsLine={statsLine}
         leadingContent={
-          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+          <div className="flex flex-wrap items-center gap-2 @5xl:flex-nowrap">
             {canAddToMap && can('edit_metadata') && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && (canAddToMap || isTable) && (
               <AuthPrompt
@@ -589,7 +589,7 @@ export function DatasetPage() {
               </Button>
             )}
             {featureTable && (
-              <DatasetDownloadMenu datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
+              <DatasetDownloadMenu datasetId={dataset.id} datasetName={dataset.title} geometryType={dataset.geometry_type} />
             )}
             <ConnectDropdown dataset={dataset} onShowInstructions={() => handleTabChange('access')} />
           </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -8,10 +8,11 @@ import {
 import { useTileConfig } from '@/hooks/use-settings';
 import { CopyButton } from '@/components/ui/copy-button';
 import { cn } from '@/lib/utils';
-import { exportFilename } from '@/lib/export-formats';
+import { exportFilename, isExportFormat } from '@/lib/export-formats';
+import { URL_CHIP_CLASS } from '@/components/dataset/url-chip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react';
+import { Circle, CircleDot, Loader2, Download } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
@@ -58,6 +59,15 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
   other: 'other',
 };
 
+/** Saved name for a row's download: the dataset title for an export, the row's own name otherwise. */
+function distributionFilename(distribution: DistributionResponse, datasetTitle?: string): string {
+  if (datasetTitle && distribution.distribution_type === 'download' && isExportFormat(distribution.format)) {
+    return exportFilename(datasetTitle, distribution.format);
+  }
+  const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
+  return `${base}.${distribution.format}`;
+}
+
 function CopyableUrl({
   distribution,
   publicApiUrl,
@@ -70,9 +80,7 @@ function CopyableUrl({
   className?: string;
 }) {
   const { t } = useTranslation('dataset');
-  const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resolvedUrl = resolveDistributionUrl(distribution.url, publicApiUrl);
   // Same-origin (relative, or absolute matching this
   // instance's own API) gets the bearer token; a genuinely external url
@@ -88,26 +96,6 @@ function CopyableUrl({
   // copy-only rows.
   const isFetchable = isFetchableDistributionUrl(distribution.url);
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(resolvedUrl);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = resolvedUrl;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-    setCopied(true);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setCopied(false), 2000);
-  }
-
   // A plain <a href download> browser navigation carries no
   // Authorization header, so a private or unpublished dataset's export
   // endpoint rejected it as anonymous. Route same-origin GeoLens resources
@@ -117,11 +105,7 @@ function CopyableUrl({
     if (downloading) return;
     setDownloading(true);
     try {
-      const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
-      const exportName = datasetTitle && distribution.distribution_type === 'download'
-        ? exportFilename(datasetTitle, distribution.format ?? '')
-        : null;
-      await authenticatedDownload(resolvedUrl, exportName ?? `${base}.${distribution.format}`);
+      await authenticatedDownload(resolvedUrl, distributionFilename(distribution, datasetTitle));
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -135,7 +119,7 @@ function CopyableUrl({
 
   return (
     <div className={cn('flex min-w-0 items-center gap-2', className)}>
-      <code className="min-w-0 flex-1 rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
+      <code className={URL_CHIP_CLASS} title={resolvedUrl}>
         {resolvedUrl}
       </code>
       {/* Copy alone cannot fetch the resource. Same-origin GeoLens
@@ -176,16 +160,7 @@ function CopyableUrl({
             </a>
           </Button>
         ))}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 shrink-0"
-        onClick={handleCopy}
-        aria-label={t('distributions.copyUrl')}
-        title={t('distributions.copyUrl')}
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </Button>
+      <CopyButton value={resolvedUrl} label={t('distributions.copyUrl')} />
     </div>
   );
 }
@@ -368,8 +343,7 @@ function DuckDbHint({
   datasetTitle?: string;
 }) {
   const { t } = useTranslation('dataset');
-  const saved = (datasetTitle && exportFilename(datasetTitle, distribution.format ?? ''))
-    || `${(distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_')}.${distribution.format}`;
+  const saved = distributionFilename(distribution, datasetTitle);
   // A single quote must be doubled to stay a valid DuckDB string literal.
   const file = saved.replace(/'/g, "''");
   const snippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${file}' LIMIT 10;`;

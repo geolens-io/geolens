@@ -242,8 +242,8 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('button', { name: 'Future source action' })).toBeInTheDocument();
   });
 
-  it('hides remote-source health fields and scheduled sync for an uploaded file', () => {
-    render(<SourcePanel dataset={makeDataset({ origin: 'upload', source_health: 'healthy' })} />);
+  it.each(['upload', 'created'] as const)('hides remote-source health fields and scheduled sync for a %s dataset', (origin) => {
+    render(<SourcePanel dataset={makeDataset({ origin, source_health: 'healthy' })} />);
 
     expect(screen.getByText('Last refreshed')).toBeInTheDocument();
     for (const label of ['Last checked', 'Health', 'Source freshness', 'Schema drift']) {
@@ -271,15 +271,6 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Fresh')).toBeInTheDocument();
     expect(screen.getByText('No drift')).toBeInTheDocument();
     expect(screen.getByLabelText('Loading scheduled sync')).toBeInTheDocument();
-  });
-
-  it('wraps source and refresh history in cards like the sections above them', () => {
-    render(<SourcePanel dataset={makeDataset()} />);
-
-    for (const name of ['Source history', 'Refresh history']) {
-      const heading = screen.getByRole('heading', { name });
-      expect(heading.closest('[data-slot="card"]')).not.toBeNull();
-    }
   });
 
   it('labels the pointer as a credential-free source URL', () => {

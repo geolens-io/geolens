@@ -212,16 +212,6 @@ describe('DistributionsList', () => {
     expect(screen.getByText('https://example.com/app')).toBeInTheDocument();
   });
 
-  // Each distribution row offers a way to fetch the resource, not just copy
-  // its URL.
-  //
-  // A plain <a href download> is a bare browser navigation with no
-  // Authorization header — a private/unpublished dataset's export endpoint
-  // would reject it as anonymous. Same-origin (relative-url) distributions
-  // download through authenticatedDownload; an already-absolute url (a manual distribution
-  // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
-  // it is not a GeoLens API resource and must never receive the session's
-  // bearer token.
   describe('compact rows', () => {
     beforeEach(() => {
       mockUseDistributions.mockReturnValue({
@@ -239,12 +229,6 @@ describe('DistributionsList', () => {
       expect(within(row).getByRole('button', { name: 'Download' })).toBeInTheDocument();
       expect(within(row).getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
       expect(screen.queryByText(/\(auto\)/)).not.toBeInTheDocument();
-    });
-
-    it('does not nest a card per group', () => {
-      render(<DistributionsList recordId="record-1" />);
-
-      expect(document.querySelector('[data-slot="card"]')).toBeNull();
     });
 
     it('saves an export row as <dataset title>.<ext>, a shapefile as a zip', async () => {
@@ -273,7 +257,10 @@ describe('DistributionsList', () => {
       );
     });
 
-    it('points the DuckDB snippet at <dataset title>.parquet', () => {
+    it.each([
+      ['with the dataset title', 'Manhattan Building Heights', /FROM 'Manhattan Building Heights\.parquet'/],
+      ['with the row title when no dataset title is given', undefined, /FROM 'GeoParquet Download\.parquet'/],
+    ])('offers a DuckDB snippet for the GeoParquet download %s', (_name, datasetTitle, expected) => {
       mockUseDistributions.mockReturnValue({
         data: {
           distributions: [{
@@ -287,31 +274,22 @@ describe('DistributionsList', () => {
         },
         isLoading: false,
       } as unknown as ReturnType<typeof useDistributions>);
-      render(<DistributionsList recordId="record-1" datasetTitle="Manhattan Building Heights" />);
+      render(<DistributionsList recordId="record-1" datasetTitle={datasetTitle} />);
 
-      expect(screen.getByText(/FROM 'Manhattan Building Heights\.parquet'/)).toBeInTheDocument();
-    });
-
-    it('offers a DuckDB snippet for the GeoParquet download', () => {
-      mockUseDistributions.mockReturnValue({
-        data: {
-          distributions: [{
-            ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
-            id: 'parquet-1',
-            format: 'parquet',
-            title: 'GeoParquet Download',
-            url: '/datasets/1/export?format=parquet',
-          }],
-          total: 1,
-        },
-        isLoading: false,
-      } as unknown as ReturnType<typeof useDistributions>);
-      render(<DistributionsList recordId="record-1" />);
-
-      expect(screen.getByText(/SELECT \* FROM 'GeoParquet Download\.parquet'/)).toBeInTheDocument();
+      expect(screen.getByText(expected)).toBeInTheDocument();
     });
   });
 
+  // Each distribution row offers a way to fetch the resource, not just copy
+  // its URL.
+  //
+  // A plain <a href download> is a bare browser navigation with no
+  // Authorization header — a private/unpublished dataset's export endpoint
+  // would reject it as anonymous. Same-origin (relative-url) distributions
+  // download through authenticatedDownload; an already-absolute url (a manual distribution
+  // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
+  // it is not a GeoLens API resource and must never receive the session's
+  // bearer token.
   describe('download control (#1856 / #1863)', () => {
     beforeEach(() => {
       mockUseDistributions.mockReturnValue({

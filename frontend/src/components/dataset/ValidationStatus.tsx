@@ -62,8 +62,6 @@ export function ValidationStatus({
     );
   };
 
-  const likelyCauses = deriveLikelyValidationCauses([...data.errors, ...data.warnings], 2, t);
-
   const helperText = errorCount > 0
     ? t(requireMetadata ? 'validation.helperBlocking' : 'validation.helperIssues')
     : t('validation.helperWarnings');
@@ -86,6 +84,7 @@ export function ValidationStatus({
   );
 
   if (mode === 'compact') {
+    const likelyCauses = deriveLikelyValidationCauses([...data.errors, ...data.warnings], 2, t);
     return (
       <div className="flex flex-wrap items-center gap-2" data-testid="validation-status-compact">
         {statusBadge}

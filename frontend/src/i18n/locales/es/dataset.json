@@ -632,7 +632,6 @@
     "noDistributions": "No se muestran aquí otras descargas ni servicios.",
     "connectWithClient": "Conectar con QGIS, Python o curl",
     "accessPermissions": "Quién puede acceder a este conjunto de datos",
-    "auto": "auto",
     "primary": "Primario",
     "copyUrl": "Copiar URL",
     "downloadUrl": "Descargar",
