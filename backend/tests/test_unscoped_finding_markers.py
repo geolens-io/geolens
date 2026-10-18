@@ -276,6 +276,13 @@ class TestRepoTree:
         assert fm.main() == 1
         assert "scripts/a.sh:1 (comment) BKP-01" in capsys.readouterr().out
 
+    def test_an_unreadable_tracked_file_is_fatal(self, tmp_path):
+        (tmp_path / "a.sh").write_bytes(b"# \xff\xfe not UTF-8\n")
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        with pytest.raises(fm.MarkerScanError, match="a.sh: could not read"):
+            fm.scan_repo(tmp_path)
+
     def test_an_unlisted_tree_is_fatal(self, tmp_path):
         with pytest.raises(fm.MarkerScanError, match="could not list"):
             fm.scan_repo(tmp_path)
