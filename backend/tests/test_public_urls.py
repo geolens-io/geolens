@@ -579,6 +579,12 @@ async def test_get_public_api_url_propagates_for_external_use_flag(
             {"host": "maps.example.com"},
             "https://maps.example.com",
         ),
+        # A sub-path install keeps its path when only the host is replaced.
+        (
+            "http://localhost:8080/geolens",
+            {"host": "maps.example.com"},
+            "https://maps.example.com/geolens",
+        ),
         # Local dev: the caller is on the same machine, so loopback is right.
         ("http://localhost:8080", {"host": "localhost:8080"}, "http://localhost:8080"),
         # Internal container hostnames aren't reachable from outside.

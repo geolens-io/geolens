@@ -657,9 +657,10 @@ async def get_browser_reachable_app_url(
     The configured ``PUBLIC_APP_URL`` (or a validated tenant origin) is used
     unless it is loopback, such as the shipped Compose default
     ``http://localhost:8080`` left on a remote install. Otherwise the URL is the
-    host the request reached GeoLens at, from Host/X-Forwarded-Host. Origin and
-    Referer name the consumer's page on a cross-origin fetch, so they are never
-    used. None when neither gives a usable host.
+    host the request reached GeoLens at, from Host/X-Forwarded-Host, keeping
+    the configured path. Origin and Referer name the consumer's page on a
+    cross-origin fetch, so they are never used. None when neither gives a
+    usable host.
     """
     configured = await get_shareable_app_url(db, request=request)
     if configured and not is_loopback_host(urlsplit(configured).hostname or ""):
@@ -668,7 +669,8 @@ async def get_browser_reachable_app_url(
     hostname = urlsplit(derived).hostname if derived else None
     if hostname and hostname not in ("api", "backend"):
         if not is_loopback_host(hostname) or configured is None:
-            return derived
+            path = urlsplit(configured).path.rstrip("/") if configured else ""
+            return f"{derived}{path}"
     return configured
 
 
