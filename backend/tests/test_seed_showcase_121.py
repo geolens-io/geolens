@@ -421,6 +421,46 @@ def test_guarded_preflight_refuses_an_unknown_camera_before_writing():
     assert len(seed.view_baseline_problems(api)) == len(seed.MAP_VIEW_FIXES)
 
 
+class MatterhornCameraApi:
+    def __init__(self, camera):
+        self.map = {"layers": [], **camera}
+        self.camera_writes = []
+
+    def list_maps(self):
+        return {"The Matterhorn in 3D": "matterhorn"}
+
+    def get_map(self, _):
+        return self.map
+
+    def set_view(self, _, **fields):
+        if "zoom" in fields:
+            self.camera_writes.append(fields)
+
+
+def test_styling_frames_a_matterhorn_map_saved_without_a_camera():
+    api = MatterhornCameraApi(
+        {"center_lng": None, "center_lat": None, "zoom": None, "pitch": 0, "bearing": 0}
+    )
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == [
+        {
+            "center_lng": 7.6586,
+            "center_lat": 45.9750,
+            "zoom": 14.0,
+            "pitch": 66,
+            "bearing": -150,
+        }
+    ]
+
+
+def test_styling_leaves_a_moved_matterhorn_camera_alone():
+    api = MatterhornCameraApi(
+        {"center_lng": 7.7, "center_lat": 46.0, "zoom": 12.0, "pitch": 40, "bearing": 0}
+    )
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == []
+
+
 class UnstylableApi:
     def list_maps(self):
         return {"Restless Earth": "restless"}
