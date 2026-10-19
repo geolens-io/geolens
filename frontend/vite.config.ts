@@ -70,11 +70,26 @@ function manualChunks(id: string) {
 }
 
 // Exported styles name these fonts, so another origin's map must be able to
-// fetch them; nginx sends the same header in production.
+// fetch them, and a range that isn't shipped must 404 rather than fall through
+// to the SPA page, which MapLibre would parse as a glyph PBF. nginx does the
+// same in production.
 const fontsCors: Plugin = {
   name: 'geolens-fonts-cors',
   configureServer(server) {
-    server.middlewares.use('/fonts/', (_req, res, next) => {
+    const fontsDir = path.join(server.config.publicDir, 'fonts')
+    const mount = `${new URL(server.config.base, 'http://base.invalid').pathname.replace(/\/?$/, '/')}fonts/`
+    server.middlewares.use(mount, (req, res, next) => {
+      let file = ''
+      try {
+        file = path.join(fontsDir, decodeURIComponent((req.url ?? '').split('?')[0]))
+      } catch {
+        // A malformed escape names no file.
+      }
+      if (!file.startsWith(fontsDir + path.sep) || !fs.existsSync(file)) {
+        res.statusCode = 404
+        res.end()
+        return
+      }
       res.setHeader('Access-Control-Allow-Origin', '*')
       next()
     })
