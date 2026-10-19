@@ -74,16 +74,32 @@ class ComposeSettingsGateTest(unittest.TestCase):
             self.gate,
             COMPOSE_SPECIFIC_DEFAULTS={"POSTGRES_HOST": "Compose network host"},
             SETTINGS_NOT_IN_COMPOSE={},
+            SERVICE_SETTINGS_EXCLUSIONS={"api": {}, "worker": {}},
+            MIGRATE_SETTINGS_ANCHORS=(),
+            MIGRATE_SETTINGS={"JWT_SECRET_KEY": "r"},
         )
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def errors(self, env: str, *, anchors: str = "", extra: str = "") -> list[str]:
+    def errors(
+        self,
+        env: str,
+        *,
+        anchors: str = "",
+        extra: str = "",
+        worker_env: str = COMPLETE_ENV,
+        migrate_env: str = "      JWT_SECRET_KEY: ${JWT_SECRET_KEY}\n",
+    ) -> list[str]:
+        """Gate errors for a file whose api receives ``env``."""
         compose = self.dir / "compose.yml"
         compose.write_text(
             anchors
             + "services:\n  api:\n    image: x\n    environment:\n"
             + env
+            + "  worker:\n    image: x\n    environment:\n"
+            + worker_env
+            + "  migrate:\n    image: x\n    environment:\n"
+            + migrate_env
             + extra
         )
         return self.gate.compose_settings_errors((compose,), self.fields, self.blank)
@@ -99,10 +115,50 @@ class ComposeSettingsGateTest(unittest.TestCase):
 
     def test_settings_field_without_a_compose_entry_fails(self) -> None:
         env = COMPLETE_ENV.replace('      LOG_LEVEL: "${LOG_LEVEL:-INFO}"\n', "")
-        errors = self.errors(env)
+        self.assertEqual(self.errors(env), ["compose.yml:api never receives LOG_LEVEL"])
+
+    def test_field_another_service_receives_still_fails_for_the_api(self) -> None:
+        env = COMPLETE_ENV.replace("      REDIS_URL:\n", "")
+        self.assertEqual(self.errors(env), ["compose.yml:api never receives REDIS_URL"])
+
+    def test_field_missing_from_the_worker_fails(self) -> None:
+        worker_env = COMPLETE_ENV.replace("      REDIS_URL:\n", "")
         self.assertEqual(
-            errors, ["compose.yml: no Settings service receives LOG_LEVEL"]
+            self.errors(COMPLETE_ENV, worker_env=worker_env),
+            ["compose.yml:worker never receives REDIS_URL"],
         )
+
+    def test_service_exclusion_allows_absence_and_flags_staleness(self) -> None:
+        env = COMPLETE_ENV.replace("      REDIS_URL:\n", "")
+        exclusions = {"api": {"REDIS_URL": "r"}, "worker": {"REDIS_URL": "r"}}
+        with mock.patch.dict(self.gate.SERVICE_SETTINGS_EXCLUSIONS, exclusions):
+            errors = self.errors(env)
+        self.assertEqual(
+            errors,
+            [
+                "compose.yml:worker receives REDIS_URL, which "
+                "SERVICE_SETTINGS_EXCLUSIONS excludes for it"
+            ],
+        )
+
+    def test_migrate_needs_its_anchor_fields_and_listed_fields(self) -> None:
+        anchors = (
+            'x-db: &db-env\n  LOG_LEVEL: "${LOG_LEVEL:-INFO}"\n  NOT_A_FIELD: x\n\n'
+        )
+        with mock.patch.object(self.gate, "MIGRATE_SETTINGS_ANCHORS", ("db-env",)):
+            self.assertEqual(
+                self.errors(COMPLETE_ENV, anchors=anchors),
+                ["compose.yml:migrate never receives LOG_LEVEL"],
+            )
+            merged = "      <<: *db-env\n      JWT_SECRET_KEY: ${JWT_SECRET_KEY}\n"
+            self.assertEqual(
+                self.errors(COMPLETE_ENV, anchors=anchors, migrate_env=merged), []
+            )
+        with mock.patch.object(self.gate, "MIGRATE_SETTINGS_ANCHORS", ("gone",)):
+            self.assertEqual(
+                self.errors(COMPLETE_ENV),
+                ["compose.yml: anchor &gone for migrate is missing"],
+            )
 
     def test_excluded_field_may_be_absent(self) -> None:
         env = COMPLETE_ENV.replace('      LOG_LEVEL: "${LOG_LEVEL:-INFO}"\n', "")
@@ -129,8 +185,9 @@ class ComposeSettingsGateTest(unittest.TestCase):
         env = COMPLETE_ENV.replace(
             "      POSTGRES_HOST: db\n", "      POSTGRES_HOST:\n"
         )
-        bare_error, stale_error = self.errors(env)
+        (bare_error,) = self.errors(env)
         self.assertIn("api POSTGRES_HOST is bare", bare_error)
+        bare_error, _, stale_error = self.errors(env, worker_env=env)
         self.assertIn("lists POSTGRES_HOST, which no Settings service", stale_error)
 
     def test_bare_entry_drops_the_empty_value_default(self) -> None:
@@ -173,8 +230,11 @@ class ComposeSettingsGateTest(unittest.TestCase):
     def test_unlisted_container_specific_value_fails(self) -> None:
         with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS, clear=True):
             errors = self.errors(COMPLETE_ENV)
-        self.assertEqual(len(errors), 1)
-        self.assertIn("POSTGRES_HOST = 'db' is not the Settings default", errors[0])
+        self.assertEqual(len(errors), 2)
+        for service, error in zip(("api", "worker"), errors):
+            self.assertIn(
+                f"{service} POSTGRES_HOST = 'db' is not the Settings default", error
+            )
 
     def test_stale_compose_specific_entry_fails(self) -> None:
         with mock.patch.dict(

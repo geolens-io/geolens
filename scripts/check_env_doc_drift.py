@@ -398,6 +398,67 @@ SETTINGS_NOT_IN_COMPOSE: dict[str, str] = {
     "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "the platform injects it (ECS/EKS)",
 }
 
+_API_ONLY = "read only by the HTTP app, not by the job worker"
+_WORKER_ONLY = "read only by the job worker"
+_MIGRATE_ONLY = "the migration identity; api and worker run as the runtime role"
+
+# Settings fields each long-running service deliberately does not receive.
+SERVICE_SETTINGS_EXCLUSIONS: dict[str, dict[str, str]] = {
+    "api": {
+        "WORKER_CONCURRENCY": _WORKER_ONLY,
+        "WORKER_QUEUES": _WORKER_ONLY,
+        "WORKER_SHUTDOWN_TIMEOUT": _WORKER_ONLY,
+        "URL_IMPORT_FETCH_MAX_SECONDS": "the URL-import fetch runs in the worker",
+        "ANALYSIS_MATERIALIZE_TIMEOUT_SECONDS": "the materialize task runs in the worker",
+        "ANALYSIS_REGISTRATION_TIMEOUT_SECONDS": "the materialize task runs in the worker",
+        "ANALYSIS_MATERIALIZE_WORK_MEM_MB": "the materialize task runs in the worker",
+        "GEOLENS_MIGRATION_DB_ROLE": _MIGRATE_ONLY,
+    },
+    "worker": {
+        "GEOLENS_MIGRATION_DB_ROLE": _MIGRATE_ONLY,
+        # Serving: uvicorn, the query sandbox, the tile pool and cache.
+        "UVICORN_WORKERS": _API_ONLY,
+        "SANDBOX_QUERY_SLOTS": _API_ONLY,
+        "TILE_POOL_MIN_SIZE": _API_ONLY,
+        "TILE_POOL_MAX_SIZE": _API_ONLY,
+        "TILE_CACHE_TTL": _API_ONLY,
+        "TILE_SIGNING_SECRET": _API_ONLY,
+        "CDN_BASE_URL": _API_ONLY,
+        "TITILER_BASE_URL": _API_ONLY,
+        "REMOTE_RASTER_RELAY_BASE_URL": _API_ONLY,
+        "CORS_ALLOWED_ORIGINS": _API_ONLY,
+        # Upload doors and presigned uploads.
+        "UPLOAD_MAX_SIZE_MB": _API_ONLY,
+        "UPLOAD_ALLOWED_EXTENSIONS": _API_ONLY,
+        "PRESIGNED_MULTIPART_THRESHOLD_MB": _API_ONLY,
+        # Sign-in and registration policy.
+        "REGISTRATION_ENABLED": _API_ONLY,
+        "EMAIL_VERIFICATION_REQUIRED": _API_ONLY,
+        "PASSWORD_LOGIN_ENABLED": _API_ONLY,
+        "LOGIN_RATE_LIMIT": _API_ONLY,
+        "ALLOWED_EMAIL_DOMAINS": _API_ONLY,
+        # Public URLs and page content.
+        "LANDING_FIRST": _API_ONLY,
+        "BANNER_ENABLED": _API_ONLY,
+        "BANNER_TEXT": _API_ONLY,
+        "BANNER_COLOR": _API_ONLY,
+        "PUBLIC_APP_URL": _API_ONLY,
+        "PUBLIC_API_URL": _API_ONLY,
+        "PUBLIC_BASE_URL": _API_ONLY,
+        "PRIVACY_URL": _API_ONLY,
+        "DCAT_CONTACT_EMAIL": _API_ONLY,
+    },
+}
+
+# migrate needs only database, auth and edition settings: every Settings field
+# in these anchors, plus the fields below.
+MIGRATE_SETTINGS_ANCHORS = ("db-env", "auth-env", "db-ssl-env", "edition-env")
+MIGRATE_SETTINGS: dict[str, str] = {
+    "GEOLENS_MIGRATION_DB_ROLE": _MIGRATE_ONLY,
+    "EMBEDDING_DIMS": "migration 0012 types the embedding vector column",
+    "ENV_ONLY_CONFIG": "migration 0012 reads it",
+}
+
 # Entries whose Compose value deliberately differs from the Settings default,
 # so they must stay explicit. A key applies to every Settings service; a
 # `service:KEY` entry applies to that service only.
@@ -534,8 +595,8 @@ def compose_settings_errors(
 ) -> list[str]:
     """Check how the Settings services receive each Settings field.
 
-    Every field needs an entry in each file unless SETTINGS_NOT_IN_COMPOSE
-    excuses it. A bare `KEY:` passes the host value through and otherwise
+    Each Settings service must receive the fields `_coverage_errors` expects
+    of it. A bare `KEY:` passes the host value through and otherwise
     leaves the Settings default in charge, so it is the form for any entry
     whose Compose default would only repeat that default for both an unset
     and an empty host value. Bare is wrong for a key without a Settings
@@ -547,11 +608,11 @@ def compose_settings_errors(
     errors: list[str] = []
     explicit_seen: set[str] = set()
     for path in compose_files:
-        environments = _service_environment(path.read_text())
-        received: set[str] = set()
+        text = path.read_text()
+        environments = _service_environment(text)
+        errors.extend(_coverage_errors(path.name, text, environments, fields))
         for service in SETTINGS_SERVICES:
             for key, raw in environments.get(service, {}).items():
-                received.add(key)
                 where = f"{path.name}:{service} {key}"
                 if raw is None:
                     if key not in fields:
@@ -609,20 +670,59 @@ def compose_settings_errors(
                         f"{'(computed)' if default is _NOT_LITERAL else repr(default)}; "
                         "align them or list it in COMPOSE_SPECIFIC_DEFAULTS"
                     )
-        missing = sorted(set(fields) - received - set(SETTINGS_NOT_IN_COMPOSE))
-        if missing:
-            errors.append(
-                f"{path.name}: no Settings service receives {', '.join(missing)}"
-            )
     for entry in sorted(set(COMPOSE_SPECIFIC_DEFAULTS) - explicit_seen):
         errors.append(
             f"COMPOSE_SPECIFIC_DEFAULTS lists {entry}, which no Settings service "
             "sets explicitly any more"
         )
-    for key in sorted(set(SETTINGS_NOT_IN_COMPOSE) - set(fields)):
-        errors.append(
-            f"SETTINGS_NOT_IN_COMPOSE lists {key}, which is no Settings field"
-        )
+    listed = {
+        "SETTINGS_NOT_IN_COMPOSE": SETTINGS_NOT_IN_COMPOSE,
+        "MIGRATE_SETTINGS": MIGRATE_SETTINGS,
+        **{
+            f"SERVICE_SETTINGS_EXCLUSIONS[{service!r}]": excluded
+            for service, excluded in SERVICE_SETTINGS_EXCLUSIONS.items()
+        },
+    }
+    for name, entries in listed.items():
+        for key in sorted(set(entries) - set(fields)):
+            errors.append(f"{name} lists {key}, which is no Settings field")
+    return errors
+
+
+def _coverage_errors(
+    name: str,
+    text: str,
+    environments: dict[str, dict[str, str | None]],
+    fields: dict[str, object],
+) -> list[str]:
+    """Check each Settings service receives the fields it is expected to.
+
+    api and worker take every Settings field minus their reasoned exclusions,
+    and an exclusion the service does receive is stale. migrate takes the
+    Settings fields of its anchors plus MIGRATE_SETTINGS.
+    """
+    errors: list[str] = []
+    for service, excluded in SERVICE_SETTINGS_EXCLUSIONS.items():
+        received = set(environments.get(service, {}))
+        expected = set(fields) - set(SETTINGS_NOT_IN_COMPOSE) - set(excluded)
+        missing = sorted(expected - received)
+        if missing:
+            errors.append(f"{name}:{service} never receives {', '.join(missing)}")
+        stale = sorted(set(excluded) & received)
+        if stale:
+            errors.append(
+                f"{name}:{service} receives {', '.join(stale)}, which "
+                "SERVICE_SETTINGS_EXCLUSIONS excludes for it"
+            )
+    anchors = _anchor_environment(text)
+    expected = set(MIGRATE_SETTINGS)
+    for anchor in MIGRATE_SETTINGS_ANCHORS:
+        if anchor not in anchors:
+            errors.append(f"{name}: anchor &{anchor} for migrate is missing")
+        expected.update(key for key in anchors.get(anchor, {}) if key in fields)
+    missing = sorted(expected - set(environments.get("migrate", {})))
+    if missing:
+        errors.append(f"{name}:migrate never receives {', '.join(missing)}")
     return errors
 
 

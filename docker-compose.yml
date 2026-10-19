@@ -519,6 +519,10 @@ services:
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
+      # The worker purges expired queue jobs on the same retention and reads
+      # admin-editable settings, which ENV_ONLY_CONFIG locks to the env.
+      INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
+      ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       # Upload-job lifetime and the age before staged-upload reconciliation
       # deletes an orphan; both are read by the sweeps and the presign paths.
       PENDING_JOB_TIMEOUT_SECONDS: "${PENDING_JOB_TIMEOUT_SECONDS:-3600}"
