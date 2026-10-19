@@ -95,11 +95,12 @@ const RELIEF_PALETTE: Record<
 
 /**
  * Glyphs for inline styles (blank and raster basemaps) so text labels render,
- * served from the bundled `public/fonts/` set. MapLibre fetches glyphs from a
- * worker, which cannot resolve a relative URL, so the origin is explicit.
+ * served from the bundled `public/fonts/` set beside the build's base path.
+ * MapLibre fetches glyphs from a worker, which cannot resolve a relative URL,
+ * so the origin is explicit.
  */
 function bundledGlyphsUrl(): string {
-  return `${window.location.origin}/fonts/{fontstack}/{range}.pbf`;
+  return `${window.location.origin}${import.meta.env.BASE_URL}fonts/{fontstack}/{range}.pbf`;
 }
 
 /**

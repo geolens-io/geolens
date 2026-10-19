@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { StyleSpecification } from 'maplibre-gl';
 import {
   toMaplibreStyle,
@@ -71,6 +71,16 @@ describe('toMaplibreStyle', () => {
   it('points raster-basemap glyphs at the bundled same-origin fonts', () => {
     const result = toMaplibreStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png') as StyleSpecification;
     expect(result.glyphs).toBe(`${window.location.origin}/fonts/{fontstack}/{range}.pbf`);
+  });
+
+  it('keeps the build base path in the bundled glyph URL', () => {
+    vi.stubEnv('BASE_URL', '/geolens/');
+    try {
+      const result = toMaplibreStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png') as StyleSpecification;
+      expect(result.glyphs).toBe(`${window.location.origin}/geolens/fonts/{fontstack}/{range}.pbf`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('includes attribution on raster source when provided', () => {
