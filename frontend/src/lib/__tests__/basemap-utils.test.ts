@@ -73,11 +73,26 @@ describe('toMaplibreStyle', () => {
     expect(result.glyphs).toBe(`${window.location.origin}/fonts/{fontstack}/{range}.pbf`);
   });
 
-  it('keeps the build base path in the bundled glyph URL', () => {
-    vi.stubEnv('BASE_URL', '/geolens/');
+  it.each([
+    ['/geolens/', '/geolens/'],
+    ['/geolens', '/geolens/'],
+    ['./', '/'],
+    ['', '/'],
+  ])('keeps the build base %j in the bundled glyph URL', (base, path) => {
+    vi.stubEnv('BASE_URL', base);
     try {
       const result = toMaplibreStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png') as StyleSpecification;
-      expect(result.glyphs).toBe(`${window.location.origin}/geolens/fonts/{fontstack}/{range}.pbf`);
+      expect(result.glyphs).toBe(`${window.location.origin}${path}fonts/{fontstack}/{range}.pbf`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('uses an absolute build base as is', () => {
+    vi.stubEnv('BASE_URL', 'https://static.example.com/app/');
+    try {
+      const result = toMaplibreStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png') as StyleSpecification;
+      expect(result.glyphs).toBe('https://static.example.com/app/fonts/{fontstack}/{range}.pbf');
     } finally {
       vi.unstubAllEnvs();
     }

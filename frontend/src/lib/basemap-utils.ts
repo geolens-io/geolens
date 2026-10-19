@@ -100,7 +100,8 @@ const RELIEF_PALETTE: Record<
  * so the origin is explicit.
  */
 function bundledGlyphsUrl(): string {
-  return `${window.location.origin}${import.meta.env.BASE_URL}fonts/{fontstack}/{range}.pbf`;
+  const base = new URL(import.meta.env.BASE_URL || '/', `${window.location.origin}/`).href;
+  return `${base.endsWith('/') ? base : `${base}/`}fonts/{fontstack}/{range}.pbf`;
 }
 
 /**

@@ -651,23 +651,25 @@ async def get_browser_reachable_app_url(
     db: AsyncSession,
     *,
     request: Request | None = None,
-) -> str:
+) -> str | None:
     """The app URL for a document another machine loads, such as an exported style.
 
-    A loopback app URL only reaches the caller's own machine. When the request
-    reached GeoLens at a non-loopback host, as with the shipped Compose default
-    ``http://localhost:8080`` left on a remote install, that host is returned
-    instead. It comes from Host/X-Forwarded-Host, never Origin or Referer,
-    which name the consumer's page on a cross-origin fetch.
+    The configured ``PUBLIC_APP_URL`` (or a validated tenant origin) is used
+    unless it is loopback, such as the shipped Compose default
+    ``http://localhost:8080`` left on a remote install. Otherwise the URL is the
+    host the request reached GeoLens at, from Host/X-Forwarded-Host. Origin and
+    Referer name the consumer's page on a cross-origin fetch, so they are never
+    used. None when neither gives a usable host.
     """
-    app_url = await get_public_app_url(db, request=request)
-    if request is None or not is_loopback_host(urlsplit(app_url).hostname or ""):
-        return app_url
-    derived = _request_host_origin(request)
+    configured = await get_shareable_app_url(db, request=request)
+    if configured and not is_loopback_host(urlsplit(configured).hostname or ""):
+        return configured
+    derived = _request_host_origin(request) if request is not None else None
     hostname = urlsplit(derived).hostname if derived else None
-    if not hostname or is_loopback_host(hostname) or hostname in ("api", "backend"):
-        return app_url
-    return derived
+    if hostname and hostname not in ("api", "backend"):
+        if not is_loopback_host(hostname) or configured is None:
+            return derived
+    return configured
 
 
 async def get_dataset_service_url(

@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { defineConfig } from 'vitest/config'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
@@ -68,8 +69,20 @@ function manualChunks(id: string) {
   return undefined
 }
 
+// Exported styles name these fonts, so another origin's map must be able to
+// fetch them; nginx sends the same header in production.
+const fontsCors: Plugin = {
+  name: 'geolens-fonts-cors',
+  configureServer(server) {
+    server.middlewares.use('/fonts/', (_req, res, next) => {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      next()
+    })
+  },
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), fontsCors],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },

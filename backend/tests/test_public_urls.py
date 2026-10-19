@@ -571,24 +571,52 @@ async def test_get_public_api_url_propagates_for_external_use_flag(
 
 
 @pytest.mark.parametrize(
-    ("configured", "netloc", "expected"),
+    ("configured", "headers", "expected"),
     [
-        # The shipped default on a remote install: use where the request came from.
-        ("http://localhost:8080", "maps.example.com", "https://maps.example.com"),
+        # The shipped default on a remote install: the host the request reached.
+        (
+            "http://localhost:8080",
+            {"host": "maps.example.com"},
+            "https://maps.example.com",
+        ),
         # Local dev: the caller is on the same machine, so loopback is right.
-        ("http://localhost:8080", "localhost:8080", "http://localhost:8080"),
+        ("http://localhost:8080", {"host": "localhost:8080"}, "http://localhost:8080"),
         # Internal container hostnames aren't reachable from outside.
-        ("http://localhost:8080", "api:8000", "http://localhost:8080"),
+        ("http://localhost:8080", {"host": "api:8000"}, "http://localhost:8080"),
+        (None, {"host": "api:8000"}, None),
+        # Unset: a cross-origin consumer's Origin and Referer never win.
+        (
+            None,
+            {
+                "host": "maps.example.com",
+                "origin": "https://consumer.example",
+                "referer": "https://consumer.example/editor",
+            },
+            "https://maps.example.com",
+        ),
+        (
+            "http://localhost:8080",
+            {
+                "host": "api:8000",
+                "x-forwarded-host": "maps.example.com",
+                "x-forwarded-proto": "https",
+                "origin": "https://consumer.example",
+            },
+            "https://maps.example.com",
+        ),
         # A real configured URL always wins, sub-path included.
         (
             "https://example.com/geolens",
-            "other.example.com",
+            {"host": "other.example.com"},
             "https://example.com/geolens",
         ),
     ],
 )
-async def test_browser_reachable_app_url_replaces_a_remote_loopback_default(
-    monkeypatch: pytest.MonkeyPatch, configured: str, netloc: str, expected: str
+async def test_browser_reachable_app_url(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    headers: dict[str, str],
+    expected: str | None,
 ) -> None:
     monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
     monkeypatch.setattr(
@@ -599,33 +627,7 @@ async def test_browser_reachable_app_url_replaces_a_remote_loopback_default(
     monkeypatch.setattr(public_urls.settings, "cors_allowed_origins", "", raising=False)
 
     url = await public_urls.get_browser_reachable_app_url(
-        AsyncMock(), request=_make_request(netloc=netloc, headers={"host": netloc})
+        AsyncMock(), request=_make_request(netloc="api:8000", headers=headers)
     )
 
     assert url == expected
-
-
-async def test_browser_reachable_app_url_ignores_a_cross_origin_consumer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A style fetched from another site's page names GeoLens, not that page."""
-    monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
-    monkeypatch.setattr(
-        public_urls.settings, "public_app_url", "http://localhost:8080", raising=False
-    )
-    monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
-    monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
-    monkeypatch.setattr(public_urls.settings, "cors_allowed_origins", "", raising=False)
-    request = _make_request(
-        netloc="api:8000",
-        headers={
-            "host": "maps.example.com",
-            "x-forwarded-host": "maps.example.com",
-            "x-forwarded-proto": "https",
-            "origin": "https://consumer.example",
-        },
-    )
-
-    url = await public_urls.get_browser_reachable_app_url(AsyncMock(), request=request)
-
-    assert url == "https://maps.example.com"

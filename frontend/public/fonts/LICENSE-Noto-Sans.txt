@@ -1,3 +1,30 @@
+The glyphs in "Noto Sans Regular/" are rendered from these fonts, each under
+the SIL Open Font License 1.1 below:
+
+Noto Sans: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Naskh Arabic: Copyright 2014 Google Inc. All Rights Reserved.
+Noto Sans Armenian: Copyright 2014 Google Inc. All Rights Reserved.
+Noto Sans Balinese: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Bengali: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans CJK TC: Copyright © 2014, 2015 Adobe Systems Incorporated (http://www.adobe.com/).
+Noto Sans Devanagari: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Ethiopic: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Georgian: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Gujarati: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Gurmukhi: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Hebrew: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Javanese: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Kannada: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Khmer: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Lao: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Mongolian: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Myanmar: Copyright 2013 Google Inc. All Rights Reserved.
+Noto Sans Oriya: Copyright 2015 Google Inc. All Rights Reserved.
+Noto Sans Sinhala: Copyright 2014 Google Inc. All Rights Reserved.
+Noto Sans Tamil: Copyright 2012 Google Inc. All Rights Reserved.
+Noto Sans Thai: Copyright 2011 Google Inc. All Rights Reserved.
+Noto Sans Tibetan: Copyright 2015 Google Inc. All Rights Reserved.
+
 This Font Software is licensed under the SIL Open Font License,
 Version 1.1.
 
