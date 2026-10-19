@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.platform.extensions.defaults import DefaultProcessingPort
-from app.processing.ai import chat_styles
 from app.processing.ai.chat_actions import _collect_chat_action, _execute_chat_tool
 from app.processing.ai.schemas import ChatAction, ChatMapLayer
 from app.processing.ai.tools import select_chat_tools
@@ -60,7 +59,8 @@ async def test_heatmap_switch_then_radius_in_one_turn():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("render_as", "message"), [("heatmap", "heatmap-weight"), ("symbol", "icons")]
+    ("render_as", "message"),
+    [("heatmap", "heatmap-weight"), ("symbol", "icons"), ("cluster", "aggregate")],
 )
 async def test_data_driven_style_after_a_switch_explains_itself(render_as, message):
     layers = [_layer()]
@@ -71,24 +71,6 @@ async def test_data_driven_style_after_a_switch_explains_itself(render_as, messa
 
     assert message in result["error"]
     assert _collect_chat_action("set_data_driven_style", style_input, result) is None
-
-
-@pytest.mark.anyio
-async def test_data_driven_style_on_clusters_says_where_the_colours_show(monkeypatch):
-    async def fake_categorical(*_args, **_kwargs):
-        return {"type": "set_data_driven_style", "paint": {"circle-color": ["match"]}}
-
-    monkeypatch.setattr(chat_styles, "_build_categorical_style", fake_categorical)
-    layers = [_layer()]
-    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "cluster"}, layers)
-
-    style_input = {"layer_id": "layer-1", "mode": "categorical", "column": "name"}
-    result = await _run("set_data_driven_style", style_input, layers)
-
-    assert "unclustered points" in result["note"]
-    assert (
-        _collect_chat_action("set_data_driven_style", style_input, result) is not None
-    )
 
 
 @pytest.mark.anyio
