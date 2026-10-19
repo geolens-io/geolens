@@ -330,12 +330,12 @@ sizes and options.
 
 ## Known limitations
 
-- The supported install, Docker Compose, runs on one host. For high availability, run several API
-  and frontend replicas against a managed PostgreSQL with automatic failover, shared object storage
-  and one Valkey or Redis cache.
+- The supported install, Docker Compose, runs on one host. For high availability, run several
+  replicas of the API, worker, frontend and Titiler against a managed PostgreSQL with automatic
+  failover, shared object storage and one Valkey or Redis cache.
   [geolens-deployments](https://github.com/geolens-io/geolens-deployments) has a
-  community-maintained Helm chart, Terraform recipes and guides for AWS, Azure, Google Cloud and
-  DigitalOcean. GeoLens itself doesn't cluster the database or read from replicas.
+  community-maintained Helm chart, Terraform recipes for AWS and Azure, and guides for AWS, Azure,
+  Google Cloud and DigitalOcean. GeoLens itself doesn't cluster the database or read from replicas.
 - One organization per deployment.
 - Terrain rendering assumes elevation in meters; other vertical units render exaggerated.
 - GeoLens's own REST API can change between minor releases (the standards endpoints follow their

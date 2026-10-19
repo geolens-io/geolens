@@ -337,11 +337,12 @@ Python 3.10+ y `httpx`, y descarga datos públicos de una docena de fuentes;
 ## Limitaciones conocidas
 
 - La instalación con soporte oficial, Docker Compose, se ejecuta en un solo host. Para alta
-  disponibilidad, ejecuta varias réplicas de la API y del frontend contra un PostgreSQL gestionado
-  con conmutación por error automática, con almacenamiento de objetos compartido y una única caché
-  Valkey o Redis. [geolens-deployments](https://github.com/geolens-io/geolens-deployments) tiene un
-  chart de Helm, recetas de Terraform y guías para AWS, Azure, Google Cloud y DigitalOcean,
-  mantenidos por la comunidad. GeoLens no agrupa la base de datos en clúster ni lee de réplicas.
+  disponibilidad, ejecuta varias réplicas de la API, el worker, el frontend y Titiler contra un
+  PostgreSQL gestionado con conmutación por error automática, con almacenamiento de objetos
+  compartido y una única caché Valkey o Redis.
+  [geolens-deployments](https://github.com/geolens-io/geolens-deployments) tiene un chart de Helm
+  mantenido por la comunidad, recetas de Terraform para AWS y Azure, y guías para AWS, Azure,
+  Google Cloud y DigitalOcean. GeoLens no agrupa la base de datos en clúster ni lee de réplicas.
 - Una organización por instalación.
 - La representación del terreno supone que la elevación está en metros; otras unidades verticales
   se representan exageradas.
