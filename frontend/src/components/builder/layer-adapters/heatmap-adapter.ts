@@ -40,17 +40,6 @@ export const HEATMAP_OWNED_PAINT_PROPERTIES = [
   'heatmap-opacity',
 ] as const;
 
-/**
- * Default paint properties for a new heatmap layer. The numeric defaults are
- * the shared builder-defaults; only the ramp-derived heatmap-color is layered
- * on here (it lives in this module to avoid a builder-defaults -> color-ramps
- * circular import).
- */
-export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
-  ...HEATMAP_PAINT_DEFAULTS,
-  'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
-};
-
 interface HeatmapColor {
   /** The heatmap-color expression the layer draws. */
   expression: unknown;
