@@ -177,6 +177,7 @@ _EDIT_TOOLS = {
     "remove_layer",
     "add_layer",
     "set_opacity",
+    "set_render_as",
 }
 
 # Pre-computed color ramp palettes (no external dependency).

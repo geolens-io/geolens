@@ -3042,7 +3042,8 @@
               "add_layer",
               "remove_layer",
               "show_query_result",
-              "set_opacity"
+              "set_opacity",
+              "set_render_as"
             ],
             "title": "Type",
             "type": "string"
@@ -3176,6 +3177,28 @@
               }
             ],
             "title": "Opacity"
+          },
+          "render_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render As"
+          },
+          "height_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Column"
           },
           "geojson": {
             "anyOf": [

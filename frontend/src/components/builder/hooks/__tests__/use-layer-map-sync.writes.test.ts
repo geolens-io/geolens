@@ -1,5 +1,5 @@
 // Each builder handler leaves the map layers a sync pass leaves for the state the handler commits.
-import type { SetStateAction } from 'react';
+import { useRef, type SetStateAction } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { LabelConfig, MapLayerResponse, StyleConfig } from '@/types/api';
@@ -67,7 +67,7 @@ function mountHandlers(layers: MapLayerResponse[]) {
   };
   const hook = renderHook(
     ({ current }: { current: MapLayerResponse[] }) =>
-      useLayerMapSync(current, setLocalLayers, vi.fn(), { current: recording.map }),
+      useLayerMapSync(current, setLocalLayers, vi.fn(), { current: recording.map }, useRef(current)),
     { initialProps: { current: layers } },
   );
   recording.calls.length = 0;
@@ -269,7 +269,7 @@ describe('the handlers write through the layer writer', () => {
     let committed = false;
     const { recording } = syncedMap([polygon]);
     recording.calls.length = 0;
-    const { result } = renderHook(() => useLayerMapSync([polygon], () => { committed = true; }, setDirty, { current: recording.map }));
+    const { result } = renderHook(() => useLayerMapSync([polygon], () => { committed = true; }, setDirty, { current: recording.map }, useRef([polygon])));
 
     act(() => result.current.handleToggleVisibility('layer-that-does-not-exist'));
 

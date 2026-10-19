@@ -22,6 +22,7 @@ TOOL_LABELS = {
     "remove_layer": "Removing layer...",
     "add_layer": "Adding layer...",
     "set_opacity": "Adjusting opacity...",
+    "set_render_as": "Changing render type...",
     "query_data": "Querying data...",
     "run_analysis": "Running analysis...",
     "get_dataset_details": "Fetching dataset details...",

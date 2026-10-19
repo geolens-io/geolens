@@ -391,23 +391,30 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
   }
 }
 
-export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): RenderAsMutation | null {
+export function buildRenderAsPatch(
+  layer: RenderAsLayer,
+  renderAs: RenderAsId,
+  options: { heightColumn?: string } = {},
+): RenderAsMutation | null {
   if (!getRenderAsOptions(layer).some((option) => option.id === renderAs)) return null;
 
   if (renderAs === 'point') {
+    const current = getCurrentRenderAs(layer);
     const style = styleWithoutRenderMode(layer, {
-      heatmapPaint: getCurrentRenderAs(layer) === 'heatmap' ? { ...(layer.paint ?? {}) } : layer.style_config?.heatmapPaint,
+      heatmapPaint: current === 'heatmap' ? { ...(layer.paint ?? {}) } : layer.style_config?.heatmapPaint,
       savedCirclePaint: undefined,
       symbol: undefined,
     });
     const savedCirclePaint = layer.style_config?.savedCirclePaint;
+    // Cluster draws its unclustered points with the layer's own circle paint.
+    const circlePaint = current === 'cluster'
+      ? layer.paint
+      : savedCirclePaint && Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : null;
     return {
       adapterType: 'circle',
       patch: {
         layer_type: vectorLayerType(layer),
-        paint: savedCirclePaint && Object.keys(savedCirclePaint).length > 0
-          ? { ...savedCirclePaint }
-          : { ...DEFAULT_CIRCLE_PAINT },
+        paint: { ...(circlePaint ?? DEFAULT_CIRCLE_PAINT) },
         style_config: style,
       },
     };
@@ -457,7 +464,10 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
   }
 
   if (renderAs === 'cluster') {
-    const circlePaint = { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) };
+    // Heatmap paint holds heatmap-* keys; the circle paint is stashed.
+    const circlePaint = getCurrentRenderAs(layer) === 'heatmap'
+      ? { ...(layer.style_config?.savedCirclePaint ?? DEFAULT_CIRCLE_PAINT) }
+      : { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) };
     const clusterColor = typeof circlePaint['circle-color'] === 'string'
       ? circlePaint['circle-color']
       : DEFAULT_CIRCLE_PAINT['circle-color'];
@@ -535,7 +545,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
     }
 
     if (renderAs === 'extrusion-3d') {
-      builder.heightColumn = numericHeightColumn(layer);
+      builder.heightColumn = options.heightColumn ?? numericHeightColumn(layer);
       builder.heightScale = typeof priorHeightScale === 'number' ? priorHeightScale : 1;
       builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : DEFAULT_EXTRUSION_MIN_ZOOM;
       // The shared extrusion-opacity cap, not a hardcoded value.

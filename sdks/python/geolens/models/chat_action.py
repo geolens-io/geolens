@@ -38,6 +38,8 @@ class ChatAction:
         dataset_name (None | str | Unset):
         visible (bool | None | Unset):
         opacity (float | None | Unset):
+        render_as (None | str | Unset):
+        height_column (None | str | Unset):
         geojson (GeoJSONFeatureCollection | None | Unset):
         bbox (list[float] | None | Unset):
         rows (list[list[Any]] | None | Unset):
@@ -60,6 +62,8 @@ class ChatAction:
     dataset_name: None | str | Unset = UNSET
     visible: bool | None | Unset = UNSET
     opacity: float | None | Unset = UNSET
+    render_as: None | str | Unset = UNSET
+    height_column: None | str | Unset = UNSET
     geojson: GeoJSONFeatureCollection | None | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     rows: list[list[Any]] | None | Unset = UNSET
@@ -156,6 +160,18 @@ class ChatAction:
         else:
             opacity = self.opacity
 
+        render_as: None | str | Unset
+        if isinstance(self.render_as, Unset):
+            render_as = UNSET
+        else:
+            render_as = self.render_as
+
+        height_column: None | str | Unset
+        if isinstance(self.height_column, Unset):
+            height_column = UNSET
+        else:
+            height_column = self.height_column
+
         geojson: dict[str, Any] | None | Unset
         if isinstance(self.geojson, Unset):
             geojson = UNSET
@@ -248,6 +264,10 @@ class ChatAction:
             field_dict["visible"] = visible
         if opacity is not UNSET:
             field_dict["opacity"] = opacity
+        if render_as is not UNSET:
+            field_dict["render_as"] = render_as
+        if height_column is not UNSET:
+            field_dict["height_column"] = height_column
         if geojson is not UNSET:
             field_dict["geojson"] = geojson
         if bbox is not UNSET:
@@ -420,6 +440,24 @@ class ChatAction:
 
         opacity = _parse_opacity(d.pop("opacity", UNSET))
 
+        def _parse_render_as(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        render_as = _parse_render_as(d.pop("render_as", UNSET))
+
+        def _parse_height_column(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        height_column = _parse_height_column(d.pop("height_column", UNSET))
+
         def _parse_geojson(data: object) -> GeoJSONFeatureCollection | None | Unset:
             if data is None:
                 return data
@@ -542,6 +580,8 @@ class ChatAction:
             dataset_name=dataset_name,
             visible=visible,
             opacity=opacity,
+            render_as=render_as,
+            height_column=height_column,
             geojson=geojson,
             bbox=bbox,
             rows=rows,

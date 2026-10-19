@@ -264,7 +264,7 @@ export function MapBuilderPage() {
     setLocalTerrainConfig,
     dispatchLayerAction,
     handleTabChange,
-    handleRenderModeChange,
+    handleRenderAsChange,
   } = layers;
   const basemapState = useMemo(
     () => createBuilderBasemapState({
@@ -465,7 +465,7 @@ export function MapBuilderPage() {
       layerId,
       layout,
     }),
-    onRenderModeChange: handleRenderModeChange,
+    onRenderModeChange: handleRenderAsChange,
     onRemove: (layerId) => dispatchLayerAction({
       type: 'remove_layer',
       source: 'manual',
@@ -475,7 +475,7 @@ export function MapBuilderPage() {
     // The revert re-marks the map dirty via the handlers above, so ask the
     // baseline owner to re-derive; it clears only when the WHOLE map is clean.
     onRevertToSaved: layers.requestCleanRecheck,
-  }), [dispatchLayerAction, handleRenderModeChange, handleTabChange, layers.requestCleanRecheck]);
+  }), [dispatchLayerAction, handleRenderAsChange, handleTabChange, layers.requestCleanRecheck]);
 
   // The dock's notes live in page state the layers hook cannot compare against
   // server data, so this is the OPAQUE marker. Controls whose fields the hook

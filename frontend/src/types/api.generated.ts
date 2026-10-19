@@ -7303,7 +7303,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "set_filter" | "set_style" | "set_data_driven_style" | "set_label" | "toggle_visibility" | "add_layer" | "remove_layer" | "show_query_result" | "set_opacity";
+            type: "set_filter" | "set_style" | "set_data_driven_style" | "set_label" | "toggle_visibility" | "add_layer" | "remove_layer" | "show_query_result" | "set_opacity" | "set_render_as";
             /** Layer Id */
             layer_id?: string | null;
             /** Expression */
@@ -7332,6 +7332,10 @@ export interface components {
             visible?: boolean | null;
             /** Opacity */
             opacity?: number | null;
+            /** Render As */
+            render_as?: string | null;
+            /** Height Column */
+            height_column?: string | null;
             geojson?: components["schemas"]["GeoJSONFeatureCollection"] | null;
             /** Bbox */
             bbox?: number[] | null;

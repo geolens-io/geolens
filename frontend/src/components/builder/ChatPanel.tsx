@@ -16,6 +16,7 @@ import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-act
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
+import type { RenderAsId } from '@/components/builder/renderAs';
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
 import { randomId } from '@/lib/random-id';
@@ -151,6 +152,7 @@ const KNOWN_CHAT_ACTION_TYPES: ReadonlySet<ChatAction['type']> = new Set([
   'remove_layer',
   'show_query_result',
   'set_opacity',
+  'set_render_as',
 ]);
 
 function getChatActions(value: unknown): ChatAction[] {
@@ -309,6 +311,10 @@ export interface LayerActions {
   onAddDataset: (datasetId: string) => void;
   onRemove: (layerId: string) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
+  /** Returns whether the layer switched render type. */
+  onRenderAsChange?: (layerId: string, renderAs: RenderAsId, options?: { heightColumn?: string }) => boolean;
+  /** The layer as the builder holds it now, including this turn's earlier edits. */
+  getLayer?: (layerId: string) => MapLayerResponse | undefined;
   /**
    * Atomically restore the full state of each supplied layer (matched by id).
    * Undo uses it to revert all fields in one update; restoring field-by-field
@@ -362,6 +368,8 @@ export function ChatPanel({
     onAddDataset,
     onRemove,
     onOpacityChange,
+    onRenderAsChange,
+    getLayer,
     onRestoreLayers,
   } = layerActions;
   const { t, i18n } = useTranslation('builder');
@@ -582,6 +590,11 @@ export function ChatPanel({
     toast.success(t('chat.undoApplied'));
   }, [onRestoreLayers, onRemove, onAddDataset, t]);
 
+  // Prefer the builder's live layer so each action sees this turn's earlier edits.
+  function findLayer(layerId: string): MapLayerResponse | undefined {
+    return getLayer?.(layerId) ?? layersRef.current.find((candidate) => candidate.id === layerId);
+  }
+
   /**
    * Dispatches a single ChatAction and returns whether it produced a real layer
    * mutation. "Applied N changes" counts effect, not intent: a no-op set_style
@@ -614,7 +627,7 @@ export function ChatPanel({
         return false;
       case 'set_style':
         if (layerId) {
-          const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+          const layer = findLayer(layerId);
           if (layer) {
             // Validate/clamp before checking for a mutation: an action whose
             // paint is reduced to empty must not apply, nor count as a mutation
@@ -634,7 +647,7 @@ export function ChatPanel({
       case 'set_data_driven_style': {
         const rawPaint = getActionPaint(action);
         if (layerId && rawPaint) {
-          const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+          const layer = findLayer(layerId);
           // Require the target layer; applying unvalidated paint for a layer not
           // found client-side would still report "applied". Mirrors set_style.
           if (!layer) return false;
@@ -668,7 +681,7 @@ export function ChatPanel({
             // Validate the column against the layer schema: a hallucinated
             // column yields a label layer whose text-field renders empty.
             // Backend chat_actions mirrors this; this is the client-side backstop.
-            const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+            const layer = findLayer(layerId);
             if (
               lc.column &&
               layer?.dataset_column_info &&
@@ -729,6 +742,11 @@ export function ChatPanel({
         }
         return false;
       }
+      case 'set_render_as':
+        if (!layerId || typeof action.render_as !== 'string') return false;
+        return onRenderAsChange?.(layerId, action.render_as as RenderAsId, {
+          heightColumn: action.height_column ?? undefined,
+        }) ?? false;
       default:
         assertNever(action.type);
     }

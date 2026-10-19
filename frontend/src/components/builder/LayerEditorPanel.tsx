@@ -27,10 +27,6 @@ export interface LayerEditorHandlers {
   onPopupChange: (layerId: string, config: PopupConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean; restore?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  // Widened to all RenderAsId values: use-builder-layers'
-  // handleRenderModeChange dispatches non-circle modes through
-  // handleRenderAsChange so stale layout/paint keys don't leak across adapter
-  // boundaries (e.g. line->arrow leaving line-cap / line-join).
   onRenderModeChange?: (layerId: string, mode: RenderAsId) => void;
   onRemove: (layerId: string) => void;
   /** Called after a banner Revert so the page can re-derive whether

@@ -203,6 +203,7 @@ export function useBuilderLayers(
     setLocalLayers,
     setHasUnsavedChanges,
     mapInstanceRef,
+    layersRef,
   );
 
   // Per-row style clipboard: session clipboard ref + geometry-class mirror; the
@@ -273,7 +274,6 @@ export function useBuilderLayers(
   // Render-mode and layer-swap handlers.
   const {
     handleRenderAsChange,
-    handleRenderModeChange,
   } = useRenderModeLayers({
     layersRef,
     setLocalLayers,
@@ -1146,8 +1146,10 @@ export function useBuilderLayers(
       layerId,
       opacity,
     }),
+    onRenderAsChange: handleRenderAsChange,
+    getLayer: (layerId) => layersRef.current.find((l) => l.id === layerId),
     onRestoreLayers: handleRestoreLayers,
-  }), [dispatchLayerAction, handleRestoreLayers]);
+  }), [dispatchLayerAction, handleRenderAsChange, handleRestoreLayers]);
 
   return {
     localName, setLocalName,
@@ -1185,7 +1187,6 @@ export function useBuilderLayers(
     handlePaintChange,
     handleOpacityChange,
     handleRenderAsChange,
-    handleRenderModeChange,
     handleLayoutChange,
     handleZoomToLayer,
     // Style clipboard

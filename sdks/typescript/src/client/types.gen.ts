@@ -1879,7 +1879,7 @@ export type ChatAction = {
     /**
      * Type
      */
-    type: 'set_filter' | 'set_style' | 'set_data_driven_style' | 'set_label' | 'toggle_visibility' | 'add_layer' | 'remove_layer' | 'show_query_result' | 'set_opacity';
+    type: 'set_filter' | 'set_style' | 'set_data_driven_style' | 'set_label' | 'toggle_visibility' | 'add_layer' | 'remove_layer' | 'show_query_result' | 'set_opacity' | 'set_render_as';
     /**
      * Layer Id
      */
@@ -1930,6 +1930,14 @@ export type ChatAction = {
      * Opacity
      */
     opacity?: number | null;
+    /**
+     * Render As
+     */
+    render_as?: string | null;
+    /**
+     * Height Column
+     */
+    height_column?: string | null;
     geojson?: GeoJsonFeatureCollection | null;
     /**
      * Bbox

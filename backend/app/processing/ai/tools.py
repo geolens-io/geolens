@@ -158,6 +158,50 @@ CHAT_TOOLS_ANTHROPIC = [
         },
     },
     {
+        "name": "set_render_as",
+        "description": (
+            "Change how a vector layer is drawn. Point layers: point, symbol, "
+            "heatmap, cluster. Line layers: line, arrow. Polygon layers: fill, "
+            "stroke, fill-stroke, extrusion-3d. Switching resets paint to the "
+            "new type's defaults, so call it before set_style when the same "
+            "turn tunes the new type (for example heatmap-radius). Raster "
+            "layers have one render type and cannot be switched."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "layer_id": {
+                    "type": "string",
+                    "description": "Layer ID (UUID)",
+                },
+                "render_as": {
+                    "type": "string",
+                    "enum": [
+                        "point",
+                        "symbol",
+                        "heatmap",
+                        "cluster",
+                        "line",
+                        "arrow",
+                        "fill",
+                        "stroke",
+                        "fill-stroke",
+                        "extrusion-3d",
+                    ],
+                    "description": "Render type for the layer",
+                },
+                "height_column": {
+                    "type": "string",
+                    "description": (
+                        "Numeric column that sets extrusion-3d heights. "
+                        "Omit to use the layer's first numeric column."
+                    ),
+                },
+            },
+            "required": ["layer_id", "render_as"],
+        },
+    },
+    {
         "name": "set_data_driven_style",
         "description": (
             "Apply data-driven coloring (categorical or graduated) to a layer "

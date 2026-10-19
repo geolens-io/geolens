@@ -3,26 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
-import type { MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { builderAdapterInput } from '@/components/builder/hooks/use-layer-map-sync';
 import { getDrawingLayerIds } from '@/components/builder/companion-ids';
 import { removeDescribedLayers } from '@/components/builder/layer-writer';
-import { DEFAULT_CIRCLE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
-import { buildRenderAsPatch } from '@/components/builder/renderAs';
+import { buildRenderAsPatch, getCurrentRenderAs } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
-
-// Default symbol style_config used when converting a layer to symbol render
-// mode without a previously saved symbol config (alongside DEFAULT_CIRCLE_PAINT
-// / DEFAULT_HEATMAP_PAINT).
-const DEFAULT_SYMBOL_CONFIG: SymbolStyleConfig = {
-  iconImage: 'marker',
-  iconSize: 1,
-  iconRotation: 0,
-  iconAnchor: 'center',
-  iconOffset: [0, 0],
-};
 
 /** A render-mode change that enters or leaves cluster mode crosses a source
  *  boundary: cluster layers get a per-layer GeoJSON/server-tile source while
@@ -108,23 +95,27 @@ export function useRenderModeLayers({
    *  source, so the old layer graph must be torn down first or the reconciler
    *  skips the replacement and then deletes the stale layer, leaving the layer
    *  blank until the next sync. Removes the layer and every companion id; source
-   *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
-  const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
+   *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers.
+   *  Runs at once, since a teardown deferred to `idle` can land after the
+   *  reactive sync has redrawn the layer. */
+  const removeLayerGraphForReactiveSync = useCallback((layerId: string): void => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    if (!map.isStyleLoaded()) {
-      map.once('idle', () => runRemove(layerId));
-      return;
-    }
     removeDescribedLayers(map, getDrawingLayerIds(layerId));
   }, [mapInstanceRef]);
 
-  const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {
+  /** Returns whether the layer switched; false when the mode isn't available or is already current. */
+  const handleRenderAsChange = useCallback((
+    layerId: string,
+    renderAs: RenderAsId,
+    options?: { heightColumn?: string },
+  ): boolean => {
     const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
+    // Re-entering the current mode would reset its paint to the mode's defaults.
+    if (!layer || (renderAs === getCurrentRenderAs(layer) && !options?.heightColumn)) return false;
 
-    const mutation = buildRenderAsPatch(layer, renderAs);
-    if (!mutation) return;
+    const mutation = buildRenderAsPatch(layer, renderAs, options);
+    if (!mutation) return false;
 
     const updatedLayer: MapLayerResponse = {
       ...layer,
@@ -138,6 +129,8 @@ export function useRenderModeLayers({
       layer_type: mutation.patch.layer_type ?? layer.layer_type,
     };
 
+    // Same-tick edits (a chat turn's next action) build on the switched layer.
+    layersRef.current = layersRef.current.map((candidate) => (candidate.id === layerId ? updatedLayer : candidate));
     setLocalLayers((prev) =>
       prev.map((candidate) => (candidate.id === layerId ? updatedLayer : candidate)),
     );
@@ -153,113 +146,11 @@ export function useRenderModeLayers({
       swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
     }
     setHasUnsavedChanges(true);
+    return true;
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, swapLayerOnMap, removeLayerGraphForReactiveSync]);
-
-  const handleRenderModeChange = useCallback((layerId: string, mode: RenderAsId | 'points') => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-
-    // renderAsOptions in LayerEditorPanel surfaces every RenderAsId (arrow /
-    // fill / stroke / fill-stroke / extrusion-3d / line plus the legacy circle
-    // quartet handled below). Everything that isn't a circle-family transition
-    // goes through handleRenderAsChange + buildRenderAsPatch so the layout/paint
-    // replacement is computed correctly; otherwise line→arrow on a
-    // MultiLineString layer would fall into the `circle` branch and dispatch
-    // addLayer with stale line-cap / line-join layout keys, which MapLibre
-    // rejects with `unknown property`.
-    if (
-      mode === 'cluster' ||
-      mode === 'arrow' ||
-      mode === 'line' ||
-      mode === 'fill' ||
-      mode === 'stroke' ||
-      mode === 'fill-stroke' ||
-      mode === 'extrusion-3d' ||
-      mode === 'image' ||
-      mode === 'hillshade'
-    ) {
-      handleRenderAsChange(layerId, mode);
-      return;
-    }
-
-    // Leaving cluster crosses the per-layer→shared source boundary; defer the
-    // map mutation to the reactive syncMapComposition (see isClusterTransition).
-    const leavingCluster = layer.style_config?.render_mode === 'cluster';
-
-    const currentStyleConfig: Partial<StyleConfig> = layer.style_config ?? {};
-    let updatedPaint = { ...layer.paint };
-
-    if (mode === 'heatmap') {
-      const savedCirclePaint = { ...updatedPaint };
-      const savedHeatmapPaint = currentStyleConfig.heatmapPaint ?? {};
-
-      updatedPaint = Object.keys(savedHeatmapPaint).length > 0
-        ? { ...savedHeatmapPaint }
-        : { ...DEFAULT_HEATMAP_PAINT };
-
-      const builder = {
-        ...currentStyleConfig.builder,
-        heatmapRamp: currentStyleConfig.builder?.heatmapRamp ?? 'YlOrRd',
-      };
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...currentStyleConfig, render_mode: 'heatmap', savedCirclePaint, builder } as StyleConfig }
-            : l,
-        ),
-      );
-
-      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
-      else swapLayerOnMap(layer, 'heatmap', updatedPaint);
-    } else if (mode === 'symbol') {
-      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? { ...updatedPaint };
-      const nextStyleConfig = {
-        ...layer.style_config,
-        ...currentStyleConfig,
-        render_mode: 'symbol',
-        savedCirclePaint,
-        symbol: currentStyleConfig.symbol ?? { ...DEFAULT_SYMBOL_CONFIG },
-      } as StyleConfig;
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: nextStyleConfig }
-            : l,
-        ),
-      );
-
-      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
-      else swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
-    } else {
-      const savedHeatmapPaint = { ...updatedPaint };
-      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
-
-      updatedPaint = Object.keys(savedCirclePaint).length > 0
-        ? savedCirclePaint
-        : { ...DEFAULT_CIRCLE_PAINT };
-
-      const { savedCirclePaint: _dropped, symbol: _symbol, ...restConfig } = currentStyleConfig;
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...restConfig, render_mode: undefined, heatmapPaint: savedHeatmapPaint } as StyleConfig }
-            : l,
-        ),
-      );
-
-      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
-      else swapLayerOnMap(layer, 'circle', updatedPaint);
-    }
-
-    setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, handleRenderAsChange, swapLayerOnMap, removeLayerGraphForReactiveSync]);
 
   return {
     swapLayerOnMap,
     handleRenderAsChange,
-    handleRenderModeChange,
   };
 }

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.csv_safety import numeric_column_names
 from app.processing.ai.chat_constants import _get_ramp_colors
 from app.processing.ai.schemas import ChatMapLayer
 
@@ -245,3 +246,50 @@ async def _build_graduated_style(
             "breaks": break_entries,
         },
     }
+
+
+# Mirrors RENDERER_CAPABILITIES in frontend components/builder/renderAs.ts.
+_RENDER_AS_BY_FAMILY = {
+    "point": ("point", "symbol", "heatmap", "cluster"),
+    "line": ("line", "arrow"),
+    "polygon": ("fill", "stroke", "fill-stroke", "extrusion-3d"),
+}
+_RENDER_AS_STORED_AS_RENDER_MODE = {"symbol", "heatmap", "cluster", "arrow"}
+
+
+def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
+    """Validate a set_render_as call and record the new mode on its layer.
+
+    The layer's style_config is updated in place so set_style later in the
+    same turn validates paint against the new render mode.
+    """
+    target = next((lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None)
+    if target is None:
+        return {"error": "That layer is not on this map."}
+    if target.layer_type == "raster_geolens":
+        return {"error": "Raster layers have one render type and cannot be switched."}
+    gt = (target.geometry_type or "").upper()
+    family = next((f for f in ("point", "line", "polygon") if f.upper() in gt), None)
+    allowed = _RENDER_AS_BY_FAMILY.get(family or "", ())
+    render_as = tool_input.get("render_as")
+    if render_as not in allowed:
+        return {
+            "error": f"'{render_as}' is not available for this layer. "
+            f"Choose one of: {', '.join(allowed) or 'none'}."
+        }
+    if render_as == "cluster" and target.feature_count is None:
+        return {"error": "Cluster needs the layer's feature count, which is unknown."}
+    height_column = tool_input.get("height_column")
+    if (
+        render_as == "extrusion-3d"
+        and height_column is not None
+        and height_column not in numeric_column_names(target.column_info)
+    ):
+        return {"error": f"'{height_column}' is not a numeric column on this layer."}
+    style = dict(target.style_config or {})
+    if render_as in _RENDER_AS_STORED_AS_RENDER_MODE:
+        style["render_mode"] = render_as
+    else:
+        style.pop("render_mode", None)
+    target.style_config = style
+    return {"status": "ok", **tool_input}

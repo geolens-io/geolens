@@ -5,6 +5,8 @@ import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { ChatPanel, type LayerActions } from '../ChatPanel';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
+import { buildRenderAsPatch } from '../renderAs';
+import { DEFAULT_HEATMAP_PAINT } from '../layer-adapters/builder-defaults';
 
 // scrollIntoView is not available in jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -58,6 +60,8 @@ function renderPanel(
     onAddDataset = vi.fn(),
     onRemove = vi.fn(),
     onOpacityChange,
+    onRenderAsChange,
+    getLayer,
     onRestoreLayers = vi.fn(),
     ...rest
   } = propOverrides;
@@ -71,6 +75,8 @@ function renderPanel(
     onRemove,
     onRestoreLayers,
     ...(onOpacityChange ? { onOpacityChange } : {}),
+    ...(onRenderAsChange ? { onRenderAsChange } : {}),
+    ...(getLayer ? { getLayer } : {}),
   };
   const props = {
     mapId: 'map-1',
@@ -932,6 +938,81 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { 'heatmap-radius': 40 });
     });
+  });
+
+  it('set_render_as then set_style in one turn tunes the new heatmap', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_render_as', layer_id: 'layer-1', render_as: 'heatmap' },
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'heatmap-radius': 40 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Now a heatmap' } };
+    });
+    const layer = makeLayer({ dataset_geometry_type: 'Point', paint: { 'circle-color': '#2255aa' } });
+    let live = layer;
+    const onRenderAsChange = vi.fn((_id: string, renderAs: string) => {
+      const mutation = buildRenderAsPatch(live, renderAs as 'heatmap');
+      if (mutation) live = { ...live, ...mutation.patch } as MapLayerResponse;
+      return Boolean(mutation);
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({ layers: [layer], onRenderAsChange, getLayer: () => live });
+    await typeAndSend(user, 'show it as a heatmap with a bigger radius');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { ...DEFAULT_HEATMAP_PAINT, 'heatmap-radius': 40 });
+    });
+    expect(onRenderAsChange).toHaveBeenCalledWith('layer-1', 'heatmap', { heightColumn: undefined });
+  });
+
+  it('a second set_style in one turn builds on the first', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'circle-color': '#dc2626' } },
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'circle-radius': 8 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Restyled' } };
+    });
+    let live = makeLayer({ dataset_geometry_type: 'Point', paint: {} });
+    const onPaintChange = vi.fn((_id: string, paint: Record<string, unknown>) => { live = { ...live, paint }; });
+
+    const user = userEvent.setup();
+    renderPanel({ layers: [live], onPaintChange, getLayer: () => live });
+    await typeAndSend(user, 'make it red and bigger');
+
+    await waitFor(() => {
+      expect(onPaintChange).toHaveBeenLastCalledWith('layer-1', { 'circle-color': '#dc2626', 'circle-radius': 8 });
+    });
+  });
+
+  it('a refused set_render_as is not counted as applied', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_render_as', layer_id: 'layer-1', render_as: 'heatmap' }] },
+      };
+      yield { event: 'done', data: { explanation: 'Tried' } };
+    });
+    const onRenderAsChange = vi.fn(() => false);
+
+    const user = userEvent.setup();
+    renderPanel({ onRenderAsChange });
+    await typeAndSend(user, 'make the polygons a heatmap');
+
+    await screen.findByText('Tried');
+    expect(onRenderAsChange).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
   it('set_data_driven_style falls back to the layer render_mode when the action omits it, keeping heatmap-* paint', async () => {

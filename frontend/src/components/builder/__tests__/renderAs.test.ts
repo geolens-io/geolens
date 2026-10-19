@@ -271,6 +271,29 @@ describe('renderAs view model', () => {
     );
   });
 
+  it('keeps the circle paint when leaving cluster for points', () => {
+    const circlePaint = { 'circle-color': ['match', ['get', 'ada'], 1, '#16a34a', '#6b7280'], 'circle-radius': 5 };
+    const clustered = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: circlePaint,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    });
+
+    expect(buildRenderAsPatch(clustered, 'point')?.patch.paint).toEqual(circlePaint);
+  });
+
+  it('enters cluster from heatmap with the stashed circle paint', () => {
+    const heatmap = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: { 'heatmap-radius': 30 },
+      style_config: { render_mode: 'heatmap', savedCirclePaint: { 'circle-color': '#2255aa' } } as StyleConfig,
+    });
+
+    expect(buildRenderAsPatch(heatmap, 'cluster')?.patch.paint).toEqual({ 'circle-color': '#2255aa' });
+  });
+
   it('builds polygon fill, stroke, and 3D extrusion patches without is_3d', () => {
     const polygon = layer({
       dataset_geometry_type: 'POLYGON',

@@ -1,4 +1,5 @@
 // Paint edits to a layer coalesce into one write per animation frame, and every other edit writes at once.
+import { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
@@ -73,7 +74,7 @@ describe('useLayerMapSync paint coalescing', () => {
   it('writes ten paint edits to one layer once, on the next frame', () => {
     const recording = syncedMap([polygon]);
     const write = vi.spyOn(fillAdapter, 'syncPaint');
-    const { result } = renderHook(() => useLayerMapSync([polygon], vi.fn(), vi.fn(), { current: recording.map }));
+    const { result } = renderHook(() => useLayerMapSync([polygon], vi.fn(), vi.fn(), { current: recording.map }, useRef([polygon])));
 
     act(() => {
       for (let i = 0; i < 10; i++) result.current.handlePaintChange(polygon.id, { 'fill-color': `#00000${i}` });
@@ -89,7 +90,7 @@ describe('useLayerMapSync paint coalescing', () => {
   it('writes paint edits to two layers on the same frame', () => {
     const recording = syncedMap([polygon, extrusion]);
     const write = vi.spyOn(fillAdapter, 'syncPaint');
-    const { result } = renderHook(() => useLayerMapSync([polygon, extrusion], vi.fn(), vi.fn(), { current: recording.map }));
+    const { result } = renderHook(() => useLayerMapSync([polygon, extrusion], vi.fn(), vi.fn(), { current: recording.map }, useRef([polygon, extrusion])));
 
     act(() => {
       result.current.handlePaintChange(polygon.id, { 'fill-color': '#aaaaaa' });
@@ -106,7 +107,7 @@ describe('useLayerMapSync paint coalescing', () => {
 
   it('writes a toggle without a frame', () => {
     const recording = syncedMap([polygon]);
-    const { result } = renderHook(() => useLayerMapSync([polygon], vi.fn(), vi.fn(), { current: recording.map }));
+    const { result } = renderHook(() => useLayerMapSync([polygon], vi.fn(), vi.fn(), { current: recording.map }, useRef([polygon])));
 
     act(() => result.current.handleToggleVisibility(polygon.id, false));
 
@@ -118,7 +119,7 @@ describe('useLayerMapSync paint coalescing', () => {
     const recording = syncedMap([polygon]);
     recording.styleLoaded = false;
     const { result, rerender } = renderHook(
-      ({ layers }: { layers: MapLayerResponse[] }) => useLayerMapSync(layers, vi.fn(), vi.fn(), { current: recording.map }),
+      ({ layers }: { layers: MapLayerResponse[] }) => useLayerMapSync(layers, vi.fn(), vi.fn(), { current: recording.map }, useRef(layers)),
       { initialProps: { layers: [polygon] } },
     );
 

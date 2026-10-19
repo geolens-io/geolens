@@ -231,14 +231,14 @@ export function useLayerMapSync(
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
   setHasUnsavedChanges: React.Dispatch<React.SetStateAction<boolean>>,
   mapInstanceRef: React.RefObject<MaplibreMap | null>,
+  layersRef: React.RefObject<MapLayerResponse[]>,
 ) {
-  // Mirror current layers in a ref so memoized callbacks read fresh state
-  // without `localLayers` in their deps, which would invalidate them on every
-  // mutation and re-render every StackRow.
-  const layersRef = useRef(localLayers);
+  // Callbacks read layers through the caller's ref, so `localLayers` stays out
+  // of their deps (which would re-render every StackRow) and an edit's same-tick
+  // write is visible to the caller's other handlers.
   useLayoutEffect(() => {
     layersRef.current = localLayers;
-  }, [localLayers]);
+  }, [layersRef, localLayers]);
 
   // Map writes deferred to `idle` because the style was mid-swap, keyed by
   // layer id and replayed in order. See applyLayerUpdate.
@@ -348,7 +348,7 @@ export function useLayerMapSync(
       }
       writeToMap(map);
     },
-    [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],
+    [setLocalLayers, setHasUnsavedChanges, mapInstanceRef, layersRef],
   );
 
   const handleToggleVisibility = useCallback(
@@ -357,7 +357,7 @@ export function useLayerMapSync(
       const nextVisible = visible !== undefined ? visible : !current?.visible;
       applyLayerUpdate(layerId, (l) => ({ ...l, visible: nextVisible }), writeBuilderLayer);
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, layersRef],
   );
 
   const handlePaintChange = useCallback(
@@ -372,7 +372,7 @@ export function useLayerMapSync(
         }),
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, layersRef],
   );
 
   const handleStyleConfigChange = useCallback(
@@ -449,7 +449,7 @@ export function useLayerMapSync(
         },
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, layersRef],
   );
 
   const handleFilterChange = useCallback(

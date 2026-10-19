@@ -1,5 +1,6 @@
 // Every builder site that builds an adapter input hands the adapter a layout
 // without private keys, a sanitised filter and the layer's label_config.
+import { useRef } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
@@ -56,13 +57,13 @@ const runSync: Run = (layer) => sync(new RecordingMap().map, layer);
 const runWrite: Run = (layer, map) => writeLayerToMap(map, toSyncInput(layer));
 
 const runPaintChange: Run = (layer, map) => {
-  const { result } = renderHook(() => useLayerMapSync([layer], vi.fn(), vi.fn(), { current: map }));
+  const { result } = renderHook(() => useLayerMapSync([layer], vi.fn(), vi.fn(), { current: map }, useRef([layer])));
   act(() => result.current.handlePaintChange(layer.id, layer.paint ?? {}));
   flushCoalescedFrame(`paint:${layer.id}`);
 };
 
 const runStyleConfigChange: Run = (layer, map) => {
-  const { result } = renderHook(() => useLayerMapSync([layer], vi.fn(), vi.fn(), { current: map }));
+  const { result } = renderHook(() => useLayerMapSync([layer], vi.fn(), vi.fn(), { current: map }, useRef([layer])));
   act(() => result.current.handleStyleConfigChange(layer.id, layer.style_config ?? null, layer.paint ?? {}));
 };
 

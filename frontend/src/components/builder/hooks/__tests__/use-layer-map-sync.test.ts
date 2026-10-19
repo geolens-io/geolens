@@ -1,6 +1,6 @@
 // useLayerMapSync commits each handler's change to builder state: composition, the
 // Fill exclusions and the fill-colour stash. The map writes are in the .writes suite.
-import React from 'react';
+import React, { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
@@ -220,6 +220,7 @@ describe('applyLayerUpdate — multi-field composition (BUG-019)', () => {
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: null } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
 
@@ -248,6 +249,7 @@ describe('applyLayerUpdate — multi-field composition (BUG-019)', () => {
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         setHasUnsavedChanges,
         { current: null } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
 
@@ -288,6 +290,7 @@ describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
 
@@ -328,6 +331,7 @@ describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
 
@@ -363,6 +367,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: mapStub } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, mapStub, layers: () => finalLayers };
@@ -604,6 +609,7 @@ describe('useLayerMapSync — handleStyleConfigChange replace mode (revert)', ()
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     act(() => {
@@ -641,6 +647,7 @@ describe('useLayerMapSync — EDIT-05 at the commit boundary', () => {
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: mapStub } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, mapStub, layers: () => finalLayers };
@@ -761,6 +768,7 @@ describe('useLayerMapSync — the fill-colour stash across successive writes', (
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };
@@ -855,6 +863,7 @@ describe('useLayerMapSync — a CHANGED fill key counts as intent, not just a ne
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };
@@ -939,6 +948,7 @@ describe('useLayerMapSync — a replacement paint still stashes the colour it di
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };
@@ -1011,6 +1021,7 @@ describe('useLayerMapSync — an orphaned colour classification is reconciled at
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };
@@ -1196,6 +1207,7 @@ describe('useLayerMapSync — provenance survives a JSON round-trip of an untouc
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };
@@ -1266,6 +1278,7 @@ describe('useLayerMapSync — a null fill key is not an active one', () => {
         setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
         vi.fn(),
         { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+        useRef(layers),
       );
     });
     return { result, layers: () => finalLayers };

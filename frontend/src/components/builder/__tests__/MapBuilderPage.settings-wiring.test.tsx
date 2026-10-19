@@ -177,7 +177,6 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     handleAiRemoveLayer: vi.fn(),
     handleQueryResult: vi.fn(),
     handleDismissEphemeral: vi.fn(),
-    handleRenderModeChange: vi.fn(),
     chatLayerActions: {
       onFilterChange: vi.fn(), onPaintChange: vi.fn(), onStyleConfigChange: vi.fn(),
       onLabelChange: vi.fn(), onToggleVisibility: vi.fn(), onAddDataset: vi.fn(),
