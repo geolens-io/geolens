@@ -319,4 +319,4 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
     else:
         style.pop("render_mode", None)
     target.style_config = style
-    return {"status": "ok", **tool_input}
+    return {"type": "set_render_as", **tool_input}

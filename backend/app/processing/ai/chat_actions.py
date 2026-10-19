@@ -494,13 +494,10 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
             return collect_run_analysis_action(result)
         return None
 
-    if tool_name == "set_data_driven_style":
+    if tool_name in {"set_data_driven_style", "set_render_as"}:
         if "error" not in result:
             return result
         return None
-
-    if tool_name == "set_render_as":
-        return None if "error" in result else {**result, "type": tool_name}
 
     if tool_name == "set_label":
         # A validation error from _execute_chat_tool (unknown column) must not
