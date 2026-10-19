@@ -161,8 +161,8 @@ class VrtGeneration(Base):
     # (ordered dataset ids). It is applied to `vrt_source_links` only in the
     # regeneration task's transaction that swaps the artifact, so a dead attempt
     # leaves the catalog and served bytes in agreement. A full set, not a
-    # delta, so apply is a replace and idempotent on retry. NULL means "no
-    # membership change" (plain regenerate); both build from the live links.
+    # delta, so apply is a replace and idempotent on retry. The build uses this
+    # set; NULL (no membership change, a plain regenerate) uses the live links.
     staged_source_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

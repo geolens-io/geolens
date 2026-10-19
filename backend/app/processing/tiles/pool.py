@@ -205,13 +205,13 @@ async def _setup_tile_connection(conn: asyncpg.Connection) -> None:
     privileges by default; running the tile path as ``geolens_reader``
     scopes any SQL injection in the tile composition layer to read-only.
 
-    Fires once per new physical connection (``setup`` kwarg to
-    ``asyncpg.create_pool``), not on every ``pool.acquire()``. asyncpg issues
-    ``RESET ALL`` on connection return, which covers ``ROLE``, so this SET ROLE
-    is not in effect on a reused connection. Per-request role binding is
-    entirely ``set_tenant_role_for_tile_request``'s job (called inside each
-    tile handler transaction). Failures here log and skip so the tile path
-    keeps working where the role doesn't exist (legacy upgrades).
+    Runs before every ``pool.acquire()`` returns (the ``setup`` kwarg to
+    ``asyncpg.create_pool``; ``init`` is the once-per-connection hook), and
+    asyncpg's ``RESET ALL`` on release clears ``ROLE``, so each acquire sets it
+    afresh. In multi-tenant mode it does nothing:
+    ``set_tenant_role_for_tile_request`` binds the tenant role inside each tile
+    handler transaction. Failures here log and skip so the tile path keeps
+    working where the role doesn't exist (legacy upgrades).
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -242,8 +242,8 @@ async def init_tile_pool() -> asyncpg.Pool:
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
         "command_timeout": TILE_POOL_COMMAND_TIMEOUT_SECONDS,
-        # Drops privileges to geolens_reader on every fresh connection so
-        # tile-path SQL runs read-only against the data schema.
+        # Drops privileges to geolens_reader on every acquire so tile-path
+        # SQL runs read-only against the data schema.
         "setup": _setup_tile_connection,
         "init": _init_tile_connection,
     }
@@ -287,8 +287,8 @@ async def set_tenant_role_for_tile_request(
 
     Must be called after the request transaction begins (inside a tile
     handler), not in the pool setup callback (``_setup_tile_connection``),
-    which fires on new physical connections and can't see per-request tenant
-    state. Called once per tile request, inside a single
+    which runs on every acquire but can't see per-request tenant state.
+    Called once per tile request, inside a single
     ``async with conn.transaction()`` block, so both role and search_path
     survive that transaction under PgBouncer transaction-mode.
 
