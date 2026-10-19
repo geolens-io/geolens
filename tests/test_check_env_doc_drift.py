@@ -28,6 +28,7 @@ SETTINGS_SOURCE = textwrap.dedent(
         redis_url: str | None = None
         environment: str | None = None
         computed: str = DEFAULT_FROM_ELSEWHERE
+        factory: list[str] = Field(default_factory=list)
 
         @field_validator("redis_url", mode="before")
         @classmethod
@@ -45,7 +46,8 @@ COMPLETE_ENV = """\
       DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
       REDIS_URL:
       ENVIRONMENT:
-      COMPUTED:
+      COMPUTED: "${COMPUTED:-x}"
+      FACTORY: "${FACTORY:-}"
 """
 
 
@@ -72,7 +74,11 @@ class ComposeSettingsGateTest(unittest.TestCase):
         self.blank = self.gate.blank_normalized_fields(classes)
         patcher = mock.patch.multiple(
             self.gate,
-            COMPOSE_SPECIFIC_DEFAULTS={"POSTGRES_HOST": "Compose network host"},
+            COMPOSE_SPECIFIC_DEFAULTS={
+                "POSTGRES_HOST": "Compose network host",
+                "COMPUTED": "computed default",
+                "FACTORY": "computed default",
+            },
             SETTINGS_NOT_IN_COMPOSE={},
             SERVICE_SETTINGS_EXCLUSIONS={"api": {}, "worker": {}},
             MIGRATE_SETTINGS_ANCHORS=(),
@@ -108,6 +114,7 @@ class ComposeSettingsGateTest(unittest.TestCase):
         self.assertEqual(self.fields["DB_POOL_SIZE"], 10)
         self.assertIs(self.fields["JWT_SECRET_KEY"], self.gate._REQUIRED)
         self.assertIs(self.fields["COMPUTED"], self.gate._NOT_LITERAL)
+        self.assertIs(self.fields["FACTORY"], self.gate._NOT_LITERAL)
         self.assertEqual(self.blank, {"REDIS_URL"})
 
     def test_complete_environment_passes(self) -> None:
@@ -210,7 +217,6 @@ class ComposeSettingsGateTest(unittest.TestCase):
             "LOG_LEVEL": '"${LOG_LEVEL:-DEBUG}"',
             "LOG_JSON": '"${LOG_JSON:-true}"',
             "DB_POOL_SIZE": '"${DB_POOL_SIZE:-11}"',
-            "COMPUTED": '"${COMPUTED:-x}"',
         }
         for key, value in cases.items():
             with self.subTest(key=key):
@@ -227,8 +233,43 @@ class ComposeSettingsGateTest(unittest.TestCase):
         env = COMPLETE_ENV.replace("${LOG_JSON:-false}", "${LOG_JSON:-False}")
         self.assertEqual(self.errors(env), [])
 
+    def test_bare_entry_for_a_computed_default_fails(self) -> None:
+        for key, old in (
+            ("COMPUTED", '"${COMPUTED:-x}"'),
+            ("FACTORY", '"${FACTORY:-}"'),
+        ):
+            with self.subTest(key=key):
+                env = COMPLETE_ENV.replace(f"      {key}: {old}\n", f"      {key}:\n")
+                with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS):
+                    del self.gate.COMPOSE_SPECIFIC_DEFAULTS[key]
+                    errors = self.errors(env, worker_env=env)
+                self.assertEqual(len(errors), 2)
+                for service, error in zip(("api", "worker"), errors):
+                    self.assertIn(f"{service} {key} is bare", error)
+                    self.assertIn("computed default", error)
+                    self.assertIn("COMPOSE_SPECIFIC_DEFAULTS", error)
+
+    def test_bare_computed_default_passes_when_blanks_normalize(self) -> None:
+        env = COMPLETE_ENV.replace(
+            '      COMPUTED: "${COMPUTED:-x}"\n', "      COMPUTED:\n"
+        )
+        self.blank = self.blank | {"COMPUTED"}
+        with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS):
+            del self.gate.COMPOSE_SPECIFIC_DEFAULTS["COMPUTED"]
+            self.assertEqual(self.errors(env, worker_env=env), [])
+
+    def test_unlisted_explicit_computed_default_fails(self) -> None:
+        with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS):
+            del self.gate.COMPOSE_SPECIFIC_DEFAULTS["COMPUTED"]
+            errors = self.errors(COMPLETE_ENV)
+        self.assertEqual(len(errors), 2)
+        for error in errors:
+            self.assertIn("COMPUTED = '${COMPUTED:-x}' differs", error)
+            self.assertIn("(computed)", error)
+
     def test_unlisted_container_specific_value_fails(self) -> None:
-        with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS, clear=True):
+        with mock.patch.dict(self.gate.COMPOSE_SPECIFIC_DEFAULTS):
+            del self.gate.COMPOSE_SPECIFIC_DEFAULTS["POSTGRES_HOST"]
             errors = self.errors(COMPLETE_ENV)
         self.assertEqual(len(errors), 2)
         for service, error in zip(("api", "worker"), errors):

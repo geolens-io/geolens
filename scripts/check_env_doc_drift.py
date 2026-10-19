@@ -516,11 +516,15 @@ def settings_field_defaults(
             if item.target.id == "model_config":
                 continue
             value = item.value
+            computed = False
             if isinstance(value, ast.Call) and getattr(value.func, "id", "") == "Field":
-                default_kw = [k.value for k in value.keywords if k.arg == "default"]
-                value = default_kw[0] if default_kw else (value.args or [None])[0]
-            if value is None:
-                default: object = _REQUIRED
+                keywords = {k.arg: k.value for k in value.keywords}
+                computed = "default_factory" in keywords
+                value = keywords.get("default", (value.args or [None])[0])
+            if computed:
+                default: object = _NOT_LITERAL
+            elif value is None:
+                default = _REQUIRED
             else:
                 try:
                     default = ast.literal_eval(value)
@@ -624,6 +628,12 @@ def compose_settings_errors(
                         errors.append(
                             f"{where} is bare, which drops the Compose-specific "
                             "value COMPOSE_SPECIFIC_DEFAULTS lists for it"
+                        )
+                    elif fields[key] is _NOT_LITERAL and key not in blank_normalized:
+                        errors.append(
+                            f"{where} is bare, so an empty host value reaches "
+                            "Settings as '' instead of its computed default; map it "
+                            "explicitly and list it in COMPOSE_SPECIFIC_DEFAULTS"
                         )
                     elif fields[key] not in (None, "", _REQUIRED, _NOT_LITERAL) and (
                         key not in blank_normalized
