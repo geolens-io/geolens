@@ -533,6 +533,29 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('a data-driven colour after leaving a heatmap keeps its tuning for the return trip', () => {
+    const tuned = { 'heatmap-radius': 45, 'heatmap-intensity': 2 };
+    const layer = makeMockLayer({
+      id: 'layer-1',
+      dataset_geometry_type: 'Point',
+      paint: tuned,
+      style_config: { render_mode: 'heatmap', savedCirclePaint: { 'circle-color': '#2255aa' } } as MapLayerResponse['style_config'],
+    });
+    const { result } = renderBuilderLayers(makeMapData([layer]));
+    const categorical = { mode: 'categorical', column: 'kind' } as NonNullable<MapLayerResponse['style_config']>;
+
+    act(() => {
+      const actions = result.current.chatLayerActions;
+      actions.onRenderAsChange?.('layer-1', 'point');
+      actions.onStyleConfigChange('layer-1', categorical, { 'circle-color': ['match', ['get', 'kind'], 'a', '#dc2626', '#6b7280'] });
+    });
+    act(() => {
+      result.current.chatLayerActions.onRenderAsChange?.('layer-1', 'heatmap');
+    });
+
+    expect(result.current.localLayers[0].paint).toEqual(tuned);
+  });
+
   it('chatLayerActions.getLayer sees edits made earlier in the same tick', () => {
     const layer = makeMockLayer({ id: 'layer-1', dataset_geometry_type: 'Point', paint: {} });
     const { result } = renderBuilderLayers(makeMapData([layer]));

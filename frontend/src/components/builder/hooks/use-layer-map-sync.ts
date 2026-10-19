@@ -394,22 +394,19 @@ export function useLayerMapSync(
         layerId,
         (l) => {
           // `replace` restores the config verbatim, as Revert-to-saved must (not
-          // keeping the draft's style_config.builder). The default branch below
-          // preserves the builder when the incoming config omits one, so setting a
-          // data-driven color doesn't wipe your outline width; on revert that
-          // would strand a discarded builder-only edit and keep the layer dirty.
+          // keeping the draft's builder or stash). The default branch keeps the
+          // builder and the heatmap stash when the incoming config omits them, so
+          // a data-driven color doesn't wipe your outline width or a heatmap's
+          // tuning for a return trip; on revert that would strand discarded edits
+          // and keep the layer dirty.
+          const carried: Partial<StyleConfig> = {};
+          if (config?.builder === undefined && l.style_config?.builder) carried.builder = l.style_config.builder;
+          if (config?.heatmapPaint === undefined && l.style_config?.heatmapPaint) carried.heatmapPaint = l.style_config.heatmapPaint;
           let mergedConfig: StyleConfig | null = opts?.replace
             ? config
             : config
-              ? {
-                  ...config,
-                  ...(config.builder === undefined && l.style_config?.builder
-                    ? { builder: l.style_config.builder }
-                    : {}),
-                }
-              : l.style_config?.builder
-                ? ({ builder: l.style_config.builder } as StyleConfig)
-                : null;
+              ? { ...config, ...carried }
+              : Object.keys(carried).length > 0 ? (carried as StyleConfig) : null;
           if (isDataDrivenColor && mergedConfig?.builder?.lineGradient) {
             const { lineGradient: _droppedLineGradient, ...restBuilder } = mergedConfig.builder;
             mergedConfig = {
