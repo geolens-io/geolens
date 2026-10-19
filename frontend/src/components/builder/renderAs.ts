@@ -205,6 +205,11 @@ function defaultHeightColumn(layer: RenderAsLayer): string {
   return numericColumn?.name ?? layer.dataset_column_info?.[0]?.name ?? 'height';
 }
 
+/** The heatmap paint to keep for a return to heatmap mode. */
+function heatmapPaintStash(layer: RenderAsLayer): Record<string, unknown> | undefined {
+  return getCurrentRenderAs(layer) === 'heatmap' ? { ...(layer.paint ?? {}) } : layer.style_config?.heatmapPaint;
+}
+
 /** The circle paint stashed on heatmap entry; an empty stash counts as none. */
 function stashedCirclePaint(layer: RenderAsLayer): Record<string, unknown> | undefined {
   const saved = layer.style_config?.savedCirclePaint;
@@ -407,7 +412,7 @@ export function buildRenderAsPatch(
   if (renderAs === 'point') {
     const current = getCurrentRenderAs(layer);
     const style = styleWithoutRenderMode(layer, {
-      heatmapPaint: current === 'heatmap' ? { ...(layer.paint ?? {}) } : layer.style_config?.heatmapPaint,
+      heatmapPaint: heatmapPaintStash(layer),
       savedCirclePaint: undefined,
       symbol: undefined,
     });
@@ -436,6 +441,7 @@ export function buildRenderAsPatch(
         style_config: compactRecord({
           ...styleRecord(layer),
           render_mode: 'symbol',
+          heatmapPaint: heatmapPaintStash(layer),
           savedCirclePaint: { ...(circlePaint ?? DEFAULT_CIRCLE_PAINT) },
           symbol: layer.style_config?.symbol ?? {
             iconImage: 'marker',
@@ -487,7 +493,7 @@ export function buildRenderAsPatch(
           // Unset until chosen, so cluster bubbles follow later circle-color edits.
           clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? MAP_COLORS.cluster.text,
           clusterTextSize: layer.style_config?.builder?.clusterTextSize ?? 12,
-        }, { render_mode: 'cluster', savedCirclePaint: undefined }),
+        }, { render_mode: 'cluster', savedCirclePaint: undefined, heatmapPaint: heatmapPaintStash(layer) }),
       },
     };
   }

@@ -311,6 +311,21 @@ describe('renderAs view model', () => {
     expect(buildRenderAsPatch(heatmap, 'cluster')?.patch.paint).toEqual(DEFAULT_CIRCLE_PAINT);
   });
 
+  it.each(['symbol', 'cluster'] as const)('keeps a tuned heatmap for a return trip through %s', (target) => {
+    const tuned = { 'heatmap-radius': 45, 'heatmap-intensity': 2 };
+    const heatmap = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: tuned,
+      style_config: { render_mode: 'heatmap', savedCirclePaint: { 'circle-color': '#2255aa' } } as StyleConfig,
+    });
+
+    const away = buildRenderAsPatch(heatmap, target);
+    expect(away?.patch.style_config?.heatmapPaint).toEqual(tuned);
+    const back = buildRenderAsPatch({ ...heatmap, ...away?.patch } as MapLayerResponse, 'heatmap');
+    expect(back?.patch.paint).toEqual(tuned);
+  });
+
   it('enters cluster from heatmap with the stashed circle paint', () => {
     const heatmap = layer({
       dataset_geometry_type: 'POINT',
