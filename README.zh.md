@@ -268,7 +268,7 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 
 ## 已知限制
 
-- 仅支持单个 PostgreSQL 实例，没有内置的高可用或集群。
+- 受支持的安装方式 Docker Compose 运行在单台主机上。如需高可用，请运行多个 API 和前端副本，连接支持自动故障转移的托管 PostgreSQL，并配置共享的对象存储和同一个 Valkey 或 Redis 缓存。[geolens-deployments](https://github.com/geolens-io/geolens-deployments) 提供社区维护的 Helm chart、Terraform 方案，以及 AWS、Azure、Google Cloud 和 DigitalOcean 的部署指南。GeoLens 本身不做数据库集群，也不从只读副本读取数据。
 - 每个部署对应一个组织。
 - 地形渲染假定高程单位为米；其他垂直单位会被夸大渲染。
 - GeoLens 自身的 REST API 在小版本之间可能变化（标准端点遵循各自的规范）。[CHANGELOG](CHANGELOG.md) 列出了契约变更，破坏性变更会让旧形式再兼容一个小版本。

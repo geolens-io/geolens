@@ -339,7 +339,12 @@ donne les tailles et les options.
 
 ## Limites connues
 
-- Une seule instance PostgreSQL, sans haute disponibilité ni clustering intégrés.
+- L’installation prise en charge, Docker Compose, tourne sur un seul hôte. Pour la haute
+  disponibilité, exécutez plusieurs réplicas de l’API et du frontend sur une base PostgreSQL gérée
+  avec basculement automatique, un stockage objet partagé et un seul cache Valkey ou Redis.
+  [geolens-deployments](https://github.com/geolens-io/geolens-deployments) propose un chart Helm,
+  des recettes Terraform et des guides pour AWS, Azure, Google Cloud et DigitalOcean, maintenus par
+  la communauté. GeoLens ne met pas lui-même la base en cluster et ne lit pas depuis des réplicas.
 - Une organisation par déploiement.
 - Le rendu du terrain suppose une élévation en mètres ; les autres unités verticales produisent un
   rendu exagéré.

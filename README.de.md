@@ -338,7 +338,13 @@ Python 3.10+ und `httpx` und lädt öffentliche Daten aus etwa einem Dutzend Que
 
 ## Bekannte Einschränkungen
 
-- Eine PostgreSQL-Instanz, ohne integrierte Hochverfügbarkeit oder Clusterbildung.
+- Die unterstützte Installation mit Docker Compose läuft auf einem Host. Für Hochverfügbarkeit
+  betreiben Sie mehrere API- und Frontend-Replikate an einer verwalteten PostgreSQL-Datenbank mit
+  automatischem Failover, mit gemeinsamem Objektspeicher und einem gemeinsamen Valkey- oder
+  Redis-Cache. [geolens-deployments](https://github.com/geolens-io/geolens-deployments) enthält ein
+  von der Community gepflegtes Helm-Chart, Terraform-Rezepte und Anleitungen für AWS, Azure, Google
+  Cloud und DigitalOcean. GeoLens selbst clustert die Datenbank nicht und liest nicht von
+  Replikaten.
 - Eine Organisation pro Bereitstellung.
 - Die Geländedarstellung setzt Höhenwerte in Metern voraus; andere vertikale Einheiten erscheinen
   überhöht.
