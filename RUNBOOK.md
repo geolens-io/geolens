@@ -1595,6 +1595,17 @@ docker compose exec -T db \
   && echo "candidate dump reads end-to-end"
 ```
 
+Copy out that day's whole backup set, and the one you plan to restore if it is
+older. Every start of the backup container takes a dump at once, and a day
+keeps only its newest dump, so a start while the database is damaged or half
+restored replaces that day's good dump with a dump of the bad state. Then stop
+the service so nothing restarts it mid-recovery (`restore.sh` stops and restarts
+only `api` and `worker`):
+
+```bash
+docker compose stop backup
+```
+
 If the daily dump is corrupt, fall back to a weekly backup under
 `/backups/weekly/`, or to a pre-upgrade dump under `backups/pre-upgrade/`.
 
@@ -1644,8 +1655,9 @@ stack to confirm the restore procedure from end to end before trusting the data.
   (`docker compose logs backup | grep 'S3 upload complete'`).
 - If the backup cycle missed the recovery window, review `BACKUP_SCHEDULE` and
   whether any `ERROR: pg_dump failed` entries appear in the logs for that period.
-- Re-enable the backup service if it was stopped during recovery:
-  `docker compose start backup`.
+- Re-enable the backup service once the restored data is verified:
+  `docker compose up -d backup`. Unlike `start`, it also recreates the container
+  after `--scale backup=0`, and it takes a dump as it starts.
 
 ---
 
