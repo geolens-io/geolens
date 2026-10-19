@@ -71,9 +71,9 @@ _ERROR_CODE_SUPERSEDED = "superseded"
 # deadline (`install_api_statement_timeout` only runs in the API process), and
 # the repair UPDATE is this task's one write to a relation GeoLens doesn't own,
 # so bounding it caps how long it holds someone else's row locks. Five minutes
-# covers the common case (no rows match, one seq scan). The bound covers the
-# whole transaction, since the DDL's ACCESS EXCLUSIVE lock blocks whether held
-# or awaited.
+# covers the common case (no rows match, one seq scan). It applies to each
+# statement in the transaction, DDL included, since the DDL's ACCESS EXCLUSIVE
+# lock blocks whether held or awaited; the transaction as a whole can run longer.
 _REPAIR_STATEMENT_TIMEOUT_MS = 300_000
 
 # A much shorter bound on waiting for the lock: a queued lock request already
