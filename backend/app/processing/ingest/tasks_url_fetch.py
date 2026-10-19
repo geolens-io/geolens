@@ -1,13 +1,12 @@
-"""Background download for the URL import (feat #1710).
+"""Background download for the URL import.
 
 ``POST /ingest/upload/url`` validates and answers immediately; this task does
-the work that used to run inside that request. Nothing about Rule 2 changes by
-moving here — ``validate_url_for_ssrf`` gated the URL at submission,
-``make_safe_client`` re-resolves and pins the address at connect time and
-re-validates every redirect hop, the size cap is counted per chunk, and GDAL
-still only ever meets the staged local file.
+the download. Rule 2 holds here: ``validate_url_for_ssrf`` gated the URL at
+submission, ``make_safe_client`` re-resolves and pins the address at connect
+time and re-validates every redirect hop, the size cap is counted per chunk,
+and GDAL only ever meets the staged local file.
 
-The row is committed ``running`` by the door, so this task ADOPTS an existing
+The row is committed ``running`` by the door, so this task adopts an existing
 lease rather than claiming a pending one, and renews it with the ordinary
 ingest heartbeat for the whole transfer. Success is a fenced CAS to
 ``pending``: the state the rest of the import pipeline calls previewable.
@@ -62,9 +61,9 @@ from app.processing.ingest.validation import validate_file_content
 
 logger = structlog.get_logger(__name__)
 
-# The CAS lost the row. Raised rather than returned so the one
-# settlement path stamps it, and worded for the job owner, who sees it as the
-# job's error_message.
+# The CAS lost the row. Raised rather than returned so the one settlement
+# path stamps it, and worded for the job owner, who sees it as the job's
+# error_message.
 _LEASE_LOST_DETAIL = (
     "The import was cancelled or timed out while the file was downloading. "
     "Start a new import."
@@ -76,13 +75,13 @@ async def _adopt_running_lease(
 ) -> bool:
     """Take over the lease the door committed, or report that it is gone.
 
-    The row is already 'running' under this attempt's token, so
-    the ordinary pending->running claim does not apply. The fence is the one
-    every other task uses; a miss means a cancel, a retry or the stale sweep
-    settled the row first, and this delivery must touch nothing.
+    The row is already 'running' under this attempt's token, so the ordinary
+    pending->running claim does not apply. The fence is the one every other
+    task uses; a miss means a cancel, a retry or the stale sweep settled the
+    row first, and this delivery must touch nothing.
 
-    ``file_path`` names the destination BEFORE the first byte
-    lands, so a hard-killed worker leaves a partial the retention purge's
+    ``file_path`` names the destination before the first byte lands, so a
+    hard-killed worker leaves a partial the retention purge's
     ``_reap_committed_staged_paths`` can still find. The success CAS
     overwrites it with wherever the file was actually staged.
     """
@@ -122,24 +121,24 @@ async def _staged_values(
 ) -> dict[str, object]:
     """The columns the running -> pending transition writes.
 
-    ``staged_at`` restarts the pending review window.
+    ``staged_at`` restarts the pending review window:
     ``stale_pending_clauses`` measures pending age from
-    ``coalesce(staged_at, created_at)``, so the download no longer eats the
-    review window. Always an isoformat timestamptz; the sweep casts it.
+    ``coalesce(staged_at, created_at)``, so the download doesn't eat into
+    it. Always an isoformat timestamptz; the sweep casts it.
 
-    The dispatch marker is DROPPED here. ``abandoned_upload`` in
-    sweep.py reads its absence as "no ingest was ever dispatched for this
-    row", which is true again once the file is merely staged — the door
-    stamped it for the download task, not for an import. Leaving it would
-    report an abandoned URL import as ``failed`` instead of ``cancelled``.
+    The dispatch marker is dropped here. ``abandoned_upload`` in sweep.py
+    reads its absence as "no ingest was ever dispatched for this row", which
+    is true again once the file is merely staged: the door stamped it for
+    the download task, not for an import. Leaving it would report an
+    abandoned URL import as ``failed`` instead of ``cancelled``.
     """
     existing = (
         await session.execute(
             select(IngestJob.user_metadata).where(IngestJob.id == job_id)
         )
     ).scalar_one_or_none() or {}
-    # The download marker goes too — `file_path` now names a
-    # complete staged file, so retry is legitimate again from here on.
+    # The download marker goes too: `file_path` names a complete staged file
+    # from here on, so retry is legitimate again.
     dropped = {COMMIT_ATTEMPTED_METADATA_KEY, URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY}
     carried = {k: v for k, v in existing.items() if k not in dropped}
     return {
@@ -154,12 +153,12 @@ async def _staged_values(
     }
 
 
-# Its OWN queue, not `ingest`. A slow origin holds a worker slot
-# for up to url_import_fetch_max_seconds, and at the stock WORKER_CONCURRENCY
-# of 1 that would head-of-line block every vector import, reupload, refresh
-# and analysis. The default worker still subscribes, so a stock deployment
-# needs no change; an operator who cares pins a second worker to
-# WORKER_QUEUES=download and the blocking is gone with no code change.
+# Its own queue, not `ingest`. A slow origin holds a worker slot for up to
+# url_import_fetch_max_seconds, and at the stock WORKER_CONCURRENCY of 1 that
+# would head-of-line block every vector import, reupload, refresh and
+# analysis. The default worker still subscribes, so a stock deployment needs
+# no change; pinning a second worker to WORKER_QUEUES=download removes the
+# blocking.
 @task_app.task(queue="download", retry=0, pass_context=True)
 @tenant_task
 async def fetch_url(
@@ -188,9 +187,9 @@ async def fetch_url(
 
     job_uuid = uuid.UUID(job_id)
     if attempt_id is None:
-        # The door always dispatches a token. Adopting a
-        # 'running' row without one would let a delivery whose lease had
-        # already been reaped overwrite whatever owns the row now.
+        # The door always dispatches a token. Adopting a 'running' row
+        # without one would let a delivery whose lease had already been
+        # reaped overwrite whatever owns the row now.
         logger.warning("url_fetch_delivery_without_attempt_token", job_id=job_id)
         return
     attempt_uuid = uuid.UUID(attempt_id)
@@ -206,10 +205,10 @@ async def fetch_url(
             ):
                 logger.info("url_fetch_lease_already_settled", job_id=job_id)
                 return
-        # The URL is in memory now, and `retry=0` means nothing
-        # re-runs from these args, so drop it from the queue row before the
-        # transfer. A presigned S3 or SAS link is bearer-equivalent, and the
-        # worker deletes only SUCCESSFUL rows.
+        # The URL is in memory now, and `retry=0` means nothing re-runs from
+        # these args, so drop it from the queue row before the transfer. A
+        # presigned S3 or SAS link is bearer-equivalent, and the worker
+        # deletes only successful rows.
         await purge_queued_job_arg(job_context, arg_key="url")
         heartbeat_task = asyncio.create_task(
             maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
@@ -230,16 +229,16 @@ async def fetch_url(
             staging_dir=staging_dir,
         )
     except Exception as exc:  # broad: network, file I/O, storage and DB all reach here
-        # A failure that never reached the staging block — the
-        # lease adoption itself, or the heartbeat's own start — has not been
-        # settled by anyone, and logging alone would leave the row 'running'
-        # with no reason until the lease reaper. Settle it here on a fresh
-        # session; the CAS is fenced, so a row this delivery no longer owns
-        # matches zero rows and keeps whatever verdict it has.
+        # A failure that never reached the staging block (the lease adoption
+        # itself, or the heartbeat's own start) has not been settled by
+        # anyone, and logging alone would leave the row 'running' with no
+        # reason until the lease reaper. Settle it here on a fresh session;
+        # the CAS is fenced, so a row this delivery no longer owns matches
+        # zero rows and keeps whatever verdict it has.
         if not getattr(exc, _SETTLED_ATTR, False):
             async with db_module.async_session() as settle_session:
                 # local_dest is None on purpose: this handler owns no bytes.
-                # It also catches a teardown raised AFTER the transition
+                # It also catches a teardown raised after the transition
                 # committed, where on local storage local_dest IS the
                 # published file_path. `fetch_url_to_path` already unlinks
                 # its own partial, so nothing here needs deleting.
@@ -289,15 +288,12 @@ async def _stage_downloaded_file(
     staged_path: str | None = None
     published = False
     try:
-        # The config and quota reads get their OWN session,
-        # ended before the download. Holding one across a transfer that may
-        # run for url_import_fetch_max_seconds would pin a pool connection per
-        # concurrent import — the starvation #1708 fixed on the request path.
+        # The config and quota reads get their own session, ended before the
+        # download. Holding one across a transfer that may run for
+        # url_import_fetch_max_seconds would pin a pool connection per
+        # concurrent import.
         async with db_module.async_session() as session:
             max_size_bytes = (await UPLOAD_MAX_SIZE_MB.get(session)) * 1024 * 1024
-            # The smaller of the instance cap and what the caller's quota has
-            # left, so a user at their cap cannot spend a worker slot on a
-            # download the post-stage check is guaranteed to refuse.
             effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
                 session, uuid.UUID(user_id), max_size_bytes
             )
@@ -325,9 +321,8 @@ async def _stage_downloaded_file(
             staged_path = str(local_dest)
 
         async with db_module.async_session() as session:
-            # The byte quota is charged on what actually landed.
-            # The door charged zero: a remote server's Content-Length was
-            # never evidence of anything.
+            # The byte quota is charged on what actually landed. The door
+            # charged zero: a remote server's Content-Length proves nothing.
             await _recheck_staged_quota(session, uuid.UUID(user_id), actual_size)
             if TILESET_UNPACKED_BYTES_FIELD in tileset_metadata:
                 await _recheck_staged_quota(
@@ -336,11 +331,10 @@ async def _stage_downloaded_file(
                     tileset_metadata[TILESET_UNPACKED_BYTES_FIELD],
                 )
 
-            # Guarded CAS, running -> pending. A Core UPDATE, not
-            # dirtied ORM attributes (which would flush a second, unguarded
-            # UPDATE), so an external flip — a cancel, or a lease reap —
-            # matches zero rows and is SURFACED instead of silently
-            # part-updating a dead row.
+            # Guarded CAS, running -> pending. A Core UPDATE, not dirtied ORM
+            # attributes (which would flush a second, unguarded UPDATE), so an
+            # external flip (a cancel, or a lease reap) matches zero rows and
+            # is surfaced instead of silently part-updating a dead row.
             if not await ledger.stage(
                 session,
                 job_uuid,
@@ -351,9 +345,9 @@ async def _stage_downloaded_file(
             ):
                 raise UrlImportRefused(_LEASE_LOST_DETAIL)
             await _commit_staged_transition_guarded(session)
-            # Set INSIDE the block, so a session teardown that
-            # raises after the commit still finds it True. Publication is a
-            # fact about the row, never something inferred from an exception.
+            # Set inside the block, so a session teardown that raises after
+            # the commit still finds it True. Publication is a fact about the
+            # row, never something inferred from an exception.
             published = True
     except BaseException as exc:
         if published:

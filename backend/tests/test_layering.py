@@ -1282,7 +1282,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission
     # and the records of an admin's raw seed source and restricted public intent.
-    "backend/app/processing/ingest/manifest_service.py": 1271,
+    "backend/app/processing/ingest/manifest_service.py": 1266,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1355,
@@ -1327,7 +1327,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1904,
+    "backend/app/processing/ingest/tasks_common.py": 1874,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
@@ -1363,13 +1363,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1704,
     # Raster replacement owns conversion, read-back and published-object cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 614,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
     "backend/app/processing/ingest/tasks_vector.py": 1168,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1603,
+    "backend/app/processing/ingest/ogr.py": 1572,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1028,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1566,
+    "backend/app/processing/ingest/service.py": 1556,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,

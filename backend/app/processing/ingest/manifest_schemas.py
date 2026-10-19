@@ -34,11 +34,9 @@ ManifestSourceUri = Annotated[
     Field(
         min_length=1,
         max_length=2000,
-        # Local-path alternation allows only a `./` prefix (not `../`); `..`
-        # mid-path/trailing is enforced separately by `_reject_dotdot_segments`
-        # below, since pydantic_core's regex (Rust) has no look-ahead to
-        # express both rules at once. HTTP/storage URIs are unrestricted —
-        # they're not resolved as local filesystem paths.
+        # A local path may start with `./` but not `../`. pydantic_core's
+        # regex has no look-ahead, so `_reject_dotdot_segments` rejects `..`
+        # elsewhere. HTTP and storage URIs are never resolved as local paths.
         pattern=(
             r"^(?:(?:\./)?[^\s:/][^\s:]*|"
             r"https?://[^\s]+|"
@@ -54,21 +52,17 @@ ManifestUrl = Annotated[
     Field(max_length=2000, pattern=r"^https?://[^\s]+$"),
 ]
 ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
-# gh#1736: caller-declared digest, used only for change-detection — apply
-# never fetches the source to verify it (see manifest_service._run_entry's
-# skip-complete message for the implication on a stable URI whose content
-# changes underneath it).
+# A caller-declared digest for change detection only; apply never fetches the
+# source to verify it.
 #
-# gh#1773: min_length/max_length(71) is a security bound, not padding.
-# Python's `re` (used by the CLI's separate JSON Schema mirror of this
-# pattern) treats `$` as matching just before a trailing newline; pydantic-
-# core's regex anchors to the true string end. Without the length bound
-# here AND in the emitted OpenAPI schema, a trailing-newline checksum could
-# pass one validator and not the other. test_manifest_apply_api.py pins both.
+# The exact length of 71 is a security bound. Python's `re`, used by the CLI's
+# JSON Schema mirror of this pattern, lets `$` match before a trailing newline;
+# pydantic-core anchors at the true end. Without the bound here and in the
+# OpenAPI schema, a trailing-newline checksum could pass one validator and not
+# the other. test_manifest_apply_api.py pins both.
 #
-# Checksum bumps do not force reclassification for a raster_cog source —
-# _validate_existing_dataset_update rejects the update instead of skipping
-# it (see the Field description below and _skip_complete_message).
+# On a raster_cog source a changed checksum makes
+# _validate_existing_dataset_update reject the update rather than skip it.
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -97,10 +91,9 @@ ManifestBbox = Annotated[
     Field(min_length=4, max_length=4, description="WGS84 bbox hint."),
 ]
 
-# Mirrors the upload door's tier-1 vector formats (FlatGeobuf,
-# KML, KMZ, zipped File Geodatabase). `.zip` already covers a zipped FGDB —
-# the shapefile-vs-fgdb split happens downstream in `source_format.py`,
-# keyed off content, not this schema.
+# Mirrors the upload door's tier-1 vector formats. `.zip` covers both a
+# Shapefile and a zipped File Geodatabase; `source_format.py` tells them apart
+# by content.
 MANIFEST_SOURCE_EXTENSIONS: dict[str, frozenset[str]] = {
     "vector": frozenset(
         {
@@ -157,13 +150,7 @@ class ManifestSource(_ManifestBaseModel):
     @field_validator("uri")
     @classmethod
     def _reject_dotdot_segments(cls, uri: str) -> str:
-        """Reject `..` path traversal in manifest source URIs.
-
-        Checks every `/`-split path segment, catching `../etc/passwd`,
-        `foo/../bar`, and trailing `./..` regardless of which alternation
-        matched the structural regex. Also applied to remote schemes for
-        defense-in-depth.
-        """
+        """Reject a `..` segment anywhere in the URI path, remote schemes included."""
         # Strip scheme first, or `https://...` splits on `/` and passes trivially.
         from urllib.parse import urlparse
 
@@ -211,9 +198,9 @@ class ManifestMetadata(_ManifestBaseModel):
     attribution: NonEmptyString5000 | None = None
     bbox: ManifestBbox | None = None
 
-    # The manifest is another write path to records.attribution,
-    # so it carries the dataset PATCH's same guard — enforced here so markup
-    # fails apply with a 422 instead of being silently dropped at commit.
+    # The manifest also writes records.attribution, so it carries the dataset
+    # PATCH's guard: markup fails apply with a 422 instead of being silently
+    # dropped at commit.
     @field_validator("attribution")
     @classmethod
     def attribution_is_not_markup(cls, v: str | None) -> str | None:
@@ -230,11 +217,10 @@ class ManifestMetadata(_ManifestBaseModel):
 
 
 class ManifestPublication(_ManifestBaseModel):
-    # Deliberately NOT a Literal — record_status is an open set
-    # (an overlay may define its own, #1183), and a frozen enum here would 422
-    # statuses the API itself accepts. Checked live by
-    # `validate_publication_intent` in manifest_sources.py. 20-char bound
-    # matches the record_status column (String(20)).
+    # Not a Literal: record_status is an open set an overlay may extend, so an
+    # enum would 422 statuses the API accepts. `validate_publication_intent` in
+    # manifest_sources.py checks it live. 20 chars matches the record_status
+    # column.
     intent: str = Field(
         min_length=1,
         max_length=20,

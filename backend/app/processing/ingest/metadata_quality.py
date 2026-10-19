@@ -1,9 +1,9 @@
 """Dataset quality scoring.
 
-Split out of ``metadata.py`` (#1042). Four weighted dimensions over a landed
-table and its record. Every database-backed dimension degrades to a passing
-score on any error: the score is descriptive, and a failure to compute it must
-never fail the ingest that produced the data.
+Four weighted dimensions over a landed table and its record. Every
+database-backed dimension degrades to a passing score on any error: the score
+is descriptive, and a failure to compute it must never fail the ingest that
+produced the data.
 """
 
 from datetime import datetime, timezone

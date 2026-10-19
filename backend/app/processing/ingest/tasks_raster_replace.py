@@ -1,23 +1,23 @@
 """Procrastinate task: replace the COG behind an existing raster dataset.
 
-Replaces a raster's ``RasterAsset`` pointer in place rather
-than deleting and re-importing (which loses the dataset id, grants, and
-every map layer pointing at it). Raster peer of
-``tasks_reupload.reupload_file`` — same door, same admission gate, same
-refresh-run bookkeeping, but no staging table to rename.
+Replaces a raster's ``RasterAsset`` pointer in place rather than deleting
+and re-importing (which loses the dataset id, grants, and every map layer
+pointing at it). The raster peer of ``tasks_reupload.reupload_file``: same
+door, same admission gate, same refresh-run bookkeeping, but no staging
+table to rename.
 
 **Invariant 10, last-known-good is sacred.** The previous COG is not
 deleted or overwritten until the replacement is written to storage AND
 read back successfully. The new asset lands under keys derived from this
-attempt's id and content hash (collides with neither the live asset's nor
-another attempt's — see ``attempt_scoped_raster_base_key``); the pointer
+attempt's id and content hash (colliding with neither the live asset's nor
+another attempt's; see ``attempt_scoped_raster_base_key``); the pointer
 moves in one transaction alongside the tile-cache bump; superseded
 objects are reaped only after that commit. Every failure before the
 commit leaves the old COG serving tiles.
 
 **ADR-002 Decision 7** governs the *incoming* file: the pre-conversion
 upload is deleted once conversion succeeds, retained (bounded by the
-retention purge) when it fails — a failed conversion makes those bytes
+retention purge) when it fails, since a failed conversion makes those bytes
 the operator's only diagnostic copy. See ``RUNBOOK.md`` section 9.
 """
 
@@ -108,23 +108,17 @@ class RasterReplaceError(Exception):
 async def _read_published_cog(cog_path: str) -> dict:
     """Read the freshly written COG back, and return what it actually says.
 
-    Two jobs, one read, on purpose.
+    Two jobs, one read. First, the "verified readable" half of invariant
+    10: conversion exiting 0 isn't the same fact as the output being
+    openable (truncated write, out-of-space overview pass, driver quirk),
+    and the next steps discard the last-known-good asset.
 
-    First is the "verified readable" half of invariant 10 — conversion
-    exiting 0 isn't the same fact as the output being openable (truncated
-    write, out-of-space overview pass, driver quirk), and the next steps
-    discard the last-known-good asset, so this must be an explicit check.
-
-    Second is the catalog's metadata: reading it from
-    the artifact that WILL serve, once, means no second seam that can
-    drift from the first — the pre-conversion source describes a file the
-    dataset no longer serves (compression always changes, nodata/CRS/
-    footprint change under an override).
-
-    Footprint stays on that list even though ``srid_override``
-    no longer moves the corner coordinates — it changes what they MEAN, so
-    reading them off the source would place the dataset at the wrong spot
-    with no field visibly disagreeing.
+    Second, the catalog's metadata, read once from the artifact that will
+    serve. The pre-conversion source describes a file the dataset no longer
+    serves: compression always changes, and nodata, CRS and footprint change
+    under an override. ``srid_override`` keeps the corner coordinates but
+    changes what they mean, so reading them off the source would place the
+    dataset at the wrong spot with no field visibly disagreeing.
 
     Goes through the probe child, like every other raster read.
     """
@@ -174,14 +168,14 @@ async def _convert_and_verify_cog(
 ) -> tuple[str, str, dict]:
     """Convert to COG and read the result back.
 
-    Returns ``(path, cog_status, metadata_of_the_converted_file)`` — that
-    third element is what the catalog persists; see
-    ``_read_published_cog`` for why it comes from here, not the source.
+    Returns ``(path, cog_status, metadata_of_the_converted_file)``; the
+    catalog persists the third element (``_read_published_cog`` says why it
+    comes from here, not the source).
 
-    Disk-space precheck lives here because it guards this conversion
-    specifically: COG output can reach ~3x the source. The
-    scratch directory must already be on the staging volume, not the
-    container's RAM-backed /tmp, or this measures the wrong filesystem.
+    The disk-space precheck guards this conversion: COG output can reach
+    ~3x the source. The scratch directory must already be on the staging
+    volume, not the container's RAM-backed /tmp, or this measures the wrong
+    filesystem.
     """
     source_bytes = os.path.getsize(file_path)
     free_bytes = shutil.disk_usage(tmp_dir).free

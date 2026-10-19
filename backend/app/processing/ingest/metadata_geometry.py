@@ -251,11 +251,11 @@ async def ensure_geom_column(
     )
     row = result.first()
     if row is None:
-        return False  # Non-spatial table
+        return False
 
     geom_col = row[0]
     if geom_col == "geom":
-        return True  # Already correct
+        return True
 
     logger.info(
         "Renaming geometry column",
@@ -318,7 +318,6 @@ async def rename_reserved_columns(
     if not reserved_check.first():
         return []
 
-    # A collision candidate exists — fetch what's needed to decide origin.
     result = await session.execute(
         text(
             "SELECT column_name, data_type, udt_name, column_default, is_identity "
