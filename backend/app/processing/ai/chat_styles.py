@@ -284,13 +284,17 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
         }
     if render_as == "cluster" and target.feature_count is None:
         return {"error": "Cluster needs the layer's feature count, which is unknown."}
-    height_column = tool_input.get("height_column")
-    if (
-        render_as == "extrusion-3d"
-        and height_column is not None
-        and height_column not in numeric_column_names(target.column_info)
-    ):
-        return {"error": f"'{height_column}' is not a numeric column on this layer."}
+    if render_as == "extrusion-3d":
+        numeric = numeric_column_names(target.column_info)
+        height_column = tool_input.get("height_column")
+        if height_column is None and not numeric:
+            return {
+                "error": "This layer has no numeric column to take 3D heights from."
+            }
+        if height_column is not None and height_column not in numeric:
+            return {
+                "error": f"'{height_column}' is not a numeric column on this layer."
+            }
     style = dict(target.style_config or {})
     if render_as in _RENDER_AS_STORED_AS_RENDER_MODE:
         style["render_mode"] = render_as

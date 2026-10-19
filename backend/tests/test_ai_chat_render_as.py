@@ -98,6 +98,13 @@ async def test_leaving_heatmap_clears_the_render_mode():
             {"render_as": "extrusion-3d", "height_column": "name"},
             "not a numeric column",
         ),
+        (
+            _layer(
+                geometry_type="Polygon", column_info=[{"name": "name", "type": "text"}]
+            ),
+            {"render_as": "extrusion-3d"},
+            "no numeric column",
+        ),
         (_layer(), {"render_as": "heatmap", "layer_id": "missing"}, "not on this map"),
     ],
 )
