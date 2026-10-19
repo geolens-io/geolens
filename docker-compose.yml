@@ -1,36 +1,29 @@
-# ==============================================================================
-# Shared environment anchors
-# ==============================================================================
+# Source-build install. docker-compose.prod.yml is its release-image twin, and
+# the two are kept in sync on purpose.
+# Neither file uses env_file (it would hand every secret to every container), so
+# a setting reaches a container only by being listed in its environment.
 # A bare `KEY:` passes the host value through and otherwise leaves the
 # Settings default in charge. Explicit `${KEY:-default}` entries stay where an
 # empty host value must still get the default, or where Compose needs a value
 # of its own. `make env-doc-check` checks which form each entry uses.
 x-db-env: &db-env
-  # API/worker must not retain the privileged bootstrap password when the
-  # opt-in runtime role is enabled. The migrate service overrides these two
-  # values below with the privileged identity.
+  # api and worker log in as the opt-in runtime role when one is set; migrate
+  # overrides these two with the privileged bootstrap identity.
   POSTGRES_USER: ${GEOLENS_RUNTIME_DB_ROLE:-${POSTGRES_USER}}
   POSTGRES_PASSWORD: ${GEOLENS_RUNTIME_DB_PASSWORD:-${POSTGRES_PASSWORD}}
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
   POSTGRES_DB: ${POSTGRES_DB}
-  # Empty preserves the legacy single-tenant superuser connection. Setting a
-  # role opts API/worker into the live least-privilege boot guard.
+  # Empty keeps the single-tenant superuser login; a role opts api and worker
+  # into the least-privilege boot guard.
   GEOLENS_RUNTIME_DB_ROLE:
 
 x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
   GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
-  # Neither manifest uses env_file, so the setting reaches the app
-  # only by being listed here. Empty is the unset case (empty_str_to_none).
   SECRET_ENCRYPTION_KEY: "${SECRET_ENCRYPTION_KEY:-}"
   SECRET_ENCRYPTION_KEY_PREVIOUS: "${SECRET_ENCRYPTION_KEY_PREVIOUS:-}"
-  # JWT tuning + password policy: defaults match Settings (HS256, 15min access /
-  # 7d refresh, 12-char min / 3 of 4 classes). Listed here so an operator who
-  # overrides them in .env actually sees the override reach the container —
-  # without these lines, Pydantic falls back to its compiled defaults inside
-  # the image (Settings reads $env, not the host .env file).
   JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
   ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-15}"
   REFRESH_TOKEN_EXPIRE_DAYS: "${REFRESH_TOKEN_EXPIRE_DAYS:-7}"
@@ -52,12 +45,7 @@ x-db-ssl-env: &db-ssl-env
   DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # pool budget: .env.example, DB_MAX_OVERFLOW
   DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
-  # The per-request query deadline. Neither manifest
-  # uses env_file, so a variable reaches the app only by being listed here.
-  # It belongs on this anchor rather than on the api service alone because the
-  # setting is read from app.core.config, which the migrate and worker images
-  # boot as well; only get_db applies it, so the worker is unaffected in
-  # behaviour and consistent in configuration.
+  # Every backend process loads it through app.core.config; only get_db applies it.
   DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
 
 x-storage-env: &storage-env
@@ -71,8 +59,7 @@ x-storage-env: &storage-env
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
   S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
   S3_PRESIGNED_DOWNLOADS: "${S3_PRESIGNED_DOWNLOADS:-false}"
-  # Azure Blob Storage vars — required when STORAGE_PROVIDER=azure.
-  # Cloud-dev: set these in .env; keep Azurite creds out of the image.
+  # Required when STORAGE_PROVIDER=azure; keep Azurite creds in .env, not the image.
   AZURE_STORAGE_CONTAINER:
   AZURE_STORAGE_CONNECTION_STRING:
   AZURE_STORAGE_ACCOUNT_URL:
@@ -81,8 +68,8 @@ x-storage-env: &storage-env
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
-  # Pass the posture flag through (kept in sync with
-  # docker-compose.prod.yml). Empty (unset) falls back to LOG_JSON in Settings.
+  # Empty falls back to LOG_JSON; production gives a Secure cookie and non-public
+  # /docs.
   ENVIRONMENT:
 
 x-ai-env: &ai-env
@@ -111,9 +98,7 @@ x-ai-env: &ai-env
   EMBEDDING_BASE_URL:
 
 x-edition-env: &edition-env
-  # Edition, tenancy, and signed-license inputs must reach every backend
-  # process. Empty edition preserves extension auto-detection; single_tenant is
-  # the safe OSS default.
+  # Edition and license inputs must reach every backend process.
   GEOLENS_EDITION:
   GEOLENS_TENANCY_MODE: "${GEOLENS_TENANCY_MODE:-single_tenant}"
   GEOLENS_LICENSE_ENFORCE: "${GEOLENS_LICENSE_ENFORCE:-false}"
@@ -145,15 +130,8 @@ x-app-runtime-env: &app-runtime-env
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
   REMOTE_RASTER_RELAY_BASE_URL: "${REMOTE_RASTER_RELAY_BASE_URL:-http://api:8000}"
 
-# Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
-# All three run the same Dockerfile target and use the same setpriv-based
-# entrypoint flow (start as root -> chown volume mounts -> drop to uid 1001
-# -> exec app). Merging the block via `<<: *hardened-base` lets each service
-# add only its own user/init/tmpfs/command without re-stating security plumbing.
-#
-# titiler intentionally NOT in this anchor — it has cap_drop ALL but NO
-# cap_add (no setpriv-based uid drop), so granting it CHOWN/DAC_OVERRIDE/etc.
-# would weaken its profile.
+# api, worker and migrate start as root, chown their volumes, then setpriv to
+# uid 1001; the added caps cover only that. titiler drops all caps and stays out.
 x-hardened-base: &hardened-base
   security_opt:
     - no-new-privileges=true
@@ -167,9 +145,6 @@ x-hardened-base: &hardened-base
     - SETUID         # setpriv --reuid 1001
   read_only: true
 
-# ==============================================================================
-# Services
-# ==============================================================================
 services:
   db:
     build:
@@ -182,32 +157,24 @@ services:
       GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
       GEOLENS_RUNTIME_DB_PASSWORD: "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
       GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING: "${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
-      # The URL itself contains a credential and must never enter db. These
-      # presence-only markers let the reconciler ignore an external migrator
-      # name, while an explicit local flag admits a custom migrator on `db`.
+      # The migration URL holds a credential and never enters db. These presence-only
+      # markers let the reconciler ignore an external migrator, and the local flag
+      # admits a custom migrator on db.
       GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-}"
       GEOLENS_MIGRATION_DB_URL_CONFIGURED: "${MIGRATION_DATABASE_URL_OVERRIDE:+configured}${DATABASE_URL_OVERRIDE:+configured}"
       GEOLENS_MIGRATION_DB_LOCAL: "${GEOLENS_MIGRATION_DB_LOCAL:-false}"
     ports:
-      # Host-port fallback (5434 from .env, 5432 bare).
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      # PG 18+ images take a single mount at /var/lib/postgresql
-      # (PGDATA lives at <major>/docker inside it); mounting the legacy
-      # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
+      # PG 18+ images take one mount at /var/lib/postgresql; the legacy .../data path
+      # makes the entrypoint refuse to boot.
       - pgdata:/var/lib/postgresql
-      # :ro mirrors the sibling conf mount and every repo-file mount on
-      # the api service — the init script is read+exec inside the container, never
-      # written, so a compromised db container cannot rewrite this host file (it
-      # re-executes on every fresh pgdata volume).
+      # Read-only so a compromised db container cannot rewrite the init script that
+      # reruns on every fresh pgdata volume.
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./scripts/lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
-    # Memory limit prevents the DB from consuming all host RAM under
-    # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
-    # for concurrent queries. Raise on hosts with > 8 GB RAM.
-    # env-overridable — mirrors docker-compose.prod.yml so the caps
-    # can be rebalanced on small hosts without editing the file.
+    # 2g covers shared_buffers (512 MB) plus work_mem headroom.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -218,10 +185,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges=true
-    # Drop ALL caps; re-add only what the postgres entrypoint needs (initdb
-    # chowns the data dir, then gosu-drops to postgres).
-    # no-new-privileges permits this de-escalation. Verify on a FRESH pgdata
-    # volume — these caps surface during initdb/chown.
+    # initdb chowns the data dir, then gosu drops to postgres; these caps cover only
+    # that, and no-new-privileges still allows the drop.
     cap_drop:
       - ALL
     cap_add:
@@ -236,44 +201,35 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    # Empty entrypoint suppresses Dockerfile-inherited api-entrypoint.sh on this
-    # one-shot service.
+    # Skip the api entrypoint for this one-shot.
     entrypoint: []
-    # `upgrade heads` (plural) applies all Alembic branch heads and avoids bare
-    # `head` failing when a revision graph has multiple heads. For a single-head
-    # graph, `heads` is equivalent to `head`.
+    # `heads` applies every branch head; bare `head` fails on a multi-head graph.
     command: sh -c "uv run --no-dev alembic upgrade heads"
-    # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
-    # should stop the dependency chain, not retry blindly.
+    # Idempotent; a failure must stop the dependency chain, not retry.
     restart: "no"
-    # Hardening (security_opt + cap_drop + cap_add + read_only): see
-    # x-hardened-base anchor at top of file.
     <<: *hardened-base
-    # tmpfs sized smaller than api since one-shot doesn't process uploads.
-    # /app/staging is tmpfs (not the upload_staging volume) — migrate never
-    # writes uploads, but the shared api-entrypoint.sh probe requires the dir
-    # writable before alembic runs.
+    # The api entrypoint probe needs a writable /app/staging; migrate writes no
+    # uploads, so a small tmpfs serves.
     tmpfs:
       - /tmp:size=256m,mode=1777
       - /home/appuser:size=64m,uid=1001,gid=1001
       - /app/staging:size=8m,uid=1001,gid=1001
     volumes:
       - ./backend/alembic:/app/alembic
-      # env.py and some migrations import application code, so it follows the checkout too.
+      # env.py and some migrations import application code.
       - ./backend/app:/app/app:ro
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
-      # Migration authority is distinct from DATABASE_URL_OVERRIDE, which is
-      # the steady-state API/worker login when runtime-role mode is enabled.
+      # Migrations run as the bootstrap identity; DATABASE_URL_OVERRIDE is the runtime
+      # login when runtime-role mode is on.
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_URL_OVERRIDE: "${MIGRATION_DATABASE_URL_OVERRIDE:-${DATABASE_URL_OVERRIDE:-}}"
       GEOLENS_RUNTIME_DB_ROLE: ""
       GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
       PYTHONPATH: /app
-      # Migration 0012 resolves the vector typmod before the API starts. Keep
-      # an unset dimension empty so stored vectors can still win over the
-      # built-in 1536 fallback; an explicitly supplied 1536 remains explicit.
+      # Migration 0012 needs an unset dimension to stay empty so stored vectors win
+      # over the 1536 fallback; an explicit 1536 stays explicit.
       EMBEDDING_DIMS: "${EMBEDDING_DIMS-}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
     depends_on:
@@ -285,30 +241,20 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    # Runs as root so the entrypoint can fix volume ownership, then drops to
-    # uid 1001 (appuser) via setpriv before exec-ing the application.
+    # Root only to fix volume ownership; the entrypoint setprivs to uid 1001.
     user: "0:0"
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
-    # 4 GB also accommodates pytest -n 4 with coverage instrumentation.
-    # Lower via API_MEM_LIMIT on constrained hosts when not running the full suite.
-    # env-overridable — mirrors docker-compose.prod.yml.
+    # 4g also fits pytest -n 4 with coverage.
     mem_limit: "${API_MEM_LIMIT:-4g}"
-    # Hardening (security_opt + cap_drop + cap_add + read_only): see
-    # x-hardened-base anchor at top of file. no-new-privileges:true blocks
-    # setuid escalation but NOT setpriv (which de-escalates), so the
-    # entrypoint's "start as root -> fix volumes -> setpriv to uid 1001"
-    # pattern works unchanged.
     <<: *hardened-base
-    # /app/staging is the named volume `upload_staging` (not tmpfs).
     tmpfs:
       - /tmp:size=512m,mode=1777
       - /home/appuser:size=128m,uid=1001,gid=1001
       - /var/run:size=8m
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
-      # Host-port fallback (8001 from .env, 8000 bare).
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./.dockerignore:/app/.dockerignore:ro
@@ -336,14 +282,9 @@ services:
       - ./examples:/app/examples:ro
       - ./frontend:/app/frontend:ro
       - ./frontend/src/types/api.ts:/app/frontend/src/types/api.ts:ro
-      # Individual files/subdirs, never the whole ./scripts tree —
-      # backend/scripts/ is baked into /app/scripts by the image build
-      # (api-entrypoint.sh, worker-entrypoint.sh, dump_openapi.py live there),
-      # and a whole-directory mount of the repo-root scripts/ at the same
-      # /app/scripts path would shadow that baked content and break both
-      # entrypoints on next recreate. scripts/lib and scripts/tests have no
-      # same-named counterpart under backend/scripts, so those two are safe
-      # to mount as directories.
+      # Single files, never all of ./scripts: a directory mount at /app/scripts would
+      # shadow the entrypoints baked from backend/scripts. scripts/lib and
+      # scripts/tests have no baked counterpart.
       - ./scripts/flatten_openapi_defs.py:/app/scripts/flatten_openapi_defs.py:ro
       - ./scripts/init-db.sh:/app/scripts/init-db.sh:ro
       - ./scripts/lib:/app/scripts/lib:ro
@@ -351,29 +292,13 @@ services:
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
       - ./scripts/tests:/app/scripts/tests:ro
       - ./sdks:/app/sdks:ro
-      # SHARED-STAGING CONTRACT. The api, worker, and titiler services
-      # all mount this one named volume at the FIXED path /app/staging and MUST
-      # see the same files at the same absolute path (api writes the upload,
-      # worker reads it for fan-out ingest, titiler reads rasters under it). The
-      # path is therefore NOT operator-tunable in compose — UPLOAD_STAGING_DIR is
-      # pinned to /app/staging on every service below so the app's path can never
-      # drift from this mount target. To change the path, change all three mounts
-      # AND the migrate tmpfs together; a lone env override would silently break
-      # the handoff. titiler reads /app/staging via settings.upload_staging_dir's
-      # default with no env at all, so the default and this path must agree.
+      # api, worker and titiler must see the same files at the fixed /app/staging.
+      # Change all three mounts, the migrate tmpfs and the Settings default together.
       - upload_staging:/app/staging
-    # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
-    # --workers > 1 with --reload). For a production deploy without --reload,
-    # raise UVICORN_WORKERS to 2-4 for true parallelism.
-    # --proxy-headers tells uvicorn to populate request.client from
-    # X-Forwarded-For / X-Real-IP headers set by the nginx reverse proxy.
-    # The safety here rests on nginx OVERWRITING X-Forwarded-For with
-    # $remote_addr (frontend/nginx.conf) — NOT on the api port being private. The
-    # header is injected at the internet-facing nginx edge, so a client CAN forge
-    # it; because nginx now replaces (not appends) it, the leftmost value uvicorn
-    # trusts is the real socket peer. --forwarded-allow-ips='*' is therefore fine.
-    # rate-limit (slowapi get_remote_address) + audit logs (request.client.host)
-    # both read request.client, which uvicorn populates only with --proxy-headers.
+    # Dev runs one worker because uvicorn forbids --workers > 1 with --reload.
+    # --forwarded-allow-ips='*' is safe only because nginx overwrites X-Forwarded-For
+    # with $remote_addr (frontend/nginx.conf); rate limits and audit logs read the
+    # client address uvicorn takes from it.
     command: >
       sh -c "uv run --no-dev uvicorn app.api.main:app
       --host 0.0.0.0 --port 8000
@@ -391,10 +316,8 @@ services:
       SANDBOX_QUERY_SLOTS:
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
-      # prometheus_client multiprocess mode, api service only
-      # (the worker's separate /metrics stays single-process). A
-      # subdirectory of the api service's tmpfs /tmp mount, so it never
-      # survives a container restart carrying stale per-pid files.
+      # prometheus_client multiprocess dir, on the api's tmpfs so stale per-pid files
+      # never survive a restart.
       PROMETHEUS_MULTIPROC_DIR: "${PROMETHEUS_MULTIPROC_DIR:-/tmp/prometheus-multiproc}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
@@ -409,9 +332,7 @@ services:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
-      # Pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
-      # fixed by the shared-volume contract above; the app's path must equal the
-      # /app/staging mount target on every service. See .env.example.
+      # Pinned to the upload_staging mount target; not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
       UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz,.laz}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
@@ -422,19 +343,13 @@ services:
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
-      # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
       CORS_ALLOWED_ORIGINS:
-      # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (300s by
-      # default so slow ArcGIS Online layers do not time out).
+      # Passed to ogr2ogr as GDAL_HTTP_TIMEOUT; slow ArcGIS Online layers need 300s.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # Retention for terminal ingest_jobs rows, purged by the API
-      # lifespan sweeper (0 = keep history forever).
+      # 0 keeps terminal ingest_jobs history forever.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
-      # Job-queue schema: PROCRASTINATE_SCHEMA selects which Postgres schema
-      # holds the procrastinate_jobs tables; default matches the bundled migration.
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
-      # Upload-job lifetime and the age before staged-upload reconciliation
-      # deletes an orphan; both are read by the sweeps and the presign paths.
+      # Read by the sweeps and the presign paths in both api and worker.
       PENDING_JOB_TIMEOUT_SECONDS: "${PENDING_JOB_TIMEOUT_SECONDS:-3600}"
       STAGING_ORPHAN_MIN_AGE_SECONDS: "${STAGING_ORPHAN_MIN_AGE_SECONDS:-86400}"
     depends_on:
@@ -443,10 +358,8 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # Liveness, not readiness -- see the HEALTHCHECK comment in
-      # Dockerfile. /health also probes the cache and the object store, both of
-      # which the API is engineered to survive, and this probe gates
-      # `frontend: depends_on: api: service_healthy`.
+      # Liveness, not readiness: /health also probes the cache and object store, which
+      # the API survives, and this probe gates the frontend's start.
       test: ["CMD-SHELL", "python -B -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
       interval: 10s
       timeout: 5s
@@ -458,16 +371,12 @@ services:
       context: .
       dockerfile: Dockerfile
       target: worker
-    # See api service comment — same root-then-drop pattern for volume ownership.
     user: "0:0"
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
-    # 4 GB covers the worker process + GDAL/OGR buffers during large
-    # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
-    # env-overridable — mirrors docker-compose.prod.yml.
+    # 4g covers GDAL/OGR buffers during large ingests such as COG conversion.
     mem_limit: "${WORKER_MEM_LIMIT:-4g}"
-    # Hardening: see x-hardened-base anchor at top of file (same profile as api).
     <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -476,7 +385,7 @@ services:
     entrypoint: ["/app/scripts/worker-entrypoint.sh"]
     volumes:
       - ./backend/app:/app/app
-      # The boot-time schema check compares the DB with these scripts, so they follow the checkout like the api's.
+      # The boot-time schema check compares the DB with these scripts.
       - ./backend/alembic:/app/alembic:ro
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
@@ -484,38 +393,19 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
       REDIS_URL:
-      # Pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
-      # fixed by the shared-volume contract above; the app's path must equal the
-      # /app/staging mount target on every service. See .env.example.
+      # Pinned to the upload_staging mount target; not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
-      # Parallel job slots (2-3 on multi-core hosts; keep 1 on
-      # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
+      # Parallel job slots: 2-3 on multi-core hosts, 1 on 2-vCPU boxes.
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
-      # If you ever add a queue name here (e.g. a dedicated
-      # "analysis" queue), workers must subscribe BEFORE the API defers to it.
-      # A job deferred to a queue no worker listens on is NOT an error, and it
-      # is never auto-failed either: its procrastinate row stays 'todo', and
-      # both stale-sweep paths deliberately skip live 'todo' rows
-      # (no_live_procrastinate_job, backend/app/platform/jobs/router.py)
-      # -- so it sits pending INDEFINITELY, silent, until a worker
-      # subscribes to the queue or the row is changed by hand. The
-      # queue name lives in the task decorator (backend/app/processing/analysis/
-      # tasks.py) and the subscription list is this var + worker_queues in
-      # backend/app/core/config.py — and this default is duplicated in BOTH
-      # compose files; changing one leaves prod and dev subscribing differently.
-      # This fallback shadows the Settings default, so it must name
-      # every queue `worker_queues` in backend/app/core/config.py does, including
-      # "ingest-auth-v2", kept as a consumer-only queue for this one release.
+      # This fallback shadows Settings.worker_queues and must list all its queues. A
+      # job deferred to a queue no worker subscribes to stays 'todo' forever, so
+      # subscribe workers before the API defers to a new queue.
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
-      # Mirror the api service: ingest tuning + procrastinate schema reach
-      # the worker container so operator overrides take effect.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # The URL-import fetch clock runs in THIS container, so the
-      # documented override only takes effect if it is forwarded here.
+      # The URL-import fetch clock runs in this container.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
-      # The tileset worker checks the unpacked total and entry count again
-      # before its first put, so it must read the caps the api's doors read.
+      # The tileset worker rechecks these caps before its first put.
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
@@ -523,11 +413,10 @@ services:
       # admin-editable settings, which ENV_ONLY_CONFIG locks to the env.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
-      # Upload-job lifetime and the age before staged-upload reconciliation
-      # deletes an orphan; both are read by the sweeps and the presign paths.
+      # Read by the sweeps and the presign paths in both api and worker.
       PENDING_JOB_TIMEOUT_SECONDS: "${PENDING_JOB_TIMEOUT_SECONDS:-3600}"
       STAGING_ORPHAN_MIN_AGE_SECONDS: "${STAGING_ORPHAN_MIN_AGE_SECONDS:-86400}"
-      # Analysis budgets are read by the worker that runs the materialize task.
+      # Read by the worker that runs the materialize task.
       ANALYSIS_MATERIALIZE_TIMEOUT_SECONDS: "${ANALYSIS_MATERIALIZE_TIMEOUT_SECONDS:-300}"
       ANALYSIS_REGISTRATION_TIMEOUT_SECONDS: "${ANALYSIS_REGISTRATION_TIMEOUT_SECONDS:-600}"
       ANALYSIS_MATERIALIZE_WORK_MEM_MB: "${ANALYSIS_MATERIALIZE_WORK_MEM_MB:-64}"
@@ -544,41 +433,24 @@ services:
       start_period: 10s
 
   titiler:
-    # Pinned to 2.x stable (held back from 3.x without contract testing).
-    # Upstream ships security fixes as ordinary bugfix releases with no
-    # advisory, and OSV and the GitHub advisory database carry nothing for
-    # rio-tiler or titiler.core, so only a deliberate bump is a control. The
-    # endpoints we consume (tiles, statistics, info) and their query params
-    # behave the same on 2.4.0 as before.
-    #
-    # NOTE: the image installs rasterio from PyPI wheels, so the wheel pins
-    # GDAL, not the titiler tag; 2.4.0 resolves rasterio 1.5.1 / GDAL 3.12.4
-    # and rio-tiler 9.4.4.
-    # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl header_file clamp)
-    # needs GDAL >= 3.13.2, so it stays unavailable; the gap is gated
-    # on a rasterio wheel bump, not on a titiler tag.
+    # Held at 2.x without contract testing. Upstream ships security fixes as plain
+    # bugfix releases with no advisory, so only a deliberate bump is a control. The
+    # rasterio wheel, not this tag, pins GDAL (3.12.4 on 2.4.0).
     image: ghcr.io/developmentseed/titiler:2.4.0
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
     security_opt:
       - no-new-privileges=true
-    # titiler binds port 8000 inside container (>1024) — no NET_BIND_SERVICE needed.
     cap_drop:
       - ALL
-    # 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
-    # concurrent tile rendering. Raise for very large raster catalogs.
-    # env-overridable — mirrors docker-compose.prod.yml.
+    # 1g covers GDAL_CACHEMAX (200 MB) plus the Python process.
     mem_limit: "${TITILER_MEM_LIMIT:-1g}"
-    # Immutable root with /tmp tmpfs for GDAL VSI cache writes.
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    # Derive GDAL's AWS endpoint settings from the app's S3 endpoint
-    # settings before exec'ing uvicorn — /vsis3/ reads against a custom endpoint
-    # (MinIO, R2) otherwise target the default AWS endpoint and fail. Compose has
-    # no string functions, so a sh wrapper does the scheme/host split ($$ escapes
-    # compose interpolation; the vars come from this container's environment).
+    # /vsis3/ reads against a custom endpoint (MinIO, R2) need GDAL's AWS_* settings,
+    # derived here from S3_*; explicitly set AWS_* values win.
     command:
       - /bin/sh
       - -ec
@@ -606,91 +478,45 @@ services:
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
         exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
-      # Inputs for the AWS endpoint derivation in the command wrapper above.
+      # Inputs for the AWS endpoint derivation in the command.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
-      # Tile rendering is CPU-bound under the GIL, so one worker
-      # renders one tile at a time and concurrent cache misses queue behind it.
-      # This is the first knob to reach for when raster feels slow. Default 1
-      # keeps existing installs byte-identical.
-      #
-      # RAISE TITILER_MEM_LIMIT WITH IT. GDAL_CACHEMAX below is per PROCESS, so
-      # N workers multiply the block-cache ceiling (N x 200 MB) on top of N
-      # Python interpreters, and the RSS ratchet runs independently in
-      # every one of them. Leaving mem_limit at its 1g default while raising
-      # workers reaches OOMKill sooner, not later — budget roughly
-      # N x (GDAL_CACHEMAX + ~250 MB) and watch RSS before trusting it.
+      # Rendering is CPU-bound under the GIL, one tile per worker. GDAL_CACHEMAX
+      # is per process, so raise TITILER_MEM_LIMIT with workers: about
+      # N x (GDAL_CACHEMAX + 250 MB).
       TITILER_WORKERS: "${TITILER_WORKERS:-1}"
-      # TiTiler RSS ratchets well past GDAL_CACHEMAX under
-      # concurrent tile reads — anonymous heap the allocator retains (0.3 ->
-      # 1.8 GB over 20h on the demo). Capping glibc arenas slows that: an A/B
-      # on the demo VM (2880 identical tile requests, 4 cores) grew +172 MB at
-      # the 8x-cores default vs +125 MB at 2. It does NOT stop the ratchet —
-      # size TITILER_MEM_LIMIT for the catalog as well, and if RSS still
-      # reaches the limit the next lever is recycling the worker, not a bigger
-      # cap. Overridable: fewer arenas trades malloc contention on many-core
-      # hosts serving heavy concurrent raster reads.
+      # Capping glibc arenas slows TiTiler's RSS ratchet under concurrent reads but
+      # does not stop it; size TITILER_MEM_LIMIT for the catalog.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"
-      # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"  # Only fetch these extensions via /vsicurl
-      # VRTRawRasterBand is OFF. Titiler renders VRT mosaics
-      # normally — only the raw-binary band subclass, which nothing in GeoLens
-      # emits, is refused. ALLOWED_SOURCE below is the clamp that would apply if
-      # the subclass were ever re-enabled, pinned to GDAL's narrowest value.
-      #
-      # Both options are GDAL >= 3.12 and are pinned rather than inherited so a
-      # base-image bump cannot silently relax them.
-      #
-      # ALLOWED_SOURCE alone does not deny raw sources: under
-      # SIBLING_OR_CHILD_OF_VRT_PATH a sibling raw source opens and reads.
-      # ENABLE_RAWRASTERBAND=NO, set alongside it, is the deny-all, and it fails
-      # with an intentional message ("VRTRawRasterBand support has been disabled
-      # at run-time").
-      #
-      # NO costs nothing: VRTRawRasterBand appears nowhere in this repo (the
-      # builder in processing/raster/vrt.py emits SimpleSource / ComplexSource /
-      # AveragedSource, as gdalbuildvrt does), and an ordinary SimpleSource VRT
-      # opens and reads unchanged under NO — also measured. ALLOWED_SOURCE stays
-      # pinned at GDAL's documented narrowest legitimate value so that flipping
-      # ENABLE back to YES lands on a sane clamp rather than whatever the base
-      # image defaults to that year.
+      # VRTRawRasterBand is off (GeoLens never emits it; VRT mosaics still render).
+      # ALLOWED_SOURCE alone does not deny raw sources, so ENABLE_RAWRASTERBAND=NO is
+      # the deny-all and ALLOWED_SOURCE the narrowest clamp should it be re-enabled.
+      # Both are pinned so a base-image bump cannot relax them.
       GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
       GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
-      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED restricts the
-      # /vsicurl/ header_file option and needs GDAL >= 3.13.2. NOT SET because
-      # it is not available yet: the image installs rasterio from PyPI wheels,
-      # so the rasterio wheel gates the GDAL version, not the titiler tag —
-      # titiler 2.4.0 ships rasterio 1.5.1 / GDAL 3.12.4 (measured
-      # 2026-10-13). Add it here when a wheel bump crosses 3.13.2.
+      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl/ header_file clamp) needs
+      # GDAL >= 3.13.2; add it when a rasterio wheel bump gets there.
       VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
-      # Do not set GDAL_HTTP_FOLLOWLOCATION as a redirect clamp: it is
-      # not a GDAL config option and never blocks a redirect.
-      # No GDAL option disables redirect-following. TiTiler's real constraints are
-      # the CPL_VSIL_CURL_ALLOWED_EXTENSIONS allow-list above and API-layer URL
-      # validation; redirect exposure beyond those needs network-layer egress rules.
-      # Prefer TiTiler's read-only, rasters-prefix credential. The
-      # nested fallback preserves existing installs until operators provision
-      # the dedicated principal, while only the selected credential enters the
-      # sidecar environment (the shared write credential is not also exposed).
+      # Do not add GDAL_HTTP_FOLLOWLOCATION: it is not a GDAL option, and no GDAL
+      # option stops redirects; that takes network-layer egress rules.
+      # Only TiTiler's read-only credential enters this container, falling back to
+      # the shared pair until operators provision one.
       AWS_ACCESS_KEY_ID: "${TITILER_S3_ACCESS_KEY_ID:-${S3_ACCESS_KEY_ID:-}}"
       AWS_SECRET_ACCESS_KEY: "${TITILER_S3_SECRET_ACCESS_KEY:-${S3_SECRET_ACCESS_KEY:-}}"
-      # Presence flags contain no secrets and make a partial dedicated pair
-      # fail closed in the command wrapper before the mixed AWS_* pair is used.
+      # Presence flags, no secret material, for the command's fail-closed check.
       TITILER_S3_ACCESS_KEY_ID_SET: "${TITILER_S3_ACCESS_KEY_ID:+1}"
       TITILER_S3_SECRET_ACCESS_KEY_SET: "${TITILER_S3_SECRET_ACCESS_KEY:+1}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
-      # Azure Blob / Azurite — GDAL /vsiaz/ credentials.
-      # For Azurite: set AZURE_STORAGE_CONNECTION_STRING to the well-known dev string.
-      # Empty defaults keep the existing s3/local stack unchanged when vars are unset.
+      # GDAL /vsiaz/ credentials; for Azurite, use the well-known dev string.
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
       AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"
-      # GDAL names the key differently from the application SDK. Keep one
-      # canonical host variable and translate it only at the container boundary.
+      # GDAL names the key differently; translate it at the container boundary.
       AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
       TITILER_API_ROOT_PATH: ""
     volumes:
@@ -704,44 +530,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # No ports: section — internal only, reachable at http://titiler:8000
 
   frontend:
-    # Note: image runs as USER node (uid 1000). On Linux dev hosts where the host
-    # user is NOT uid 1000, the bind-mounted ./frontend may not be writable from
-    # inside the container, breaking Vite hot-reload. Workaround: override `user:`
-    # here. macOS Docker Desktop handles this transparently via the file-sharing layer.
+    # Runs as uid 1000; on Linux hosts with another uid the ./frontend bind mount may
+    # not be writable and hot reload breaks, so override `user:` there.
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     security_opt:
       - no-new-privileges=true
-    # USER node (uid 1000) set in frontend/Dockerfile.dev — cap_drop ALL is safe.
-    # vite + esbuild + node hot-reload need no Linux capabilities.
     cap_drop:
       - ALL
-    # NOTE: read_only NOT applied to frontend (dev). Vite writes HMR cache to
-    # /tmp/.vite/ and /app/node_modules/.vite/; the bind-mount of source under
-    # /app means the root filesystem is effectively writable already. A
-    # production nginx frontend would be compatible with read_only.
+    # No read_only: Vite writes HMR caches under /tmp and /app/node_modules.
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8080}:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      # API_PROXY_TARGET is consumed only by vite.config.ts (Node side); nothing
-      # in the browser bundle reads it.
+      # Read only by vite.config.ts on the Node side, never by the browser bundle.
       API_PROXY_TARGET: http://api:8000
-      # FRONTEND_ALLOWED_HOSTS: comma-separated Host values the Vite dev server
-      # accepts, for serving the dev app behind a tunnel/reverse proxy (e.g. a
-      # Cloudflare tunnel). Empty by default → Vite's localhost/LAN allowlist.
+      # Extra Host values Vite accepts, e.g. behind a tunnel; empty keeps Vite's
+      # localhost/LAN allowlist.
       FRONTEND_ALLOWED_HOSTS: ${FRONTEND_ALLOWED_HOSTS:-}
     healthcheck:
-      # Serves the shell and resolves the map builder's modules, so a stale
-      # node_modules or missing maplibre-gl fails health. Cold start can take
-      # 10-15s while Vite resolves the import graph.
+      # Fails on a stale node_modules or missing maplibre-gl; cold start takes 10-15s.
       test: ["CMD", "node", "/app/scripts/dev-readiness.mjs"]
       interval: 30s
       timeout: 10s
@@ -752,40 +566,29 @@ services:
         condition: service_healthy
 
   backup:
-    # Backup runs by default — no --profile flag needed.
-    # Configure schedule/retention via BACKUP_* env vars (see .env.example).
-    # Builds the multi-arch root Dockerfile backup stage (not ./db which is
-    # amd64-only via the postgis/postgis base).
+    # Runs by default, no profile. Built from the root Dockerfile's multi-arch backup
+    # stage, not ./db, whose postgis base is amd64-only.
     build:
       context: .
       dockerfile: Dockerfile
       target: backup
     restart: unless-stopped
-    # backup-entrypoint.sh runs as root throughout
-    # (pg_dump/cp/tar/awscli/sleep on files it owns under /backups; the
-    # postgres:18 base ships no cron, so it runs the built-in sleep-loop
-    # scheduler). It never drops privilege or chowns across uids, so it needs NO
-    # added capabilities — cap_drop ALL just removes the unused kernel surface.
-    # init:true reaps the sleep loop. No read_only — the entrypoint writes under
-    # /backups (and a crontab under /var/spool/cron if a base ever provides cron).
+    # Runs as root throughout and never drops privilege, so it needs no caps. init
+    # reaps the sleep-loop scheduler; no read_only because it writes under /backups.
     init: true
     security_opt:
       - no-new-privileges=true
     cap_drop:
       - ALL
-    # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
-    # tmpfs because this image only runs pg_dump; otherwise Docker creates an
-    # unused anonymous volume for every backup container.
+    # The postgres base declares PGDATA a VOLUME, but this image only runs pg_dump;
+    # tmpfs stops Docker creating an anonymous volume per backup container.
     tmpfs:
       - /var/lib/postgresql:size=1m,mode=0700
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
-      # Mirrors docker-compose.prod.yml — tar the upload_staging
-      # volume alongside the pg_dump so a restore recovers locally-staged objects
-      # (rasters/COGs/source uploads), not just the DB. Read-only: the backup job
-      # never mutates app data. CAVEAT: captures the LOCAL upload_staging volume
-      # only; deployments that offload objects to external S3 back those up there.
+      # Back up locally staged objects with the dump so a restore works; buckets on
+      # external S3 need their own backups.
       - upload_staging:/staging:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -801,59 +604,40 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
-      # No S3_ALLOW_HTTP here: the backup uploader (awscli) follows the scheme
-      # in S3_ENDPOINT directly; that knob only configures the app's client.
+      # No S3_ALLOW_HTTP: awscli follows the scheme in S3_ENDPOINT.
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # Freshness, not liveness: a pgrep probe would stay healthy
-      # while every pg_dump failed, because the sleep loop is alive. Healthy
-      # means: /backups/.last-success — touched by backup-entrypoint.sh only
-      # after a fully successful cycle (dump + verify + S3 when enabled) — is
-      # younger than BACKUP_MAX_AGE_MINUTES (default 1560 min = 26 h, the default
-      # daily schedule plus slack; raise the knob in .env for less-frequent
-      # BACKUP_SCHEDULE values). A missing marker fails the probe too, so a
-      # container whose backups never succeed goes unhealthy after start_period.
-      # /backups/.last-offsite-success is touched after each fully uploaded
-      # cycle; once it exists it must stay as fresh, so offsite upload dropped
-      # from the config (BACKUP_S3_ENABLED no longer true) also goes unhealthy.
+      # Freshness, not liveness: healthy only while the success marker, touched after
+      # a full dump, verify and upload cycle, is younger than BACKUP_MAX_AGE_MINUTES.
+      # Once an offsite marker exists it must stay as fresh, so dropping offsite
+      # upload also turns the service unhealthy.
       test: ["CMD-SHELL", "find /backups/.last-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1; [ ! -e /backups/.last-offsite-success ] || find /backups/.last-offsite-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      # Generous grace window: the marker only exists after the FIRST successful
-      # backup, and the initial on-startup dump of a large existing DB can take
-      # minutes (a fresh install lands it in seconds).
+      # The marker appears only after the first backup, which can take minutes on a
+      # large existing DB.
       start_period: 10m
-      # Probe every 5s during start-up so the service reports healthy quickly — it
-      # starts last (gated on migrate) and must clear the installer's
-      # wait-for-healthy budget on a fresh install; the probe first passes as
-      # soon as the initial on-startup backup writes the marker.
+      # Fast probes at start-up so a fresh install clears the installer's
+      # wait-for-healthy budget.
       start_interval: 5s
     depends_on:
       db:
         condition: service_healthy
-      # Gate the first (on-startup) pg_dump behind migrations so a fresh install
-      # never captures a pre-migration / empty DB as its first retained backup.
+      # Never keep a pre-migration DB as the first backup.
       migrate:
         condition: service_completed_successfully
 
-  # --- cloud-dev profile: local S3 + cache for testing ---
-  # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
-  # not for sharing on a LAN or exposing through Docker port forwarding.
+  # cloud-dev profile: local S3 and cache, loopback only.
   minio:
-    # Silo is the community-maintained MinIO fork; it is still configured through
-    # MINIO_* variables. The quay.io/minio images no longer allow anonymous pulls.
-    # Pinned by SHA256 digest (tag is documentation).
+    # Silo, the community MinIO fork, still reads MINIO_* variables; quay.io/minio no
+    # longer allows anonymous pulls. Pinned by digest.
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     profiles: ["cloud-dev"]
-    # True fail-closed and parse-safe. `${VAR:?}` would abort
-    # `compose config`/`up` at PARSE time even when cloud-dev is inactive (breaks
-    # a verbatim-.env.example install). But `${VAR:-}` alone is NOT fail-closed:
-    # MinIO treats an EMPTY MINIO_ROOT_USER as unset and silently boots with the
-    # well-known default minioadmin:minioadmin (verified). So keep the parse-safe
-    # empty refs in environment: AND enforce non-empty creds at RUNTIME via the
-    # entrypoint — the cloud-dev S3 store refuses to start on default/blank creds.
+    # `${VAR:?}` would fail `compose config` even with cloud-dev inactive, and MinIO
+    # boots with minioadmin:minioadmin on an empty user. So the env refs stay
+    # parse-safe `${VAR:-}` and this entrypoint refuses blank credentials.
     entrypoint:
       - /bin/sh
       - -c
@@ -863,8 +647,7 @@ services:
           exit 1
         fi
         exec silo server /data --console-address ":9001"
-    # cloud-dev is opt-in + loopback-only, but minio holds root S3 creds. Drop
-    # caps + block privilege gain as cheap insurance.
+    # minio holds root S3 credentials.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -873,22 +656,12 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # Parse-safe empty default (:-); the entrypoint above enforces non-empty at
-      # runtime. MUST be listed here so compose passes the host value into the
-      # container (the runtime guard checks these).
+      # Parse-safe empty default; the entrypoint rejects blank values.
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
-      # Abandoned presigned multipart uploads leave parts no app
-      # sweep can see (no object exists at the key until completion). MinIO
-      # ignores S3 AbortIncompleteMultipartUpload lifecycle rules
-      # (minio/minio#19115, "working as intended"); its equivalent is the
-      # api-subsystem stale-uploads sweep. Parse-safe operator override with
-      # the defaults preserved (never `:?`, see the minio entrypoint note). The
-      # 24h default assumes the default 1h upload-job lifetime (PENDING_JOB_TIMEOUT_SECONDS=3600,
-      # which also bounds presigned part-URL validity). Coupling: if
-      # PENDING_JOB_TIMEOUT_SECONDS is raised past ~23h, raise the expiry to
-      # at least that lifetime plus headroom, or the sweep aborts parts of
-      # still-live uploads. See RUNBOOK.md "Abandoned multipart uploads".
+      # MinIO ignores AbortIncompleteMultipartUpload lifecycle rules, so this sweep
+      # clears abandoned multipart parts. Keep the expiry above
+      # PENDING_JOB_TIMEOUT_SECONDS plus headroom, or it aborts live uploads.
       MINIO_API_STALE_UPLOADS_EXPIRY: "${MINIO_API_STALE_UPLOADS_EXPIRY:-24h}"
       MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: "${MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL:-6h}"
     volumes:
@@ -901,10 +674,9 @@ services:
       start_period: 5s
 
   minio-setup:
-    # Paired digest pin with the minio service above.
+    # Paired digest pin with minio.
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     profiles: ["cloud-dev"]
-    # One-shot setup, but no-new-privileges + cap_drop are free hardening.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -912,11 +684,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    # The setup logic is a mounted script file because a YAML folded-scalar
-    # `entrypoint: >` collapses newlines and destroys the heredoc that writes the
-    # CORS policy JSON.
-    # Empty-default (:-) so a verbatim-.env.example install parses without the
-    # cloud-dev profile; the runtime rejects empty creds. See minio service above.
+    # A mounted script, because a folded `entrypoint: >` destroys the CORS policy
+    # heredoc. Parse-safe empty creds; the runtime rejects blanks.
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
@@ -925,12 +694,9 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]
 
   azurite:
-    # Azure Blob Storage emulator — cloud-dev profile only.
-    # Pinned by SHA256 digest (tag is documentation only).
+    # Azure Blob emulator. Pinned by digest.
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
     profiles: ["cloud-dev"]
-    # cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
-    # are cheap insurance — Azurite holds no keys that matter outside localhost.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -948,13 +714,10 @@ services:
       start_period: 5s
 
   valkey:
-    # 9.x line tip; cloud-dev profile only.
     image: valkey/valkey:9.1.2-alpine
     profiles: ["cloud-dev"]
-    # cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a
-    # non-root user skips setpriv.
+    # cap_drop ALL breaks the entrypoint's setpriv; a non-root user skips it.
     user: "valkey"
-    # Drop caps + block privilege gain (opt-in dev cache).
     security_opt:
       - no-new-privileges=true
     cap_drop:

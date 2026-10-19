@@ -1,55 +1,30 @@
-# ==============================================================================
-# Production / pull-prebuilt-images compose
-# ==============================================================================
-# This is the compose `scripts/install.sh` uses for a RELEASE install: it PULLS
-# the version-pinned, multi-arch, Trivy-scanned images published by
-# `.github/workflows/publish.yml` instead of building from source. It is the
-# fast, reproducible path for self-hosters.
-#
-#   docker compose -f docker-compose.prod.yml pull
-#   GEOLENS_VERSION=1.2.3 docker compose -f docker-compose.prod.yml up -d
-#
-# The dev/build compose is `docker-compose.yml` (bind-mounts, --reload, Vite dev
-# server, locally-built db). Use that for development or as the offline / fork /
-# unreleased-`main` fallback. install.sh falls back to it automatically when no
-# release image is available.
-#
-# DRIFT: the third-party services (titiler, minio, valkey, backup) and the
-# shared env anchors are duplicated from docker-compose.yml on purpose — a
-# standalone file avoids compose-override list-merge traps (you cannot drop a
-# bind-mount or replace a port via override). Keep db/titiler/minio/valkey/backup
-# blocks in sync with docker-compose.yml when they change.
-#
-# GEOLENS_VERSION pins the image tag. install.sh sets it to the resolved release
-# tag (e.g. 1.2.3). Defaults to `latest` for a manual `docker compose` invocation.
-# ==============================================================================
+# Release install: pulls the version-pinned published images instead of
+# building. install.sh uses it when a release is pinned, and GEOLENS_VERSION
+# picks the tag. A standalone twin of docker-compose.yml, kept in sync on
+# purpose, because an override file cannot drop a bind mount or replace a port.
 
-# ------------------------------------------------------------------------------
-# Shared environment anchors (kept in sync with docker-compose.yml)
-# ------------------------------------------------------------------------------
+# Neither file uses env_file (it would hand every secret to every container), so
+# a setting reaches a container only by being listed in its environment.
 # A bare `KEY:` passes the host value through and otherwise leaves the
 # Settings default in charge. Explicit `${KEY:-default}` entries stay where an
 # empty host value must still get the default, or where Compose needs a value
 # of its own. `make env-doc-check` checks which form each entry uses.
 x-db-env: &db-env
-  # API/worker must not retain the privileged bootstrap password when the
-  # opt-in runtime role is enabled. The migrate service overrides these two
-  # values below with the privileged identity.
+  # api and worker log in as the opt-in runtime role when one is set; migrate
+  # overrides these two with the privileged bootstrap identity.
   POSTGRES_USER: ${GEOLENS_RUNTIME_DB_ROLE:-${POSTGRES_USER}}
   POSTGRES_PASSWORD: ${GEOLENS_RUNTIME_DB_PASSWORD:-${POSTGRES_PASSWORD}}
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
   POSTGRES_DB: ${POSTGRES_DB}
-  # Empty preserves the legacy single-tenant superuser connection. Setting a
-  # role opts API/worker into the live least-privilege boot guard.
+  # Empty keeps the single-tenant superuser login; a role opts api and worker
+  # into the least-privilege boot guard.
   GEOLENS_RUNTIME_DB_ROLE:
 
 x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
   GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
-  # Neither manifest uses env_file, so the setting reaches the app
-  # only by being listed here. Empty is the unset case (empty_str_to_none).
   SECRET_ENCRYPTION_KEY: "${SECRET_ENCRYPTION_KEY:-}"
   SECRET_ENCRYPTION_KEY_PREVIOUS: "${SECRET_ENCRYPTION_KEY_PREVIOUS:-}"
   JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
@@ -73,8 +48,7 @@ x-db-ssl-env: &db-ssl-env
   DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"
   DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
-  # See the note in docker-compose.yml: the setting reaches the app only by
-  # being listed here.
+  # Every backend process loads it through app.core.config; only get_db applies it.
   DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
 
 x-storage-env: &storage-env
@@ -96,9 +70,8 @@ x-storage-env: &storage-env
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
-  # Pass the posture flag through, so an operator setting
-  # ENVIRONMENT=production in .env gets a Secure cookie and non-public /docs.
-  # Empty (unset) falls back to LOG_JSON in Settings.
+  # Empty falls back to LOG_JSON; production gives a Secure cookie and non-public
+  # /docs.
   ENVIRONMENT:
 
 x-ai-env: &ai-env
@@ -158,9 +131,8 @@ x-app-runtime-env: &app-runtime-env
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
   REMOTE_RASTER_RELAY_BASE_URL: "${REMOTE_RASTER_RELAY_BASE_URL:-http://api:8000}"
 
-# Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
-# Identical to docker-compose.yml: start as root, chown the upload_staging
-# volume, then setpriv-drop to uid 1001. read_only root fs + dropped caps.
+# api, worker and migrate start as root, chown their volumes, then setpriv to
+# uid 1001; the added caps cover only that. titiler drops all caps and stays out.
 x-hardened-base: &hardened-base
   security_opt:
     - no-new-privileges=true
@@ -174,40 +146,24 @@ x-hardened-base: &hardened-base
     - SETUID
   read_only: true
 
-# Bound every container's json-file log — with no options the
-# default driver grows without limit for the life of the container (observed
-# on the demo VM: a four-week-old container already held a 36M log). 50m x 3
-# keeps ~150M of recent log per service, enough for incident forensics.
-# The driver is pinned deliberately: a stock install (daemon default
-# json-file, no options) is the audience this protects, and omitting the
-# driver would fail container create wherever the daemon default is not
-# json-file, because the options below are json-file-specific. Operators who
-# centralize logs at the daemon level (journald/fluentd/awslogs) should
-# override `logging:` per service in a compose override file with their
-# driver; that override replaces this block wholesale.
+# json-file grows without limit by default; 50m x 3 bounds each service. The
+# driver is pinned because these options are json-file-only; centralized logging
+# overrides `logging:` per service.
 x-bounded-logs: &bounded-logs
   driver: json-file
   options:
     max-size: "50m"
     max-file: "3"
 
-# Registry + owner for the published images. Override REGISTRY/IMAGE_OWNER only
-# for a fork or a mirror; defaults point at the canonical GHCR namespace.
+# Override REGISTRY/IMAGE_OWNER only for a fork or a mirror.
 x-image-base: &image-registry ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}
 
-# ==============================================================================
-# Services
-# ==============================================================================
 services:
   db:
     logging: *bounded-logs
-    # PostGIS 17 + pgvector, built locally from ./db — a thin layer on the
-    # OFFICIAL postgis/postgis image (the source maintainer) plus the pgvector
-    # apt package. No single upstream image bundles both PostGIS and pgvector,
-    # and we deliberately do NOT publish a custom db image, so this stays a
-    # local build — the only build in a release install (~20s). The official
-    # postgis image is amd64-only; arm64 hosts run it emulated (unchanged from
-    # docker-compose.yml). Same db service as the dev compose.
+    # PostGIS + pgvector, built locally from ./db on the official postgis image. No
+    # upstream image bundles both and none is published, so this is the one build
+    # in a release install. The postgis base is amd64-only.
     build:
       context: ./db
     command: postgres -c config_file=/etc/postgresql/custom.conf
@@ -218,28 +174,24 @@ services:
       GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
       GEOLENS_RUNTIME_DB_PASSWORD: "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
       GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING: "${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
-      # The URL itself contains a credential and must never enter db. These
-      # presence-only markers let the reconciler ignore an external migrator
-      # name, while an explicit local flag admits a custom migrator on `db`.
+      # The migration URL holds a credential and never enters db. These presence-only
+      # markers let the reconciler ignore an external migrator, and the local flag
+      # admits a custom migrator on db.
       GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-}"
       GEOLENS_MIGRATION_DB_URL_CONFIGURED: "${MIGRATION_DATABASE_URL_OVERRIDE:+configured}${DATABASE_URL_OVERRIDE:+configured}"
       GEOLENS_MIGRATION_DB_LOCAL: "${GEOLENS_MIGRATION_DB_LOCAL:-false}"
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      # PG 18+ images take a single mount at /var/lib/postgresql
-      # (PGDATA lives at <major>/docker inside it); mounting the legacy
-      # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
+      # PG 18+ images take one mount at /var/lib/postgresql; the legacy .../data path
+      # makes the entrypoint refuse to boot.
       - pgdata:/var/lib/postgresql
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./scripts/lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
-    # Memory limit prevents the DB from consuming all host RAM under
-    # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
-    # for concurrent queries. Raise on hosts with > 8 GB RAM.
-    # env-overridable — the default caps sum to 9 GB, over-committing
-    # an 8 GB host (no cap sum guard exists in Docker). On 8 GB set
-    # DB_MEM_LIMIT=1.5g API_MEM_LIMIT=1g WORKER_MEM_LIMIT=2g (sum ≈ 6 GB).
+    # 2g covers shared_buffers (512 MB) plus work_mem headroom. The default caps
+    # over-commit an 8 GB host; there, set DB_MEM_LIMIT=1.5g API_MEM_LIMIT=1g
+    # WORKER_MEM_LIMIT=2g.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -261,13 +213,10 @@ services:
 
   migrate:
     logging: *bounded-logs
-    # One-shot alembic upgrade, runs from the baked api image (alembic/ +
-    # alembic.ini are COPYed into /app — Dockerfile backend-base).
+    # Runs alembic from the api image, which bakes alembic/ and alembic.ini.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
     entrypoint: []
-    # `upgrade heads` (plural) applies all Alembic branch heads and avoids bare
-    # `head` failing when a revision graph has multiple heads. For a single-head
-    # graph, `heads` is equivalent to `head`.
+    # `heads` applies every branch head; bare `head` fails on a multi-head graph.
     command: sh -c "uv run --no-dev alembic upgrade heads"
     restart: "no"
     <<: *hardened-base
@@ -277,17 +226,16 @@ services:
       - /app/staging:size=8m,uid=1001,gid=1001
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
-      # Migration authority is distinct from DATABASE_URL_OVERRIDE, which is
-      # the steady-state API/worker login when runtime-role mode is enabled.
+      # Migrations run as the bootstrap identity; DATABASE_URL_OVERRIDE is the runtime
+      # login when runtime-role mode is on.
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_URL_OVERRIDE: "${MIGRATION_DATABASE_URL_OVERRIDE:-${DATABASE_URL_OVERRIDE:-}}"
       GEOLENS_RUNTIME_DB_ROLE: ""
       GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
       PYTHONPATH: /app
-      # Migration 0012 resolves the vector typmod before the API starts. Keep
-      # an unset dimension empty so stored vectors can still win over the
-      # built-in 1536 fallback; an explicitly supplied 1536 remains explicit.
+      # Migration 0012 needs an unset dimension to stay empty so stored vectors win
+      # over the 1536 fallback; an explicit 1536 stays explicit.
       EMBEDDING_DIMS: "${EMBEDDING_DIMS-}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
     depends_on:
@@ -297,25 +245,12 @@ services:
   api:
     logging: *bounded-logs
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
-    # Override the baked image CMD to add --proxy-headers so uvicorn
-    # populates request.client from X-Forwarded-For / X-Real-IP sent by the
-    # nginx frontend. Without this flag, rate-limit buckets collapse to nginx's
-    # container IP and audit logs record the proxy address instead of the real
-    # client IP.
-    # --forwarded-allow-ips='*' is safe ONLY because nginx OVERWRITES
-    # X-Forwarded-For with $remote_addr at the internet-facing edge (see
-    # frontend/nginx.conf). The header is injected at that public edge, so a
-    # client could otherwise forge the leftmost value uvicorn trusts.
-    # Bounded worker recycling — a worker gracefully exits after
-    # UVICORN_MAX_REQUESTS requests and the uvicorn supervisor respawns it, so
-    # slow memory growth can't ride one worker into the cgroup OOM killer.
-    # Unset/empty disables; the value must be a positive integer.
-    # The supervisor only exists when --workers >= 2. With
-    # UVICORN_WORKERS=1 uvicorn serves in-process, so hitting the limit exits
-    # the WHOLE process and the container restart policy turns each recycle
-    # into a short public outage (observed on the demo VM as unexplained
-    # twice-daily api restarts at ~10k background requests). The flag is
-    # therefore applied only when a supervisor is present to absorb it.
+    # --forwarded-allow-ips='*' is safe only because nginx overwrites X-Forwarded-For
+    # with $remote_addr (frontend/nginx.conf); rate limits and audit logs read the
+    # client address uvicorn takes from it.
+    # --limit-max-requests recycles a worker before slow memory growth reaches the
+    # OOM killer. It applies only with --workers >= 2: with one in-process worker,
+    # hitting the limit exits the whole container.
     command: >
       sh -c "uv run --no-dev uvicorn app.api.main:app
       --host 0.0.0.0 --port 8000
@@ -328,9 +263,7 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
-    # 2 GB covers the Python process + Uvicorn workers + ORM caches.
-    # Raise if ingesting very large files with many concurrent workers.
-    # env-overridable for small hosts — see the db service note.
+    # 2g covers the Python process, uvicorn workers and ORM caches.
     mem_limit: "${API_MEM_LIMIT:-2g}"
     <<: *hardened-base
     tmpfs:
@@ -345,26 +278,23 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env, *app-runtime-env]
       PYTHONPATH: /app
       GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
-      # Prod default 2 workers (dev uses 1 to keep --reload working).
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       # Per-process sandbox slots when API replicas share a pooler.
       SANDBOX_QUERY_SLOTS:
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
-      # Recycle each worker after this many requests (empty disables).
+      # Empty disables worker recycling.
       UVICORN_MAX_REQUESTS: "${UVICORN_MAX_REQUESTS:-10000}"
-      # prometheus_client multiprocess mode, api service only
-      # (the worker's separate /metrics stays single-process). A
-      # subdirectory of the api service's tmpfs /tmp mount (512m, above), so
-      # it never survives a container restart carrying stale per-pid files.
+      # prometheus_client multiprocess dir, on the api's tmpfs so stale per-pid files
+      # never survive a restart.
       PROMETHEUS_MULTIPROC_DIR: "${PROMETHEUS_MULTIPROC_DIR:-/tmp/prometheus-multiproc}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
       PUBLIC_BASE_URL:
       PRIVACY_URL:
       DCAT_CONTACT_EMAIL:
-      # Empty = rate limits are counted per worker (two above); a
-      # shared Valkey/Redis here, e.g. the bundled valkey service (profile cache), shares them.
+      # Empty counts rate limits per uvicorn worker; a shared Valkey/Redis (such as
+      # the cache profile's valkey) pools them.
       REDIS_URL:
       CDN_BASE_URL:
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
@@ -373,9 +303,8 @@ services:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
-      # Pinned: api/worker/titiler share the upload_staging volume at
-      # the fixed /app/staging mount target; the app path must equal it. Not an
-      # operator knob in compose. See docker-compose.yml + .env.example.
+      # api, worker and titiler share upload_staging at the fixed /app/staging; the
+      # app path must equal it, so it is not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
       UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz,.laz}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
@@ -388,12 +317,10 @@ services:
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       CORS_ALLOWED_ORIGINS:
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # Retention for terminal ingest_jobs rows, purged by the API
-      # lifespan sweeper (0 = keep history forever).
+      # 0 keeps terminal ingest_jobs history forever.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
-      # Upload-job lifetime and the age before staged-upload reconciliation
-      # deletes an orphan; both are read by the sweeps and the presign paths.
+      # Read by the sweeps and the presign paths in both api and worker.
       PENDING_JOB_TIMEOUT_SECONDS: "${PENDING_JOB_TIMEOUT_SECONDS:-3600}"
       STAGING_ORPHAN_MIN_AGE_SECONDS: "${STAGING_ORPHAN_MIN_AGE_SECONDS:-86400}"
     depends_on:
@@ -404,11 +331,8 @@ services:
 
   worker:
     logging: *bounded-logs
-    # The worker is the SAME image as api — identical backend-base; the published
-    # geolens-worker image differs only in its baked ENTRYPOINT/CMD/HEALTHCHECK.
-    # Run it from the PUBLIC geolens-api image with those three overridden (the
-    # same pattern the migrate service uses). This keeps a release install pulling
-    # only public images — no dependency on the geolens-worker package visibility.
+    # Runs the public geolens-api image with the worker's entrypoint, command and
+    # healthcheck, so a release install pulls only public images.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
     entrypoint: ["/app/scripts/worker-entrypoint.sh"]
     command: ["sh", "-c", "uv run --no-dev python -m app.worker"]
@@ -416,9 +340,7 @@ services:
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
-    # 4 GB covers the worker process + GDAL/OGR buffers during large
-    # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
-    # env-overridable for small hosts — see the db service note.
+    # 4g covers GDAL/OGR buffers during large ingests such as COG conversion.
     mem_limit: "${WORKER_MEM_LIMIT:-4g}"
     <<: *hardened-base
     tmpfs:
@@ -431,36 +353,19 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
       REDIS_URL:
-      # Pinned: api/worker/titiler share the upload_staging volume at
-      # the fixed /app/staging mount target; the app path must equal it. Not an
-      # operator knob in compose. See docker-compose.yml + .env.example.
+      # Pinned to the upload_staging mount target; not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
-      # Parallel job slots (2-3 on multi-core hosts; keep 1 on
-      # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
+      # Parallel job slots: 2-3 on multi-core hosts, 1 on 2-vCPU boxes.
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
-      # If you ever add a queue name here (e.g. a dedicated
-      # "analysis" queue), workers must subscribe BEFORE the API defers to it.
-      # A job deferred to a queue no worker listens on is NOT an error, and it
-      # is never auto-failed either: its procrastinate row stays 'todo', and
-      # both stale-sweep paths deliberately skip live 'todo' rows
-      # (no_live_procrastinate_job, backend/app/platform/jobs/router.py)
-      # -- so it sits pending INDEFINITELY, silent, until a worker
-      # subscribes to the queue or the row is changed by hand. The
-      # queue name lives in the task decorator (backend/app/processing/analysis/
-      # tasks.py) and the subscription list is this var + worker_queues in
-      # backend/app/core/config.py — and this default is duplicated in BOTH
-      # compose files; changing one leaves prod and dev subscribing differently.
-      # This fallback shadows the Settings default, so it must name
-      # every queue `worker_queues` in backend/app/core/config.py does, including
-      # "ingest-auth-v2", kept as a consumer-only queue for this one release.
+      # This fallback shadows Settings.worker_queues and must list all its queues. A
+      # job deferred to a queue no worker subscribes to stays 'todo' forever, so
+      # subscribe workers before the API defers to a new queue.
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # The URL-import fetch clock runs in THIS container, so the
-      # documented override only takes effect if it is forwarded here.
+      # The URL-import fetch clock runs in this container.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
-      # The tileset worker checks the unpacked total and entry count again
-      # before its first put, so it must read the caps the api's doors read.
+      # The tileset worker rechecks these caps before its first put.
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
@@ -468,18 +373,15 @@ services:
       # admin-editable settings, which ENV_ONLY_CONFIG locks to the env.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
-      # Upload-job lifetime and the age before staged-upload reconciliation
-      # deletes an orphan; both are read by the sweeps and the presign paths.
+      # Read by the sweeps and the presign paths in both api and worker.
       PENDING_JOB_TIMEOUT_SECONDS: "${PENDING_JOB_TIMEOUT_SECONDS:-3600}"
       STAGING_ORPHAN_MIN_AGE_SECONDS: "${STAGING_ORPHAN_MIN_AGE_SECONDS:-86400}"
-      # Analysis budgets are read by the worker that runs the materialize task.
+      # Read by the worker that runs the materialize task.
       ANALYSIS_MATERIALIZE_TIMEOUT_SECONDS: "${ANALYSIS_MATERIALIZE_TIMEOUT_SECONDS:-300}"
       ANALYSIS_REGISTRATION_TIMEOUT_SECONDS: "${ANALYSIS_REGISTRATION_TIMEOUT_SECONDS:-600}"
       ANALYSIS_MATERIALIZE_WORK_MEM_MB: "${ANALYSIS_MATERIALIZE_WORK_MEM_MB:-64}"
     healthcheck:
-      # The api image's baked healthcheck targets :8000 (uvicorn); the worker
-      # process serves :8001/health/live, so override it here to match the
-      # geolens-worker image's baked check.
+      # The api image's healthcheck targets :8000; the worker serves :8001.
       test: ["CMD-SHELL", "python -B -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
       interval: 10s
       timeout: 5s
@@ -493,7 +395,9 @@ services:
 
   titiler:
     logging: *bounded-logs
-    # Third-party image — identical to docker-compose.yml.
+    # Held at 2.x without contract testing. Upstream ships security fixes as plain
+    # bugfix releases with no advisory, so only a deliberate bump is a control. The
+    # rasterio wheel, not this tag, pins GDAL (3.12.4 on 2.4.0).
     image: ghcr.io/developmentseed/titiler:2.4.0
     init: true
     restart: unless-stopped
@@ -502,18 +406,13 @@ services:
       - no-new-privileges=true
     cap_drop:
       - ALL
-    # 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
-    # concurrent tile rendering. Raise for very large raster catalogs.
-    # env-overridable for small hosts — see the db service note.
+    # 1g covers GDAL_CACHEMAX (200 MB) plus the Python process.
     mem_limit: "${TITILER_MEM_LIMIT:-1g}"
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    # Derive GDAL's AWS endpoint settings from the app's S3 endpoint
-    # settings before exec'ing uvicorn — /vsis3/ reads against a custom endpoint
-    # (MinIO, R2) otherwise target the default AWS endpoint and fail. Mirrors the wrapper
-    # in docker-compose.yml ($$ escapes compose interpolation; explicitly set
-    # AWS_* env always wins).
+    # /vsis3/ reads against a custom endpoint (MinIO, R2) need GDAL's AWS_* settings,
+    # derived here from S3_*; explicitly set AWS_* values win.
     command:
       - /bin/sh
       - -ec
@@ -541,49 +440,38 @@ services:
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
         exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
-      # Inputs for the AWS endpoint derivation in the command wrapper above.
+      # Inputs for the AWS endpoint derivation in the command.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
-      # Tile rendering is CPU-bound under the GIL — one worker
-      # renders one tile at a time. Raise TITILER_MEM_LIMIT alongside this:
-      # GDAL_CACHEMAX is per process and the RSS ratchet runs in each one,
-      # so more workers at the same 1g cap reach OOMKill sooner. See the
-      # docker-compose.yml note.
+      # Rendering is CPU-bound under the GIL, one tile per worker. GDAL_CACHEMAX
+      # is per process, so raise TITILER_MEM_LIMIT with workers: about
+      # N x (GDAL_CACHEMAX + 250 MB).
       TITILER_WORKERS: "${TITILER_WORKERS:-1}"
-      # Slow TiTiler's glibc RSS ratchet under concurrent tile
-      # reads — measured mitigation only; see the docker-compose.yml note.
+      # Capping glibc arenas slows TiTiler's RSS ratchet under concurrent reads but
+      # does not stop it; size TITILER_MEM_LIMIT for the catalog.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"
       GDAL_CACHEMAX: "200"
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
-      # VRTRawRasterBand is OFF. VRT mosaics render normally — only
-      # the raw-binary band subclass, which GeoLens never emits, is refused.
-      # ALLOWED_SOURCE is the clamp that would apply if it were re-enabled.
-      #
-      # Pinned rather than inherited so a base-image bump cannot relax them. The
-      # previous "NETWORK_OR_LOCAL" is not a value GDAL accepts, so it was
-      # parsed as an absolute path and refused every source — deny-all by
-      # accident. Correcting the token alone would have LOOSENED this: the same
-      # fixture opens and reads under SIBLING_OR_CHILD_OF_VRT_PATH. NO preserves
-      # today's behaviour in a value GDAL accepts.
-      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED needs GDAL >= 3.13.2 and is
-      # deliberately absent — the image ships GDAL 3.12.4. See the
-      # docker-compose.yml note for the measurements.
+      # VRTRawRasterBand is off (GeoLens never emits it; VRT mosaics still render).
+      # ALLOWED_SOURCE alone does not deny raw sources, so ENABLE_RAWRASTERBAND=NO is
+      # the deny-all and ALLOWED_SOURCE the narrowest clamp should it be re-enabled.
+      # Both are pinned so a base-image bump cannot relax them.
+      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl/ header_file clamp) needs
+      # GDAL >= 3.13.2; add it when a rasterio wheel bump gets there.
       GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
       GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
       VSI_CACHE: "TRUE"
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
-      # Do not add GDAL_HTTP_FOLLOWLOCATION: not a GDAL option, no effect.
-      # Prefer TiTiler's read-only, rasters-prefix credential. The
-      # nested fallback preserves existing installs until operators provision
-      # the dedicated principal, while only the selected credential enters the
-      # sidecar environment (the shared write credential is not also exposed).
+      # Do not add GDAL_HTTP_FOLLOWLOCATION: it is not a GDAL option, and no GDAL
+      # option stops redirects; that takes network-layer egress rules.
+      # Only TiTiler's read-only credential enters this container, falling back to
+      # the shared pair until operators provision one.
       AWS_ACCESS_KEY_ID: "${TITILER_S3_ACCESS_KEY_ID:-${S3_ACCESS_KEY_ID:-}}"
       AWS_SECRET_ACCESS_KEY: "${TITILER_S3_SECRET_ACCESS_KEY:-${S3_SECRET_ACCESS_KEY:-}}"
-      # Presence flags contain no secrets and make a partial dedicated pair
-      # fail closed in the command wrapper before the mixed AWS_* pair is used.
+      # Presence flags, no secret material, for the command's fail-closed check.
       TITILER_S3_ACCESS_KEY_ID_SET: "${TITILER_S3_ACCESS_KEY_ID:+1}"
       TITILER_S3_SECRET_ACCESS_KEY_SET: "${TITILER_S3_SECRET_ACCESS_KEY:+1}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
@@ -605,21 +493,17 @@ services:
 
   frontend:
     logging: *bounded-logs
-    # Published nginx image: serves the built SPA on :8080 and proxies /api ->
-    # api:8000 and /raster-tiles/* -> the api raster proxy internally (see
-    # frontend/nginx.conf). No build, no bind-mounts, no Vite.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-frontend:${GEOLENS_VERSION:-latest}
     restart: unless-stopped
-    # Capped because nginx idles ~25 MB and peaks ~50 MB; a cap
-    # keeps a leak from eating a small host's headroom.
+    # nginx idles near 25 MB; the cap keeps a leak from eating a small host.
     mem_limit: "${FRONTEND_MEM_LIMIT:-128m}"
     security_opt:
       - no-new-privileges=true
     cap_drop:
       - ALL
     read_only: true
-    # The entrypoint materializes the immutable SPA in /tmp; nginx keeps its
-    # bounded raster cache on a dedicated writable volume.
+    # The entrypoint materializes the SPA in /tmp; nginx's raster cache has its own
+    # volume.
     tmpfs:
       - /tmp:size=64m,mode=1777
     ports:
@@ -627,23 +511,17 @@ services:
     volumes:
       - frontend_cache:/var/cache/nginx
     environment:
-      # The SPA calls relative /api (nginx proxies to api:8000), so a relative
-      # base works for any host the stack is reached on. Override for a CDN.
+      # Relative, so the SPA works on any host the stack is reached on.
       API_BASE_URL: "${FRONTEND_API_BASE_URL:-/api}"
-      # FRONTEND_TILE_BASE_URL (this var) is the tile-CDN lever and OUTRANKS the
-      # backend CDN_BASE_URL setting (see resolveTileBaseUrl); CDN_BASE_URL alone
-      # only flips the admin "Tile Cache" badge. Fronting the whole domain with a
-      # CDN needs neither — tiles route through the edge same-origin; leave at /api.
+      # The tile-CDN lever; it outranks the backend's CDN_BASE_URL, which only flips
+      # the admin badge. A CDN in front of the whole domain needs neither.
       TILE_BASE_URL: "${FRONTEND_TILE_BASE_URL:-/api}"
-      # Empty default on purpose: the api service's localhost fallback must not
-      # leak into og:image; unset keeps the built relative URL.
+      # Empty so the api's localhost fallback never leaks into og:image.
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-}"
-      # Keep the edge upload cap in lockstep with the backend's
-      # UPLOAD_MAX_SIZE_MB (same host var the api service reads).
+      # Keeps the edge upload cap equal to the backend's UPLOAD_MAX_SIZE_MB.
       CLIENT_MAX_BODY_SIZE: "${UPLOAD_MAX_SIZE_MB:-500}m"
-      # CIDRs of proxies trusted to set X-Forwarded-For/-Proto
-      # (e.g. Cloudflare's published ranges when fronted by Cloudflare).
-      # Empty keeps the anti-spoofing overwrite unchanged.
+      # Proxies trusted to set X-Forwarded-For/-Proto, e.g. Cloudflare's ranges; empty
+      # keeps the anti-spoofing overwrite.
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
       # Extra script-src sources for the SPA CSP; empty keeps 'self' only.
       CSP_SCRIPT_SRC_EXTRA: "${CSP_SCRIPT_SRC_EXTRA:-}"
@@ -659,38 +537,26 @@ services:
 
   backup:
     logging: *bounded-logs
-    # Backup runs by default — no --profile flag needed.
-    # Pulls the published multi-arch geolens-backup image from GHCR;
-    # no local build required on the operator host.
+    # Runs by default, no profile, from the published multi-arch image.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-backup:${GEOLENS_VERSION:-latest}
     restart: unless-stopped
     init: true
-    # The nightly pg_dump+tar peaks ~300 MB;
-    # 512m default leaves headroom while bounding it on small hosts.
+    # The nightly dump peaks near 300 MB.
     mem_limit: "${BACKUP_MEM_LIMIT:-512m}"
     security_opt:
       - no-new-privileges=true
     cap_drop:
       - ALL
-    # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
-    # tmpfs because this image only runs pg_dump; otherwise Docker creates an
-    # unused anonymous volume for every backup container.
+    # The postgres base declares PGDATA a VOLUME, but this image only runs pg_dump;
+    # tmpfs stops Docker creating an anonymous volume per backup container.
     tmpfs:
       - /var/lib/postgresql:size=1m,mode=0700
     volumes:
-      # No ./scripts bind-mount in prod: the published geolens-backup image bakes
-      # /scripts/backup-entrypoint.sh + restore.sh, so the prebuilt-prod
-      # path boots without a repo checkout. A stale/absent ./scripts host dir would
-      # otherwise mask the baked entrypoint and the container would exit. (The dev
-      # compose mounts ./scripts for live script iteration on its locally-built image.)
+      # No ./scripts mount: the image bakes its scripts, and a stale or missing host
+      # directory would mask them.
       - backup_data:/backups
-      # Include object storage in backup scope. The backup
-      # service tars the upload_staging volume alongside the pg_dump so a restore
-      # yields a WORKING instance (DB rows + the staged source objects they
-      # reference), not just an empty-object catalog. Mounted read-only — the
-      # backup job never mutates app data. CAVEAT: this captures the local
-      # upload_staging volume only; deployments that offload objects to external
-      # S3/MinIO must back those buckets up separately (their own lifecycle).
+      # Back up locally staged objects with the dump so a restore works; buckets on
+      # external S3 need their own backups.
       - upload_staging:/staging:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -706,57 +572,39 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
-      # No S3_ALLOW_HTTP here: the backup uploader (awscli) follows the scheme
-      # in S3_ENDPOINT directly; that knob only configures the app's client.
+      # No S3_ALLOW_HTTP: awscli follows the scheme in S3_ENDPOINT.
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # Freshness, not liveness: a pgrep probe would stay healthy
-      # while every pg_dump failed, because the sleep loop is alive. Healthy
-      # means: /backups/.last-success — touched by backup-entrypoint.sh only
-      # after a fully successful cycle (dump + verify + S3 when enabled) — is
-      # younger than BACKUP_MAX_AGE_MINUTES (default 1560 min = 26 h, the default
-      # daily schedule plus slack; raise the knob in .env for less-frequent
-      # BACKUP_SCHEDULE values). A missing marker fails the probe too, so a
-      # container whose backups never succeed goes unhealthy after start_period.
-      # /backups/.last-offsite-success is touched after each fully uploaded
-      # cycle; once it exists it must stay as fresh, so offsite upload dropped
-      # from the config (BACKUP_S3_ENABLED no longer true) also goes unhealthy.
+      # Freshness, not liveness: healthy only while the success marker, touched after
+      # a full dump, verify and upload cycle, is younger than BACKUP_MAX_AGE_MINUTES.
+      # Once an offsite marker exists it must stay as fresh, so dropping offsite
+      # upload also turns the service unhealthy.
       test: ["CMD-SHELL", "find /backups/.last-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1; [ ! -e /backups/.last-offsite-success ] || find /backups/.last-offsite-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      # Generous grace window: the marker only exists after the FIRST successful
-      # backup, and the initial on-startup dump of a large existing DB can take
-      # minutes (a fresh install lands it in seconds).
+      # The marker appears only after the first backup, which can take minutes on a
+      # large existing DB.
       start_period: 10m
-      # Probe every 5s during start-up so the service reports healthy quickly — it
-      # starts last (gated on migrate) and must clear the installer's
-      # wait-for-healthy budget on a fresh install; the probe first passes as
-      # soon as the initial on-startup backup writes the marker.
+      # Fast probes at start-up so a fresh install clears the installer's
+      # wait-for-healthy budget.
       start_interval: 5s
     depends_on:
       db:
         condition: service_healthy
-      # Gate the first (on-startup) pg_dump behind migrations so a fresh install
-      # never captures a pre-migration / empty DB as its first retained backup.
+      # Never keep a pre-migration DB as the first backup.
       migrate:
         condition: service_completed_successfully
 
-  # --- cloud-dev profile: local S3 + cache (identical to docker-compose.yml) ---
+  # cloud-dev profile: local S3 and cache, loopback only.
   minio:
     logging: *bounded-logs
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     profiles: ["cloud-dev"]
-    # True fail-closed and parse-safe; mirrors the
-    # docker-compose.yml minio guard. `${VAR:?}` would abort `compose config`/`up`
-    # at PARSE time even when cloud-dev is inactive (breaks a verbatim-.env.example
-    # install). And `${VAR:-}` alone is NOT fail-closed: MinIO treats an EMPTY
-    # MINIO_ROOT_USER as unset and silently boots with the well-known default
-    # minioadmin:minioadmin. So keep parse-safe empty refs in environment: AND
-    # enforce non-empty creds at RUNTIME via the entrypoint (the cloud-dev S3 store
-    # refuses to start on default/blank creds — fail-closed only when it starts,
-    # i.e. when the profile is active).
+    # `${VAR:?}` would fail `compose config` even with cloud-dev inactive, and MinIO
+    # boots with minioadmin:minioadmin on an empty user. So the env refs stay
+    # parse-safe `${VAR:-}` and this entrypoint refuses blank credentials.
     entrypoint:
       - /bin/sh
       - -c
@@ -774,22 +622,12 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # Parse-safe empty default (:-); the entrypoint above enforces non-empty at
-      # runtime. MUST be listed here so compose passes the host value into the
-      # container (the runtime guard checks these).
+      # Parse-safe empty default; the entrypoint rejects blank values.
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
-      # Abandoned presigned multipart uploads leave parts no app
-      # sweep can see (no object exists at the key until completion). MinIO
-      # ignores S3 AbortIncompleteMultipartUpload lifecycle rules
-      # (minio/minio#19115, "working as intended"); its equivalent is the
-      # api-subsystem stale-uploads sweep. Parse-safe operator override with
-      # the defaults preserved (never `:?`, see the minio entrypoint note). The
-      # 24h default assumes the default 1h upload-job lifetime (PENDING_JOB_TIMEOUT_SECONDS=3600,
-      # which also bounds presigned part-URL validity). Coupling: if
-      # PENDING_JOB_TIMEOUT_SECONDS is raised past ~23h, raise the expiry to
-      # at least that lifetime plus headroom, or the sweep aborts parts of
-      # still-live uploads. See RUNBOOK.md "Abandoned multipart uploads".
+      # MinIO ignores AbortIncompleteMultipartUpload lifecycle rules, so this sweep
+      # clears abandoned multipart parts. Keep the expiry above
+      # PENDING_JOB_TIMEOUT_SECONDS plus headroom, or it aborts live uploads.
       MINIO_API_STALE_UPLOADS_EXPIRY: "${MINIO_API_STALE_UPLOADS_EXPIRY:-24h}"
       MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: "${MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL:-6h}"
     volumes:
@@ -805,8 +643,8 @@ services:
     logging: *bounded-logs
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     profiles: ["cloud-dev"]
-    # The setup logic is a mounted script file, as in docker-compose.yml: a YAML
-    # folded-scalar entrypoint destroys the CORS policy heredoc.
+    # A mounted script, because a folded `entrypoint: >` destroys the CORS policy
+    # heredoc.
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -815,8 +653,7 @@ services:
       minio:
         condition: service_healthy
     environment:
-      # See minio service above — empty-default keeps a
-      # verbatim-.env.example install parseable; runtime rejects empty creds.
+      # Parse-safe empty creds; the runtime rejects blanks.
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
@@ -828,8 +665,7 @@ services:
     image: valkey/valkey:9.1.2-alpine
     profiles: ["cache", "cloud-dev"]
     restart: unless-stopped
-    # cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a
-    # non-root user skips setpriv.
+    # cap_drop ALL breaks the entrypoint's setpriv; a non-root user skips it.
     user: "valkey"
     security_opt:
       - no-new-privileges=true
@@ -837,14 +673,10 @@ services:
       - ALL
     # Without a limit, memory alerts that divide usage by the limit read +Inf.
     mem_limit: "${VALKEY_MEM_LIMIT:-256m}"
-    # The cache holds short-lived service credentials, which must never reach
-    # disk, so snapshots and the append-only file are off and /data is not
-    # mounted. maxmemory sits below mem_limit so Valkey evicts instead of being
-    # OOM-killed. volatile-ttl drops the soonest-expiring keys first: tiles
-    # (300s) and rate-limit windows go before credential handoffs (900s).
-    # VALKEY_PASSWORD reaches requirepass through config on stdin, which keeps
-    # it out of the process list; the charset check stops it from adding config
-    # lines and lets the same value go into REDIS_URL unencoded.
+    # The cache holds short-lived credentials, so nothing reaches disk: no snapshots,
+    # no AOF, no /data mount. maxmemory sits below mem_limit so Valkey evicts, soonest
+    # expiry first, instead of being OOM-killed. VALKEY_PASSWORD goes in on stdin,
+    # out of the process list, and its charset keeps it safe in REDIS_URL.
     command:
       - /bin/sh
       - -c
@@ -869,10 +701,9 @@ services:
       - --maxmemory-policy
       - volatile-ttl
     environment:
-      # Empty keeps the cache open to the compose network, as before.
+      # Empty leaves the cache open to the compose network.
       VALKEY_PASSWORD: "${VALKEY_PASSWORD:-}"
-    # No host port: the API and worker reach it at valkey:6379 over the compose
-    # network, and the cache is unauthenticated unless VALKEY_PASSWORD is set.
+    # No host port; without VALKEY_PASSWORD the cache is unauthenticated.
     healthcheck:
       # valkey-cli exits 0 on a NOAUTH reply, so only PONG counts as healthy.
       test:
