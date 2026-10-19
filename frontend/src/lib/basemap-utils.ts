@@ -93,8 +93,14 @@ const RELIEF_PALETTE: Record<
   strong: { exaggeration: 0.85, shadow: '#47545c', highlight: '#ffffff' },
 };
 
-/** Fallback glyphs for inline styles (raster basemaps) so text labels render. */
-const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
+/**
+ * Glyphs for inline styles (blank and raster basemaps) so text labels render,
+ * served from the bundled `public/fonts/` set. MapLibre fetches glyphs from a
+ * worker, which cannot resolve a relative URL, so the origin is explicit.
+ */
+function bundledGlyphsUrl(): string {
+  return `${window.location.origin}/fonts/{fontstack}/{range}.pbf`;
+}
 
 /**
  * The shared basemap-style fallback, used whenever the basemap list has not
@@ -234,7 +240,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
     // URL. Glyphs are fetched lazily, so no text layers means no request.
     return {
       version: 8 as const,
-      glyphs: FALLBACK_GLYPHS,
+      glyphs: bundledGlyphsUrl(),
       sources: {},
       layers: [
         {
@@ -282,7 +288,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
       },
       { id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' },
     ],
-    glyphs: FALLBACK_GLYPHS,
+    glyphs: bundledGlyphsUrl(),
   };
 }
 

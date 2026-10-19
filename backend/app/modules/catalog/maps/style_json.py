@@ -40,6 +40,7 @@ from app.modules.catalog.maps.style_sanitizers import (
     finite_number as _finite_number,
 )
 from app.platform.extensions import get_catalog_port
+from app.core.public_urls import join_public_url
 from app.core.tile_scope import (
     tile_signature_scope,
     tile_template_params,
@@ -50,7 +51,7 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
 
 SPRITE_URL = "/maps/sprites/geolens"
-GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"
+GLYPHS_PATH = "/fonts/{fontstack}/{range}.pbf"
 # GeoLens default palette and arrow/extrusion constants, re-exported so
 # `generate_default_style` shares them rather than hardcoding literals that
 # could diverge.
@@ -1447,11 +1448,13 @@ def build_maplibre_style(
     *,
     mvt_source_layer_prefix: str = "data",
     terrain_dataset_ids: Iterable[Any] | None = None,
+    app_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a complete MapLibre style document from saved map data.
 
     The terrain binding is kept only when its DEM is in ``terrain_dataset_ids``,
-    which defaults to the layers' datasets.
+    which defaults to the layers' datasets. ``glyphs`` points at the label fonts
+    the frontend serves under ``app_url``; without it the path stays relative.
     """
 
     sources: dict[str, Any] = {}
@@ -1577,7 +1580,7 @@ def build_maplibre_style(
             }
         },
         "sprite": [{"id": GEOLENS_SPRITE_ID, "url": SPRITE_URL}],
-        "glyphs": GLYPHS_URL,
+        "glyphs": join_public_url(app_url, GLYPHS_PATH) if app_url else GLYPHS_PATH,
         "sources": sources,
         "layers": style_layers,
     }

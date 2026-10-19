@@ -413,6 +413,14 @@ def test_non_builtin_pattern_export_is_left_alone_by_the_stash_seed():
     assert "fill-color" not in fill["paint"]
 
 
+def test_build_maplibre_style_glyphs_point_at_the_instance_fonts():
+    style = build_maplibre_style(
+        _map(), [_layer()], app_url="https://maps.example.org/"
+    )
+
+    assert style["glyphs"] == "https://maps.example.org/fonts/{fontstack}/{range}.pbf"
+
+
 def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
     dem_id = uuid.uuid4()
     layer = _dem_layer(dem_id=dem_id)

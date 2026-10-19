@@ -16,7 +16,7 @@
   "claims": {
     "ogc": "OGC API",
     "kubernetes": "Docker Compose is the supported path; an experimental community-maintained Helm chart is available for Kubernetes",
-    "egress": "no product telemetry; outbound calls only from integrations you enable"
+    "egress": "no product telemetry; outbound calls only from integrations you enable, apart from the default OpenFreeMap basemap tiles"
   },
   "forbidden": [
     { "pattern": "geolens\\.yml", "flags": "i", "reason": "no such compose file — use docker-compose.yml / docker-compose.prod.yml" },

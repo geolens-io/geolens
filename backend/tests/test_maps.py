@@ -584,6 +584,21 @@ class TestMapLayerDatasetVisibilityLeak:
             "private dataset source with replayable signed tile URL leaked anonymously"
         )
 
+    async def test_style_json_glyphs_are_absolute_and_on_instance(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """External style consumers fetch label fonts from this instance, not a
+        third-party CDN, through an absolute URL."""
+        map_id, _ = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="public"
+        )
+        resp = await client.get(f"/maps/{map_id}/style.json")
+        assert resp.status_code == 200, resp.text
+        glyphs = resp.json()["glyphs"]
+        assert glyphs.startswith(("http://", "https://")), glyphs
+        assert glyphs.endswith("/fonts/{fontstack}/{range}.pbf"), glyphs
+        assert "openfreemap" not in glyphs
+
     async def test_style_json_fails_closed_without_multi_tenant_context(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

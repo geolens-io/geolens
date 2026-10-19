@@ -68,6 +68,11 @@ describe('toMaplibreStyle', () => {
     });
   });
 
+  it('points raster-basemap glyphs at the bundled same-origin fonts', () => {
+    const result = toMaplibreStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png') as StyleSpecification;
+    expect(result.glyphs).toBe(`${window.location.origin}/fonts/{fontstack}/{range}.pbf`);
+  });
+
   it('includes attribution on raster source when provided', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const attribution = '© OpenStreetMap contributors';
@@ -360,7 +365,7 @@ describe('BLANK_BASEMAP_ID', () => {
     // label layers (companion `*-label`, symbol-mode text) are added to this
     // style, and MapLibre cannot render any text-field without one. Glyphs are
     // fetched lazily, so a label-free blank map still makes no font requests.
-    expect(result.glyphs).toBe('https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf');
+    expect(result.glyphs).toBe(`${window.location.origin}/fonts/{fontstack}/{range}.pbf`);
   });
 
   it('toMaplibreStyle blank ignores attribution param', () => {

@@ -7,6 +7,13 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Map label fonts are bundled with the frontend, so labels on blank and raster
+  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
+  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
+  instance's `/fonts/` path, using the public app URL.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

@@ -8,8 +8,11 @@ how to run it with no outbound internet access.
 A stock `docker compose up` install makes **no server-side outbound calls**.
 GeoLens ships no usage telemetry or phone-home. Every row in the matrix below
 is opt-in except Basemaps: until an admin replaces the default basemap list
-(Admin Settings > Map), the browser fetches map tiles and glyphs from
-`tiles.openfreemap.org`. See the Air-gap checklist below to close that off.
+(Admin Settings > Map), the browser fetches the basemap style, tiles and
+label glyphs from `tiles.openfreemap.org`. A vector basemap's style names the
+glyph host for every label on the map; on blank and raster basemaps, labels use
+fonts bundled with the frontend and need no outbound call. See the Air-gap
+checklist below to close that off.
 
 ## Egress matrix
 
@@ -19,7 +22,7 @@ is opt-in except Basemaps: until an admin replaces the default basemap list
 | Claude on a cloud platform | `ANTHROPIC_PLATFORM`, `ANTHROPIC_BASE_URL`, the `ANTHROPIC_FOUNDRY_*`, `ANTHROPIC_BEDROCK_*` or `CLOUD_ML_REGION` / `ANTHROPIC_VERTEX_PROJECT_ID` settings | A gateway, `<resource>.services.ai.azure.com`, `bedrock-runtime.<region>.amazonaws.com`, or Vertex AI (`aiplatform.googleapis.com` and Google OAuth for tokens) | Optional | Point `ANTHROPIC_BASE_URL` at an in-network gateway, or reach the cloud platform through a private endpoint. |
 | Embeddings / semantic search | `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`, `OPENAI_API_KEY` | Embedding endpoint | Optional | Point at an in-network embedding server, or leave unset to disable semantic search. Falls back to `OPENAI_BASE_URL` when empty. |
 | SSO login | OAuth/OIDC client credentials (Google / Microsoft / GitHub / generic, configured in admin settings) | Identity provider (`github.com` and `api.github.com` for public GitHub) | Optional | Use an in-network IdP, or use built-in password auth. |
-| Basemaps | Admin Settings > Map basemap list (add provider keys for Mapbox / Stadia / MapTiler, or replace the defaults) | Tile CDN (`tiles.openfreemap.org` by default) | Default-on | Ship offline / self-hosted basemap tiles and remove the OpenFreeMap/OpenStreetMap presets. Raster rendered from your own COGs needs no external basemap tiles. |
+| Basemaps | Admin Settings > Map basemap list (add provider keys for Mapbox / Stadia / MapTiler, or replace the defaults) | Tile CDN and basemap label glyphs (`tiles.openfreemap.org` by default) | Default-on | Ship offline / self-hosted basemap tiles and remove the OpenFreeMap/OpenStreetMap presets; a self-hosted vector style must also serve its own glyphs. Blank and raster basemaps label with the bundled fonts. Raster rendered from your own COGs needs no external basemap tiles. |
 | CDN tile delivery | `CDN_BASE_URL` | CDN origin | Optional | Leave unset to serve tiles directly from the app. |
 | Remote datasets / COGs / STAC | Per-dataset source URL (set when you register a remote source) | Wherever you register | User-driven | Only fetched if you register remote sources. Uploaded data stays local. The API and worker make these requests; Titiler reads remote rasters through the API and needs egress only to your object storage. If Titiler's traffic goes through a forward proxy, put the `REMOTE_RASTER_RELAY_BASE_URL` host in its `NO_PROXY`: the API refuses relay reads a proxy forwarded. |
 | Object storage | `S3_ENDPOINT` (when `STORAGE_PROVIDER=s3`) | S3 / MinIO | Optional | Use the in-cluster MinIO (`--profile cloud-dev`) or `STORAGE_PROVIDER=local` for fully local storage. |
@@ -35,7 +38,7 @@ is opt-in except Basemaps: until an admin replaces the default basemap list
 - Keep `BACKUP_S3_ENABLED=false` (the default); backups then never leave the local `backup_data` volume.
 - Use `STORAGE_PROVIDER=local`, or in-cluster MinIO for S3-compatible storage.
 - Register only local datasets (uploaded files); skip remote COG/STAC sources.
-- Replace the default basemap list (Admin Settings > Map) with self-hosted tiles; the OpenFreeMap/OpenStreetMap presets are enabled out of the box.
+- Replace the default basemap list (Admin Settings > Map) with self-hosted tiles; the OpenFreeMap/OpenStreetMap presets are enabled out of the box. A self-hosted vector style must name glyphs on your network; blank and raster basemaps use the bundled label fonts.
 - Pull the release images into a private registry; the installer pulls prebuilt
   images, so no build-time egress is required.
 

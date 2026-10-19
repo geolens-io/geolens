@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.public_urls import get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import (
@@ -273,6 +274,7 @@ async def export_map_style_endpoint(
         terrain_dataset_ids=await terrain_dataset_ids_visible_to(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),
+        app_url=await get_public_app_url(db, request=request),
     )
     return JSONResponse(
         content=style,
