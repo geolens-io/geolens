@@ -48,7 +48,7 @@ class Map(Base):
             "forked_from",
             postgresql_where=text("forked_from IS NOT NULL"),
         ),
-        # No composite visibility + created_by index: EXPLAIN showed no seq
+        # No composite Map.visibility + created_by index: EXPLAIN showed no seq
         # scan below ~10k rows, so its write and disk cost isn't worth it yet.
         {"schema": "catalog"},
     )
