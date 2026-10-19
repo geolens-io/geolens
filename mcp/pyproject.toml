@@ -9,7 +9,7 @@ description = "Apache-2.0 read-only Model Context Protocol (MCP) server for GeoL
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
-authors = [{ name = "Carto Concepts, LLC", email = "noreply@getgeolens.com" }]
+authors = [{ name = "GeoLens contributors", email = "noreply@getgeolens.com" }]
 keywords = ["geolens", "geospatial", "mcp", "model-context-protocol", "agents"]
 classifiers = [
   "Development Status :: 4 - Beta",

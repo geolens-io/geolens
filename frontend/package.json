@@ -4,7 +4,7 @@
   "version": "1.26.0",
   "type": "module",
   "license": "Apache-2.0",
-  "author": "Carto Concepts, LLC",
+  "author": "GeoLens contributors",
   "scripts": {
     "dev": "vite",
     "build:app": "vite build",
