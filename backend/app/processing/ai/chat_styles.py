@@ -57,6 +57,11 @@ async def _build_data_driven_style(
 
     if not target_layer:
         return {"error": f"Layer {layer_id} not found"}
+    if (target_layer.style_config or {}).get("render_mode") == "heatmap":
+        return {
+            "error": "A heatmap's colour follows point density, not a column. "
+            "To weight it by a column, use set_style with a heatmap-weight expression."
+        }
 
     table_name = target_layer.dataset_table_name
 

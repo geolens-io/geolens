@@ -356,10 +356,10 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'arrow': {
-      // arrowColor is auto-seeded on mode entry from the line paint (as
-      // clusterColor/heightColumn); diverging from the seed is destructible
-      // state. Every editor-persisted builder field (arrow*, cluster*,
-      // heightColumn, symbol.*) is covered by this switch.
+      // An arrowColor equal to the line colour (older maps seeded it on mode
+      // entry) is not customization; a diverging one is destructible state.
+      // Every editor-persisted builder field (arrow*, cluster*, heightColumn,
+      // symbol.*) is covered by this switch.
       const seededArrowColor = typeof paint['line-color'] === 'string'
         ? paint['line-color']
         : MAP_COLORS.default.fill;
@@ -499,16 +499,13 @@ export function buildRenderAsPatch(
   }
 
   if (renderAs === 'arrow') {
-    const lineColor = typeof layer.paint?.['line-color'] === 'string'
-      ? layer.paint['line-color']
-      : MAP_COLORS.default.fill;
     return {
       adapterType: 'line',
       patch: {
         layer_type: vectorLayerType(layer),
+        // arrowColor stays unset until chosen, so arrows follow later line-color edits.
         style_config: styleWithBuilder(layer, {
           ...builderRecord(layer),
-          arrowColor: layer.style_config?.builder?.arrowColor ?? lineColor,
           arrowSize: layer.style_config?.builder?.arrowSize ?? DEFAULT_ARROW_SIZE,
           arrowSpacing: layer.style_config?.builder?.arrowSpacing ?? DEFAULT_ARROW_SPACING,
         }, { render_mode: 'arrow' }),

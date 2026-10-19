@@ -58,6 +58,18 @@ async def test_heatmap_switch_then_radius_in_one_turn():
 
 
 @pytest.mark.anyio
+async def test_data_driven_style_after_a_heatmap_switch_explains_itself():
+    layers = [_layer()]
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "heatmap"}, layers)
+
+    style_input = {"layer_id": "layer-1", "mode": "graduated", "column": "height_m"}
+    result = await _run("set_data_driven_style", style_input, layers)
+
+    assert "heatmap-weight" in result["error"]
+    assert _collect_chat_action("set_data_driven_style", style_input, result) is None
+
+
+@pytest.mark.anyio
 async def test_leaving_heatmap_clears_the_render_mode():
     layers = [_layer(style_config={"render_mode": "heatmap", "heatmapPaint": {}})]
 

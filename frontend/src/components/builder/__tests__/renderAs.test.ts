@@ -332,12 +332,13 @@ describe('renderAs view model', () => {
       style_config: expect.objectContaining({
         render_mode: 'arrow',
         builder: expect.objectContaining({
-          arrowColor: '#2255aa',
           arrowSize: 14,
           arrowSpacing: 80,
         }),
       }),
     }));
+    // Unset, so the arrows keep following the line colour.
+    expect(mutation?.patch.style_config?.builder).not.toHaveProperty('arrowColor');
     for (const key of Object.keys(mutation?.patch ?? {})) {
       expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
     }
