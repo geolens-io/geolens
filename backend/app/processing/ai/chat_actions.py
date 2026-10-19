@@ -48,16 +48,15 @@ logger = structlog.stdlib.get_logger(__name__)
 _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 
 # Overlay/table render budget: only this many rows reach the chat result
-# table and the ephemeral map overlay. When geom_4326 is appended
-# to an attribute-only query, cap the fetch here so a large polygon/line
-# layer doesn't transfer up to 1000 full geometries to discard all but these.
+# table and the ephemeral map overlay. When geom_4326 is appended to an
+# attribute-only query, the fetch is capped here so a large polygon/line layer
+# doesn't transfer up to 1000 full geometries to discard all but these.
 _OVERLAY_ROW_BUDGET = 50
 
-# query_data reaches the same validator and executor as
-# POST /api/query/, behind the SAME `use_ai_chat` permission, but every
-# sandbox bound was applied only by that endpoint — asking the
-# chatbot skipped all of them. These protect a shared resource or cost
-# nothing in answer quality, applied at all three call sites below:
+# query_data reaches the same validator and executor as POST /api/query/,
+# behind the SAME `use_ai_chat` permission, so it must carry the same sandbox
+# bounds. These protect a shared resource or cost nothing in answer quality,
+# and apply at all three call sites below:
 #
 #   capacity_semaphore   the ONE pool-derived slot pool shared with the raw
 #                        endpoint; chat had only a per-user advisory lock,
@@ -83,11 +82,11 @@ _SANDBOX_BOUNDS: dict = {
     "require_reader_role": True,
 }
 
-# Matches Postgres's undefined-column clause. Unqualified
-# misses are quoted (`column "geom_4326" does not exist`); aliased misses
-# are not (`column a.geom_4326 does not exist`) -- overlay/intersect queries
-# alias, so both forms must match. Anchored on the clause, not a loose
-# geom_4326 substring, to avoid false positives on a different missing column.
+# Matches Postgres's undefined-column clause. Unqualified misses are quoted
+# (`column "geom_4326" does not exist`); aliased misses are not
+# (`column a.geom_4326 does not exist`), and overlay/intersect queries alias, so
+# both forms must match. Anchored on the clause so a different missing column
+# is not a false positive.
 _UNDEFINED_COLUMN_RE = re.compile(
     r"column\s+([\w\".]+)\s+does not exist", re.IGNORECASE
 )
@@ -96,15 +95,14 @@ _UNDEFINED_COLUMN_RE = re.compile(
 def _geom_4326_missing_note(err: SandboxError) -> dict | None:
     """Clean degrade note when ``err`` was caused by a missing ``geom_4326`` column.
 
-    The SQL prompt always names the geometry column
-    ``geom_4326``, so the model emits it, often qualified (``a.geom_4326``).
-    A legacy dataset ingested before the geom_4326 convention fails with
-    ``column ["<alias>".]geom_4326 does not exist`` — the Postgres text
-    lives on ``__cause__``, not ``SandboxError.category`` (generic
-    ``query_failed``). Compares the missing column's final segment so
-    aliased/quoted forms match while a *different* missing column (whose
-    SQL echo merely mentions geom_4326) does not; returns None for any
-    other error so it propagates unmasked.
+    The SQL prompt always names the geometry column ``geom_4326``, often
+    qualified (``a.geom_4326``). A legacy dataset ingested before that
+    convention fails with ``column ["<alias>".]geom_4326 does not exist``; the
+    Postgres text lives on ``__cause__``, not ``SandboxError.category``
+    (generic ``query_failed``). Compares the missing column's final segment so
+    aliased/quoted forms match while a *different* missing column (whose SQL
+    echo merely mentions geom_4326) does not; returns None for any other error
+    so it propagates unmasked.
     """
     m = _UNDEFINED_COLUMN_RE.search(f"{err} {err.__cause__}")
     if m is None or m.group(1).replace('"', "").split(".")[-1].lower() != "geom_4326":
@@ -120,9 +118,9 @@ def _geom_4326_missing_note(err: SandboxError) -> dict | None:
 
 
 def _safe_label_text_color(value: object) -> str:
-    # Hex / real CSS named color / numeric-arg functional form
-    # only (see colors.py) — anything else falls back to the default so an
-    # unparseable value never reaches map.setPaintProperty.
+    # Hex / CSS named color / numeric functional form only (see colors.py);
+    # anything else falls back so an unparseable value never reaches
+    # map.setPaintProperty.
     if isinstance(value, str) and is_css_colorish(value):
         return value.strip()
     return _DEFAULT_LABEL_TEXT_COLOR
@@ -132,7 +130,6 @@ def _build_label_action(tool_input: dict) -> dict:
     """Restructure set_label tool output into the ChatAction label_config shape."""
     column = tool_input.get("column")
     if column:
-        # Sanitized — see _safe_label_text_color.
         text_color = _safe_label_text_color(
             tool_input.get("text_color", _DEFAULT_LABEL_TEXT_COLOR)
         )
@@ -169,11 +166,7 @@ async def _handle_query_data(
 
     map_id threads through so the schema-context cache partitions per-map.
     restrict_tables narrows the sandbox allowlist to a surface-level table
-    scope (dataset chat passes its single table — #531).
-
-    NB: ``generate_sql``/``validate_and_execute`` are looked up via the
-    ``chat_service`` facade so test patches on those attributes keep
-    working.
+    scope (dataset chat passes its single table).
     """
     # Lazy import: avoid a hard cycle (chat_service imports from this module).
     from app.processing.ai import chat_service
@@ -181,7 +174,6 @@ async def _handle_query_data(
     question = tool_input["question"]
     schema_context = build_sql_schema_context(layers, map_id=map_id)
 
-    # Build brief layer descriptions for SQL context
     layer_desc_parts = []
     for layer in layers:
         desc = f"- {layer.dataset_table_name}"
@@ -208,8 +200,8 @@ async def _handle_query_data(
         error_msg = sql.strip().removeprefix("-- ERROR:").strip()
         return {"error": error_msg, "category": "llm_cannot_answer"}
 
-    # Geometry must reach _extract_geojson regardless of which
-    # columns the model chose, or every map surface silently loses its overlay.
+    # Geometry must reach _extract_geojson regardless of which columns the model
+    # chose, or every map surface silently loses its overlay.
     original_sql = sql
     sql = ensure_geometry_selected(original_sql, layers)
     geom_appended = sql != original_sql
@@ -217,13 +209,11 @@ async def _handle_query_data(
     if stage_callback:
         stage_callback("Running query...")
 
-    # When we appended geometry, cap the fetch to the
-    # overlay render budget. Only _OVERLAY_ROW_BUDGET rows reach the table and
-    # overlay anyway, so fetching (and holding) up to 1000 full geometries for
-    # a large polygon/line layer is a transfer/memory regression. row_count
-    # then reflects the rendered budget with the truncated flag signalling more
-    # rows exist. Queries where the model selected geometry itself keep the
-    # default limit (pre-existing behavior, out of this rewrite's scope).
+    # When geometry was appended, cap the fetch to the overlay render budget:
+    # only _OVERLAY_ROW_BUDGET rows reach the table and overlay, so holding up
+    # to 1000 full geometries is wasted transfer and memory. row_count then
+    # reflects the budget, with `truncated` signalling more rows exist. Queries
+    # where the model selected geometry itself keep the default limit.
     exec_kwargs: dict = {"restrict_tables": restrict_tables, **_SANDBOX_BOUNDS}
     if geom_appended:
         exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
@@ -232,17 +222,15 @@ async def _handle_query_data(
             sql, session, user, **exec_kwargs
         )
     except SandboxError as err:
-        # The appended geom_4326 may not exist — a
-        # SRID-less ingest keeps geometry_type but exposes only native `geom`
-        # (see ensure_geom_4326_gist_index docs) — or the append otherwise
-        # broke a query the model wrote validly. Fall back to the original SQL
-        # so attribute rows still return; the overlay is simply dropped. If the
-        # original also fails, its error propagates (no masking).
+        # The appended geom_4326 may not exist (a SRID-less ingest keeps
+        # geometry_type but exposes only native `geom`), or the append otherwise
+        # broke a valid model query. Fall back to the original SQL so attribute
+        # rows still return and only the overlay is dropped. If the original
+        # also fails, its error propagates.
         if not geom_appended:
-            # The model wrote geom_4326 itself (append skipped), so
-            # there is no attribute-only fallback to try. If the column is
-            # simply absent (a legacy geom-only table), degrade to a clean note
-            # instead of a generic failure; any other error propagates.
+            # The model wrote geom_4326 itself, so there is no attribute-only
+            # fallback. If the column is absent (a legacy geom-only table),
+            # degrade to a clean note; any other error propagates.
             note = _geom_4326_missing_note(err)
             if note is not None:
                 return note
@@ -255,20 +243,19 @@ async def _handle_query_data(
                 sql, session, user, restrict_tables=restrict_tables, **_SANDBOX_BOUNDS
             )
         except SandboxError as retry_err:
-            # The model also referenced geom_4326 in the original
-            # query (e.g. a WHERE / ORDER BY clause), so the attribute-only
-            # retry misses it too — degrade rather than surface a generic error.
+            # The original query also references geom_4326 (e.g. in WHERE or
+            # ORDER BY), so the retry misses it too; degrade the same way.
             note = _geom_4326_missing_note(retry_err)
             if note is not None:
                 return note
             raise
 
-    # The transfer cap above bounds the sandbox row_count to
-    # the render budget, but show_query_result.row_count is the documented TOTAL
-    # matched rows (the model narrates it, the UI displays it). When the cap
-    # actually truncated the result, recover the true total with a geometry-free
-    # COUNT wrapping the same validated SQL (still bounded by the query's own
-    # LIMIT). Best-effort — a failure keeps the capped count rather than erroring.
+    # The transfer cap bounds the sandbox row_count to the render budget, but
+    # show_query_result.row_count is the documented TOTAL matched rows (the
+    # model narrates it, the UI displays it). When the cap truncated the result,
+    # recover the total with a geometry-free COUNT wrapping the same validated
+    # SQL (still bounded by the query's own LIMIT). A failure keeps the capped
+    # count.
     if geom_appended and result.truncated:
         try:
             count_res = await chat_service.validate_and_execute(
@@ -283,22 +270,17 @@ async def _handle_query_data(
         except Exception:  # broad: count recovery is best-effort, never fail the query
             logger.warning("query_data.total_count_recovery_failed")
 
-    # Extract GeoJSON for ephemeral result layers
     columns, rows = result.columns, result.rows[:_OVERLAY_ROW_BUDGET]
     geojson_result = _extract_geojson(columns, rows)
     if geojson_result is not None:
-        # Geometry now travels via geojson only — raw WKB in the
-        # tabular payload is token noise for the model and renders as hex in
-        # the chat result tables.
+        # Geometry travels via geojson only; raw WKB in the tabular payload is
+        # token noise for the model and renders as hex in the result tables.
         columns, rows = strip_geometry_columns(columns, rows)
 
-    # Limit rows in tool result for token economy
-    # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
-    # The rows are normalized HERE, on the way out, and not
-    # a line earlier: _extract_geojson detects the geometry column by value, so
-    # stringifying a cell before it runs would hide the geometry. This is the
-    # single point where a tabular result is handed to a frame; the collector
-    # below re-reads this dict rather than touching result.rows again.
+    # Raw SQL is intentionally excluded to prevent info disclosure via the LLM.
+    # Rows are normalized here, after _extract_geojson, which detects the
+    # geometry column by value: stringifying a cell earlier would hide it.
+    # The collector re-reads this dict rather than touching result.rows again.
     out: dict = {
         "columns": columns,
         "rows": safe_rows(rows),
@@ -316,9 +298,8 @@ async def _handle_query_data(
         )
     if geojson_result is not None:
         out["geojson"] = geojson_result[0]
-        # The bbox is None when no row contributed finite bounds
-        # (all-EMPTY geometries). Omitting the key lets the guard below
-        # drop the overlay for that turn, which is what it was written for.
+        # The bbox is None when no row contributed finite bounds (all-EMPTY
+        # geometries); omitting the key lets the collector drop the overlay.
         if geojson_result[1] is not None:
             out["bbox"] = geojson_result[1]
 
@@ -341,8 +322,8 @@ async def _execute_chat_tool(
     """Execute a chat tool and return the result.
 
     map_id is forwarded to query_data so the schema-context cache partitions
-    per-map. restrict_tables narrows query_data's
-    sandbox allowlist to the calling surface's table scope.
+    per-map. restrict_tables narrows query_data's sandbox allowlist to the
+    calling surface's table scope.
     """
     if tool_name == "search_datasets":
         send_samples = await _should_send_sample_values(session)
@@ -357,10 +338,8 @@ async def _execute_chat_tool(
         return {"results": results}
 
     if tool_name == "query_data":
-        # Look up _handle_query_data via the facade module so existing
-        # tests that patch ``app.processing.ai.chat_service._handle_query_data``
-        # are honored by this dispatcher (the test asserts the SandboxError
-        # raised by the patched mock is caught + mapped to a friendly message).
+        # Looked up via the facade module so patches on
+        # ``app.processing.ai.chat_service._handle_query_data`` are honored.
         from app.processing.ai import chat_service
 
         try:
@@ -404,10 +383,10 @@ async def _execute_chat_tool(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
         )
         if target:
-            # Thread the layer's own render_mode through so
-            # heatmap-radius/heatmap-opacity/heatmap-intensity survive validation on
-            # an already-heatmap-rendered layer — set_style is the only AI tool that
-            # can tune those. Mirrors ChatPanel.tsx's validateChatPaint.
+            # The layer's own render_mode keeps the heatmap radius, opacity and
+            # intensity properties valid on an already-heatmap layer; set_style
+            # is the only AI tool that tunes those. Mirrors ChatPanel.tsx's
+            # validateChatPaint.
             render_mode = (
                 (target.style_config or {}).get("render_mode")
                 if target.style_config
@@ -435,10 +414,8 @@ async def _execute_chat_tool(
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 
-    # Validate the set_label column against the target layer's
-    # schema before the action reaches the client -- a hallucinated column
-    # renders empty labels via a text-field ["get", col]. Returning an error
-    # lets the model retry with a real column.
+    # A hallucinated set_label column renders empty labels via a text-field
+    # ["get", col]; returning an error lets the model retry with a real one.
     if tool_name == "set_label" and tool_input.get("column"):
         target = next(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
@@ -458,11 +435,10 @@ async def _execute_chat_tool(
                 }
 
     # add_layer: resolve the dataset's display title server-side so the staging
-    # chip can show a human name instead of the raw UUID.
-    # Name resolution is best-effort — a lookup miss/error must not block the
-    # add, so we degrade silently to the dataset_id fallback on the frontend.
-    # A dataset the caller can't read fails the access check and gets the
-    # same result as a missing one.
+    # chip shows a name instead of the raw UUID. Best-effort: a lookup miss or
+    # error must not block the add (the frontend falls back to dataset_id). A
+    # dataset the caller can't read fails the access check and gets the same
+    # result as a missing one.
     if tool_name == "add_layer":
         result = {"status": "ok", **tool_input}
         raw_id = tool_input.get("dataset_id")
@@ -491,10 +467,7 @@ async def _execute_chat_tool(
 
 
 def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict | None:
-    """Build an action dict from a chat tool call.
-
-    Used as the action_collector callback for provider_ext.complete().
-    """
+    """Build an action dict from a chat tool call; None when it emits none."""
     if tool_name not in _EDIT_TOOLS:
         # query_data emits show_query_result for both spatial (geojson+bbox) and
         # non-spatial (columns+rows) results so the frontend inline data-analysis
@@ -507,10 +480,9 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
                 "row_count": result.get("row_count", 0),
                 "truncated": result.get("truncated", False),
             }
-            # Guard both keys — geojson and bbox are set together
-            # by _extract_geojson's tuple unpack today, but that pairing is an unenforced
-            # invariant on this plain dict; a future caller emitting geojson without bbox
-            # must not raise an uncaught KeyError inside the action-collector callback.
+            # geojson and bbox are set together today, but that pairing is
+            # unenforced on this plain dict; a missing bbox must not raise
+            # inside the action collector.
             if "geojson" in result and "bbox" in result:
                 action["geojson"] = result["geojson"]
                 action["bbox"] = result["bbox"]
@@ -525,17 +497,15 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         return None
 
     if tool_name == "set_label":
-        # A validation error from _execute_chat_tool (unknown
-        # column) must not still emit a label action built from the raw input.
+        # A validation error from _execute_chat_tool (unknown column) must not
+        # still emit a label action built from the raw input.
         if "error" in result:
             return None
         return _build_label_action(tool_input)
 
-    # set_style must emit the backend-validated/clamped paint computed in
-    # _execute_chat_tool (it lives on `result` because `tool_input` was
-    # reassigned to `next_input` and returned there), not the raw fn_args. When
-    # validation was skipped (no paint/clear_paint on the call), `result`
-    # equals the raw tool_input, so behavior is unchanged.
+    # set_style emits the validated/clamped paint from _execute_chat_tool,
+    # which lives on `result`, not the raw fn_args. When validation was skipped
+    # (no paint/clear_paint), `result` equals the raw tool_input.
     if tool_name == "set_style":
         action = {"type": "set_style", **tool_input}
         if "paint" in result:
@@ -544,9 +514,8 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
             action["clear_paint"] = result["clear_paint"]
         return action
 
-    # add_layer: carry the server-resolved dataset_name so the staging chip
-    # shows a human name instead of the raw UUID. The name is
-    # resolved during _execute_chat_tool and arrives on `result`, not tool_input.
+    # add_layer: the server-resolved dataset_name arrives on `result`, not
+    # tool_input.
     if tool_name == "add_layer":
         action = {"type": "add_layer", **tool_input}
         if result.get("dataset_name"):
@@ -563,9 +532,8 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Clamp opacity server-side, matching the paint-clamping
-    # precedent (_PAINT_BOUNDS in set_style). Models emit percent values
-    # (opacity: 50), which fails ChatAction's ge=0/le=1 validation otherwise.
+    # Clamp opacity server-side, like _PAINT_BOUNDS in set_style: models emit
+    # percent values (opacity: 50), which fail ChatAction's ge=0/le=1 check.
     if tool_name == "set_opacity":
         raw_opacity = tool_input.get("opacity")
         if isinstance(raw_opacity, (int, float)) and not isinstance(raw_opacity, bool):

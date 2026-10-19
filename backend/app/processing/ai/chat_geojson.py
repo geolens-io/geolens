@@ -51,16 +51,15 @@ def _func_name(fn: exp.Func) -> str:
 def _selects_geometry(item: exp.Expression) -> bool:
     """True when a select item already yields a geometry-valued column.
 
-    Structural, never name-based (#556): a scalar aliased to a
-    geometry-looking name (``md5(name) AS geometry``) must NOT count, or
-    the append below is skipped and the strict value parser finds no
-    geometry to overlay — the missing-map regression this guards against.
-    Only the underlying expression (a ``geom_4326`` column, or a
-    geometry-returning function) decides.
+    Structural, never name-based: a scalar aliased to a geometry-looking name
+    (``md5(name) AS geometry``) must NOT count, or the append is skipped and
+    the strict value parser finds no geometry to overlay. Only the underlying
+    expression (a ``geom_4326`` column, or a geometry-returning function)
+    decides.
 
-    Alias/Cast/Paren wrappers are unwrapped first, for the ALIASED and
-    UNALIASED case alike, so a bare ``ST_Buffer(...)::geometry`` correctly
-    suppresses the append instead of getting a redundant second column.
+    Alias/Cast/Paren wrappers are unwrapped first, so a bare
+    ``ST_Buffer(...)::geometry`` suppresses the append instead of getting a
+    redundant second column.
     """
     if isinstance(item, exp.Alias):
         item = item.this
@@ -100,10 +99,10 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         or stmt.args.get("distinct")
         or stmt.find(exp.With)  # any CTE, top-level or nested — stay out
         or stmt.args.get("joins")
-        # HAVING without GROUP BY is still an aggregate
-        # (implicit single group), and its COUNT(*) lives outside the SELECT
-        # list where the per-item aggregate check can't see it. args.get scopes
-        # to THIS query, so a subquery's HAVING doesn't suppress the append.
+        # HAVING without GROUP BY is still an aggregate (implicit single
+        # group) whose COUNT(*) lives outside the SELECT list, where the
+        # per-item check can't see it. args.get scopes to THIS query, so a
+        # subquery's HAVING doesn't suppress the append.
         or stmt.args.get("having")
     ):
         return sql
@@ -120,46 +119,41 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     ):
         return sql
     for item in stmt.expressions:
-        # A bare * or table.* already includes the geometry column. Match
-        # only a genuine all-columns star, NOT a functional star like
-        # COUNT(*) — item.find(exp.Star) would catch the latter and suppress
-        # the append for windowed COUNT(*) OVER () queries.
+        # A bare * or table.* already includes the geometry column. Match only
+        # a genuine all-columns star, NOT a functional star like COUNT(*), which
+        # item.find(exp.Star) would catch and wrongly suppress the append for
+        # windowed COUNT(*) OVER () queries.
         if isinstance(item, exp.Star) or (
             isinstance(item, exp.Column) and isinstance(item.this, exp.Star)
         ):
             return sql
         for fn in item.find_all(exp.Func):
-            # Only consult _ANON_AGG_NAMES for exp.Anonymous
-            # nodes. On a named Func, fn.name is arg-derived, not the function
-            # name — CAST(mode AS TEXT) reports name="mode", which would falsely
-            # trip the guard and drop the overlay for any row-level query that
-            # casts a column named mode/every/percentile_*. (Mirrors the
+            # Only consult _ANON_AGG_NAMES for exp.Anonymous nodes. On a named
+            # Func, fn.name is arg-derived: CAST(mode AS TEXT) reports
+            # name="mode" and would falsely drop the overlay. (Mirrors the
             # sandbox validator's Anonymous-vs-named name resolution.)
             is_agg = isinstance(fn, exp.AggFunc) or (
                 isinstance(fn, exp.Anonymous) and fn.name.lower() in _ANON_AGG_NAMES
             )
-            # A WINDOWED aggregate — COUNT(*) OVER (), RANK() OVER (ORDER BY ...)
-            # — is row-level (one row per input row, no GROUP BY), so appending
-            # geom_4326 is safe. Only a true, non-windowed aggregate collapses
-            # cardinality and must block it.
+            # A WINDOWED aggregate (COUNT(*) OVER ()) is row-level, so appending
+            # is safe. Only a non-windowed aggregate collapses cardinality.
             if is_agg and fn.find_ancestor(exp.Window) is None:
                 return sql
         if _selects_geometry(item):
             return sql
-    # Build the qualifier from the alias/table AST
-    # identifier (not an f-string) so a quoted alias survives — FROM ... AS "P"
-    # must append "P".geom_4326 (unquoted P folds to lowercase and fails), and
-    # an alias with spaces must not raise a ParseError inside stmt.select().
+    # Build the qualifier from the alias/table AST identifier, not an f-string,
+    # so a quoted alias survives: FROM ... AS "P" must append "P".geom_4326
+    # (unquoted P folds to lowercase), and an alias with spaces must not raise a
+    # ParseError inside stmt.select().
     alias_node = table.args.get("alias")
     ref_ident = alias_node.this if alias_node is not None else table.this
     geom_col = exp.Column(this=exp.to_identifier("geom_4326"), table=ref_ident.copy())
     stmt.select(geom_col, copy=False)
     rendered = stmt.sql(dialect="postgres")
-    # sqlglot's postgres dialect does not faithfully
-    # round-trip every pgvector/PostGIS distance operator — `<=>` (cosine) is
-    # re-serialized as IS NOT DISTINCT FROM, silently turning nearest-neighbor
-    # ranking into boolean equality. Re-rendering only happens on the append
-    # path, so if it dropped any distance operator the original had, sacrifice
+    # sqlglot's postgres dialect does not faithfully round-trip every
+    # pgvector/PostGIS distance operator: `<=>` (cosine) is re-serialized as IS
+    # NOT DISTINCT FROM, silently turning nearest-neighbor ranking into boolean
+    # equality. If the re-render dropped any operator the original had, sacrifice
     # the overlay and return the untouched SQL. (`<#>` already fails parse_one
     # above and never reaches here.)
     for op in ("<=>", "<->", "<#>"):
@@ -182,12 +176,11 @@ _GEOJSON_TYPES = {
 def _is_geom_value(val: object) -> bool:
     """Strict, parse-verified geometry check.
 
-    A candidate must actually parse — a hex-like attribute (``md5(name)``)
-    or a jsonb attribute that merely contains a ``"type"`` key is NOT a
-    geometry, and must not shadow the real geometry column (#556 review).
-    Used for both name-preferred detection and value-based stripping, so a
-    geometry-*named* column holding a non-WKB hash falls through to the
-    real column instead of being accepted and failing extraction later.
+    A candidate must actually parse: a hex-like attribute (``md5(name)``) or a
+    jsonb attribute that merely contains a ``"type"`` key is NOT a geometry and
+    must not shadow the real geometry column. Used for both name-preferred
+    detection and value-based stripping, so a geometry-*named* column holding a
+    non-WKB hash falls through to the real column.
     """
     if not isinstance(val, str):
         return False
@@ -222,9 +215,9 @@ def strip_geometry_columns(
     """Drop geometry-valued columns from tabular chat output.
 
     Raw WKB hex / GeoJSON strings are noise in a result table; geometry
-    travels via the geojson payload instead. Value-based, not name-based:
-    the model may alias geometry to anything (live smoke found
-    ``ST_AsGeoJSON(geom_4326) AS location`` surviving a name-only strip).
+    travels via the geojson payload instead. Value-based, not name-based: the
+    model may alias geometry to anything (``ST_AsGeoJSON(geom_4326) AS
+    location``).
     """
     if not rows:
         return columns, rows
@@ -243,11 +236,9 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     """Find the index of a geometry column.
 
     A geometry-*named* column that actually parses is preferred; otherwise
-    fall back to any column whose value parses as geometry (e.g.
-    aliased computed geometry such as ``ST_Buffer(...) AS buffer``). Both
-    phases use the strict, parse-verified _is_geom_value so a geometry-named
-    hash column cannot shadow the real geometry, and values are probed at the
-    first non-null row (not row 0) so a NULL leading geometry still detects.
+    fall back to any column whose value parses as geometry (e.g. ``ST_Buffer(...)
+    AS buffer``). Both phases use the strict _is_geom_value, probed at the first
+    non-null row so a NULL leading geometry still detects.
     """
     for i, col in enumerate(columns):
         name = col.lower()
@@ -268,16 +259,14 @@ _JS_MAX_SAFE_INT = 2**53 - 1
 def _safe_value(v: object) -> object:
     """Convert values the client cannot represent to str; pass through the rest.
 
-    An integer outside JavaScript's safe range is lossy even
-    though JSON-serializable (9007199254740993 arrives as
-    9007199254740992). Emitting the exact digits as a string is the only
-    shape that survives; smaller integers stay numbers.
+    An integer outside JavaScript's safe range is lossy even though
+    JSON-serializable (9007199254740993 arrives as 9007199254740992), so it is
+    emitted as a string; smaller integers stay numbers.
 
-    NaN/+-Infinity are the other unrepresentable values
-    (Postgres real/double hold all three). ``json.dumps`` writes bare
-    tokens ``JSON.parse`` rejects, breaking the whole actions frame
-    silently (or 500ing non-streaming, Starlette's ``allow_nan=False``).
-    They become null instead.
+    NaN/+-Infinity (Postgres real/double hold all three) are the other
+    unrepresentable values. ``json.dumps`` writes bare tokens ``JSON.parse``
+    rejects, breaking the whole actions frame silently (or 500ing
+    non-streaming, Starlette's ``allow_nan=False``). They become null.
     """
     if v is None or isinstance(v, (str, bool)):
         return v
@@ -355,9 +344,8 @@ def _extract_geojson(
 ) -> tuple[dict, list[float] | None] | None:
     """Build a GeoJSON FeatureCollection + bbox from query rows.
 
-    The bbox is ``None`` when no row contributed finite bounds.
-    Callers must omit the bbox from their payload in that case rather than
-    forwarding a non-finite one.
+    The bbox is ``None`` when no row contributed finite bounds; callers omit
+    it from their payload in that case.
     """
     if not rows:
         return None
@@ -382,13 +370,11 @@ def _extract_geojson(
         if raw is None:
             continue
 
-        # Parse geometry
         parsed = _parse_row_geometry(raw)
         if parsed is None:
             continue
         shape, geometry = parsed
 
-        # Build properties
         props, row_non_finite = _row_properties(row, prop_indices)
         non_finite_props += row_non_finite
 
@@ -400,14 +386,12 @@ def _extract_geojson(
             }
         )
 
-        # Update bbox
         bx = shape.bounds  # (minx, miny, maxx, maxy)
-        # Shapely returns (nan, nan, nan, nan) for an EMPTY
-        # geometry, and an EMPTY geometry parses, so the row above already
-        # became a Feature while every comparison here is False against NaN.
-        # A result whose geometries are all EMPTY (ST_Buffer(<point>, 0) yields
-        # one for every row, and a dataset may legitimately store them) left
-        # the infinite seeds untouched and shipped [inf, inf, -inf, -inf].
+        # Shapely returns (nan, nan, nan, nan) for an EMPTY geometry, which
+        # still parses and became a Feature above, while every comparison here
+        # is False against NaN. A result of all-EMPTY geometries
+        # (ST_Buffer(<point>, 0), or stored ones) would otherwise leave the
+        # infinite seeds and ship [inf, inf, -inf, -inf].
         if not all(math.isfinite(c) for c in bx):
             non_finite_bounds += 1
             continue

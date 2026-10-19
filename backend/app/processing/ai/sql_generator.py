@@ -1,7 +1,8 @@
 """SQL generation engine: schema context builder and LLM-based SQL generation.
 
 Builds DDL schema context from ChatMapLayer metadata and generates PostGIS SQL
-via a dedicated LLM call. The sandbox (app.sandbox) handles validation and execution.
+via a dedicated LLM call. The sandbox (``app.platform.sandbox``) handles
+validation and execution.
 """
 
 from __future__ import annotations
@@ -32,17 +33,16 @@ logger = structlog.stdlib.get_logger(__name__)
 # Maximum columns to include in DDL before truncating
 _MAX_COLUMNS = 50
 
-# Simple TTL cache for schema context (avoids rebuilding identical DDL across
-# consecutive chat turns when layers haven't changed).
+# TTL cache for schema context, so consecutive chat turns don't rebuild
+# identical DDL.
 #
-# The key is partitioned by (map_id, content_hash) so two different maps
-# sharing an identical layer signature (e.g. both referencing the same
-# Natural Earth dataset) get independent entries -- without the map_id
-# partition, one map's prompt-context edits could be served back to a
-# different map on the next turn. Do NOT shortcut to a dataset_id-only key.
+# The key is partitioned by (map_id, content_hash) so two maps sharing an
+# identical layer signature (e.g. the same Natural Earth dataset) get
+# independent entries; without the map_id partition, one map's prompt-context
+# edits could be served back to a different map on the next turn.
 _schema_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _SCHEMA_CACHE_TTL = 60.0  # seconds
-_SCHEMA_CACHE_MAX = 64  # bounded so unbounded map_ids don't grow memory
+_SCHEMA_CACHE_MAX = 64  # bounds memory across map_ids
 
 
 def _schema_cache_key(
@@ -50,10 +50,9 @@ def _schema_cache_key(
 ) -> tuple[str, str]:
     """Build a deterministic cache key partitioned by (map_id, content_hash).
 
-    Adding map_id prevents cross-map cache pollution when two different maps
-    reference the same dataset. The (map_id, content_hash) tuple shape is
-    load-bearing: do NOT shortcut to (dataset_id,) only. Cache entries evict on either the
-    60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
+    The map_id partition prevents cross-map cache pollution when two maps
+    reference the same dataset. Entries evict on the 60s TTL or when
+    len(_schema_cache) >= _SCHEMA_CACHE_MAX.
     """
     parts = []
     for layer in layers:
@@ -121,7 +120,6 @@ def build_sql_schema_context(
         else:
             ddl = f"CREATE TABLE data.{table_name} ();"
 
-        # Metadata comment
         if layer.geometry_type:
             comment = (
                 f"-- Geometry: {layer.geometry_type}, "
@@ -130,16 +128,15 @@ def build_sql_schema_context(
         else:
             comment = "-- No geometry column"
 
-        # Sample values for key columns
         sample_comments = ""
         if layer.sample_values:
             sample_lines = []
             for col_name, values in list(layer.sample_values.items())[:5]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                # Raw row content reaching the SQL-generation
-                # prompt. A newline in a sample value would also end this `--`
-                # comment and let the rest of the value read as DDL, which the
-                # control-character strip closes along with the injection seeds.
+                # Raw row content reaching the SQL-generation prompt. A newline
+                # in a sample value would end this `--` comment and let the
+                # rest read as DDL; the control-character strip closes that
+                # along with the injection seeds.
                 safe_col = sanitize_dataset_value(col_name)
                 safe_vals = [sanitize_dataset_value(v) for v in vals]
                 sample_lines.append(f"-- Sample {safe_col}: {safe_vals}")
@@ -163,10 +160,9 @@ def build_sql_user_message(
 ) -> str:
     """Build the per-call (dynamic) user message for the SQL generation call.
 
-    Static reference lives in SQL_SYSTEM_PROMPT (cacheable);
-    everything per-call goes here, so the Anthropic cache_control breakpoint
-    sees a stable prefix and query_data avoids a full cache miss (and a
-    double-billed question) on every call.
+    Static reference lives in SQL_SYSTEM_PROMPT (cacheable); everything
+    per-call goes here, so the Anthropic cache_control breakpoint sees a stable
+    prefix and query_data avoids a full cache miss on every call.
     """
     layer_context = ""
     if layer_descriptions:
@@ -438,8 +434,6 @@ async def generate_sql(
     provider_ext = get_ai_provider(provider)
     runtime_config = await provider_ext.resolve_runtime_config(db)
     model = await LLM_MODEL_LIGHT.for_provider(db, provider, runtime_config)
-    # Keep static reference in the cacheable system prompt; send the schema
-    # and question once in the per-call user message.
     user_message = build_sql_user_message(
         question, schema_context, layer_descriptions=layer_descriptions
     )
@@ -451,20 +445,17 @@ async def generate_sql(
         question=question,
     )
 
-    # Pull base_url from the provider's own runtime config so future
-    # overlays receive provider-correct values instead of an
-    # OpenAI-shaped URL leaking into Anthropic-keyed providers.
+    # base_url comes from the provider's own runtime config so an overlay never
+    # receives an OpenAI-shaped URL meant for another provider.
     base_url = runtime_config.get("base_url")
 
     await release_connection(db)
-    # Single-round calls count toward the round budget.
     async with usage_accounting(db, user_id=user_id, subsystem="sql_gen", model=model):
         result = await provider_ext.complete(
             model=model,
             system_prompt=SQL_SYSTEM_PROMPT,
             user_message=user_message,
             tools=[],
-            # max_rounds=1 exits before any tool call; executor never runs.
             tool_executor=noop_tool_executor,
             max_rounds=1,
             max_tokens=2048,
@@ -476,9 +467,8 @@ async def generate_sql(
         # A reply cut off early can still parse as a shorter, different query.
         sql = "-- ERROR: The generated query was cut off. Try a simpler question."
 
-    # Attribute SQL generation cost separately from the parent chat loop
-    # (which records "chat" / "chat_stream"). Best-effort — failures are
-    # logged inside record_token_usage and never break the caller.
+    # Attributed separately from the parent chat loop's "chat"/"chat_stream"
+    # rows.
     if user_id is not None:
         await record_token_usage(
             db,
@@ -489,21 +479,20 @@ async def generate_sql(
             output_tokens=result.output_tokens,
         )
 
-    # Strip markdown code fences if the LLM wrapped the SQL
     sql = _strip_code_fences(sql.strip())
 
-    # Strip trailing semicolons (executor wraps SQL in a subquery)
+    # The executor wraps SQL in a subquery, so a trailing semicolon would break it.
     sql = sql.rstrip(";").strip()
 
-    # Strip leaked special tokens from local LLMs (e.g., <|im_start|>, <|im_end|>)
+    # Special tokens some local LLMs leak (e.g. <|im_start|>).
     sql = re.sub(r"<\|[^|]+\|>", "", sql).strip()
 
-    # The prompt asks for geolens_buffer(<geom>, <metres>); the
-    # canonical expression is rendered here, once, for every NL consumer. This
-    # is the last point at which the text is still the model's, which is what
-    # makes the marker a private protocol between the prompt and the server
-    # rather than a SQL dialect — the raw /api/query/ endpoint takes SQL a
-    # person wrote and never reaches this function.
+    # The prompt asks for geolens_buffer(<geom>, <metres>); the canonical
+    # expression is rendered here, once, for every NL consumer. This is the
+    # last point at which the text is still the model's, which makes the marker
+    # a private protocol between prompt and server rather than a SQL dialect:
+    # the raw /api/query/ endpoint takes SQL a person wrote and never reaches
+    # this function.
     sql = expand_buffer_markers(sql)
 
     logger.info(

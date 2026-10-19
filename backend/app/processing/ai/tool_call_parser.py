@@ -29,7 +29,6 @@ def _coerce_value(value: str) -> int | float | bool | str:
     """Coerce a string value to int, float, bool, or leave as str."""
     v = value.strip()
 
-    # Boolean
     if v.lower() == "true":
         return True
     if v.lower() == "false":
@@ -56,7 +55,7 @@ def parse_xml_tool_calls(text: str) -> tuple[list[tuple[str, dict]], str]:
     Fast-path: if the text contains no ``<function`` marker, returns
     immediately without running any regex.
     """
-    # Fast path — skip regex scan when there are no XML tool calls
+    # Fast path: skip the regex scan when there are no XML tool calls.
     if "<function" not in text.lower():
         cleaned = _TOOL_CALL_WRAPPER_RE.sub("", text).strip()
         return [], cleaned

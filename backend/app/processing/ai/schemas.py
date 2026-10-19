@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Valid MapLibre paint properties per geometry type
 _VALID_PAINT_PROPS: dict[str, set[str]] = {
     "fill": {
         "fill-color",
@@ -71,7 +70,6 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
     },
 }
 
-# Color props including heatmap-color and fill-extrusion-color
 _COLOR_PROPS = {
     "fill-color",
     "fill-outline-color",
@@ -173,9 +171,9 @@ def _valid_paint_props_for_geometry(
     geometry_type: str | None,
     render_mode: str | None = None,
 ) -> tuple[str | None, set[str]]:
-    # Render-mode aware, mirroring frontend validateChatPaint —
-    # a heatmap-rendered layer's dataset_geometry_type is virtually always Point.
-    # Without this branch, the geometry-type filter strips every heatmap property.
+    # Mirrors frontend validateChatPaint: a heatmap-rendered layer's geometry
+    # type is virtually always Point, so without this branch the geometry-type
+    # filter would strip every heatmap property.
     if render_mode == "heatmap":
         return "heatmap", _VALID_PAINT_PROPS["heatmap"]
     layer_type = _paint_layer_type_for_geometry(geometry_type)
@@ -211,8 +209,7 @@ def validate_paint_with_feedback(
     Used by the chat service to feed validation feedback back to the LLM.
 
     render_mode: when 'heatmap', geometry-type filtering is skipped so
-    heatmap-* properties are kept instead of dropped — mirrors
-    the frontend's validateChatPaint render-mode awareness.
+    heatmap-* properties are kept, as in the frontend's validateChatPaint.
     """
     if not paint or (not geometry_type and render_mode != "heatmap"):
         return paint, []
@@ -351,20 +348,18 @@ class LLMMapSpec(BaseModel):
         return v[:200]
 
 
-# Bounds on client-supplied chat context. Without them the
-# only limit was DEFAULT_BODY_LIMIT_BYTES (10 MB, ~2.5M tokens), billed
-# to the provider and re-sent on each of up to 8 tool rounds.
-# enforce_ai_token_budget checks usage already recorded before the
-# handler runs, and MAX_REQUEST_TOKEN_BUDGET is checked at the top of the
-# loop where the running total is still zero, so neither bounds the
-# first request.
+# Bounds on client-supplied chat context. Without them the only limit is
+# DEFAULT_BODY_LIMIT_BYTES (10 MB, ~2.5M tokens), billed to the provider and
+# re-sent on each of up to 8 tool rounds. enforce_ai_token_budget checks usage
+# already recorded before the handler runs, and MAX_REQUEST_TOKEN_BUDGET is
+# checked at the top of the loop where the running total is still zero, so
+# neither bounds the first request.
 #
 # The per-message cap is generous against the loop's own max_tokens=4096
-# (~16k chars), so a long assistant turn replayed as history is never
-# rejected. The aggregate sits above what the other three caps can
-# produce together, so a long conversation can never 422 on its own —
-# what it actually bounds is the free-form layer context, which has no
-# shape of its own to cap.
+# (~16k chars), so a long assistant turn replayed as history is never rejected.
+# The aggregate sits above what the other three caps can produce together, so
+# a long conversation never 422s on its own; it bounds the free-form layer
+# context, which has no shape of its own to cap.
 _MAX_HISTORY_CONTENT_CHARS = 20_000
 _MAX_CHAT_LAYERS = 50
 _MAX_CHAT_PAYLOAD_CHARS = 500_000
@@ -419,9 +414,8 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _bound_total_payload(self) -> "ChatRequest":
-        # Layer context is free-form (column_info, sample_values),
-        # so the per-field caps above do not bound it. Size the whole prompt
-        # payload once instead of guessing a cap per nested field.
+        # Layer context is free-form (column_info, sample_values), so the
+        # per-field caps above don't bound it; size the whole payload once.
         total = _chat_payload_chars(self.message, self.history) + len(
             json.dumps([layer.model_dump() for layer in self.layers], default=str)
         )
@@ -505,8 +499,8 @@ class ChatAction(BaseModel):
     columns: list[str] | None = None  # for show_query_result (inline data table)
     row_count: int | None = None  # for show_query_result (total matched rows)
     truncated: bool | None = None  # for show_query_result (rows capped for payload)
-    # ``run_analysis`` handoff lets the builder prefill the Analysis
-    # panel ("Save as dataset") from a chat preview. layer_id above is reused.
+    # ``run_analysis`` handoff: lets the builder prefill the Analysis panel
+    # ("Save as dataset") from a chat preview. layer_id above is reused.
     operation: str | None = None  # for show_query_result (analysis operation)
     distance_meters: float | None = None  # for show_query_result (buffer distance)
 

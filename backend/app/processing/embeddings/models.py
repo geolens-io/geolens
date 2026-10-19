@@ -32,16 +32,16 @@ class RecordEmbedding(Base):
     )
     embedding = mapped_column(Vector(), nullable=False)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    # The vector space a row lives in is a function of model,
-    # width, AND endpoint — `model_name` names only the first, so one
-    # model behind two endpoints is two spaces under one label. This is
-    # the SHA-256 of that triple, from `embedding_config_fingerprint` in
+    # The vector space a row lives in is a function of model, width, AND
+    # endpoint; `model_name` names only the first, so one model behind two
+    # endpoints is two spaces under one label. This is the SHA-256 of that
+    # triple, from `embedding_config_fingerprint` in
     # `processing/embeddings/helpers.py`.
     #
-    # NULL means "written before this column existed" — migration 0052
-    # does not backfill it, since the producing configuration isn't
-    # recoverable and stamping today's would invent provenance.
-    # `usable_by_config` below gives NULL its meaning for every reader.
+    # NULL means "written before this column existed": the migration does not
+    # backfill it, since the producing configuration isn't recoverable and
+    # stamping today's would invent provenance. `usable_by_config` below gives
+    # NULL its meaning for every reader.
     config_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -59,16 +59,16 @@ class RecordEmbedding(Base):
     ) -> ColumnElement[bool]:
         """Match rows whose vector can be compared against ``config_fingerprint``.
 
-        ONE definition of the rule, on the model — every reader
-        (semantic search, the non-force backfill's "covered" predicate, admin
-        coverage stats, and `CatalogPort.record_embedding_orm_class()`) must
-        apply the same one. The admin panel's raw-SQL coverage query spells
-        the same condition by hand; the two are pinned together by
-        test_embedding_config_stamp_1546.py.
+        ONE definition of the rule, on the model: every reader (semantic
+        search, the non-force backfill's "covered" predicate, admin coverage
+        stats, and `CatalogPort.record_embedding_orm_class()`) must apply the
+        same one. The admin panel's raw-SQL coverage query spells the same
+        condition by hand; test_embedding_config_stamp_1546.py pins the two
+        together.
 
-        An UNSTAMPED row (NULL) matches on model name alone — deliberately
-        weaker, so upgrading doesn't empty semantic search: every existing
-        row is unstamped, and the alternative is a catalog-wide re-embed or a
+        An UNSTAMPED row (NULL) matches on model name alone, deliberately
+        weaker so upgrading doesn't empty semantic search: every existing row
+        is unstamped, and the alternative is a catalog-wide re-embed or a
         search returning nothing until one finishes.
 
         This is for a FRESH vector vs stored rows (a resolved configuration,
@@ -89,21 +89,19 @@ class RecordEmbedding(Base):
     ) -> ColumnElement[bool]:
         """Match rows comparable against ANOTHER STORED row's configuration.
 
-        Related items compares two STORED rows, so the pair, not
-        the live configuration, decides comparability. Rule: an unstamped
-        side is comparable to every space of its model, whichever side it is
-        on — a NULL anchor matches every row of its model, a stamped anchor
-        matches its own fingerprint OR NULL. This agrees with what #1546
-        decided a NULL row means for search, so the two readers can't
-        disagree about the same pair.
+        Related items compares two STORED rows, so the pair, not the live
+        configuration, decides comparability. An unstamped side is comparable
+        to every space of its model, whichever side it is on: a NULL anchor
+        matches every row of its model, a stamped anchor matches its own
+        fingerprint OR NULL. This agrees with what a NULL row means for search
+        (``usable_by_config``), so the two readers can't disagree about the
+        same pair.
 
         SYMMETRY is load-bearing: comparability is a property of the PAIR, so
         whether A and B may be compared cannot depend on which one you start
-        from. The prior form let a stamped anchor see NULL rows while a NULL
-        anchor rendered both sides ``IS NULL`` and could not see back — real
-        on an ordinary catalog, where one post-upgrade edit stamps ONE record
-        and that record vanishes from every legacy record's list while still
-        listing them.
+        from. If a stamped anchor saw NULL rows but a NULL anchor could not see
+        back, one post-upgrade edit would stamp ONE record, and that record
+        would vanish from every legacy record's list while still listing them.
         """
         if config_fingerprint is None:
             return cls.model_name == model_name

@@ -1,17 +1,16 @@
 """Expand the NL->SQL prompt's ``geolens_buffer`` marker.
 
-Asking the model to write ``render_geodesic_buffer``'s SQL by hand (#1001)
-failed unreliably: a dropped parenthesis or a paraphrase back to the bare
-``ST_Buffer(geom::geography, N)::geometry`` form. The model now writes
-``geolens_buffer(<geom>, <metres>)`` and this module substitutes the
-canonical render before anything else sees the SQL.
+The model writes ``geolens_buffer(<geom>, <metres>)`` and this module
+substitutes the canonical ``render_geodesic_buffer`` text before anything else
+sees the SQL. Hand-writing that SQL failed unreliably: a dropped parenthesis,
+or a paraphrase back to the bare ``ST_Buffer(geom::geography, N)::geometry``.
 
-Not a new privilege: it produces exactly the text a model was previously
-asked to type, and ``_matches_canonical_buffer`` in
+Not a new privilege: it produces exactly the text a model could type, and
+``_matches_canonical_buffer`` in
 ``platform/sandbox/validator.py`` still re-renders the template, compares
 ASTs, and validates the geometry argument under the full allowlist. This
 module decides SYNTAX only — a plain in-range distance number; whether the
-geometry argument is ACCEPTABLE stays the sandbox's decision (#1002).
+geometry argument is ACCEPTABLE stays the sandbox's decision.
 
 Deliberately NOT applied to the raw ``POST /api/query/`` endpoint, which
 takes SQL a person wrote — there the marker is an unknown function and
@@ -51,13 +50,10 @@ _DISTANCE = re.compile(r"\A(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\Z")
 # positional parameter (``$1``), which is not a quote at all.
 _DOLLAR_OPEN = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 
-# How many markers one statement may carry — not arbitrary: it's the
-# validator's ``_MAX_BUFFER_MATCH_ATTEMPTS``, which bounds how many
+# Matches the validator's ``_MAX_BUFFER_MATCH_ATTEMPTS``, which bounds how many
 # buffer-shaped subtrees the sandbox re-renders and verifies. Past it no
 # exemption is granted, so a ninth expansion would only cost the parse to
-# buy a worse error.
-# ``test_the_marker_cap_matches_the_validators_verification_budget`` fails
-# if either number moves alone.
+# buy a worse error. A test fails if either number moves alone.
 MAX_BUFFER_MARKERS = 8
 
 
@@ -67,15 +63,10 @@ def _fail(message: str) -> SandboxError:
     ``invalid_query`` is the existing category for "this SQL cannot run",
     already mapped by ``chat_actions._execute_chat_tool``.
 
-    ``message`` is server-only. ``_execute_chat_tool`` replaces
-    it with the generic ``ERROR_MESSAGES["invalid_query"]`` line, so neither
-    user nor model ever sees the specific text — it's logged here for that
-    reason, read by this log line and by pytest when an eval trips one.
-
-    Surfacing it to the MODEL instead (so it could self-correct) is
-    deliberately out of scope here: it means widening which sandbox
-    messages are safe to echo into a chat turn, a shared-path change that
-    belongs with the repair-pass work, not smuggled in beside it.
+    ``message`` is server-only: ``_execute_chat_tool`` replaces it with the
+    generic ``ERROR_MESSAGES["invalid_query"]`` line, so neither user nor model
+    sees the specific text, which is why it is logged here. Echoing it to the
+    model would widen which sandbox messages are safe to show in a chat turn.
     """
     logger.info("sql.buffer_marker_rejected", reason=message)
     return SandboxError("invalid_query", message)
@@ -172,12 +163,11 @@ def _marker_starts_at(sql: str, i: int, previous: str) -> bool:
     schema's function.
 
     ``previous`` is the last non-whitespace, non-comment character before
-    ``i``, tracked by callers as they scan. Reading
-    ``sql[i - 1]`` directly instead breaks on ``public./**/geolens_buffer(…)``
-    and ``public. geolens_buffer(…)`` — both qualified names in PostgreSQL,
-    but the raw lookback saw ``/`` or a space, not the dot. ADJACENCY stays
-    positional (``xgeolens_buffer`` is one identifier, ``x geolens_buffer``
-    is two); only the QUALIFIER check needed to skip comments/whitespace.
+    ``i``, tracked by callers as they scan. ``sql[i - 1]`` would miss
+    ``public./**/geolens_buffer(…)`` and ``public. geolens_buffer(…)``, both
+    qualified names in PostgreSQL. ADJACENCY stays positional
+    (``xgeolens_buffer`` is one identifier, ``x geolens_buffer`` is two); only
+    the QUALIFIER check skips comments and whitespace.
     """
     if sql[i : i + len(_MARKER)].lower() != _MARKER:
         return False
@@ -259,17 +249,14 @@ def _contains_marker(text: str) -> bool:
 def _without_comments(text: str) -> str:
     """``text`` with its comments replaced by a space, literals untouched.
 
-    The scanner skips comments when splitting arguments, but
-    the slice it returns still contains them, and
-    ``render_geodesic_buffer`` interpolates that slice into a larger
-    expression. A block comment rides into the scaffold and perturbs the
-    text ``_matches_canonical_buffer`` re-renders and compares, so the
-    exemption is refused ("disallowed spatial function"). A line comment
-    comments out the rest of a single-line render ("invalid SQL syntax").
-    Both fail closed on a model call that was correct. PostgreSQL treats a
-    comment as whitespace, so dropping one is semantics-preserving; the
-    replacement is a SPACE, not nothing, so ``a/*x*/b`` can't fuse into one
-    identifier.
+    The argument slice still contains comments, and
+    ``render_geodesic_buffer`` interpolates it into a larger expression. A
+    block comment perturbs the text ``_matches_canonical_buffer`` re-renders
+    and compares, so the exemption is refused ("disallowed spatial function");
+    a line comment comments out the rest of a single-line render ("invalid SQL
+    syntax"). Both fail closed on a correct model call. PostgreSQL treats a
+    comment as whitespace, so dropping one preserves semantics; the
+    replacement is a SPACE so ``a/*x*/b`` can't fuse into one identifier.
     """
     if "--" not in text and "/*" not in text:
         return text
@@ -338,11 +325,10 @@ def _matching_paren(text: str, opening: int) -> int | None:
 def _without_redundant_parens(text: str) -> str:
     """``text`` with wrapping parentheses removed, one layer at a time.
 
-    ``geolens_buffer((s.geom_4326), 500)`` is a correct call —
-    the parentheses are the model's formatting, not the validator's
-    contract — but ``_is_bounded_geometry_source`` recognises only a bare
-    column or a scalar subquery, so the wrapped form was refused as
-    "disallowed spatial function".
+    ``geolens_buffer((s.geom_4326), 500)`` is a correct call, but
+    ``_is_bounded_geometry_source`` recognises only a bare column or a scalar
+    subquery, so the wrapped form would be refused as "disallowed spatial
+    function".
 
     Two conditions stop the peel: the opening paren must be closed by the
     LAST character (else ``(a) + (b)`` loses its grouping, or
@@ -368,11 +354,11 @@ def _checked_geometry(raw: str) -> str:
     One expression, not a bare statement — a structurally broken argument
     fails here rather than as a confusing sandbox error two layers later.
     Whether the expression is an acceptable buffer INPUT stays with
-    ``_is_bounded_geometry_source`` and the function allowlist (#1002).
+    ``_is_bounded_geometry_source`` and the function allowlist.
 
-    Comments are dropped and redundant wrapping parens peeled (see
-    ``_without_comments``/``_without_redundant_parens``): both are
-    formatting the model chose that would otherwise cost it the exemption.
+    Comments are dropped and redundant wrapping parens peeled
+    (``_without_comments``/``_without_redundant_parens``); either would
+    otherwise cost the call the exemption.
     """
     geom = _without_comments(raw).strip()
     if not geom:
@@ -482,9 +468,8 @@ def expand_buffer_markers(sql: str) -> str:
         return sql
     pieces.append(sql[consumed:])
     expanded = "".join(pieces)
-    # Nightly eval triage is the reason this line exists: when a buffer
-    # question fails, the first thing worth knowing is whether the model asked
-    # for a buffer at all, and after expansion the SQL no longer says.
+    # After expansion the SQL no longer shows whether the model asked for a
+    # buffer, which is the first thing eval triage needs.
     logger.info(
         "sql.buffer_markers_expanded", markers=markers, sql_length=len(expanded)
     )

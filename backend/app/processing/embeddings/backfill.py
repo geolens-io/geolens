@@ -2,9 +2,9 @@
 
 Texts are embedded in batches of _BATCH_SIZE per provider call; a failed batch
 is retried per record so one rejected input does not sink its batchmates, and
-only the individually failing records count as errors (#448, #449, #1506).
+only the individually failing records count as errors.
 
-Can be run as a module: python -m app.embeddings.backfill
+Can be run as a module: python -m app.processing.embeddings.backfill
 """
 
 from typing import Any
@@ -32,16 +32,16 @@ from app.processing.embeddings.service import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# 128 keeps request bodies modest for compatible providers while
-# collapsing a 10K-record backfill to ~80 calls.
+# 128 keeps request bodies modest for compatible providers while collapsing a
+# 10K-record backfill to ~80 calls.
 _BATCH_SIZE = 128
 
 # Text for the force-path pre-flight embedding. Short, so the call is cheap,
 # and constant, so a provider's cache can serve it.
 _PREFLIGHT_TEXT = "geolens embedding preflight"
 
-# The actionable part of an error is at the front; the tail is the
-# statement and its bound parameters, one of which is the vector.
+# The actionable part of an error is at the front; the tail is the statement
+# and its bound parameters, one of which is the vector.
 _MAX_ERROR_CHARS = 200
 
 
@@ -51,9 +51,9 @@ def _compact_error(exc: BaseException) -> str:
     Prefers the driver's own message (`DBAPIError.orig`); otherwise cuts at
     SQLAlchemy's `[SQL:` marker, collapses whitespace and truncates.
 
-    THE REDACTOR RUNS FIRST, ON THE RAW STRING — truncating
-    first can cut the `@` terminating userinfo, and collapsing whitespace
-    first can split a URL so the match dies before the `@`.
+    THE REDACTOR RUNS FIRST, ON THE RAW STRING: truncating first can cut the
+    `@` terminating userinfo, and collapsing whitespace first can split a URL
+    so the match dies before the `@`.
     """
     origin = getattr(exc, "orig", None)
     message = redact_url_credentials(str(origin if origin is not None else exc))
@@ -69,9 +69,9 @@ def _compact_error(exc: BaseException) -> str:
 def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:
     """Log fields for a caught exception; MUTATES `traced` to spend the traceback.
 
-    One traceback per distinct exception type per run, tracked by
-    qualified name. The traceback, not the vector, is the expensive part of a
-    failing backfill (a 200-record run took 194 s before and 1.5 s after).
+    One traceback per distinct exception type per run, tracked by qualified
+    name. The traceback, not the vector, is the expensive part of a failing
+    backfill (a 200-record run took 194 s with one per failure, 1.5 s without).
     """
     error_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
     first_of_type = error_type not in traced
@@ -86,8 +86,8 @@ def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:
 class _AnomalousVectorWidth(RuntimeError):
     """ONE record's vector does not fit a column that has not moved.
 
-    Deliberately NOT a `_PinDrift`, so the per-record handler
-    counts it and carries on (#449 isolation).
+    Deliberately NOT a `_PinDrift`, so the per-record handler counts it and
+    carries on.
     """
 
 
@@ -112,15 +112,15 @@ def _structural_width_mismatch(
 ) -> str | None:
     """Describe vectors that UNIFORMLY do not fit the column, or None otherwise.
 
-    A width that was already wrong when the run started, which no
-    comparison guard can see. Not a pre-flight on the non-force path: that
-    would cost a provider call and abort a run one transient failure would
-    otherwise survive (#449). UNIFORMLY is the distinction; mixed
-    widths are one bad input and fall to the per-record retry.
+    A width that was already wrong when the run started, which no comparison
+    guard can see. Not a pre-flight on the non-force path: that would cost a
+    provider call and abort a run one transient failure would otherwise
+    survive. UNIFORMLY is the distinction; mixed widths are one bad input and
+    fall to the per-record retry.
     """
-    # TWO vectors minimum. One input agrees with itself
-    # vacuously, and a final batch of one (any catalog sized 1 mod _BATCH_SIZE)
-    # was read as structural; it falls through to the retry rule instead.
+    # TWO vectors minimum: one input agrees with itself vacuously, and a final
+    # batch of one (any catalog sized 1 mod _BATCH_SIZE) is not structural; it
+    # falls to the retry rule instead.
     if len(vectors) < 2:
         return None
     widths = {len(vector) for vector in vectors}
@@ -153,11 +153,11 @@ async def _raise_on_retry_vector_width(
 ) -> None:
     """The retry's post-call bracket, plus a judgement on the vector it returned.
 
-    Drift first, then fit: asking fit first returned early on a
-    matching vector and left the LAST record's drift unobserved. A mismatch
-    against a column that has not moved raises `_AnomalousVectorWidth` so the
-    caller counts it and carries on (#449). Delegates the drift wording to
-    `_raise_on_pin_drift` so the module has one author of "the column moved".
+    Drift first, then fit: fit first would return early on a matching vector
+    and leave the LAST record's drift unobserved. A mismatch against a column
+    that has not moved raises `_AnomalousVectorWidth` so the caller counts it
+    and carries on. The drift wording comes from `_raise_on_pin_drift`, the
+    module's one author of "the column moved".
     """
     await _raise_on_pin_drift(
         session,
@@ -175,13 +175,13 @@ async def _raise_on_retry_vector_width(
 def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-def]
     """INSERT the batch, replacing any row this record already has for the model.
 
-    `uq_record_embedding_model` is `(record_id, model_name)` and a
-    non-force run may offer a record whose only row was written under another
+    `uq_record_embedding_model` is `(record_id, model_name)` and a non-force
+    run may offer a record whose only row was written under another
     configuration, which a plain INSERT answers with a unique violation.
     `updated_at` is set explicitly because `onupdate=` is ORM-level only.
     """
-    # Stamp the INSERT branch too; `set_` only governs ON CONFLICT
-    # and the server_default is transaction-start `now()`.
+    # Stamps the INSERT branch too: `set_` only governs ON CONFLICT, and the
+    # server_default is transaction-start `now()`.
     stmt = pg_insert(RecordEmbedding).values(
         [row | {"updated_at": func.clock_timestamp()} for row in rows]
     )
@@ -191,9 +191,9 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
             "embedding": stmt.excluded.embedding,
             "content_hash": stmt.excluded.content_hash,
             "config_fingerprint": stmt.excluded.config_fingerprint,
-            # `clock_timestamp()`, not `now()`. `now()` is
-            # transaction-start time, and a batch spends a provider call in its
-            # transaction, which inverts the related-items `updated_at` order.
+            # `clock_timestamp()`, not `now()`: `now()` is transaction-start
+            # time, and a batch spends a provider call in its transaction,
+            # which inverts the related-items `updated_at` order.
             "updated_at": func.clock_timestamp(),
         },
     )
@@ -202,11 +202,11 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
 async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
     """Which of these records have no embeddable content RIGHT NOW, and hold them.
 
-    ``expire_all`` first, because this session's identity
-    map still holds the instances the run loaded at its start. Records are
-    locked ``FOR UPDATE`` and the caller keeps the transaction open through
-    its DELETE, so an editor's restore lands on one side or the other. A
-    record that no longer exists counts as empty.
+    ``expire_all`` first, because this session's identity map still holds the
+    instances the run loaded at its start. Records are locked ``FOR UPDATE``
+    and the caller keeps the transaction open through its DELETE, so an
+    editor's restore lands on one side or the other. A record that no longer
+    exists counts as empty.
     """
     session.expire_all()
     await session.execute(
@@ -253,9 +253,9 @@ def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):
     """Remove EVERY embedding these records hold, under any model.
 
     The `Record` subquery is the tenant boundary: `RecordEmbedding` has no RLS
-    policy of its own. ``observed`` narrows the delete
-    to the exact `(record_id, updated_at)` row versions the run saw, which no
-    clock comparison can get wrong; only the end-of-run reclamation passes it.
+    policy of its own. ``observed`` narrows the delete to the exact
+    `(record_id, updated_at)` row versions the run saw, which no clock
+    comparison can get wrong; only the end-of-run reclamation passes it.
     """
     predicate = RecordEmbedding.record_id.in_(
         select(record_orm.id).where(record_orm.id.in_(record_ids))
@@ -276,13 +276,13 @@ async def _replace_embeddings(
 ) -> None:
     """Remove what `rows` replace, then write them. Does NOT commit.
 
-    The DELETE precedes the INSERT in the same transaction, so an
-    aborted run has replaced some records and left the rest untouched. The
-    delete clears every row the record holds under any model, which the
-    upsert alone cannot reach. The COMMIT belongs to the caller:
-    its drift check is only sound while it holds the RowExclusiveLock these
-    statements take. ``record_orm`` is `Record` on a force run and None
-    otherwise, which means "delete nothing".
+    The DELETE precedes the INSERT in the same transaction, so an aborted run
+    has replaced some records and left the rest untouched. The delete clears
+    every row the record holds under any model, which the upsert alone cannot
+    reach. The COMMIT belongs to the caller: its drift check is only sound
+    while it holds the RowExclusiveLock these statements take. ``record_orm``
+    is `Record` on a force run and None otherwise, which means "delete
+    nothing".
     """
     if record_orm is not None:
         await session.execute(
@@ -316,36 +316,34 @@ async def _snapshot_embedding_config(
 ) -> tuple[str, int | None, str | None]:
     """Capture (model, dimensions, endpoint) as one consistent set, or refuse.
 
-    Values come from separate `PersistentConfig` reads, so they're
-    captured, read again, and compared; a change inside the
-    window is a difference. The endpoint is captured in the
-    same window, resolved through the provider that owns its fallback
-    chain and credential binding.
+    Values come from separate `PersistentConfig` reads, so they are captured,
+    read again and compared; a change inside the window is a difference. The
+    endpoint is captured in the same window, resolved through the provider
+    that owns its fallback chain and credential binding.
 
-    Known residue (#1543): the endpoint is read through the provider's
-    per-key cache and can't be read uncached from here. For the shipped
-    provider a stale entry resolves to the identical approved URL or
-    fails loudly; only a DB-resolved extension provider is exposed.
+    Known limit: the endpoint is read through the provider's per-key cache and
+    can't be read uncached from here. For the shipped provider a stale entry
+    resolves to the identical approved URL or fails loudly; only a DB-resolved
+    extension provider is exposed.
 
     Raises:
         RuntimeError: if the model can't be resolved, or any value changed
             while being captured. Call BEFORE anything destructive.
     """
-    # Imported in-function, as the port does, so patching the module attribute
-    # reaches this call site.
+    # Imported in-function so patching the module attribute reaches this call
+    # site.
     from app.processing.embeddings.helpers import (
         UNKNOWN_EMBEDDING_MODEL,
         resolve_embedding_model_name,
     )
 
-    # Read uncached. `PersistentConfig.get` answers from a
-    # per-key cache that `update_settings` evicts only after its commit, so two
-    # cached reads can agree with each other on the far side of an update.
+    # Read uncached: `PersistentConfig.get` answers from a per-key cache that
+    # `update_settings` evicts only after its commit, so two cached reads can
+    # agree with each other on the far side of an update.
     model_name = await resolve_embedding_model_name(session, uncached=True)
     if model_name == UNKNOWN_EMBEDDING_MODEL:
-        # Loud, not silent: the admin route maps this to a 502 and a "failed"
-        # audit entry. Returning zero counts would look like a completed run
-        # over an empty catalog.
+        # Loud: the admin route maps this to a 502 and a "failed" audit entry.
+        # Zero counts would look like a completed run over an empty catalog.
         logger.error("backfill_aborted_unresolved_embedding_model")
         raise RuntimeError(
             "Cannot regenerate embeddings: the active embedding model could "
@@ -355,8 +353,8 @@ async def _snapshot_embedding_config(
     dimensions = await EMBEDDING_DIMS.get_uncached(session)
     base_url = await resolve_embedding_base_url(session)
 
-    # ONE window over all three. A per-value capture-and-compare
-    # leaves a gap in which "old model + new endpoint" is invisible to both.
+    # ONE window over all three: a per-value capture-and-compare leaves a gap
+    # in which "old model + new endpoint" is invisible to both.
     if (
         await resolve_embedding_model_name(session, uncached=True) != model_name
         or await EMBEDDING_DIMS.get_uncached(session) != dimensions
@@ -376,8 +374,8 @@ class _PinDrift(RuntimeError):
     """A run-stopping condition found with a batch generated but not committed.
 
     A distinct type so the two broad handlers re-raise it instead of retrying
-    per record or counting it as a bad input. Also carries a
-    STRUCTURAL width mismatch; an ISOLATED one is `_AnomalousVectorWidth`.
+    per record or counting it as a bad input. Also carries a STRUCTURAL width
+    mismatch; an ISOLATED one is `_AnomalousVectorWidth`.
     """
 
 
@@ -418,20 +416,18 @@ async def _retry_batch_per_record(
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
 
-    Only the bad records count as errors. Split out because the
-    drift bracketing pushed `backfill_embeddings` past the McCabe gate.
-    `created` is the run's total so an abort message can report it;
-    `pinned_column_dims` is the pinned storage width;
-    `traced_errors` is the run's traceback budget; `record_orm` carries the
-    force flag so a record that fails again keeps its old vector.
+    Only the bad records count as errors. `created` is the run's total so an
+    abort message can report it; `pinned_column_dims` is the pinned storage
+    width; `traced_errors` is the run's traceback budget; `record_orm` carries
+    the force flag so a record that fails again keeps its old vector.
     """
     made = 0
     failed = 0
     for record_id, content in batch:
         try:
-            # The drift checks bracket the retry's provider call
-            # too. The pre-call check is not redundant with the previous
-            # record's post-call one, which never ran if that record failed.
+            # The drift checks bracket the retry's provider call too. The
+            # pre-call check is not redundant with the previous record's
+            # post-call one, which never ran if that record failed.
             await _raise_on_pin_drift(
                 session,
                 pinned,
@@ -446,9 +442,9 @@ async def _retry_batch_per_record(
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            # Per vector on this path, ahead of the write so a
-            # typmod error cannot turn a named abort into a counted one. A
-            # mismatch against an unmoved column is one bad record (#1579).
+            # Per vector on this path, ahead of the write so a typmod error
+            # cannot turn a named abort into a counted one. A mismatch against
+            # an unmoved column is one bad record.
             await _raise_on_retry_vector_width(
                 session, pinned, vector, pinned_column_dims, created + made
             )
@@ -459,8 +455,8 @@ async def _retry_batch_per_record(
                         "record_id": record_id,
                         "embedding": vector,
                         "model_name": model_name,
-                        # From `pinned`, the configuration this
-                        # call was made under, never a fresh read.
+                        # From `pinned`, the configuration this call was made
+                        # under, never a fresh read.
                         "config_fingerprint": embedding_config_fingerprint(*pinned),
                         "content_hash": compute_content_hash(content),
                     }
@@ -468,9 +464,9 @@ async def _retry_batch_per_record(
                 observed,
                 record_orm=record_orm,
             )
-            # The row is SENT before the post-call check so the
-            # check holds the RowExclusiveLock; the delete inside
-            # `_replace_embeddings` rolls back with it on abort.
+            # The row is SENT before the post-call check so the check holds
+            # the RowExclusiveLock; the delete inside `_replace_embeddings`
+            # rolls back with it on abort.
             await _raise_on_pin_drift(
                 session,
                 pinned,
@@ -502,10 +498,9 @@ async def _pinned_config_drift(
 ) -> str | None:
     """Describe how the live config has left the pinned one, or None if it has not.
 
-    Read uncached, for the reason `_snapshot_embedding_config`
-    gives. Storage width is checked too, since the column can
-    move without a settings write (ENV_ONLY_CONFIG, a hand `ALTER TABLE`,
-    a restored dump, a failed rebuild).
+    Read uncached, for the reason `_snapshot_embedding_config` gives. Storage
+    width is checked too, since the column can move without a settings write
+    (ENV_ONLY_CONFIG, a hand `ALTER TABLE`, a restored dump, a failed rebuild).
 
     NOT drift: an unresolvable model (a transient DB blip must not abort a
     long run), and a provider resolve that RAISES (for the shipped
@@ -529,9 +524,9 @@ async def _pinned_config_drift(
             f"the embedding dimensions changed from {dimensions!r} to {active_dims!r}"
         )
 
-    # BEFORE the endpoint block, whose `except` returns None and
-    # would hide this on a half-configured install. Any change counts,
-    # including a widening: those inserts SUCCEED, so nothing else reports it.
+    # BEFORE the endpoint block, whose `except` returns None and would hide
+    # this on a half-configured install. Any change counts, including a
+    # widening: those inserts SUCCEED, so nothing else reports it.
     active_column_dims = await live_embedding_column_width(session)
     if active_column_dims != pinned_column_dims:
         return (
@@ -559,10 +554,10 @@ async def _preflight_embedding(
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
-    Proves the capability instead of guarding failure modes
-    one at a time — subsumes provider outages, revoked keys, exhausted
-    quota, and rejected dimensions in one call per force run. Cheaper
-    guards stay because they fail earlier and name the problem better.
+    Proves the capability instead of guarding failure modes one at a time:
+    one call per force run covers provider outages, revoked keys, exhausted
+    quota and rejected dimensions. Cheaper guards stay because they fail
+    earlier and name the problem better.
 
     Raises:
         RuntimeError: if the embedding can't be generated or stored in the
@@ -591,9 +586,9 @@ async def _preflight_embedding(
             "embedding configuration or provider and re-run."
         ) from exc
 
-    # The vector must also FIT the column, asked of
-    # storage so it holds for any cause (failed rebuild, restored dump, hand
-    # ALTER, ENV_ONLY_CONFIG), and read once by the caller so the run pins it.
+    # The vector must also FIT the column. The width comes from storage so the
+    # check holds for any cause (failed rebuild, restored dump, hand ALTER,
+    # ENV_ONLY_CONFIG), and the caller reads it once so the run pins it.
     column_dims = pinned_column_dims
 
     generated = len(vectors[0])
@@ -629,8 +624,8 @@ async def backfill_embeddings(
     Args:
         session: Database session.
         force: regenerate every record, replacing its vectors per batch
-               inside the transaction that writes it — the
-               table is never emptied up front.
+               inside the transaction that writes it; the table is never
+               emptied up front.
         should_continue: optional async callable polled once per batch
                BEFORE its provider call; False stops the run at the
                boundary.
@@ -651,27 +646,27 @@ async def backfill_embeddings(
     report_progress = on_progress or _no_progress
 
     pinned: tuple[str, int | None, str | None] | None = None
-    # The storage width the run commits to, read off `pg_attribute`
-    # rather than `PersistentConfig`, because the two can disagree.
+    # The storage width the run commits to, read off `pg_attribute` rather than
+    # `PersistentConfig`, because the two can disagree.
     pinned_column_dims: int | None = None
-    # Non-None only on a force run; it is both the tenant boundary
-    # for the per-batch delete and the flag that a batch replaces.
+    # Non-None only on a force run; it is both the tenant boundary for the
+    # per-batch delete and the flag that a batch replaces.
     record_orm = None
 
     if force:
         Record = port.get_record_orm_class()
         record_orm = Record
 
-        # A tenant with no visible records has nothing the
-        # DELETE could remove, so demanding a working provider first turned a
-        # no-op into a 502 on a fresh install.
+        # A tenant with no visible records has nothing the DELETE could remove,
+        # so demanding a working provider first would turn a no-op into a 502
+        # on a fresh install.
         if (await session.execute(select(Record.id).limit(1))).first() is None:
             logger.info("Backfill: no visible records, nothing to regenerate")
             return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
-        # Everything that could stop this run must fail BEFORE the
-        # first per-batch delete; `model_name` is NOT NULL, so a run started
-        # under an unusable config could otherwise write nothing back.
+        # Everything that could stop this run must fail BEFORE the first
+        # per-batch delete; `model_name` is NOT NULL, so a run started under an
+        # unusable config could otherwise write nothing back.
         if not await AI_ENABLED.get(session):
             logger.error("backfill_force_aborted_ai_disabled")
             raise RuntimeError(
@@ -679,22 +674,22 @@ async def backfill_embeddings(
                 "Existing vectors were left untouched; enable AI and re-run."
             )
 
-        # Fail-closed on an unresolvable model (#1506): force never consults the
-        # model through get_records_without_embeddings.
+        # Fail closed on an unresolvable model: force never consults the model
+        # through get_records_without_embeddings.
         pinned = await _snapshot_embedding_config(session)
         pinned_column_dims = await live_embedding_column_width(session)
 
-        # A comparison guard is blind to a pair that is wrong,
-        # committed and stable; one real embedding tests the property itself.
+        # A comparison guard is blind to a pair that is wrong, committed and
+        # stable; one real embedding tests the property itself.
         await _preflight_embedding(session, pinned, pinned_column_dims)
 
-        # Deletion is per batch, inside
-        # the transaction that writes the replacements (`_replace_embeddings`),
-        # so an aborted run leaves a MIX that the fingerprint stamp keeps readable.
+        # Deletion is per batch, inside the transaction that writes the
+        # replacements (`_replace_embeddings`), so an aborted run leaves a MIX
+        # that the fingerprint stamp keeps readable.
 
-    # `force` passes through; the port's non-force branch answers a
-    # different question. The reclamation snapshot is taken
-    # BEFORE the fetch that decides emptiness, as row versions, titleless only.
+    # `force` passes through; the port's non-force branch answers a different
+    # question. The reclamation snapshot is taken BEFORE the fetch that decides
+    # emptiness, as row versions, titleless only.
     observed_rows: list[tuple[Any, Any]] = []
     if record_orm is not None:
         observed_rows = [
@@ -717,8 +712,8 @@ async def backfill_embeddings(
 
     records = await port.get_records_without_embeddings(session, force=force)
 
-    # Extract all data upfront so rollback/commit won't trigger lazy loads
-    # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
+    # Extracted upfront: rollback expires all ORM instances, and touching their
+    # attributes afterwards raises MissingGreenlet.
     observed = {
         r.id: {
             **content_fields(r),
@@ -733,24 +728,23 @@ async def backfill_embeddings(
         logger.info("Backfill: no records without embeddings found")
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
-    # Gate once for the whole run. Force is gated above, before the
-    # pre-flight spent a provider call, and does not ask twice.
+    # Gate once for the whole run. Force is gated above, before the pre-flight
+    # spends a provider call.
     if not force and not await AI_ENABLED.get(session):
         logger.info("Backfill: AI disabled, skipping", total_records=total)
         return {"processed": 0, "created": 0, "skipped": total, "errors": 0}
 
-    # Force reuses the validated snapshot; all three
-    # parts plus the storage width are pinned into every provider call so a
-    # mid-run config change cannot store model B's vectors under A's label.
+    # Force reuses the validated snapshot. All three parts plus the storage
+    # width are pinned into every provider call so a mid-run config change
+    # cannot store model B's vectors under A's label.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
         pinned_column_dims = await live_embedding_column_width(session)
     model_name, embedding_dims, base_url = pinned
-    # Every row is stamped with the PINNED configuration, never a
-    # fresh read at write time.
+    # Every row is stamped with the PINNED configuration, never a fresh read.
     config_fingerprint = embedding_config_fingerprint(*pinned)
 
-    # Build embeddable (record_id, content_text) pairs; empty content skips.
+    # Records with empty content are skipped.
     skipped_ids: list[Any] = []
     items: list[tuple[object, str]] = []
     for record_id, fields in observed.items():
@@ -763,8 +757,7 @@ async def backfill_embeddings(
 
     logger.info("Backfill: starting", total_records=total, batch_size=_BATCH_SIZE)
 
-    # Before the first batch, so a run whose provider is slow still reports the
-    # size of the job rather than an empty bar.
+    # Before the first batch, so a slow provider still shows the size of the job.
     await report_progress(0, len(items))
 
     created = 0
@@ -773,9 +766,9 @@ async def backfill_embeddings(
     traced_errors: set[str] = set()
 
     for start in range(0, len(items), _BATCH_SIZE):
-        # Cooperative stop for a run whose job was settled under
-        # it; the cancel endpoint's queue abort is best-effort and the DB CAS
-        # is the mechanism. Before the drift check so a stopped run pays nothing.
+        # Cooperative stop for a run whose job was settled under it: the cancel
+        # endpoint's queue abort is best-effort and the DB CAS is the mechanism.
+        # Before the drift check so a stopped run pays nothing.
         if should_continue is not None and not await should_continue():
             logger.warning(
                 "backfill_stopped_job_no_longer_running",
@@ -785,9 +778,9 @@ async def backfill_embeddings(
             )
             break
 
-        # Stop when the pin is no longer active; a catalog
-        # written into a stale vector space reports success and matches nothing.
-        # Outside the try: this must stop the run, not count as a batch error.
+        # Stop when the pin is no longer active: a catalog written into a stale
+        # vector space reports success and matches nothing. Outside the try so
+        # it stops the run instead of counting as a batch error.
         await _raise_on_pin_drift(
             session, pinned, created, pinned_column_dims=pinned_column_dims
         )
@@ -801,10 +794,9 @@ async def backfill_embeddings(
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            # The whole batch, so mixed widths fall to the
-            # per-record retry (#1579). Ahead of the inserts, so no lock needed.
+            # The whole batch, so mixed widths fall to the per-record retry.
+            # Ahead of the inserts, so no lock is needed.
             _raise_on_structural_width(vectors, pinned_column_dims, created)
-            # The batch's own old rows go in this same transaction.
             rows = [
                 {
                     "record_id": record_id,
@@ -814,17 +806,17 @@ async def backfill_embeddings(
                     "config_fingerprint": config_fingerprint,
                     "content_hash": compute_content_hash(content),
                 }
-                # `strict=True`. A provider that skips a MIDDLE
-                # input pairs a record with another text's vector under a
-                # valid-looking hash; raising sends the batch to the retry.
+                # `strict=True`: a provider that skips a MIDDLE input would pair
+                # a record with another text's vector under a valid-looking
+                # hash; raising sends the batch to the retry.
                 for (record_id, content), vector in zip(batch, vectors, strict=True)
             ]
             written = await _replace_current_embeddings(
                 session, rows, observed, record_orm=record_orm
             )
-            # WRITE, then check, then commit: the write's
-            # RowExclusiveLock makes an ALTER either visible or waiting.
-            # The last batch has no successor check; drop it here.
+            # WRITE, then check, then commit: the write's RowExclusiveLock makes
+            # an ALTER either visible or waiting. The last batch has no
+            # successor check, so this one covers it.
             await _raise_on_pin_drift(
                 session,
                 pinned,
@@ -837,13 +829,12 @@ async def backfill_embeddings(
             created += written
             skipped += len(rows) - written
         except _PinDrift:
-            # Drift is not a batch failure; retrying per record
-            # would commit the same stale vectors one at a time.
+            # Drift is not a batch failure; retrying per record would commit
+            # the same stale vectors one at a time.
             await session.rollback()
             raise
         except Exception as exc:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
-            # Shares the traceback budget with the per-record retry.
             logger.warning(
                 "Backfill: batch failed, retrying records individually",
                 batch_start=start,
@@ -877,17 +868,16 @@ async def backfill_embeddings(
         )
         await report_progress(processed_so_far, len(items))
 
-    # Records with no embeddable text have a stale vector and no
-    # replacement to pair a delete with, so they are reclaimed LAST, bounded to
-    # the row versions the run observed at its start (#1549 review).
+    # Records with no embeddable text have a stale vector and no replacement to
+    # pair a delete with, so they are reclaimed LAST, bounded to the row
+    # versions the run observed at its start.
     if record_orm is not None and skipped_ids:
-        # NOT `skipped`: that name holds the run's skipped COUNT and is
-        # reported back to the caller.
+        # Not `skipped`, which holds the run's skipped COUNT.
         skipped_set = set(skipped_ids)
         reclaimable = [pair for pair in observed_rows if pair[0] in skipped_set]
-        # An unchanged ROW is not an unchanged RECORD (the
-        # ingest writer skips on an unchanged hash), so each record is re-read
-        # and deleted under one FOR UPDATE lock, one chunk per transaction.
+        # An unchanged ROW is not an unchanged RECORD (the ingest writer skips
+        # on an unchanged hash), so each record is re-read and deleted under
+        # one FOR UPDATE lock, one chunk per transaction.
         removed = await _reclaim_observed_rows(session, port, record_orm, reclaimable)
         logger.info(
             "Backfill: dropped vectors for records with no embeddable content",
@@ -910,7 +900,7 @@ if __name__ == "__main__":
     import asyncio
 
     async def _run():
-        from app.core.db import async_session  # late-bind
+        from app.core.db import async_session  # late-bound
 
         async with async_session() as session:
             result = await backfill_embeddings(session)

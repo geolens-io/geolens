@@ -1,4 +1,4 @@
-"""Raw read-only SQL endpoint over the sandbox (#565).
+"""Raw read-only SQL endpoint over the sandbox.
 
 ``POST /api/query/`` accepts a single SELECT statement and returns
 ``{columns, rows}`` through the same validation/execution rails AI chat uses
@@ -15,15 +15,14 @@
 - errors expose only ``SandboxError.user_message``; every EVALUATED query
   emits a durable audit event.
 
-Audit scope: PRE-sandbox rejections (auth, body validation,
-rate limit) are logged, not written to the durable trail — a write per
-throttled 429 would let cheap requests amplify into unbounded audit writes.
+Audit scope: PRE-sandbox rejections (auth, body validation, rate limit) are
+logged, not written to the durable trail; a write per throttled 429 would let
+cheap requests amplify into unbounded audit writes.
 
 Lives in ``processing/`` not ``platform/`` because it imports
-``modules.auth``/``modules.audit`` (``platform/`` may not; test_layering.py).
-Primary consumer: the read-only MCP server's ``query`` tool, via the
-``read_only`` API-key carve-out in ``app.modules.auth.dependencies``
-(#875/#565).
+``modules.auth``/``modules.audit``, which ``platform/`` may not. Primary
+consumer: the read-only MCP server's ``query`` tool, via the ``read_only``
+API-key carve-out in ``app.modules.auth.dependencies``.
 """
 
 from __future__ import annotations
@@ -58,12 +57,11 @@ logger = structlog.stdlib.get_logger(__name__)
 
 
 class _LoggedRejectionRoute(APIRoute):
-    """Log — never durably audit — authenticated PRE-sandbox rejections (#565).
+    """Log, never durably audit, authenticated PRE-sandbox rejections.
 
     A body-validation failure (422) or rate-limit rejection (429) is raised
-    before the handler body runs, so the handler's ``query.reject`` audit
-    never fires — see the module docstring for why durably auditing these
-    is a write-amplification vector.
+    before the handler body runs, so the handler's ``query.reject`` audit never
+    fires (see the module docstring for why these are not durably audited).
 
     FastAPI solves dependencies (including auth) BEFORE body validation, and
     the rate limiter runs AFTER, so ``_rate_limit_scoped_user`` has already
@@ -112,18 +110,17 @@ _QUERY_TIMEOUT_MS = 5_000
 _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
-# The self-join fan-out cap lives in sandbox_bounds.py and
-# applies to query_data too — a property of the shared planner/pool, not
-# this endpoint, and both surfaces share the `use_ai_chat` permission. Kept
-# under the local name so the existing tests read unchanged.
+# The self-join fan-out cap lives in sandbox_bounds.py and applies to
+# query_data too: it is a property of the shared planner and pool, and both
+# surfaces share the `use_ai_chat` permission.
 _QUERY_MAX_TABLE_REPEATS = MAX_TABLE_REPEATS
 
-# Output-amplifying functions dropped on this raw surface: each
-# turns a small input into an arbitrarily large single cell via a width/
-# count/replacement argument, which no SQL-length cap, row_limit, or
-# statement timeout bounds. The allowlist currently admits only format/
-# replace/regexp_replace; the rest are listed defensively so a future
-# addition can't silently reopen the hole. AI chat keeps them all.
+# Output-amplifying functions dropped on this raw surface: each turns a small
+# input into an arbitrarily large single cell via a width/count/replacement
+# argument, which no SQL-length cap, row_limit, or statement timeout bounds.
+# The allowlist currently admits only format/replace/regexp_replace; the rest
+# are listed defensively so a future addition can't silently reopen the hole.
+# AI chat keeps them all.
 _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
     {
         "format",
@@ -135,8 +132,8 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
         "space",
         "overlay",
         # concatenation doubles a value when both operands are the same;
-        # chained through CTEs it amplifies without bound (#565). `concat`
-        # also triggers the `||` operator block in validate_sql.
+        # chained through CTEs it amplifies without bound. `concat` also
+        # triggers the `||` operator block in validate_sql.
         "concat",
         "concat_ws",
         # concatenating aggregates build one huge cell from many rows
@@ -166,13 +163,12 @@ _capacity_bound = capacity_bound
 _query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
-# request. These reuse the app-wide ``limiter``, so the
-# per-user/per-IP counters are cluster-wide wherever REDIS_URL is set and
-# per-uvicorn-worker otherwise. Either way it's a secondary
-# bound: the sandbox's per-user advisory lock is a Postgres xact lock
-# (GLOBAL across workers), already serializing each user to ONE in-flight
-# query at a 5 s statement timeout, so the counter only caps request
-# FREQUENCY loosely.
+# request. These reuse the app-wide ``limiter``, so the per-user/per-IP
+# counters are cluster-wide wherever REDIS_URL is set and per-uvicorn-worker
+# otherwise. Either way it's a secondary bound: the sandbox's per-user advisory
+# lock is a Postgres xact lock (GLOBAL across workers) that already serializes
+# each user to ONE in-flight query at a 5 s statement timeout, so the counter
+# only caps request FREQUENCY loosely.
 _QUERY_PER_USER_LIMIT = "30/minute"
 _QUERY_PER_IP_LIMIT = "60/minute"
 
@@ -256,7 +252,7 @@ class SandboxQueryRequest(BaseModel):
         if any(not name for name in cleaned):
             raise ValueError("restrict_tables entries must be non-empty")
         # PostgreSQL identifiers cap at 63 bytes; these names are echoed into
-        # the audit trail, so junk-sized entries are refused, not stored.
+        # the audit trail, so junk-sized entries are refused.
         if any(len(name) > 63 for name in cleaned):
             raise ValueError("restrict_tables entries must be valid table names")
         return cleaned
@@ -283,9 +279,8 @@ async def _audit_query(
     a handler commit that doesn't otherwise exist.
     """
     details: dict = {
-        # Bounded copy of the statement: the audit trail is the governance
-        # record of SQL data access, and 2000 chars covers real queries
-        # without letting a 20 KB statement bloat every row.
+        # Bounded copy: 2000 chars covers real queries without letting a 20 KB
+        # statement bloat every audit row.
         "sql": body.sql[:2000],
         "restrict_tables": sorted(set(body.restrict_tables)),
         "row_limit": body.row_limit,
@@ -312,12 +307,11 @@ async def _audit_query(
         await audit_emit_durable(AuditEvent(action="query.reject", **common))
 
 
-# Dual-shape: trailing-slash is canonical/OpenAPI-visible;
-# no-slash is a hidden alias registered here too so both carry
-# `_LoggedRejectionRoute` (the app's alias builder would otherwise
-# re-register a missing no-slash route as a plain APIRoute and drop
-# pre-sandbox-rejection logging). `include_in_schema=False` hides it; the
-# #875 read_only carve-out already exempts both forms.
+# The trailing-slash form is canonical and in the OpenAPI schema. The no-slash
+# form is a hidden alias registered here so both carry `_LoggedRejectionRoute`;
+# the app's alias builder would otherwise register it as a plain APIRoute and
+# drop pre-sandbox-rejection logging. The read_only API-key carve-out exempts
+# both forms.
 @router.post("", include_in_schema=False)
 @router.post(
     "/",
@@ -354,19 +348,18 @@ async def sandbox_query_endpoint(
             max_table_repeats=_QUERY_MAX_TABLE_REPEATS,
             require_reader_role=True,
             # Return the request connection before the sandbox opens its own,
-            # and cap total concurrent executions. Nothing below
-            # reads `db`; the audit trail uses its own session.
+            # and cap total concurrent executions. Nothing below reads `db`;
+            # the audit trail uses its own session.
             release_session=True,
             capacity_semaphore=_query_slots,
-            # Raw-surface guards against output/cardinality amplification (#565).
+            # Raw-surface guards against output/cardinality amplification.
             extra_blocked_functions=_QUERY_BLOCKED_FUNCTIONS,
             max_values_rows=_QUERY_MAX_VALUES_ROWS,
             max_output_columns=_QUERY_MAX_OUTPUT_COLUMNS,
         )
     except SandboxError as exc:
         # Only the sanitized message and the category-mapped status leave the
-        # API. The category itself and full server-side detail are logged by
-        # the sandbox; __cause__ never crosses this boundary.
+        # API; the sandbox logs the full detail, and __cause__ never crosses.
         await _audit_query(request, user, body, category=exc.category)
         raise HTTPException(
             status_code=_SANDBOX_STATUS.get(
@@ -377,15 +370,14 @@ async def sandbox_query_endpoint(
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated
     )
-    # Driver types Pydantic cannot serialize turn a successful,
-    # already-audited query into a 500. Normalize each cell — bytea to
-    # \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
+    # Driver types Pydantic cannot serialize would turn a successful,
+    # already-audited query into a 500, so normalize each cell recursively.
     result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
-    # A wide DATA cell (or a projection the column cap let
-    # through) can still make one row gigabytes. Bound by the response's
-    # ACTUAL serialized size, not `str(cell)` length (undercounts multi-byte
-    # UTF-8 and JSON escaping) — serialize once, measure encoded bytes, and
-    # return exactly those bytes so nothing is serialized twice.
+    # A wide DATA cell (or a projection the column cap let through) can still
+    # make one row gigabytes. Bound by the ACTUAL serialized size, not
+    # `str(cell)` length (which undercounts multi-byte UTF-8 and JSON
+    # escaping): serialize once, measure the encoded bytes, and return exactly
+    # those bytes.
     payload = result.model_dump_json().encode("utf-8")
     if len(payload) > _QUERY_MAX_RESPONSE_BYTES:
         await _audit_query(request, user, body, category="response_too_large")
@@ -399,12 +391,11 @@ async def sandbox_query_endpoint(
 def _json_safe(value: object) -> object:
     """Make one result cell JSON-serializable, recursive.
 
-    Mirrors ``service_analysis._json_safe`` — duplicated because ``processing/``
+    Mirrors ``service_analysis._json_safe``, duplicated because ``processing/``
     may not import ``modules.catalog``. Encodes bytea as ``\\x``-hex (matching
     to_jsonb) and asyncpg ranges (``int4range``, ``tsrange``, …) as their text
-    form, which Pydantic cannot serialize natively.
-    Recurses into containers; scalar driver types Pydantic handles (datetime,
-    Decimal, UUID) pass through.
+    form, which Pydantic cannot serialize natively. Recurses into containers;
+    scalar driver types Pydantic handles (datetime, Decimal, UUID) pass through.
     """
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "\\x" + bytes(value).hex()

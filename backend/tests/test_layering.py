@@ -1175,7 +1175,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 114,
-        "backend/app/processing/ai/chat_service.py": 519,
+        "backend/app/processing/ai/chat_service.py": 488,
         "backend/app/platform/extensions/defaults.py": 75,
     }
     private_service_default_line_budget = 350
@@ -1203,8 +1203,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
-        "backend/app/processing/ai/chat_actions.py": 587,
-        "backend/app/processing/ai/chat_geojson.py": 440,
+        "backend/app/processing/ai/chat_actions.py": 545,
+        "backend/app/processing/ai/chat_geojson.py": 424,
         # Default adapters expose explicit extension contracts rather than catch-all shims.
         "backend/app/platform/extensions/defaults_ai_openai.py": 484,
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
@@ -1354,7 +1354,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/persistent_config.py": 1166,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
-    "backend/app/processing/embeddings/backfill.py": 919,
+    "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1653,
@@ -1406,7 +1406,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
     # release and truncated-reply refusal around provider calls and SSE failures.
-    "backend/app/processing/ai/service.py": 1015,
+    "backend/app/processing/ai/service.py": 991,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats and catalog feeds share visibility, lineage, raster-asset

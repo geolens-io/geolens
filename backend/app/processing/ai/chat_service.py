@@ -1,15 +1,14 @@
 """Chat-based map editing service: facade re-exporting from chat_* sub-modules.
 
 Preserves the stable public import path used by router.py, streaming.py,
-metadata_service.py, service.py, and tests — both the public orchestrator
+metadata_service.py, service.py, and tests: the public orchestrator
 (``chat_edit_map``, ``build_chat_system_prompt``) and the private helpers
 pulled from sibling modules for patching (see ``__all__`` below).
 
 ``generate_sql`` and ``validate_and_execute`` are imported here AT module
-level so existing tests can patch
-``app.processing.ai.chat_service.generate_sql``/``.validate_and_execute``
-and the patch is honored at every call site (chat_actions._handle_query_data
-looks them up via this module — see chat_actions.py for the rationale).
+level so a patch of ``app.processing.ai.chat_service.generate_sql`` or
+``.validate_and_execute`` is honored at every call site:
+``chat_actions._handle_query_data`` looks them up through this module.
 """
 
 import json
@@ -23,8 +22,7 @@ from app.core.identity import Identity
 from app.platform.extensions import get_ai_provider
 from app.platform.sandbox import validate_and_execute  # re-exported (test patch target)
 
-# Re-exports — public names every external caller may import from this facade.
-# Sub-module imports first; the facade-only orchestrator follows below.
+# Re-exports: public names every external caller may import from this facade.
 from app.processing.ai.chat_actions import (
     _build_label_action,
     _collect_chat_action,
@@ -146,21 +144,20 @@ def build_chat_system_prompt(
     When ``can_edit`` is False the caller may view but not edit the map (the AI
     is given read-only tools — see ``select_chat_tools``); a read-only directive
     is injected so the model declines edit requests instead of silently failing.
-    ``can_edit`` also gates the query_data filter-offer note (#1242): only an
-    editor has set_filter available to fulfil it.
+    ``can_edit`` also gates the query_data filter-offer note: only an editor
+    has set_filter available to fulfil it.
     """
-    # Cap layers to prevent unbounded prompt growth
+    # Cap layers to bound prompt growth.
     display_layers = layers[:_MAX_SYSTEM_PROMPT_LAYERS]
     truncated_count = len(layers) - len(display_layers)
 
     layers_desc = []
     for layer in display_layers:
-        # Limit column info to first N columns to avoid token bloat
         cols_raw = layer.column_info or []
         cols_limited = cols_raw[:_MAX_COLUMNS_PER_LAYER]
-        # Column names reach here from the client for a map layer
-        # and from an upstream service schema for an ArcGIS/STAC ingest, so
-        # they carry the same injection risk as the layer name sanitized below.
+        # Column names come from the client for a map layer and from an
+        # upstream service schema for an ArcGIS/STAC ingest, so they carry the
+        # same injection risk as the layer name sanitized below.
         cols_str = ", ".join(
             f"{sanitize_dataset_value(c.get('name', '?'))} "
             f"({sanitize_dataset_value(c.get('type', '?'))})"
@@ -179,7 +176,7 @@ def build_chat_system_prompt(
         if layer.paint:
             summary_parts.append(f"Paint: {json.dumps(layer.paint)}")
 
-        # Dataset metadata lines — dataset_title is also user-controlled, sanitize it
+        # dataset_title is user-controlled too.
         title_str = (
             f"\n  Title: {_sanitize_layer_name(layer.dataset_title)}"
             if layer.dataset_title
@@ -189,7 +186,6 @@ def build_chat_system_prompt(
             f"\n  Features: {layer.feature_count}" if layer.feature_count else ""
         )
 
-        # Sample values (limit to first N columns, 5 values each)
         sample_str = ""
         if layer.sample_values:
             sample_parts = []
@@ -197,8 +193,8 @@ def build_chat_system_prompt(
                 :_MAX_SAMPLE_COLS
             ]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                # Raw row content — the one field on this layer
-                # that an attacker controls end to end via a public dataset.
+                # Raw row content: the one field on this layer an attacker
+                # controls end to end via a public dataset.
                 safe_col = sanitize_dataset_value(col_name)
                 safe_vals = [sanitize_dataset_value(v) for v in vals]
                 sample_parts.append(f"{safe_col}: {safe_vals}")
@@ -243,13 +239,10 @@ def build_chat_system_prompt(
         )
     )
 
-    # Companion to query_data/set_filter, not a rewrite — this
-    # fires AFTER query_data answers a QUESTION, so it never decides which
-    # tool a request reaches. It must stay an OFFER, once: "show me the..."
-    # must not silently land on a persistent filter, because a read-shaped
-    # question must never mutate saved map state on its own. Gated on
-    # can_edit — a read-only caller has no set_filter tool, so offering it
-    # here would be broken.
+    # Fires AFTER query_data answers a QUESTION, so it never decides which
+    # tool a request reaches. It must stay an OFFER, once: a read-shaped
+    # question ("show me the...") must never mutate saved map state on its own.
+    # Gated on can_edit: a read-only caller has no set_filter tool.
     filter_offer_note = (
         (
             "\n- If the question was a simple row predicate on a layer "
@@ -266,10 +259,10 @@ def build_chat_system_prompt(
         else ""
     )
 
-    # The fence is assembled by one helper that also strips
-    # any forged marker out of the block. Interpolating the tags here would
-    # have left the id, the serialized filter and the paint dict able to close
-    # the region early, since none of those pass through a sanitizer.
+    # One helper assembles the fence and strips any forged marker from the
+    # block. Interpolating the tags here would leave the id, the serialized
+    # filter and the paint dict able to close the region early, since none of
+    # those pass through a sanitizer.
     fenced_layers = fence_untrusted_content(
         f"{chr(10).join(layers_desc)}{truncation_note}"
     )
@@ -412,11 +405,10 @@ async def chat_edit_map(
     selected_tools = select_chat_tools(can_edit)
     allowed_tool_names = {t["name"] for t in selected_tools}
 
-    # Build tool executor bound to this session/user/layers. The non-streaming
-    # complete() loop is advertised-tool constrained and has no XML fallback, but
-    # we still reject tool names outside the selected set at execution AND
-    # collection so a view-only caller can never run or receive a mutating action
-    # (defense-in-depth, uniform with the streaming path).
+    # The non-streaming complete() loop is constrained to advertised tools and
+    # has no XML fallback, but tool names outside the selected set are still
+    # rejected at execution AND collection so a view-only caller can never run
+    # or receive a mutating action (defense in depth, as on the streaming path).
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         if tool_name not in allowed_tool_names:
             logger.warning(
@@ -445,9 +437,8 @@ async def chat_edit_map(
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
     await release_connection(session)
-    # One accounting shape at every provider call site.
-    # The tokens are spent the moment the provider answers, so any way out of
-    # the loop must still bill the daily cap: an exhaustion, a later request
+    # Tokens are spent the moment the provider answers, so any way out of the
+    # loop must still bill the daily cap: an exhaustion, a later request
     # failure, a tool executor that raises, or a client that disconnects.
     async with usage_accounting(
         session, user_id=user.id, subsystem="chat", model=model
@@ -479,11 +470,9 @@ async def chat_edit_map(
         output_tokens=result.output_tokens,
     )
 
-    # Parse actions into ChatAction models (per-item; invalid ones drop with a
-    # note instead of failing the whole turn)
+    # Per-item: invalid actions drop with a note instead of failing the turn.
     actions, invalid = _build_chat_actions(result.actions)
 
-    # Validate layer_id references + add_layer dataset RBAC
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
     )

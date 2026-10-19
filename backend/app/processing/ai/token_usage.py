@@ -60,19 +60,16 @@ async def record_token_usage(
     """Persist a token usage record durably, best-effort (errors logged, not raised).
 
     Writes in an INDEPENDENT, self-committing session, not the caller's
-    (``_db``, kept for call-site stability but unused).
+    (``_db`` is unused, kept for call-site stability).
 
-    Why independent: ``MAX_AI_TOKENS_PER_USER_PER_DAY`` reads this table,
-    but gated AI paths commit inconsistently — ``get_db()`` doesn't commit
-    on success, streaming/chat never commit, only the non-stream map
-    handler does — so a savepoint-only write is dropped on
-    the rest, under-counting the cap. This transaction is durable
-    regardless of the request lifecycle: tokens already spent must
-    survive even a later rollback.
+    ``MAX_AI_TOKENS_PER_USER_PER_DAY`` reads this table, but gated AI paths
+    commit inconsistently (``get_db()`` doesn't commit on success, streaming
+    and chat never commit, only the non-stream map handler does), so a write
+    in the caller's session would be dropped on the rest and under-count the
+    cap. Tokens already spent must survive even a later rollback.
     """
-    # Late-bind so the test fixture's rebinding of
-    # app.core.db.async_session is honored; a module-scope import snapshots
-    # the dev-DB factory.
+    # Late-bound so the test fixture's rebinding of app.core.db.async_session
+    # is honored; a module-scope import snapshots the dev-DB factory.
     from app.core.db import async_session
 
     try:
@@ -107,8 +104,7 @@ async def record_token_usage_from_error(
     down). Does nothing when absent or zero, so a failure that never
     reached the provider writes no row.
 
-    Lazily imported reader to keep this module free of a processing/ai
-    import cycle.
+    The reader is imported lazily to avoid an import cycle with llm_loop.
     """
     from app.processing.ai.llm_loop import token_usage_from_error
 
@@ -121,9 +117,9 @@ async def record_token_usage_from_error(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
-    # Shielded. This is called from the handler that is
-    # about to re-raise, and when that exception IS the cancellation, a plain
-    # await here would be cancelled before the row lands.
+    # Shielded: this runs in a handler about to re-raise, and when that
+    # exception IS the cancellation, a plain await would be cancelled before
+    # the row lands.
     await _await_write_even_if_cancelled(
         record_token_usage(
             _db,
@@ -152,11 +148,10 @@ async def usage_accounting(
 ) -> AsyncIterator[None]:
     """Bill a provider tool loop for what it spent, however it ends.
 
-    Each caller had its own ``except Exception``, and
-    cancellation isn't one — an SSE client disconnecting after a
-    completed round left tokens unrecorded. One context manager instead,
-    so a caller added later gets it by construction; a structural test
-    pins that every provider ``complete()`` sits inside one.
+    An ``except Exception`` per caller would miss cancellation, so an SSE
+    client disconnecting after a completed round would leave tokens
+    unrecorded. A structural test pins that every provider ``complete()``
+    sits inside one of these.
 
     ``BaseException``, not ``Exception``: ``CancelledError`` derives from
     it, and that's exactly the shape a disconnect takes.

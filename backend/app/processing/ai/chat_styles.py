@@ -17,9 +17,8 @@ def _get_color_property(
 ) -> str:
     """Determine the correct MapLibre color paint property for the layer.
 
-    Heatmap layers share the source's Point geometry but require the
-    heatmap-color paint property, not circle-color — check layer_type
-    first so a heatmap-typed layer with Point geometry routes correctly.
+    Heatmap layers share the source's Point geometry but need heatmap-color,
+    not circle-color, so layer_type is checked first.
     """
     if layer_type and "heatmap" in layer_type.lower():
         return "heatmap-color"
@@ -70,7 +69,7 @@ async def _build_data_driven_style(
         target_layer.geometry_type, layer_type=target_layer.layer_type
     )
 
-    # Build allowed_tables from the validated layer set for defense-in-depth
+    # Defense in depth: queries stay within the validated layer set.
     allowed_tables = {layer.dataset_table_name for layer in layers}
 
     if mode == "categorical":
@@ -119,9 +118,9 @@ async def _build_categorical_style(
     )
     colors = _get_ramp_colors(ramp, len(values))
 
-    # Build MapLibre match expression: ["match", ["get", column], val1, color1, ..., fallback]
-    # MapLibre rejects boolean match labels, so a boolean column is matched
-    # on its "true"/"false" string form. Other types keep native labels.
+    # ["match", ["get", column], val1, color1, ..., fallback]. MapLibre rejects
+    # boolean match labels, so a boolean column is matched on its "true"/"false"
+    # string form. Other types keep native labels.
     match_input: list = ["get", column]
     if any(isinstance(v, bool) for v in values):
         match_input = ["to-string", match_input]
@@ -133,14 +132,13 @@ async def _build_categorical_style(
         match_expr.append(colors[i])
         categories.append({"value": val, "color": colors[i]})
 
-    # Fallback color (gray)
     match_expr.append("#cccccc")
 
     paint: dict = {color_prop: match_expr}
-    # Ensure fill is visible when applying data-driven color to polygons
+    # Keep polygon fills visible under data-driven color.
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
-        paint["_outline-color"] = "#374151"  # neutral dark gray outline
+        paint["_outline-color"] = "#374151"
 
     return {
         "type": "set_data_driven_style",
@@ -182,7 +180,6 @@ async def _build_graduated_style(
     if min_val is None or max_val is None:
         return {"error": f"No numeric data for column {column}"}
 
-    # Compute breaks
     if method == "equal_interval":
         if max_val == min_val:
             breaks = [min_val]
@@ -192,13 +189,13 @@ async def _build_graduated_style(
                 for i in range(1, class_count)
             ]
     else:
-        # quantile: use the dynamically-computed quantiles from stats
+        # quantile
         breaks = stats.get("quantiles", [])
 
     # MapLibre requires strictly increasing finite stops. Deduplicate quantiles
-    # server-side because frontend validation cannot repair generated expressions.
-    # Drop non-finite values to keep JSON valid, then resample colours so the
-    # remaining stops span the full ramp.
+    # here because frontend validation cannot repair generated expressions, and
+    # drop non-finite values to keep JSON valid. Colours are resampled below to
+    # match the remaining stops.
     breaks = sorted(
         {
             float(b)
@@ -214,7 +211,7 @@ async def _build_graduated_style(
 
     colors = _get_ramp_colors(ramp, len(breaks) + 1)
 
-    # Build MapLibre step expression: ["step", ["get", column], color0, break1, color1, ...]
+    # ["step", ["get", column], color0, break1, color1, ...]
     step_expr: list = ["step", ["get", column], colors[0]]
     break_entries = []
     for i, brk in enumerate(breaks):
@@ -228,10 +225,10 @@ async def _build_graduated_style(
         )
 
     paint: dict = {color_prop: step_expr}
-    # Ensure fill is visible when applying data-driven color to polygons
+    # Keep polygon fills visible under data-driven color.
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
-        paint["_outline-color"] = "#374151"  # neutral dark gray outline
+        paint["_outline-color"] = "#374151"
 
     return {
         "type": "set_data_driven_style",
