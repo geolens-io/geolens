@@ -1,6 +1,10 @@
 # ==============================================================================
 # Shared environment anchors
 # ==============================================================================
+# A bare `KEY:` passes the host value through and otherwise leaves the
+# Settings default in charge. Explicit `${KEY:-default}` entries stay where an
+# empty host value must still get the default, or where Compose needs a value
+# of its own. `make env-doc-check` checks which form each entry uses.
 x-db-env: &db-env
   # API/worker must not retain the privileged bootstrap password when the
   # opt-in runtime role is enabled. The migrate service overrides these two
@@ -12,7 +16,7 @@ x-db-env: &db-env
   POSTGRES_DB: ${POSTGRES_DB}
   # Empty preserves the legacy single-tenant superuser connection. Setting a
   # role opts API/worker into the live least-privilege boot guard.
-  GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
+  GEOLENS_RUNTIME_DB_ROLE:
 
 x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -34,14 +38,14 @@ x-auth-env: &auth-env
   PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-12}"
   PASSWORD_REQUIRE_CLASSES: "${PASSWORD_REQUIRE_CLASSES:-3}"
   GEOLENS_TENANCY_MODE: "${GEOLENS_TENANCY_MODE:-single_tenant}"
-  TENANT_BASE_DOMAIN: "${TENANT_BASE_DOMAIN:-}"
+  TENANT_BASE_DOMAIN:
   TENANT_TRUSTED_HOSTS: "${TENANT_TRUSTED_HOSTS:-localhost,127.0.0.1,::1,api,testserver}"
 
 x-db-ssl-env: &db-ssl-env
   DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
-  TILE_DATABASE_URL_OVERRIDE: "${TILE_DATABASE_URL_OVERRIDE:-}"
+  TILE_DATABASE_URL_OVERRIDE:
   DATABASE_SSL_MODE: "${DATABASE_SSL_MODE:-prefer}"
-  DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
+  DATABASE_SSL_CA_CERT:
   DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-true}"  # aligned with the Settings default and the .env.example commented default
   DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
   DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
@@ -58,61 +62,59 @@ x-db-ssl-env: &db-ssl-env
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
-  S3_ENDPOINT: "${S3_ENDPOINT:-}"
+  S3_ENDPOINT:
   S3_PUBLIC_ENDPOINT: "${S3_PUBLIC_ENDPOINT:-}"
-  S3_BUCKET: "${S3_BUCKET:-}"
-  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
-  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+  S3_BUCKET:
+  S3_ACCESS_KEY_ID:
+  S3_SECRET_ACCESS_KEY:
   S3_REGION: "${S3_REGION:-us-east-1}"
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
   S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
   S3_PRESIGNED_DOWNLOADS: "${S3_PRESIGNED_DOWNLOADS:-false}"
   # Azure Blob Storage vars — required when STORAGE_PROVIDER=azure.
-  # Defaults to empty string so the api+worker containers receive the variable name
-  # (Pydantic's empty_str_to_none validator coerces "" → None, which is correct for
-  # optional fields).  Cloud-dev: set these in .env; keep Azurite creds out of the image.
-  AZURE_STORAGE_CONTAINER: "${AZURE_STORAGE_CONTAINER:-}"
-  AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
-  AZURE_STORAGE_ACCOUNT_URL: "${AZURE_STORAGE_ACCOUNT_URL:-}"
-  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
+  # Cloud-dev: set these in .env; keep Azurite creds out of the image.
+  AZURE_STORAGE_CONTAINER:
+  AZURE_STORAGE_CONNECTION_STRING:
+  AZURE_STORAGE_ACCOUNT_URL:
+  AZURE_STORAGE_ACCOUNT_KEY:
 
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
   # Pass the posture flag through (kept in sync with
   # docker-compose.prod.yml). Empty (unset) falls back to LOG_JSON in Settings.
-  ENVIRONMENT: "${ENVIRONMENT:-}"
+  ENVIRONMENT:
 
 x-ai-env: &ai-env
-  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-  LLM_MODEL: "${LLM_MODEL:-}"
-  LLM_MODEL_LIGHT: "${LLM_MODEL_LIGHT:-}"
+  ANTHROPIC_API_KEY:
+  LLM_MODEL:
+  LLM_MODEL_LIGHT:
   ANTHROPIC_PLATFORM: "${ANTHROPIC_PLATFORM:-anthropic}"
-  ANTHROPIC_BASE_URL: "${ANTHROPIC_BASE_URL:-}"
+  ANTHROPIC_BASE_URL:
   ANTHROPIC_FOUNDRY_API_KEY: "${ANTHROPIC_FOUNDRY_API_KEY:-}"
   ANTHROPIC_FOUNDRY_RESOURCE: "${ANTHROPIC_FOUNDRY_RESOURCE:-}"
-  ANTHROPIC_BEDROCK_API_KEY: "${ANTHROPIC_BEDROCK_API_KEY:-}"
-  ANTHROPIC_BEDROCK_AWS_REGION: "${ANTHROPIC_BEDROCK_AWS_REGION:-}"
-  ANTHROPIC_BEDROCK_AWS_ACCESS_KEY_ID: "${ANTHROPIC_BEDROCK_AWS_ACCESS_KEY_ID:-}"
-  ANTHROPIC_BEDROCK_AWS_SECRET_ACCESS_KEY: "${ANTHROPIC_BEDROCK_AWS_SECRET_ACCESS_KEY:-}"
+  ANTHROPIC_BEDROCK_API_KEY:
+  ANTHROPIC_BEDROCK_AWS_REGION:
+  ANTHROPIC_BEDROCK_AWS_ACCESS_KEY_ID:
+  ANTHROPIC_BEDROCK_AWS_SECRET_ACCESS_KEY:
   CLOUD_ML_REGION: "${CLOUD_ML_REGION:-}"
   ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID:-}"
   GOOGLE_APPLICATION_CREDENTIALS: "${GOOGLE_APPLICATION_CREDENTIALS:-}"
   OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
   OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o}"
-  OPENAI_REASONING_EFFORT: "${OPENAI_REASONING_EFFORT:-}"
-  OPENAI_API_STYLE: "${OPENAI_API_STYLE:-}"
-  OPENAI_MODEL_LIGHT: "${OPENAI_MODEL_LIGHT:-}"
-  OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+  OPENAI_REASONING_EFFORT:
+  OPENAI_API_STYLE:
+  OPENAI_MODEL_LIGHT:
+  OPENAI_BASE_URL:
   EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
   EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
-  EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
+  EMBEDDING_BASE_URL:
 
 x-edition-env: &edition-env
   # Edition, tenancy, and signed-license inputs must reach every backend
   # process. Empty edition preserves extension auto-detection; single_tenant is
   # the safe OSS default.
-  GEOLENS_EDITION: "${GEOLENS_EDITION:-}"
+  GEOLENS_EDITION:
   GEOLENS_TENANCY_MODE: "${GEOLENS_TENANCY_MODE:-single_tenant}"
   GEOLENS_LICENSE_ENFORCE: "${GEOLENS_LICENSE_ENFORCE:-false}"
   GEOLENS_LICENSE_KEY: "${GEOLENS_LICENSE_KEY:-}"
@@ -121,24 +123,24 @@ x-edition-env: &edition-env
 
 x-notification-env: &notification-env
   NOTIFICATIONS_ENABLED: "${NOTIFICATIONS_ENABLED:-false}"
-  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_HOST:
   SMTP_PORT: "${SMTP_PORT:-587}"
-  SMTP_USERNAME: "${SMTP_USERNAME:-}"
-  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
-  SMTP_FROM_ADDRESS: "${SMTP_FROM_ADDRESS:-}"
+  SMTP_USERNAME:
+  SMTP_PASSWORD:
+  SMTP_FROM_ADDRESS:
   SMTP_USE_TLS: "${SMTP_USE_TLS:-true}"
-  NOTIFICATION_WEBHOOK_URL: "${NOTIFICATION_WEBHOOK_URL:-}"
-  NOTIFICATION_WEBHOOK_SECRET: "${NOTIFICATION_WEBHOOK_SECRET:-}"
+  NOTIFICATION_WEBHOOK_URL:
+  NOTIFICATION_WEBHOOK_SECRET:
   NOTIFY_ON_SIGNUP: "${NOTIFY_ON_SIGNUP:-false}"
   NOTIFY_ON_INGEST_COMPLETE: "${NOTIFY_ON_INGEST_COMPLETE:-false}"
   NOTIFY_ON_INGEST_FAILED: "${NOTIFY_ON_INGEST_FAILED:-false}"
   NOTIFY_ON_HEALTH_ALERT: "${NOTIFY_ON_HEALTH_ALERT:-false}"
-  NOTIFICATION_ADMIN_EMAIL: "${NOTIFICATION_ADMIN_EMAIL:-}"
+  NOTIFICATION_ADMIN_EMAIL:
 
 x-app-runtime-env: &app-runtime-env
   LANDING_FIRST: "${LANDING_FIRST:-false}"
   BANNER_ENABLED: "${BANNER_ENABLED:-false}"
-  BANNER_TEXT: "${BANNER_TEXT:-}"
+  BANNER_TEXT:
   BANNER_COLOR: "${BANNER_COLOR:-warning}"
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
   REMOTE_RASTER_RELAY_BASE_URL: "${REMOTE_RASTER_RELAY_BASE_URL:-http://api:8000}"
@@ -168,25 +170,6 @@ x-hardened-base: &hardened-base
 # ==============================================================================
 # Services
 # ==============================================================================
-# Services at a glance:
-#   db        — PostgreSQL 18 + PostGIS 3.6 (catalog data, pgvector, pg_trgm)
-#   migrate   — one-shot alembic upgrade heads, exits when done
-#   api       — FastAPI REST + OGC API + Records (host :8001 -> container :8000)
-#   worker    — Procrastinate job queue (GDAL ingest, embeddings, exports)
-#   titiler   — Raster tile server (internal only, reachable at http://titiler:8000)
-#   frontend  — Vite dev server (host :8080 -> container :5173, proxies /api -> api:8000)
-#   backup    — pg_dump + object-storage archive, runs by default (no profile)
-#   minio     — local S3 emulation, opt-in via `--profile cloud-dev`
-#   valkey    — local Redis-compatible cache, opt-in via `--profile cloud-dev`
-#
-# Ports at a glance (host -> container, override via .env):
-#   8080 -> frontend:5173   browser entry point; /api proxies to api:8000
-#   8001 -> api:8000        direct API access (rarely needed; prefer 8080/api)
-#   5434 -> db:5432         psql/DBeaver against local Postgres
-#   9000/9001 -> minio      cloud-dev profile only
-#   6379 -> valkey          cloud-dev profile only
-# All published ports bind 127.0.0.1 only. For QGIS / curl examples in the
-# README, use http://localhost:8080/api/... — that's the supported surface.
 services:
   db:
     build:
@@ -382,10 +365,6 @@ services:
     # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
     # --workers > 1 with --reload). For a production deploy without --reload,
     # raise UVICORN_WORKERS to 2-4 for true parallelism.
-    # All continuation lines at the same indent so `>` folds newlines into
-    # single spaces. Mismatched indent makes YAML preserve the newlines and
-    # sh then sees a multi-line script (uvicorn flags become "command not
-    # found" lines and uvicorn binds to its 127.0.0.1 default).
     # --proxy-headers tells uvicorn to populate request.client from
     # X-Forwarded-For / X-Real-IP headers set by the nginx reverse proxy.
     # The safety here rests on nginx OVERWRITING X-Forwarded-For with
@@ -409,7 +388,7 @@ services:
       GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
       UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
       # Per-process sandbox slots when API replicas share a pooler.
-      SANDBOX_QUERY_SLOTS: "${SANDBOX_QUERY_SLOTS:-}"
+      SANDBOX_QUERY_SLOTS:
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
       # prometheus_client multiprocess mode, api service only
@@ -419,14 +398,14 @@ services:
       PROMETHEUS_MULTIPROC_DIR: "${PROMETHEUS_MULTIPROC_DIR:-/tmp/prometheus-multiproc}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-      PRIVACY_URL: ${PRIVACY_URL:-}
-      DCAT_CONTACT_EMAIL: ${DCAT_CONTACT_EMAIL:-}
-      REDIS_URL: "${REDIS_URL:-}"
-      CDN_BASE_URL: "${CDN_BASE_URL:-}"
+      PUBLIC_BASE_URL:
+      PRIVACY_URL:
+      DCAT_CONTACT_EMAIL:
+      REDIS_URL:
+      CDN_BASE_URL:
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
       TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
-      TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
+      TILE_SIGNING_SECRET:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
@@ -439,12 +418,12 @@ services:
       EMAIL_VERIFICATION_REQUIRED: "${EMAIL_VERIFICATION_REQUIRED:-true}"
       PASSWORD_LOGIN_ENABLED: "${PASSWORD_LOGIN_ENABLED:-true}"
       LOGIN_RATE_LIMIT: "${LOGIN_RATE_LIMIT:-5}"
-      ALLOWED_EMAIL_DOMAINS: "${ALLOWED_EMAIL_DOMAINS:-}"
+      ALLOWED_EMAIL_DOMAINS:
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
-      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      CORS_ALLOWED_ORIGINS:
       # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (300s by
       # default so slow ArcGIS Online layers do not time out).
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
@@ -504,7 +483,7 @@ services:
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
-      REDIS_URL: "${REDIS_URL:-}"
+      REDIS_URL:
       # Pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
       # fixed by the shared-volume contract above; the app's path must equal the
       # /app/staging mount target on every service. See .env.example.

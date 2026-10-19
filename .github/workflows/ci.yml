@@ -425,10 +425,12 @@ jobs:
               - 'scripts/tests/test-restore-env-sourcing-safety.sh'
               - 'scripts/tests/test-env-file-compose-oracle.sh'
               - 'scripts/check_env_doc_drift.py'
+              - 'tests/test_check_env_doc_drift.py'
               # check_env_doc_drift.py parses the Settings fields out of these
               # files — a new Settings field must re-run the drift gate.
               - 'backend/app/core/config.py'
               - 'backend/app/core/config_ai.py'
+              - 'backend/app/core/auth_settings.py'
               - '.env.example'
               - 'UPGRADING.md'
               # The drift gate resolves scripts/ paths referenced by
@@ -625,6 +627,9 @@ jobs:
 
       - name: Environment contract drift gate
         run: python3 scripts/check_env_doc_drift.py
+
+      - name: Environment contract drift gate regression tests
+        run: python3 -m unittest tests.test_check_env_doc_drift
 
       - name: Validate compose files parse
         env:
