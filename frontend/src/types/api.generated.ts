@@ -2168,8 +2168,8 @@ export interface paths {
          *     A page on any origin can read a public file without credentials. Through
          *     the bundled web server it can also send header credentials; the API alone
          *     accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
-         *     private, missing or replaced point cloud answers 404, and a storage
-         *     failure answers 502.
+         *     private or missing point cloud answers 404, and a storage failure answers
+         *     502.
          */
         get: operations["get_pointcloud_file_datasets__dataset_id__copc__attempt_id___name__copc_laz_get"];
         put?: never;

@@ -2260,8 +2260,8 @@ export const getColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGet = <Throw
  * A page on any origin can read a public file without credentials. Through
  * the bundled web server it can also send header credentials; the API alone
  * accepts those only from the origins in ``CORS_ALLOWED_ORIGINS``. A
- * private, missing or replaced point cloud answers 404, and a storage
- * failure answers 502.
+ * private or missing point cloud answers 404, and a storage failure answers
+ * 502.
  */
 export const getPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGet = <ThrowOnError extends boolean = false>(options: Options<GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetData, ThrowOnError>): RequestResult<GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses, GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors, ThrowOnError> => (options.client ?? client).get<GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetResponses, GetPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGetErrors, ThrowOnError>({
     security: [
