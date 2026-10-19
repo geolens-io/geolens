@@ -2245,12 +2245,13 @@ export const getColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGet = <Throw
  * Serve a published COPC point cloud's file, whole or by HTTP byte range.
  *
  * Point a client at the dataset's ``pointcloud.url``. The path names the
- * upload attempt, so a replaced file gets a new URL and the old one answers
- * 404. Header credentials (``X-Api-Key`` or ``Authorization``) or the
- * ``api_key`` query parameter authenticate the read, and any caller who can
- * view the dataset can read the file. The response carries a strong ETag and
- * honours ``Range``, ``If-Range``, ``If-Match`` and ``If-None-Match``; a
- * malformed byte range, or one naming no byte of the file, answers 416.
+ * upload attempt, and a URL naming any other attempt answers 404. Point
+ * clouds cannot be replaced; a new file is a new dataset. Header credentials
+ * (``X-Api-Key`` or ``Authorization``) or the ``api_key`` query parameter
+ * authenticate the read, and any caller who can view the dataset can read the
+ * file. The response carries a strong ETag and honours ``Range``,
+ * ``If-Range``, ``If-Match`` and ``If-None-Match``; a malformed byte range, or
+ * one naming no byte of the file, answers 416.
  * Each client may make 1200 reads a minute. A read of one byte range of up
  * to 16 MiB also draws its size on a budget of 1 GiB a minute, in 64 KiB
  * units; any other read of the file, such as one without ``Range``, counts

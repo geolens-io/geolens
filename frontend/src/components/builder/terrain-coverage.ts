@@ -20,8 +20,8 @@ interface MapWithBounds {
  * A high-resolution DEM with a small footprint (e.g. swissALTI3D over a single
  * AOI) covers only a sliver of a zoomed-out viewport. With terrain enabled the
  * user sees a tiny raised patch on flat ground, and with edge nodata what looks
- * like a "pedestal". A non-blocking warning recommends draping the high-res DEM
- * over a coarse global DEM (Copernicus GLO-30) for small AOIs, or zooming in.
+ * like a "pedestal". A non-blocking warning recommends zooming in to the DEM, or
+ * choosing a DEM that covers the whole map area as the single terrain source.
  *
  * Coverage = (DEM bounds ∩ viewport area) / viewport area, in the lng/lat
  * degree plane. This ignores Mercator area distortion, which is fine for a UX
@@ -203,7 +203,7 @@ export function maybeWarnSmallDemCoverage(args: {
   dedupeKey: string;
   threshold?: number;
   /**
-   * The warning's copy ("zoom in", "drape it over a coarse global DEM") is
+   * The warning's copy ("zoom in", "use a DEM that covers the whole map") is
    * builder-actionable advice that anonymous/read-only viewers can't act on.
    * `'viewer'` suppresses the toast for that audience. Defaults to `'builder'`.
    */

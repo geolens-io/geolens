@@ -20,7 +20,7 @@ class PointCloudMetadata:
 
     Attributes:
         url (None | str | Unset): URL path of the COPC file on the app origin, e.g.
-            /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
+            /api/datasets/{id}/copc/{attempt}/data.copc.laz. Point clouds cannot be replaced; a new file is a new dataset
         size_bytes (int | None | Unset): Size of the COPC file in bytes
         point_count (int | None | Unset): Number of points, from the file's header
         point_format (int | None | Unset): LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and near

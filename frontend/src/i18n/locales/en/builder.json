@@ -802,7 +802,7 @@
     "title": "Terrain",
     "enabled": "Enable terrain",
     "source": "DEM source",
-    "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth across the whole map."
+    "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or use a DEM that covers the whole map area as the terrain source."
   },
   "featurePopup": {
     "noAttributes": "No attributes",
@@ -1501,7 +1501,7 @@
     "projectionGlobe": "Globe",
     "projectionAria": "Map projection",
     "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
-    "terrainSmallDemTip": "Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent.",
+    "terrainSmallDemTip": "Tip: a map has one terrain source. For a small high-resolution DEM, zoom in to its extent, or use a DEM that covers the whole map area.",
     "openTerrainLayer": "Open terrain layer"
   },
   "cluster": {

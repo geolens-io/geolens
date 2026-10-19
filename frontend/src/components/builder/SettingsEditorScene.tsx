@@ -170,12 +170,12 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               </Button>
             )}
             {isTerrainActive && (
-              // Guide users with a small high-res DEM toward draping it over a
-              // coarse global DEM so terrain stays smooth across the map.
+              // A map has one terrain source, so a small DEM can't be layered
+              // over a global one; point users at zooming in or a wider DEM.
               <p className="mt-1 text-mini italic text-muted-foreground">
                 {t('settings.terrainSmallDemTip', {
                   defaultValue:
-                    'Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent.',
+                    'Tip: a map has one terrain source. For a small high-resolution DEM, zoom in to its extent, or use a DEM that covers the whole map area.',
                 })}
               </p>
             )}

@@ -802,7 +802,7 @@
     "title": "Terreno",
     "enabled": "Activar terreno",
     "source": "Fuente DEM",
-    "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o superpóngalo sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme en todo el mapa."
+    "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o use como fuente de terreno un DEM que cubra toda el área del mapa."
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",
@@ -1491,7 +1491,7 @@
     "projectionGlobe": "Globo",
     "projectionAria": "Proyección del mapa",
     "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente.",
-    "terrainSmallDemTip": "Consejo: superponga un DEM pequeño de alta resolución sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme más allá de su extensión.",
+    "terrainSmallDemTip": "Consejo: un mapa tiene una sola fuente de terreno. Para un DEM pequeño de alta resolución, acérquese a su extensión o use un DEM que cubra toda el área del mapa.",
     "openTerrainLayer": "Abrir capa de terreno"
   },
   "common": {

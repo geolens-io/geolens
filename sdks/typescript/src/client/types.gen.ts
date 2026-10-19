@@ -8142,7 +8142,7 @@ export type PointCloudMetadata = {
     /**
      * Url
      *
-     * URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. A replaced file gets a new URL
+     * URL path of the COPC file on the app origin, e.g. /api/datasets/{id}/copc/{attempt}/data.copc.laz. Point clouds cannot be replaced; a new file is a new dataset
      */
     url?: string | null;
     /**

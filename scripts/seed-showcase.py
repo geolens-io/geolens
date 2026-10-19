@@ -334,6 +334,24 @@ MAP_VIEW_FIXES = {
         "expected": {"center_lng": -73.97, "center_lat": 40.72, "zoom": 10.2},
         "wanted": {"center_lng": -74.015, "center_lat": 40.725, "zoom": 11.1},
     },
+    # A map saved without a camera has null centre and zoom and default
+    # pitch and bearing; this is the framing build_matterhorn gives a new map.
+    "The Matterhorn in 3D": {
+        "expected": {
+            "center_lng": None,
+            "center_lat": None,
+            "zoom": None,
+            "pitch": 0,
+            "bearing": 0,
+        },
+        "wanted": {
+            "center_lng": 7.6586,
+            "center_lat": 45.9750,
+            "zoom": 14.0,
+            "pitch": 66,
+            "bearing": -150,
+        },
+    },
 }
 
 # Dataset summaries for the two quake bindings. Written by exactly ONE thing,

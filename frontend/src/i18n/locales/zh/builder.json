@@ -802,7 +802,7 @@
     "title": "地形",
     "enabled": "启用地形",
     "source": "DEM 数据源",
-    "smallDemWarning": "此 DEM 仅覆盖当前视图的一小部分。请放大到该 DEM 的范围，或将其叠加到较粗的全局 DEM 上（例如 Copernicus GLO-30），使整个地图上的地形保持平滑。"
+    "smallDemWarning": "此 DEM 仅覆盖当前视图的一小部分。请放大到该 DEM 的范围，或使用能覆盖整个地图区域的 DEM 作为地形来源。"
   },
   "featurePopup": {
     "noAttributes": "无属性",
@@ -1501,7 +1501,7 @@
     "projectionGlobe": "球面",
     "projectionAria": "地图投影",
     "globeDisclaimer": "球面投影为实验性功能。部分图层可能无法正确渲染。",
-    "terrainSmallDemTip": "提示：对于小范围高分辨率 DEM，可将其叠加到较粗的全局 DEM 上（例如 Copernicus GLO-30），使其范围之外的地形保持平滑。",
+    "terrainSmallDemTip": "提示：一张地图只有一个地形来源。对于小范围高分辨率 DEM，请放大到其范围，或使用能覆盖整个地图区域的 DEM。",
     "openTerrainLayer": "打开地形图层"
   },
   "cluster": {

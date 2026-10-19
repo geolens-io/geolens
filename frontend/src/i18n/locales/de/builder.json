@@ -802,7 +802,7 @@
     "title": "Terrain",
     "enabled": "Terrain aktivieren",
     "source": "DEM-Quelle",
-    "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder legen Sie es über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain auf der gesamten Karte gleichmäßig bleibt."
+    "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder verwenden Sie als Geländequelle ein DEM, das den gesamten Kartenbereich abdeckt."
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
@@ -1491,7 +1491,7 @@
     "projectionGlobe": "Globus",
     "projectionAria": "Kartenprojektion",
     "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt.",
-    "terrainSmallDemTip": "Tipp: Legen Sie ein kleines hochauflösendes DEM über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain über seine Ausdehnung hinaus gleichmäßig bleibt.",
+    "terrainSmallDemTip": "Tipp: Eine Karte hat nur eine Geländequelle. Bei einem kleinen hochauflösenden DEM zoomen Sie in dessen Ausdehnung hinein oder verwenden ein DEM, das den gesamten Kartenbereich abdeckt.",
     "openTerrainLayer": "Terrain-Ebene öffnen"
   },
   "common": {
