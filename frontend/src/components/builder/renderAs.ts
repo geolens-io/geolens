@@ -421,15 +421,19 @@ export function buildRenderAsPatch(
   }
 
   if (renderAs === 'symbol') {
+    // Only a heatmap holds non-circle paint; every other mode's live paint is the circle paint.
+    const circlePaint = getCurrentRenderAs(layer) === 'heatmap'
+      ? layer.style_config?.savedCirclePaint
+      : layer.paint;
     return {
       adapterType: 'symbol',
       patch: {
         layer_type: vectorLayerType(layer),
-        paint: { ...(layer.style_config?.savedCirclePaint ?? layer.paint ?? DEFAULT_CIRCLE_PAINT) },
+        paint: { ...(circlePaint ?? DEFAULT_CIRCLE_PAINT) },
         style_config: compactRecord({
           ...styleRecord(layer),
           render_mode: 'symbol',
-          savedCirclePaint: layer.style_config?.savedCirclePaint ?? { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) },
+          savedCirclePaint: { ...(circlePaint ?? DEFAULT_CIRCLE_PAINT) },
           symbol: layer.style_config?.symbol ?? {
             iconImage: 'marker',
             iconSize: 1,
@@ -480,7 +484,7 @@ export function buildRenderAsPatch(
           // Unset until chosen, so cluster bubbles follow later circle-color edits.
           clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? MAP_COLORS.cluster.text,
           clusterTextSize: layer.style_config?.builder?.clusterTextSize ?? 12,
-        }, { render_mode: 'cluster' }),
+        }, { render_mode: 'cluster', savedCirclePaint: undefined }),
       },
     };
   }

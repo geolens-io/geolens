@@ -284,6 +284,20 @@ describe('renderAs view model', () => {
     expect(buildRenderAsPatch(clustered, 'point')?.patch.paint).toEqual(circlePaint);
   });
 
+  it('enters symbols from cluster with the live circle paint, not a stale stash', () => {
+    const clustered = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: { 'circle-color': '#dc2626' },
+      style_config: { render_mode: 'cluster', savedCirclePaint: { 'circle-color': '#2255aa' } } as StyleConfig,
+    });
+
+    const mutation = buildRenderAsPatch(clustered, 'symbol');
+
+    expect(mutation?.patch.paint).toEqual({ 'circle-color': '#dc2626' });
+    expect(mutation?.patch.style_config?.savedCirclePaint).toEqual({ 'circle-color': '#dc2626' });
+  });
+
   it('enters cluster from heatmap with the stashed circle paint', () => {
     const heatmap = layer({
       dataset_geometry_type: 'POINT',
@@ -293,6 +307,8 @@ describe('renderAs view model', () => {
     });
 
     expect(buildRenderAsPatch(heatmap, 'cluster')?.patch.paint).toEqual({ 'circle-color': '#2255aa' });
+    // The stash only belongs to heatmap mode.
+    expect(buildRenderAsPatch(heatmap, 'cluster')?.patch.style_config).not.toHaveProperty('savedCirclePaint');
   });
 
   it('builds polygon fill, stroke, and 3D extrusion patches without is_3d', () => {
