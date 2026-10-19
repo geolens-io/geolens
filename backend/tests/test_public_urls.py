@@ -568,3 +568,36 @@ async def test_get_public_api_url_propagates_for_external_use_flag(
         await public_urls.get_public_api_url(
             AsyncMock(), request=request, for_external_use=True
         )
+
+
+@pytest.mark.parametrize(
+    ("configured", "netloc", "expected"),
+    [
+        # The shipped default on a remote install: use where the request came from.
+        ("http://localhost:8080", "maps.example.com", "https://maps.example.com"),
+        # Local dev: the caller is on the same machine, so loopback is right.
+        ("http://localhost:8080", "localhost:8080", "http://localhost:8080"),
+        # A real configured URL always wins, sub-path included.
+        (
+            "https://example.com/geolens",
+            "other.example.com",
+            "https://example.com/geolens",
+        ),
+    ],
+)
+async def test_browser_reachable_app_url_replaces_a_remote_loopback_default(
+    monkeypatch: pytest.MonkeyPatch, configured: str, netloc: str, expected: str
+) -> None:
+    monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
+    monkeypatch.setattr(
+        public_urls.settings, "public_app_url", configured, raising=False
+    )
+    monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "cors_allowed_origins", "", raising=False)
+
+    url = await public_urls.get_browser_reachable_app_url(
+        AsyncMock(), request=_make_request(netloc=netloc, headers={"host": netloc})
+    )
+
+    assert url == expected

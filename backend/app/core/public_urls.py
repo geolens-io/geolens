@@ -642,6 +642,27 @@ async def get_public_app_url(
     return app_url
 
 
+async def get_browser_reachable_app_url(
+    db: AsyncSession,
+    *,
+    request: Request | None = None,
+) -> str:
+    """The app URL for a document another machine loads, such as an exported style.
+
+    A loopback app URL only reaches the caller's own machine. When the request
+    arrived from a non-loopback host, as with the shipped Compose default
+    ``http://localhost:8080`` left on a remote install, the request-derived
+    origin is returned instead.
+    """
+    app_url = await get_public_app_url(db, request=request)
+    if not is_loopback_host(urlsplit(app_url).hostname or ""):
+        return app_url
+    derived = resolve_public_app_url(None, None, None, request=request)
+    if is_loopback_host(urlsplit(derived).hostname or ""):
+        return app_url
+    return derived
+
+
 async def get_dataset_service_url(
     db: AsyncSession,
     *,
