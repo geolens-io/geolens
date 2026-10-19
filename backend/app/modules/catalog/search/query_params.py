@@ -19,8 +19,8 @@ _ALLOWED_RECORD_TYPES = frozenset(RECORD_TYPES)
 _ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
 
 # Page-size ceiling for offset-paged routes (SearchQueryParams),
-# lower than the keyset-paged `ogc_items_max_page_size` (#665). An over-limit
-# request is CLAMPED, never rejected — OGC Core fc-limit-response-1(C).
+# lower than the keyset-paged `ogc_items_max_page_size`. An over-limit request
+# is clamped, never rejected (OGC Core fc-limit-response-1(C)).
 _MAX_PAGE_SIZE = 200
 
 

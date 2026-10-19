@@ -125,8 +125,7 @@ router.include_router(assets_router)
 router.include_router(sharing_router)
 
 
-# Dual-shape decorator so both trailing-slash (canonical) and
-# no-slash variants hit this handler, closing the 404 from
+# Declared on both the trailing-slash and no-slash paths, since the app sets
 # redirect_slashes=False.
 @router.post(
     "",
@@ -259,14 +258,12 @@ async def import_map_style_endpoint(
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
     """
-    # MapStyleImportRequest defines no field aliases, so by_alias=True would
-    # be a no-op that implies aliasing that doesn't exist.
+    # MapStyleImportRequest defines no field aliases, so by_alias is moot.
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
-    # The per-map layer limit answers 422, matching
-    # sibling layer-carrying schemas. Must precede the ValueError arm
-    # below, which it subclasses.
+    # The per-map layer limit answers 422, like sibling layer-carrying
+    # schemas. Must precede the ValueError arm, which it subclasses.
     except MapStyleImportLayerLimitError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -376,8 +373,7 @@ async def import_map_style_endpoint(
     "/{map_id}",
     response_model=MapResponse,
     # Read-gated, not write-gated, so the router's default 403 misdescribes
-    # this route's cause. Same override on every other read-gated GET in this
-    # file.
+    # this route's cause. Every read-gated GET here overrides it.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_map_endpoint(
@@ -481,13 +477,12 @@ async def update_map_endpoint(
             # first keeps the two from waiting on each other.
             await lock_map_layers(db, map_id)
             await revoke_share_token_by_map(db, map_id)
-            # A public->non-public downgrade must also revoke
-            # embed tokens (previously only the share token was flipped),
-            # or they keep serving tiles for a now-private map.
+            # Embed tokens must be revoked too, or they keep serving tiles
+            # for a now-private map.
             await revoke_embed_tokens_by_map(db, map_id)
 
-    # A non-admin may not move a map TO public when
-    # restrict_public_visibility is on. None (untouched) passes through.
+    # A non-admin may not move a map to public when restrict_public_visibility
+    # is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
 
     # Hard block: prevent publishing maps with non-public datasets. A request
@@ -506,9 +501,9 @@ async def update_map_endpoint(
                 },
             )
 
-    # RBAC: when replacing layers, verify access to every dataset — else
-    # an owner could insert MapLayer rows at restricted datasets, a
-    # data-integrity/leakage hazard even though render-time RBAC hides them.
+    # RBAC: when replacing layers, verify access to every dataset, or an owner
+    # could insert MapLayer rows at restricted datasets (render-time RBAC hides
+    # them, but the rows would be a leakage hazard).
     if body.layers is not None and body.layers:
         user_roles = await get_user_roles(db, user)
         requested_ids = [layer.dataset_id for layer in body.layers]
@@ -565,9 +560,8 @@ async def update_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # Drives the per-field history events from one table of
-    # (changed, action, summary, details), looped uniformly, instead of six
-    # near-identical hand-copied record_map_history_event blocks.
+    # One table of (changed, action, summary, details) drives the per-field
+    # history events.
     new_visibility = (
         _visibility_value(kwargs["visibility"])
         if "visibility" in kwargs and kwargs["visibility"] is not None
@@ -654,9 +648,8 @@ async def update_map_endpoint(
 
     if "layers" in kwargs:
         await _reject_non_public_datasets(db, map_obj, user)
-        # Replacing the layer set can drop a dataset an
-        # embed token is scoped to; revoke any orphaned embed tokens so they
-        # stop serving tiles for content the map no longer exposes.
+        # Replacing the layer set can drop a dataset an embed token is
+        # scoped to; revoke orphaned tokens so they stop serving its tiles.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     response = await _visible_map_response(
         db,
@@ -830,8 +823,8 @@ async def patch_map_layers_endpoint(
             summary="Reordered layers",
             details={"order": [str(layer_id) for layer_id in body.order]},
         )
-    # A diff that removes layers can drop a dataset an embed
-    # token is scoped to; revoke any now-orphaned embed tokens.
+    # Removing layers can drop a dataset an embed token is scoped to; revoke
+    # orphaned tokens.
     if body.removed:
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     response = await _visible_map_response(
@@ -863,12 +856,10 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    # Snapshot asset keys off the row before delete, and remove
-    # the objects only once the row delete commits — after commit every
-    # attribute on map_obj is expired, and a lazy refresh would raise.
-    # Under the same row lock the two upload handlers
-    # take, so a delete can't interleave with an in-flight replacement and
-    # read a key about to be superseded.
+    # Snapshot asset keys before the delete and remove the objects only after
+    # it commits; after commit every attribute on map_obj is expired and a lazy
+    # refresh would raise. The snapshot runs under the row lock the two upload
+    # handlers take, so a delete can't read a key about to be superseded.
     locked = await lock_map_for_asset_write(db, map_id)
     asset_keys = [locked.thumbnail_uri, locked.og_image_uri]
 
@@ -956,15 +947,14 @@ async def _record_image_capture(
     thumbnail cache version, so a lazy backfill must not bump the former and
     reorder the gallery.
 
-    Setting ``updated_at`` to its own value is the explicit-value form
-    that suppresses its ``onupdate=func.now()`` — dropping the assignment
-    isn't enough, since any row update bumps it otherwise (measured).
+    Setting ``updated_at`` to its own value suppresses its
+    ``onupdate=func.now()``; dropping the assignment isn't enough, since any
+    row update bumps it.
 
-    ``synchronize_session=False``: both callers return 204, never read
-    the ORM object back.
+    ``synchronize_session=False``: both callers return 204 and never read the
+    ORM object back.
 
-    Does NOT commit — callers commit so each can mark
-    its publication before awaiting.
+    Does not commit: callers commit so each can mark its publication first.
     """
     await db.execute(
         update(Map)
@@ -1011,11 +1001,9 @@ async def upload_thumbnail(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Body must be a data:image/ URI",
         )
-    # The 100KB bound lives on
-    # ThumbnailUploadRequest.data_uri (max_length), rejected by Pydantic
-    # before this handler runs — no manual length check needed here.
+    # The 100KB bound is ThumbnailUploadRequest.data_uri's max_length, enforced
+    # by Pydantic before this handler runs.
 
-    # Decode base64 data URI → raw image bytes
     # Format: data:image/jpeg;base64,<payload>
     if ";base64," not in data_uri:
         raise HTTPException(
@@ -1031,9 +1019,8 @@ async def upload_thumbnail(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # Validate the decoded bytes are a real image, not
-    # attacker-controlled content — Image.verify() catches random bytes,
-    # truncated images, and mismatched MIME without storing a tampering primitive.
+    # Image.verify() rejects random bytes, truncated images and mismatched
+    # MIME before anything is stored.
     try:
         with Image.open(BytesIO(image_bytes)) as img:
             img.verify()
@@ -1054,14 +1041,13 @@ async def upload_thumbnail(
     storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
 
     storage = get_storage()
-    # Object and row publish together — a failure in
-    # the update/commit would leave the image behind with nothing pointing
-    # at it, and since keys are never reused, every retry adds another.
+    # Object and row publish together: a failure in the update/commit would
+    # leave the image with nothing pointing at it, and since keys are never
+    # reused, every retry would add another.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # Recorded BEFORE the write — a PUT can land
-        # and still fail the client. Free to record first: rollback
-        # either removes what this request wrote or no-ops on an unwritten key.
+        # Recorded before the write, since a PUT can land and still fail the
+        # client. Rollback removes what this request wrote or no-ops.
         publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1072,12 +1058,10 @@ async def upload_thumbnail(
                 detail="Thumbnail storage unavailable",
             )
 
-        # Previous-key read and new-key write happen
-        # under the row lock, so two overlapping uploads can't each delete
-        # the object the other is about to point at.
-        # Lock taken AFTER the storage write — holding
-        # it across the PUT would let a stalled backend block every other writer
-        # to the map for as long as the PUT takes.
+        # The previous-key read and new-key write happen under the row lock,
+        # so two overlapping uploads can't each delete the object the other is
+        # about to point at. Taken after the storage write: holding it across
+        # the PUT would let a stalled backend block every other writer.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.thumbnail_uri
 
@@ -1135,10 +1119,6 @@ async def get_thumbnail(
         )
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
     return _stored_image_response(request, data, media_type, cache_control)
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 
 
 @router.put(
@@ -1220,9 +1200,7 @@ async def upload_og_image(
     # Same publication guard as the thumbnail PUT above.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # Recorded before the write, same as the thumbnail
-        # PUT above and for the same reason. Does not need the row lock below,
-        # same as the thumbnail PUT above.
+        # Recorded before the write, as in the thumbnail PUT above.
         publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1235,9 +1213,7 @@ async def upload_og_image(
                 detail="OG image storage unavailable",
             )
 
-        # Same row lock, taken after the
-        # storage write and with the previous key re-read under it, for the
-        # same reason as the thumbnail PUT above.
+        # Same row lock and ordering as the thumbnail PUT above.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.og_image_uri
 
@@ -1373,9 +1349,8 @@ async def add_layer_endpoint(
         target_id=layer.id,
         target_name=target_name,
         action="layer.add",
-        # Unlike style/filter/label/reorder (held locally,
-        # flushed on save), this creates the row immediately, so the
-        # summary says what was created and that it's saved now.
+        # Unlike style/filter/label/reorder (held locally until save), this
+        # creates the row immediately.
         summary=f"Created {target_name} layer (saved immediately)",
         details={
             "dataset_id": str(body.dataset_id),
@@ -1451,8 +1426,8 @@ async def remove_layer_endpoint(
             "sort_order": layer.sort_order,
         },
     )
-    # Removing a layer can drop a dataset an embed token is
-    # scoped to; revoke any now-orphaned embed tokens for the map.
+    # Removing a layer can drop a dataset an embed token is scoped to; revoke
+    # orphaned tokens.
     await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1491,9 +1466,7 @@ async def bulk_delete_layers_endpoint(
 
     deleted_count = len(deleted_ids)
 
-    # Only emit audit/history when something was
-    # actually deleted, or an all-not-found request creates a false-positive
-    # audit row.
+    # An all-not-found request must not write an audit row.
     if deleted_count > 0:
         await audit_emit(
             db,
@@ -1510,9 +1483,8 @@ async def bulk_delete_layers_endpoint(
             ),
         )
 
-        # target_type="map": no single layer target
-        # for a bulk op; mirrors layer.replace so "jump to layer" links
-        # don't break.
+        # target_type="map": a bulk op has no single layer target; mirrors
+        # layer.replace so "jump to layer" links still work.
         await record_map_history_event(
             db,
             map_id=map_id,
@@ -1528,8 +1500,8 @@ async def bulk_delete_layers_endpoint(
             },
         )
 
-        # A bulk delete can drop a dataset an embed token is
-        # scoped to; revoke any now-orphaned embed tokens for the map.
+        # A bulk delete can drop a dataset an embed token is scoped to; revoke
+        # orphaned tokens.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
 
     await db.commit()

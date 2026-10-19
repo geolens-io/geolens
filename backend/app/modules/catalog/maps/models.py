@@ -48,9 +48,8 @@ class Map(Base):
             "forked_from",
             postgresql_where=text("forked_from IS NOT NULL"),
         ),
-        # No composite Map.visibility + created_by index; one was
-        # suggested, but EXPLAIN showed no seq scan below ~10k rows; the
-        # write + disk cost isn't worth it until row count crosses that.
+        # No composite visibility + created_by index: EXPLAIN showed no seq
+        # scan below ~10k rows, so its write and disk cost isn't worth it yet.
         {"schema": "catalog"},
     )
 
@@ -102,9 +101,9 @@ class Map(Base):
     # Preview thumbnail — storage key (e.g. "maps/thumbnails/{id}.jpg")
     thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # The thumbnail's own cache version, split from `updated_at`
-    # — a lazy backfill (a read, not an edit) shouldn't bump the edit
-    # timestamp. Nullable; frontend falls back to `updated_at` for old rows.
+    # The thumbnail's own cache version, apart from `updated_at`: a lazy
+    # backfill (a read, not an edit) shouldn't bump the edit timestamp.
+    # Nullable; the frontend falls back to `updated_at` for old rows.
     thumbnail_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -266,9 +265,7 @@ class MapIconAsset(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # No index=True — uq_map_icon_assets_slug's
-    # backing index already covers slug lookups; a second btree was pure
-    # write amplification.
+    # No index=True: uq_map_icon_assets_slug's index already covers slug lookups.
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     media_type: Mapped[str] = mapped_column(String(50), nullable=False)
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)

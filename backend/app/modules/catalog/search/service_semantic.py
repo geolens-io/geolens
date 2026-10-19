@@ -30,8 +30,8 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 
 
 # TTL LRU cache for query embeddings, keyed on (tenant-scoped text, model,
-# config fingerprint). The fingerprint is load-bearing, not
-# decoration: omitting it lets a config change serve a stale-space vector.
+# config fingerprint). Omitting the fingerprint would let a config change serve
+# a stale-space vector.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
@@ -43,10 +43,10 @@ _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 # a first page of any size agrees with the facet counts.
 _APPROXIMATE_CANDIDATE_WINDOW = 200
 
-# Search-as-you-type would spend one paid embedding call per keystroke
-# prefix ("u", "us", "usa"), each missing the 0.7 cutoff and falling back to FTS
-# anyway; the 300s cache can't help, every prefix is a distinct key. Shorter
-# queries skip the vector path entirely.
+# Search-as-you-type would spend one paid embedding call per keystroke prefix
+# ("u", "us", "usa"), each missing the 0.7 cutoff and falling back to FTS
+# anyway, and the 300s cache can't help since every prefix is a distinct key.
+# Shorter queries skip the vector path.
 _MIN_SEMANTIC_QUERY_LEN = 4
 _embedding_cache: "OrderedDict[tuple[str, str, str], tuple[float, list[float]]]" = (
     OrderedDict()

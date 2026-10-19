@@ -51,9 +51,9 @@ async def upload_map_icon_endpoint(
 ) -> MapIconResponse:
     """Upload a reusable SVG or PNG icon for symbol layers."""
     content = await file.read()
-    # The icon bytes and the row that names them publish
-    # together; write and commit sit in different functions here, so the
-    # ledger is threaded through create_icon_asset.
+    # The icon bytes and the row that names them publish together; write and
+    # commit sit in different functions, so the ledger is threaded through
+    # create_icon_asset.
     async with map_asset_publication() as publication:
         try:
             asset = await create_icon_asset(
@@ -66,11 +66,10 @@ async def upload_map_icon_endpoint(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # Settle on the commit, keeping the refresh below
-        # out of scope — else a refresh failure after a successful commit
-        # would delete an icon the committed row references.
-        # Mark before awaiting, so a commit that made the
-        # row durable but wasn't acknowledged deletes nothing either.
+        # Settle on the commit, keeping the refresh below out of scope: a
+        # refresh failure after a successful commit would delete an icon the
+        # committed row references. Mark before awaiting, so a commit that made
+        # the row durable but wasn't acknowledged deletes nothing either.
         publication.committing()
         await db.commit()
         publication.settled()

@@ -199,7 +199,8 @@ async def _handle_search(
 
     cache_key: str | None = None
     if search_cache.is_anon_cacheable(user):
-        # Only read semantic flag when caching is applicable — authed callers skip both reads.
+        # The semantic flag is read only when caching applies; authed callers
+        # skip both reads.
         semantic_enabled_for_key = await SEMANTIC_SEARCH_ENABLED.get(db)
         cache_key = search_cache.build_cache_key(
             endpoint="search",
@@ -336,7 +337,6 @@ async def _handle_search(
         for coll in coll_results:
             features.append(collection_search_feature(coll, public_api_url))
 
-    # Build pagination links
     active_params = params.active_pagination_params()
     if extra_pagination_params:
         active_params.update(extra_pagination_params)
@@ -382,7 +382,6 @@ async def _handle_search(
             )
         )
 
-    # Previous link: not on first page
     if params.offset > 0:
         links.append(
             OGCRecordLink(
@@ -461,8 +460,8 @@ def _semantic_search_query_already_claimed(request: Request) -> bool:
     query_text = request.query_params.get("q")
     if not query_text:
         return False
-    # The route's own identity, not a path substring test --
-    # stable even if a future route in this scope shares the "facets" text.
+    # The route's own identity, not a path substring test, which a future
+    # route sharing the "facets" text would break.
     route = request.scope["route"].name
     client_key = get_remote_address(request)
     if consume_paired_query_claim(client_key, query_text, route):
@@ -483,18 +482,17 @@ def _finalize_semantic_search_claim(request: Request) -> None:
         record_paired_query_claim(*pending)
 
 
-# Dual-shape decorator: slash form is canonical
-# (in OpenAPI); no-slash is a hidden alias closing the 404 regression from
-# redirect_slashes=False (api/main.py).
+# The slash form is canonical (in OpenAPI); the no-slash alias is hidden and
+# covers redirect_slashes=False (api/main.py).
 @search_router.get(
     "/facets", response_model=FacetCountResponse, include_in_schema=False
 )
 @search_router.get("/facets/", response_model=FacetCountResponse)
-# Facets embed the query, so both routes draw on ONE semantic-search bucket. No
+# Facets embed the query, so both routes draw on one semantic-search bucket. No
 # override_defaults: this limit_value is callable, so the global rate-limit
-# middleware already charges the global default unconditionally for it
-# (test_global_rate_limit_async_2936.py); adding it here would only double
-# that charge.
+# middleware already charges the global default for it
+# (test_global_rate_limit_async_2936.py), and adding it here would double the
+# charge.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
@@ -576,7 +574,7 @@ async def search_facets_endpoint(
     return result
 
 
-# Dual-shape decorator; see /facets above.
+# Slash and no-slash paths, as for /facets above.
 @search_router.get(
     "/datasets",
     response_model=OGCFeatureCollectionResponse,
@@ -587,8 +585,8 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-# The facets route's callable-limit note above applies here
-# symmetrically -- this route can be the SECOND of the pair too.
+# The facets route's callable-limit note above applies here too: this route
+# can be the second of the pair.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
@@ -800,9 +798,9 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
     ]
 
 
-# Canonical form is "" (no-slash); trailing-slash is
-# a hidden alias, preventing the 307 + http://api:8000 Location-header leak
-# from redirect_slashes=False (api/main.py; mirrors catalog/maps/router.py).
+# Canonical form is "" (no slash); the trailing-slash alias is hidden and
+# prevents the 307 + http://api:8000 Location-header leak from
+# redirect_slashes=False (api/main.py; mirrors catalog/maps/router.py).
 @collections_router.get(
     "/", response_model=OGCCollectionsResponse, include_in_schema=False
 )
@@ -821,8 +819,8 @@ async def list_collections(
 ) -> OGCCollectionsResponse:
     """List available OGC collections (catalog + per-dataset feature collections)."""
     public_api_url = await get_public_api_url(db, request=request)
-    # Raster tiles are served at the public APP origin (/raster-tiles/...), not
-    # the /api origin (which has no such route).
+    # Raster tiles are served at the public app origin (/raster-tiles/...);
+    # the /api origin has no such route.
     public_app_url = await get_public_app_url(db, request=request)
 
     catalog_collection = await _build_collection_metadata(db, user, public_api_url)
@@ -849,9 +847,8 @@ async def list_collections(
     count_stmt = select(func.count()).select_from(ds_base.subquery())
     total_datasets = (await db.execute(count_stmt)).scalar_one()
 
-    # Without an ORDER BY, OFFSET/LIMIT paging has no defined row
-    # order -- add a deterministic tiebreaker before paging, matching the
-    # STAC peer routers.
+    # Without an ORDER BY, OFFSET/LIMIT paging has no defined row order; the
+    # deterministic tiebreaker matches the STAC peer routers.
     ds_stmt = ds_base.order_by(Record.created_at.desc(), Dataset.id.desc())
     ds_stmt = ds_stmt.offset(offset).limit(limit)
     ds_result = await db.execute(ds_stmt)
@@ -921,8 +918,8 @@ async def list_collections(
                 }
             )
         else:
-            # Versioned like every rendered template so a
-            # refetching client stops sharing the unversioned cache entry.
+            # Versioned like every rendered template, so a refetching client
+            # stops sharing the unversioned cache entry.
             raster_tiles_path = f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
                 tile_template_query(ds.tile_cache_version, ds.publication_version)
             )
@@ -1107,10 +1104,10 @@ async def get_sortables(
 )
 async def collection_items(
     request: Request,
-    # NOT ``Annotated[SearchQueryParams, Query()]`` (used by search_datasets_endpoint):
-    # alongside the five OGC params below, that form collapses to a single
-    # scalar named ``params`` — worse than defect #1666. The published
-    # contract is corrected in ``_repair_depends_bound_query_model``.
+    # Not ``Annotated[SearchQueryParams, Query()]`` (as in
+    # search_datasets_endpoint): alongside the five OGC params below, that form
+    # collapses to a single scalar named ``params``. The published contract is
+    # corrected in ``_repair_depends_bound_query_model``.
     params: SearchQueryParams = Depends(),
     type_param: list[str] = Query(
         default_factory=list,
@@ -1190,13 +1187,12 @@ async def collection_items(
         overrides["sort_by"] = parsed[0]
         overrides["sort_desc"] = parsed[1]
 
-    # `keywords` and hyphenated `filter-lang` don't bind through the `Depends()`
-    # model (pydantic can't name a `filter-lang` param; `list[str]` reads as a
-    # body), so both are read from the raw query string here instead.
+    # `keywords` and hyphenated `filter-lang` don't bind through the
+    # `Depends()` model (pydantic can't name a `filter-lang` param; `list[str]`
+    # reads as a body), so both are read from the raw query string.
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords:
-        # Query string wins over any `params.keywords` FastAPI bound from a
-        # GET body via `Depends()`.
+        # Query string wins over any `params.keywords` bound via `Depends()`.
         overrides["keywords"] = raw_keywords
 
     effective_params = params.model_copy(update=overrides) if overrides else params
@@ -1284,8 +1280,8 @@ async def get_collection_item(
             "description": da.description,
         }
         for da in await get_catalog_port().get_dataset_assets(db, record_id)
-        # Filtered where FETCHED so internal keys never enter a
-        # payload structure at all, independent of the downstream builder.
+        # Filtered where fetched, so internal keys never enter the payload
+        # whatever the downstream builder does.
         if is_public_asset_key(da.key)
     ]
 
@@ -1400,7 +1396,7 @@ async def _bulk_fetch_dataset_metadata(
             )
             raster_meta = {}
 
-        # Block 3 — VRT source_count (mutates raster_meta IN PLACE)
+        # VRT source_count (mutates raster_meta in place)
         if raster_meta:
             try:
                 vrt_dataset_ids = [

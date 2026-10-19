@@ -128,10 +128,9 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 def _require_feature_table(dataset) -> None:
     """Reject feature writes to datasets with no writable feature geometry.
 
-    Mirrors the read handlers' 404 on raster/VRT datasets
-    (else 500 on a missing `data.<table>`). Also rejects tabular datasets
-    (`geometry_type is None`), whose table has no `geom`/`geom_4326` column
-    (#463).
+    Mirrors the read handlers' 404 on raster/VRT datasets (else 500 on a
+    missing `data.<table>`). Also rejects tabular datasets
+    (`geometry_type is None`), whose table has no `geom`/`geom_4326` column.
     """
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
@@ -703,13 +702,11 @@ async def get_features_geojson_z_endpoint(
     Supplied credentials that are expired or revoked receive 401 so clients can
     refresh them. Requests without credentials use the anonymous access path.
     """
-    # Evaluated FIRST, above the dataset lookup, so the
-    # capability rule covers every later exit rather than just one — the
-    # token validates against the path's dataset_id, so nothing is lost by
-    # asking before the lookup. This handler's deferring dependency means
-    # the dead-credential 401 is not raised before the body runs, so
-    # `reject_unresolvable_credentials` below re-applies the rule on the
-    # path where the embed token did not authorize the request.
+    # Checked before the dataset lookup so the capability rule covers every
+    # later exit; the token validates against the path's dataset_id. This
+    # handler defers the dead-credential 401 until the body runs, so
+    # `reject_unresolvable_credentials` below re-applies it when the embed
+    # token did not authorize the request.
     embed_ok = bool(embed_token) and await validate_embed_token_access(
         embed_token,  # type: ignore[arg-type]  # bool() guard above
         dataset_id,
@@ -717,9 +714,8 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        # No capability authorized this
-        # request, so a supplied credential that failed to resolve gets 401
-        # rather than the anonymous path's 404.
+        # No capability authorized this request, so a supplied credential
+        # that failed to resolve gets 401 rather than the anonymous 404.
         reject_unresolvable_credentials(request, user)
 
     dataset = await get_dataset(db, dataset_id)
@@ -732,9 +728,8 @@ async def get_features_geojson_z_endpoint(
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Raster/VRT datasets have no backing PostGIS feature table —
-    # a feature query would raise UndefinedTableError -> 500 (and hold a DB
-    # connection). Fast 404 before any feature query is attempted.
+    # Raster/VRT datasets have no feature table: a query would raise
+    # UndefinedTableError -> 500 and hold a DB connection.
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -826,9 +821,8 @@ async def list_features(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # Raster/VRT datasets have no backing PostGIS feature table —
-    # fast 404 before any query. The ProgrammingError->503 catch below stays
-    # a backstop for genuinely-missing tables on non-raster datasets.
+    # Raster/VRT datasets have no feature table. The ProgrammingError->503
+    # catch below stays a backstop for missing tables on other datasets.
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -871,20 +865,17 @@ async def list_features(
             cached_feature_count=dataset.feature_count,
         )
     except ValueError as e:
-        # An unparseable property-filter value is the caller's bug,
-        # rejected before the query runs.
+        # An unparseable property-filter value is rejected before the query.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except DBAPIError as exc:
-        # A type-shaped sqlstate with a property filter active is
-        # the filter value, not an outage — reporting it as a retryable 503
-        # sent clients into a pointless retry loop. Catches DBAPIError, not
-        # just ProgrammingError/OperationalError: asyncpg reports a value it
-        # can't encode as a bare DBAPIError with SQLSTATE 22000, which is
-        # neither. The 503/500 branches below keep their shape: an
-        # unrecognized state stays an honest 500, not an outage.
+        # A type-shaped sqlstate with a property filter active is the filter
+        # value, not an outage, and a retryable 503 would loop the client.
+        # Catches DBAPIError because asyncpg reports a value it can't encode
+        # as a bare DBAPIError with SQLSTATE 22000, neither Programming nor
+        # OperationalError. An unrecognized state stays a 500.
         if property_filters and is_caller_type_fault(exc):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1004,9 +995,8 @@ async def get_single_feature(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # Raster/VRT datasets have no backing PostGIS feature table —
-    # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a
-    # DoS reachable by any authenticated user). Fast 404 before any query.
+    # Raster/VRT datasets have no feature table: the lookup would raise
+    # UndefinedTableError -> an unhandled 500 any authenticated user could hit.
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

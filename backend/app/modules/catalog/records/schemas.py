@@ -101,9 +101,9 @@ class ContactUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_required(self) -> "ContactUpdate":
-        # PATCH follows the dataset update contract: an
-        # explicitly-set null clears the field. `role` is NOT NULL in the
-        # model, so an explicit null there is a 422, not a silent drop.
+        # PATCH follows the dataset update contract: an explicitly set null
+        # clears the field. `role` is NOT NULL in the model, so an explicit
+        # null there is a 422, not a silent drop.
         for field in ("role", "sort_order"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be cleared to null")
@@ -232,8 +232,8 @@ class DistributionUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: str | None) -> str | None:
-        # Same HTTP(S) validation as the create path; otherwise
-        # javascript:/file:// strings could re-enter the DCAT/STAC feeds as
+        # Same HTTP(S) validation as the create path; otherwise javascript:
+        # or file:// strings could re-enter the DCAT/STAC feeds as
         # accessURL/downloadURL.
         if v is not None:
             HttpUrl(v)

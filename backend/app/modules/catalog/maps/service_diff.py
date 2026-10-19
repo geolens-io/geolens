@@ -82,12 +82,11 @@ def _prepare_layer_storage(
 ) -> dict:
     """Normalize one *added* layer's storage shape before it is persisted.
 
-    The single normalization boundary on the
-    add/full-replace write path — resolves layer_type, fills default
-    paint/layout/style_config, runs ``split_legacy_builder_paint`` (idempotent;
-    already split once at the API boundary), and normalizes DEM style_config.
-    Both ``apply_layer_diff`` and ``_replace_layers`` route new layers here;
-    do not remove the split call without making this the only write path.
+    The single normalization boundary on the add/full-replace write path:
+    resolves layer_type, fills default paint/layout/style_config, runs
+    ``split_legacy_builder_paint`` (idempotent; already split once at the API
+    boundary), and normalizes DEM style_config. Both ``apply_layer_diff`` and
+    ``_replace_layers`` route new layers here.
     """
     dataset_id = layer_data["dataset_id"]
     record_type, geometry_type, is_dem = ds_meta.get(dataset_id, (None, None, None))

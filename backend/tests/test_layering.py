@@ -1308,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # splitting.
     "backend/app/api/main.py": 1705,
     # Map request validation and published response contracts share this module.
-    "backend/app/modules/catalog/maps/schemas.py": 1393,
+    "backend/app/modules/catalog/maps/schemas.py": 1381,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1390,13 +1390,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1454,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1543,
+    "backend/app/modules/catalog/maps/router.py": 1515,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1736,
+    "backend/app/modules/catalog/features/router.py": 1726,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1423,
+    "backend/app/modules/catalog/search/router.py": 1419,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1939,
     # Authorization, acquisition order and cache rehydration share this route boundary;
@@ -1408,7 +1408,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # release and truncated-reply refusal around provider calls and SSE failures.
     "backend/app/processing/ai/service.py": 1015,
     # Record children share ownership, ordering and publication-version invariants.
-    "backend/app/modules/catalog/records/service.py": 877,
+    "backend/app/modules/catalog/records/service.py": 853,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1576,
@@ -1423,7 +1423,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1649,
+    "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1175,

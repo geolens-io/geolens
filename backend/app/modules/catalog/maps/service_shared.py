@@ -45,8 +45,8 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    # The counter the signed tile scope binds, so the saved-map
-    # style document signs at the same version the tile route verifies.
+    # The counter the signed tile scope binds, so the saved-map style document
+    # signs at the version the tile route verifies.
     publication_version: int | None
     # Dataset visibility/status so the builder can flag layers hidden
     # from a public map's anonymous audience.
@@ -118,9 +118,9 @@ async def get_dataset_meta(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # tile_version reads the dedicated URL cache-buster —
-            # current_version only changes on reupload, so feature edits and
-            # column DDL never roll the _v= param (stale CDN/browser tiles).
+            # tile_version reads the dedicated URL cache-buster: current_version
+            # only changes on reupload, so feature edits and column DDL would
+            # never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.visibility,
@@ -187,8 +187,8 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
             "generate_default_style called with null geometry_type; defaulting to fill"
         )
 
-    # Use the shared GeoLens-blue palette constants from
-    # style_json so storage defaults cannot silently diverge from export defaults.
+    # Palette constants come from style_json so storage defaults cannot
+    # diverge from export defaults.
     if "POINT" in gt:
         return {
             "paint": {
@@ -234,9 +234,8 @@ async def _fetch_layer_rows_ordered(
 ) -> list[LayerRow]:
     """Fetch the joined layer-row tuples for a map, ordered by sort_order.
 
-    Map has no relationship() to MapLayer, so the .order_by(MapLayer.sort_order)
-    clause MUST live in the explicit SELECT — there is no relationship-level
-    ordering to leverage.
+    Map has no relationship() to MapLayer, so the ordering lives in the
+    explicit SELECT.
     """
     RasterAsset = get_catalog_port().raster_asset_orm_class()
     stmt = (
@@ -254,9 +253,9 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # tile_version reads the dedicated URL cache-buster —
-            # current_version only changes on reupload, so feature edits and
-            # column DDL never roll the _v= param (stale CDN/browser tiles).
+            # tile_version reads the dedicated URL cache-buster: current_version
+            # only changes on reupload, so feature edits and column DDL would
+            # never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.visibility,
@@ -267,8 +266,8 @@ async def _fetch_layer_rows_ordered(
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
-        # Concurrent adds can collide on sort_order (non-atomic RMW);
-        # break ties by id so stacking order is at least deterministic.
+        # Concurrent adds can collide on sort_order (the read and write are
+        # not atomic); the id tiebreak keeps stacking order deterministic.
         .order_by(MapLayer.sort_order, MapLayer.id)
     )
     result = await session.execute(stmt)
@@ -304,14 +303,14 @@ async def filter_layer_rows_by_dataset_visibility(
 ) -> list[LayerRow]:
     """Drop layer rows whose backing dataset is not visible to ``user``.
 
-    SEC-A: ``GET /maps/{id}`` and ``/style.json`` gate only the MAP, so a
-    public map referencing a private dataset would otherwise leak its
-    metadata (and, via the signed tile URL, its tiles) to anonymous callers.
-    Mirrors ``get_shared_map``'s per-layer filtering. Layer order is preserved.
+    ``GET /maps/{id}`` and ``/style.json`` gate only the map, so a public map
+    referencing a private dataset would otherwise leak its metadata (and, via
+    the signed tile URL, its tiles) to anonymous callers. Mirrors
+    ``get_shared_map``'s per-layer filtering. Layer order is preserved.
 
-    Do NOT swap for ``bulk_check_dataset_access``: it dereferences ``user.id``
-    (crashes on anonymous ``user is None``) and lacks the published-status
-    nuance.
+    ``bulk_check_dataset_access`` is not a substitute: it dereferences
+    ``user.id`` (crashes on anonymous ``user is None``) and lacks the
+    published-status nuance.
     """
     if not layer_rows:
         return layer_rows
@@ -363,10 +362,10 @@ async def _resolve_save_response_metadata(
 ) -> tuple[str | None, str | None, datetime | None]:
     """Resolve forked_from_name + owner_username + DB-side updated_at via one LEFT JOIN.
 
-    One atomic query; used by update_map/duplicate_map where map_obj is
-    already in-session (get_map_with_layers keeps its own inline query for a
-    2-query read path). Including ``Map.updated_at`` avoids a separate
-    ``session.refresh(map_obj)`` round-trip for the DB-side onupdate value.
+    One atomic query for update_map/duplicate_map, where map_obj is already
+    in-session (get_map_with_layers keeps its own inline query for a 2-query
+    read path). ``Map.updated_at`` avoids a ``session.refresh(map_obj)``
+    round-trip for the DB-side onupdate value.
     """
     ForkedMap = aliased(Map)
     stmt = (

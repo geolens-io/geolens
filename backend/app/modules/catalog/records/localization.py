@@ -61,10 +61,10 @@ def select_localized_record_text(
 
     requested_languages = tuple(preferred_languages or ())
     if not requested_languages:
-        # Most internal serializers do not negotiate a representation. Avoid
-        # touching the lazy="raise" relationship in that path; callers that do
-        # negotiate must still eager-load translations and fail fast if they do
-        # not, preserving the catalog query-discipline guard.
+        # Most internal serializers do not negotiate. Skip the lazy="raise"
+        # relationship here; callers that do negotiate must eager-load
+        # translations and fail fast otherwise, keeping the catalog
+        # query-discipline guard.
         return primary
 
     variants: list[LocalizedRecordText] = [primary]
@@ -76,8 +76,8 @@ def select_localized_record_text(
             LocalizedRecordText(language, translation.title, translation.summary)
         )
 
-    # Preserve the primary representation when a redundant translation row uses
-    # the same language tag; it remains the catalog's source of truth.
+    # The primary representation wins over a translation row with the same
+    # language tag; it is the catalog's source of truth.
     exact: dict[str, LocalizedRecordText] = {}
     for variant in variants:
         exact.setdefault(variant.language.lower(), variant)

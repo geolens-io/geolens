@@ -81,9 +81,9 @@ async def validate_public_visibility(
     return [row[0] for row in rows if row[1] in readable]
 
 
-# The two shared audiences — a private map has no audience
-# beyond owner/grantees, so it can never be stranded. Who a MAP reaches
-# is core's own rule, not the permission seam's, so an overlay can't narrow this.
+# The two shared audiences. A private map has no audience beyond
+# owner/grantees, so it can never be stranded. Who a map reaches is core's own
+# rule, not the permission seam's, so an overlay can't narrow this.
 _SHARED_MAP_AUDIENCES = ("public", "internal")
 
 
@@ -97,16 +97,16 @@ async def _stranded_viewer_exists(
     A narrower audience isn't someone losing access, so this asks whether
     anyone stands in the cut part (both narrowing directions need that).
 
-    Taking the before/after difference, not a hand-excluded named slice,
-    makes exclusions follow the authority's policy, not a hardcoded "admin"
+    The before/after difference, not a hand-excluded named slice, makes
+    exclusions follow the authority's policy rather than a hardcoded "admin"
     bypass.
 
-    Authentication checked here (the MAP's audience, not the dataset's):
-    pending/suspended/deactivated accounts aren't one, mirroring
+    Authentication is checked against the map's audience, not the dataset's:
+    pending, suspended and deactivated accounts aren't in it, mirroring
     `auth/dependencies.py`'s check on both columns.
 
-    ``IS NOT false``/``IS NOT true``: NULL in a WHERE would silently
-    drop accounts the authority can't classify.
+    ``IS NOT false``/``IS NOT true``: a NULL in a WHERE would silently drop
+    accounts the authority can't classify.
     """
     stmt = (
         select(User.id)
@@ -205,7 +205,6 @@ async def create_share_token(
     if visibility != "public":
         raise ValueError("Map must be public before sharing")
 
-    # Check for existing token
     existing = await session.execute(
         select(MapShareToken)
         .join(Map, MapShareToken.map_id == Map.id)
@@ -213,21 +212,17 @@ async def create_share_token(
     )
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
-        # Update expiration if caller provided one
         if expires_at is not None or expires_in_days is not None:
             token_obj.expires_at = resolved_expiration
-        # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
-            # 32-byte (256-bit) entropy parity with embed tokens.
-            # Existing 16-byte tokens already in the DB continue to validate
-            # — the lookup is by sha256 hash, not raw length.
+            # 32 bytes (256 bits), as for embed tokens. Existing 16-byte
+            # tokens still validate: the lookup is by sha256 hash.
             raw_token = secrets.token_urlsafe(32)
             token_obj.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
             token_obj.token_hint = raw_token[:8]
             token_obj._raw_token = raw_token  # transient, not persisted
         return token_obj
-    # 32 bytes (256-bit), the same entropy as embed tokens.
     raw_token = secrets.token_urlsafe(32)
     token_obj = MapShareToken(
         map_id=map_id,
@@ -370,18 +365,17 @@ def _build_shared_layer_dict(
     """
     is_public = ds_visibility == "public"
     if ds_record_type in RASTER_FAMILY_RECORD_TYPES:
-        # Version the raster template so nginx's $arg_v and
-        # $arg_pv cache-key segments roll the shared tile cache when a replace
-        # or a publication transition bumps either counter.
+        # Version the raster template so nginx's $arg_v and $arg_pv cache-key
+        # segments roll the shared tile cache when a replace or a publication
+        # transition bumps either counter.
         tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
             tile_template_query(ds_tile_version, ds_publication_version)
         )
     else:
-        # No `/tiles/public/...` route exists
-        # — the single `/tiles` catch-all does its own auth check
-        # (visibility + HMAC-or-anonymous), so every consumer uses one URL.
-        # This template is unsigned, so `pv` is the only thing
-        # carrying the publication counter a shared cache keys it on.
+        # No `/tiles/public/...` route exists: the single `/tiles` catch-all
+        # does its own auth check (visibility + HMAC-or-anonymous), so every
+        # consumer uses one URL. This template is unsigned, so `pv` alone
+        # carries the publication counter a shared cache keys on.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf" + (
             tile_template_query(None, ds_publication_version)
         )
@@ -410,11 +404,11 @@ def _build_shared_layer_dict(
         "dem_vertical_units": ds_dem_vertical_units,
         "is_3d": bool(ds_is_3d) if ds_is_3d else None,
         "feature_count": ds_feature_count,
-        # `_v=` cache-buster input (viewer parity).
+        # `_v=` cache-buster input.
         "tile_version": ds_tile_version,
-        # Credit line for attribution control. Not gated on
-        # `is_public` — a layer reaching this builder is already
-        # authorized, and the source's display obligation applies regardless.
+        # Credit line for the attribution control. Not gated on `is_public`:
+        # a layer reaching this builder is already authorized, and the
+        # source's display obligation applies regardless.
         "dataset_attribution": ds_attribution,
         # Not gated on `is_public`, for the same reason as dataset_attribution.
         "dataset_extent_bbox": extent_to_bbox(ds_extent),
@@ -435,13 +429,13 @@ async def get_shared_map(
     success; "expired" if expired/revoked; None if not found.
     ``embed_authorized`` is True only when ``embed_token`` resolved to a
     non-empty scope (#1518 fail-closed rule). ``allowed_origins`` is the
-    active EmbedToken.allowed_origins (None/[] distinguish no-token vs
-    no-origins); callers emit a CSP frame-ancestors header from it.
+    active EmbedToken.allowed_origins (None and [] distinguish no token from
+    no origins); callers emit a CSP frame-ancestors header from it.
 
-    Visibility: anonymous sees public datasets only; authenticated sees
-    what ``apply_visibility_filter()`` allows. A
-    valid ``embed_token`` ADDITIONALLY includes layers in its scoped
-    snapshot — embed tokens are a private-dataset capability.
+    Visibility: anonymous sees public datasets only; authenticated sees what
+    ``apply_visibility_filter()`` allows. A valid ``embed_token`` additionally
+    includes layers in its scoped snapshot, since embed tokens are a
+    private-dataset capability.
 
     Tile URLs: vector uses /tiles/data.{table_name}/...; raster uses
     /raster-tiles/{dataset_id}/tiles/... (separate router).
@@ -461,9 +455,8 @@ async def get_shared_map(
             session, embed_token, token_obj.map_id, request
         )
 
-    # The router emits a per-token frame-ancestors CSP
-    # header from these origins. The query (including why non-expiring tokens
-    # need an explicit NULL branch) lives behind the embed-tokens seam.
+    # The router emits a per-token frame-ancestors CSP header from these
+    # origins. The query lives behind the embed-tokens seam.
     allowed_origins: list[str] | None = await get_active_allowed_origins(
         session, token_obj.map_id
     )
@@ -485,9 +478,9 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
             RasterAsset.band_info,
-            # tile_version reads the dedicated URL cache-buster —
-            # current_version only changes on reupload, so feature edits and
-            # column DDL never roll the _v= param (stale CDN/browser tiles).
+            # tile_version reads the dedicated URL cache-buster: current_version
+            # only changes on reupload, so feature edits and column DDL would
+            # never roll the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.attribution,
@@ -505,9 +498,9 @@ async def get_shared_map(
     layer_rows = list(layer_result.all())
 
     if embed_scope:
-        # Union in embed-scoped layers the
-        # visibility filter excluded — the join above still requires
-        # current map membership/publicity (fail-closed even with a valid token).
+        # Union in embed-scoped layers the visibility filter excluded. The
+        # join above still requires current map membership/publicity, so this
+        # fails closed even with a valid token.
         seen_layer_ids = {row[1].id for row in layer_rows}
         embed_stmt = base_stmt.where(Dataset.id.in_(embed_scope))
         embed_rows = (await session.execute(embed_stmt)).all()
@@ -518,8 +511,8 @@ async def get_shared_map(
             )
 
     if not layer_rows:
-        # Map doesn't exist, is not public, or has no visible layers.
-        # Fall back to map-only check to distinguish "not found" from "empty".
+        # Missing, not public, or no visible layers: a map-only check tells
+        # "not found" from "empty".
         map_obj = await get_map(session, token_obj.map_id)
         if map_obj is None or map_obj.visibility != "public":
             return None
@@ -588,9 +581,9 @@ async def get_shared_map(
         )
         if is_non_public:
             has_non_public = True
-        # Every layer_row already passed authorization (filter or embed scope),
-        # so this only tracks dataset ids to know when the terrain binding must
-        # be stripped (DEM absent from the set).
+        # Every layer_row already passed authorization (filter or embed
+        # scope); this tracks dataset ids to strip a terrain binding whose DEM
+        # is absent.
         visible_dataset_ids.add(str(layer.dataset_id))
         layers.append(layer_dict)
 
@@ -628,21 +621,20 @@ def _share_token_ordering(
 
     Inner half of a two-layer allowlist; the outer half is the
     ShareTokenSortField Literal in admin/schemas.py, enforced by FastAPI at
-    the boundary. A dict lookup, so a caller-supplied string never reaches
-    SQL as text, and an unmapped key raises rather than silently degrading.
+    the boundary. A dict lookup, so a caller-supplied string never reaches SQL
+    as text, and an unmapped key raises rather than silently degrading.
 
-    `share`/`embed_count` are passed in because both are per-call
-    constructs (an alias over a DISTINCT ON subquery, a COALESCE over an
-    aggregate), so the mapping can't be a module constant.
+    `share`/`embed_count` are per-call constructs (an alias over a DISTINCT ON
+    subquery, a COALESCE over an aggregate), so they are passed in.
     """
     columns = {
         "map_name": Map.name,
         "created_at": Map.created_at,
         "creator": User.username,
         "expires_at": share.expires_at,
-        # The COALESCE'd count the cell renders — raw aggregate is NULL
-        # with no ACTIVE token, which would sort those maps at an end.
-        # Range is only 0 or 1 (uq_embed_tokens_one_active_per_map).
+        # The COALESCE'd count the cell renders: the raw aggregate is NULL
+        # with no active token, which would sort those maps at an end. Range
+        # is 0 or 1 (uq_embed_tokens_one_active_per_map).
         "embed_token_count": embed_count,
     }
     column = columns.get(sort)
@@ -655,9 +647,9 @@ def _share_token_ordering(
     if sort in _NULLABLE_SHARE_TOKEN_SORT_FIELDS:
         clause = nulls_last(clause)
 
-    # One row per map, so Map.id is the unique tiebreak — every sortable
-    # column admits duplicates, and OFFSET paging over a non-unique key
-    # can return a row on two consecutive pages.
+    # Map.id is the unique tiebreak: every sortable column admits duplicates,
+    # and OFFSET paging over a non-unique key can return a row on two
+    # consecutive pages.
     return [clause, Map.id]
 
 
@@ -674,22 +666,22 @@ async def list_share_tokens(
     share-link status and active embed-token count, for the admin
     "Published Maps" view.
 
-    Every public map appears even without a share link —
-    keyed on ``Map``, LEFT JOINed to the latest share token per map. Maps
-    without a link carry null ``id``/``token``/``is_active``, but
-    ``created_at``/``created_by`` are still the map's.
+    Every public map appears even without a share link: the query is keyed on
+    ``Map``, LEFT JOINed to the latest share token per map. Maps without a
+    link carry null ``id``/``token``/``is_active``, but ``created_at`` and
+    ``created_by`` are still the map's.
 
-    ``sort`` must be a key of the _share_token_ordering allowlist,
-    ``order`` asc/desc; anything else raises ValueError. Link status is
-    NOT sortable: it's derived in Python from is_active/expires_at
-    against now(), which the listing has no CASE for.
+    ``sort`` must be a key of the _share_token_ordering allowlist, ``order``
+    asc/desc; anything else raises ValueError. Link status is not sortable:
+    it's derived in Python from is_active/expires_at against now(), which the
+    listing has no CASE for.
     """
     from sqlalchemy.orm import aliased
     from sqlalchemy.sql import ColumnElement
 
-    # Most-recent share token per map (DISTINCT ON map_id, preferring an active
-    # token, then newest). map_id has no unique constraint, so a map may have
-    # several historical tokens — collapse to one row per map.
+    # Most-recent share token per map (DISTINCT ON map_id, preferring an
+    # active token, then newest). map_id has no unique constraint, so a map
+    # may have several historical tokens.
     latest_token_sub = (
         select(MapShareToken)
         .order_by(
@@ -703,13 +695,12 @@ async def list_share_tokens(
     share = aliased(MapShareToken, latest_token_sub)
 
     embed_count_sub = active_embed_count_subquery()
-    # Built once and used for both the SELECT list and (when sorted on) the
-    # ORDER BY, so the number the row displays and the number it is ordered by
-    # cannot drift apart.
+    # Shared by the SELECT list and the ORDER BY, so the displayed number is
+    # the one ordered by.
     embed_count = func.coalesce(embed_count_sub.c.embed_count, 0)
 
-    # Base conditions scope to published maps; the status filter (when given)
-    # narrows on the joined share-link state.
+    # Scope to published maps; the status filter narrows on the joined
+    # share-link state.
     conditions: list[ColumnElement[bool]] = [Map.visibility == "public"]
     if search:
         # lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
@@ -850,14 +841,12 @@ async def get_maps_for_dataset(
         .order_by(Map.id, Map.updated_at.desc())
     )
 
-    # RBAC filter (extracted helper — same logic also used by list_maps).
+    # Same RBAC filter as list_maps.
     stmt = _apply_map_visibility_filter(stmt, user_id, is_admin)
 
-    # Total count before pagination
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await session.execute(count_stmt)).scalar() or 0
 
-    # Apply pagination
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
