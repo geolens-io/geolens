@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -43,6 +43,8 @@ export function useRenderModeLayers({
   mvtSourceLayerPrefix,
 }: UseRenderModeLayersParams) {
   const { t } = useTranslation('builder');
+  // Bumped per layer on every switch, so an `idle` retry left by an earlier switch stands down.
+  const switchGenerationRef = useRef(new Map<string, number>());
 
   /** Swap the MapLibre layer for a given dataset between vector adapter types (e.g. circle <-> heatmap).
    *  An image or hillshade switch is left to the sync pass. */
@@ -64,7 +66,10 @@ export function useRenderModeLayers({
     // style transition must not be dropped. A one-shot `idle` listener retries
     // the swap once the map settles (after style.load + tiles + transitions).
     if (!map.isStyleLoaded()) {
-      map.once('idle', () => runSwapLayerOnMap(layer, adapterType, updatedPaint));
+      const generation = switchGenerationRef.current.get(layer.id);
+      map.once('idle', () => {
+        if (switchGenerationRef.current.get(layer.id) === generation) runSwapLayerOnMap(layer, adapterType, updatedPaint);
+      });
       return;
     }
 
@@ -111,11 +116,14 @@ export function useRenderModeLayers({
     options?: { heightColumn?: string },
   ): boolean => {
     const layer = layersRef.current.find((l) => l.id === layerId);
-    // Re-entering the current mode would reset its paint to the mode's defaults.
-    if (!layer || (renderAs === getCurrentRenderAs(layer) && !options?.heightColumn)) return false;
+    // Re-entering the current mode would reset its paint to the mode's defaults;
+    // only a new extrusion height column makes it a change.
+    const newHeight = renderAs === 'extrusion-3d' && Boolean(options?.heightColumn);
+    if (!layer || (renderAs === getCurrentRenderAs(layer) && !newHeight)) return false;
 
     const mutation = buildRenderAsPatch(layer, renderAs, options);
     if (!mutation) return false;
+    switchGenerationRef.current.set(layerId, (switchGenerationRef.current.get(layerId) ?? 0) + 1);
 
     const updatedLayer: MapLayerResponse = {
       ...layer,

@@ -294,10 +294,10 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
         numeric = numeric_column_names(target.column_info)
         height_column = tool_input.get("height_column")
         builder = (target.style_config or {}).get("builder") or {}
-        extruded = builder.get("heightColumn") or (target.paint or {}).get(
+        current = builder.get("heightColumn") or (target.paint or {}).get(
             "_height_column"
         )
-        if height_column is None and not extruded:
+        if height_column is None and current not in numeric:
             # Name the column here: the client's fallback type check is looser.
             height_column = next(
                 (

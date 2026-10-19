@@ -168,6 +168,19 @@ async def test_extrusion_without_a_column_names_the_first_numeric_one():
     assert action["height_column"] == "height_m"
 
 
+@pytest.mark.anyio
+async def test_extrusion_by_a_text_column_is_replaced_with_a_numeric_one():
+    layer = _layer(
+        geometry_type="Polygon",
+        style_config={"builder": {"heightColumn": "name"}},
+    )
+    tool_input = {"layer_id": "layer-1", "render_as": "extrusion-3d"}
+
+    result = await _run("set_render_as", tool_input, [layer])
+
+    assert result["height_column"] == "height_m"
+
+
 def test_view_only_callers_cannot_switch_render_type():
     assert "set_render_as" in {t["name"] for t in select_chat_tools(can_edit=True)}
     assert "set_render_as" not in {t["name"] for t in select_chat_tools(can_edit=False)}

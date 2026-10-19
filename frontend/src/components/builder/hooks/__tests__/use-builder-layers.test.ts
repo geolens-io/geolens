@@ -521,12 +521,14 @@ describe('useBuilderLayers', () => {
     const layer = makeMockLayer({ id: 'layer-1', dataset_geometry_type: 'Point', paint: { 'circle-color': '#2255aa' } });
     const { result } = renderBuilderLayers(makeMapData([layer]));
 
-    let switched: boolean | undefined;
+    const switched: Array<boolean | undefined> = [];
     act(() => {
-      switched = result.current.chatLayerActions.onRenderAsChange?.('layer-1', 'point');
+      switched.push(result.current.chatLayerActions.onRenderAsChange?.('layer-1', 'point'));
+      // A stray height column only matters for extrusion.
+      switched.push(result.current.chatLayerActions.onRenderAsChange?.('layer-1', 'point', { heightColumn: 'floors' }));
     });
 
-    expect(switched).toBe(false);
+    expect(switched).toEqual([false, false]);
     expect(result.current.localLayers[0].paint).toEqual({ 'circle-color': '#2255aa' });
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
