@@ -702,6 +702,20 @@
     "leavePublicConfirmAction": "Öffentliche Freigabe beenden"
   },
   "chat": {
+    "toolProgress": {
+      "search_datasets": "Datensätze werden gesucht...",
+      "set_filter": "Filter wird angewendet...",
+      "set_style": "Stil wird geändert...",
+      "set_data_driven_style": "Datengesteuerter Stil wird erstellt...",
+      "set_label": "Beschriftungen werden konfiguriert...",
+      "toggle_visibility": "Sichtbarkeit wird umgeschaltet...",
+      "remove_layer": "Layer wird entfernt...",
+      "add_layer": "Layer wird hinzugefügt...",
+      "set_opacity": "Deckkraft wird angepasst...",
+      "set_render_as": "Darstellung wird geändert...",
+      "query_data": "Daten werden abgefragt...",
+      "run_analysis": "Analyse wird ausgeführt..."
+    },
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
     "placeholder": "Kartenänderung beschreiben...",
     "thinking": "Denkt nach...",

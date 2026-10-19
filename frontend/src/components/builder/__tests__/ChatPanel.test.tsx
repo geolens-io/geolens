@@ -996,6 +996,27 @@ describe('ChatPanel', () => {
     });
   });
 
+  it.each([
+    ['set_render_as', 'Changing render type...'],
+    ['future_tool', 'Server label'],
+  ])('shows the localized progress label for %s', async (tool, expected) => {
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => { release = resolve; });
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'tool_start', data: { type: 'tool_start', tool, label: 'Server label' } };
+      await paused;
+      yield { event: 'done', data: { explanation: 'Done' } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'switch it');
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+    release();
+    await screen.findByText('Done');
+  });
+
   it('a refused set_render_as is not counted as applied', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

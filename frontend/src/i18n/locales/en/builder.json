@@ -702,6 +702,20 @@
     "leavePublicConfirmAction": "Stop public sharing"
   },
   "chat": {
+    "toolProgress": {
+      "search_datasets": "Searching datasets...",
+      "set_filter": "Applying filter...",
+      "set_style": "Changing style...",
+      "set_data_driven_style": "Building data-driven style...",
+      "set_label": "Configuring labels...",
+      "toggle_visibility": "Toggling visibility...",
+      "remove_layer": "Removing layer...",
+      "add_layer": "Adding layer...",
+      "set_opacity": "Adjusting opacity...",
+      "set_render_as": "Changing render type...",
+      "query_data": "Querying data...",
+      "run_analysis": "Running analysis..."
+    },
     "emptyState": "Describe changes to your map using natural language.",
     "placeholder": "Describe a map change...",
     "thinking": "Thinking...",

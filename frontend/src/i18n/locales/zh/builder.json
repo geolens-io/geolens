@@ -702,6 +702,20 @@
     "leavePublicConfirmAction": "停止公开共享"
   },
   "chat": {
+    "toolProgress": {
+      "search_datasets": "正在搜索数据集...",
+      "set_filter": "正在应用筛选...",
+      "set_style": "正在更改样式...",
+      "set_data_driven_style": "正在构建数据驱动样式...",
+      "set_label": "正在配置标注...",
+      "toggle_visibility": "正在切换可见性...",
+      "remove_layer": "正在移除图层...",
+      "add_layer": "正在添加图层...",
+      "set_opacity": "正在调整不透明度...",
+      "set_render_as": "正在更改渲染方式...",
+      "query_data": "正在查询数据...",
+      "run_analysis": "正在运行分析..."
+    },
     "emptyState": "使用自然语言描述对地图的更改。",
     "placeholder": "描述地图更改...",
     "thinking": "思考中...",

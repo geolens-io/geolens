@@ -863,7 +863,10 @@ export function ChatPanel({
           setStreamingText(streamState.text);
           break;
         case 'tool_start':
-          setToolProgress(typeof data.label === 'string' ? data.label : '');
+          // The server's label is English; it only covers a tool this bundle doesn't know yet.
+          setToolProgress(t(`chat.toolProgress.${String(data.tool)}`, {
+            defaultValue: typeof data.label === 'string' ? data.label : '',
+          }));
           break;
         case 'tool_result':
           setToolProgress(null);

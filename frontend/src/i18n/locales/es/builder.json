@@ -702,6 +702,20 @@
     "leavePublicConfirmAction": "Dejar de compartir públicamente"
   },
   "chat": {
+    "toolProgress": {
+      "search_datasets": "Buscando conjuntos de datos...",
+      "set_filter": "Aplicando filtro...",
+      "set_style": "Cambiando estilo...",
+      "set_data_driven_style": "Creando estilo basado en datos...",
+      "set_label": "Configurando etiquetas...",
+      "toggle_visibility": "Cambiando visibilidad...",
+      "remove_layer": "Eliminando capa...",
+      "add_layer": "Añadiendo capa...",
+      "set_opacity": "Ajustando opacidad...",
+      "set_render_as": "Cambiando el tipo de renderizado...",
+      "query_data": "Consultando datos...",
+      "run_analysis": "Ejecutando análisis..."
+    },
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
     "placeholder": "Describa un cambio en el mapa...",
     "thinking": "Pensando...",

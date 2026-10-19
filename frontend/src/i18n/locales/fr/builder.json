@@ -702,6 +702,20 @@
     "leavePublicConfirmAction": "Arrêter le partage public"
   },
   "chat": {
+    "toolProgress": {
+      "search_datasets": "Recherche de jeux de données...",
+      "set_filter": "Application du filtre...",
+      "set_style": "Modification du style...",
+      "set_data_driven_style": "Création d'un style basé sur les données...",
+      "set_label": "Configuration des étiquettes...",
+      "toggle_visibility": "Changement de visibilité...",
+      "remove_layer": "Suppression de la couche...",
+      "add_layer": "Ajout de la couche...",
+      "set_opacity": "Réglage de l'opacité...",
+      "set_render_as": "Changement du mode d'affichage...",
+      "query_data": "Interrogation des données...",
+      "run_analysis": "Exécution de l'analyse..."
+    },
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
     "placeholder": "Décrivez une modification de carte...",
     "thinking": "Réflexion...",
