@@ -14,7 +14,8 @@ and releases use semantic versioning.
   exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
   instance's `/fonts/` path, using the public app URL, or the host the request
   reached while that URL is still a loopback default such as
-  `http://localhost:8080`.
+  `http://localhost:8080`. An install that serves the API from its own origin
+  needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
 
 ## [1.26.0] - 2026-10-18
 
