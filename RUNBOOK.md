@@ -1570,6 +1570,9 @@ Determine what was lost:
 # List all daily dumps in the backup_data volume, newest first
 docker compose exec backup sh -c 'ls -lt /backups/daily/*.dump'
 
+# Stop the backup service before copying anything (see below the block).
+docker compose stop backup
+
 # Copy the chosen dump and BOTH its paired artifacts out of the volume — the
 # globals dump included, or a fresh-cluster restore has no roles to replay and
 # restore.sh cannot report which ones are missing.
@@ -1595,16 +1598,13 @@ docker compose exec -T db \
   && echo "candidate dump reads end-to-end"
 ```
 
-Copy out that day's whole backup set, and the one you plan to restore if it is
-older. Every start of the backup container takes a dump at once, and a day
-keeps only its newest dump, so a start while the database is damaged or half
-restored replaces that day's good dump with a dump of the bad state. Then stop
-the service so nothing restarts it mid-recovery (`restore.sh` stops and restarts
-only `api` and `worker`):
-
-```bash
-docker compose stop backup
-```
+Keep the backup service stopped until the restored data checks out. A
+scheduled run during the copy can publish or prune files under it. Every start
+of the backup container also takes a dump at once, and a day keeps only its
+newest dump, so a start while the database is damaged or half restored replaces
+that day's good dump with a dump of the bad state. `restore.sh` restarts only
+`api` and `worker`, so it leaves the backup service stopped. Copy out that day's whole backup set too if
+the one you plan to restore is older.
 
 If the daily dump is corrupt, fall back to a weekly backup under
 `/backups/weekly/`, or to a pre-upgrade dump under `backups/pre-upgrade/`.
