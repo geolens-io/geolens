@@ -11,6 +11,7 @@ import {
   hasCustomizedRenderAsStyle,
 } from '../renderAs';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
+import { DEFAULT_CIRCLE_PAINT } from '../layer-adapters/builder-defaults';
 
 function layer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
   return {
@@ -296,6 +297,18 @@ describe('renderAs view model', () => {
 
     expect(mutation?.patch.paint).toEqual({ 'circle-color': '#dc2626' });
     expect(mutation?.patch.style_config?.savedCirclePaint).toEqual({ 'circle-color': '#dc2626' });
+  });
+
+  it('treats an empty circle stash as none when leaving a heatmap', () => {
+    const heatmap = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: { 'heatmap-radius': 30 },
+      style_config: { render_mode: 'heatmap', savedCirclePaint: {} } as StyleConfig,
+    });
+
+    expect(buildRenderAsPatch(heatmap, 'symbol')?.patch.paint).toEqual(DEFAULT_CIRCLE_PAINT);
+    expect(buildRenderAsPatch(heatmap, 'cluster')?.patch.paint).toEqual(DEFAULT_CIRCLE_PAINT);
   });
 
   it('enters cluster from heatmap with the stashed circle paint', () => {

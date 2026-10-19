@@ -205,6 +205,12 @@ function defaultHeightColumn(layer: RenderAsLayer): string {
   return numericColumn?.name ?? layer.dataset_column_info?.[0]?.name ?? 'height';
 }
 
+/** The circle paint stashed on heatmap entry; an empty stash counts as none. */
+function stashedCirclePaint(layer: RenderAsLayer): Record<string, unknown> | undefined {
+  const saved = layer.style_config?.savedCirclePaint;
+  return saved && Object.keys(saved).length > 0 ? saved : undefined;
+}
+
 function polygonPaint(layer: RenderAsLayer): Record<string, unknown> {
   return {
     ...DEFAULT_FILL_PAINT,
@@ -405,11 +411,8 @@ export function buildRenderAsPatch(
       savedCirclePaint: undefined,
       symbol: undefined,
     });
-    const savedCirclePaint = layer.style_config?.savedCirclePaint;
     // Cluster draws its unclustered points with the layer's own circle paint.
-    const circlePaint = current === 'cluster'
-      ? layer.paint
-      : savedCirclePaint && Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : null;
+    const circlePaint = current === 'cluster' ? layer.paint : stashedCirclePaint(layer);
     return {
       adapterType: 'circle',
       patch: {
@@ -423,7 +426,7 @@ export function buildRenderAsPatch(
   if (renderAs === 'symbol') {
     // Only a heatmap holds non-circle paint; every other mode's live paint is the circle paint.
     const circlePaint = getCurrentRenderAs(layer) === 'heatmap'
-      ? layer.style_config?.savedCirclePaint
+      ? stashedCirclePaint(layer)
       : layer.paint;
     return {
       adapterType: 'symbol',
@@ -470,7 +473,7 @@ export function buildRenderAsPatch(
   if (renderAs === 'cluster') {
     // Heatmap paint holds heatmap-* keys; the circle paint is stashed.
     const circlePaint = getCurrentRenderAs(layer) === 'heatmap'
-      ? { ...(layer.style_config?.savedCirclePaint ?? DEFAULT_CIRCLE_PAINT) }
+      ? { ...(stashedCirclePaint(layer) ?? DEFAULT_CIRCLE_PAINT) }
       : { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) };
     return {
       adapterType: 'circle',
