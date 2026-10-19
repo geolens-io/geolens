@@ -168,7 +168,7 @@ async def _build_dataset_context(
                     )
                 parts.append("Column statistics:\n" + "\n".join(lines))
 
-    # Truncated per value, never mid-JSON.
+    # Capped at 10 columns x 5 values before json.dumps, so JSON is never cut.
     if send_samples and dataset.sample_values:
         truncated_samples = {}
         for col, vals in list(dataset.sample_values.items())[:10]:

@@ -215,8 +215,8 @@ async def _stream_anthropic_chat(
             )
             break
 
-        # Stop before the next round would push the user over their daily cap
-        # (snapshot + this request's accumulator; no per-round query).
+        # Stop once usage has reached the daily cap (snapshot + this request's
+        # accumulator; no per-round query). The round that crosses it bills.
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(
                 "Chat stream daily token budget exceeded",
@@ -452,8 +452,8 @@ async def _stream_openai_chat(
             )
             break
 
-        # Stop before the next round would push the user over their daily cap
-        # (snapshot + this request's accumulator; no per-round query).
+        # Stop once usage has reached the daily cap (snapshot + this request's
+        # accumulator; no per-round query). The round that crosses it bills.
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(
                 "Chat stream daily token budget exceeded",

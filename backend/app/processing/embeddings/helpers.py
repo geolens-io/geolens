@@ -141,11 +141,11 @@ async def resolve_live_embedding_config(
     """The live (model, dimensions, endpoint, fingerprint), or None if unresolvable.
 
     Callers need the TRIPLE, not just the fingerprint: search filters stored
-    rows on the fingerprint and must generate its query vector under the SAME
-    configuration, so all four come from one read, which stops a settings
-    change mid-resolve from comparing vector B against fingerprint A. None
-    means unresolvable: no safe comparison, and the next provider call would
-    fail the same way.
+    rows on the fingerprint and must embed its query under the SAME
+    configuration, so all four come from one call and the fingerprint always
+    matches the triple beside it (the three reads can still straddle a
+    settings change; see ``verify``). None means unresolvable: no safe
+    comparison, and the next provider call would fail the same way.
 
     ``verify`` is for callers that STAMP what they resolve: three separate
     ``get`` calls can straddle a config publish and pin a triple that was never

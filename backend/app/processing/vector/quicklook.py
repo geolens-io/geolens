@@ -153,11 +153,11 @@ async def generate_vector_quicklook(
     est_rows = bounds_row.est_rows or 0
 
     # Simplify tolerance scales to the render resolution (~half a pixel at
-    # `size`) and only decimates vertices on large, detailed polygons. The
-    # third ST_Simplify argument (preserveCollapsed=true) keeps sub-tolerance
-    # features (building footprints, parcels, POIs) as minimal geometry instead
-    # of collapsing them to empty, so the tolerance can scale with the extent
-    # without dropping small features scattered across a continental one.
+    # `size`), so it only removes vertices a thumbnail can't show; points pass
+    # through unchanged. The third ST_Simplify argument (preserveCollapsed=true)
+    # keeps sub-tolerance lines and polygons (building footprints, parcels) as
+    # minimal geometry instead of collapsing them to empty, so the tolerance can
+    # scale with the extent without dropping small features across a continent.
     extent = max(maxx - minx, maxy - miny, 1e-9)
     simplify_tol = extent / (size * 2)
 

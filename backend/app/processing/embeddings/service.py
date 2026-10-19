@@ -105,9 +105,9 @@ async def generate_embeddings_batch(
     one-element list.
 
     ``model``/``dimensions``/``base_url`` let a caller that already resolved
-    the config pin it for the whole run. Pinned by presence, not by not-None,
-    because ``None`` is itself a resolved value (see ``_Unset``); an omitted
-    argument is resolved per call.
+    the config pin it for the whole run. ``base_url`` is pinned by presence,
+    since ``None`` is itself a resolved endpoint (see ``_Unset``); ``model``
+    and ``dimensions`` are pinned only when not None, and re-read otherwise.
 
     **A caller that writes its own ``model_name`` label MUST pass all three.**
     Without pinning, an admin swap mid-run has the provider generate from
