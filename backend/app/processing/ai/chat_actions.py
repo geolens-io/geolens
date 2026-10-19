@@ -527,8 +527,8 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
             return result
         return None
 
-    if tool_name == "set_render_as" and "error" in result:
-        return None
+    if tool_name == "set_render_as":
+        return None if "error" in result else {**result, "type": tool_name}
 
     if tool_name == "set_label":
         # A validation error from _execute_chat_tool (unknown

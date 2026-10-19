@@ -337,9 +337,9 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'cluster': {
-      // clusterColor is auto-seeded on mode entry (from the circle paint), so
-      // presence alone isn't customization; diverging from the seed is (as for
-      // extrusion heightColumn). Any non-empty ramp is user-authored state.
+      // A clusterColor equal to the point colour (older maps seeded it on mode
+      // entry) is not customization; a diverging one is, as for extrusion
+      // heightColumn. Any non-empty ramp is user-authored state.
       const seededClusterColor = typeof paint['circle-color'] === 'string'
         ? paint['circle-color']
         : DEFAULT_CIRCLE_PAINT['circle-color'];
@@ -468,9 +468,6 @@ export function buildRenderAsPatch(
     const circlePaint = getCurrentRenderAs(layer) === 'heatmap'
       ? { ...(layer.style_config?.savedCirclePaint ?? DEFAULT_CIRCLE_PAINT) }
       : { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) };
-    const clusterColor = typeof circlePaint['circle-color'] === 'string'
-      ? circlePaint['circle-color']
-      : DEFAULT_CIRCLE_PAINT['circle-color'];
     return {
       adapterType: 'circle',
       patch: {
@@ -480,7 +477,7 @@ export function buildRenderAsPatch(
           ...builderRecord(layer),
           clusterRadius: layer.style_config?.builder?.clusterRadius ?? 48,
           clusterMaxZoom: layer.style_config?.builder?.clusterMaxZoom ?? 14,
-          clusterColor: layer.style_config?.builder?.clusterColor ?? clusterColor,
+          // Unset until chosen, so cluster bubbles follow later circle-color edits.
           clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? MAP_COLORS.cluster.text,
           clusterTextSize: layer.style_config?.builder?.clusterTextSize ?? 12,
         }, { render_mode: 'cluster' }),

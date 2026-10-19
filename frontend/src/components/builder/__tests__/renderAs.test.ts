@@ -252,12 +252,13 @@ describe('renderAs view model', () => {
         builder: expect.objectContaining({
           clusterRadius: 48,
           clusterMaxZoom: 14,
-          clusterColor: '#2255aa',
           clusterTextColor: '#ffffff',
           clusterTextSize: 12,
         }),
       }),
     }));
+    // Unset, so the bubbles keep following the point colour.
+    expect(mutation?.patch.style_config?.builder).not.toHaveProperty('clusterColor');
     for (const key of Object.keys(mutation?.patch ?? {})) {
       expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
     }

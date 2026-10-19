@@ -58,15 +58,30 @@ async def test_heatmap_switch_then_radius_in_one_turn():
 
 
 @pytest.mark.anyio
-async def test_data_driven_style_after_a_heatmap_switch_explains_itself():
+@pytest.mark.parametrize(
+    ("render_as", "message"), [("heatmap", "heatmap-weight"), ("symbol", "icons")]
+)
+async def test_data_driven_style_after_a_switch_explains_itself(render_as, message):
     layers = [_layer()]
-    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "heatmap"}, layers)
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": render_as}, layers)
 
     style_input = {"layer_id": "layer-1", "mode": "graduated", "column": "height_m"}
     result = await _run("set_data_driven_style", style_input, layers)
 
-    assert "heatmap-weight" in result["error"]
+    assert message in result["error"]
     assert _collect_chat_action("set_data_driven_style", style_input, result) is None
+
+
+@pytest.mark.anyio
+async def test_paint_on_a_symbol_layer_is_dropped_with_a_warning():
+    layers = [_layer()]
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "symbol"}, layers)
+
+    style_input = {"layer_id": "layer-1", "paint": {"circle-color": "#dc2626"}}
+    result = await _run("set_style", style_input, layers)
+
+    assert result["paint"] == {}
+    assert result["warnings"] == ["Removed 'circle-color': not valid for symbol layers"]
 
 
 @pytest.mark.anyio
@@ -129,6 +144,24 @@ async def test_extrusion_accepts_a_numeric_height_column():
         "height_column": "height_m",
     }
     result = await _run("set_render_as", tool_input, [_layer(geometry_type="Polygon")])
+
+    action = _collect_chat_action("set_render_as", tool_input, result)
+    assert action is not None
+    assert action["height_column"] == "height_m"
+
+
+@pytest.mark.anyio
+async def test_extrusion_without_a_column_names_the_first_numeric_one():
+    layer = _layer(
+        geometry_type="Polygon",
+        column_info=[
+            {"name": "elapsed", "type": "interval"},
+            {"name": "height_m", "type": "double precision"},
+        ],
+    )
+    tool_input = {"layer_id": "layer-1", "render_as": "extrusion-3d"}
+
+    result = await _run("set_render_as", tool_input, [layer])
 
     action = _collect_chat_action("set_render_as", tool_input, result)
     assert action is not None

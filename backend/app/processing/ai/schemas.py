@@ -178,6 +178,9 @@ def _valid_paint_props_for_geometry(
     # Without this branch, the geometry-type filter strips every heatmap property.
     if render_mode == "heatmap":
         return "heatmap", _VALID_PAINT_PROPS["heatmap"]
+    if render_mode == "symbol":
+        # Symbol layers draw icons; paint only holds the circle paint for a return to points.
+        return "symbol", set()
     layer_type = _paint_layer_type_for_geometry(geometry_type)
     if not layer_type:
         return None, set()

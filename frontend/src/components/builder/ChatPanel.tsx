@@ -217,7 +217,7 @@ const CHAT_PRESERVED_FILL_OUTLINE_KEYS = ['_outline-color', '_outline-width'] as
  * the layer's geometry type and clamps numerics to Style-Spec bounds, mirroring
  * backend `validate_paint_with_feedback` (backend/app/processing/ai/schemas.py).
  * For `renderMode` 'heatmap' the geometry filter is skipped so heatmap-*
- * properties are kept.
+ * properties are kept; 'symbol' keeps nothing, since symbol layers draw icons.
  */
 function validateChatPaint(
   rawPaint: Record<string, unknown> | null,
@@ -226,6 +226,7 @@ function validateChatPaint(
 ): Record<string, unknown> {
   if (!rawPaint) return {};
   if (renderMode === 'heatmap') return clampPaintBounds(rawPaint);
+  if (renderMode === 'symbol') return {};
   const layerType = getLayerType(layer.dataset_geometry_type);
   const filtered = filterPaintForLayerType(rawPaint, layerType);
   if (layerType === 'fill') {

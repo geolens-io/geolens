@@ -971,6 +971,29 @@ describe('ChatPanel', () => {
     expect(onRenderAsChange).toHaveBeenCalledWith('layer-1', 'heatmap', { heightColumn: undefined });
   });
 
+  it('set_style on a symbol layer changes nothing', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_style', layer_id: 'layer-1', paint: { 'circle-color': '#dc2626' } }] },
+      };
+      yield { event: 'done', data: { explanation: 'Tried' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({
+        dataset_geometry_type: 'Point',
+        // Partial StyleConfig fixture — real runtime shape, cast only.
+        style_config: { render_mode: 'symbol' } as unknown as StyleConfig,
+      })],
+    });
+    await typeAndSend(user, 'make the icons red');
+
+    await screen.findByText('Tried');
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+  });
+
   it('a second set_style in one turn builds on the first', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

@@ -57,10 +57,16 @@ async def _build_data_driven_style(
 
     if not target_layer:
         return {"error": f"Layer {layer_id} not found"}
-    if (target_layer.style_config or {}).get("render_mode") == "heatmap":
+    render_mode = (target_layer.style_config or {}).get("render_mode")
+    if render_mode == "heatmap":
         return {
             "error": "A heatmap's colour follows point density, not a column. "
             "To weight it by a column, use set_style with a heatmap-weight expression."
+        }
+    if render_mode == "symbol":
+        return {
+            "error": "Symbol layers draw icons, so a column can't colour them. "
+            "Switch the layer to point first to colour it by a column."
         }
 
     table_name = target_layer.dataset_table_name
@@ -287,11 +293,26 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
     if render_as == "extrusion-3d":
         numeric = numeric_column_names(target.column_info)
         height_column = tool_input.get("height_column")
-        if height_column is None and not numeric:
-            return {
-                "error": "This layer has no numeric column to take 3D heights from."
-            }
-        if height_column is not None and height_column not in numeric:
+        builder = (target.style_config or {}).get("builder") or {}
+        extruded = builder.get("heightColumn") or (target.paint or {}).get(
+            "_height_column"
+        )
+        if height_column is None and not extruded:
+            # Name the column here: the client's fallback type check is looser.
+            height_column = next(
+                (
+                    c["name"]
+                    for c in target.column_info or []
+                    if isinstance(c, dict) and c.get("name") in numeric
+                ),
+                None,
+            )
+            if height_column is None:
+                return {
+                    "error": "This layer has no numeric column to take 3D heights from."
+                }
+            tool_input = {**tool_input, "height_column": height_column}
+        elif height_column is not None and height_column not in numeric:
             return {
                 "error": f"'{height_column}' is not a numeric column on this layer."
             }
