@@ -51,17 +51,15 @@ class AuthService:
     ) -> str:
         """Create a signed JWT for the given identity.
 
-        The payload includes ``jti`` (unique per-token
-        id) and ``token_version`` — a JWT whose token_version is behind the
-        user's current value is rejected by get_current_user/get_optional_user,
-        so logout and password-change revocations take effect immediately.
+        The payload includes ``jti`` (unique per-token id) and
+        ``token_version``: a JWT whose token_version is behind the user's
+        current value is rejected by get_current_user/get_optional_user, so
+        logout and password-change revocations take effect immediately.
         """
         minutes = expire_minutes or settings.access_token_expire_minutes
         now = datetime.now(UTC)
         multi_tenant = is_multi_tenant()
 
-        # Column-only select avoids a redundant full-row read when the User
-        # row was already loaded by the caller; a safe extra query either way.
         if multi_tenant:
             result = await self.db.execute(
                 select(User.token_version, User.tenant_id).where(
@@ -72,16 +70,15 @@ class AuthService:
             _raw_version = row.token_version if row is not None else None
             tenant_id = row.tenant_id if row is not None else None
         else:
-            # Preserve the single-tenant query and token payload exactly. The
-            # tenancy axis must remain inert for Community/self-hosted installs.
+            # The single-tenant query and payload carry no tenancy axis, which
+            # stays inert for Community/self-hosted installs.
             result = await self.db.execute(
                 select(User.token_version).where(User.id == identity.user_id)
             )
             _raw_version = result.scalar_one_or_none()
             tenant_id = None
-        # Explicit None check rather than `or 1`, so a stored
-        # token_version=0 isn't silently coerced to 1 (unreachable today, but
-        # explicit intent beats relying on falsiness).
+        # Explicit None check rather than `or 1`, so a stored token_version=0
+        # isn't silently coerced to 1.
         token_version: int = _raw_version if _raw_version is not None else 1
 
         payload = {
@@ -116,13 +113,13 @@ class AuthService:
     ) -> str:
         """Create a download-scoped JWT for a single dataset.
 
-        A JWT in a URL query parameter is far more leak-prone
-        than a Bearer header (browser history, logs, accidental copy).
-        ``typ='download'``, a dataset-scoped ``scope``, and a <=2-minute TTL
-        bound the damage if the URL is exposed; the session JWT keeps working
-        via the Authorization header. ``expire_seconds`` is silently capped
-        at 120, never raised. The user's current ``token_version`` is stamped
-        so a sign-out or password change revokes the token too.
+        A JWT in a URL query parameter is far more leak-prone than a Bearer
+        header (browser history, logs, accidental copy). ``typ='download'``, a
+        dataset-scoped ``scope``, and a <=2-minute TTL bound the damage if the
+        URL is exposed; the session JWT keeps working via the Authorization
+        header. ``expire_seconds`` is silently capped at 120, never raised. The
+        user's current ``token_version`` is stamped so a sign-out or password
+        change revokes the token too.
         """
         ttl = min(expire_seconds, 120)
         now = datetime.now(UTC)
@@ -176,10 +173,10 @@ class AuthService:
     async def get_user_from_refresh_token(self, raw_token: str) -> "User | None":
         """Return the User linked to *raw_token* without revoking it.
 
-        Used by the refresh handler to check the
-        domain allowlist BEFORE the old token is revoked — callers must call
-        rotate_refresh_token only after the check passes, so a rejected token
-        stays usable (no silent revocation on block).
+        Used by the refresh handler to check the domain allowlist BEFORE the
+        old token is revoked: callers call rotate_refresh_token only after the
+        check passes, so a rejected token stays usable (no silent revocation on
+        block).
 
         Returns None if the token is missing, expired, revoked, the linked
         user doesn't exist, or the row predates the owner's revocation horizon.
@@ -216,9 +213,9 @@ class AuthService:
                     > datetime.now(UTC)
                     - timedelta(seconds=settings.refresh_rotation_grace_seconds),
                 ),
-                # Revocation horizon, checked at use time so it
-                # covers rows revoke_all_tokens couldn't see when it ran (DB
-                # clock on both sides, so skew-free).
+                # Revocation horizon, checked at use time so it covers rows
+                # revoke_all_tokens couldn't see when it ran (DB clock on both
+                # sides, so skew-free).
                 or_(
                     User.sessions_revoked_at.is_(None),
                     RefreshToken.created_at > User.sessions_revoked_at,
@@ -321,9 +318,8 @@ class AuthService:
         The pending row joins the new session's family, so logout-everywhere
         and the revocation horizon reach it like any refresh token. Its hash
         covers the code, the binding and the starting page's nonce, so
-        redeeming needs all three. Expired
-        staged rows are swept here, since an abandoned callback is never
-        redeemed or rotated.
+        redeeming needs all three. Expired staged rows are swept here, since an
+        abandoned callback is never redeemed or rotated.
         """
         expired = (
             select(RefreshToken.id)
@@ -498,25 +494,23 @@ class AuthService:
     ) -> int:
         """Revoke all active refresh tokens AND bump User.token_version (logout).
 
-        Incrementing token_version invalidates every
-        access JWT issued before the bump on the next authenticated request,
-        closing the "logout doesn't invalidate access JWT" gap.
+        Incrementing token_version invalidates every access JWT issued before
+        the bump on the next authenticated request, so logout ends them too.
 
-        commit=False lets the caller fold revocation into a larger
-        transaction (e.g. change_password, where the password hash and audit
-        row must land in the same commit).
+        commit=False lets the caller fold revocation into a larger transaction
+        (e.g. change_password, where the password hash and audit row must land
+        in the same commit).
 
-        bump_key_epoch also bumps User.key_epoch, invalidating
-        every API key minted before the bump. Default False so plain logout
-        never kills long-lived API keys; pass True only from security-event
-        callers.
+        bump_key_epoch also bumps User.key_epoch, invalidating every API key
+        minted before the bump. Default False so plain logout never kills
+        long-lived API keys; pass True only from security-event callers.
 
         Returns the new token_version value.
         """
         # Take the owner-row lock BEFORE revoking, matching
-        # rotate_refresh_token — a concurrent rotation must either finish
-        # before this UPDATE's snapshot (so its replacement is caught) or
-        # block here and find its own row already revoked.
+        # rotate_refresh_token: a concurrent rotation either finishes before
+        # this UPDATE's snapshot (so its replacement is caught) or blocks here
+        # and finds its own row already revoked.
         await self.db.execute(
             select(User.id).where(User.id == user_id).with_for_update()
         )
@@ -531,26 +525,25 @@ class AuthService:
             .values(revoked=True)
         )
 
-        # 2. Atomically increment token_version (and key_epoch, if requested,
-        #    in the same UPDATE) so prior access JWTs/API keys are rejected.
+        # 2. Atomically increment token_version (and key_epoch, if requested)
+        #    so prior access JWTs/API keys are rejected, and stamp the
+        #    revocation horizon in the same UPDATE. Step 1 only revokes what
+        #    its own snapshot sees, so a rotation committing its replacement
+        #    just after that snapshot survives it; the horizon is a predicate
+        #    evaluated at USE time, the only shape that covers a row this
+        #    transaction can't see yet. func.now() is the transaction
+        #    timestamp, matching RefreshToken.created_at (skew-free). GREATEST
+        #    keeps the horizon monotonic if the clock steps backward; COALESCE
+        #    is needed because SQL GREATEST is not guaranteed to ignore NULLs
+        #    (Postgres does, the standard doesn't).
         #
-        #    Stamp the revocation horizon in the same UPDATE.
-        #    Step 1 only revokes what its own snapshot sees, so a rotation
-        #    committing its replacement just after that snapshot survives —
-        #    the horizon is a predicate evaluated at USE time, the only shape
-        #    that covers a row this transaction can't see yet. func.now() is
-        #    the transaction timestamp, matching RefreshToken.created_at
-        #    (skew-free). GREATEST keeps the horizon monotonic if the clock
-        #    steps backward; COALESCE is needed because SQL GREATEST is not
-        #    guaranteed to ignore NULLs (Postgres does, the standard doesn't).
-        #
-        #    token_version is retained, not replaced: iat is API-clock and
+        #    token_version is kept alongside the horizon: iat is API-clock and
         #    the horizon is DB-clock, so a fast API clock could mint a
-        #    pre-logout token whose iat clears the horizon — the bump still
-        #    kills it. And since iat is whole seconds, the same-second region
-        #    is covered by the bump ALONE (see _predates_revocation_horizon
-        #    in dependencies.py). Weakening this bump requires tightening
-        #    that rounding in the same change; this stays purely additive.
+        #    pre-logout token whose iat clears the horizon, and the bump still
+        #    kills it. Since iat is whole seconds, the same-second region is
+        #    covered by the bump ALONE (see _predates_revocation_horizon in
+        #    dependencies.py), so weakening the bump needs that rounding
+        #    tightened in the same change.
         values: dict = {
             "token_version": User.token_version + 1,
             "sessions_revoked_at": func.greatest(
@@ -587,8 +580,8 @@ class AuthService:
 
         Raises ValueError if the username or email already exists.
 
-        FLUSHES but does NOT commit — the caller controls
-        the transaction so a follow-up audit_emit lands in the same one.
+        FLUSHES but does NOT commit: the caller controls the transaction so a
+        follow-up audit_emit lands in the same one.
         """
         # Hashed before the existence checks so a taken name or email costs
         # the same bcrypt time as a new account and the timing can't tell
@@ -619,7 +612,6 @@ class AuthService:
         await self.db.flush()
         return user.id
 
-    # Note: duplicates visibility.get_user_roles — consider delegating
     async def get_user_roles(self, user_id: uuid.UUID) -> set[str]:
         result = await self.db.execute(
             select(Role.name)
@@ -634,7 +626,6 @@ async def get_user_identity(db: AsyncSession, user_id: uuid.UUID) -> Identity | 
     return await db.get(User, user_id)
 
 
-# Shared API key helper (used by admin and self-service routers).
 class ApiKeyTargetUserNotFoundError(LookupError):
     """The target user is absent from the caller's RLS-visible scope."""
 
@@ -644,9 +635,8 @@ class ApiKeyTargetUserInactiveError(ValueError):
 
     A key minted for a pending account would be blocked by the
     resolution-time status check while pending, then gain the approved
-    role's privileges at approval. Refusing the mint closes that door early
-    (approve_user's key_epoch bump is belt-and-suspenders for keys that
-    predate this guard).
+    role's privileges at approval. Refusing the mint closes that door early;
+    approve_user's key_epoch bump also voids any key minted before approval.
     """
 
 
@@ -660,16 +650,16 @@ async def create_api_key_for_user(
 ) -> tuple[ApiKey, str]:
     """Create an API key for a user. Returns (api_key, raw_key).
 
-    The raw key is only available at creation time. Flushes but does
-    NOT commit — caller controls the transaction.
+    The raw key is only available at creation time. Flushes but does NOT
+    commit; the caller controls the transaction.
 
-    ``expires_at=None`` mints a non-expiring key (legacy
-    behavior); the key snapshots the owner's key_epoch so a later security
-    event (password/role change, SAML-to-local conversion — NOT logout)
-    invalidates it. Minting requires an active owner.
+    ``expires_at=None`` mints a non-expiring key. The key snapshots the
+    owner's key_epoch so a later security event (password/role change,
+    SAML-to-local conversion, NOT logout) invalidates it. Minting requires an
+    active owner.
 
-    ``scope="read_only"`` mints a key that authenticates only
-    GET/HEAD/OPTIONS. Default matches the column default.
+    ``scope="read_only"`` mints a key limited to reads (see
+    ``_read_only_key_may_call``). The default matches the column default.
 
     ``scope="dataset_write"`` and ``scope="dataset_append"`` require
     ``dataset_id`` and other scopes forbid it; the caller must already have

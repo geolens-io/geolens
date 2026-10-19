@@ -80,11 +80,11 @@ def build_cache_key(
 ) -> str:
     """Build a deterministic ``catalog:search:<endpoint>:<sha1 of canonical JSON>`` key.
 
-    ``default=str`` silently swallows non-determinism outside date/UUID —
+    ``default=str`` silently swallows non-determinism outside date/UUID, so
     audit ``SearchFilters`` when adding fields. ``semantic_enabled`` is keyed
-    so facets match the results' candidate set; ``public_app_url``
-    is keyed because raster_tiles hrefs use the app origin.
-    ``filters.keywords`` order is preserved — do NOT sort it here.
+    so facets match the results' candidate set; ``public_app_url`` is keyed
+    because raster_tiles hrefs use the app origin. ``filters.keywords`` order
+    is preserved, not sorted.
     """
     payload: dict[str, object] = {
         "filters": dataclasses.asdict(filters),

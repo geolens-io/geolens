@@ -176,10 +176,10 @@ def _check_nodata_consistency(sources: list[Any]) -> list[SourceValidationError]
 def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
     """Rotated rasters are rejected.
 
-    `is_rotated` is `NOT NULL DEFAULT false`, so it cannot
-    represent "never measured" — a source whose geometry probe never ran
-    looks identical to one confirmed unrotated. `_check_pixel_geometry_known`
-    catches that case via the NULL `res_x`/`res_y` it leaves behind.
+    `is_rotated` is `NOT NULL DEFAULT false`, so it cannot represent "never
+    measured": a source whose geometry probe never ran looks identical to one
+    confirmed unrotated. `_check_pixel_geometry_known` catches that case via
+    the NULL `res_x`/`res_y` it leaves behind.
     """
     errors: list[SourceValidationError] = []
     for src in sources:
@@ -198,10 +198,9 @@ def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
 def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationError]:
     """Pixel geometry (resolution) must have been measured.
 
-    A source with NULL `res_x` or `res_y` was never probed, so
-    it cannot be proven unrotated or grid-aligned — both
-    checks silently treat "unknown" as "passing" without this. Raise a
-    distinct code instead of letting an unverifiable source through.
+    A source with NULL `res_x` or `res_y` was never probed, so it cannot be
+    proven unrotated or grid-aligned, and both checks would treat "unknown" as
+    "passing". This raises a distinct code instead.
     """
     errors: list[SourceValidationError] = []
     for src in sources:
@@ -223,10 +222,9 @@ def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationErro
 def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     """Band-stack sources must share identical grid dimensions and resolution.
 
-    res_x/res_y compared with 1e-10 absolute tolerance; one error per
-    mismatched dimension. A NULL res_x/res_y skips comparison
-    here, but `_check_pixel_geometry_known` raises for it
-    instead of letting it pass.
+    res_x/res_y are compared with 1e-10 absolute tolerance; one error per
+    mismatched dimension. A NULL res_x/res_y skips comparison here, but
+    `_check_pixel_geometry_known` raises for it.
     """
     _FLOAT_TOL = 1e-10
     errors: list[SourceValidationError] = []
@@ -329,18 +327,15 @@ def validate_sources(
     if len(sources) < 2:
         return errors
 
-    # Checks that apply to both vrt_types
     errors.extend(_check_crs(sources, same_crs))
     errors.extend(_check_dtype(sources))
     errors.extend(_check_nodata_consistency(sources))
     errors.extend(_check_rotation(sources))
     errors.extend(_check_pixel_geometry_known(sources))
 
-    # Mosaic-only checks
     if vrt_type == "mosaic":
         errors.extend(_check_band_count_mosaic(sources))
 
-    # Band-stack-only checks
     if vrt_type == "band_stack":
         errors.extend(_check_single_band_requirement(sources))
         errors.extend(_check_grid_alignment(sources))

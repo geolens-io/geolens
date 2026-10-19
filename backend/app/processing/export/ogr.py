@@ -14,9 +14,9 @@ from app.core.config import settings
 from app.processing.raster.vrt import gdal_vector_safe_env
 from app.core.csv_safety import escape_csv_formula
 
-# build_pg_conn_str is NOT imported at module scope — a
-# module-scope import snapshots it past the test fixture's patch, which would
-# send a test export at the dev database. Late-bind at call scope.
+# build_pg_conn_str is imported at call scope: a module-scope import snapshots
+# it past the test fixture's patch, which would send a test export at the dev
+# database.
 from app.processing.ingest.ogr import (
     IngestionError,
     _communicate_with_timeout,
@@ -31,13 +31,11 @@ class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
 
 
-# This conversion runs inside the request, so its deadline is the
-# edge proxy's read timeout, not the offline worker's. Measured against the
-# request's own monotonic clock (deadline minus elapsed), not a fixed
-# allowance, so a slow pre-conversion step can't overrun the edge; a fast one
-# hands its unused time to the conversion. EDGE_PROXY_READ_TIMEOUT_SECONDS is
-# imported rather than restated — one edge read timeout, one source of truth
-# (frontend/nginx.conf's `proxy_read_timeout` on `location /api/`).
+# This conversion runs inside the request, so its deadline is the edge proxy's
+# read timeout (frontend/nginx.conf's `proxy_read_timeout` on `location
+# /api/`), not the offline worker's. It is measured against the request's own
+# monotonic clock rather than a fixed allowance, so a slow pre-conversion step
+# can't overrun the edge and a fast one hands its unused time to the conversion.
 
 # Reserved for post-subprocess work: format finish (zip/gpkg normalize),
 # hash+publish, audit commit. A reservation, not a measurement, sized for a
@@ -50,15 +48,13 @@ def export_post_work_reserve_seconds() -> int:
 
     The margin above plus one ``db_pool_timeout`` (the audit row's checkout
     hasn't happened yet, and an exhausted pool can block the full timeout).
-    Reads the live setting since a hardcoded value would silently break the
-    arithmetic once raised.
+    Reads the live setting so the arithmetic follows it when raised.
     """
     return EXPORT_POST_WORK_MARGIN_SECONDS + settings.db_pool_timeout
 
 
-# A conversion can't be given zero or negative time — that's a crash, not a
-# deadline. When pre-conversion work already ate the window, the request
-# fails through the ordinary timeout path instead of an arithmetic edge case.
+# A conversion can't be given zero or negative time. When pre-conversion work
+# already ate the window, the request fails through the ordinary timeout path.
 EXPORT_BUDGET_FLOOR_SECONDS = 1
 
 _export_reserve_warned = False
@@ -72,7 +68,6 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
     floored at ``EXPORT_BUDGET_FLOOR_SECONDS``. ``deadline`` is a
     ``time.monotonic()`` stamp from ``RequestLoggingMiddleware``, offset by
     ``EDGE_PROXY_READ_TIMEOUT_SECONDS``; None means no request context.
-
     Anchored at the middleware, not the route body, so a slow
     ``Depends(get_optional_user)`` pool checkout is inside the clock.
     """
@@ -80,8 +75,7 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
 
     reserve = export_post_work_reserve_seconds()
     if reserve >= EDGE_PROXY_READ_TIMEOUT_SECONDS and not _export_reserve_warned:
-        # Configuration problem, not a slow request — no export can ever get
-        # time on this deployment. Logged once, with the cause.
+        # A configuration problem: no export can get time on this deployment.
         _export_reserve_warned = True
         logger.warning(
             "export_post_work_reserve_exceeds_edge_timeout",
@@ -102,9 +96,9 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
     return max(remaining, float(EXPORT_BUDGET_FLOOR_SECONDS))
 
 
-# Lives HERE, not in `parquet.py` (which imports
-# pyarrow at module scope), so the format table can be read without pulling
-# pyarrow into the importer's graph. `parquet.py` re-exports it.
+# Defined here, not in `parquet.py` (which imports pyarrow at module scope), so
+# the format table can be read without pulling pyarrow in. `parquet.py`
+# re-exports it.
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 
 FORMAT_MAP: dict[str, dict[str, str]] = {
@@ -153,12 +147,11 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
 # pyramid's own top zoom (catalog/records/service.py, map builder default).
 _PMTILES_MINZOOM = "0"
 _PMTILES_MAXZOOM_CEILING = 14
-# Unlike the live tile endpoint (renders on demand), the
-# PMTiles writer materializes EVERY tile in MINZOOM..MAXZOOM intersecting the
-# data — a wide-extent polygon at fixed z14 could demand up to 4**14 tiles,
-# staging-disk exhaustion the feature-count cap can't see. Budget the
-# deepest zoom's tile count instead: 4**8 caps a world layer at z8, a city
-# layer still reaches z14.
+# Unlike the live tile endpoint, the PMTiles writer materializes every tile in
+# MINZOOM..MAXZOOM intersecting the data: a wide-extent polygon at fixed z14
+# could demand up to 4**14 tiles, exhausting staging disk in a way the
+# feature-count cap can't see. So the deepest zoom's tile count is budgeted:
+# 4**8 caps a world layer at z8, while a city layer still reaches z14.
 _PMTILES_TILE_BUDGET = 65_536
 
 
@@ -220,13 +213,12 @@ def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     return envelope(minx, maxx)
 
 
-# ogr2ogr writes CSV cells verbatim with no escaping; the
-# anonymous-reachable export route lets an editor's cell execute for any
-# visitor who opens it. Post-pass, since ogr2ogr has no layer-creation option.
+# ogr2ogr writes CSV cells verbatim, and the anonymous-reachable export route
+# would let an editor's formula cell execute for any visitor who opens it. A
+# post-pass escapes them, since ogr2ogr has no layer-creation option for this.
 _CSV_FIELD_SIZE_LIMIT = 2**31 - 1
 
-# How often the pass checks the clock. A row at a time
-# would monotonic()-read every batch; 512 rows honors a deadline within
+# How often the pass checks the clock: 512 rows honors a deadline within
 # milliseconds while staying noise next to the csv parse.
 _CSV_DEADLINE_CHECK_ROWS = 512
 
@@ -360,9 +352,9 @@ async def run_ogr2ogr_export(
         cmd.extend(["-t_srs", target_srs])
 
     if bbox and bbox[0] > bbox[2]:
-        # -spat takes ONE rectangle; an antimeridian-crossing box
-        # became the complement band and dropped every feature. Split into
-        # the server-side WHERE instead, in one pass (not two -spat runs).
+        # -spat takes one rectangle, so an antimeridian-crossing box would
+        # become the complement band and drop every feature. Split into the
+        # server-side WHERE instead, in one pass.
         spatial_where = bbox_where_sql(bbox, literal=True)
         where = f"{spatial_where} AND ({where})" if where else spatial_where
     elif bbox:
@@ -405,17 +397,14 @@ async def run_ogr2ogr_export(
             ]
         )
 
-    # Kill-on-timeout bounds the subprocess wall-clock
-    # (mirrors ingest); libpq statement_timeout caps the query so it stops
-    # when the child is killed.
-    #
-    # The bound is the request's, read once as late as possible.
-    # `_communicate_with_timeout` kills on cancellation, but nothing cancels
-    # a GET handler on client disconnect — this deadline bounds an orphan.
+    # Kill-on-timeout bounds the subprocess wall-clock; libpq statement_timeout
+    # caps the query so it stops when the child is killed. The bound is the
+    # request's, read once as late as possible. `_communicate_with_timeout`
+    # kills on cancellation, but nothing cancels a GET handler on client
+    # disconnect, so this deadline bounds an orphan.
     export_timeout = export_subprocess_timeout_seconds(deadline)
-    # Input here is a PG connection, not a
-    # caller document, so it isn't attacker-controlled — clamped anyway so the
-    # structural gate has no exception site.
+    # The input is a PG connection, not a caller document, but it is clamped
+    # anyway so the structural gate has no exception site.
     export_env = gdal_vector_safe_env()
     # Milliseconds, and libpq wants an integer.
     export_env["PGOPTIONS"] = f"-c statement_timeout={int(export_timeout * 1000)}"
@@ -461,9 +450,8 @@ async def run_ogr2ogr_export(
             f"ogr2ogr export failed (exit {proc.returncode}): {stderr.decode().strip()}"
         )
 
-    # See _harden_csv_formulas — only after a clean exit, off
-    # the event loop, under the request's clock; the budget is re-read here
-    # (not reused) so it gets what the subprocess left.
+    # Only after a clean exit, off the event loop, under the request's clock;
+    # the budget is re-read so it gets what the subprocess left.
     if format_key == "csv":
         await run_in_thread_draining(
             _harden_csv_formulas,

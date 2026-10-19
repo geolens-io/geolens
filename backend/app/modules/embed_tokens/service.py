@@ -43,22 +43,20 @@ from app.platform.extensions import get_processing_port
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# Revoking a token evicts its positive cache entry before the
-# caller's commit, so a concurrent reader can re-SELECT the still-active row
-# and re-cache it as valid for the full TTL. A
-# revoke therefore writes a DENIAL here instead of deleting the key, and
-# readers publish positives with set_if_absent -- whichever write lands
-# first wins, so the denial always survives the race. TTL must cover the
-# longest positive entry a racer could write (EMBED_TOKEN_POSITIVE_TTL_SECONDS).
-# A rolled-back revoke leaves its denial in place until it expires -- fail
-# closed, and the direction to be wrong in.
+# Revoking a token evicts its positive cache entry before the caller's commit,
+# so a concurrent reader can re-SELECT the still-active row and re-cache it as
+# valid for the full TTL. A revoke therefore writes a DENIAL here instead of
+# deleting the key, and readers publish positives with set_if_absent:
+# whichever write lands first wins, so the denial always survives the race.
+# TTL must cover the longest positive entry a racer could write
+# (EMBED_TOKEN_POSITIVE_TTL_SECONDS). A rolled-back revoke leaves its denial in
+# place until it expires: fail closed, the direction to be wrong in.
 EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS = 300
 
-# Bounds how long a worker that took no traffic during a
-# Redis outage can keep trusting a stale positive -- it never observes the
-# revocation generation change, so it trusts a cached entry until this TTL
-# expires. Lower = shorter exposure, more DB reads; see
-# platform/cache/revocation.py.
+# Bounds how long a worker that took no traffic during a Redis outage can keep
+# trusting a stale positive: it never observes the revocation generation
+# change, so it trusts a cached entry until this TTL expires. Lower = shorter
+# exposure, more DB reads; see platform/cache/revocation.py.
 EMBED_TOKEN_POSITIVE_TTL_SECONDS = 300
 
 
@@ -88,9 +86,9 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
     try:
         cache = get_cache()
         for token_hash in token_hashes:
-            # set_authoritative, not set -- a positive
-            # entry stuck in the in-memory fallback during a Redis outage
-            # must not survive a denial written after Redis recovers.
+            # set_authoritative, not set: a positive entry stuck in the
+            # in-memory fallback during a Redis outage must not survive a
+            # denial written after Redis recovers.
             await cache.set_authoritative(
                 _embed_token_cache_key(token_hash),
                 {"is_valid": False},
@@ -100,29 +98,23 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
 
-# Gates the localhost-Origin bypass on the TCP peer also
-# being loopback, since the Origin header alone is forgeable by non-browser
-# callers.
+# Gates the localhost-Origin bypass on the TCP peer also being loopback, since
+# the Origin header alone is forgeable by non-browser callers.
 #
-# Stays an exact set (not a range like _is_localhost_origin) on
-# purpose -- this only GATES a bypass, so a miss just denies the shortcut;
-# widening it would hand the bypass to more callers than #1555 intends.
+# An exact set (not a range like _is_localhost_origin) on purpose: this only
+# GATES a bypass, so a miss just denies the shortcut, and widening it would
+# hand the bypass to more callers.
 _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
-
-
-# allowed_origins storage and request-origin extraction share ONE
-# bracket-preserving normalizer (schemas._normalize_origin) so an IPv6
-# literal byte-matches between the allowlist and the live request origin.
 
 
 def _is_localhost_origin(origin: str) -> bool:
     """Is this origin one that only reaches the machine it is opened on?
 
-    Loopback is a RANGE (127.0.0.0/8, ::1), not just
-    127.0.0.1 -- treating it as a single address would let http://127.0.0.2 read
-    as a routable public origin and make a domain lock enforceable when it
-    should not be. See is_loopback_host (app/core/public_urls.py) and the
-    frontend mirror isLoopbackHostname.
+    Loopback is a RANGE (127.0.0.0/8, ::1), not just 127.0.0.1: treating it
+    as a single address would let http://127.0.0.2 read as a routable public
+    origin and make a domain lock enforceable when it should not be. See
+    is_loopback_host (app/core/public_urls.py) and the frontend mirror
+    isLoopbackHostname.
     """
     parsed = urlparse(origin.lower().rstrip("/"))
     return is_loopback_host(parsed.hostname or "")
@@ -142,9 +134,9 @@ def _client_is_loopback(request: Request) -> bool:
 def extract_request_origin(request: Request) -> str | None:
     """Extract and normalize the Origin (or Referer) header.
 
-    Uses the bracket-preserving schema normalizer so results byte-match
-    stored allowed_origins. A forged/unparseable header fails closed (None)
-    rather than raising.
+    Uses the bracket-preserving schema normalizer that also stores
+    allowed_origins, so an IPv6 literal byte-matches. A forged/unparseable
+    header fails closed (None) rather than raising.
     """
     origin = request.headers.get("origin")
     if origin:
@@ -168,13 +160,13 @@ def extract_request_origin(request: Request) -> str | None:
 async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     """Return the normalized origins that ARE this GeoLens deployment.
 
-    Every candidate is server-derived, never reconstructed from
-    the caller's own Origin/Referer -- that would make every origin "self"
-    and the allowlist vacuous. Sources: the configured PUBLIC_APP_URL (via
+    Every candidate is server-derived, never reconstructed from the caller's
+    own Origin/Referer, which would make every origin "self" and the
+    allowlist vacuous. Sources: the configured PUBLIC_APP_URL (via
     get_configured_public_app_url, not get_public_app_url, whose fallbacks
-    include caller-supplied headers), and in hosted multi-tenant, the
-    tenant origin the tenant-context middleware already resolved against
-    the registry.
+    include caller-supplied headers), and in hosted multi-tenant, the tenant
+    origin the tenant-context middleware already resolved against the
+    registry.
     """
     origins: set[str] = set()
 
@@ -188,9 +180,9 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
             except ValueError:
                 pass
 
-    # Fails CLOSED on lookup errors like every other
-    # denial here -- an authorization helper must not turn a 60s-cache DB
-    # miss into a 500 on the tile path.
+    # Fails CLOSED on lookup errors like every other denial here: an
+    # authorization helper must not turn a 60s-cache DB miss into a 500 on the
+    # tile path.
     try:
         app_url = await get_configured_public_app_url(db)
     except Exception:  # broad: any lookup failure must deny, never raise
@@ -199,12 +191,12 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     if app_url is None:
         return origins
 
-    # Shape-check BEFORE normalization, since
-    # normalization hides the problem -- it prepends https:// to any
-    # schemeless value, so a misconfigured `ftp://maps.example.com` would
-    # otherwise look like a plausible non-loopback origin and issue a lock
-    # nothing can satisfy. is_usable_public_origin is the one statement of
-    # this rule (mirrored by parseUsablePublicUrl in public-urls.ts).
+    # Shape-check BEFORE normalization, which hides the problem: it prepends
+    # https:// to any schemeless value, so a misconfigured
+    # `ftp://maps.example.com` would look like a plausible non-loopback origin
+    # and issue a lock nothing can satisfy. is_usable_public_origin is the one
+    # statement of this rule (mirrored by parseUsablePublicUrl in
+    # public-urls.ts).
     if is_usable_public_origin(app_url):
         try:
             origins.add(_normalize_origin(app_url))
@@ -221,18 +213,14 @@ async def _request_origin_is_allowed(
 ) -> bool:
     """Single reader for an embed token's domain lock.
 
-    A domain-locked embed's own API calls (tiles/features) run
-    from inside the /m/{token} iframe, so they carry the SHELL's own
-    origin, never the embedder's -- the embedder's origin is only visible
-    on the iframe's navigation, which frame-ancestors
-    (build_embed_frame_ancestors) already enforces at the browser layer.
-    Rejecting anything outside allowed_origins therefore broke EVERY
-    domain-locked embed's own API calls. This accepts the shell's own
-    resolved self-origin in addition to allowed_origins, restoring the
-    'self' half CSP already grants -- while still checking allowed_origins
-    for tokens driven by the customer's own JS (Origin:
-    https://customer.example.com), where the allowlist is the only
-    enforcement.
+    A domain-locked embed's own API calls (tiles/features) run from inside
+    the /m/{token} iframe, so they carry the SHELL's own origin, never the
+    embedder's; the embedder's origin is only visible on the iframe's
+    navigation, which frame-ancestors (build_embed_frame_ancestors) enforces
+    at the browser layer. So this accepts the shell's resolved self-origin as
+    well as allowed_origins (the 'self' half CSP already grants), while
+    allowed_origins stays the only enforcement for tokens driven by the
+    customer's own JS (Origin: https://customer.example.com).
 
     Known consequence: a top-level (unframed) navigation to the shell
     sends identical headers to the framed case and is accepted too;
@@ -250,8 +238,8 @@ async def _request_origin_is_allowed(
         # Both sides are pre-normalized: allowed_origins by
         # schemas._validate_origins, origin by extract_request_origin.
         return True
-    # Origin alone is forgeable, so the localhost bypass
-    # also requires the TCP peer to be loopback.
+    # Origin alone is forgeable, so the localhost bypass also requires the TCP
+    # peer to be loopback.
     if _is_localhost_origin(origin) and _client_is_loopback(request):
         return True
 
@@ -259,13 +247,10 @@ async def _request_origin_is_allowed(
     if origin in self_origins:
         return True
 
-    # Compose ships a `PUBLIC_APP_URL:-http://localhost:8080`
-    # default and .env.example leaves it commented out, so an unconfigured
-    # self-hoster resolves a self-origin of localhost and every
-    # domain-locked embed stays empty. Not inferred from
-    # Host/X-Forwarded-Host/request.url: those are settable by anyone who
-    # can point DNS at the deployment, which would make the lock bypassable
-    # by the parties it excludes. Log and deny instead of guessing.
+    # An unconfigured self-hoster resolves a localhost self-origin (see
+    # assert_domain_lock_is_enforceable). The shell's origin is not inferred
+    # from Host/X-Forwarded-Host/request.url, which anyone who can point DNS
+    # at the deployment can set. Log and deny instead of guessing.
     logger.warning(
         "embed_token_domain_lock_denied",
         request_origin=origin,
@@ -295,32 +280,31 @@ async def assert_domain_lock_is_enforceable(
 ) -> None:
     """Refuse to issue a domain lock this deployment could never enforce.
 
-    The embed shell's own API calls carry the
-    SHELL's origin (see _request_origin_is_allowed), which comes from
-    configuration (PUBLIC_APP_URL) -- and compose's
-    `:-http://localhost:8080` default plus a commented-out .env.example
-    line means an unconfigured self-hoster silently resolves a self-origin
-    of localhost, so every domain-locked embed they issue stays empty. Not
-    inferred from Host/X-Forwarded-Host/request.url: those are settable by
-    anyone who can point DNS at the deployment, which would make the lock
-    satisfiable by the exact parties it excludes.
+    The embed shell's own API calls carry the SHELL's origin (see
+    _request_origin_is_allowed), which comes from configuration
+    (PUBLIC_APP_URL), and compose's `:-http://localhost:8080` default plus a
+    commented-out .env.example line means an unconfigured self-hoster
+    silently resolves a self-origin of localhost, so every domain-locked
+    embed they issue stays empty. Not inferred from
+    Host/X-Forwarded-Host/request.url: those are settable by anyone who can
+    point DNS at the deployment, which would make the lock satisfiable by the
+    exact parties it excludes.
 
     Refuses only when the creating request reached a real, non-loopback
     origin while every self-origin this deployment knows resolves to
-    loopback -- a proof of unenforceability, not a guess. Two weaker
-    predicates were rejected: "configured value is absent" is undetectable
-    (the compose default masks unset); "creating origin differs from
-    configured" would refuse a deployment that is correctly configured but
-    administered from a different hostname than its public one. A typo'd
-    (not defaulted) PUBLIC_APP_URL is NOT caught here by choice -- it
+    loopback: a proof of unenforceability, not a guess. "Configured value is
+    absent" is undetectable (the compose default masks unset), and "creating
+    origin differs from configured" would refuse a correctly configured
+    deployment administered from a different hostname than its public one. A
+    typo'd (not defaulted) PUBLIC_APP_URL is NOT caught here by choice; it
     surfaces via the embed_token_domain_lock_denied warning in
     _request_origin_is_allowed instead.
 
-    The comparison reads the creating request's own Origin -- caller
-    controlled, but sound here because it is diagnostic only: it can
-    refuse a mint but never grant access, and forging it only denies
-    yourself. Skipped entirely when the request carries no browser origin,
-    or when that origin is itself loopback (a local dev caller).
+    The comparison reads the creating request's own Origin, caller
+    controlled but sound here because it is diagnostic only: it can refuse a
+    mint but never grant access, and forging it only denies yourself. Skipped
+    entirely when the request carries no browser origin, or when that origin
+    is itself loopback (a local dev caller).
     """
     if not allowed_origins:
         return
@@ -357,11 +341,11 @@ def build_embed_frame_ancestors(
 ) -> str:
     """Build the CSP frame-ancestors directive for the /m/{token} embed shell.
 
-    Domain restrictions used to protect only the
-    tile/data calls, not the shell's own HTML document, so any site could
-    frame it. Invalid/revoked/expired -> 'none' (fail closed). Valid with
-    allowed_origins -> 'self' + origins. Valid without -> '' (intentional
-    open Community embed; never emits the forbidden wildcard '*').
+    Domain restrictions cover the shell's own HTML document, not only the
+    tile/data calls, or any site could frame it. Invalid/revoked/expired ->
+    'none' (fail closed). Valid with allowed_origins -> 'self' + origins.
+    Valid without -> '' (intentional open Community embed; never emits the
+    forbidden wildcard '*').
 
     CRLF/wildcard entries in allowed_origins are dropped here too, in
     addition to the schema-layer 422 rejection, so a stale DB row cannot
@@ -382,9 +366,9 @@ def build_embed_frame_ancestors(
 class EmbedScopeNotVisibleError(Exception):
     """The minter cannot currently see every dataset the map is scoped to.
 
-    Distinct from this module's ValueError refusals so the
-    router can answer with 403 (matching the maps router's shape for "you
-    can't use these datasets") rather than the 400 licensing-refusal shape.
+    Distinct from this module's ValueError refusals so the router can answer
+    with 403 (matching the maps router's shape for "you can't use these
+    datasets") rather than the 400 licensing-refusal shape.
     """
 
 
@@ -415,11 +399,11 @@ async def create_embed_token(
     if not is_enterprise() and (expires_in_days != 30 or bool(allowed_origins)):
         raise ValueError(ADVANCED_SHARING_ERROR)
 
-    # Order is load-bearing. _deny_revoked_embed_tokens writes a
-    # cache denial that is NOT rolled back with this transaction, so scope
-    # must be checked and the mint accepted/refused BEFORE any revoke -- a
-    # refusal raised after revoking would leave the caller's still-valid
-    # token dead in cache while the DB rolled the revoke back.
+    # Order is load-bearing. _deny_revoked_embed_tokens writes a cache denial
+    # that is NOT rolled back with this transaction, so scope must be checked
+    # and the mint accepted/refused BEFORE any revoke: a refusal raised after
+    # revoking would leave the caller's still-valid token dead in cache while
+    # the DB rolled the revoke back.
     map_scope = await get_map_embed_scope(db, map_id)
     scoped_ids = map_scope.dataset_ids if map_scope else ()
 
@@ -448,9 +432,8 @@ async def create_embed_token(
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     token_hint = "et_..." + raw_token[-8:]
 
-    # tenant_id is derived server-side from
-    # Map.tenant_id, never from a client header or argument. Inert (None)
-    # in single_tenant.
+    # tenant_id is derived server-side from Map.tenant_id, never from a client
+    # header or argument. Inert (None) in single_tenant.
     map_tenant_id = map_scope.tenant_id if map_scope else None
     token_tenant_id = map_tenant_id if is_multi_tenant() else None
 
@@ -517,12 +500,11 @@ async def revoke_embed_tokens_by_map(
 ) -> int:
     """Revoke ALL active embed tokens for a map and purge their cache.
 
-    The maps router's revoke / visibility-downgrade paths used to flip only
-    MapShareToken.is_active, never EmbedToken, so a copied embed token kept serving tiles until its
-    natural expiry. Wired into the share-revoke, public->non-public
-    downgrade, and layer-change paths. Writes a denial over the positive
-    cache entry (#1778), so the 5-minute TTL cannot extend access past
-    revocation. Returns the number of tokens revoked.
+    Wired into the share-revoke, public->non-public downgrade, and
+    layer-change paths, so a copied embed token stops serving tiles there
+    too. Writes a denial over the positive cache entry, so the 5-minute TTL
+    cannot extend access past revocation. Returns the number of tokens
+    revoked.
     """
     result = await db.execute(
         select(EmbedToken).where(
@@ -583,9 +565,9 @@ async def get_active_embed_token(
 ) -> EmbedToken | None:
     """Load the active token a write targets, or None if there is none.
 
-    Shared by the router's initial 404 check and
-    update_embed_token's write-time check, so "which token does this PATCH
-    mean" cannot drift between them.
+    Shared by the router's initial 404 check and update_embed_token's
+    write-time check, so "which token does this PATCH mean" cannot drift
+    between them.
     """
     result = await db.execute(
         select(EmbedToken).where(
@@ -636,13 +618,12 @@ async def resolve_embed_scope_for_map(
 ) -> set[uuid.UUID]:
     """Resolve the dataset ids an embed token authorizes for map_id.
 
-    Embed tokens are a private-dataset capability -- the tile path always
-    honored them, but the shared-map metadata endpoint dropped non-visible
-    datasets, so a valid scoped token couldn't even construct those layers. This lets get_shared_map
-    widen its visibility filter to the token's snapshot scope.
+    Embed tokens are a private-dataset capability. This lets get_shared_map
+    widen its visibility filter to the token's snapshot scope, so a valid
+    scoped token can construct the layers its tiles serve.
 
     Fail-closed: returns an empty set (never raises) for an unknown,
-    inactive, expired, wrong-map, or origin-denied token -- same rules as
+    inactive, expired, wrong-map, or origin-denied token, the same rules as
     validate_embed_token_access. No caching or usage tracking: this
     endpoint is low-QPS, called once per viewer load.
 
@@ -663,8 +644,8 @@ async def resolve_embed_scope_for_map(
     if token is None:
         return set()
 
-    # Domain-locking check — shares ONE policy reader with
-    # validate_embed_token_access so the two cannot drift.
+    # Domain-locking check: one policy reader shared with
+    # validate_embed_token_access, so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, token.allowed_origins):
         return set()
 
@@ -700,15 +681,15 @@ async def validate_embed_token_access(
     cache = get_cache()
     token: EmbedToken | None = None
 
-    # Read the revocation generation before the cache so
-    # a hit can be compared in one round-trip (see platform/cache/revocation.py
-    # for why a process-local answer isn't enough).
+    # Read the revocation generation before the cache so a hit can be compared
+    # in one round-trip (see platform/cache/revocation.py for why a
+    # process-local answer isn't enough).
     generation = await current_revocation_generation(db)
-    # An unreadable counter yields a SENTINEL rather than
-    # a generation; two sentinel-stamped entries would compare EQUAL, so a
-    # positive cached while the counter was down would stay trusted through a
-    # later revocation. When unusable, the cache is skipped entirely in both
-    # directions -- every validation costs a DB read instead.
+    # An unreadable counter yields a SENTINEL rather than a generation; two
+    # sentinel-stamped entries would compare EQUAL, so a positive cached while
+    # the counter was down would stay trusted through a later revocation. When
+    # unusable, the cache is skipped entirely in both directions and every
+    # validation costs a DB read instead.
     generation_usable = is_usable_generation(generation)
 
     # Check cache first. security=True: a positive here decides access to
@@ -717,12 +698,11 @@ async def validate_embed_token_access(
     if cached is not None and not cached.get("is_valid", False):
         return False
 
-    # An entry stamped with an older generation than the
-    # DB's current one is not evidence about the token now -- this is what
-    # makes a revoke performed while this worker couldn't reach Redis visible
-    # to it. An entry with no stamp (pre-upgrade) fails the same way: costs a
-    # re-validation per live token after a rolling deploy, but trusting an
-    # unstamped entry would trust exactly what this can't vouch for.
+    # An entry stamped with an older generation than the DB's current one is
+    # not evidence about the token now: this is what makes a revoke performed
+    # while this worker couldn't reach Redis visible to it. An entry with no
+    # stamp fails the same way, since trusting it would trust exactly what
+    # this can't vouch for.
     if cached is not None and (
         not generation_usable
         or not is_usable_generation(cached.get("generation", UNKNOWN_GENERATION))
@@ -768,21 +748,20 @@ async def validate_embed_token_access(
         allowed_origins = token.allowed_origins
         scoped_dataset_ids = token.scoped_dataset_ids
 
-        # Cache positive: include expires_at (for the re-check) and
-        # tenant_id (for the cache-hit path).
+        # Cache positive: include expires_at (for the re-check) and tenant_id
+        # (for the cache-hit path).
         #
-        # set_if_absent, not set. This row read as committed-
-        # active, but a revocation may be mid-flight on it right now (plain
-        # READ COMMITTED doesn't block on the revoker's lock) and may have
-        # already stamped a denial under this key. Overwriting it would
-        # restore the token for the rest of this entry's TTL -- exactly the
-        # window the live layer-membership re-check below closes.
+        # set_if_absent, not set. This row read as committed-active, but a
+        # revocation may be mid-flight on it right now (plain READ COMMITTED
+        # doesn't block on the revoker's lock) and may have already stamped a
+        # denial under this key. Overwriting it would restore the token for
+        # the rest of this entry's TTL.
         seconds_until_expiry = (token.expires_at - now).total_seconds()
         cache_ttl = int(
             min(EMBED_TOKEN_POSITIVE_TTL_SECONDS, max(0, seconds_until_expiry))
         )
-        # Only publish an entry that carries a generation a
-        # future reader can actually check it against.
+        # Only publish an entry that carries a generation a future reader can
+        # actually check it against.
         if generation_usable:
             await cache.set_if_absent(
                 cache_key,
@@ -809,38 +788,33 @@ async def validate_embed_token_access(
     if str(dataset_id) not in scoped_dataset_ids:
         return False
 
-    # Fail-closed tenant-equality check, inert in single_tenant. No new public/published recheck is
-    # introduced here, only this tenant-equality gate.
+    # Fail-closed tenant-equality check, inert in single_tenant.
     if is_multi_tenant():
-        # Resolve token's tenant: DB-miss path uses the ORM object; cache-hit
-        # path reads from the cached dict set above.
         if token is not None:
             token_tenant = token.tenant_id
         else:
-            # Cache-hit path: tenant_id was stored in the positive-cache payload.
             raw_tid = cached.get("tenant_id") if cached else None  # type: ignore[union-attr]
             token_tenant = uuid.UUID(raw_tid) if raw_tid else None
 
-        # Resolve dataset's tenant via a fresh query (no re-mint, no cache).
+        # The dataset's tenant from a fresh query (no re-mint, no cache).
         dataset = await get_processing_port().get_dataset(db, dataset_id)
         dataset_tenant = getattr(dataset, "tenant_id", None) if dataset else None
 
-        # Explicit NULL guard. `None != None` is False,
-        # so without this, a legacy NULL-tenant token would pass the
-        # equality check against any NULL-tenant dataset.
+        # Explicit NULL guard. `None != None` is False, so without this a
+        # legacy NULL-tenant token would pass the equality check against any
+        # NULL-tenant dataset.
         if token_tenant is None or dataset_tenant is None:
             return False
         if token_tenant != dataset_tenant:
             return False
 
-    # Fail-closed live layer-membership re-check.
-    # scoped_dataset_ids is a creation-time snapshot; if the dataset's layer
-    # was later removed (or the map deleted), a cached positive could keep
-    # granting tile access until expiry. Runs on both cache-hit and
-    # cache-miss paths. Does NOT recheck Map.visibility -- embed tokens are
-    # a private-dataset capability, so a private map must still
-    # serve via an active token; visibility downgrades are handled by
-    # revoke_embed_tokens_by_map instead.
+    # Fail-closed live layer-membership re-check. scoped_dataset_ids is a
+    # creation-time snapshot; if the dataset's layer was later removed (or the
+    # map deleted), a cached positive could keep granting tile access until
+    # expiry. Runs on both cache-hit and cache-miss paths. Does NOT recheck
+    # Map.visibility: embed tokens are a private-dataset capability, so a
+    # private map must still serve via an active token; visibility downgrades
+    # are handled by revoke_embed_tokens_by_map instead.
     if token is not None:
         live_map_id: uuid.UUID | None = token.map_id
     else:
@@ -859,18 +833,16 @@ async def validate_embed_token_access(
         return False
 
     if token is not None:
-        # Separate session: must not commit the caller's request-scoped `db`
-        # from inside this authorization helper (mirrors _resolve_api_key's
-        # last_used_at bump). Every caller today is read-only, but that
-        # could change.
+        # Separate session: this authorization helper must not commit the
+        # caller's request-scoped `db` (as with _resolve_api_key's
+        # last_used_at bump).
         #
-        # Fired detached, not awaited -- access is
-        # already decided, so the bump is pure telemetry that must never
-        # delay or fail it. A burst of simultaneous cache-miss bumps could
-        # contend for the side pool, and even a bounded await here would
-        # stall every cache-miss authorization for up to the timeout.
-        # _usage_bump_tasks holds a strong ref so the task can't be GC'd
-        # mid-flight; its done-callback discards the ref when finished.
+        # Fired detached, not awaited: access is already decided, so the bump
+        # is pure telemetry that must never delay or fail it. A burst of
+        # simultaneous cache-miss bumps could contend for the side pool, and
+        # even a bounded await here would stall every cache-miss authorization
+        # for up to the timeout. _usage_bump_tasks holds a strong ref so the
+        # task can't be GC'd mid-flight.
         task = asyncio.create_task(_bump_embed_token_usage_detached(token.id))
         _usage_bump_tasks.add(task)
         task.add_done_callback(_usage_bump_tasks.discard)
@@ -888,7 +860,7 @@ async def _bump_embed_token_usage_detached(token_id: uuid.UUID) -> None:
 
     Bounded with a timeout so a starved pool doesn't leave the task running
     indefinitely; any failure (pool contention or otherwise) is logged and
-    swallowed rather than propagated — there is no caller left to catch it.
+    swallowed, since there is no caller left to catch it.
     """
     try:
         await asyncio.wait_for(_bump_embed_token_usage(token_id), timeout=3.0)
@@ -945,8 +917,8 @@ async def list_admin_embed_tokens(
     if map_id:
         base = base.where(EmbedToken.map_id == map_id)
 
-    # Tenant filter so a tenant-A admin cannot list
-    # tenant-B tokens via the admin endpoint.
+    # Tenant filter so a tenant-A admin cannot list tenant-B tokens via the
+    # admin endpoint.
     if tenant_id is not None:
         base = base.where(EmbedToken.tenant_id == tenant_id)
 
@@ -993,9 +965,9 @@ async def bulk_revoke_embed_tokens(
 ) -> int:
     """Bulk-revoke embed tokens. Returns the count actually revoked.
 
-    When tenant_id is supplied, only that tenant's
-    tokens are revoked, preventing a tenant-A admin from revoking
-    tenant-B tokens by UUID. Inert in single_tenant.
+    When tenant_id is supplied, only that tenant's tokens are revoked, so a
+    tenant-A admin cannot revoke tenant-B tokens by UUID. Inert in
+    single_tenant.
     """
     filters = [
         EmbedToken.id.in_(token_ids),

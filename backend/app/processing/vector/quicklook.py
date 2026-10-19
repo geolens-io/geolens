@@ -16,7 +16,6 @@ from sqlalchemy import text
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# Styling constants — light background with blue geometry
 _BG_COLOR = (241, 245, 249)  # #f1f5f9 slate-50
 _FILL_COLOR = (191, 219, 254)  # #bfdbfe blue-200
 _STROKE_COLOR = (59, 130, 246)  # #3b82f6 blue-500
@@ -40,7 +39,7 @@ def _geo_to_pixel(
     cx_offset = padding + (effective - dx * scale) / 2
     cy_offset = padding + (effective - dy * scale) / 2
     px = cx_offset + (x - minx) * scale
-    py = cy_offset + (maxy - y) * scale  # y-inverted
+    py = cy_offset + (maxy - y) * scale
     return (px, py)
 
 
@@ -119,8 +118,8 @@ async def generate_vector_quicklook(
 ) -> bytes:
     """Query simplified geometries from PostGIS and render a PNG thumbnail.
 
-    Renders a world outline for geographic context, then overlays the actual
-    dataset geometry in blue. Point sizes scale with density.
+    Draws the dataset geometry in blue on a light canvas. Point sizes scale
+    with density.
     """
     if not _TABLE_NAME_RE.match(table_name):
         return _blank_canvas(size)
@@ -129,7 +128,7 @@ async def generate_vector_quicklook(
 
     table_ref = _qtable(table_name, schema=schema)
 
-    # Get bounds via ST_Extent (cheap aggregate) and row count for sampling decision
+    # ST_Extent is a cheap aggregate; the row estimate decides whether to sample.
     bounds_sql = text(
         f"SELECT ST_XMin(e) AS minx, ST_YMin(e) AS miny, "
         f"       ST_XMax(e) AS maxx, ST_YMax(e) AS maxy, "
@@ -153,17 +152,16 @@ async def generate_vector_quicklook(
     )
     est_rows = bounds_row.est_rows or 0
 
-    # Simplify tolerance scaled to the render resolution (~half a pixel at `size`),
-    # used only to decimate vertices on large, detailed polygons. The third
-    # ST_Simplify argument (preserveCollapsed=true) keeps sub-tolerance features —
-    # building footprints, parcels, POIs — as minimal geometry instead of letting
-    # them collapse to empty, so the tolerance can scale freely with the extent
-    # without ever dropping small features scattered across a continental extent,
-    # where the tolerance is large.
+    # Simplify tolerance scales to the render resolution (~half a pixel at
+    # `size`), so it only removes vertices a thumbnail can't show; points pass
+    # through unchanged. The third ST_Simplify argument (preserveCollapsed=true)
+    # keeps sub-tolerance lines and polygons (building footprints, parcels) as
+    # minimal geometry instead of collapsing them to empty, so the tolerance can
+    # scale with the extent without dropping small features across a continent.
     extent = max(maxx - minx, maxy - miny, 1e-9)
     simplify_tol = extent / (size * 2)
 
-    # For large tables, use TABLESAMPLE to avoid scanning all rows
+    # Large tables use TABLESAMPLE rather than scanning every row.
     max_features = 2000
     if est_rows > max_features * 2:
         sample_pct = min(100.0, (max_features / max(est_rows, 1)) * 100 * 1.5)
@@ -184,7 +182,7 @@ async def generate_vector_quicklook(
     if not rows:
         return _blank_canvas(size)
 
-    # Handle zero-extent (single point or collinear points)
+    # Zero extent: a single point or collinear points.
     if maxx - minx < 1e-9:
         minx -= 0.01
         maxx += 0.01
@@ -192,7 +190,7 @@ async def generate_vector_quicklook(
         miny -= 0.01
         maxy += 0.01
 
-    # Tight margin around data extent — just enough to avoid clipping edges
+    # Just enough margin to avoid clipping edges.
     dx = maxx - minx
     dy = maxy - miny
     margin_x = dx * 0.08
@@ -204,13 +202,12 @@ async def generate_vector_quicklook(
         min(maxy + margin_y, 90),
     )
 
-    # The parse → make_valid → draw → encode work below is CPU-bound
-    # Python with no suspension points. Running it inline on the worker event
-    # loop means asyncio.wait_for in the timeout wrapper cannot interrupt a
-    # pathological geometry (up to `max_features` features incl. large
-    # multipolygons via make_valid). Offload it to a worker thread so the loop
-    # stays responsive AND the wait_for timeout fires at this await boundary.
-    # Matches the asyncio.to_thread convention used across the processing modules.
+    # The parse, make_valid, draw and encode work is CPU-bound Python with no
+    # suspension points. Inline on the worker event loop, asyncio.wait_for in
+    # the timeout wrapper could not interrupt a pathological geometry (up to
+    # `max_features` features, including large multipolygons via make_valid).
+    # A worker thread keeps the loop responsive AND lets the timeout fire at
+    # this await boundary.
     geojson_strings = [row.geojson for row in rows]
     return await asyncio.to_thread(
         _render_quicklook_png, geojson_strings, view_bounds, size
@@ -224,9 +221,8 @@ def _render_quicklook_png(
 ) -> bytes:
     """Parse GeoJSON rows, validate, draw, and encode a PNG. CPU-bound, sync.
 
-    Extracted from ``generate_vector_quicklook`` so the timeout wrapper can run
-    it via ``asyncio.to_thread``. Output bytes are identical to the
-    prior inline implementation.
+    Separate from ``generate_vector_quicklook`` so it can run via
+    ``asyncio.to_thread``.
     """
     geometries = []
     num_points = 0
@@ -247,7 +243,7 @@ def _render_quicklook_png(
     if not geometries:
         return _blank_canvas(size)
 
-    # Create canvas and draw data geometry (no world outline — too noisy at thumbnail scale)
+    # No world outline: too noisy at thumbnail scale.
     canvas = Image.new("RGB", (size, size), _BG_COLOR)
     draw = ImageDraw.Draw(canvas)
 

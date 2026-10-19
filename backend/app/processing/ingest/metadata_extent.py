@@ -1,14 +1,14 @@
 """Reading metadata back off a landed PostGIS table.
 
-Split out of ``metadata.py`` (#1042). ``extract_metadata``'s CTE consolidates
-``get_feature_count``, ``get_table_srid``, ``get_geometry_type`` and the
-extent query into a single scan, falling back to those same four helpers one
-at a time when a deployment can't run it — the CTE and the helpers must
-agree line for line, so they're kept where a reader can see both.
+``extract_metadata``'s CTE consolidates ``get_feature_count``,
+``get_table_srid``, ``get_geometry_type`` and the extent query into a single
+scan, falling back to those same four helpers one at a time when a
+deployment can't run it. The CTE and the helpers must agree line for line,
+so they're kept where a reader can see both.
 
 ``get_extent`` and the CTE also share the two extent corrections: the
-antimeridian override in ``_seam_crossing_extent_wkt`` (#934) and the
-degenerate POINT/LINESTRING padding.
+antimeridian override in ``_seam_crossing_extent_wkt`` and the degenerate
+POINT/LINESTRING padding.
 """
 
 import re
@@ -103,8 +103,8 @@ async def get_declared_srid(
 # opengeo:countries) to the closest concrete subtype, since
 # chk_datasets_geometry_type only allows the 7 concrete types (POINT,
 # LINESTRING, POLYGON, MULTIPOINT, MULTILINESTRING, MULTIPOLYGON,
-# GEOMETRYCOLLECTION). ``-nlt GEOMETRY`` (same phase) relaxed the column
-# type so ogr2ogr can load these, but leaves the stored subtype
+# GEOMETRYCOLLECTION). ``-nlt GEOMETRY`` relaxes the column type so
+# ogr2ogr can load these, but leaves the stored subtype
 # (MULTISURFACE / MULTICURVE / ...) as GeometryType(geom)'s answer.
 _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE: dict[str, str] = {
     "MULTISURFACE": "MULTIPOLYGON",
@@ -239,17 +239,17 @@ async def get_extent(
 ) -> str | None:
     """Get the 4326 extent WKT (or None for empty tables).
 
-    A Pacific-crossing table (reachable since #888 shifts 0..360
-    sources instead of clipping) must not store the naive fold (a
-    near-global POLYGON); when the honest extent crosses the seam this
-    returns the two-ring MULTIPOLYGON instead. Non-crossing extents stay
-    byte-identical to the original query.
+    A Pacific-crossing table (0..360 sources are shifted rather than
+    clipped) must not store the naive fold, a near-global POLYGON. When
+    the honest extent crosses the seam this returns the two-ring
+    MULTIPOLYGON instead; any other extent is ST_Extent's, padded only
+    when degenerate (below).
 
     spatial_extent admits POLYGON/MULTIPOLYGON only
     (chk_records_spatial_extent_type). ST_Extent of a single point or
-    axis-collinear points casts to a rejected POINT/LINESTRING, crashing
-    the reupload swap. Pad ONLY the degenerate cases into a valid sub-mm
-    polygon; genuine extents stay byte-identical.
+    axis-collinear points casts to a rejected POINT/LINESTRING, which would
+    fail the reupload swap, so only those degenerate cases are padded into
+    a valid sub-mm polygon.
     """
     _validate_table_name(table_name)
     result = await session.execute(
@@ -645,8 +645,8 @@ async def extract_metadata(
         geometry_type = await _generic_column_type(
             session, _normalize_geometry_type(row.geometry_type), table_name, schema
         )
-        # Emit the two-ring MULTIPOLYGON for a Pacific-crossing
-        # source instead of storing the naive fold; see get_extent above.
+        # A Pacific-crossing source gets the two-ring MULTIPOLYGON; see
+        # get_extent.
         extent_wkt = row.extent_wkt
         crossing = await _seam_crossing_extent_wkt(
             session, table_name, schema=schema, xmin=row.ext_xmin, xmax=row.ext_xmax

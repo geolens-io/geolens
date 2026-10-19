@@ -16,33 +16,29 @@ from app.processing.embeddings.models import RecordEmbedding
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Cache key partitions on active embedding model name
-# so an admin model swap invalidates stale yes/no answers within one cache
-# miss. Without the partition, switching e.g. text-embedding-3-small ->
-# all-MiniLM-L6-v2 in admin Settings would return the previous model's
-# answer for up to 30 seconds.
+# The cache key partitions on the active embedding model name, so an admin
+# model swap invalidates stale yes/no answers within one cache miss; otherwise
+# the previous model's answer would stand for up to 30 seconds.
 _has_embeddings_cache: dict[str, tuple[bool, float]] = {}
 _HAS_EMBEDDINGS_TTL = 30.0  # seconds
-_HAS_EMBEDDINGS_MAX = 8  # bounded; operators rarely run more than 2-3 models
+_HAS_EMBEDDINGS_MAX = 8  # operators rarely run more than 2-3 models
 
-# Named so a caller can branch on "the model is unknown" without
-# repeating the literal. Read-side callers may keep treating it as a name that
-# matches no stored row; a WRITE-side caller has to check for it explicitly
-# (see DefaultProcessingPort.get_records_without_embeddings).
+# Read-side callers may treat it as a name that matches no stored row; a
+# WRITE-side caller has to check for it explicitly (see
+# DefaultProcessingPort.get_records_without_embeddings).
 UNKNOWN_EMBEDDING_MODEL = "__model_unknown__"
 
-# The sibling of the above for the whole configuration. Not a hex
-# digest, so it can never collide with a real fingerprint and therefore matches
-# no STAMPED row. It does still match an unstamped one, which is the same
-# grandfathering `RecordEmbedding.usable_by_config` applies everywhere else.
+# The whole-configuration counterpart of the sentinel above. Not a hex digest,
+# so it can never collide with a real fingerprint and matches no STAMPED row.
+# It still matches an unstamped one, the same grandfathering
+# `RecordEmbedding.usable_by_config` applies everywhere else.
 UNKNOWN_EMBEDDING_CONFIG = "__config_unknown__"
 
 
-# Ceiling on how far an iterative scan will go
-# looking for rows that survive the filter. pgvector's own default is 20000;
-# stating it here makes the bound visible at the one place iterative scan is
-# turned on, and keeps a pathological catalog from turning one search into a
-# full index walk.
+# Ceiling on how far an iterative scan goes looking for rows that survive the
+# filter. It equals pgvector's default of 20000; stated here it is visible at
+# the one place iterative scan is turned on, and keeps a pathological catalog
+# from turning one search into a full index walk.
 _HNSW_MAX_SCAN_TUPLES = 20000
 
 
@@ -52,19 +48,18 @@ async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     Default ``ef_search`` (40) misses relevant matches in recall-sensitive
     queries (related-items, semantic-search). ``SET LOCAL`` scope only.
 
-    Iterative scan too, because every caller filters the
-    index's output AFTER the approximate scan picks candidates — without
-    it, a catalog whose nearest rows are mostly filtered out (partial
-    regenerate, or two models in one index) can have every candidate
-    discarded before a usable one is visited, and search silently
-    degrades to FTS while matching vectors sit in the table.
+    Iterative scan too, because every caller filters the index's output AFTER
+    the approximate scan picks candidates. Without it, a catalog whose nearest
+    rows are mostly filtered out (partial regenerate, or two models in one
+    index) can have every candidate discarded before a usable one is visited,
+    and search silently degrades to FTS while matching vectors sit in the
+    table.
 
-    ``relaxed_order``: the caller re-ranks distances and merges with FTS
-    via RRF, so reordering costs nothing. Needs pgvector >= 0.8.0
-    (shipped: 0.8.5); older pgvector degrades to an inert placeholder GUC
-    rather than erroring.
+    ``relaxed_order``: the caller re-ranks distances and merges with FTS via
+    RRF, so reordering costs nothing. Needs pgvector >= 0.8.0 (shipped: 0.8.5);
+    older pgvector degrades to an inert placeholder GUC rather than erroring.
 
-    One statement, not three — ``SET LOCAL`` carries only one setting.
+    One statement, not three: ``SET LOCAL`` carries only one setting.
     """
     await session.execute(
         text(
@@ -81,20 +76,19 @@ async def resolve_embedding_model_name(
 ) -> str:
     """Return the active embedding model name, or a sentinel on failure.
 
-    ``uncached`` reads straight from the DB, for the one
-    caller gating a destructive operation on this value; cached is the
-    default otherwise (see ``_snapshot_embedding_config`` in backfill.py
-    for why the pre-delete snapshot can't use it).
+    ``uncached`` reads straight from the DB, for the caller gating a
+    destructive operation on this value (see ``_snapshot_embedding_config`` in
+    backfill.py for why the pre-delete snapshot can't use the cache).
 
-    Partitions the has_embeddings cache so a model swap forces a fresh
-    lookup. Resolution errors fall back to ``"__model_unknown__"`` for a
-    correct EXISTS result instead of a crash.
+    Partitions the has_embeddings cache so a model swap forces a fresh lookup.
+    Resolution errors fall back to ``"__model_unknown__"`` for a correct
+    EXISTS result instead of a crash.
 
-    The sentinel's "matches no row" property reads OPPOSITE
-    directions per caller — a coverage COUNT under-reports (safe), but a
-    "which records still need work" SELECT over-reports (every record
-    looks unembedded), so the backfill caller compares against
-    ``UNKNOWN_EMBEDDING_MODEL`` directly rather than scoping a query by it.
+    The sentinel's "matches no row" property cuts OPPOSITE ways per caller: a
+    coverage COUNT under-reports (safe), but a "which records still need work"
+    SELECT over-reports (every record looks unembedded), so the backfill
+    caller compares against ``UNKNOWN_EMBEDDING_MODEL`` directly rather than
+    scoping a query by it.
     """
     try:
         from app.core.persistent_config import EMBEDDING_MODEL
@@ -113,7 +107,7 @@ async def resolve_embedding_model_name(
 def embedding_config_fingerprint(
     model_name: str, dimensions: int | None, base_url: str | None
 ) -> str:
-    """Identity of the configuration a stored vector came out of (#1546).
+    """Identity of the configuration a stored vector came out of.
 
     The three arguments are the whole of what decides the vector space: the
     model, the width it was asked for, and the endpoint that served it. Two
@@ -122,12 +116,12 @@ def embedding_config_fingerprint(
 
     SHA-256 over a canonical JSON array, not Python's `hash()` (salted per
     interpreter via `PYTHONHASHSEED`, so rows stamped by one worker would be
-    invisible to the next after a restart). JSON, not a delimiter join,
-    keeps `None` distinct from `"None"`/`""` and escapes strings so
-    `("a|b", None)` can't collide with `("a", "b|None")`.
+    invisible to the next after a restart). JSON, not a delimiter join, keeps
+    `None` distinct from `"None"`/`""` and escapes strings so `("a|b", None)`
+    can't collide with `("a", "b|None")`.
 
-    A change to WHICH values make up the identity changes every fingerprint
-    and requires a catalog-wide re-embed — do not extend this lightly.
+    Changing WHICH values make up the identity changes every fingerprint and
+    requires a catalog-wide re-embed.
     """
     payload = json.dumps(
         [model_name, dimensions, base_url],
@@ -146,21 +140,21 @@ async def resolve_live_embedding_config(
 ) -> tuple[str, int | None, str | None, str] | None:
     """The live (model, dimensions, endpoint, fingerprint), or None if unresolvable.
 
-    Callers need the TRIPLE, not just the fingerprint — search
-    filters stored rows on the fingerprint and must generate its query
-    vector under the SAME configuration, so returning all four as one read
-    (not two) stops a settings change mid-resolve from comparing vector B
-    against fingerprint A. None means unresolvable: no safe comparison, and
-    the next provider call would fail the same way.
+    Callers need the TRIPLE, not just the fingerprint: search filters stored
+    rows on the fingerprint and must embed its query under the SAME
+    configuration, so all four come from one call and the fingerprint always
+    matches the triple beside it (the three reads can still straddle a
+    settings change; see ``verify``). None means unresolvable: no safe
+    comparison, and the next provider call would fail the same way.
 
     ``verify`` is for callers that STAMP what they resolve: three separate
-    ``get`` calls can straddle a config publish and pin a triple that was
-    never live. Self-correcting for a READER (fingerprints to nothing
-    stored, search degrades to FTS once); permanent for a WRITER (the row
-    is stamped invisible-for-good while looking stamped). So ``verify``
-    resolves twice, requires agreement, pairs with ``uncached`` — the same
-    guarantee `_snapshot_embedding_config` gives the ingest writer — and
-    retries once before answering None.
+    ``get`` calls can straddle a config publish and pin a triple that was never
+    live. That self-corrects for a READER (it fingerprints to nothing stored
+    and search degrades to FTS once) but is permanent for a WRITER (the row is
+    stamped invisible-for-good). So ``verify`` resolves twice, requires
+    agreement, pairs with ``uncached`` (the guarantee
+    `_snapshot_embedding_config` gives the ingest writer), and retries once
+    before answering None.
 
     Readers skip ``verify``: doubling config reads on the search hot path
     would buy a fallback they already have.
@@ -192,27 +186,26 @@ async def resolve_embedding_config_fingerprint(
 ) -> str:
     """Fingerprint the LIVE embedding configuration, or answer with a sentinel.
 
-    The read-side counterpart of `embedding_config_fingerprint`
-    — writers stamp from the configuration they PINNED; readers ask this
-    what the live configuration is. ``model_name``, when a caller already
-    resolved it, makes the model they filter on and the model inside the
-    fingerprint one read that can't straddle a config change.
+    The read-side counterpart of `embedding_config_fingerprint`: writers stamp
+    from the configuration they PINNED; readers ask this what the live
+    configuration is. ``model_name``, when a caller already resolved it, makes
+    the model they filter on and the model inside the fingerprint one read that
+    can't straddle a config change.
 
-    Never raises: the shipped provider's endpoint resolution raises when
-    the DB endpoint diverges from the operator-approved URL
+    Never raises: the shipped provider's endpoint resolution raises when the DB
+    endpoint diverges from the operator-approved URL
     (`ai_credentials.bind_openai_credential_base_url`), so an unresolvable
-    configuration answers `UNKNOWN_EMBEDDING_CONFIG` instead (same safe
+    configuration answers `UNKNOWN_EMBEDDING_CONFIG` (the same safe
     under-report as `resolve_embedding_model_name`'s sentinel) rather than
-    taking search down over a setting it's only consulting to be careful.
+    taking search down over a setting it only consults to be careful.
 
-    Cached by default, unlike the backfill's pre-delete snapshot — a
-    reader has nothing to destroy, so a stale entry only degrades search
-    to FTS for one cache TTL and heals itself.
+    Cached by default, unlike the backfill's pre-delete snapshot: a reader has
+    nothing to destroy, so a stale entry only degrades search to FTS for one
+    cache TTL and heals itself.
 
-    Trap: "never raises" doesn't cover a DATABASE error on `session`,
-    which aborts the transaction regardless. Every caller today sits
-    inside a broad handler that degrades anyway, so this changes nothing;
-    a caller that wants to keep using the session needs a SAVEPOINT.
+    "Never raises" doesn't cover a DATABASE error on `session`, which aborts
+    the transaction regardless. A caller that wants to keep using the session
+    needs a SAVEPOINT.
     """
     resolved = await _resolve_live_embedding_config(
         session, model_name=model_name, uncached=uncached
@@ -239,9 +232,8 @@ async def _resolve_live_embedding_config(
             if uncached
             else EMBEDDING_DIMS.get(session)
         )
-        # Imported in-function because the edge runs the other way at module
-        # level: `service` imports `embedding_config_fingerprint` from here, so
-        # a module-level import back would be a cycle.
+        # Imported in-function: `service` imports `embedding_config_fingerprint`
+        # from here, so a module-level import back would be a cycle.
         from app.processing.embeddings.service import resolve_embedding_base_url
 
         base_url = await resolve_embedding_base_url(session)
@@ -259,11 +251,10 @@ async def _resolve_live_embedding_config(
 async def has_embeddings(session: AsyncSession) -> bool:
     """Check whether any rows exist in catalog.record_embeddings.
 
-    Result is cached in-memory for 30 seconds, partitioned by the
-    active embedding model name so a model swap in admin Settings
-    invalidates stale answers. Unscoped multi-tenant requests fail
-    closed before consulting either the database or the process-wide
-    cache.
+    Cached in memory for 30 seconds, partitioned by the active embedding model
+    name so a model swap in admin Settings invalidates stale answers. Unscoped
+    multi-tenant requests fail closed before consulting either the database or
+    the process-wide cache.
     """
     global _has_embeddings_cache
     now = time.monotonic()
@@ -287,8 +278,7 @@ async def has_embeddings(session: AsyncSession) -> bool:
     )
     value = result.scalar_one()
 
-    # Bounded eviction: drop oldest entry by stored monotonic timestamp
-    # before insert when we're at capacity.
+    # At capacity, evict the oldest entry by stored monotonic timestamp.
     if len(_has_embeddings_cache) >= _HAS_EMBEDDINGS_MAX:
         oldest = min(_has_embeddings_cache, key=lambda k: _has_embeddings_cache[k][1])
         del _has_embeddings_cache[oldest]
@@ -304,9 +294,9 @@ async def get_anchor_embedding_row(
     Returns ``(embedding, model_name, config_fingerprint)``, or None when the
     record has no vector at all.
 
-    ONE definition of "the anchor row", read once. Two separate
-    reads (rank against one, score against another) could land on different
-    models after a model swap, since a record holds one row per model
+    ONE definition of "the anchor row", read once: two separate reads (rank
+    against one, score against another) could land on different models after a
+    model swap, since a record holds one row per model
     (``uq_record_embedding_model``). The identity travels with the vector
     because a bare list of floats doesn't say which model produced it;
     downstream filters with ``RecordEmbedding.usable_by_stored_anchor``.
@@ -314,13 +304,13 @@ async def get_anchor_embedding_row(
     Row choice, in order: the live-usable row (so related items agrees with
     search by construction, including after a model rollback), then most
     recent, then model name for stability. Recency is a weak tiebreak only:
-    ``now()`` is transaction-START time, so a slow job can commit a LATER
-    write with an EARLIER stamp; ``clock_timestamp()`` fixes new writes (see
-    ``service.py``) but older rows still carry the old semantics.
+    ``now()`` is transaction-START time, so a slow job can commit a LATER write
+    with an EARLIER stamp; new writes use ``clock_timestamp()`` (see
+    ``service.py``) but older rows carry the old semantics.
 
-    RLS boundary: ``record_embeddings`` carries no ``tenant_id`` of its own,
-    so the join to ``catalog.records`` is what scopes it — see
-    ``test_embedding_helper_queries_join_rls_visible_records``.
+    RLS boundary: ``record_embeddings`` carries no ``tenant_id`` of its own, so
+    the join to ``catalog.records`` is what scopes it (see
+    ``test_embedding_helper_queries_join_rls_visible_records``).
     """
     live_model = await resolve_embedding_model_name(session)
     live_fingerprint = await resolve_embedding_config_fingerprint(
@@ -363,23 +353,21 @@ async def get_nearest_record_ids(
     ``restrict`` narrows the candidates before the limit applies, so rows it
     excludes never take a neighbor's place.
 
-    Neighbours are restricted to the anchor row's own vector
-    space via ``usable_by_stored_anchor`` — same model AND same stamp as
-    the ANCHOR, not the live configuration, so a record embedded under a
-    superseded configuration still finds its own neighbours instead of
-    being compared against a space it was never in. Without this a catalog
-    holding two models' rows returned well-formed, meaningless distances.
+    Neighbours are restricted to the anchor row's own vector space via
+    ``usable_by_stored_anchor``: same model AND same stamp as the ANCHOR, not
+    the live configuration, so a record embedded under a superseded
+    configuration still finds its own neighbours instead of being compared
+    against a space it was never in. Otherwise a catalog holding two models'
+    rows would return well-formed, meaningless distances.
 
-    Relies on ``set_hnsw_recall``'s iterative scan (already called by the
-    time this runs) so this predicate doesn't starve the approximate scan:
-    without it, a catalog whose nearest rows are mostly foreign-space
-    returns nothing while usable vectors sit in the table.
+    Relies on ``set_hnsw_recall``'s iterative scan, called before this runs, so
+    the predicate doesn't starve the approximate scan: a catalog whose nearest
+    rows are mostly foreign-space would return nothing while usable vectors
+    sit in the table.
     """
-    # The caller may hand its anchor in (the one that scores
-    # results afterwards does), avoiding a second READ COMMITTED read that
-    # could land a newer row than the one just ranked. Optional because
-    # metadata_service reads neighbours with no anchor of its own to disagree
-    # with.
+    # A caller that scores results afterwards hands its anchor in, avoiding a
+    # second READ COMMITTED read that could land a newer row than the one just
+    # ranked. metadata_service has no anchor of its own to disagree with.
     if anchor is None:
         anchor = await get_anchor_embedding_row(session, record_id)
     if anchor is None:
@@ -388,7 +376,6 @@ async def get_nearest_record_ids(
 
     await set_hnsw_recall(session)
 
-    # Find nearest neighbors (exclude self)
     nn_stmt = (
         select(RecordEmbedding.record_id)
         .join(RecordEmbedding.record)

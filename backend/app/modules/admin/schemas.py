@@ -44,8 +44,8 @@ ShareTokenSortField = Literal[
 SortDirection = Literal["asc", "desc"]
 
 
-# Shared password-policy wiring for every admin schema that
-# accepts a password; rules live in auth/password_policy.py.
+# Password-policy wiring for every admin schema that accepts a password; the
+# rules live in auth/password_policy.py.
 def _enforce_password_policy(value: str) -> str:
     """Enforce the application password policy."""
     from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
@@ -348,9 +348,9 @@ class AIStatusResponse(BaseModel):
     has_embeddings: bool = Field(
         default=False, description="Whether at least one record has embeddings stored."
     )
-    # Key presence != key validity. Present only when the caller
-    # passed ?probe=true (the ai-status routes serialize with exclude_unset,
-    # so default responses omit it).
+    # Key presence != key validity. Present only when the caller passed
+    # ?probe=true (the ai-status routes serialize with exclude_unset, so
+    # default responses omit it).
     probe: AIProbeReport | None = Field(
         default=None,
         description="Live provider probe results. Only present when the "

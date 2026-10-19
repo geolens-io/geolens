@@ -27,9 +27,8 @@ class EmbedToken(Base):
             unique=True,
             postgresql_where=text("is_active = true"),
         ),
-        # Partial index for the hot
-        # `WHERE is_active = true AND expires_at > now()` filter combo.
-        # Migration 0001_baseline is the source of truth for the actual DDL.
+        # Partial index for the hot `is_active = true AND expires_at > now()`
+        # filter. Migration 0001_baseline owns the DDL.
         Index(
             "ix_embed_tokens_active_expires",
             "expires_at",

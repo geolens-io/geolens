@@ -3,10 +3,10 @@
 Functions take an AsyncSession and a table name, validated against a strict
 identifier pattern (SQL injection guard).
 
-Implementations live in sibling ``metadata_*`` modules; this file
-re-exports them as the stable import surface (ingest tasks, export paths,
-extension defaults, and ``mock.patch("app.processing.ingest.metadata.<name>")``
-in tests all resolve against it — import from here, not the sub-modules).
+Implementations live in sibling ``metadata_*`` modules. This file re-exports
+them as the stable import surface: ingest tasks, export paths, extension
+defaults and ``mock.patch("app.processing.ingest.metadata.<name>")`` in
+tests all resolve against it.
 
   - ``metadata_sql``         identifier validation and quoting (shared base)
   - ``metadata_geometry``    constructing ``geom``, laundering column names
@@ -16,10 +16,10 @@ in tests all resolve against it — import from here, not the sub-modules).
   - ``metadata_quality``     dataset quality scoring
   - ``metadata_attributes``  attribute-metadata rows and their inference
 
-Two tests import a sub-module directly on purpose: the
-``_mercator_envelope_degenerates`` monkeypatch in
-``tests/test_ingest_mercator_clip.py`` and the srtext-predicate imports in
-``tests/test_crs_degree_agreement.py``.
+A test that patches a name a sub-module calls internally patches it on
+that sub-module (the ``_mercator_envelope_degenerates`` monkeypatch in
+``tests/test_ingest_mercator_clip.py``); a patch on this file would not
+reach the caller.
 """
 
 from app.processing.ingest.metadata_attributes import (

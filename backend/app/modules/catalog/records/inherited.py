@@ -1,13 +1,12 @@
 """Inherited-keyword derivation for analysis-derived records (feat #1070).
 
 ``apply_analysis_provenance`` copies the source's keyword rows without
-marking them; recovered at read time by intersecting keyword sets via
+marking them; read time recovers them by intersecting keyword sets via
 ``Record.derived_from``. Access gates on ``visible_derived_from``;
-audience-widening checks route through ``record_audience`` (#1068).
+audience-widening checks route through ``record_audience``.
 
-Accepted limitation (#1178): deleting a source keyword leaves the copied row
-in place but drops it from the inherited set, losing its badge and the
-publish-moment warning.
+Limitation: deleting a source keyword leaves the copied row in place but drops
+it from the inherited set, losing its badge and the publish-moment warning.
 """
 
 from __future__ import annotations
@@ -52,9 +51,8 @@ async def resolve_inherited_source(
     """The source record ``record`` inherited keywords from, or None.
 
     None for a record that is not analysis-derived, for an unparseable
-    ``derived_from.dataset_id``, and for a source dataset that has since been
-    deleted — in every case there is nothing left to attribute inheritance to,
-    matching how ``visible_derived_from`` treats a gone source.
+    ``derived_from.dataset_id``, and for a deleted source dataset: nothing is
+    left to attribute inheritance to, as in ``visible_derived_from``.
     """
     derived_from = record.derived_from
     raw = derived_from.get("dataset_id") if isinstance(derived_from, dict) else None
@@ -77,12 +75,12 @@ async def resolve_inherited_source(
 async def inherited_keyword_keys(
     session: AsyncSession, record: Record, source: InheritedSource
 ) -> set[KeywordKey]:
-    """Keyword triples present on BOTH the record and its source.
+    """Keyword triples present on both the record and its source.
 
     The intersection, not the source set: a copied keyword the owner has since
-    deleted is no longer theirs to disclose, and a keyword they typed that
-    happens to match one on the source is indistinguishable from the copy —
-    treating it as inherited errs toward warning, which is the cheap error.
+    deleted is no longer theirs to disclose, and a typed keyword that matches
+    one on the source is indistinguishable from the copy. Treating it as
+    inherited errs toward warning, the cheap error.
     """
     own = select(
         RecordKeyword.keyword,
@@ -109,12 +107,12 @@ async def audience_exceeds_source(
 ) -> bool:
     """Can anyone read ``record`` who cannot read its source?
 
-    ``visibility``/``record_status`` let a caller ask the counterfactual —
-    "would publishing this widen past the source?" (#1070). An authority
-    without ``record_audience`` can't answer, so it warns (over-warning is
-    cheap here — this gates dialog prose, not a result-set row). NULL
-    handling follows ``_stranded_viewer_exists`` in
-    ``maps/service_public.py``: an unclassifiable account warns too.
+    ``visibility``/``record_status`` let a caller ask the counterfactual:
+    "would publishing this widen past the source?". An authority without
+    ``record_audience`` can't answer, so it warns (over-warning is cheap here,
+    since this gates dialog prose, not a result-set row). NULL handling
+    follows ``_stranded_viewer_exists`` in ``maps/service_public.py``: an
+    unclassifiable account warns too.
     """
     permission = get_permission_extension()
     if getattr(type(permission), "record_audience", None) is None:
@@ -164,14 +162,13 @@ async def disclosed_inherited_keywords(
     """Inherited keywords readable, at the record's CURRENT state, by someone
     who cannot open the source. Empty when there is nothing to warn about.
 
-    Gated on ``actor``'s access to the SOURCE — otherwise an
-    output owner who lost source access could add a guessed keyword, PATCH
-    their record, and read the warning as confirmation the guess exists
-    there. No source access means no warning either, or that would disclose
-    the very association being redacted.
+    Gated on ``actor``'s access to the source: otherwise an output owner who
+    lost source access could add a guessed keyword, PATCH their record, and
+    read the warning as confirmation the guess exists there. No source access
+    means no warning, or it would disclose the association being redacted.
     """
-    # Settle "not derived at all" before any query — role resolution and the
-    # gate itself only make sense once there is a source to gate.
+    # Settle "not derived at all" before any query: role resolution and the
+    # gate only make sense once there is a source.
     if not record.derived_from:
         return []
     actor_roles = set() if actor is None else await get_user_roles(session, actor)
@@ -202,11 +199,11 @@ async def inherited_keyword_disclosure_warning(
 ) -> str | None:
     """The advisory warning every resolved-state audience writer emits, or None.
 
-    One shared helper, called AFTER state resolves — an inline
-    check in ``update_user_metadata`` alone missed ``set_target_status``,
-    letting a draft public output publish with no warning. Creation-time
-    writers are not callers (nothing can be analysis-derived yet); ``actor``
-    gates on source access, same as ``disclosed_inherited_keywords``.
+    One shared helper, called after state resolves: a check inline in
+    ``update_user_metadata`` alone would miss ``set_target_status`` and let a
+    draft public output publish with no warning. Creation-time writers are not
+    callers (nothing can be analysis-derived yet); ``actor`` gates on source
+    access, as in ``disclosed_inherited_keywords``.
     """
     disclosed = await disclosed_inherited_keywords(
         session, record, dataset_id, actor=actor

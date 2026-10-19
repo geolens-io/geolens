@@ -117,10 +117,10 @@ async def _propagate_record_write(
 ) -> None:
     """Keep downstream surfaces coherent after a record sub-resource write.
 
-    Busts the catalog cache and re-embeds on keyword change,
-    like the top-level metadata PATCH; best-effort, post-commit. When
-    db/user/details are passed, also emits a metadata.edit audit event
-    against the backing dataset, if there is one.
+    Busts the catalog cache and re-embeds on keyword change, like the
+    top-level metadata PATCH; best-effort, post-commit. When db/user/details
+    are passed, also emits a metadata.edit audit event against the backing
+    dataset, if there is one.
     """
     try:
         await invalidate_catalog_cache()
@@ -165,9 +165,9 @@ async def _check_record_read_access(
 ) -> None:
     """Verify the record is visible to the caller. Raises 404 on denial.
 
-    Sub-resources carry the same visibility as the dataset they back, so
-    this delegates to the shared per-dataset RBAC — not a bare `user is
-    None` check, which let ANY authenticated user read a private record.
+    Sub-resources carry the same visibility as the dataset they back, so this
+    delegates to the shared per-dataset RBAC. A bare `user is None` check
+    would let any authenticated user read a private record.
     """
     record = await get_record(db, record_id)
     if record is None:
@@ -175,8 +175,7 @@ async def _check_record_read_access(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
 
-    # Delegate to the dataset that backs this record, mirroring the dataset
-    # read endpoints (get_dataset + check_dataset_access_or_anonymous).
+    # Same guard as the dataset read endpoints.
     dataset = (
         (
             await db.execute(
@@ -192,8 +191,7 @@ async def _check_record_read_access(
         try:
             await check_dataset_access_or_anonymous(db, dataset, dataset.id, user)
         except HTTPException:
-            # Normalize the denial to the record's own 404 (don't leak that a
-            # backing dataset exists).
+            # The record's own 404, so a backing dataset's existence doesn't leak.
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
             )
@@ -222,9 +220,9 @@ async def _is_record_owner_or_admin(
     """Return whether ``user`` owns ``record`` or is a global admin.
 
     The non-raising twin of the predicate `_check_record_ownership` enforces
-    (and the same notion `check_dataset_write_access` uses on the dataset side):
-    creator match on `created_by`, else the `admin` role. Read endpoints that
-    need to branch on ownership without rejecting the request use this.
+    (and of `check_dataset_write_access` on the dataset side): creator match
+    on `created_by`, else the `admin` role. Read endpoints that branch on
+    ownership without rejecting the request use this.
     """
     if user is None:
         return False
@@ -239,8 +237,8 @@ async def _check_record_ownership(
     """Verify the user owns the record or is an admin. Raises 404/403.
 
     Returns the fetched Record so callers can reuse it without a second
-    query. Gates on read-visibility first, so a record the
-    caller can't even see 404s (no existence leak) rather than 403.
+    query. Gates on read visibility first, so a record the caller can't see
+    404s (no existence leak) rather than 403.
     """
     await _check_record_read_access(db, record_id, user)
     record = await get_record(db, record_id)
@@ -440,9 +438,9 @@ async def update_contact_endpoint(
     record = await _check_record_ownership(db, record_id, user)
     try:
         await _touch_record(db, record, user)
-        # exclude_unset, not exclude_none — an explicitly-set
-        # null clears the field (the dataset contract); the schema already
-        # 422s nulls on non-clearable fields.
+        # exclude_unset, not exclude_none: an explicitly set null clears the
+        # field (the dataset contract); the schema already 422s nulls on
+        # non-clearable fields.
         contact = await update_contact(
             db, contact_id, record_id, **body.model_dump(exclude_unset=True)
         )
@@ -549,10 +547,10 @@ async def list_keywords_endpoint(
         await count_keywords(db, record_id),
     )
 
-    # Derive the inherited set from derived_from at read time.
-    # Gated exactly like the derived_from reference itself: a requester who
-    # cannot access the source gets all-false flags, so the flags cannot tell
-    # them "derived from something you cannot see" (#765's rule).
+    # Derive the inherited set from derived_from at read time. Gated like the
+    # derived_from reference itself: a requester who cannot access the source
+    # gets all-false flags, which cannot reveal "derived from something you
+    # cannot see".
     inherited_keys: set[tuple[str, str | None, str]] = set()
     audience_gap = False
     record = await get_record(db, record_id)
@@ -569,11 +567,11 @@ async def list_keywords_endpoint(
                             select(Dataset.id).where(Dataset.record_id == record_id)
                         )
                     ).scalar_one_or_none()
-                    # The counterfactual collapses the
-                    # derived audience to "the owner", turning the gap into an
-                    # oracle for whether that named owner holds a grant on a
-                    # restricted source — so honor the overrides only for the
-                    # owner (or an admin) and otherwise answer at stored state.
+                    # The counterfactual collapses the derived audience to "the
+                    # owner", which would make the gap an oracle for whether
+                    # that owner holds a grant on a restricted source. Honor
+                    # the overrides only for the owner (or an admin); otherwise
+                    # answer at stored state.
                     counterfactual = await _is_record_owner_or_admin(db, record, user)
                     audience_gap = await audience_exceeds_source(
                         db,
@@ -694,8 +692,8 @@ async def list_distributions_endpoint(
         await list_distributions(db, record_id, skip=skip, limit=limit),
         await count_distributions(db, record_id),
     )
-    # The Connect panel copies the vector template out of this
-    # endpoint, so republish it at the dataset's counter like every feed does.
+    # The Connect panel copies the vector template from this endpoint, so
+    # republish it at the dataset's counter like every feed does.
     counter = await record_publication_version(db, record_id)
     return DistributionListResponse(
         distributions=[
@@ -708,9 +706,9 @@ async def list_distributions_endpoint(
     )
 
 
-# Reachable only from concurrent writes to one record's primary
-# flag — the service demotes the incumbent first, so a lone caller never gets
-# here — and a retry succeeds because the winner is settled by then.
+# Reachable only from concurrent writes to one record's primary flag: the
+# service demotes the incumbent first, so a lone caller never gets here, and a
+# retry succeeds because the winner is settled by then.
 _PRIMARY_CONFLICT_DETAIL = "Another distribution was concurrently marked primary; retry"
 
 
@@ -856,12 +854,12 @@ async def delete_distribution_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
         )
     except IntegrityError:
-        # Deleting the primary hands the flag back to the generated
-        # default, and a write that claimed it concurrently gets there first.
-        # No other constraint on this table is reachable from a delete, so the
-        # detail is stated rather than sniffed. A retry succeeds: the flag is
-        # spoken for by then and the restore is skipped. 409 rather than the
-        # 500 an uncaught IntegrityError would produce.
+        # Deleting the primary hands the flag back to the generated default,
+        # and a write that claimed it concurrently gets there first. No other
+        # constraint on this table is reachable from a delete, so the detail
+        # is stated rather than sniffed. A retry succeeds: the flag is spoken
+        # for by then and the restore is skipped. 409, not the 500 an uncaught
+        # IntegrityError would produce.
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

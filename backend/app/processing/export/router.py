@@ -82,12 +82,11 @@ _EXPORT_BODY = {
     if media_type != "application/geo+json"
 }
 
-# Ceiling for full-table exports (by feature count) — an
-# unbounded ogr2ogr writes an arbitrarily large temp file and holds a worker
-# for the duration. A tautological filter (where=1=1) cannot
-# bypass the cap; oversized datasets get a bounded COUNT with the
-# caller's filters applied. The subprocess timeout bounds runtime
-# regardless.
+# Ceiling for full-table exports (by feature count): an unbounded ogr2ogr
+# writes an arbitrarily large temp file and holds a worker for the duration. A
+# tautological filter (where=1=1) cannot bypass the cap, since oversized
+# datasets get a bounded COUNT with the caller's filters applied. The
+# subprocess timeout bounds runtime regardless.
 _MAX_EXPORT_FEATURES = 5_000_000
 
 # Each cold conversion spawns ogr2ogr or streams rows into a temp file, so
@@ -99,9 +98,9 @@ _conversion_slots = asyncio.Semaphore(_MAX_CONCURRENT_CONVERSIONS)
 def _bare_satisfiable_range(request: Request, size: int) -> tuple[int, int] | None:
     """The resolved slice a bare Range (no If-Range) asks for, if it could be a 206.
 
-    Parsed with the same function ``read_response`` uses, so a malformed,
-    multi-range or unsatisfiable header — which the response ignores or
-    rejects — never costs the URL-history listing.
+    Parsed with the function ``read_response`` uses, so a malformed,
+    multi-range or unsatisfiable header, which the response ignores or
+    rejects, never costs the URL-history listing.
     """
     if request.headers.get("if-range") is not None:
         return None
@@ -134,12 +133,12 @@ async def _emit_export_audit(
 ) -> None:
     """Record one export download. user_id may be None for anonymous.
 
-    One function for both paths that transfer bytes (conversion
-    and cache-hit) so they write the same row; only HEAD stays out of the log.
-    Takes the id, not ``Identity`` — the conversion path calls
-    this after rollback, and reading ``user.id`` from the expired ORM
-    instance would refresh from a context with no greenlet. ``details.range``
-    lets a range-probing client's rows be told apart from one full download.
+    One function for both paths that transfer bytes (conversion and cache-hit)
+    so they write the same row; only HEAD stays out of the log. Takes the id,
+    not ``Identity``: the conversion path calls this after rollback, and
+    reading ``user.id`` from the expired ORM instance would refresh from a
+    context with no greenlet. ``details.range`` lets a range-probing client's
+    rows be told apart from one full download.
     """
     await audit_emit(
         db,
@@ -158,9 +157,9 @@ async def _emit_export_audit(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # The COMMIT is the caller's, deliberately: test_api_key_scope_875's
-    # writing-GET tripwire reads the handler's source one level deep to
-    # classify this route. A commit buried in a helper is invisible to it.
+    # The commit is the caller's: test_api_key_scope_875's writing-GET tripwire
+    # reads the handler's source one level deep, so a commit buried in a helper
+    # would be invisible to it.
 
 
 async def _count_selected_features(
@@ -175,35 +174,34 @@ async def _count_selected_features(
 ) -> int:
     """Bounded COUNT of the rows an export's filters actually select.
 
-    Cap guard for oversized datasets: validated
-    WHERE (AST allowlist + column check), then an inner LIMIT stops the scan
-    at cap+1 — strictly less work than the export it gates.
+    Cap guard for oversized datasets: validated WHERE (AST allowlist + column
+    check), then an inner LIMIT stops the scan at cap+1, strictly less work than
+    the export it gates.
     """
     clauses: list[str] = []
     params: dict = {"limit": _MAX_EXPORT_FEATURES + 1}
     if where is not None:
         try:
             validate_where_clause(where, column_info)
-            # Interpolate the canonical AST re-render, not the caller's raw
-            # bytes — the count query never splices unvalidated user input.
+            # The canonical AST re-render, never the caller's raw bytes, so
+            # the count query splices no unvalidated user input.
             safe_where = canonical_where(where)
         except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
-        # Mirrors parquet.py — text() reads ":name" as a bind, so
-        # a colon in a validated string literal (e.g. 'A:B', an ISO
-        # timestamp) misparsed and 500'd. Escaped to text()'s literal-colon
-        # form (\:); the real :limit/:minx binds below stay unescaped.
+        # Mirrors parquet.py: text() reads ":name" as a bind, so a colon in a
+        # validated string literal (e.g. an ISO timestamp) is escaped to
+        # text()'s literal-colon form (\:); the real :limit/:minx binds below
+        # stay unescaped.
         safe_where = safe_where.replace(":", "\\:")
         clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry:
-        # A crossing bbox counts with the SAME predicate the export
-        # runs (bbox_where_sql). An ordinary bbox counts with && only, NOT
-        # bbox_where_sql: ogr2ogr -spat permits envelope false positives, so an
-        # exact ST_Intersects count could pass <=cap while -spat exports more.
-        # && errs toward 413, the safe direction.
+        # A crossing bbox counts with the predicate the export runs
+        # (bbox_where_sql). An ordinary bbox counts with && only: ogr2ogr -spat
+        # permits envelope false positives, so an exact ST_Intersects count
+        # could pass <=cap while -spat exports more. && errs toward 413.
         if bbox[0] > bbox[2]:
             clauses.append(bbox_where_sql(bbox))
         else:
@@ -228,19 +226,17 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
     route and would run the full conversion on HEAD.
 
     Every status-deciding check already ran in the shared handler; the
-    conversion itself is skipped, so an anonymous caller can't spend a
-    worker per request. Can't promise 500/503 (only knowable by attempting
-    the export) — pinned by
-    ``test_head_cannot_promise_conversion_failure_status``.
+    conversion itself is skipped, so an anonymous caller can't spend a worker
+    per request. Can't promise 500/503, which are only knowable by attempting
+    the export (``test_head_cannot_promise_conversion_failure_status``).
 
-    ``Accept-Ranges: bytes``: ranges are slices of ONE stored artifact,
-    never spliced across conversions; the no-artifact path
-    streams the conversion whole for the same reason, NOT through
-    starlette's ``FileResponse``.
+    ``Accept-Ranges: bytes``: ranges are slices of one stored artifact, never
+    spliced across conversions; the no-artifact path streams the conversion
+    whole for the same reason, not through starlette's ``FileResponse``.
 
-    Content-Length is deliberately absent (RFC 9110 9.3.2) since BUILDING
-    an export to learn its length is the DoS foot-gun this branch avoids;
-    GDAL retries with a ranged GET instead, at no extra cost.
+    Content-Length is deliberately absent (RFC 9110 9.3.2): building an export
+    to learn its length is the DoS foot-gun this branch avoids, and GDAL
+    retries with a ranged GET instead.
     """
     filename, media_type = export_descriptor(dataset_title, format_key)
     response = Response(
@@ -248,30 +244,27 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         media_type=media_type,
         headers={
             "content-disposition": file_response_content_disposition(filename),
-            # Lets a size-less HEAD work too: vsicurl learns the length from
-            # the first range response (see docstring above).
+            # vsicurl learns the length from the first range response.
             "accept-ranges": "bytes",
         },
     )
-    # Starlette defaults an empty body to `content-length: 0` — a WRONG
-    # answer about the export's size, worse than the 405 this replaces
-    # (a client would read it as an empty file). Strip it.
+    # Starlette defaults an empty body to `content-length: 0`, a wrong answer
+    # about the export's size that a client would read as an empty file.
     response.raw_headers = [
         (key, value) for key, value in response.raw_headers if key != b"content-length"
     ]
     return response
 
 
-# HEAD alongside GET — FastAPI's APIRoute doesn't add it
-# automatically, so this 405'd for HEAD, breaking GDAL/QGIS probes.
-# include_in_schema=False: a derived route publishes nothing new.
+# HEAD alongside GET, which FastAPI's APIRoute doesn't add automatically;
+# GDAL/QGIS probe with it. include_in_schema=False: a derived route publishes
+# nothing new.
 @router.head("/{dataset_id}/export", include_in_schema=False)
 @router.get(
     "/{dataset_id}/export",
     response_class=FileResponse,
-    # The handler raises 412 on both the
-    # cache-hit and rebuild branches (If-Match no longer matching); the
-    # published contract omitted it.
+    # The handler raises 412 on both the cache-hit and rebuild branches
+    # (If-Match no longer matching).
     responses={
         200: {"description": "The exported file", "content": _EXPORT_BODY},
         206: {
@@ -306,14 +299,12 @@ async def export_dataset_endpoint(
     filtering, and attribute filtering. GeoParquet is always emitted in
     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
-    # The conversion's bound is what's LEFT of the
-    # request clock after everything before it, not a fresh allowance — a
-    # slow pre-conversion step (count scan, parquet plan) eats into it.
-    #
-    # Read from the REQUEST's start (stamped by
-    # RequestLoggingMiddleware), not this function — `Depends` resolution
-    # can block on a pool checkout a later clock would miss. Monotonic, so
-    # an NTP step can't shorten or extend a running export.
+    # The conversion's bound is what's left of the request clock after
+    # everything before it, so a slow pre-conversion step (count scan, parquet
+    # plan) eats into it. It runs from the request's start (stamped by
+    # RequestLoggingMiddleware), not this function, because `Depends`
+    # resolution can block on a pool checkout a later clock would miss.
+    # Monotonic, so an NTP step can't shorten or extend a running export.
     request_started = getattr(request.state, "started_at_monotonic", None)
     if request_started is None:
         request_started = time.monotonic()
@@ -347,9 +338,8 @@ async def export_dataset_endpoint(
             ),
         )
 
-    # Read once, here, while the session that loaded it is still
-    # in a transaction — `user` is the ORM instance on this session, and the
-    # release below expires it along with every other instance.
+    # Read while the session that loaded it is still in a transaction: `user`
+    # is the ORM instance on this session, and the release below expires it.
     user_id = user.id if user is not None else None
 
     # 3. Parse bbox
@@ -380,9 +370,9 @@ async def export_dataset_endpoint(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="GeoParquet export is emitted in EPSG:4326; omit target_crs.",
             )
-        # PMTiles ignores -t_srs (always tiles in Web Mercator) and only
-        # warns on stderr, which ogr2ogr exits 0 through — a caller asking
-        # for another CRS would silently get EPSG:3857 back. Reject instead.
+        # PMTiles ignores -t_srs (always tiles in Web Mercator) and only warns
+        # on stderr while ogr2ogr exits 0, so a caller asking for another CRS
+        # would silently get EPSG:3857 back.
         if format == ExportFormat.pmtiles and target_crs.upper() != "EPSG:3857":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -392,9 +382,9 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 5. Reject raster/VRT: no tabular feature table. Keyed on record_type,
-    # NOT geometry_type (a non-spatial TABLE dataset also has
-    # geometry_type=None but IS CSV-exportable).
+    # 5. Reject raster/VRT: no tabular feature table. Keyed on record_type, not
+    # geometry_type: a non-spatial TABLE dataset also has geometry_type=None but
+    # is CSV-exportable.
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -418,16 +408,12 @@ async def export_dataset_endpoint(
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
-    # 6c. The cached artifact for this selection, if usable.
-    #
-    # Resolved BEFORE the expensive work below —
-    # `plan_parquet_export`'s bounded count ran on every range slice of an
-    # existing artifact otherwise.
-    #
-    # The ogr COUNT sits below it
-    # for the same reason. Safe by construction: an artifact exists only because an earlier
-    # request with THIS key (table_name+title+tile_cache_version) passed
-    # every gate already.
+    # 6c. The cached artifact for this selection, if usable. Resolved before
+    # the expensive work below, which would otherwise run `plan_parquet_export`'s
+    # bounded count on every range slice of an existing artifact; the ogr COUNT
+    # sits below it for the same reason. Safe by construction: an artifact
+    # exists only because an earlier request with this key
+    # (table_name+title+tile_cache_version) passed every gate.
     selection = artifact_cache.selection_key(
         dataset_id=dataset_id,
         table_name=dataset.table_name,
@@ -439,9 +425,8 @@ async def export_dataset_endpoint(
         where=where,
         exporter_version=request.app.version,
     )
-    # filename/media_type are derived, not stored —
-    # `export_descriptor` answers both from title+format without touching
-    # the DB, and the HEAD branch below already calls it.
+    # filename/media_type are derived, not stored: `export_descriptor` answers
+    # both from title+format without touching the DB.
     cached_filename, cached_media_type = export_descriptor(
         dataset.record.title, str(format)
     )
@@ -455,9 +440,9 @@ async def export_dataset_endpoint(
     )
 
     if artifact is not None:
-        # Preconditions first, in RFC 9110 13.2.2
-        # order (If-Match, If-None-Match, Range/If-Range), above the HEAD
-        # return since a probe revalidates too.
+        # Preconditions first, in RFC 9110 13.2.2 order (If-Match,
+        # If-None-Match, Range/If-Range), above the HEAD return since a probe
+        # revalidates too.
         if not if_match_passes(request.headers.get("if-match"), artifact.etag):
             raise HTTPException(
                 status_code=status.HTTP_412_PRECONDITION_FAILED,
@@ -466,21 +451,18 @@ async def export_dataset_endpoint(
             )
         if if_none_match_matches(request.headers.get("if-none-match"), artifact.etag):
             return not_modified_response(artifact.etag)
-        # The HEAD answer for a hit lives HERE, above
-        # planning — left below, every cached parquet PROBE ran the planner,
-        # which is the request a range-reading client makes first and most.
+        # Answered here, above planning, so a cached parquet probe, the request
+        # a range-reading client makes first and most, never runs the planner.
         if request.method == "HEAD":
             return artifact_response.head_response(artifact)
-        # A cache hit still audits (bytes transfer); built only if the
-        # response carries bytes, since `read_response` may 416.
+        # A cache hit still audits (bytes transfer); built only if the response
+        # carries bytes, since `read_response` may 416.
         #
-        # A contested selection (>1 distinct
-        # digest fresh under this key) answers ranges whole — overlapping
-        # cold builders are the ordinary case, not rare.
-        #
-        # So does a hit inside the first TTL after
-        # this URL's bytes CHANGED, closing the resume-splice window; the
-        # URL's prefix says whether other bytes were answered recently.
+        # A contested selection (more than one distinct digest fresh under this
+        # key) answers ranges whole; overlapping cold builders are common. So
+        # does a hit inside the first TTL after this URL's bytes changed,
+        # closing the resume-splice window; the URL's prefix says whether other
+        # bytes were answered recently.
         may_serve_range = not artifact.contested
         if may_serve_range and _bare_satisfiable_range(request, artifact.size):
             may_serve_range = (
@@ -508,13 +490,10 @@ async def export_dataset_endpoint(
         await db.commit()
         return response
 
-    # 6b. Bound full-table exports (a filter
-    # must actually narrow the selection under the cap).
-    #
-    # Below the cache hit, same reason as above —
-    # an artifact exists only because an earlier request already passed
-    # this gate. Parquet is exempt: it owns its own bounded-count cap
-    # against LIVE columns.
+    # 6b. Bound full-table exports (a filter must actually narrow the selection
+    # under the cap). Below the cache hit, as above: an artifact exists only
+    # because an earlier request passed this gate. Parquet is exempt: it owns
+    # its own bounded-count cap against live columns.
     if (
         format != ExportFormat.parquet
         and dataset.feature_count is not None
@@ -549,9 +528,8 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 6d. Remaining status-deciding checks, hoisted above the HEAD
-    # return so HEAD does not answer 200 for a request the GET refuses
-    # (they used to run inside export_dataset()/export_parquet()).
+    # 6d. Remaining status-deciding checks, above the HEAD return so HEAD does
+    # not answer 200 for a request the GET refuses.
     parquet_plan = None
     if format == ExportFormat.parquet:
         # Parquet validates the filter against the LIVE columns, not the
@@ -591,14 +569,12 @@ async def export_dataset_endpoint(
                 detail=str(e),
             )
 
-    # 6d-b. Hand the pooled connection back before conversion —
-    # `port.get_dataset` checked one out and nothing released it, and a
-    # handful of concurrent exports could starve the pool otherwise (same
-    # hazard as #1451 in tiles/router.py).
-    #
-    # Every value the handler needs is copied out FIRST: rollback expires
-    # the ORM instances, so a later attribute read raises MissingGreenlet;
-    # dropping the name makes that a NameError instead.
+    # 6d-b. Hand the pooled connection back before conversion:
+    # `port.get_dataset` checked one out and nothing released it, so a handful
+    # of concurrent exports could starve the pool (the same hazard as in
+    # tiles/router.py). Every value the handler needs is copied out first,
+    # because rollback expires the ORM instances and a later attribute read
+    # raises MissingGreenlet; dropping the name makes that a NameError instead.
     dataset_title = dataset.record.title
     dataset_table = dataset.table_name
     dataset_columns = dataset.column_info
@@ -642,18 +618,17 @@ async def export_dataset_endpoint(
                 return not_modified_response(settled.etag)
             return artifact_response.head_response(settled)
 
-    # 6e. HEAD stops here — after every status-deciding gate, before the
-    # conversion. No audit event: nothing exported.
+    # 6e. HEAD stops here, after every status-deciding gate and before the
+    # conversion. No audit event: nothing exported. With an artifact in hand,
+    # HEAD answers a real Content-Length/ETag; without one, length is omitted
+    # (RFC 9110 9.3.2) because building to learn it is the DoS foot-gun this
+    # avoids.
     #
-    # With an artifact in hand, HEAD answers a real
-    # Content-Length/ETag; without one, length is omitted (RFC 9110
-    # 9.3.2) — BUILDING to learn the length is the DoS foot-gun this avoids.
-    #
-    # Preconditions run against NO validator on
-    # the cold path, in RFC 9110 13.2.2 order (If-Match before
-    # If-None-Match). HEAD refuses a specific If-Match rather than guessing
-    # (`If-Match: *` still passes). A wildcard If-None-Match against no
-    # validator answers 304 for BOTH verbs, for GET before the conversion.
+    # Preconditions run against no validator on the cold path, in RFC 9110
+    # 13.2.2 order (If-Match before If-None-Match). HEAD refuses a specific
+    # If-Match rather than guessing (`If-Match: *` still passes). A wildcard
+    # If-None-Match against no validator answers 304 for both verbs, for GET
+    # before the conversion.
     if_match_ok_unbuilt = if_match_passes(request.headers.get("if-match"), None)
     if request.method == "HEAD" and not if_match_ok_unbuilt:
         raise HTTPException(
@@ -679,9 +654,8 @@ async def export_dataset_endpoint(
     # 7. Run export. GeoParquet uses the pyarrow writer (no Arrow driver in
     # Debian's GDAL); every other format uses ogr2ogr.
     #
-    # Stamped when conversion starts reading, not at
-    # publication — ages the artifact from before build+upload+TTL, so it's
-    # never older than that bound.
+    # Stamped when conversion starts reading, not at publication, so the
+    # artifact ages from before build+upload+TTL and is never older than that.
     snapshot_at = time.time()
     try:
         if format == ExportFormat.parquet:
@@ -695,16 +669,15 @@ async def export_dataset_endpoint(
                 schema=data_schema,
                 plan=parquet_plan,
                 ordered=bytes_follow_key,
-                # Bound the row stream by the edge window the same
-                # way the ogr2ogr formats below are bounded.
+                # Bounds the row stream by the edge window, like the ogr2ogr
+                # formats below.
                 deadline=request_deadline,
             )
         else:
             pmtiles_maxzoom = None
             if format == ExportFormat.pmtiles:
-                # MAXZOOM is budgeted from the
-                # dataset extent, not the request bbox — -spat selects
-                # whole features without clipping.
+                # MAXZOOM is budgeted from the dataset extent, not the request
+                # bbox, since -spat selects whole features without clipping.
                 from geoalchemy2.shape import to_shape
 
                 bounds: tuple[float, float, float, float] | None = None
@@ -718,9 +691,8 @@ async def export_dataset_endpoint(
                 format,
                 schema=data_schema,
                 target_srs=target_crs,
-                # A bbox only travels with geometry — csv is the
-                # one ogr format a non-spatial dataset can reach, where
-                # -spat is already a no-op.
+                # A bbox only travels with geometry; csv is the one ogr format
+                # a non-spatial dataset can reach, where -spat is a no-op.
                 bbox=bbox_parsed if dataset_has_geometry else None,
                 where=where,
                 column_info=dataset_columns,
@@ -751,29 +723,25 @@ async def export_dataset_endpoint(
     finally:
         _conversion_slots.release()
 
-    # The export file exists from here, but nothing owns it until
-    # the response below attaches background cleanup.
+    # The export file exists from here, but nothing owns it until the response
+    # below attaches background cleanup.
     temp_dir = os.path.dirname(file_path)
 
-    # 8. Publish before the response, so the next
-    # range-probing request is a slice of THIS object.
+    # 8. Publish before the response, so the next range-probing request is a
+    # slice of this object. A store failure isn't a download failure (`store`
+    # returns None rather than raising). If this request lost the publish race,
+    # `store` returns the incumbent, and that is served.
     #
-    # A store failure isn't a download failure (`store` returns None, not
-    # raising). If this request LOST the publish
-    # race, `store` returns the incumbent instead, and THAT is served.
+    # Under the same cancellation ownership as the audit step: CancelledError
+    # is a BaseException, so a disconnect during hash/upload/sweep must not
+    # strand the conversion directory (the four-hour orphan sweep bounds it).
     #
-    # Under the same cancellation ownership as the
-    # audit step — CancelledError is a BaseException, so a disconnect
-    # during hash/upload/sweep must not strand the conversion directory
-    # forever (bounded by the four-hour orphan sweep).
-    #
-    # Hashed HERE, before `store`, since the
-    # preconditions below must be answered from what was built whether or
-    # not it's published.
+    # Hashed here, before `store`, since the preconditions below must be
+    # answered from what was built whether or not it's published.
     try:
-        # Released again — the GeoParquet branch streams rows
-        # through this session, so the hash/upload below would hold it
-        # otherwise (no-op on the ogr2ogr branch).
+        # Released again: the GeoParquet branch streams rows through this
+        # session, which the hash/upload below would otherwise hold (a no-op
+        # on the ogr2ogr branch).
         await db.rollback()
         try:
             digest, size = await artifact_cache.digest_and_size(file_path)
@@ -792,9 +760,9 @@ async def export_dataset_endpoint(
     except BaseException:
         _cleanup_export(temp_dir)
         raise
-    # Validator comes from the PUBLISHED artifact
-    # when there is one — `store` recomputes the digest if handed None, so
-    # a hash mismatch here vs there must not leave `etag` stale.
+    # The validator comes from the published artifact when there is one:
+    # `store` recomputes the digest if handed None, so a mismatch with the
+    # digest hashed here must not leave `etag` stale.
     if stored is not None:
         etag = stored.etag
     elif digest is not None:
@@ -802,9 +770,8 @@ async def export_dataset_endpoint(
     else:
         etag = None
 
-    # The hit path's preconditions, evaluated here
-    # too — without them a matching client got the whole export it already
-    # had, and a stale If-Match got the new one instead of a refusal.
+    # The hit path's preconditions, evaluated here too, so a matching client
+    # isn't sent an export it already has and a stale If-Match is refused.
     if not if_match_passes(request.headers.get("if-match"), etag):
         _cleanup_export(temp_dir)
         raise HTTPException(
@@ -816,15 +783,12 @@ async def export_dataset_endpoint(
         _cleanup_export(temp_dir)
         return not_modified_response(etag)
 
-    # 8b. Build the response BEFORE the audit row, on both branches.
-    #
-    # `read_response` can still 416 after
-    # preconditions pass — building first releases the conversion directory
-    # on that exit, and the audit row is written only once bytes exist.
-    #
-    # Cleanup rides the response — deleting eagerly looked
-    # safe, but test_export_antimeridian caught a non-per-export temp dir
-    # losing more than the export.
+    # 8b. Build the response before the audit row, on both branches.
+    # `read_response` can still 416 after preconditions pass; building first
+    # releases the conversion directory on that exit, and the audit row is
+    # written only once bytes exist. Cleanup rides the response because eager
+    # deletion can remove more than the export when the temp dir isn't
+    # per-export (test_export_antimeridian).
     try:
         if stored is not None:
             # This request BUILT the artifact (or lost the publish race), so
@@ -860,21 +824,18 @@ async def export_dataset_endpoint(
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:
-            # 9. Serve the conversion itself, with background cleanup.
-            # Touch mtime right before the
-            # response — sweep_orphaned_exports reads it as recent activity,
-            # resetting the age clock instead of freezing at generation end.
+            # 9. Serve the conversion itself, with background cleanup. Touch
+            # mtime right before the response: sweep_orphaned_exports reads it
+            # as recent activity, so the age clock restarts here rather than
+            # at the end of generation.
             try:
                 os.utime(file_path, None)
             except OSError:
                 pass  # best-effort freshness signal; must not block the download
-            # NOT a FileResponse — starlette's
-            # own Range handling repeats #1532's splice on this degraded
-            # path, and its mtime ETag disagreed with the artifact path's.
-            #
-            # Same rule as the stored branch — a
-            # Range needs an If-Range naming this file's ETag to get a
-            # slice; otherwise whole.
+            # Not a FileResponse: starlette's own Range handling would splice
+            # representations on this degraded path, and its mtime ETag
+            # disagrees with the artifact path's. As on the stored branch, a
+            # Range needs an If-Range naming this file's ETag to get a slice.
             response = artifact_response.temp_file_response(
                 file_path,
                 filename=filename,
@@ -888,12 +849,9 @@ async def export_dataset_endpoint(
         _cleanup_export(temp_dir)
         raise
 
-    # 8c. Audit log. user_id may be None for anonymous exports.
-    #
-    # BELOW the precondition exits — a rebuild
-    # answering 412/304 must not record `dataset.export`, matching the hit
-    # path; the two paths must agree on what "this data left the building"
-    # means.
+    # 8c. Audit log. user_id may be None for anonymous exports. Below the
+    # precondition exits: a rebuild answering 412/304 must not record
+    # `dataset.export`, matching the hit path.
     try:
         await _emit_export_audit(
             db,

@@ -14,11 +14,11 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _tile_pool: asyncpg.Pool | None = None
 
-# Bounds ONE command. A tile request issues several on the connection it holds,
+# Bounds one command. A tile request issues several on the connection it holds,
 # so this is not a bound on how long any holder keeps one.
 TILE_POOL_COMMAND_TIMEOUT_SECONDS = 10
 
-# CHOSEN, not derived -- nothing the pool declares bounds queue
+# Chosen rather than derived, since nothing the pool declares bounds queue
 # depth. Paired with the handler's `Retry-After: 2` so a shed caller retries
 # inside a map viewer's patience. Also bounds asyncpg's connection release.
 TILE_POOL_ACQUIRE_TIMEOUT_SECONDS = 3.0
@@ -48,13 +48,11 @@ def _validate_tile_database_isolation() -> None:
 def _parse_dsn() -> str:
     """Convert SQLAlchemy-style URL to asyncpg-compatible DSN.
 
-    Uses ``sqlalchemy.engine.url.make_url`` so query
-    parameters and special characters in passwords are preserved correctly.
-    The previous ``str.replace`` implementation broke on URLs whose
-    components happened to contain ``postgresql+asyncpg://``.
+    Uses ``sqlalchemy.engine.url.make_url`` so query parameters and special
+    characters in passwords are preserved.
 
-    Raises ``ValueError`` if ``settings.tile_database_url`` is unset so the
-    failure surfaces clearly instead of an obscure AttributeError downstream.
+    Raises ``ValueError`` if ``settings.tile_database_url`` is unset, rather
+    than an obscure AttributeError downstream.
     """
     raw = settings.tile_database_url
     if not raw:
@@ -62,8 +60,7 @@ def _parse_dsn() -> str:
             "settings.tile_database_url is not configured; cannot init tile pool"
         )
     url = make_url(raw)
-    # Drop the SQLAlchemy +asyncpg dialect suffix; asyncpg expects the
-    # bare 'postgresql' scheme.
+    # asyncpg expects the bare 'postgresql' scheme.
     url = url.set(drivername="postgresql")
     return url.render_as_string(hide_password=False)
 
@@ -208,14 +205,13 @@ async def _setup_tile_connection(conn: asyncpg.Connection) -> None:
     privileges by default; running the tile path as ``geolens_reader``
     scopes any SQL injection in the tile composition layer to read-only.
 
-    Fires once per NEW PHYSICAL CONNECTION (``setup`` kwarg to
-    ``asyncpg.create_pool``), not on every ``pool.acquire()``. asyncpg
-    issues ``RESET ALL`` on connection return, which covers ``ROLE`` — so
-    this SET ROLE is NOT in effect on a reused connection. Per-request role
-    binding is entirely ``set_tenant_role_for_tile_request``'s job (called
-    inside each tile handler transaction). Failures here log + skip so the
-    tile path keeps working where the role doesn't exist (legacy upgrades
-    predating v6.0).
+    Runs before every ``pool.acquire()`` returns (the ``setup`` kwarg to
+    ``asyncpg.create_pool``; ``init`` is the once-per-connection hook), and
+    asyncpg's ``RESET ALL`` on release clears ``ROLE``, so each acquire sets it
+    afresh. In multi-tenant mode it does nothing:
+    ``set_tenant_role_for_tile_request`` binds the tenant role inside each tile
+    handler transaction. Failures here log and skip so the tile path keeps
+    working where the role doesn't exist (legacy upgrades).
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -246,8 +242,8 @@ async def init_tile_pool() -> asyncpg.Pool:
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
         "command_timeout": TILE_POOL_COMMAND_TIMEOUT_SECONDS,
-        # Drop privileges to geolens_reader on every fresh connection
-        # so tile-path SQL runs read-only against the data schema.
+        # Drops privileges to geolens_reader on every acquire so tile-path
+        # SQL runs read-only against the data schema.
         "setup": _setup_tile_connection,
         "init": _init_tile_connection,
     }
@@ -255,7 +251,7 @@ async def init_tile_pool() -> asyncpg.Pool:
     if ssl is not None:
         kwargs["ssl"] = ssl
 
-    # External pooler: disable prepared statement cache
+    # An external pooler can't share prepared statements across connections.
     if settings.db_use_external_pooler:
         kwargs["statement_cache_size"] = 0
 
@@ -289,10 +285,10 @@ async def set_tenant_role_for_tile_request(
 ) -> None:
     """Issue SET LOCAL ROLE + SET LOCAL search_path inside a tile request transaction.
 
-    Must be called AFTER the request transaction begins (inside a tile
-    handler), NOT in the pool setup callback (``_setup_tile_connection``),
-    which fires on NEW physical connections and can't see per-request tenant
-    state. Called once per tile request, inside a single
+    Must be called after the request transaction begins (inside a tile
+    handler), not in the pool setup callback (``_setup_tile_connection``),
+    which runs on every acquire but can't see per-request tenant state.
+    Called once per tile request, inside a single
     ``async with conn.transaction()`` block, so both role and search_path
     survive that transaction under PgBouncer transaction-mode.
 
@@ -327,11 +323,9 @@ async def set_tenant_role_for_tile_request(
         await conn.execute(f"SET LOCAL ROLE {role}")
         await conn.execute(f"SET LOCAL search_path = {schema}, public, pg_catalog")
     except asyncpg.PostgresError as exc:
-        # In multi_tenant, a failed role/search_path
-        # bind must FAIL the request rather than silently continue under the
-        # wrong role — falling back to the pool's session role would bypass
-        # both per-tenant isolation layers. single_tenant/None-tid never
-        # reaches this branch (guarded above).
+        # A failed role/search_path bind must fail the request rather than
+        # continue under the pool's session role, which would bypass both
+        # per-tenant isolation layers.
         raise RuntimeError(
             f"Tile pool: SET LOCAL ROLE {role!r} failed — "
             "cannot serve tile without per-tenant role binding"

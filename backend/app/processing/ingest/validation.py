@@ -127,12 +127,12 @@ ARCHIVE_EXTENSIONS = frozenset(
     }
 )
 
-# A GDAL VRT is a set of instructions, not
-# data -- it names the source GDAL should go and read, and that source may be
-# any local path or any URL. `_reject_standalone_vrt` in ingest/router.py
-# already refuses one as the uploaded file, but it matches the TOP-LEVEL
-# filename, so the same document arriving as an archive member walked straight
-# past it. Refused here at any depth and in any case.
+# A GDAL VRT is a set of instructions, not data: it names the source GDAL
+# should go and read, and that source may be any local path or any URL.
+# `_reject_standalone_vrt` in ingest/router.py refuses one as the uploaded
+# file, but it matches the top-level filename, so the same document arriving
+# as an archive member would walk straight past it. Refused here at any depth
+# and in any case.
 #
 # Extensions only, and deliberately not the whole answer: the drivers that read
 # a document as instructions do not all agree to be identified by name (the WFS
@@ -144,12 +144,12 @@ ARCHIVE_EXTENSIONS = frozenset(
 DRIVER_METADATA_EXTENSIONS = frozenset({".vrt"})
 
 
-# A SQLite database is also a document that
-# can name external files. SQLite's virtual-table mechanism lets a schema row
-# say "this table's rows come from over there", and the SpatiaLite extension
-# the shipped GDAL links provides a family of modules whose "over there" is an
-# arbitrary local path. A GeoPackage is a SQLite database the uploader writes
-# in full, so the instructions and the data arrive in one legitimate `.gpkg`.
+# A SQLite database is also a document that can name external files. SQLite's
+# virtual-table mechanism lets a schema row say "this table's rows come from
+# over there", and the SpatiaLite extension the shipped GDAL links provides a
+# family of modules whose "over there" is an arbitrary local path. A
+# GeoPackage is a SQLite database the uploader writes in full, so the
+# instructions and the data arrive in one legitimate `.gpkg`.
 #
 # Neither of the two driver clamps can reach this one. GPKG is the primary
 # supported upload format and SQLite is its sibling, so neither can be dropped
@@ -160,8 +160,8 @@ DRIVER_METADATA_EXTENSIONS = frozenset({".vrt"})
 # and refuse the file, which is what `validate_sqlite_virtual_tables` does.
 SQLITE_FAMILY_EXTENSIONS = frozenset({".gpkg", ".sqlite", ".sqlite3", ".db"})
 
-# THE RULE FOR ARCHIVE MEMBERS, learned twice and at the cost of a finding
-# each time: identify a member by its CONTENT, never by its name.
+# The rule for archive members: identify a member by its content, never by
+# its name.
 #
 # GDAL never consults the member name. It asks each driver whether it
 # recognises the bytes, and those answers are content tests: the SQLite family
@@ -172,12 +172,12 @@ SQLITE_FAMILY_EXTENSIONS = frozenset({".gpkg", ".sqlite", ".sqlite3", ".db"})
 #
 # So an extension filter over archive members is not a filter. A database
 # named `evil.bak`, `evil` or `data/evil.dat` is opened as SQLite exactly as
-# `inner.gpkg` would be, and the first version of this check walked past all
-# three. `DRIVER_METADATA_EXTENSIONS` above is a cheap early refusal for the
-# honest case and is NOT the defense; `_scan_archive_members` is.
+# `inner.gpkg` would be, and a check by name walks past all three.
+# `DRIVER_METADATA_EXTENSIONS` above is a cheap early refusal for the honest
+# case and is not the defense; `_scan_archive_members` is.
 _SQLITE_HEADER = b"SQLite format 3\x00"
-# Both VRT roots: the vector one is the finding, the raster one is here so the
-# rule has no shape-shaped hole left in it.
+# Both VRT roots, vector and raster, so the rule leaves no hole for either
+# shape.
 _VRT_ROOT_MARKERS = (b"<OGRVRTDataSource", b"<VRTDataset")
 # The window the markers are searched in, and the per-member cost of the scan.
 # GDAL identifies from a few kilobytes; this matches that order.
@@ -221,8 +221,8 @@ MAX_SQLITE_SCHEMA_BYTES = 4 * 1024 * 1024
 # `re.compile(r"/\*.*?\*/", re.DOTALL)` is quadratic on text holding many `/*`
 # with no `*/`: every opener restarts a lazy scan that runs to the end of the
 # string. That text is uploader-chosen through a perfectly valid schema (a
-# column DEFAULT is enough), the scan runs synchronously, and this used to be
-# reachable from preview. Measured: 32 KB 0.9 s, 64 KB 3.6 s, 128 KB 11.5 s.
+# column DEFAULT is enough), the scan runs synchronously, and preview reaches
+# it. Measured: 32 KB 0.9 s, 64 KB 3.6 s, 128 KB 11.5 s.
 #
 # The "standard linear block comment" pattern
 # `r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/"` does NOT fix it, which is worth writing
@@ -861,8 +861,8 @@ def _reject_uploaded_vrt_source(raw_path: str) -> None:
 def validate_vrt_body(file_path: str) -> None:
     """Validate a user-uploaded .vrt file's XML body.
 
-    The GDAL VRT driver follows `<SourceFilename>`
-    body content as if it were a path/URL. A malicious VRT can declare
+    The GDAL VRT driver follows `<SourceFilename>` body content as if it
+    were a path/URL. A malicious VRT can declare
     `<SourceFilename>../../etc/hostname</SourceFilename>` and GDAL will
     happily open the resolved path, leaking host content into the raster
     pipeline. Defense-in-depth alongside the staging-dir resolution check
@@ -993,8 +993,8 @@ def validate_file_content(file_path: str, filename: str) -> None:
     """
     suffix = Path(filename).suffix.lower()
 
-    # .vrt gets its own XML+traversal check (magic bytes are
-    # XML which puremagic doesn't reliably distinguish from generic text).
+    # .vrt gets its own XML and traversal check: its magic bytes are XML,
+    # which puremagic doesn't reliably distinguish from generic text.
     if suffix == ".vrt":
         validate_vrt_body(file_path)
         return

@@ -439,22 +439,19 @@ async def plan_parquet_export(
     bbox: list[float] | None = None,
     where: str | None = None,
 ) -> ParquetExportPlan:
-    """Everything that decides a parquet export's STATUS, producing no file.
+    """Everything that decides a parquet export's status, producing no file.
 
-    Split out so the route can run this
-    BEFORE answering a HEAD — introspection, filter validation and the
-    bounded count are reads a HEAD can afford; left inside
-    ``export_parquet``, a HEAD answered 200 while the GET later failed
-    400/413.
+    Split out so the route can run this before answering a HEAD:
+    introspection, filter validation and the bounded count are reads a HEAD
+    can afford, and a HEAD must not answer 200 for a GET that fails 400/413.
 
     Raises:
         ValueError: bad filter (unknown column, malformed clause) -> 400.
         ExportTooLargeError: selection over the cap -> 413.
     """
-    # Introspect the live table once for BOTH column selection and filter
-    # validation: dataset.column_info is nullable, and trusting it would (a)
-    # silently export geometry-only or (b) reject a valid filter when columns
-    # are right here.
+    # Introspect the live table once for both column selection and filter
+    # validation: dataset.column_info is nullable, and trusting it could
+    # silently export geometry only or reject a valid filter.
     live_columns = await get_column_info(db, table_name, schema=schema)
     attr_names = _attr_names(live_columns)
     # The driver decodes json into Python objects, and Arrow would give every
@@ -492,12 +489,10 @@ async def plan_parquet_export(
     clauses: list[str] = []
     params: dict = {}
     if bbox is not None:
-        # Mirrors features query bbox semantics (features/service.py): an &&
-        # prefilter plus exact ST_Intersects, with the antimeridian split
-        # when minx > maxx (parse_bbox allows it) — && alone would drop
-        # antimeridian boxes and return an envelope-overlap superset.
-        # Fragment comes from the shared builder in export/ogr.py
-        # so the ogr2ogr path splits identically.
+        # Mirrors the features query bbox semantics (features/service.py): an
+        # && prefilter plus exact ST_Intersects, split at the antimeridian when
+        # minx > maxx. The shared builder in export/ogr.py makes the ogr2ogr
+        # path split identically.
         clauses.append(bbox_where_sql(bbox))
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
@@ -655,11 +650,10 @@ async def export_parquet(
     """
     attr_names, where_sql, params, json_columns, _ = plan
 
-    # Selects attribute columns directly (not via to_jsonb) so the async
+    # Attribute columns are selected directly (not via to_jsonb) so the async
     # driver returns native Python values and Arrow infers real types; json
-    # columns come back as their JSON text. Geometry is selected last, read
+    # columns come back as their JSON text. Geometry is selected last and read
     # positionally, so a user column sharing the WKB alias can't shadow it.
-    # Idents double-quoted defensively.
     select_parts = []
     for name in attr_names:
         ident = '"' + name.replace('"', '""') + '"'
@@ -676,7 +670,6 @@ async def export_parquet(
     )
     temp_dir = str(exports_root / uuid.uuid4().hex)
     os.mkdir(temp_dir)
-    # One naming rule for both verbs; see export_descriptor.
     filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
     sink = _GeoParquetWriter(output_path, attr_names, _geometry_column_name(attr_names))

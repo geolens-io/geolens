@@ -436,8 +436,6 @@ class OAuthProviderResponse(BaseModel):
         """
         if isinstance(data, dict):
             return data
-        # ORM instance: read loaded attributes; deferred SAML columns appear
-        # as None unless explicitly loaded.
         loaded = dict(getattr(data, "__dict__", {}))
         loaded.pop("_sa_instance_state", None)
         for f in ("idp_entity_id", "idp_sso_url", "sp_entity_id"):

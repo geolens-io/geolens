@@ -1,8 +1,5 @@
 """Derive the stored ``source_format`` from an uploaded file path.
 
-One home for the mapping: the first-upload and reupload ingest paths used to
-carry two drifting copies of ``"shapefile" if suffix == "zip" else suffix``.
-
 Values produced here are constrained by ``chk_datasets_source_format``
 (catalog.datasets); adding a new one needs an Alembic migration.
 """
@@ -36,8 +33,8 @@ def zip_data_format(file_path: str, layer_name: str | None = None) -> str:
     """Classify a zip by its data member, defaulting to ``shapefile``.
 
     A ``layer_name`` selects the member whose stem matches it, since that is
-    the one GDAL imported (layer names are case-sensitive); the suffix priority only settles archives where
-    no layer is chosen or none matches.
+    the one GDAL imported (layer names are case-sensitive); the suffix
+    priority only settles archives where no layer is chosen or none matches.
 
     Reads the central directory only; no member is decompressed. Any failure
     to read the archive returns ``shapefile`` (GDAL has already opened the

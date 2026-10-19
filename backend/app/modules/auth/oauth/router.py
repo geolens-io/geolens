@@ -95,8 +95,8 @@ class _SSRFSafeOAuth2Client(AsyncOAuth2Client):
 # token_endpoint, userinfo_endpoint, jwks_uri, and authorization_endpoint
 # (handed to the browser). A provider configured by discovery URL leaves the
 # matching row columns empty, so validate_provider_server_endpoints never
-# sees the address a request actually goes to — this list must stay matched
-# to the calls that exist, or a route with no fetch gets falsely refused.
+# sees the address a request actually goes to. A key nothing fetches would
+# refuse providers for no reason.
 _DISCOVERY_ENDPOINT_KEYS = (
     "authorization_endpoint",
     "token_endpoint",
@@ -116,10 +116,10 @@ def _endpoint_refused(
 ) -> HTTPException:
     """Log the operator-facing detail and return the refusal for the caller to raise.
 
-    One helper for both sources (provider row and discovery
-    document), so they can't drift into different status codes/disclosure.
-    The response names no host — these routes are unauthenticated; the
-    operator log gets the provider, endpoint, and hostname.
+    One helper for both sources (provider row and discovery document), so
+    they can't drift into different status codes/disclosure. The response
+    names no host because these routes are unauthenticated; the operator log
+    gets the provider, endpoint, and hostname.
     """
     logger.warning(
         "OAuth provider endpoint rejected",
@@ -137,11 +137,10 @@ def _endpoint_refused(
 def _loggable_hostname(url: str) -> str | None:
     """The hostname for the operator log, or None when the URL will not parse.
 
-    ``urlparse`` rejects a malformed authority with
-    ValueError before validate_url_for_ssrf's own checks run, so parsing it
-    again here would raise inside the handler — replacing the sanitized 503
-    with an unhandled 500 on an unauthenticated route. None reads as
-    unparseable in the log line.
+    ``urlparse`` rejects a malformed authority with ValueError before
+    validate_url_for_ssrf's own checks run, so parsing it again here unguarded
+    would replace the sanitized 503 with an unhandled 500 on an
+    unauthenticated route. None reads as unparseable in the log line.
     """
     try:
         return urlparse(url).hostname
@@ -181,8 +180,8 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
     async def load_server_metadata(self) -> dict:
         """Validate the endpoints the discovery document supplies, once.
 
-        This is the policy half, deciding whether an address is
-        one this deployment will talk to at all. The pinning transport on
+        This is the policy half, deciding whether an address is one this
+        deployment will talk to at all. The pinning transport on
         _SSRFSafeOAuth2Client is the enforcement half: it re-resolves at
         connect time, so a document that passes here and rebinds afterwards
         still reaches nothing internal.
@@ -265,8 +264,8 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
         )
 
     # Validate every persisted endpoint before decrypting the client secret,
-    # covering legacy rows and CRUD/config-import writes. This covers
-    # only the four row columns; a discovery-URL provider is checked in
+    # covering legacy rows and CRUD/config-import writes. This covers only the
+    # four row columns; a discovery-URL provider is checked in
     # _SSRFSafeOAuth2App.load_server_metadata instead. Either way every
     # Authlib session then connects through the IP-pinning transport, closing
     # the DNS-rebinding gap between check and dispatch.
@@ -349,11 +348,10 @@ async def oauth_login(
         ) from exc
     redirect_uri = f"{public_api_url}/auth/oauth/{provider_slug}/callback"
 
-    # Generate a correlation_id at login-init so the
-    # matching callback audit entry shares it, linking initiation to outcome.
-    # Stored in session keyed by provider slug; authlib already uses the
-    # session for PKCE `state`. Details carry only provider_slug +
-    # correlation_id — no secrets, tokens, or email addresses.
+    # A correlation_id minted at login-init links the matching callback audit
+    # entry to it. Stored in the session keyed by provider slug, as authlib
+    # stores PKCE `state`. Details carry only provider_slug + correlation_id:
+    # no secrets, tokens, or email addresses.
     correlation_id = uuid.uuid4().hex[:12]
     request.session[f"_oauth_correlation_{provider_slug}"] = correlation_id
 
@@ -411,9 +409,9 @@ async def oauth_callback(
             detail=str(exc),
         ) from exc
 
-    # Read back the correlation_id from login-init so
-    # every callback audit entry shares it; falls back to a fresh id (e.g.
-    # cross-process restart). Details never carry secrets/tokens/email.
+    # Read back login-init's correlation_id so every callback audit entry
+    # shares it; falls back to a fresh id (e.g. cross-process restart).
+    # Details never carry secrets/tokens/email.
     correlation_id: str = (
         request.session.get(f"_oauth_correlation_{provider_slug}")
         or uuid.uuid4().hex[:12]
@@ -422,9 +420,9 @@ async def oauth_callback(
     try:
         client, provider = await build_oauth_client(provider_slug, db)
 
-        # Exchange authorization code for tokens. Azure multitenant authorities
-        # advertise a templated issuer, so relax the id_token iss check there only
-        # (see _id_token_claims_options; geolens#303).
+        # Azure multitenant authorities advertise a templated issuer, so the
+        # id_token iss check is relaxed there only (see
+        # _id_token_claims_options).
         authorize_kwargs: dict = {}
         claims_options = _id_token_claims_options(
             provider.provider_type, provider.discovery_url
@@ -433,13 +431,12 @@ async def oauth_callback(
             authorize_kwargs["claims_options"] = claims_options
         token = await client.authorize_access_token(request, **authorize_kwargs)
 
-        # GitHub is plain OAuth2 (not OIDC), no id_token/userinfo endpoint
+        # GitHub is plain OAuth2 (not OIDC), with no id_token/userinfo endpoint
         # authlib knows automatically; resolve primary+verified email via
-        # /user/emails instead. Other providers use
-        # authlib's userinfo path unchanged.
+        # /user/emails instead.
         if provider.provider_type == "github":
-            # Pass the provider's configured user endpoint so GitHub Enterprise
-            # providers resolve identity against their own API, not api.github.com.
+            # The provider's configured user endpoint, so GitHub Enterprise
+            # resolves identity against its own API, not api.github.com.
             userinfo = await _resolve_github_identity(
                 dict(token), userinfo_url=provider.userinfo_url
             )
@@ -449,9 +446,9 @@ async def oauth_callback(
                 userinfo = await client.userinfo(token=token)
             userinfo = dict(userinfo)
 
-        # Azure multitenant: the templated-issuer pin was relaxed at parse time,
-        # so re-assert the resolved per-tenant issuer here before the identity is
-        # trusted (geolens#303).
+        # Azure multitenant: the templated-issuer pin was relaxed at parse
+        # time, so re-assert the resolved per-tenant issuer before the identity
+        # is trusted.
         verify_azure_multitenant_issuer(
             provider.provider_type, provider.discovery_url, userinfo
         )
@@ -467,8 +464,8 @@ async def oauth_callback(
             db, request, user, frontend_url=frontend_url, sign_in_nonce=sign_in_nonce
         )
 
-        # Emit success audit entry before the commit so it persists
-        # in the same transaction. Details carry no secrets, tokens, or email.
+        # Success audit entry before the commit, in the same transaction.
+        # Details carry no secrets, tokens, or email.
         await audit_emit(
             db,
             AuditEvent(
@@ -530,7 +527,6 @@ async def oauth_callback(
         for refusal_type, outcome, log_message in named_refusals:
             if not isinstance(exc, refusal_type):
                 continue
-            # Reuse the threaded correlation_id — do NOT mint a new one.
             logger.warning(
                 log_message,
                 provider=provider_slug,
@@ -570,15 +566,13 @@ async def oauth_callback(
                 status_code=302,
                 headers={"Referrer-Policy": "no-referrer"},
             )
-        # Reuse the threaded correlation_id — do NOT mint a new one.
         logger.exception(
             "OAuth callback failed",
             provider=provider_slug,
             correlation_id=correlation_id,
         )
-        # FIX-C: discard any partial JIT side effects (flushed User/
-        # OAuthAccount/refresh token) before writing the audit row — the
-        # rollback + audit_emit + commit sequence ensures ONLY the
+        # Discard any partial JIT side effects (flushed User/OAuthAccount/
+        # refresh token) before writing the audit row, so ONLY the
         # failure-audit row reaches the DB.
         try:
             await db.rollback()
@@ -588,7 +582,6 @@ async def oauth_callback(
                 provider=provider_slug,
                 correlation_id=correlation_id,
             )
-        # Emit failure audit entry for generic OAuth error.
         await audit_emit(
             db,
             AuditEvent(
@@ -685,10 +678,8 @@ async def exchange_sign_in_code(
     )
 
 
-# Dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
+# because api/main.py sets redirect_slashes=False.
 @router.get(
     "/providers",
     response_model=list[OAuthProviderPublic],

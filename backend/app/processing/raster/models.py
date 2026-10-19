@@ -102,19 +102,18 @@ class RasterAsset(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="ready"
     )
-    # NOTE: Not a FK — router code sets this to uuid.uuid4() as a placeholder before
-    # the VRT regeneration task creates the actual VrtGeneration row.
+    # Not a foreign key. Admission points it at the VrtGeneration row it
+    # creates before queuing the regeneration; the failure paths clear it.
     current_generation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     last_regenerated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # What the published VRT was assembled FROM, as
-    # {dataset_id: asset_uri}. Member staleness is a state comparison against
-    # this — what a member IS versus what the artifact was built from — because
-    # no timestamp can express "committed after my snapshot" (Postgres has no
+    # What the published VRT was assembled from, as {dataset_id: asset_uri}.
+    # Member staleness compares a member's current state with this, because no
+    # timestamp can express "committed after my snapshot" (Postgres has no
     # commit-time stamp available inside the transaction). NULL means the VRT
-    # predates this column and the health endpoint falls back to the legacy
-    # timestamp comparison for it.
+    # predates this column and the health endpoint falls back to a timestamp
+    # comparison.
     built_from: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     def set_crs(self, meta: dict) -> None:
@@ -158,15 +157,12 @@ class VrtGeneration(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     triggered_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # The FULL post-mutation member set this generation intends
-    # to publish (ordered dataset ids). Staged here, not applied to
-    # `vrt_source_links` until the regeneration task's SAME transaction as
-    # the artifact swap — a dead attempt leaves the catalog and served
-    # bytes in agreement.
-    #
-    # A full set, not a delta: apply is a replace, idempotent on retry.
-    # NULL means "no membership change" (plain regenerate, or pre-column
-    # generations) — both build from the live links.
+    # The full post-mutation member set this generation intends to publish
+    # (ordered dataset ids). It is applied to `vrt_source_links` only in the
+    # regeneration task's transaction that swaps the artifact, so a dead attempt
+    # leaves the catalog and served bytes in agreement. A full set, not a
+    # delta, so apply is a replace and idempotent on retry. The build uses this
+    # set; NULL (no membership change, a plain regenerate) uses the live links.
     staged_source_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

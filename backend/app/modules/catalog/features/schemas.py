@@ -174,8 +174,7 @@ BoundedGeoJSONGeometryCollection = Annotated[
 ]
 
 
-# Discriminated by the Literal type on the collection variant; plain geometries
-# keep their exact prior wire shape.
+# Discriminated by the Literal type on the collection variant.
 GeoJSONGeometryLike = GeoJSONGeometryCollection | GeoJSONGeometry
 BoundedGeoJSONGeometryLike = BoundedGeoJSONGeometryCollection | BoundedGeoJSONGeometry
 
@@ -190,9 +189,8 @@ class GeoJSONFeature(BaseModel):
 
 
 # The tile routes treat `_v` as a freshness signal only when it is a stored
-# tile_cache_version or a record updated_at timestamp; a write's response
-# carries the version so its caller's next tile reload can use one of those
-# spellings instead of a client timestamp the routes would otherwise ignore.
+# tile_cache_version or a record updated_at timestamp, so a write's response
+# carries the version for the caller's next tile reload.
 TILE_CACHE_VERSION_DESCRIPTION = (
     "The dataset's tile_cache_version after this write committed. Send it "
     "as the tile routes' `_v` query parameter when reloading tiles, so a "
@@ -200,9 +198,8 @@ TILE_CACHE_VERSION_DESCRIPTION = (
     "dataset instead of serving that worker's own cached snapshot."
 )
 
-# A 204 response has no body to put the field above in, so the delete
-# endpoint (the one write that stays 204, for compatibility with existing
-# callers) carries the same value on this response header instead.
+# The delete endpoint answers 204 with no body, so it carries the version on
+# this header instead.
 TILE_CACHE_VERSION_HEADER = "X-GeoLens-Tile-Cache-Version"
 
 TABLE_ID_DESCRIPTION = (
@@ -217,7 +214,7 @@ TABLE_ID_DESCRIPTION = (
 class GeoJSONFeatureRead(GeoJSONFeature):
     """A GeoJSON Feature, plus the id of the table it was read from."""
 
-    # Same title as the base, so generated SDK model names stay as they were.
+    # Same title as the base, so the generated SDK model name is unchanged.
     model_config = ConfigDict(title="GeoJSONFeature")
 
     table_id: str | None = Field(default=None, description=TABLE_ID_DESCRIPTION)
@@ -226,11 +223,10 @@ class GeoJSONFeatureRead(GeoJSONFeature):
 class GeoJSONFeatureWrite(GeoJSONFeatureRead):
     """A written GeoJSON Feature, plus the dataset's committed tile version."""
 
-    # The inlined response schema's own "title" is what the SDK generators
-    # name this route's response model from (inline_json_schema() flattens
-    # $defs, so a $ref-based component name is not available to them). Kept
-    # at the pre-existing "GeoJSONFeature" so the additive field does not
-    # rename generated SDK classes out from under existing callers.
+    # The SDK generators name this route's response model from the inlined
+    # schema's "title" (inline_json_schema() flattens $defs, so no $ref
+    # component name exists). Keeping "GeoJSONFeature" leaves the generated
+    # class name unchanged.
     model_config = ConfigDict(title="GeoJSONFeature")
 
     tile_cache_version: int | None = Field(

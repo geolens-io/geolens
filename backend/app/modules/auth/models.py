@@ -34,15 +34,15 @@ class User(Base):
             "is_active = (status = 'active')",
             name="chk_users_status_active_consistency",
         ),
-        # Partial index: most user lookups don't need to scan pending rows; the
-        # admin "pending users" view does, and benefits from this targeted index.
+        # Partial index for the admin "pending users" view; other lookups don't
+        # scan pending rows.
         Index(
             "idx_users_status_pending",
             "status",
             postgresql_where="status = 'pending'",
         ),
-        # GIN trigram index for admin user search ILIKE on username.
-        # Migration 0001_baseline is the source of truth for the actual DDL.
+        # GIN trigram index for admin user search ILIKE on username. Migration
+        # 0001_baseline owns the DDL of both trigram indexes.
         Index(
             "ix_users_username_trgm",
             text("lower(catalog.immutable_unaccent(username))"),
@@ -53,19 +53,17 @@ class User(Base):
         ),
         # GIN trigram index for admin user search ILIKE on email (pairs with the
         # username index so the username-OR-email search BitmapOrs both).
-        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_users_email_trgm",
             text("lower(catalog.immutable_unaccent(email))"),
             postgresql_using="gin",
             postgresql_ops={"lower(catalog.immutable_unaccent(email))": "gin_trgm_ops"},
         ),
-        # Two-partial-index uniqueness pattern.
-        # Migration 0005_dormant_tenancy replaces the global unique
-        # constraints with these four partial unique indexes: global
-        # uniqueness when tenant_id IS NULL, per-tenant when NOT NULL. A
-        # naive composite unique on nullable tenant_id is forbidden because
-        # Postgres treats NULLs as DISTINCT, silently breaking single_tenant.
+        # Migration 0005_dormant_tenancy replaces the global unique constraints
+        # with these four partial unique indexes: global uniqueness when
+        # tenant_id IS NULL, per-tenant when NOT NULL. A composite unique on
+        # nullable tenant_id would silently break single_tenant, because
+        # Postgres treats NULLs as DISTINCT.
         Index(
             "uq_users_username_global",
             "username",
@@ -100,8 +98,8 @@ class User(Base):
     )
     username: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Dormant tenant_id — nullable, no FK enforcement.
-    # NULL means single_tenant (global) scope.
+    # Dormant tenant_id: nullable, no FK enforcement. NULL means single_tenant
+    # (global) scope.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -112,14 +110,14 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
-    # Set to True by redeem_verification_token() on
-    # verification-link click; server_default="false" so new users start unverified.
+    # Defaults to False; redeem_verification_token() sets it on a
+    # verification-link click.
     email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
-    # JWT revocation primitive, bumped on logout
-    # and password change. An access JWT whose token_version is less than
-    # this value is rejected on the next authenticated request.
+    # JWT revocation primitive, bumped on logout and password change. An access
+    # JWT whose token_version is less than this value is rejected on the next
+    # authenticated request.
     token_version: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
@@ -130,13 +128,13 @@ class User(Base):
     key_epoch: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
-    # Revocation horizon — every session credential issued at or
-    # before this instant is dead, regardless of its own state. token_version
-    # and the refresh-row UPDATE only revoke what one statement's snapshot
-    # sees, which can't express "everything issued up to now"; this covers a
-    # rotation committing just after that snapshot. Read at use time by both
-    # refresh lookups and both JWT dependencies. NULL until first
-    # revocation; stamped from the DB clock (matches RefreshToken.created_at).
+    # Revocation horizon: every session credential issued at or before this
+    # instant is dead, regardless of its own state. token_version and the
+    # refresh-row UPDATE only revoke what one statement's snapshot sees, which
+    # can't express "everything issued up to now"; this covers a rotation
+    # committing just after that snapshot. Read at use time by both refresh
+    # lookups and both JWT dependencies. NULL until first revocation; stamped
+    # from the DB clock (matches RefreshToken.created_at).
     sessions_revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -222,14 +220,13 @@ class ApiKey(Base):
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Snapshot of owner's key_epoch at mint. When key_epoch is
-    # bumped (password/role change, SAML-to-local — NOT logout), keys minted
-    # before the bump stop resolving. Migration 0029 backfilled existing keys.
+    # Snapshot of the owner's key_epoch at mint. When key_epoch is bumped
+    # (password/role change, SAML-to-local, NOT logout), keys minted before
+    # the bump stop resolving.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Least-privilege machine credentials. "read_only"
-    # authenticates GET/HEAD/OPTIONS only, refused elsewhere at the
-    # resolution chokepoint (_resolve_api_key). server_default backfills
-    # pre-0032 keys as "full" (no behavior change).
+    # Least-privilege machine credentials. A "read_only" key is limited to
+    # reads (see _read_only_key_may_call) and refused elsewhere at the
+    # resolution chokepoint (_resolve_api_key).
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )
@@ -254,11 +251,9 @@ class ApiKey(Base):
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
     __table_args__ = (
-        # Index added in migration 0008 — declared on the model so
-        # alembic check sees it; the migration is the source of truth for
-        # the actual DDL.
+        # Declared on the model so alembic check sees them; the migrations own
+        # the DDL.
         Index("ix_catalog_refresh_tokens_expires_at", "expires_at"),
-        # Covering index added in migration 0001_baseline.
         Index("ix_refresh_tokens_user_id", "user_id"),
         Index("ix_refresh_tokens_family_id", "family_id"),
         {"schema": "catalog"},
@@ -300,9 +295,8 @@ class EmailVerificationToken(Base):
 
     __tablename__ = "email_verification_tokens"
     __table_args__ = (
-        # Index on expires_at mirrors the RefreshToken pattern — efficient
-        # cleanup of expired tokens.  Migration 0009 is the source of truth
-        # for the actual DDL.
+        # Cleanup of expired tokens, as for RefreshToken. Migration 0009 owns
+        # the DDL.
         Index("ix_catalog_email_verification_tokens_expires_at", "expires_at"),
         # Covering index on user_id for per-user token queries (resend flow).
         Index("ix_email_verification_tokens_user_id", "user_id"),

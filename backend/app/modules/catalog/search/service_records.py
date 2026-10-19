@@ -330,8 +330,8 @@ def dataset_to_ogc_record(
         updated_user=updated_user,
     )
 
-    # A caller-precomputed ST_AsGeoJSON string (PostGIS-side, fast) is parsed
-    # directly; otherwise fall back to Python-side WKB deserialization.
+    # A precomputed ST_AsGeoJSON string is parsed directly; otherwise fall back
+    # to Python-side WKB deserialization.
     geometry = None
     if spatial_extent_geojson is not None:
         try:
@@ -361,9 +361,9 @@ def dataset_to_ogc_record(
             )
             geometry = None
 
-    # STAC 1.0.0 datetime rules: if datetime is null, start_datetime AND
-    # end_datetime MUST both be present. When no temporal extent exists,
-    # fall back to created_at so the item always passes STAC validation.
+    # STAC 1.0.0: if datetime is null, start_datetime and end_datetime must
+    # both be present. With no temporal extent, fall back to created_at so the
+    # item always validates.
     _ts = record.temporal_start
     _te = record.temporal_end
     if _ts is not None and _te is None:
@@ -383,8 +383,8 @@ def dataset_to_ogc_record(
         stac_start_datetime = None
         stac_end_datetime = None
 
-    # OGC Records puts "time" at the record root (alongside geometry)
-    # AND in properties for STAC consumer compatibility.
+    # OGC Records puts "time" at the record root (alongside geometry) and, for
+    # STAC consumers, in properties.
     record_time = build_time(dataset)
     description = (
         localized.summary.strip()
@@ -494,16 +494,16 @@ def dataset_to_ogc_record(
                 if record.usage_constraints or record.access_constraints
                 else None
             ),
-            # From record_distributions. A raster/VRT ingest tail
-            # writes a row whose url is the COG's object-storage key —
-            # unresolvable and layout-exposing — so is_publishable_url drops
-            # it; build_assets' raster_tiles asset covers that access surface.
+            # From record_distributions. A raster/VRT ingest tail writes a row
+            # whose url is the COG's object-storage key, which is unresolvable
+            # and layout-exposing, so is_publishable_url drops it;
+            # build_assets' raster_tiles asset covers that access surface.
             "distributions": [
                 {
                     "type": d.distribution_type,
                     "format": d.format,
-                    # As in published_distributions -- a stored
-                    # vector-tile template cannot hold a counter that rolls.
+                    # As in published_distributions: a stored vector-tile
+                    # template cannot hold a counter that rolls.
                     "url": (
                         build_url(
                             republished_tile_url(
@@ -554,7 +554,6 @@ def dataset_to_ogc_record(
         ),
     }
 
-    # STAC properties for raster/VRT records (record_type already resolved above)
     if raster_meta and record_type in RASTER_FAMILY_RECORD_TYPES:
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:code"] = f"EPSG:{raster_meta['epsg']}"
@@ -575,15 +574,14 @@ def dataset_to_ogc_record(
             ogc_record["properties"]["gsd"] = min(
                 abs(raster_meta["res_x"]), abs(raster_meta["res_y"])
             )
-            # The gsd is a lossy min(abs(res_x), abs(res_y)) that can
-            # collapse two misaligned sources to the same value, silently
-            # passing a client gsd-only check that _check_grid_alignment
-            # (res_x and res_y independently) would reject. Expose both axes.
+            # The gsd is a lossy min(abs(res_x), abs(res_y)) that can collapse
+            # two misaligned sources to one value and pass a client gsd-only
+            # check that _check_grid_alignment (res_x and res_y independently)
+            # would reject. Expose both axes.
             ogc_record["properties"]["res_x"] = raster_meta["res_x"]
             ogc_record["properties"]["res_y"] = raster_meta["res_y"]
-            # The gsd is in CRS units — geographic CRSs deliver degrees,
-            # and without this flag the UI formatted them as meters ("2 cm"
-            # for a 60-arc-second global DEM).
+            # The gsd is in CRS units, which are degrees for geographic CRSs;
+            # without this flag the UI would format them as meters.
             if raster_meta.get("crs_is_geographic") is not None:
                 ogc_record["properties"]["crs_is_geographic"] = raster_meta[
                     "crs_is_geographic"
@@ -610,11 +608,10 @@ def dataset_to_ogc_record(
                 if nodata is not None:
                     band_entry["nodata"] = nodata
                 elif raster_meta.get("nodata") is None:
-                    # The asset WAS probed and its authoritative
-                    # RasterAsset.nodata column is None, so absence is
-                    # confirmed, not merely unrecorded — emit the key
-                    # explicitly so the client can tell "absent" from
-                    # "unavailable" (an omitted key means the latter).
+                    # The asset was probed and its authoritative
+                    # RasterAsset.nodata is None, so absence is confirmed, not
+                    # merely unrecorded. Emit the key so the client can tell
+                    # "absent" from "unavailable" (an omitted key).
                     band_entry["nodata"] = None
                 if bi.get("description"):
                     band_entry["description"] = bi["description"]
@@ -623,7 +620,6 @@ def dataset_to_ogc_record(
         if bands:
             ogc_record["properties"]["raster:bands"] = bands
 
-        # VRT-specific fields
         if raster_meta.get("vrt_type"):
             ogc_record["properties"]["vrt_type"] = raster_meta["vrt_type"]
         if raster_meta.get("source_count") is not None:

@@ -1286,10 +1286,8 @@ async def delete_features(
 async def _refresh_count_and_extent(
     session: AsyncSession, table_name: str
 ) -> tuple[int, str | None]:
-    """Lightweight count + extent query for feature-write metadata refresh.
-
-    Returns (feature_count, extent_wkt) in a single query instead of the
-    5 queries that extract_metadata() runs.
+    """Return (feature_count, extent_wkt) from one query, not the five that
+    extract_metadata() runs.
     """
     # records.spatial_extent admits only POLYGON/MULTIPOLYGON, but
     # ST_Extent of a single point / axis-collinear points casts to POINT /
@@ -1313,13 +1311,11 @@ async def _refresh_count_and_extent(
     )
     row = result.one()
     count, extent_wkt, xmin, xmax = int(row[0]), row[1], row[2], row[3]
-    # A table honestly crossing ±180 must not store the naive
-    # near-global fold on refresh; emit the two-ring MULTIPOLYGON instead. A
-    # crossing dataset's naive width always exceeds 180 degrees, so the
-    # ordinary case skips the second aggregate and stays byte-identical.
+    # A table crossing ±180 must store the two-ring MULTIPOLYGON, not the
+    # naive near-global fold. A crossing dataset's naive width always exceeds
+    # 180 degrees, so the ordinary case skips the second aggregate.
     if xmin is not None and xmax is not None and float(xmax) - float(xmin) > 180.0:
-        # Same tenant data schema the quoted reference above resolves to;
-        # the helper quotes identifiers itself.
+        # Same tenant data schema as the quoted reference above.
         from app.core.db.tenant_schema import tenant_data_schema
         from app.core.db.tenant_session import current_tenant_var
 
@@ -1397,13 +1393,11 @@ def geojson_bounds(geometry: dict | None) -> Bounds | None:
     return (float(minx), float(miny), float(maxx), float(maxy))
 
 
-# The envelope of the row version a write is about to overwrite or remove.
-#
-# Captured as part of the mutating statement, not a separate
-# unlocked SELECT before it — a concurrent edit could otherwise move the
-# feature out of the stored extent and commit in the gap, leaving envelope
-# values that were true when read but false by the time of the write, and
-# the incremental fast path leaving the expanded extent behind.
+# The envelope of the row version a write is about to overwrite or remove,
+# captured by the mutating statement itself. A separate unlocked SELECT could
+# miss a concurrent edit that moves the feature out of the stored extent and
+# commits in the gap, and the incremental fast path would leave the expanded
+# extent behind.
 _PRIOR_BOUNDS_COLS = (
     "ST_XMin(geom_4326) AS prior_minx, ST_YMin(geom_4326) AS prior_miny, "
     "ST_XMax(geom_4326) AS prior_maxx, ST_YMax(geom_4326) AS prior_maxy"
@@ -1545,7 +1539,6 @@ async def _apply_incremental_metadata(
     """Update feature_count alone when the write provably left the extent alone.
 
     Returns False when a full COUNT + ST_Extent recompute is needed.
-    Interior edits can update the count without scanning the full table.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 
@@ -1602,8 +1595,8 @@ async def refresh_dataset_metadata(
     scan runs at all; called with no keywords, the full recompute is
     unchanged.
     """
-    # Taken before EITHER branch reads the extent, so a skip
-    # decision cannot be invalidated by a concurrent recompute.
+    # Taken before either branch reads the extent, so a skip decision cannot
+    # be invalidated by a concurrent recompute.
     stored_box = await lock_catalog_rows_for_write(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
@@ -1616,29 +1609,26 @@ async def refresh_dataset_metadata(
     ):
         return
 
-    # INSIDE the lock, deliberately. A peer that measured before
-    # taking the lock cannot see this transaction's uncommitted row, and would
-    # write a count and extent computed as though it did not exist.
+    # Inside the lock: a peer that measured before taking it cannot see this
+    # transaction's uncommitted row and would write a count and extent computed
+    # without it.
     feature_count, extent_wkt = await _refresh_count_and_extent(
         session, dataset.table_name
     )
     dataset.feature_count = feature_count
 
-    # ST_Extent of a single point is a POINT and of axis-collinear
-    # points a LINESTRING, not always a POLYGON -- store any non-null extent.
-    # None means no row has a geometry, though rows without one may remain.
+    # ST_Extent of one point is a POINT and of collinear points a LINESTRING;
+    # store any non-null extent. None means no row has a geometry.
     if extent_wkt:
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
     else:
         dataset.record.spatial_extent = None
 
-    # Keep generic-column created datasets' DISPLAY
-    # geometry_type in sync with their rows so the builder renders them (see
-    # _derive_created_geometry_type). Validation stays generic via
-    # effective_geometry_type(), so this never re-restricts what subtypes the
-    # layer accepts. Typed 'created' tables (layers module) are excluded by
-    # the genericity probe. Created layers are small (hand-authored), so the
-    # extra DISTINCT scan is in the same cost class as the COUNT above.
+    # Keep a generic-column created dataset's display geometry_type in sync
+    # with its rows (see _derive_created_geometry_type). Validation stays
+    # generic via effective_geometry_type(). Typed 'created' tables (layers
+    # module) are excluded by the genericity probe. Created layers are small,
+    # so the DISTINCT scan costs about the same as the COUNT above.
     if dataset.source_format == "created" and await _geom_column_is_generic(
         session, dataset.table_name
     ):

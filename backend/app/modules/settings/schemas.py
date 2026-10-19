@@ -53,7 +53,6 @@ class BasemapEntry(BaseModel):
     def validate_tile_url(cls, v: str) -> str:
         """Allow style JSON URLs (.json), /styles/ paths, tile URLs with
         {z}/{x}/{y} placeholders, or a PMTiles archive URL."""
-        # Strip query string for path-based checks
         base_path = v.split("?")[0].rstrip("/")
         if base_path.endswith(".json"):
             return v
@@ -63,11 +62,11 @@ class BasemapEntry(BaseModel):
         # (e.g. https://tiles.openfreemap.org/styles/bright)
         if "/styles/" in v:
             return v
-        # A single static PMTiles archive, addressed directly
-        # (no style JSON, no tile server) -- bare (https://....pmtiles) or
-        # scheme-prefixed (pmtiles://https://....pmtiles), matching MapLibre's
-        # `pmtiles://` protocol and frontend/src/lib/basemap-utils.ts. The
-        # inner URL must still be a well-formed http(s) URL.
+        # A single static PMTiles archive (no style JSON, no tile server),
+        # bare (https://....pmtiles) or scheme-prefixed
+        # (pmtiles://https://....pmtiles), matching MapLibre's `pmtiles://`
+        # protocol and frontend/src/lib/basemap-utils.ts. The inner URL must
+        # still be a well-formed http(s) URL.
         inner = v.removeprefix("pmtiles://")
         inner_base_path = inner.split("?")[0].rstrip("/")
         if inner_base_path.lower().endswith(".pmtiles"):
@@ -371,7 +370,7 @@ def validate_global_rate_limit(v: Any) -> int:
 
 def validate_ogc_items_max_page_size(v: Any) -> int:
     # Upper bound guards against a mis-set value that would let an anonymous
-    # request build an unbounded FeatureCollection in memory (#665).
+    # request build an unbounded FeatureCollection in memory.
     v = int(v)
     if v < 1 or v > 100_000:
         raise ValueError("ogc_items_max_page_size must be between 1 and 100000")
@@ -414,7 +413,6 @@ def validate_upload_extensions(v: Any) -> str:
 def validate_basemaps(v: Any) -> list[dict]:
     if not isinstance(v, list):
         raise ValueError("basemaps must be a list")
-    # Validate each entry through the Pydantic model
     return [BasemapEntry(**entry).model_dump() for entry in v]
 
 
@@ -472,9 +470,8 @@ def validate_public_app_url(v: Any) -> str:
     ``https://192.168.1`` and have every reader silently ignore it. The
     ``/api`` clause is checked first only to keep its specific message.
     """
-    # `v is None`, not `not v`: JSON null is a legitimate clear (matching
-    # validate_privacy_url below), but a falsy non-string (False, 0, [], {})
-    # is a type error, not a clear — `not v` wrongly caught those too.
+    # `v is None`, not `not v`: JSON null is a legitimate clear, but a falsy
+    # non-string (False, 0, [], {}) is a type error, not a clear.
     if v is None or (isinstance(v, str) and not v.strip()):
         return ""
     if not isinstance(v, str):
@@ -511,16 +508,13 @@ def validate_privacy_url(v: Any) -> str:
     admin-write path agrees with the boot validator and router_public.py's
     read-path defense on what "safe" means for a raw ``<a href>``.
     """
-    # `v is None`, not `not v`: JSON null is a legitimate clear (matching
-    # validate_enabled_plugins), but a falsy non-string (False, 0, [], {})
-    # is a type error, not a clear — `not v` wrongly caught those too.
+    # `v is None`, not `not v`: see validate_public_app_url above.
     if v is None or (isinstance(v, str) and not v.strip()):
         return ""
     if not isinstance(v, str):
         raise ValueError("Value must be a string")
-    # No local re-wrap of the ValueError: the caller
-    # (router.py's _canonicalize_setting_value) already prefixes it with
-    # "Validation error for 'privacy_url': ...".
+    # No local re-wrap: router.py's _canonicalize_setting_value already
+    # prefixes the ValueError with "Validation error for 'privacy_url': ...".
     return validate_privacy_url_shape(v)
 
 

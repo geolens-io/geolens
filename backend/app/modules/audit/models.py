@@ -8,9 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 
-# The sign-in settle finaliser's ON CONFLICT names this index, so
-# the key and the predicate are read from here by the model and by the write.
-# Migration 0059 is the source of truth for the DDL.
+# The sign-in settle finaliser's ON CONFLICT names this index, so the model and
+# the write both read the key and the predicate from here. Migration 0059 owns
+# the DDL.
 ARCGIS_SIGNIN_SETTLE_INDEX = "uq_audit_logs_arcgis_signin_attempt"
 ARCGIS_SIGNIN_SETTLE_KEY = "(details ->> 'attempt_id')"
 ARCGIS_SIGNIN_SETTLE_WHERE = (
@@ -24,9 +24,8 @@ if TYPE_CHECKING:
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
-        # Indexes added in migration 0009 — declared on the model so
-        # alembic check sees them; the migration is the source of truth for
-        # the actual DDL.
+        # Declared on the model so alembic check sees them; the migrations
+        # own the DDL.
         Index(
             "ix_catalog_audit_logs_created_action_resource",
             desc("created_at"),
@@ -39,7 +38,6 @@ class AuditLog(Base):
             postgresql_where="resource_id IS NOT NULL",
         ),
         # GIN trigram index for admin audit-log ILIKE search.
-        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_audit_logs_action_trgm",
             text("lower(catalog.immutable_unaccent(action))"),
@@ -49,12 +47,11 @@ class AuditLog(Base):
             },
         ),
         Index("ix_catalog_audit_logs_tenant_id", "tenant_id"),
-        # One terminal entry per embedding backfill run,
-        # enforced by the database (three actors -- worker, status poll,
-        # stale sweeper -- can legitimately close the same run, and a
-        # read-before-write check races the same way the job row's did).
+        # One terminal entry per embedding backfill run, enforced by the
+        # database: the worker, the status poll and the stale sweeper can all
+        # close the same run, and a read-before-write check would race.
         # `requested` is excluded so a run can record both that it was asked
-        # for and how it ended. Migration 0051 is the source of truth.
+        # for and how it ended. Migration 0051 owns the DDL.
         Index(
             "uq_audit_logs_terminal_embedding_backfill",
             text("(details ->> 'job_id')"),

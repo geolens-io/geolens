@@ -19,10 +19,9 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list[str]]:
     """Build ChatAction models per-item, dropping invalid ones with a note.
 
-    A single Pydantic-invalid action (e.g. ``opacity: 50``) must
-    not raise through the caller's broad except and discard every valid
-    action in the turn. Malformed LLM output degrades per-action, mirroring
-    _validate_actions' dropped[] pattern.
+    A single Pydantic-invalid action (e.g. ``opacity: 50``) must not raise
+    through the caller's broad except and discard every valid action in the
+    turn, so malformed LLM output degrades per action.
     """
     actions: list[ChatAction] = []
     dropped: list[str] = []
@@ -42,8 +41,8 @@ def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list
 def _extract_get_refs(expr: list | None) -> set[str]:
     """Recursively extract column names from ["get"/"has", "col"] nodes.
 
-    ["has", col] refs count too, or a hallucinated has-column
-    filter passes validation and hides every feature.
+    ["has", col] refs count too, or a hallucinated has-column filter passes
+    validation and hides every feature.
     """
     if not isinstance(expr, list) or len(expr) == 0:
         return set()
@@ -89,15 +88,12 @@ async def _resolve_add_layer_visibility(
 ) -> set[str]:
     """Return the set of add_layer dataset_ids the user can actually access.
 
-    Performs ONE batched RBAC check for all add_layer actions in a single turn,
-    rather than per-action. Result is the intersection of: (a) dataset rows
-    that exist, and (b) datasets whose table_name is in the user's
-    build_table_allowlist set. Datasets that don't exist or aren't visible
-    are simply omitted from the returned set; the caller treats absence as
-    "not accessible" and drops the action.
+    Performs ONE batched RBAC check for all add_layer actions in a turn. The
+    result is the datasets that exist and whose table_name is in the user's
+    build_table_allowlist; the caller treats absence as "not accessible" and
+    drops the action.
     """
-    # Lazy import to avoid pulling sandbox into the chat-validation module
-    # at import time (it has heavier deps via SQL parser).
+    # Lazy import: the sandbox pulls in the SQL parser at import time.
     from app.platform.sandbox.validator import build_table_allowlist
 
     raw_ids = [a.dataset_id for a in actions if a.type == "add_layer" and a.dataset_id]
@@ -117,7 +113,6 @@ async def _resolve_add_layer_visibility(
     try:
         allowed_tables = await build_table_allowlist(session, user)
         rows = await port.get_datasets_meta_by_ids(session, valid_uuids)
-        # rows: list[tuple[UUID, table_name, geometry_type]]
         return {str(row[0]) for row in rows if row[1] in allowed_tables}
     except (
         Exception
@@ -140,13 +135,11 @@ async def _validate_actions(
     validated = []
     dropped: list[str] = []
 
-    # Batch RBAC check once per turn for all add_layer dataset_ids
     accessible_add_dataset_ids = await _resolve_add_layer_visibility(
         actions, session=session, user=user, port=port
     )
 
     for action in actions:
-        # add_layer: validate dataset_id presence, UUID shape, AND RBAC visibility
         if action.type == "add_layer":
             if not action.dataset_id:
                 dropped.append("add_layer (missing dataset_id)")
@@ -174,19 +167,16 @@ async def _validate_actions(
             )
             dropped.append(f"{action.type} (invalid layer_id: {action.layer_id})")
             continue
-        # Validate filter expressions against the FULL shared grammar before
-        # they reach the client, reusing filter_grammar's validate_filter (the
-        # same validator the layer schemas / style export
-        # use) so an AI set_filter cannot emit a filter that is accepted here
-        # but fails at MapLibre runtime or round-trips into invalid saved state.
-        # Legacy bare-field forms are normalized to expression form; recognized
-        # forms with bad arity / legacy "in" raise FilterValidationError and the
-        # action is dropped rather than surfaced as a 422.
+        # Validate filters against the FULL shared grammar before they reach the
+        # client, so an AI set_filter cannot emit a filter that fails at
+        # MapLibre runtime or round-trips into invalid saved state. Legacy
+        # bare-field forms are normalized to expression form; forms with bad
+        # arity or legacy "in" raise FilterValidationError and the action is
+        # dropped rather than surfaced as a 422.
         if action.type == "set_filter" and action.expression is not None:
-            # Lazy import: app.processing must not module-level-import app.modules
-            # .catalog (layering). filter_grammar is a pure, dependency-free
-            # validator, so a function-scope import is the sanctioned access
-            # pattern.
+            # Function-scope import: app.processing must not import
+            # app.modules.catalog at module level (layering); filter_grammar
+            # is a pure, dependency-free validator.
             from app.modules.catalog.maps.filter_grammar import (
                 FilterValidationError,
                 validate_filter,
@@ -202,7 +192,7 @@ async def _validate_actions(
                     error=str(exc),
                 )
                 dropped.append(f"{action.type} (invalid filter expression)")
-                continue  # skip action with a malformed filter grammar
+                continue
             if normalized is None:
                 # Empty array / null normalized to "clear the filter".
                 action.expression = None
@@ -214,7 +204,7 @@ async def _validate_actions(
                     dropped.append(
                         f"{action.type} (invalid column refs in filter expression)"
                     )
-                    continue  # skip action with invalid column refs
+                    continue
                 action.expression = validated_expr
         validated.append(action)
     return validated, dropped

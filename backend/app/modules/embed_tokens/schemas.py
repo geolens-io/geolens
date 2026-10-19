@@ -13,10 +13,10 @@ ADVANCED_SHARING_ERROR = "Advanced sharing controls are not enabled for this dep
 
 def _normalize_origin(origin: str) -> str:
     normalized = origin.strip().lower().rstrip("/")
-    # A backslash is an origin-confusion primitive --
+    # A backslash is an origin-confusion primitive:
     # 'https://maps.example.com\\@evil.com' parses to a different host here
-    # than in a browser. Refused for the same reason as
-    # is_usable_public_origin (app/core/public_urls.py).
+    # than in a browser. Refused as in is_usable_public_origin
+    # (app/core/public_urls.py).
     if "\\" in normalized:
         raise ValueError(f"Invalid origin: {origin}")
     # Reject wildcards (CSP frame-ancestors NEVER '*'); checked after
@@ -31,25 +31,24 @@ def _normalize_origin(origin: str) -> str:
         raise ValueError(f"Invalid origin: {origin}")
 
     scheme = parsed.scheme or "https"
-    # Host comes from parsed.hostname, not sliced out
-    # of netloc -- netloc carries userinfo, so storing 'https://u:p@host' verbatim
-    # would leak credentials into any CSP header built from it.
-    # hostname also strips IPv6 brackets (e.g. '::1'), producing an invalid
-    # CSP source ('http://::1:8080'); RFC 3986/CSP3 require them bracketed,
-    # so they're added back below.
+    # Host comes from parsed.hostname, not netloc: netloc carries userinfo, so
+    # storing 'https://u:p@host' verbatim would leak credentials into any CSP
+    # header built from it. hostname also strips IPv6 brackets, which RFC
+    # 3986/CSP3 require ('http://::1:8080' is invalid), so they're added back
+    # below.
     host = parsed.hostname or ""
-    # Non-ASCII hosts are REFUSED, not converted --
-    # Python's idna codec is IDNA2003 (faß.de -> fass.de) while browsers use
-    # WHATWG/UTS #46 (xn--fa-hia.de), so converting here would produce a
-    # near-match that silently denies every request.
+    # Non-ASCII hosts are refused, not converted: Python's idna codec is
+    # IDNA2003 (faß.de -> fass.de) while browsers use WHATWG/UTS #46
+    # (xn--fa-hia.de), so converting would produce a near-match that silently
+    # denies every request.
     if not host.isascii():
         raise ValueError(
             f"Invalid origin: {origin}. An internationalized domain must be "
             "given in its punycode (xn--) form, which is what browsers send."
         )
-    # Host must already be spelled the way a browser
-    # serializes it (e.g. compressed IPv6, no leading zeros) or the stored
-    # origin can never match the shell's Origin header.
+    # Host must already be spelled the way a browser serializes it (compressed
+    # IPv6, no leading zeros) or the stored origin never matches the shell's
+    # Origin header.
     host_problem = canonical_host_error(host)
     if host_problem is not None:
         raise ValueError(f"Invalid origin: {origin}. {host_problem}")

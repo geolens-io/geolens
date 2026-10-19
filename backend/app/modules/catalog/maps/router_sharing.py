@@ -216,9 +216,9 @@ async def visibility_check_endpoint(
 @router.get(
     "/{map_id}/style.json",
     responses={
-        # 200 schema stays open — a hand-typed mirror drifts
-        # (#1670). One pinned shape: sprite is always the array form,
-        # matching what /maps/import accepts.
+        # The 200 schema stays open, since a hand-typed mirror drifts. One
+        # shape is pinned: sprite is always the array form, as /maps/import
+        # accepts.
         200: {
             "description": (
                 "A complete MapLibre style document for the saved map. Its "
@@ -233,9 +233,8 @@ async def visibility_check_endpoint(
                 "application/json": {
                     "schema": {
                         "type": "object",
-                        # Without this, openapi-typescript
-                        # renders the open object as Record<string, never> and
-                        # TS consumers cannot touch any style property.
+                        # Without this, openapi-typescript renders the open
+                        # object as Record<string, never>.
                         "additionalProperties": True,
                         "description": (
                             "MapLibre style document "

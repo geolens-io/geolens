@@ -51,9 +51,8 @@ router = APIRouter(
 )
 
 
-# Dual-shape decorator -- trailing-slash is canonical (in OpenAPI); no-slash
-# is a hidden alias closing the 404 regression from redirect_slashes=False
-# (api/main.py).
+# Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
+# because api/main.py sets redirect_slashes=False.
 @router.post(
     "",
     response_model=EmbedTokenCreatedResponse,
@@ -67,8 +66,8 @@ async def create_embed_token_endpoint(
     request: Request,
     map_id: uuid.UUID,
     body: EmbedTokenCreate,
-    # Same permission gate as share_map_endpoint -- an embed
-    # token outranks the share link it accompanies.
+    # Same permission gate as share_map_endpoint: an embed token outranks the
+    # share link it accompanies.
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
@@ -85,8 +84,8 @@ async def create_embed_token_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    # Refuse a lock this deployment can't enforce at
-    # mint time rather than silently later. Shared with PATCH so they can't drift.
+    # Refuse a lock this deployment can't enforce at mint time rather than
+    # failing silently later.
     try:
         await assert_domain_lock_is_enforceable(db, request, body.allowed_origins)
     except DomainLockNotEnforceableError as e:
@@ -107,12 +106,10 @@ async def create_embed_token_endpoint(
             name=body.name,
             allowed_origins=body.allowed_origins,
         )
-    # The map's layers reach a dataset this caller can no longer
-    # see, so there is no scope they may freeze into an anonymous tile
-    # capability. Same 403 shape as the maps router's sibling refusals
-    # ("Cannot access one or more layer datasets"). Distinct from the 400
-    # licensing refusal below so a client can tell the two apart without
-    # inspecting whether detail is a string or an object.
+    # The map's layers reach a dataset this caller can no longer see, so there
+    # is no scope they may freeze into an anonymous tile capability. Same 403
+    # shape as the maps router's sibling refusals, and distinct from the 400
+    # licensing refusal below so a client can tell the two apart.
     except EmbedScopeNotVisibleError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -151,7 +148,6 @@ async def create_embed_token_endpoint(
     return EmbedTokenCreatedResponse.model_validate(token_data)
 
 
-# Dual-shape decorator — see POST above.
 @router.get("", response_model=EmbedTokenListResponse, include_in_schema=False)
 @router.get("/", response_model=EmbedTokenListResponse)
 async def list_embed_tokens_endpoint(
@@ -196,17 +192,17 @@ async def update_embed_token_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    # Existence check comes BEFORE the deployment-level
-    # domain-lock precondition -- otherwise a stale/revoked token id would be told
-    # to go reconfigure PUBLIC_APP_URL instead of the real 404.
+    # Existence check comes before the deployment-level domain-lock
+    # precondition, so a stale/revoked token id gets the real 404 rather than
+    # advice to reconfigure PUBLIC_APP_URL.
     if await get_active_embed_token(db, token_id, map_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Embed token not found",
         )
 
-    # Same gate as the POST handler. Clearing a lock
-    # (allowed_origins=None) is unaffected.
+    # Same gate as the POST handler. Clearing a lock (allowed_origins=None) is
+    # unaffected.
     try:
         await assert_domain_lock_is_enforceable(db, request, body.allowed_origins)
     except DomainLockNotEnforceableError as e:

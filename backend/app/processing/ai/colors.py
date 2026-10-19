@@ -1,10 +1,10 @@
 """CSS-color shape validation for AI-produced style values.
 
-Named colors validate against the real CSS keyword set and
-functional args are restricted to numeric/separator characters, so an
-unparseable value ("notacolor", "rgb(foo)") never reaches MapLibre paint
-validation. MapLibre remains the final validator; this is the cheap junk
-gate, byte-parity with the frontend mirror in ChatPanel.tsx.
+Named colors validate against the CSS keyword set and functional args are
+restricted to numeric/separator characters, so an unparseable value
+("notacolor", "rgb(foo)") never reaches MapLibre paint validation. MapLibre
+remains the final validator; this is the cheap junk gate, matching the
+frontend mirror in ChatPanel.tsx.
 """
 
 import re
@@ -54,9 +54,9 @@ def is_css_colorish(value: object) -> bool:
     return candidate.lower() in CSS_NAMED_COLORS
 
 
-# Derive the label halo from text luminance rather than a fixed
-# "#ffffff" halo -- light text (the model picks it whenever it assumes a
-# "dark" basemap) plus a white halo washes out on relief/imagery/pale areas.
+# The halo derives from text luminance: light text (which the model picks
+# whenever it assumes a "dark" basemap) with a white halo washes out on
+# relief, imagery and pale areas.
 _DARK_HALO = "#1a1a1a"
 _LIGHT_HALO = "#ffffff"
 _LIGHT_NAMED_COLORS = frozenset(

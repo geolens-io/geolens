@@ -1,12 +1,11 @@
 """Sprite-backed icon asset helpers for map symbols.
 
-Hand-rolled SVG path parser (``_path_points``)
-and rasterizer (``_draw_svg_element``), a deliberate no-native-dependency
-tradeoff over a Cairo binding. Bezier/arc commands (C/S/Q/T/A) are
-approximated by endpoint only, rendering curved icons as straight segments
-— acceptable at the 24px sprite-cell size. Pinned by golden-image tests in
-``backend/tests/test_map_sprites.py``; do not "fix" the curves without
-updating those tests.
+The SVG path parser (``_path_points``) and rasterizer (``_draw_svg_element``)
+are hand-rolled, a deliberate no-native-dependency choice over a Cairo
+binding. Bezier/arc commands (C/S/Q/T/A) are approximated by endpoint only,
+rendering curved icons as straight segments, which is acceptable at the 24px
+sprite-cell size. Golden-image tests in ``backend/tests/test_map_sprites.py``
+pin the output.
 """
 
 from __future__ import annotations
@@ -35,9 +34,9 @@ from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
 _SVG_NAMESPACE = "http://www.w3.org/2000/svg"
-# Register the SVG namespace as the empty prefix so
-# re-serialized SVGs emit `<svg xmlns="...">`, keeping the
-# active-content denylist matching `<script` after round-trip.
+# Register the SVG namespace as the empty prefix so re-serialized SVGs emit
+# `<svg xmlns="...">`, keeping the active-content denylist matching `<script`
+# after round-trip.
 _stdlib_ET.register_namespace("", _SVG_NAMESPACE)
 _XLINK_NAMESPACE = "http://www.w3.org/1999/xlink"
 _stdlib_ET.register_namespace("xlink", _XLINK_NAMESPACE)
@@ -67,9 +66,9 @@ _PATH_TOKEN_RE = re.compile(
     r"[MmZzLlHhVvCcQqSsTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?"
 )
 SPRITE_CELL_SIZE = 24
-# Bounds concurrent reads/resident bytes during
-# compositing — the catalog has no size limit, so 8 icons at
-# MAX_ICON_BYTES (4 MiB) still beats a serial read.
+# Bounds concurrent reads and resident bytes during compositing. The catalog
+# has no size limit, and 8 icons at MAX_ICON_BYTES (4 MiB) still beats a
+# serial read.
 _SPRITE_RENDER_BATCH = 8
 
 
@@ -169,11 +168,10 @@ def validate_icon_upload(
 ) -> tuple[str, str, bytes]:
     """Validate an icon upload. Returns (slug, media_type, sanitized_content).
 
-    For SVG, ``sanitized_content`` is the defusedxml-re-serialized form —
+    For SVG, ``sanitized_content`` is the defusedxml-re-serialized form, which
     normalizes entity encodings (``&#106;avascript:`` -> ``javascript:``)
-    BEFORE the active-content denylist runs. Callers MUST
-    persist ``sanitized_content``, not the original bytes. For PNG,
-    ``sanitized_content`` is unchanged.
+    before the active-content denylist runs. Callers must persist
+    ``sanitized_content``, not the original bytes. For PNG it is unchanged.
     """
     if not content:
         raise ValueError("Icon file is empty")
@@ -188,8 +186,8 @@ def validate_icon_upload(
             width, height = image.size
             image.verify()
         except Image.DecompressionBombError as exc:
-            # PIL raises this from open() on absurd IHDR dimensions. That is an
-            # oversized icon, not a corrupt one, and it used to escape as a 500.
+            # PIL raises this from open() on absurd IHDR dimensions: an
+            # oversized icon, not a corrupt one.
             raise ValueError("PNG icon dimensions are too large") from exc
         except (UnidentifiedImageError, OSError, IndexError, SyntaxError) as exc:
             # IndexError: verify() indexes the chunk list on a PNG with no IDAT.
@@ -201,9 +199,9 @@ def validate_icon_upload(
         if b"<svg" not in prefix:
             raise ValueError("SVG icon content is invalid")
 
-        # Re-serialize via defusedxml so entity-encoded
-        # payloads normalize into canonical bytes before the denylist
-        # matches; the CSP sandbox is the 2nd layer for encoded text.
+        # Re-serialize via defusedxml so entity-encoded payloads normalize into
+        # canonical bytes before the denylist matches; the CSP sandbox is the
+        # second layer for encoded text.
         try:
             root = fromstring(content)
         except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError
@@ -221,7 +219,6 @@ def validate_icon_upload(
             or re.search(rb"\son[a-z]+\s*=", lower)
         ):
             raise ValueError("SVG icons cannot contain active content")
-        # downstream callers persist the canonical form, not the raw upload
         content = sanitized
     return slugify_icon_name(filename or "icon"), media_type, content
 
@@ -285,10 +282,10 @@ async def _load_icon_catalog(
 ) -> tuple[list[MapIconResponse], list[MapIconAsset]]:
     """The icon catalog, as sprite responses plus the uploaded rows behind them.
 
-    The sheet render needs those rows, and this is the
-    query that already loads all of them. Re-reading by id costs a second
-    query with a bind parameter per icon — past 32k uploads, more parameters
-    than the driver accepts, on a route with no auth.
+    The sheet render needs those rows, and this query already loads all of
+    them. Re-reading by id costs a second query with a bind parameter per
+    icon: past 32k uploads, more parameters than the driver accepts, on a
+    route with no auth.
     """
     result = await session.execute(select(MapIconAsset).order_by(MapIconAsset.name))
     uploaded = list(result.scalars().all())
@@ -313,11 +310,10 @@ async def create_icon_asset(
 ) -> MapIconAsset:
     """Store one uploaded icon and the row that names it.
 
-    ``publication`` is the rollback ledger — the row
-    is flushed here, the route commits, so a failure between them would
-    leave orphan bytes; this records the key, the caller commits. The
-    key is physical (= logical): icons are deliberately global (see
-    comment below the slug).
+    ``publication`` is the rollback ledger: the row is flushed here and the
+    route commits, so a failure between them would leave orphan bytes. This
+    records the key; the caller commits. The key is physical (= logical)
+    because icons are deliberately global (see the comment below the slug).
     """
     base_slug, media_type, sanitized_content = validate_icon_upload(
         filename, content_type, content
@@ -325,16 +321,15 @@ async def create_icon_asset(
     icon_id = uuid.uuid4()
     extension = SUPPORTED_MEDIA_TYPES[media_type]
     slug = f"{base_slug}-{str(icon_id)[:8]}"
-    # Deliberately global, outside tenants/<id>/ — rows are
-    # fleet-wide too (no tenant_id/RLS, global slug); per-tenant keys would
-    # 500 other tenants' sprite builds.
+    # Deliberately global, outside tenants/<id>/. Rows are fleet-wide too (no
+    # tenant_id/RLS, global slug); per-tenant keys would 500 other tenants'
+    # sprite builds.
     # test_icon_storage_keys_stay_global_under_tenant_context enforces this.
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
-    # accepted. For PNG this is the original bytes unchanged.
-    # Recorded before the write, like the image
-    # handlers — a PUT can land and still fail the client, so a fresh,
-    # never-reused key means rollback is either real cleanup or a no-op.
+    # accepted. Recorded before the write, like the image handlers: a PUT can
+    # land and still fail the client, and with a fresh, never-reused key
+    # rollback is real cleanup or a no-op.
     if publication is not None:
         publication.record(storage_key)
     await get_storage().put(storage_key, sanitized_content)
@@ -459,8 +454,7 @@ def _point(
 
 
 def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
-    # Hand-rolled tokenizer/state machine (see
-    # module docstring); output is pinned by golden tests in test_map_sprites.py.
+    # Hand-rolled tokenizer/state machine (see module docstring).
     tokens = _PATH_TOKEN_RE.findall(path_data.replace(",", " "))
     paths: list[list[tuple[float, float]]] = []
     current: list[tuple[float, float]] = []
@@ -615,9 +609,8 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
     try:
         if media_type == "image/png":
             source = Image.open(BytesIO(content))
-            # .size comes off the header, convert()
-            # allocates — refuse between them, before Pillow's own bomb
-            # threshold (~7x higher) is even reached.
+            # .size comes off the header and convert() allocates, so refuse
+            # between them, before Pillow's own bomb threshold (~7x higher).
             if source.width * source.height > MAX_RENDER_PIXELS:
                 return _placeholder_icon(seed)
             source = source.convert("RGBA")
@@ -636,7 +629,7 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
         IndexError,
         SyntaxError,
         # Past ~179M px Pillow refuses from open() itself, before
-        # MAX_RENDER_PIXELS can measure anything; degrade the cell, don't 500.
+        # MAX_RENDER_PIXELS can measure; degrade the cell, don't 500.
         Image.DecompressionBombError,
     ):
         return _placeholder_icon(seed)
@@ -732,8 +725,8 @@ async def _load_icon_payloads(
 
     if stored:
         storage = get_storage()
-        # return_exceptions so a failing read cannot leave its siblings running
-        # unretrieved; the first failure is re-raised, as the serial loop did.
+        # return_exceptions so a failing read cannot leave its siblings
+        # running unretrieved; the first failure is re-raised.
         blobs = await asyncio.gather(
             *(storage.get(asset.storage_key) for _, asset in stored),
             return_exceptions=True,
@@ -779,14 +772,14 @@ async def _render_sprite_png(
         (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
         (0, 0, 0, 0),
     )
-    # A batch at a time, so neither the read fan-out
-    # nor resident bytes scale with the catalog; a whole-catalog gather would
-    # hold every blob until the last one landed.
+    # A batch at a time, so neither the read fan-out nor resident bytes scale
+    # with the catalog; a whole-catalog gather would hold every blob until the
+    # last one landed.
     for start in range(0, len(icons), _SPRITE_RENDER_BATCH):
         batch = icons[start : start + _SPRITE_RENDER_BATCH]
         payloads = await _load_icon_payloads(batch, assets)
-        # Decode and resample are CPU-bound and scale with the stored
-        # icons' pixel count. Off the loop, so one large icon stalls a thread
-        # instead of every other request in flight.
+        # Decode and resample are CPU-bound and scale with the icons' pixel
+        # count. Off the loop, so one large icon stalls a thread, not every
+        # other request.
         await run_in_thread_draining(_paste_icon_cells, sheet, start, batch, payloads)
     return await run_in_thread_draining(_encode_sprite_png, sheet)

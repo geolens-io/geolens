@@ -13,9 +13,8 @@ from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Provider-SDK exception classes (anthropic / openai) are imported lazily
-# inside `_call_llm_endpoint` so `processing/` carries zero top-level
-# provider-SDK imports.
+# Provider-SDK exception classes are imported lazily inside
+# `_call_llm_endpoint`, so processing/ has no top-level provider-SDK imports.
 
 from app.processing.ai.chat_service import (
     build_dataset_chat_system_prompt,
@@ -84,9 +83,9 @@ logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["Maps"], responses=ERROR_RESPONSES_AUTH)
 
-# AI endpoints call external LLM APIs — rate limit to prevent quota exhaustion.
-# Map generation/chat: 10/min (heavy, multi-step tool loops)
-# Metadata assist: 20/min (lighter, single LLM call)
+# AI endpoints call external LLM APIs, so they are rate limited to prevent quota
+# exhaustion. Map generation/chat: 10/min (heavy, multi-step tool loops).
+# Metadata assist: 20/min (lighter, single LLM call).
 _AI_GENERATE_LIMIT = "10/minute"
 _AI_METADATA_LIMIT = "20/minute"
 
@@ -182,10 +181,9 @@ async def _ai_availability(db: AsyncSession) -> bool:
     """Return whether builder chat is usable WITHOUT raising or leaking detail.
 
     Same readiness predicate as ``_check_ai_available`` (AI enabled at runtime
-    AND the admin-selected LLM provider has its credentials), but collapsed to a
+    AND the admin-selected LLM provider has its credentials), collapsed to a
     boolean so a permitted editor gets a graceful disabled state instead of a
-    403/503.
-    Provider/key specifics are never surfaced here.
+    403/503. Provider and key specifics are never surfaced.
     """
     if not await AI_ENABLED.get(db):
         return False
@@ -200,9 +198,8 @@ async def _ai_availability(db: AsyncSession) -> bool:
 async def _check_ai_available(db: AsyncSession) -> None:
     """Raise if AI is not configured or has been disabled at runtime.
 
-    Validates that the admin-selected LLM provider has its credentials configured.
-    Returns 403 when admin has disabled the feature (policy decision),
-    503 when the service is unavailable (missing credentials).
+    Raises 403 when an admin has disabled the feature (policy decision) and
+    503 when the admin-selected LLM provider lacks credentials or a model.
     """
     if not await AI_ENABLED.get(db):
         raise HTTPException(
@@ -230,10 +227,10 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
     """Enforce the per-user rolling 24h AI token budget. No-op when unset.
 
     slowapi's per-IP limits cap request *frequency*, not cumulative token
-    spend, so an editor can sustain heavy multi-round tool loops
-    indefinitely. Reads back ``catalog.ai_token_usage`` and 429s once the
-    user's 24h input+output tokens reach the operator-set cap, over
-    ``ix_ai_token_usage_user_created``.
+    spend, so an editor could sustain heavy multi-round tool loops
+    indefinitely. Sums ``catalog.ai_token_usage`` (via
+    ``ix_ai_token_usage_user_created``) and 429s once the user's 24h
+    input+output tokens reach the operator-set cap.
     ``MAX_AI_TOKENS_PER_USER_PER_DAY`` defaults to 0 (unlimited).
     """
     cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)
@@ -295,16 +292,15 @@ async def _validate_chat_layers(
     - Rejects layers whose datasets the user cannot access.
     - Drops client-supplied sample values when sending them to the LLM is off.
 
-    **Access model:** chat is read-only w.r.t. map state (edits apply
-    client-side, persist only at Save, which is owner-gated), so it's
-    gated on VIEW access, not ownership. Returned ``can_edit``
-    (owner-or-admin) selects the AI tool set — a view-only caller gets
-    read-only tools.
+    **Access model:** chat is read-only with respect to map state (edits apply
+    client-side and persist only at Save, which is owner-gated), so it is gated
+    on VIEW access, not ownership. Returned ``can_edit`` (owner-or-admin)
+    selects the AI tool set; a view-only caller gets read-only tools.
 
-    **Visibility:** does NOT filter by ``visible``; analysis sees every
-    layer regardless of visibility state, which is a viewer-only
-    decluttering signal. A future visible-only scope needs an explicit
-    ``include_hidden: bool``, not a silent change here.
+    **Visibility:** does NOT filter by ``visible``; analysis sees every layer
+    regardless of visibility state, which is a viewer-only decluttering signal.
+    A future visible-only scope needs an explicit ``include_hidden: bool``, not
+    a silent change here.
 
     Returns (validated_layers, basemap_style, can_edit).
     """
@@ -314,7 +310,6 @@ async def _validate_chat_layers(
         _check_map_read_access,
     )
 
-    # Verify map view access
     try:
         map_uuid = uuid_mod.UUID(map_id)
     except ValueError:
@@ -328,9 +323,9 @@ async def _validate_chat_layers(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
         )
-    # Gate on VIEW access, not ownership — a non-viewer gets 404 (no existence
-    # oracle), same as a missing map. can_edit (owner-or-admin) selects the AI
-    # tool set so a viewer can ask questions but cannot use the AI to edit.
+    # Gate on VIEW access, not ownership: a non-viewer gets 404 (no existence
+    # oracle), same as a missing map. can_edit selects the AI tool set so a
+    # viewer can ask questions but cannot use the AI to edit.
     await _check_map_read_access(map_row, user, db)
     can_edit = await _can_edit_map(map_row, user, db)
     basemap_style = getattr(map_row, "basemap_style", None)
@@ -338,10 +333,8 @@ async def _validate_chat_layers(
     if not layers:
         return layers, basemap_style, can_edit
 
-    # Build the user's allowed table set
     allowed_tables = await build_table_allowlist(db, user)
 
-    # Look up authoritative dataset metadata for all referenced dataset_ids
     dataset_ids = list({layer.dataset_id for layer in layers})
     try:
         dataset_uuids = [uuid_mod.UUID(did) for did in dataset_ids]
@@ -352,7 +345,7 @@ async def _validate_chat_layers(
         )
 
     rows = await port.get_datasets_meta_by_ids(db, dataset_uuids)
-    # rows is list[tuple[UUID, str, str | None]] — (id, table_name, geometry_type)
+    # rows: (id, table_name, geometry_type)
     dataset_meta: dict[str, dict] = {
         str(row[0]): {"table_name": row[1], "geometry_type": row[2]} for row in rows
     }
@@ -431,9 +424,8 @@ async def generate_map_stream_endpoint(
     """Generate a map from a natural language prompt with streaming progress events."""
 
     async def event_generator():
-        # Validation runs inside the generator so failures yield a graceful
-        # streaming error event rather than a raw HTTP 500 the SSE client
-        # cannot decode.
+        # Validation runs inside the generator so failures yield a streaming
+        # error event rather than a raw HTTP 500 the SSE client cannot decode.
         try:
             await _check_ai_available(db)
             user_roles = await port.get_user_roles(db, user)
@@ -528,9 +520,8 @@ async def chat_stream_endpoint(
     """Chat-based map editing with server-sent event streaming."""
 
     async def event_generator():
-        # Validation runs inside the generator so failures yield a graceful
-        # streaming error event rather than a raw HTTP 500 the SSE client
-        # cannot decode.
+        # Validation runs inside the generator so failures yield a streaming
+        # error event rather than a raw HTTP 500 the SSE client cannot decode.
         try:
             await _check_ai_available(db)
             validated_layers, basemap_style, can_edit = await _validate_chat_layers(
@@ -538,9 +529,9 @@ async def chat_stream_endpoint(
             )
             user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
-            # Thread the HTTP status into the SSE error so the client can classify
-            # it like a normal HTTP error (403/503 → banner, etc.) instead of a
-            # generic retryable failure — the SSE body is always a 200 stream.
+            # The SSE body is always a 200 stream, so the HTTP status rides in
+            # the error event for the client to classify it (403/503 → banner)
+            # instead of treating it as a generic retryable failure.
             yield _sse_error_event(
                 exc.detail,
                 status_code=exc.status_code,
@@ -593,12 +584,12 @@ async def _validate_chat_dataset(
     *,
     port: "ProcessingPort",
 ) -> ChatMapLayer:
-    """Resolve + authorize a dataset for dataset-scoped chat.
+    """Resolve and authorize a dataset for dataset-scoped chat.
 
     Authorization mirrors ``_authorize_metadata_dataset``: the
     attacker-controlled ``dataset_id`` is access-checked with
-    ``check_dataset_access``, which raises 404 on denial — same as a
-    nonexistent dataset, so this is not an existence oracle.
+    ``check_dataset_access``, which raises 404 on denial, the same as for a
+    nonexistent dataset, so it is not an existence oracle.
 
     Returns a server-built ChatMapLayer with only authoritative DB values.
     Raster/VRT datasets are rejected: their pixels live in object storage,
@@ -634,8 +625,7 @@ async def _validate_chat_dataset(
         }
 
     title = getattr(record, "title", None)
-    # Cap column_info to 50 columns to bound token usage (mirrors
-    # _execute_get_dataset_details).
+    # column_info is capped at 50 columns to bound token usage.
     return ChatMapLayer(
         id=str(dsid),
         name=title or dataset.table_name,
@@ -672,9 +662,8 @@ async def dataset_chat_stream_endpoint(
     """
 
     async def event_generator():
-        # Validation runs inside the generator so failures yield a graceful
-        # streaming error event rather than a raw HTTP 500 the SSE client
-        # cannot decode.
+        # Validation runs inside the generator so failures yield a streaming
+        # error event rather than a raw HTTP 500 the SSE client cannot decode.
         try:
             await _check_ai_available(db)
             layer = await _validate_chat_dataset(db, user, body.dataset_id, port=port)
@@ -702,19 +691,19 @@ async def dataset_chat_stream_endpoint(
                 language=body.language,
                 history=body.history or None,
                 port=port,
-                # "dataset:" prefix keeps the schema-context cache partition
-                # disjoint from map-id partitions.
+                # The "dataset:" prefix keeps the schema-context cache
+                # partition disjoint from map-id partitions.
                 map_id=f"dataset:{body.dataset_id}",
                 can_edit=False,
                 system_prompt_override=build_dataset_chat_system_prompt(
                     layer, language=body.language
                 ),
-                # PR #531 review: actually enforce the dataset scope — without
-                # this the sandbox allowlist is user-wide and generated SQL
-                # could reach any table the user can see.
+                # Enforces the dataset scope: without this the sandbox
+                # allowlist is user-wide and generated SQL could reach any
+                # table the user can see.
                 restrict_tables=frozenset({layer.dataset_table_name}),
-                # Dataset chat has no map — withhold the overlay-only
-                # run_analysis tool.
+                # Dataset chat has no map, so the overlay-only run_analysis
+                # tool is withheld.
                 has_map=False,
             ):
                 if await request.is_disconnected():
@@ -752,8 +741,8 @@ async def _call_llm_endpoint(
     Pass ``tool_loop_message`` for endpoints that run multi-step tool loops
     (chat, generate-map). Metadata endpoints don't tool-loop, so leave it None.
     """
-    # Deferred imports — provider SDKs must not load at module import time
-    # within `processing/`. Used only for the `except` clauses below.
+    # Deferred so provider SDKs don't load at module import time; used only
+    # in the `except` clauses below.
     import anthropic
     import openai
 
@@ -766,7 +755,7 @@ async def _call_llm_endpoint(
         )
     except ToolLoopExhaustedError:
         if tool_loop_message is None:
-            # Should not happen for metadata endpoints, but degrade gracefully.
+            # Metadata endpoints don't tool-loop; degrade gracefully anyway.
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Request required too many steps. Try a simpler instruction.",
@@ -802,16 +791,16 @@ async def _authorize_metadata_dataset(
 ) -> None:
     """Authorize the attacker-controlled body.dataset_id before AI metadata
     generation. Without this, any editor (default role has ``use_ai_chat``)
-    can read ANY user's PRIVATE dataset — metadata, source_url/filename,
-    column schema, sample values — because ``_build_dataset_context`` loads
-    it with no visibility filter and echoes it into the LLM prompt/response.
-    Authorize in the handler, not inside ``_build_dataset_context`` (its
-    ``dataset_id``-keyed TTL cache has no ``user`` param, so a cache hit
-    would bypass an in-service check). ``check_dataset_access`` raises 404
-    on denial — same as a nonexistent dataset, not an existence oracle.
+    can read ANY user's PRIVATE dataset (metadata, source_url/filename, column
+    schema, sample values), because ``_build_dataset_context`` loads it with no
+    visibility filter and echoes it into the LLM prompt/response.
+    Authorize in the handler, not inside ``_build_dataset_context``: its
+    ``dataset_id``-keyed TTL cache has no ``user`` param, so a cache hit would
+    bypass an in-service check. ``check_dataset_access`` raises 404 on denial,
+    the same as for a nonexistent dataset, so it is not an existence oracle.
 
-    Goes through ProcessingPort, not a direct catalog import —
-    an Enterprise/Cloud port couldn't observe this authorization otherwise.
+    Goes through ProcessingPort, not a direct catalog import, so an
+    Enterprise/Cloud port can observe this authorization.
     """
     port = get_processing_port()
 

@@ -1,8 +1,8 @@
 """Shared MapLibre filter-expression validator/normalizer.
 
-Single source of truth for the editable subset
-of MapLibre expression-form layer filters, shared by layer schemas, style
-export/import, and the AI ``set_filter`` path.
+Single source of truth for the editable subset of MapLibre expression-form
+layer filters, shared by layer schemas, style export/import, and the AI
+``set_filter`` path.
 
 ``validate_filter(value)``: ``None``/``[]`` clear the filter; the editable
 subset (comparisons, ``in``/``has``, ``!``, ``all``/``any``, legacy
@@ -172,8 +172,8 @@ def validate_filter(value: list | None) -> list | None:
     ``None``/``[]`` clear the filter. A recognized form with invalid arity
     raises ``FilterValidationError``; opaque forms pass through verbatim.
     A filter nested past ``_MAX_FILTER_DEPTH`` also raises it, so every
-    caller gets a 422 (or a dropped action, on the AI path) instead of the
-    RecursionError this walk used to produce.
+    caller gets a 422 (or a dropped action, on the AI path) rather than a
+    RecursionError.
     """
     if value is None:
         return None

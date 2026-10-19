@@ -21,9 +21,8 @@ import re
 import sqlglot
 from sqlglot import exp
 
-# Strict allowlist — every node type found during an AST walk of the WHERE
-# subtree must be an instance of one of these.  New types require explicit
-# review before being added.
+# Strict allowlist: every node type found during an AST walk of the WHERE
+# subtree must be an instance of one of these.
 ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     # Column references
     exp.Column,
@@ -51,20 +50,17 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     exp.Between,
     # Structural
     exp.Paren,
-    # exp.Neg is included ONLY for negative literal values (WHERE col = -5).
-    # Binary arithmetic operators (Add/Sub/Mul/Div) are intentionally
-    # EXCLUDED — allowing them would permit expression injection into
-    # IN-list or comparison arguments (e.g. WHERE 1+1=2 UNION ...). Do NOT
-    # add exp.Add by analogy with exp.Neg.
+    # exp.Neg is included only for negative literal values (WHERE col = -5).
+    # Binary arithmetic operators (Add/Sub/Mul/Div) are excluded: allowing them
+    # would permit expression injection into IN-list or comparison arguments
+    # (e.g. WHERE 1+1=2 UNION ...).
     exp.Neg,
-    # exp.Dot (table-qualified column, `tbl.col`) is intentionally EXCLUDED.
-    # sqlglot's postgres dialect folds `tbl.col` into an exp.Column node's
-    # .table/.db/.catalog args rather than a separate exp.Dot node, so the
-    # rejection is enforced inside validate_where_ast by inspecting those
-    # args (see the qualified-name check below). Only unqualified column names are
-    # accepted; enabling qualified names would need a security review AND an
-    # update to the downstream identifier regex to split and validate each
-    # component.
+    # exp.Dot (table-qualified column, `tbl.col`) is excluded. sqlglot's
+    # postgres dialect folds `tbl.col` into an exp.Column node's
+    # .table/.db/.catalog args rather than a separate exp.Dot node, so
+    # validate_where_ast rejects it by inspecting those args. Only unqualified
+    # column names are accepted; qualified names would also need the
+    # downstream identifier regex to split and validate each component.
     exp.Where,  # the top-level WHERE node itself
 )
 
@@ -93,8 +89,8 @@ def validate_where_ast(where: str) -> None:
 
     statements = [s for s in statements if s is not None]
 
-    # Multi-statement injection produces len > 1.
-    # UNION grammar produces a Union node rather than Select.
+    # Multi-statement injection produces len > 1; UNION produces a Union node
+    # rather than Select.
     if len(statements) != 1 or not isinstance(statements[0], exp.Select):
         raise ValueError("Only a single WHERE expression is allowed")
 
@@ -102,17 +98,14 @@ def validate_where_ast(where: str) -> None:
     if where_node is None:
         raise ValueError("Empty WHERE expression")
 
-    # Walk every node in the WHERE subtree; reject anything outside allowlist.
     for node in where_node.walk():
         if not isinstance(node, ALLOWED_EXPRESSIONS):
             raise ValueError(
                 f"Disallowed expression in WHERE clause: {type(node).__name__}"
             )
-        # Table-qualified columns (`tbl.col`, `cat.tbl.col`) are rejected
-        # even though `exp.Column` is allowed: sqlglot folds table/db/
-        # catalog into the Column node's args rather than a separate
-        # exp.Dot, so the check must inspect Column.table/.db here to match
-        # the module docstring's claim.
+        # Table-qualified columns (`tbl.col`, `cat.tbl.col`) are rejected even
+        # though `exp.Column` is allowed: sqlglot folds table/db/catalog into
+        # the Column node's args rather than a separate exp.Dot.
         if isinstance(node, exp.Column) and (
             node.args.get("table") is not None
             or node.args.get("db") is not None
@@ -127,8 +120,8 @@ def validate_where_ast(where: str) -> None:
 def canonical_where(where: str) -> str:
     """Validate ``where`` and return its canonical sqlglot re-render.
 
-    For callers that interpolate the fragment into SQL
-    text, the re-emission of the validated AST is used, never raw bytes.
+    For callers that interpolate the fragment into SQL text: the re-emission
+    of the validated AST, never raw bytes.
 
     Raises ValueError via validate_where_ast on any disallowed construct.
     """
@@ -138,9 +131,8 @@ def canonical_where(where: str) -> str:
     return statements[0].args["where"].this.sql(dialect="postgres")
 
 
-# BOTH quote kinds are scanned in one pass, because a
-# single quote inside a double-quoted identifier opens no literal in Postgres
-# and must open none here either.
+# Both quote kinds are scanned in one pass, because a single quote inside a
+# double-quoted identifier opens no literal in Postgres and must open none here.
 _QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 
 
@@ -148,9 +140,9 @@ def mask_quoted_literals(where: str) -> str:
     """Blank every single-quoted literal in ``where``, preserving its length.
 
     A caller scanning for code (identifier walk, token classifier) must not
-    read values as code. A double-quoted identifier IS code, so it's scanned
-    but returned unchanged — consuming it in the same pass stops a quote
-    inside it from opening a literal that blanks real code after it.
+    read values as code. A double-quoted identifier is code, so it's scanned
+    but returned unchanged; consuming it in the same pass stops a quote inside
+    it from opening a literal that blanks real code after it.
     Dollar-quoting and E'' are rejected by the AST gate, not modelled here.
 
     Args:

@@ -47,15 +47,18 @@ USER_SORT_COLUMNS: dict[str, InstrumentedAttribute] = {
 # top of a descending "Last Login" sort. Pin them last in both directions.
 _NULLABLE_USER_SORT_COLUMNS = frozenset({"email", "last_login_at"})
 
-# Inner half of the job-list sort allowlist (outer: JobSortField in
-# schemas.py). A function, not a module constant, because IngestJob is
-# imported lazily here; hoisting it would put a platform.jobs import in
-# every importer of this module.
+# Nullable members of the job sort allowlist, pinned last in both directions.
 _NULLABLE_JOB_SORT_COLUMNS = frozenset({"source_filename", "username", "duration"})
 
 
 def _job_sort_columns() -> dict[str, Any]:
-    """Map an allowlisted job sort key to the expression that orders it."""
+    """Map an allowlisted job sort key to the expression that orders it.
+
+    Inner half of the job-list sort allowlist (outer: JobSortField in
+    schemas.py). A function, not a module constant, because IngestJob is
+    imported lazily; hoisting it would put a platform.jobs import in every
+    importer of this module.
+    """
     from app.platform.jobs.models import IngestJob
 
     return {
@@ -67,7 +70,7 @@ def _job_sort_columns() -> dict[str, Any]:
         "username": User.username,
         # Column expression for the UI's Duration cell: NULL for exactly the
         # rows that render "-", so ordering and the cell agree without a
-        # second rule. Pinned NULLS LAST below (_NULLABLE_JOB_SORT_COLUMNS).
+        # second rule. Pinned NULLS LAST (_NULLABLE_JOB_SORT_COLUMNS).
         "duration": IngestJob.completed_at - IngestJob.started_at,
     }
 
@@ -248,10 +251,10 @@ class AdminService:
 
         Raises ValueError if username/email is taken or role not found.
 
-        The role-existence check runs BEFORE the User row is added
-        or flushed, for a readable error rather than the FK backstop alone.
-        The TOCTOU window (role deleted between check and insert) is accepted
-        -- the FK constraint catches it.
+        The role-existence check runs BEFORE the User row is added or
+        flushed, for a readable error rather than the FK backstop alone. The
+        TOCTOU window (role deleted between check and insert) is accepted: the
+        FK constraint catches it.
         """
         await self._ensure_unique_user_field(
             User.username, username, "Username already taken"
@@ -386,7 +389,6 @@ class AdminService:
             )
             await self._ensure_not_last_admin(user, action, lock_held=True)
 
-        # Apply non-None scalar fields
         if "email" in updates.model_fields_set:
             email = updates.email
             if email is not None:
@@ -421,9 +423,9 @@ class AdminService:
     ) -> bool:
         """Replace a user's role with new_role_name in the current transaction.
 
-        Returns whether the roles actually CHANGED: the caller
-        needs to tell "applied" from "was already correct", since an
-        IdP-driven caller only emits an audit event for a real change.
+        Returns whether the roles actually CHANGED: an IdP-driven caller only
+        emits an audit event for a real change, so it must tell "applied" from
+        "was already correct".
 
         Raises ValueError if the new role doesn't exist or if this would demote
         the sole admin.
@@ -435,10 +437,10 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
-        # An idempotent resubmission of the user's current role
-        # (e.g. a reconciliation-tool PATCH) is not a security event — skip
-        # the delete/recreate and the key_epoch bump so API keys survive.
-        # Queried explicitly rather than via user.roles to avoid depending on
+        # An idempotent resubmission of the user's current role (e.g. a
+        # reconciliation-tool PATCH) is not a security event: skip the
+        # delete/recreate and the key_epoch bump so API keys survive. Queried
+        # explicitly rather than via user.roles to avoid depending on
         # relationship load state.
         current_role_names = set(
             (
@@ -458,10 +460,10 @@ class AdminService:
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
 
-        # Bump key_epoch so API keys minted under the old role stop
-        # resolving — applies to promotion too, since a key must not silently
-        # change privilege level. token_version is NOT bumped: JWTs are
-        # short-lived and role checks read live DB roles per request.
+        # Bump key_epoch so API keys minted under the old role stop resolving,
+        # promotion included, since a key must not silently change privilege
+        # level. token_version is NOT bumped: JWTs are short-lived and role
+        # checks read live DB roles per request.
         await self.db.execute(
             update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
         )
@@ -474,7 +476,7 @@ class AdminService:
 
         This is the public seam for two invariants OAuth reconciliation
         (``_reconcile_mapped_role`` in modules/auth/oauth/service.py) must not
-        skip: the last-admin rule, and the ``key_epoch`` bump (#821) so a role
+        skip: the last-admin rule, and the ``key_epoch`` bump so a role
         change actually revokes stale-privilege API keys. Calls the same
         ``_ensure_not_last_admin``/``_update_user_role`` the admin router uses.
         A refusal is not an error here -- login continues with the role
@@ -490,14 +492,12 @@ class AdminService:
         demotion needs the global one anyway (last-admin count is fleet-wide).
 
         Returns an outcome, not a bare bool, with ``previous_roles`` read
-        UNDER the lock -- reading it before the lock let two racing callbacks
-        both emit an `oauth.role.changed` event for the same transition, the
-        loser's snapshot stale by the time it was recorded.
+        UNDER the lock: read before it, two racing callbacks could both emit
+        an `oauth.role.changed` event for the same transition, the loser's
+        snapshot stale by the time it was recorded.
         """
         await self._lock_admin_lifecycle()
         await self.db.refresh(user, attribute_names=["roles"])
-        # Read under the lock: anything captured before waiting for it describes
-        # a state another caller may already have replaced.
         previous_roles = sorted(role.name for role in user.roles)
 
         if role_name == "admin":
@@ -541,9 +541,9 @@ class AdminService:
         Never touched: users.id, user_roles, api_keys, share_tokens,
         audit_logs and last_login_at.
         """
-        # FOR UPDATE, matching the reset and the login: this
-        # rotates credentials and must not read/decide/write from a snapshot
-        # another writer can invalidate underneath it.
+        # FOR UPDATE, matching the reset and the login: this rotates
+        # credentials and must not read/decide/write from a snapshot another
+        # writer can invalidate underneath it.
         result = await self.db.execute(
             select(User).where(User.id == user_id).with_for_update()
         )
@@ -583,11 +583,9 @@ class AdminService:
             delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
         )
 
-        # Forces re-authentication rather than leaving an
-        # outstanding SAML JWT valid until natural expiry, and SAML-era
-        # refresh tokens unusable afterwards. bump_key_epoch=True
-        # also stops pre-conversion API keys.
-        #
+        # Forces re-authentication rather than leaving an outstanding SAML JWT
+        # valid until natural expiry, and makes SAML-era refresh tokens
+        # unusable. bump_key_epoch=True also stops pre-conversion API keys;
         # commit=False folds it into the caller's transaction.
         await AuthService(self.db).revoke_all_tokens(
             user_id, commit=False, bump_key_epoch=True
@@ -632,8 +630,7 @@ class AdminService:
         """List users with pagination and optional status, role, and search filters.
 
         `sort` must be a key of USER_SORT_COLUMNS and `order` one of
-        asc/desc; anything else raises ValueError. The default ordering
-        (created_at ascending) is the historical one and is unchanged.
+        asc/desc; anything else raises ValueError.
 
         Returns (users, total_count).
         """
@@ -713,9 +710,8 @@ class AdminService:
         user.status = "active"
         user.is_active = True
 
-        # Approval assigns the account's authority, so bump
-        # key_epoch — any key that existed while pending (legacy/manual rows;
-        # minting for non-active users is now refused) must not wake up with
+        # Approval assigns the account's authority, so bump key_epoch: a key
+        # that existed while pending (legacy/manual rows) must not wake up with
         # the approved role's privileges. Race-free: the row is locked above.
         user.key_epoch += 1
 
@@ -764,11 +760,9 @@ class AdminService:
         username = user.username
 
         await bump_publication_versions_for_owner(self.db, user_id)
-        # Delete related records that have CASCADE or need explicit cleanup
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
         await self.db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
 
-        # Hard delete the user (FK SET NULL handles audit_logs, datasets, ingest_jobs)
         await self.db.delete(user)
         await self.db.flush()
         return username
@@ -813,8 +807,7 @@ class AdminService:
         """List ingestion jobs with optional filters. Returns (rows, total).
 
         `sort` must be a key of _job_sort_columns() and `order` one of
-        asc/desc; anything else raises ValueError. The default ordering
-        (created_at descending) is the historical one and is unchanged.
+        asc/desc; anything else raises ValueError.
         """
         from app.modules.auth.models import User as UserModel
         from app.platform.jobs.models import IngestJob
@@ -824,9 +817,9 @@ class AdminService:
         if user_id is not None:
             filters.append(IngestJob.created_by == user_id)
         if search is not None:
-            # escape_ilike() keeps %, _, \ literal (the bare f"%{search}%"
-            # previously leaked wildcards); escape="\\" matches the sibling
-            # call sites (list_users above, maps/audit/embed-token searches).
+            # escape_ilike() keeps %, _, \ literal; escape="\\" matches the
+            # sibling call sites (list_users above, maps/audit/embed-token
+            # searches).
             filters.append(
                 IngestJob.source_filename.ilike(
                     f"%{escape_ilike(search)}%", escape="\\"
@@ -882,12 +875,12 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics for the ACTIVE embedding model.
 
-        Scoped to the current model name; `record_embeddings` is
-        keyed `(record_id, model_name)`, and semantic search only reads rows
-        matching the active model. Counting every row regardless of model
-        showed 100% coverage after a model swap while search matched nothing.
-        When the active model can't be resolved, the sentinel name matches no
-        row, so coverage reads 0 -- deliberate, since search is equally unusable.
+        Scoped to the current model name; `record_embeddings` is keyed
+        `(record_id, model_name)`, and semantic search only reads rows matching
+        the active model. Counting every row regardless of model would show
+        100% coverage after a model swap while search matched nothing. When the
+        active model can't be resolved, the sentinel name matches no row, so
+        coverage reads 0, deliberately, since search is equally unusable.
 
         The same holds for the configuration stamp: a row with the active model
         name but another CONFIGURATION's stamp is a different vector space, so
@@ -937,19 +930,18 @@ class AdminService:
             )
 
         missing_records = total_records - embedded_records
-        # Records carrying vectors, but none the active CONFIGURATION can use
-        # ("configuration", not "model"). The
-        # non-force backfill selects on "no active-model row" rather than "no
-        # row at all", so Generate Missing re-embeds these without touching
-        # records the current model already covers; superseded rows are left
-        # in place (storage cost only, no longer counted as stale here).
+        # Records carrying vectors, but none the active configuration can use.
+        # The non-force backfill selects records with no usable embedding for
+        # that configuration rather than no row at all, so Generate Missing
+        # re-embeds these without touching covered records; superseded rows
+        # are left in place (storage cost only).
         stale_records = any_model_records - embedded_records
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0
         )
         # Deliberately after the coverage query's own degrade-to-zeros exit: a
-        # database that cannot answer the count above cannot answer this either,
-        # and the panel keeps the reduced response it has always had.
+        # database that cannot answer the count above cannot answer this
+        # either, and the panel gets the reduced response.
         from app.modules.admin.backfill_jobs import collect_backfill_observability
 
         runs = await collect_backfill_observability(
@@ -972,11 +964,9 @@ class AdminService:
         Dataset = port.get_dataset_orm_class()
         Record = port.get_record_orm_class()
 
-        # Total datasets
         result = await db.execute(select(func.count()).select_from(Dataset))
         total_datasets = result.scalar_one()
 
-        # Recent additions (last 30 days)
         result = await db.execute(
             select(func.count())
             .select_from(Dataset)
@@ -985,7 +975,6 @@ class AdminService:
         )
         recent_additions = result.scalar_one()
 
-        # Storage usage
         total_storage_bytes: int | None = None
         try:
             total_storage_bytes = await _get_total_storage_bytes(db, Dataset)
@@ -993,7 +982,6 @@ class AdminService:
             logger.warning("Failed to compute storage usage", exc_info=True)
             total_storage_bytes = None
 
-        # Datasets by geometry type
         result = await db.execute(
             select(Dataset.geometry_type, func.count())
             .where(Dataset.geometry_type.is_not(None))
@@ -1001,7 +989,6 @@ class AdminService:
         )
         datasets_by_geometry_type = {row[0]: row[1] for row in result.all()}
 
-        # Datasets by visibility
         result = await db.execute(
             select(Record.visibility, func.count())
             .select_from(Dataset)
@@ -1010,7 +997,6 @@ class AdminService:
         )
         datasets_by_visibility = {row[0]: row[1] for row in result.all()}
 
-        # Users by status
         result = await db.execute(
             select(User.status, func.count()).group_by(User.status)
         )

@@ -3,13 +3,12 @@
 MAX_TOOL_ROUNDS = 8
 MAX_STREAMING_WALL_CLOCK_SECONDS = 90
 
-# Cumulative input+output token budget per chat request. The tool loop
-# is otherwise bounded only by round count (MAX_TOOL_ROUNDS), wall clock
-# (MAX_STREAMING_WALL_CLOCK_SECONDS), and the 10/min rate limit — none of which
-# cap total provider token spend. A runaway/looping model can still drive ~8
-# rounds x 4096 output plus growing input history per request. This ceiling stops
-# the loop gracefully (same as hitting max rounds) once cumulative tokens exceed
-# it. Sized well above legitimate multi-round usage so it only trips on runaways.
+# Cumulative input+output token budget per chat request. Round count
+# (MAX_TOOL_ROUNDS), wall clock (MAX_STREAMING_WALL_CLOCK_SECONDS) and the
+# 10/min rate limit don't cap total provider token spend: a looping model can
+# still drive ~8 rounds x 4096 output plus growing input history per request.
+# Past this ceiling the loop stops gracefully (as at max rounds). Sized well
+# above legitimate multi-round usage so it only trips on runaways.
 MAX_REQUEST_TOKEN_BUDGET = 200_000
 
 TOOL_LABELS = {

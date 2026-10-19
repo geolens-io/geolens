@@ -1,12 +1,11 @@
 """Tenancy ORM models — dormant substrate.
 
 These three tables (organizations, tenants, org_memberships) are created by
-migration 0005_dormant_tenancy and are inert in single_tenant mode.  No
-foreign-key enforcement is wired here; FK constraints and RLS policies
-are not part of these models.
+migration 0005_dormant_tenancy and are inert in single_tenant mode. The models
+carry no FK constraints or RLS policies.
 
-All models are declared on the shared Base so ``alembic check`` / autogenerate
-see them alongside the rest of the catalog schema.
+They are declared on the shared Base so ``alembic check`` / autogenerate see
+them alongside the rest of the catalog schema.
 """
 
 import uuid

@@ -51,14 +51,10 @@ _MAX_FILTER_COLUMNS = 5
 def _format_metres(value: Any) -> str:
     """Metres as a person would write them: 500 m, 1609.34 m, 12345.678 m.
 
-    ``f"{number:g}"``'s default precision is SIX significant
-    digits, so it silently rounded (12345.678 -> "12345.7", 99999.99 ->
-    "100000") — a distance the geometry wasn't built with, shown as
-    provenance and exported through DCAT.
-
-    ``repr`` of a float is the SHORTEST string that round-trips to the same
-    double, so it reproduces whatever the caller submitted exactly. Only
-    the trailing ".0" on whole metres is trimmed.
+    ``f"{number:g}"`` keeps six significant digits and would round the
+    distance (12345.678 -> "12345.7"). ``repr`` of a float is the shortest
+    string that round-trips to the same double, so it reproduces what the
+    caller submitted; only a trailing ".0" is trimmed.
     """
     try:
         number = float(value)
@@ -139,19 +135,13 @@ def _operation_phrase(
         if by_field:
             return f"Dissolved from {source} by {by_field}"
         return f"Dissolved from {source} into a single feature"
-    # The four operations this branch adds had no branch, so
-    # they fell through to the generic fallback and their sentences named only
-    # the source. That sentence is a product surface — the dataset page shows
-    # it, search indexes it, and DCAT exports it — so an overlay whose whole
-    # point is the second layer was described without mentioning one.
     if operation == "spatial_join":
-        # join_fields (the transferred column list) is
-        # deliberately NOT named here. This sentence is stored once and
-        # served raw to every requester who can see the output — none of
-        # the export paths route it through visible_derived_from, which is
-        # what access-checks structured provenance per requester. A column
-        # list is most of a schema, so anything the redaction treats as
-        # sensitive can't appear in prose that has no per-requester form.
+        # join_fields (the transferred column list) is deliberately not named.
+        # This sentence is stored once and served raw to every requester who
+        # can see the output; no export path routes it through
+        # visible_derived_from, which access-checks structured provenance per
+        # requester. A column list is most of a schema, so it can't appear in
+        # prose that has no per-requester form.
         target = _quoted(join_title) if join_title else "another layer"
         return f"Joined from {source} against {target}"
     if operation == "intersect":
@@ -275,18 +265,17 @@ async def apply_analysis_provenance(
     same session, so provenance commits with the dataset rather than in a
     second transaction that could fail on its own.
 
-    Two things are copied VALUES rather than gated references (#765):
+    Two things are copied as values rather than gated references:
 
-    * Inherited keywords — not harmless in general (could be a project
-      codename or client name), but safe here because the output is
-      registered ``visibility="private"``, owned by a caller who already
-      had access to the source; an inherited keyword only reaches anyone
-      else when that owner deliberately publishes or shares. The inherited
-      set is re-derived from ``derived_from`` at read time
-      (records/inherited.py), which warns the owner at publish time.
-    * The source/mask title inside the lineage sentence — same private/
-      owned reasoning, and it's prose the owner can already read and edit,
-      like typing the source's name into the summary field.
+    * Inherited keywords, which could be a project codename or client name.
+      That is safe here because the output is registered
+      ``visibility="private"``, owned by a caller who already had access to
+      the source; a keyword only reaches anyone else when that owner
+      publishes or shares. The inherited set is re-derived from
+      ``derived_from`` at read time (records/inherited.py), which warns the
+      owner at publish time.
+    * The source/mask title inside the lineage sentence, for the same
+      private-owner reason; the owner can already read and edit that prose.
 
     Read paths gate the derived_from REFERENCE instead, where disclosure
     would hand a requester a dataset id they could act on: see
@@ -304,12 +293,9 @@ async def apply_analysis_provenance(
         return
 
     source_title = await _record_title(session, source_dataset_id)
-    # Keyed off the ID being present, not off the
-    # mask_source discriminator. intersect takes a layer and has no
-    # mask_source — the discriminator only distinguishes drawn from layer for
-    # the operations that can be either — so gating on it meant an overlay's
-    # title was never resolved and its sentence said "another layer" for a
-    # layer whose title was one query away.
+    # Keyed off the ID, not mask_source: intersect takes a layer and has no
+    # mask_source, which only distinguishes drawn from layer for the
+    # operations that can be either.
     mask_title = await _record_title(session, params.get("mask_dataset_id"))
     join_title = await _record_title(session, params.get("join_dataset_id"))
 

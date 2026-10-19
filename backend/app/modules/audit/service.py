@@ -36,8 +36,8 @@ __all__ = [
 async def audit_emit_durable(event: AuditEvent) -> None:
     """Commit one audit event in a fresh, independently owned session.
 
-    Streaming responses outlive their request handler, so this must not
-    reuse the request-scoped session -- also avoids concurrent access
+    Streaming responses outlive their request handler, so this must not reuse
+    the request-scoped session; a fresh one also avoids concurrent access
     while a response generator reads through its own cursor.
     """
     # Resolve lazily so tests/embedders that replace the application session
@@ -80,9 +80,8 @@ def _audit_sort_columns(sort_user: Any) -> dict[str, Any]:
     Literal in schemas.py, which FastAPI enforces at the boundary. Resolution
     here is a dict lookup, so a caller-supplied string never reaches SQL.
 
-    `resource_name` is deliberately absent: resolve_resource_names() runs
-    against the page AFTER the query returns, so the database cannot order by
-    it — a header for it would sort the visible page only.
+    `resource_name` is deliberately absent (see AuditSortField): a header for
+    it would sort the visible page only.
     """
     return {
         "created_at": AuditLog.created_at,
@@ -149,14 +148,12 @@ def _apply_filters(
     if snapshot_at is not None:
         query = query.where(AuditLog.created_at <= snapshot_at)
     if search is not None:
-        # Rewrite ILIKE to
-        # lower(catalog.immutable_unaccent(...)).like so the planner uses
-        # ix_audit_logs_action_trgm / ix_users_username_trgm, which are built
-        # on that exact schema-qualified expression. Bare ILIKE, or
-        # func.unaccent() (unqualified, resolves via search_path to
+        # lower(catalog.immutable_unaccent(...)).like, not ILIKE, so the
+        # planner uses ix_audit_logs_action_trgm / ix_users_username_trgm,
+        # which are built on that exact schema-qualified expression. Bare
+        # ILIKE, or func.unaccent() (resolves via search_path to
         # public.unaccent, STABLE not IMMUTABLE), misses the index and falls
-        # back to a seq scan that grows with admin activity. Same shape as
-        # catalog.search.service_filters.
+        # back to a seq scan. Same shape as catalog.search.service_filters.
         unaccented_like = func.concat(
             "%", func.catalog.immutable_unaccent(search.lower()), "%"
         )
@@ -170,11 +167,9 @@ def _apply_filters(
                 )
             )
         )
-        # resource_type stays ILIKE -- it is a fixed enum-like string column with
-        # low cardinality and no trigram index; the optimizer handles it with the
-        # existing composite index on (resource_type) when present.
-        # Escape %, _, and \\ so admin searches for literal special chars
-        # return the correct rows rather than acting as wildcards.
+        # resource_type stays ILIKE: a low-cardinality, enum-like column with
+        # no trigram index. Escaping %, _ and \\ makes admin searches for
+        # those characters literal rather than wildcards.
         search_filter = (
             action_match
             | AuditLog.resource_type.ilike(f"%{escape_ilike(search)}%", escape="\\")
@@ -235,8 +230,9 @@ async def prune_audit_logs(
     """Delete every audit row created before ``cutoff``, committing per batch.
 
     Each batch commits together with an ``audit.prune`` row recording it, so
-    no deletion is ever left without its record; a failed insert aborts the batch. Rows another transaction
-    holds are skipped and picked up by a later run. Returns the number deleted.
+    no deletion is ever left without its record; a failed insert aborts the
+    batch. Rows another transaction holds are skipped and picked up by a later
+    run. Returns the number deleted.
     """
     deleted = 0
     while True:
@@ -280,13 +276,12 @@ async def log_action(
     ``user_id=None`` is structurally accepted (nullable FK: ON DELETE SET
     NULL, SAML-JIT, anonymous downloads).
 
-    ``details`` is normalized through ``jsonable_encoder`` first,
-    since the JSONB column has no ``json_serializer`` registered and stdlib
-    ``json.dumps`` cannot take a ``date``/``UUID``/``Decimal``. Normalizing
-    here makes the row itself unable to carry the fault, so
-    ``audit_emit()``'s savepoint is a second line of defence rather than the
-    only one. ``None`` is preserved as SQL NULL -- an absent
-    payload and an empty one are different rows.
+    ``details`` is normalized through ``jsonable_encoder`` first: the JSONB
+    column has no ``json_serializer`` registered and stdlib ``json.dumps``
+    cannot take a ``date``/``UUID``/``Decimal``, so normalizing here keeps the
+    row from carrying that fault and ``audit_emit()``'s savepoint is a second
+    line of defence. ``None`` stays SQL NULL; an absent payload and an empty
+    one are different rows.
     """
     entry = AuditLog(
         user_id=user_id,
@@ -320,17 +315,15 @@ async def query_audit_logs(
     `sort`/`order` say otherwise (must be a key of _audit_sort_columns() /
     one of asc/desc; anything else raises ValueError).
 
-    Sorting stops here -- the CSV/JSON export runs through
-    stream_audit_logs, a separate cursor-based generator with its own
-    created_at DESC ordering, deliberately left alone (see the export
-    endpoint's docstring in router.py).
+    The CSV/JSON export doesn't sort: it runs through stream_audit_logs, a
+    cursor-based generator with its own created_at DESC ordering (see
+    export_audit_logs in router.py).
 
     Uses ``COUNT(*) OVER ()`` so the total rides along with the filtered
     slice in one round trip instead of a sibling count query.
     """
-    # Call _apply_filters directly with keyword args (not **unpack of a dict)
-    # so mypy preserves the per-parameter type narrowing — unpacking a
-    # heterogeneous dict drops each key's specific annotation.
+    # Keyword args rather than a **dict unpack, so mypy keeps each
+    # parameter's type.
     total_col = func.count().over().label("total_count")
     query = select(AuditLog, total_col).options(joinedload(AuditLog.user))
     query = _apply_filters(
@@ -344,14 +337,11 @@ async def query_audit_logs(
         snapshot_at=snapshot_at,
         search=search,
     )
-    # A dedicated alias, not the bare User entity, so this
-    # ORDER BY join can never interact with the `users` reference
-    # _apply_filters already has in its username search.
-    #
-    # Measured: joining the bare entity compiles to the SAME SQL today
-    # (SQLAlchemy only auto-correlates when doing so leaves another FROM,
-    # and this subquery has exactly one). The alias is insurance, not a bug
-    # fix -- it keeps ordering independent of how the filter is written.
+    # A dedicated alias, not the bare User entity, so this ORDER BY join can
+    # never interact with the `users` reference in _apply_filters' username
+    # search. The bare entity compiles to the same SQL today (SQLAlchemy only
+    # auto-correlates when another FROM remains); the alias keeps ordering
+    # independent of how the filter is written.
     from app.modules.auth.models import User
 
     sort_user = aliased(User, name="audit_sort_user")
@@ -366,8 +356,8 @@ async def query_audit_logs(
     result = await session.execute(query)
     rows = result.unique().all()
     if not rows:
-        # Empty slice — fall back to a count-only query so callers still
-        # see the correct total for "no results on this page" pagination.
+        # Empty slice: fall back to a count-only query so callers still see
+        # the correct total for "no results on this page" pagination.
         count_query = select(func.count()).select_from(AuditLog)
         count_query = _apply_filters(
             count_query,
@@ -391,14 +381,14 @@ async def query_audit_logs(
 async def resolve_resource_names(
     session: AsyncSession, logs: list[AuditLog]
 ) -> dict[tuple[str, uuid.UUID], str]:
-    """Batch-resolve display names for one page of audit rows (#620).
+    """Batch-resolve display names for one page of audit rows.
 
     Returns ``{(resource_type, resource_id): name}`` for the resource types
     with a canonical display name (dataset, map, collection, user). Deleted
-    resources and other types are simply absent — callers fall back to None.
+    resources and other types are absent; callers fall back to None.
 
-    Function-scope cross-module imports mirror the existing ``User`` pattern
-    above (test_layering allowlist: SQL InstrumentedAttribute use only).
+    Cross-module imports are function-scoped (test_layering allowlist: SQL
+    InstrumentedAttribute use only).
     """
     from app.modules.auth.models import User
     from app.modules.catalog.collections.models import Collection
@@ -428,16 +418,15 @@ async def resolve_resource_names(
 
     map_ids = ids_by_type.get("map")
     if map_ids:
-        # Stable sharing API — audit must not import catalog map ORM internals
+        # The stable sharing API, not catalog map ORM internals
         # (test_layering.py::test_open_core_decomposition_boundaries_stay_clean).
         map_names = await get_map_names(session, map_ids)
         names.update({("map", mid): name for mid, name in map_names.items()})
     return names
 
 
-# Column DDL action strings emitted by the column-DDL endpoints
-# (backend/app/modules/catalog/layers/router.py). These 4 values are the canonical
-# set; do NOT add new strings here without also updating the router audit_emit calls.
+# The action strings the column-DDL endpoints emit
+# (backend/app/modules/catalog/layers/router.py).
 _COLUMN_DDL_ACTIONS = (
     "layer.add_column",
     "layer.rename_column",
@@ -455,12 +444,10 @@ async def query_column_ddl_history(
 ) -> tuple[list[AuditLog], int]:
     """Return column-DDL audit history for a single dataset.
 
-    Filters to the 4 column-DDL action strings emitted by the column-DDL
-    endpoints, ordered by created_at DESC.
-    Returns (rows, total_count), matching query_audit_logs's shape for
-    consistent pagination at the router layer. Eager-loads AuditLog.user
-    (already lazy="joined") so the actor username needs no N+1. No schema
-    migration required -- uses the existing audit_logs table.
+    Filters to the column-DDL actions, ordered by created_at DESC. Returns
+    (rows, total_count), matching query_audit_logs's shape for consistent
+    pagination at the router layer. Eager-loads AuditLog.user so the actor
+    username needs no N+1.
     """
     where_clauses = [
         AuditLog.resource_type == "dataset",
@@ -468,8 +455,6 @@ async def query_column_ddl_history(
         AuditLog.action.in_(_COLUMN_DDL_ACTIONS),
     ]
 
-    # Use window COUNT() to get total in the same round-trip as the row fetch
-    # (mirrors the query_audit_logs pattern).
     total_col = func.count().over().label("total_count")
     query = (
         select(AuditLog, total_col)
@@ -484,7 +469,7 @@ async def query_column_ddl_history(
     rows = result.unique().all()
 
     if not rows:
-        # Empty slice — fall back to a count-only query (mirrors query_audit_logs).
+        # Empty slice: fall back to a count-only query for the total.
         count_query = select(func.count()).select_from(AuditLog).where(*where_clauses)
         count_result = await session.execute(count_query)
         return [], int(count_result.scalar_one())

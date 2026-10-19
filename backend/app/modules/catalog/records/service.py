@@ -1,7 +1,7 @@
 """Service layer for record sub-resources: contacts, keywords, distributions.
 
-The normalized tables (record_contacts, record_keywords, record_distributions) are
-the single authoritative metadata path. No dual-write to legacy JSONB/tags columns.
+The normalized tables (record_contacts, record_keywords, record_distributions)
+are the single authoritative metadata path.
 """
 
 import uuid
@@ -20,15 +20,9 @@ from app.modules.catalog.datasets.domain.models import (
 )
 
 
-# Helpers
-
-
 async def get_record(session: AsyncSession, record_id: uuid.UUID) -> Record | None:
     result = await session.execute(select(Record).where(Record.id == record_id))
     return result.scalar_one_or_none()
-
-
-# Localized record text
 
 
 async def list_translations(
@@ -97,9 +91,6 @@ async def delete_translation(
     await session.flush()
 
 
-# Contacts
-
-
 async def list_contacts(
     session: AsyncSession,
     record_id: uuid.UUID,
@@ -110,9 +101,9 @@ async def list_contacts(
     """List contacts for a record, ordered by sort_order, with pagination."""
     result = await session.execute(
         select(RecordContact)
-        # `sort_order` server-defaults to 0, so contacts added
-        # without an explicit order tie on it -- OFFSET/LIMIT paging over
-        # the tie had no defined row order. RecordContact.id is unique.
+        # `sort_order` server-defaults to 0, so contacts added without an
+        # explicit order tie on it, and OFFSET/LIMIT paging over a tie has no
+        # defined row order. RecordContact.id is unique.
         .where(RecordContact.record_id == record_id)
         .order_by(RecordContact.sort_order, RecordContact.id)
         .offset(skip)
@@ -181,8 +172,8 @@ async def update_contact(
     if contact is None:
         raise ValueError(f"Contact {contact_id} not found")
 
-    # Kwargs carry only explicitly-set fields (exclude_unset
-    # at the router), so apply nulls too — that's how a field is cleared.
+    # Kwargs carry only explicitly set fields (exclude_unset at the router),
+    # so nulls apply too: that is how a field is cleared.
     for key, value in kwargs.items():
         setattr(contact, key, value)
 
@@ -206,9 +197,6 @@ async def delete_contact(
 
     await session.delete(contact)
     await session.flush()
-
-
-# Keywords
 
 
 async def list_keywords(
@@ -258,7 +246,6 @@ async def create_keyword(
     if record is None:
         raise ValueError(f"Record {record_id} not found")
 
-    # Normalize
     keyword = keyword.strip().lower()
     if vocabulary_uri is not None:
         vocabulary_uri = vocabulary_uri.strip().rstrip("/")
@@ -279,8 +266,8 @@ async def delete_keyword(
 ) -> None:
     """Delete a keyword by ID, scoped to its owning record.
 
-    Scoping by ``record_id`` 404s a keyword belonging to a
-    different record, instead of deleting it through a mismatched path.
+    Scoping by ``record_id`` makes a keyword of another record a not-found
+    instead of deleting it through a mismatched path.
     """
     result = await session.execute(
         select(RecordKeyword).where(
@@ -296,17 +283,14 @@ async def delete_keyword(
     await session.flush()
 
 
-# Distributions
-
-
 async def record_publication_version(
     session: AsyncSession, record_id: uuid.UUID
 ) -> int | None:
     """The counter a stored tile template on this record is republished at.
 
-    A distribution row is written once at ingest, so the vector
-    template it stores has to be rewritten at read time to name the dataset's
-    current publication version. None when the record has no dataset.
+    A distribution row is written once at ingest, so its stored vector
+    template is rewritten at read time to name the dataset's current
+    publication version. None when the record has no dataset.
     """
     return (
         await session.execute(
@@ -352,12 +336,11 @@ async def _demote_other_primaries(
 ) -> None:
     """Clear ``is_primary`` on the record's other distributions.
 
-    Issued BEFORE the row that claims the flag is written — ordering is the
-    point, since ``uq_record_distribution_primary`` is a non-deferrable
-    partial unique index that fails at statement time, not at a
-    flush-order-dependent COMMIT. ``generated_only`` restricts the demote to
-    ``auto_generated`` rows, so ``reconcile_distributions`` never writes a
-    user's.
+    Issued before the row that claims the flag is written: order matters
+    because ``uq_record_distribution_primary`` is a non-deferrable partial
+    unique index that fails at statement time, not at a flush-order-dependent
+    COMMIT. ``generated_only`` restricts the demote to ``auto_generated``
+    rows, so ``reconcile_distributions`` never writes a user's.
     """
     stmt = update(RecordDistribution).where(
         RecordDistribution.record_id == record_id,
@@ -404,11 +387,10 @@ async def create_distribution(
 ) -> RecordDistribution:
     """Create a manual distribution for a record.
 
-    Last write wins — ``is_primary=True`` demotes every other
-    distribution on the record in this transaction (avoids two primaries
-    with no tiebreak for OGC/STAC readers). Enforced by
-    ``uq_record_distribution_primary`` (migration 0042); the demote just
-    keeps well-behaved callers from tripping it.
+    Last write wins: ``is_primary=True`` demotes every other distribution on
+    the record in this transaction, so OGC/STAC readers never see two
+    primaries with no tiebreak. ``uq_record_distribution_primary`` enforces
+    it; the demote keeps well-behaved callers from tripping it.
     """
     if record is None:
         record = await get_record(session, record_id)
@@ -445,9 +427,9 @@ async def update_distribution(
 
     Auto-generated distributions cannot be updated (raises ValueError).
     ``is_primary=True`` follows create_distribution's last-write-wins rule.
-    Clearing it (``is_primary=False``) promotes nothing — a
-    no-primary record is representable, and the next
-    ``reconcile_distributions`` fills it.
+    Clearing it (``is_primary=False``) promotes nothing: a record with no
+    primary is representable, and the next ``reconcile_distributions`` fills
+    it.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -462,12 +444,12 @@ async def update_distribution(
     if dist.auto_generated:
         raise ValueError("Cannot update auto-generated distributions")
 
-    # Before the setattr loop, so the demote UPDATE is on the wire ahead of
-    # the promote this flush will emit — see _demote_other_primaries.
+    # Before the setattr loop, so the demote UPDATE precedes the promote this
+    # flush emits (see _demote_other_primaries).
     if kwargs.get("is_primary") is True:
         await _demote_other_primaries(session, record_id, keep_id=distribution_id)
 
-    # Apply explicitly-set nulls too — see update_contact.
+    # Explicitly set nulls apply too (see update_contact).
     for key, value in kwargs.items():
         setattr(dist, key, value)
 
@@ -511,8 +493,8 @@ async def _restore_generated_primary(
     """Give ``is_primary`` back to the best generated row, if there is one.
 
     Same preference order as ``reconcile_distributions`` (GeoPackage, then
-    CSV), restricted to rows that exist. Re-checks nothing else holds the
-    flag, so it can never trip ``uq_record_distribution_primary``.
+    CSV), restricted to rows that exist. Re-checks that nothing else holds the
+    flag, so it can't trip ``uq_record_distribution_primary``.
     """
     if await _record_has_primary(session, record_id):
         return None
@@ -534,8 +516,6 @@ async def _restore_generated_primary(
             return row
     return None
 
-
-# Distribution generation
 
 # Standard distribution templates: (distribution_type, format, url_template, title, protocol, media_type, is_primary)
 _DISTRIBUTION_TEMPLATES = [
@@ -626,16 +606,16 @@ _VECTOR_TILES_PROTOCOL = "XYZ"
 _STALE_VECTOR_TILES_PROTOCOL = "OGC:WMTS"
 
 # The four-column unique constraint on ``record_distributions``
-# (record_id, distribution_type, format, url) — see RecordDistribution's
-# ``__table_args__``. Named here because the generated-row insert has to be
-# conflict-tolerant against it; a rename that missed this constant fails loudly
-# on the next insert ("constraint ... does not exist") rather than silently.
+# (record_id, distribution_type, format, url), see RecordDistribution's
+# ``__table_args__``. The generated-row insert must be conflict-tolerant
+# against it; a rename that missed this constant fails loudly on the next
+# insert ("constraint ... does not exist").
 _DISTRIBUTION_UNIQUE_CONSTRAINT = "uq_record_distribution"
 
 # Every (distribution_type, format) pair this module owns. A row outside this
-# set was written by something else — the raster and VRT ingest tails add their
-# own ``download`` rows — and reconcile must leave those alone even when they
-# are flagged auto-generated.
+# set was written by something else (the raster and VRT ingest tails add their
+# own ``download`` rows), and reconcile must leave it alone even when flagged
+# auto-generated.
 _GENERATED_PAIRS: frozenset[tuple[str, str]] = frozenset(
     {(tpl[0], tpl[1]) for tpl in _DISTRIBUTION_TEMPLATES} | {_VECTOR_TILES_PAIR}
 )
@@ -644,8 +624,8 @@ _GENERATED_PAIRS: frozenset[tuple[str, str]] = frozenset(
 def _pair_applies(dist_type: str, fmt: str, geometry_type: str | None) -> bool:
     """Whether the modality implied by ``geometry_type`` advertises this pair.
 
-    One spelling of the modality filter, so the set a promote INSERTS and the
-    set a demote REMOVES cannot drift apart.
+    One spelling of the modality filter, so the set a promote inserts and the
+    set a demote removes cannot drift apart.
     """
     if geometry_type is not None:
         return True
@@ -654,9 +634,8 @@ def _pair_applies(dist_type: str, fmt: str, geometry_type: str | None) -> bool:
 
 # Which generated row carries ``is_primary``, best first. GeoPackage is what
 # the template table marks primary; CSV is the fallback, both for a modality
-# that generates no GeoPackage row at all and — on reconcile — for a promote
-# where no generated GeoPackage row exists to promote because a user's own row
-# already sits at the exact url the GeoPackage template would have inserted.
+# that generates no GeoPackage row and, on reconcile, when a user's own row
+# already sits at the url the GeoPackage template would have inserted.
 _PRIMARY_PREFERENCE: tuple[tuple[str, str], ...] = (
     ("download", "gpkg"),
     ("download", "csv"),
@@ -683,12 +662,12 @@ async def generate_distributions(
     Spatial datasets get 9 rows; non-spatial get 2 (csv + OGC features).
     All auto_generated=True, merged via ``ON CONFLICT DO NOTHING``.
 
-    ``is_primary`` is inserted only when no row already holds
-    it. The existence probe reads only auto-generated rows, so
-    a user's matching row can't block the platform's from being generated.
+    ``is_primary`` is inserted only when no row already holds it. The
+    existence probe reads only auto-generated rows, so a user's matching row
+    can't block the platform's from being generated.
     """
-    # Fetch the pairs this function owns for this record in a single query.
-    # Anything a user wrote is deliberately invisible here — see above.
+    # The pairs this function owns for this record, in one query. Anything a
+    # user wrote is deliberately invisible here.
     existing_result = await session.execute(
         select(
             RecordDistribution.distribution_type,
@@ -700,9 +679,8 @@ async def generate_distributions(
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
-    # Repairs a stale `OGC:WMTS` protocol stamped during
-    # migration 0048's upgrade window. Partial mitigation — only reached on
-    # a modality-flip refresh, not fresh datasets.
+    # Repairs a stale `OGC:WMTS` protocol stamped during migration 0048's
+    # upgrade window. Partial: only reached on a modality-flip refresh.
     if _VECTOR_TILES_PAIR in existing_set:
         await session.execute(
             update(RecordDistribution)
@@ -716,9 +694,9 @@ async def generate_distributions(
             .values(protocol=_VECTOR_TILES_PROTOCOL)
         )
 
-    # The template's primary flag yields to whoever already
-    # holds it — inserting a second would violate
-    # `uq_record_distribution_primary` and abort the transaction.
+    # The template's primary flag yields to whoever already holds it; a
+    # second would violate `uq_record_distribution_primary` and abort the
+    # transaction.
     record_has_primary = await _record_has_primary(session, record_id)
 
     # Multi-VALUES INSERT rather than one statement per row.
@@ -743,7 +721,7 @@ async def generate_distributions(
 
         url = url_tpl.format(dataset_id=dataset_id)
 
-        # For non-spatial datasets, CSV download becomes primary (gpkg is filtered out)
+        # For non-spatial datasets CSV becomes primary (gpkg is filtered out).
         effective_primary = (dist_type, fmt) == primary_pair and not record_has_primary
 
         to_add.append(
@@ -782,9 +760,9 @@ async def generate_distributions(
     if not to_add:
         return []
 
-    # ON CONFLICT DO NOTHING, not check-then-insert —
-    # IntegrityError would abort the caller's transaction. Skipped rows stay
-    # out of RETURNING, so `created` is truthful for is_primary normalization.
+    # ON CONFLICT DO NOTHING, not check-then-insert: an IntegrityError would
+    # abort the caller's transaction. Skipped rows stay out of RETURNING, so
+    # `created` is truthful for is_primary normalization.
     result = await session.execute(
         insert(RecordDistribution)
         .values(to_add)
@@ -805,14 +783,13 @@ async def reconcile_distributions(
 ) -> tuple[list[RecordDistribution], list[tuple[str, str]]]:
     """Bring a record's auto-generated distributions in line with a modality.
 
-    Merges rather than replaces — inserts what the modality adds
-    and deletes auto-generated rows it excludes, taking user edits with
-    them. ``auto_generated=False`` rows and rows outside
-    ``_GENERATED_PAIRS`` are never inserted or deleted here, though the
-    ``is_primary`` demote below still reaches them (it is scoped to
-    ``auto_generated``, not to the pair set). It normalizes
-    ``is_primary`` unless a user-authored primary already holds it. Returns
-    ``(created, removed)``.
+    Merges rather than replaces: inserts what the modality adds and deletes
+    auto-generated rows it excludes, taking user edits with them.
+    ``auto_generated=False`` rows and rows outside ``_GENERATED_PAIRS`` are
+    never inserted or deleted here, though the ``is_primary`` demote below
+    still reaches them (it is scoped to ``auto_generated``, not to the pair
+    set). It normalizes ``is_primary`` unless a user-authored primary already
+    holds it. Returns ``(created, removed)``.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -863,11 +840,10 @@ async def reconcile_distributions(
         session, record_id, user_authored_only=True
     )
     # No candidate means every preferred pair is occupied by a row this
-    # function does not own, and there is nothing to promote. Leave the flags
-    # as they are rather than clearing them: an unchanged primary is a worse
-    # answer than the right one and a better answer than none.
+    # function does not own, so there is nothing to promote. Leave the flags
+    # as they are rather than clearing them.
     if primary is not None and not user_primary:
-        # Demote first, promote second — one statement each, in that order.
+        # Demote before promote, one statement each.
         await _demote_other_primaries(
             session, record_id, keep_id=primary.id, generated_only=True
         )

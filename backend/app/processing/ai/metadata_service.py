@@ -39,8 +39,8 @@ if TYPE_CHECKING:
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# In-memory TTL caches for metadata AI (avoids redundant DB queries when
-# a user clicks Summary, Keywords, Lineage in quick succession).
+# In-memory TTL cache for metadata AI, so a user clicking Summary, Keywords and
+# Lineage in quick succession doesn't repeat the DB queries.
 _CACHE_TTL = 60.0  # seconds
 _dataset_context_cache: dict[str, tuple[float, str]] = {}
 
@@ -71,7 +71,6 @@ async def _build_dataset_context(
     import uuid as _uuid
 
     send_samples = await _should_send_sample_values(session)
-    # Check TTL cache
     now = time.monotonic()
     cache_key = tenant_cache_key(f"{dataset_id}:samples={send_samples}")
     cached = _dataset_context_cache.get(cache_key)
@@ -130,16 +129,14 @@ async def _build_dataset_context(
     if record.access_constraints:
         parts.append(f"Access constraints: {record.access_constraints}")
 
-    # Column info
     if dataset.column_info:
         col_strs = []
         for col in dataset.column_info[:30]:
             col_strs.append(f"  - {col.get('name', '?')}: {col.get('type', '?')}")
         parts.append("Columns:\n" + "\n".join(col_strs))
 
-    # Column null + cardinality stats (cap at 20 non-geometry columns).
-    # Best-effort: missing/erroring tables degrade silently (the LLM just
-    # gets a less-grounded summary, not a request failure).
+    # Null and cardinality stats for up to 20 non-geometry columns. A missing
+    # or erroring table degrades to a less-grounded summary, not a failure.
     if dataset.column_info and dataset.table_name:
         non_geom_cols = [
             c.get("name", "")
@@ -171,7 +168,7 @@ async def _build_dataset_context(
                     )
                 parts.append("Column statistics:\n" + "\n".join(lines))
 
-    # Sample values (truncated at value level to avoid mid-JSON cuts)
+    # Capped at 10 columns x 5 values before json.dumps, so JSON is never cut.
     if send_samples and dataset.sample_values:
         truncated_samples = {}
         for col, vals in list(dataset.sample_values.items())[:10]:
@@ -179,12 +176,10 @@ async def _build_dataset_context(
         sample_str = json.dumps(truncated_samples, default=str)
         parts.append(f"Sample values: {sample_str}")
 
-    # Existing keywords
     if record.keywords:
         kw_list = [kw.keyword for kw in record.keywords]
         parts.append(f"Existing keywords: {', '.join(kw_list)}")
 
-    # Attribute metadata (current only, max 20)
     current_attrs = [a for a in dataset.attributes if a.is_current][:20]
     if current_attrs:
         attr_strs = []
@@ -193,7 +188,6 @@ async def _build_dataset_context(
             attr_strs.append(f"  - {attr.field_name} ({attr.data_type or '?'}){desc}")
         parts.append("Attribute metadata:\n" + "\n".join(attr_strs))
 
-    # Quality metrics (computed)
     if hasattr(dataset, "quality_detail") and dataset.quality_detail:
         qd = json.dumps(dataset.quality_detail, default=str)
         if len(qd) > 1000:
@@ -203,18 +197,16 @@ async def _build_dataset_context(
     if hasattr(dataset, "quality_statement") and dataset.quality_statement:
         parts.append(f"Current quality statement: {dataset.quality_statement}")
 
-    # Temporal extent
     if record.temporal_start:
         parts.append(f"Temporal start: {record.temporal_start}")
     if record.temporal_end:
         parts.append(f"Temporal end: {record.temporal_end}")
 
-    # Record type
     if hasattr(record, "record_type") and record.record_type:
         parts.append(f"Record type: {record.record_type}")
 
     result = "\n".join(parts)
-    # Store in cache (cap at 20 entries)
+    # Cache holds at most 20 entries; evict the oldest.
     if len(_dataset_context_cache) >= 20:
         oldest_key = min(
             _dataset_context_cache, key=lambda k: _dataset_context_cache[k][0]
@@ -239,9 +231,9 @@ async def _get_related_keywords_from_embeddings(
     empty list on no embedding or any error. Not cached, because the result
     depends on the caller's visibility.
 
-    Both the dataset lookup and keyword aggregation route through the Port
-    surface so processing/* carries no ``app.modules.catalog`` ORM import;
-    Enterprise overlays can intercept both calls.
+    The dataset lookup and keyword aggregation go through the Port, so
+    processing/* carries no ``app.modules.catalog`` ORM import and overlays
+    can intercept both calls.
     """
     import uuid as _uuid
 
@@ -283,11 +275,9 @@ async def _generate_structured(
     """Generate structured output through the configured AI provider.
 
     Records token usage (subsystem ``metadata``) so metadata-assist calls count
-    toward the per-user daily budget — otherwise the cap is bypassable through
+    toward the per-user daily budget; otherwise the cap is bypassable through
     the four ``/ai/metadata/*`` endpoints.
     """
-
-    # Resolve provider and model from PersistentConfig
     provider = (
         await LLM_PROVIDER.get(db)
         if db is not None
@@ -436,8 +426,8 @@ async def generate_summary_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
-    # Strip existing summary so the LLM re-derives from data instead of
-    # paraphrasing what's already there (mirrors quality_statement strip).
+    # Strip the existing summary so the LLM derives from data instead of
+    # paraphrasing it.
     context = "\n".join(
         line for line in context.split("\n") if not line.startswith("Current summary:")
     )
@@ -500,8 +490,8 @@ async def generate_lineage_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
-    # Strip existing lineage so the LLM re-derives from SRID/format deltas
-    # instead of paraphrasing what's already there.
+    # Strip the existing lineage so the LLM derives from SRID/format deltas
+    # instead of paraphrasing it.
     context = "\n".join(
         line for line in context.split("\n") if not line.startswith("Current lineage:")
     )
@@ -525,7 +515,7 @@ async def generate_quality_statement_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
-    # Strip existing quality statement to force derivation from metrics, not paraphrasing
+    # Strip the existing statement so it derives from metrics, not paraphrase.
     context_lines = [
         line
         for line in context.split("\n")

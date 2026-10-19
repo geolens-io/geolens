@@ -85,8 +85,8 @@ _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 # reservation is judged by, so the budget and its judge cannot drift apart.
 MANIFEST_STAGE_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 2
 
-# Total wall clock for admitting an already-staged entry against
-# quota and binding its reservation. stage + admit < lease, with margin.
+# Total wall clock for admitting an already-staged entry against quota and
+# binding its reservation. stage + admit < lease, with margin.
 MANIFEST_ADMIT_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 4
 
 log = structlog.get_logger()
@@ -224,17 +224,15 @@ async def _download_http_source(
 ) -> str:
     """Stream one manifest source to staging. Takes no database session.
 
-    A session here would hold a pooled connection for the
-    download's length; the caller reads the size ceiling before committing.
+    A session here would hold a pooled connection for the download's length;
+    the caller reads the size ceiling before committing.
     """
     destination = _owned_staging_path(job_id, prepared)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     bytes_seen = 0
-    # Rule 2 (AGENTS.md): make_safe_client for per-hop SSRF revalidation on
-    # manifest
-    # HTTP downloads. Lazy import: `processing/` may not import
-    # `app.modules.catalog.*` at module level (layering invariant).
+    # Rule 2 (AGENTS.md): make_safe_client revalidates SSRF on every redirect
+    # hop of a manifest HTTP download and pins the address at connect time.
     from app.platform.security import make_safe_client
 
     try:
@@ -259,14 +257,13 @@ async def _download_http_source(
                             raise ManifestSourceError(
                                 "Manifest source exceeds the remaining storage quota"
                             )
-                # Sync `Path.open()`/`write()` would stall the event
-                # loop (and job heartbeats, cancellation, other requests)
-                # for a multi-GB download, so writes go to a worker thread
-                # batched through the 4 MiB buffer.
-                # Retain the completed open() handle even if
-                # cancellation arrives mid-open, and close it before
-                # propagating — otherwise it's never assigned and the
-                # normal finally block can't reach it.
+                # Sync `Path.open()`/`write()` would stall the event loop
+                # (and job heartbeats, cancellation, other requests) for a
+                # multi-GB download, so writes go to a worker thread, batched
+                # through the 4 MiB buffer. The completed open() handle is
+                # kept even if cancellation arrives mid-open, and closed
+                # before propagating; otherwise it's never assigned and the
+                # finally block can't reach it.
                 (
                     file_obj,
                     open_cancellation,
@@ -316,8 +313,8 @@ async def _download_http_source(
             f"Failed to download manifest source: {redact_url_credentials(str(exc))}"
         ) from exc
     except BaseException:
-        # Cancellation/shutdown. The `finally` above already
-        # drained the close, so no thread owns the fd — drop the partial staged file.
+        # Cancellation or shutdown. The `finally` above already drained the
+        # close, so no thread owns the fd; drop the partial staged file.
         destination.unlink(missing_ok=True)
         raise
 
@@ -334,8 +331,8 @@ async def _stage_source_if_needed(
 ) -> str | None:
     """Put one manifest source where ingest can read it, under a total deadline.
 
-    httpx's 60s clock is per read, so a trickling source has no
-    bound of its own, and staging must finish inside the reservation's lease.
+    httpx's 60s clock is per read, so a trickling source has no bound of its
+    own, and staging must finish inside the reservation's lease.
     """
     try:
         async with asyncio.timeout(MANIFEST_STAGE_MAX_SECONDS):
@@ -526,9 +523,9 @@ async def _admit_staged_source(
 async def _caller_owns_job(db: AsyncSession, job: IngestJob, user: Identity) -> bool:
     """Owner-or-admin gate for referencing an existing manifest job's ids.
 
-    In-flight jobs may have no Dataset row yet, so the
-    dataset-level write gate can't run — key ownership on IngestJob.created_by
-    instead (same contract as service.py's reupload ownership check).
+    In-flight jobs may have no Dataset row yet, so the dataset-level write
+    gate can't run; ownership keys on IngestJob.created_by instead, the same
+    contract as service.py's reupload ownership check.
     """
     if job.created_by is not None and job.created_by == user.id:
         return True
@@ -555,16 +552,14 @@ def _skip_complete_message(prepared: ManifestPreparedSource) -> str:
     """Explain a skip_complete result without promising a recovery path
     `_validate_existing_dataset_update` would then refuse.
 
-    gh#1736: matching the last completed entry means only that, not that the
-    source bytes were read — a stable URI whose file changed underneath it
-    lands here too, so say plainly the source wasn't inspected.
+    Matching the last completed entry means only that, not that the source
+    bytes were read: a stable URI whose file changed underneath it lands
+    here too, so the message says the source wasn't inspected.
 
-    gh#1773: naming `checksum` unconditionally let a bumped
-    `raster_cog` fingerprint reach `_validate_existing_dataset_update`,
-    which then rejects it with "Manifest raster updates are not
-    supported" — an impossible recovery path. Vector entries keep the
-    checksum escape hatch; raster entries get that same rejection's
-    guidance instead, so the two never disagree.
+    Only vector entries are told to bump `checksum`. A bumped `raster_cog`
+    fingerprint would reach `_validate_existing_dataset_update` and be
+    rejected with "Manifest raster updates are not supported", so raster
+    entries get that rejection's guidance instead.
     """
     if prepared.source.type == "raster_cog":
         return (
@@ -590,12 +585,12 @@ async def _classify_dataset(
     fingerprint = manifest_dataset_fingerprint(dataset)
     if not dataset.sources:
         raise ManifestSourceError("Manifest dataset has no sources")
-    # Reject an intent the live workflow extension does not define
-    # before any staging, download, or queue work — and before the dry_run
-    # early return, which is the branch operators use to validate a manifest.
+    # Reject an intent the live workflow extension does not define before any
+    # staging, download or queue work, and before the dry_run early return,
+    # which is the branch operators use to validate a manifest.
     validate_publication_intent(dataset.publication)
-    # The manifest's own spelling of srid_override, refused here so
-    # a dry run reports it too.
+    # The manifest's own spelling of srid_override, refused here so a dry run
+    # reports it too.
     crs_refusal = await unknown_srid_refusal(
         db,
         parse_manifest_crs(dataset.metadata.crs if dataset.metadata else None),
@@ -603,11 +598,11 @@ async def _classify_dataset(
     )
     if crs_refusal:
         raise ManifestSourceError(crs_refusal)
-    # An intent resolving to public goes through the same
-    # admin gate as every visibility-accepting API mutation, raising 403
-    # for a non-admin when restrict_public_visibility is on. Checked before
-    # staging so dry_run reports it too. Local import: processing/ must not
-    # import app.modules.catalog.* at module level.
+    # An intent resolving to public goes through the same admin gate as every
+    # visibility-accepting API mutation, raising 403 for a non-admin when
+    # restrict_public_visibility is on. Checked before staging so dry_run
+    # reports it too. Local import: processing/ must not import
+    # app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
@@ -616,14 +611,14 @@ async def _classify_dataset(
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
 
-    # From here to the reservation commit is one locked critical
-    # section on this key, and nothing inside it may touch the network. The
-    # SSRF validation above is deliberately outside it.
+    # From here to the reservation commit is one locked critical section on
+    # this key, and nothing inside it may touch the network. The SSRF
+    # validation above is deliberately outside it.
     await lock_manifest_key(db, dataset.key)
     if not dry_run:
-        # A preview writes nothing, so it does not settle
-        # another caller's abandoned reservation. The cost is that a dry run
-        # can still report an entry as in flight where an apply would take it.
+        # A preview writes nothing, so it does not settle another caller's
+        # abandoned reservation. The cost is that a dry run can still report
+        # an entry as in flight where an apply would take it.
         await expire_stale_manifest_reservations(db, dataset.key)
 
     in_flight = await latest_in_flight_manifest_job(db, dataset.key)
@@ -798,9 +793,9 @@ async def _reserve_entry(
         if prepared.kind != "http":
             metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
-    # `running`, not `pending`. A pending row with no
-    # file_path and no queue task is reapable by four actors while its source
-    # is still downloading; the fixed lease is not.
+    # `running`, not `pending`. A pending row with no file_path and no queue
+    # task is reapable by four actors while its source is still downloading;
+    # the fixed lease is not.
     job = ledger.create(
         db,
         created_by=user.id,
@@ -814,9 +809,9 @@ async def _reserve_entry(
         await db.flush()
         await _commit_reservation(db)
     except BaseException as exc:
-        # A cancellation is not a failure to recover from. The
-        # durable row is reconciled either way, but staging must not run on
-        # through a shutdown, so only an ordinary exception continues.
+        # A cancellation is not a failure to recover from. The durable row is
+        # reconciled either way, but staging must not run on through a
+        # shutdown, so only an ordinary exception continues.
         adopted = await _adopt_committed_reservation(
             db, job, exc, adopt=isinstance(exc, Exception)
         )
@@ -840,8 +835,8 @@ async def _adopt_committed_reservation(
     Returns the row when this request may go on using it, None when the
     caller must re-raise. Either way the key is not left held.
 
-    ``adopt`` is False for a cancellation, which releases the
-    landed row instead.
+    ``adopt`` is False for a cancellation, which releases the landed row
+    instead.
     """
     job_id = job.id
     adopted: IngestJob | None = None
@@ -861,8 +856,8 @@ async def _adopt_committed_reservation(
 async def _commit_reservation(db: AsyncSession) -> None:
     """The commit that publishes the reservation, as a named seam.
 
-    Named so a test can make it durable-but-raising, a shape a
-    real session can't be asked for directly.
+    Named so a test can make it durable-but-raising, a shape a real session
+    can't be asked for directly.
     """
     await db.commit()
 
@@ -870,8 +865,8 @@ async def _commit_reservation(db: AsyncSession) -> None:
 async def _commit_staged_bind(db: AsyncSession) -> None:
     """The commit that publishes the staging bind, as a named seam.
 
-    Named so a test can make it durable-but-raising. Production
-    is exactly ``db.commit()``.
+    Named so a test can make it durable-but-raising. Production is exactly
+    ``db.commit()``.
     """
     await db.commit()
 
@@ -886,13 +881,13 @@ async def _settle_under_reset(
 ) -> bool:
     """Run every statement of one settlement on a session that was just reset.
 
-    Returns whether an attempt committed. The body is fenced so
-    one reset-and-retry, needed because any statement can find the
-    transaction unusable, lands nothing twice.
+    Returns whether an attempt committed. The body is fenced so one
+    reset-and-retry, needed because any statement can find the transaction
+    unusable, lands nothing twice.
     """
-    # Pinned once, never re-read. A retry can rotate the token
-    # between the two attempts, and a reset reloads the new one, so the retry
-    # body would settle a fresh attempt for the previous attempt's error.
+    # Pinned once, never re-read. A retry can rotate the token between the two
+    # attempts, and a reset reloads the new one, so the retry body would settle
+    # a fresh attempt for the previous attempt's error.
     pinned_attempt = attempt_id or getattr(job, "attempt_id", None)
     for attempt in (1, 2):
         await reset_session_for_settlement(job, db=db)
@@ -948,8 +943,8 @@ async def _settle_staged_entry(
 
     ``ids`` are the job's id and attempt, read before the failure.
 
-    The row decides, not the exception — the two settlements
-    fence on disjoint states, and read and settlement share one body.
+    The row decides, not the exception: the two settlements fence on
+    disjoint states, and read and settlement share one body.
     """
     job_id, attempt_id = ids
     # The safe default if neither attempt can read: keep the bytes, because
@@ -1013,8 +1008,8 @@ async def _finalize_reserved_entry(
     admitted = False
     try:
         try:
-            # Stage + admit must stay under the lease with margin,
-            # so a heartbeat-less running row can't be reaped mid-admit.
+            # Stage + admit must stay under the lease with margin, so a
+            # heartbeat-less running row can't be reaped mid-admit.
             async with asyncio.timeout(MANIFEST_ADMIT_MAX_SECONDS):
                 staged = await _admit_staged_source(
                     db,
@@ -1143,9 +1138,9 @@ async def _reserve_or_settle_entry(
 
     if classification == "skip_complete" and job is not None:
         if existing_dataset is not None:
-            # Same gate as the update branch below —
-            # raises 404/403 into the per-entry error wrapper, so the skip
-            # response cannot disclose another user's job/dataset UUIDs.
+            # The same gate as the update branch below. It raises 404/403 into
+            # the per-entry error wrapper, so the skip response cannot
+            # disclose another user's job/dataset UUIDs.
             await check_dataset_write_access(
                 db, existing_dataset, existing_dataset.id, user
             )
@@ -1176,8 +1171,8 @@ async def _reserve_or_settle_entry(
         update_dataset_id = existing_dataset.id
 
     if request.dry_run:
-        # A preview reserves nothing, so the key is left exactly as
-        # this entry found it.
+        # A preview reserves nothing, so the key is left exactly as this entry
+        # found it.
         result = None
         if classification == "create":
             result = ManifestApplyEntryResult(
@@ -1253,8 +1248,8 @@ async def apply_manifest(
                 )
             )
         except (ManifestSourceError, ValueError, HTTPException) as exc:
-            # Also the release of this key's advisory lock, for an
-            # entry that raised while still holding it.
+            # Also the release of this key's advisory lock, for an entry that
+            # raised while still holding it.
             await db.rollback()
             results.append(_error_result(dataset, exc))
         except DatasetBusyError:

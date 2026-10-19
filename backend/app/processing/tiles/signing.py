@@ -14,22 +14,20 @@ from app.core.config import settings
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# One-shot flag — emit the fallback warning at most once per
-# process. Re-running on every tile request would flood the log.
+# The fallback warning is emitted at most once per process; every tile request
+# would otherwise flood the log.
 _warned_fallback: bool = False
 
 
 def _get_signing_key() -> bytes:
     """Return the signing key bytes, preferring tile_signing_secret.
 
-    When tile_signing_secret is None, fall back to jwt_secret_key
-    AND emit a one-shot WARN so operators know they're sharing one secret
-    for two purposes (JWT signing + tile URL signing).
+    When tile_signing_secret is None, fall back to jwt_secret_key and warn
+    once that one secret serves two purposes (JWT signing and tile URL signing).
     """
     global _warned_fallback
-    # SecretStr implements __bool__ against the inner value, so `or` yields
-    # jwt_secret_key when tile_signing_secret is None or an empty SecretStr
-    # (already coerced to None by empty_str_to_none, checked defensively).
+    # SecretStr implements __bool__ against the inner value, so `or` below
+    # yields jwt_secret_key for None or an empty SecretStr.
     if settings.tile_signing_secret is None and not _warned_fallback:
         logger.warning(
             "tile_signing_secret_fallback",
@@ -49,10 +47,9 @@ def _get_signing_key() -> bytes:
 _MIN_VALIDITY_SECONDS: int = 60
 """Minimum number of seconds a minted token must be valid for.
 
-When the next 15-minute boundary is closer than this threshold the function
-skips to the FOLLOWING boundary so clients always have a meaningful validity
-window.  Previously a token minted 5 s before a boundary had only
-5 s validity — well below the client refresh floor — causing deterministic 403
+When the next 15-minute boundary is closer than this, the following boundary
+is used, so a token minted just before a boundary isn't left with a few
+seconds of validity, below the client refresh floor, which would cause 403
 bursts every 15 minutes.
 """
 
@@ -68,7 +65,7 @@ def round_expiry(
     Args:
         ttl_seconds: Boundary interval in seconds (default 900 = 15 min).
         min_validity: Minimum seconds of validity required; if the next
-            boundary is closer than this, the FOLLOWING boundary is used.
+            boundary is closer than this, the following boundary is used.
     """
     now = int(time.time())
     nxt = ((now // ttl_seconds) + 1) * ttl_seconds

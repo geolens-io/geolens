@@ -1175,7 +1175,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 114,
-        "backend/app/processing/ai/chat_service.py": 519,
+        "backend/app/processing/ai/chat_service.py": 488,
         "backend/app/platform/extensions/defaults.py": 75,
     }
     private_service_default_line_budget = 350
@@ -1203,8 +1203,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
-        "backend/app/processing/ai/chat_actions.py": 587,
-        "backend/app/processing/ai/chat_geojson.py": 440,
+        "backend/app/processing/ai/chat_actions.py": 545,
+        "backend/app/processing/ai/chat_geojson.py": 424,
         # Default adapters expose explicit extension contracts rather than catch-all shims.
         "backend/app/platform/extensions/defaults_ai_openai.py": 484,
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
@@ -1271,8 +1271,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_sharing.py": 435,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
-    "backend/app/modules/admin/router_operations.py": 332,
-    "backend/app/modules/settings/router_public.py": 175,
+    "backend/app/modules/admin/router_operations.py": 330,
+    "backend/app/modules/settings/router_public.py": 174,
 }
 
 
@@ -1282,7 +1282,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission
     # and the records of an admin's raw seed source and restricted public intent.
-    "backend/app/processing/ingest/manifest_service.py": 1271,
+    "backend/app/processing/ingest/manifest_service.py": 1266,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1354,
@@ -1308,14 +1308,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # splitting.
     "backend/app/api/main.py": 1690,
     # Map request validation and published response contracts share this module.
-    "backend/app/modules/catalog/maps/schemas.py": 1393,
+    "backend/app/modules/catalog/maps/schemas.py": 1381,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1710,
+    "backend/app/processing/ingest/router.py": 1686,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1327,12 +1327,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1904,
+    "backend/app/processing/ingest/tasks_common.py": 1874,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
     # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1592,
+    "backend/app/processing/ingest/tasks_reupload.py": 1582,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1354,76 +1354,76 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/persistent_config.py": 1166,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
-    "backend/app/processing/embeddings/backfill.py": 919,
+    "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1653,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1704,
+    "backend/app/processing/ingest/tasks_vrt.py": 1584,
     # Raster replacement owns conversion, read-back and published-object cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 614,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1168,
+    "backend/app/processing/ingest/tasks_vector.py": 1113,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1603,
+    "backend/app/processing/ingest/ogr.py": 1572,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
-    "backend/app/modules/auth/oauth/service.py": 1150,
+    "backend/app/modules/auth/oauth/service.py": 1130,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1028,
+    "backend/app/modules/admin/service.py": 1014,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1566,
+    "backend/app/processing/ingest/service.py": 1556,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 672,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1867,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1454,
+    "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1543,
+    "backend/app/modules/catalog/maps/router.py": 1515,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1736,
+    "backend/app/modules/catalog/features/router.py": 1726,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1423,
+    "backend/app/modules/catalog/search/router.py": 1419,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2860,
+    "backend/app/processing/tiles/router.py": 2841,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
     # release and truncated-reply refusal around provider calls and SSE failures.
-    "backend/app/processing/ai/service.py": 1015,
+    "backend/app/processing/ai/service.py": 991,
     # Record children share ownership, ordering and publication-version invariants.
-    "backend/app/modules/catalog/records/service.py": 877,
+    "backend/app/modules/catalog/records/service.py": 853,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1572,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
-    "backend/app/processing/export/artifact_cache.py": 620,
+    "backend/app/processing/export/artifact_cache.py": 616,
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
-    "backend/app/modules/embed_tokens/service.py": 1016,
+    "backend/app/modules/embed_tokens/service.py": 988,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1649,
+    "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1172,

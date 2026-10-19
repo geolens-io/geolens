@@ -192,8 +192,8 @@ router = APIRouter(
 def _fallback_allowed_extensions() -> list[str]:
     """Allowed extensions when the persistent_config DB lookup fails.
 
-    Read from ``settings``, not a frozen literal, so this
-    fallback doesn't silently reject formats added since it was written.
+    Read from ``settings``, not a frozen literal, so the fallback accepts
+    every format the settings allow.
     """
     return list(settings.allowed_extensions_list)
 
@@ -225,9 +225,9 @@ def _without_standalone_vrt(extensions: str) -> str:
 async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
     """Load allowed upload extensions with a DB-failure fallback.
 
-    A transient DB hiccup during config lookup previously crashed the
-    entire upload endpoint with a 500. Fall back to a safe default and
-    log the failure so operators can investigate without losing uploads.
+    A transient DB error during the lookup must not fail the upload
+    endpoint with a 500, so this falls back to the settings list and logs
+    the failure for operators.
     """
     try:
         return await get_allowed_extensions_list(db)
@@ -575,7 +575,7 @@ async def complete_presigned_upload(
     # Delete AFTER commit, never before — deleting first would leave a
     # failed commit with the staging object already gone and the frozen copy
     # orphaned. Swept later by reapers resolving the key via
-    # `owned_presigned_staging_key`; grep that name rather than trusting a list here.
+    # `owned_presigned_staging_key`.
     # S3 cannot revoke a presigned URL, so reaping is the only remedy; the purge
     # is a backstop that exempts the newest complete job.
     await _cleanup_saved_upload(s3_key, str(job.id))
@@ -614,10 +614,10 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     The stamp does no I/O. It does not download the object or run
     ``validate_raster_crs``, which a presigned completion cannot afford:
     presigned uploads exist for the multi-GB case, and preview downloads
-    the same object seconds later anyway. The only reader of the resulting
-    ``crs_missing`` flag is ``ingest_raster``, which has the raster's
-    metadata in hand and derives the answer there. So the stamp costs no
-    I/O and both upload endpoints can afford it, including a presigned
+    the same object seconds later anyway. ``ingest_raster`` reads the
+    CRS from the raster's own metadata rather than from anything stamped
+    here, so nothing is lost by skipping the check. Both upload
+    endpoints can therefore afford the stamp, including a presigned
     completion request.
     """
     job.user_metadata = raster_stamped_metadata(job.user_metadata, filename)
@@ -653,8 +653,8 @@ async def upload_file(
     try:
         await _refuse_upload(db, file.filename, kind)
 
-        # Enforce max_file_size_bytes at HTTP entry. Symmetric
-        # with the presigned path's request-time check (:158-165).
+        # Enforce max_file_size_bytes at HTTP entry, as the presigned
+        # path does at request time.
         max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
         max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -736,8 +736,8 @@ async def upload_file(
             status="pending",
             message="File uploaded and ready for preview",
         )
-    # N4: HTTPException must be caught and re-raised BEFORE the bare
-    # `except Exception` below — otherwise a deliberate 4xx from a
+    # HTTPException must be caught and re-raised before the bare
+    # `except Exception` below, or a deliberate 4xx from a
     # downstream helper is rewritten as a generic 500.
     except HTTPException:
         raise
@@ -848,7 +848,7 @@ async def preview_file(
             detail="Job already processed",
         )
 
-    # Resolve S3 key to local file
+    # A presigned upload has no file until its completion lands.
     if not job.file_path:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -892,9 +892,9 @@ async def preview_file(
             detail=refusal_detail(exc),
         )
     except UnsafeUploadError as exc:
-        # Server-authored refusal naming
-        # what was blocked and what to upload instead — a presigned upload's
-        # first whole-file check, since the presign door only sees a header probe.
+        # A server-authored refusal naming what was blocked and what to upload
+        # instead: a presigned upload's first whole-file check, since the
+        # presign door only sees a header probe.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=refusal_detail(exc),
@@ -1017,9 +1017,9 @@ async def commit_import(
     try:
         commit = Subclass.model_validate(request.model_dump())
     except ValidationError as e:
-        # The only enforcement of the import-commit door's
-        # shared safe-token rule. The flat CommitRequest declares the cap the
-        # contract publishes; a charset rule has no JSON Schema spelling.
+        # The only enforcement of the import-commit door's shared safe-token
+        # rule. The flat CommitRequest declares the cap the contract publishes;
+        # a charset rule has no JSON Schema spelling.
         raise RequestValidationError(errors=e.errors())
 
     # Dash-guard and all_layers membership check for the commit's
@@ -1048,14 +1048,10 @@ async def commit_import(
         size = await staged_pointcloud_bytes(job.file_path)
         await check_upload_quota(db, user.id, size, None)
 
-    # Extract the credential only for service commits (ServiceCommitRequest is
-    # the only subclass carrying one). Never persisted.
-    #
-    # The structured `auth` object is what the layers below
-    # take; the flat `token` is its deprecated bearer spelling, and a body that
-    # sets both is refused by the model rather than having one win by an
-    # ordering nobody wrote down. Same precedence rule, same conversion helper
-    # and same 422 codes as the other four doors.
+    # Only ServiceCommitRequest carries a credential; it is never persisted.
+    # The structured `auth` object is what the layers below take; the flat
+    # `token` is its deprecated bearer spelling, and the model refuses a body
+    # that sets both. Same conversion helper and 422 codes as the other doors.
     token = getattr(commit, "token", None)
     credential = credential_or_422(
         service_credential_from_request(getattr(commit, "auth", None), token),
@@ -1079,11 +1075,9 @@ async def commit_import(
     await admit_import_commit(db, job, observed_attempt_id, commit_metadata)
     staged_path = job.file_path
 
-    # Dispatch routing lives in the service layer.
-    # queue_ingest_job owns the orphan-guard: a defer failure flips the job
-    # to failed and raises 503. The staged file is deleted
-    # only when that flip landed: a missed one means a worker owns the job
-    # and is reading it.
+    # queue_ingest_job owns the orphan guard: a defer failure flips the job to
+    # failed and raises 503. The staged file is deleted only when that flip
+    # landed; a missed one means a worker owns the job and is reading it.
     try:
         await queue_ingest_job(job, str(user.id), db=db, credential=credential)
     except DeferFailed as exc:
@@ -1136,22 +1130,20 @@ async def commit_fan_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job already processed (status='{job.status}')",
         )
-    # The attempt id observed WITH the pending status above —
-    # the terminal CAS at the bottom is fenced on this pair, so a cancel (or
-    # any other writer) landing between here and there loses or wins cleanly.
+    # The attempt id observed with the pending status above: the terminal CAS
+    # is fenced on this pair, so a cancel (or any other writer) landing in
+    # between loses or wins cleanly.
     parent_attempt_id = job.attempt_id
 
-    # Fan-out jobs inherit the parent job's user_metadata, so a
-    # visibility seeded there (defense-in-depth — the request schema itself
-    # has no visibility field) goes through the same admin gate as a commit.
+    # Fan-out jobs inherit the parent's user_metadata, so a visibility seeded
+    # there (the request schema has no visibility field) goes through the same
+    # admin gate as a commit.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     await check_public_visibility_allowed(
         db, user, (job.user_metadata or {}).get("visibility")
     )
 
-    # layer_name normalisation lives in
-    # layer_guard.known_layer_names, shared with the single-layer commit endpoint.
     known_layer_names = known_layer_names_for(job)
 
     unknown = [
@@ -1169,13 +1161,11 @@ async def commit_fan_out(
             },
         )
 
-    # The terminal transition is the MUTEX for the whole
-    # dispatch — CASed and COMMITTED before the first child exists. Creating
-    # children first and CASing after would leave a window where a
-    # cancel could commit mid-loop and let an already-deferred child
-    # complete before the post-loop cleanup's CAS refused it. With the flip
-    # first, a cancel either wins outright or arrives after the parent is
-    # terminal and gets 409, with every child individually cancellable.
+    # The terminal transition is the mutex for the whole dispatch, CASed and
+    # committed before the first child exists. Otherwise a cancel could commit
+    # mid-loop while an already-deferred child completes. With the flip first,
+    # a cancel either wins outright or arrives after the parent is terminal
+    # and gets 409, with every child individually cancellable.
     if not await claim_fan_out_parent(db, job, parent_attempt_id=parent_attempt_id):
         await db.rollback()
         await db.refresh(job)
@@ -1196,18 +1186,18 @@ async def commit_fan_out(
         result = await create_fan_out_jobs(job, layer, db)
         results.append(result)
 
-    # An all-failed dispatch (e.g. Procrastinate outage) must
-    # leave the parent retryable without a re-upload — a fenced CAS restore
-    # to `pending` that can only undo the flip THIS request wrote. Partial
-    # success keeps the parent `fanned_out`.
+    # An all-failed dispatch (e.g. a Procrastinate outage) leaves the parent
+    # retryable without a re-upload: a fenced CAS restore to `pending` that
+    # can only undo the flip this request wrote. Partial success keeps the
+    # parent `fanned_out`.
     queued_count = sum(1 for r in results if r.status == "queued")
     if queued_count == 0:
         restored = await restore_fan_out_parent_pending(
             db, job, parent_attempt_id=parent_attempt_id
         )
         if not restored:
-            # The undo matched no row, so a third writer holds the
-            # parent terminal and this 202 hides it. Never silent.
+            # The undo matched no row, so a third writer holds the parent
+            # terminal and this 202 hides it.
             logger.warning(
                 "fan_out_parent_restore_missed",
                 job_id=str(job.id),
@@ -1312,9 +1302,9 @@ async def bulk_register_tables(
     """
     from app.core.db import async_session
 
-    # Gate ONCE for the whole batch — any item requesting public
-    # visibility puts the request through the shared admin check before any
-    # table is registered (403, not a per-item error, so nothing partial runs).
+    # Gated once for the whole batch: any item requesting public visibility
+    # puts the request through the admin check before any table is registered
+    # (403, not a per-item error, so nothing partial runs).
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     if any(item.visibility == "public" for item in request.tables):
@@ -1401,10 +1391,9 @@ async def add_vrt_source(
     Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
     """
-    # The resulting member set is STAGED on the VrtGeneration row;
-    # vrt_source_links is written by the regeneration task's own transaction
-    # that publishes the artifact. Comment, not docstring — the docstring is
-    # published OpenAPI text, so editing it would churn openapi.json and SDKs.
+    # The resulting member set is staged on the VrtGeneration row;
+    # vrt_source_links is written by the regeneration task's transaction that
+    # publishes the artifact.
     from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
 
@@ -1465,9 +1454,9 @@ async def add_vrt_source(
     )
     await check_vrt_members(db, vrt_dataset, adding=request.source_dataset_id)
 
-    # Admission, not a status read — the check and the
-    # flip below are one sequence, and only the lock inside makes it atomic.
-    # After the write check, so a caller who may not mutate cannot hold it.
+    # Admission, not a status read: the check and the flip are one sequence,
+    # and only the lock inside makes it atomic. After the write check, so a
+    # caller who may not mutate cannot hold it.
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1522,13 +1511,11 @@ async def add_vrt_source(
             detail=[e.model_dump(mode="json") for e in errors],
         )
 
-    # STAGE the intended post-mutation member set on the
-    # generation rather than writing vrt_source_links here — that table is
-    # the catalog's statement about what's actually served, and
-    # regenerate_vrt applies the staged set in the same transaction that
-    # swaps the artifact. The full set is staged (not "add this id"), so
-    # applying it is an idempotent replace. Order IS position: read ORDER BY
-    # position above, new source appends — applying renumbers 0..n-1, closing gaps.
+    # Staged on the generation rather than written to vrt_source_links, which
+    # states what is served; regenerate_vrt applies the staged set in the
+    # transaction that swaps the artifact. The full set is staged, so applying
+    # it is an idempotent replace. Order is position: the new source appends,
+    # and applying renumbers 0..n-1.
     staged_source_ids = [str(sid) for sid in existing_source_ids] + [
         str(request.source_dataset_id)
     ]
@@ -1544,9 +1531,9 @@ async def add_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
-        # Dispatch the STAGED task name, not the legacy one — a
-        # pre-#1327 worker lacks it and fails loudly (TaskNotFound) instead
-        # of silently rebuilding from live links and dropping this add.
+        # The staged task name: a worker that predates staged sets lacks it
+        # and fails loudly (TaskNotFound) instead of rebuilding from live
+        # links and dropping this add.
         await defer_async_with_tenant(
             regenerate_vrt_staged,
             job_id=str(job.id),
@@ -1556,17 +1543,15 @@ async def add_vrt_source(
             triggered_by=str(user.id),
         )
 
-    # No link-table rollback needed — with the member set staged
-    # on the generation, an undispatched request never touched
-    # vrt_source_links, so nothing needs to be put back.
+    # An undispatched request never touched vrt_source_links, so nothing
+    # needs to be put back.
     rollback = make_ingest_job_failed_rollback(
         job, message_prefix="Failed to queue VRT regeneration"
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
-    # "queued", not "added". The catalog's source list still
-    # describes the VRT being served; the addition becomes part of it when the
-    # regeneration publishes the artifact that contains it.
+    # "queued", not "added": the catalog's source list still describes the
+    # VRT being served until the regeneration publishes.
     return VrtMutationResponse(
         job_id=job.id, message="Source add queued, VRT regeneration started"
     )
@@ -1590,10 +1575,8 @@ async def remove_vrt_source(
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
     """
-    # The post-removal member set is STAGED on the VrtGeneration
-    # row; vrt_source_links is written by the regeneration task in the same
-    # transaction that publishes the artifact without the removed member. Kept
-    # out of the docstring — see the note on add_vrt_source.
+    # The post-removal member set is staged on the VrtGeneration row, as in
+    # add_vrt_source.
     from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
 
@@ -1638,10 +1621,8 @@ async def remove_vrt_source(
             },
         )
 
-    # Read the current member set ONCE, in order — the count
-    # guard, the "is it linked" guard and the staged post-removal set are
-    # three questions about one set, and a single ordered read keeps them
-    # from disagreeing.
+    # Read once, in order: the count guard, the "is it linked" guard and the
+    # staged set ask about one set, so a single read keeps them consistent.
     links_result = await db.execute(
         text(
             "SELECT source_dataset_id FROM catalog.vrt_source_links "
@@ -1665,10 +1646,8 @@ async def remove_vrt_source(
             detail="Source not linked to this VRT",
         )
 
-    # STAGE the post-removal member set on the generation rather
-    # than deleting the link row now — the link table keeps describing what's
-    # served until regenerate_vrt applies the staged set in the same
-    # transaction that publishes the artifact. Applying renumbers 0..n-1.
+    # Staged rather than deleting the link row now, as in add_vrt_source.
+    # Applying renumbers 0..n-1.
     staged_source_ids = [
         str(sid) for sid in existing_source_ids if sid != source_dataset_id
     ]
@@ -1678,15 +1657,13 @@ async def remove_vrt_source(
         db, vrt_asset, dataset_id, staged_source_ids, user
     )
 
-    # Commit + dispatch with orphan guard (Theme H) — a Procrastinate outage
-    # would otherwise leave the VRT 'regenerating' until sweep_stale_vrt_assets
-    # reconciled it, 409-ing every mutation; the rollback below releases it.
+    # Dispatch with the orphan guard: a Procrastinate outage would otherwise
+    # leave the VRT 'regenerating' until sweep_stale_vrt_assets reconciled it,
+    # 409-ing every mutation; the rollback below releases it.
     await db.commit()
 
     async def _defer() -> None:
-        # Staged task name, same reasoning as the add endpoint —
-        # a pre-#1327 worker must refuse this delivery rather than rebuild
-        # the composition it cannot see.
+        # The staged task name, as in add_vrt_source.
         await defer_async_with_tenant(
             regenerate_vrt_staged,
             job_id=str(job.id),
@@ -1696,15 +1673,14 @@ async def remove_vrt_source(
             triggered_by=str(user.id),
         )
 
-    # Nothing to re-insert — the link row was never deleted, and
-    # the post-removal set is staged on the generation until the artifact
-    # swap, so an undispatched request leaves the catalog untouched.
+    # The link row was never deleted, so an undispatched request leaves the
+    # catalog untouched.
     rollback = make_ingest_job_failed_rollback(
         job, message_prefix="Failed to queue VRT regeneration"
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
-    # "queued", not "removed" — see the add endpoint's tail.
+    # "queued", not "removed", as in add_vrt_source.
     return VrtMutationResponse(
         job_id=job.id, message="Source removal queued, VRT regeneration started"
     )

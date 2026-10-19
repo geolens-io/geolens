@@ -1,24 +1,23 @@
 """Which OGR drivers may open a staged upload.
 
-GDAL picks a driver by asking every
-registered one whether it recognises the bytes, and several answer yes to a
-document that is really a set of instructions — OGR_VRT follows
-``<SrcDataSource>`` to an arbitrary path or URL, and WFS identifies on
-CONTENT alone (``<OGRWFSDataSource>`` bytes, any filename, any archive
-depth) then fetches whatever ``<URL>`` names.
+GDAL picks a driver by asking every registered one whether it recognises the
+bytes, and several answer yes to a document that is really a set of
+instructions: OGR_VRT follows ``<SrcDataSource>`` to an arbitrary path or URL,
+and WFS identifies on content alone (``<OGRWFSDataSource>`` bytes, any
+filename, any archive depth) then fetches whatever ``<URL>`` names.
 
 So the upload path stops asking: the declared extension becomes repeated
 ``-if <driver>`` arguments restricting which drivers may even be attempted.
 An unlisted extension falls back to ``ARCHIVE_MEMBER_DRIVERS`` (local-file
-drivers only — the conservative direction).
+drivers only, the conservative direction).
 
-Primary layer. ``gdal_vector_safe_env`` (``processing/raster/vrt.py``) is
-the independent second layer, catching what an allowlist can't: a driver
-short name containing a space can't be named in ``GDAL_SKIP`` at all, and a
-driver added to a future base image is excluded here only by omission.
-Neither reaches SQLite/GPKG — GPKG is a legitimate upload format and a
-database written in full by the uploader — so the third layer there is a
-content check, ``validate_content_directives`` in ``ingest/validation.py``.
+This is the primary layer. ``gdal_vector_safe_env``
+(``platform/gdal_env.py``) is the independent second layer, catching what an
+allowlist can't: a driver short name containing a space can't be named in
+``GDAL_SKIP`` at all, and a driver added to a future base image is excluded
+here only by omission. Neither reaches SQLite/GPKG (a legitimate upload format
+and a database written in full by the uploader), so the third layer there is
+a content check, ``validate_content_directives`` in ``ingest/validation.py``.
 Every extension mapped to ``GPKG``/``SQLite`` here must also appear in that
 module's ``SQLITE_FAMILY_EXTENSIONS`` (``tests/test_rule2_structural.py``
 asserts it).
@@ -38,7 +37,7 @@ from app.core.upload_errors import UnsafeUploadError
 # opens ``/vsizip/<archive>`` and the member could be any of these. Names
 # are GDAL driver short names as ``ogrinfo --formats`` prints them; an
 # unrecognised name is a WARNING to GDAL, not an error, so
-# ``tests/test_gdal_driver_clamp.py`` pins each one against a real GDAL.
+# ``tests/test_gdal_driver_clamp_1846.py`` pins each one against a real GDAL.
 ARCHIVE_MEMBER_DRIVERS: tuple[str, ...] = (
     "ESRI Shapefile",
     "OpenFileGDB",
@@ -67,9 +66,8 @@ ARCHIVE_MEMBER_DRIVERS: tuple[str, ...] = (
     "GTFS",
 )
 
-# Declared upload extension -> the drivers that may be attempted for it.
-# One table, shared by every vector GDAL subprocess on the upload path, so a
-# second copy can't drift from this one.
+# Declared upload extension -> the drivers that may be attempted for it,
+# shared by every vector GDAL subprocess on the upload path.
 #
 # ``.kmz`` is a zipped KML LIBKML opens directly (not via ``/vsizip``), so it
 # gets the KML pair, not the archive union. ``.parquet`` is absent on

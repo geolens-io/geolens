@@ -66,10 +66,7 @@ IngestJobWarning = (
 def make_reserved_rename_warning(
     renames: list[dict],
 ) -> ReservedRenameWarning:
-    """Build a ``reserved_rename`` warning from ``rename_reserved_columns`` output.
-
-    Narrows the helper's untyped ``list[dict]`` to the producer contract.
-    """
+    """Build a ``reserved_rename`` warning from ``rename_reserved_columns`` output."""
     return ReservedRenameWarning(
         kind="reserved_rename",
         details=[
@@ -103,11 +100,9 @@ def make_mercator_clip_warning(
 ) -> MercatorClipWarning | None:
     """Build a ``mercator_clip`` warning, or None when no geometry was lost.
 
-    The Web Mercator clamp can silently empty geometry (e.g. a
-    point at lat -89.95 becomes ``MULTIPOINT EMPTY``); this makes that
-    user-visible instead. Any shape other than the documented counts dict
-    (stale producer, monkeypatched stand-in) yields None rather than a
-    malformed warning — same fail-closed stance the router takes on re-parse.
+    The Web Mercator clamp can silently empty geometry (a point at lat -89.95
+    becomes ``MULTIPOINT EMPTY``); this makes that visible. Any shape other
+    than the counts dict yields None rather than a malformed warning.
     """
     if not isinstance(clip, dict):
         return None
@@ -115,8 +110,8 @@ def make_mercator_clip_warning(
     clipped = clip.get("clipped_features")
     if not isinstance(dropped, int) or not isinstance(clipped, int):
         return None
-    # A skipped clip lost no data but must not be silent either —
-    # the dataset now carries geometry the Mercator clamp never inspected.
+    # A skipped clip lost no data, but the dataset now carries geometry the
+    # Mercator clamp never inspected.
     skipped = clip.get("clip_skipped") is True
     if dropped <= 0 and clipped <= 0 and not skipped:
         return None
