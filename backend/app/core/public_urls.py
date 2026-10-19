@@ -271,6 +271,13 @@ def _is_env_only() -> bool:
     return settings.env_only_config
 
 
+def _request_host_origin(request: Request) -> str | None:
+    """``scheme://host`` the request reached GeoLens at, from the proxy headers."""
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
+    return f"{scheme}://{host}" if host else None
+
+
 def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]:
     """``(origin, allowlist_rejected)`` derived from the request headers.
 
@@ -301,11 +308,9 @@ def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]
                 candidate = f"{parsed.scheme}://{parsed.netloc}"
 
     if candidate is None:
-        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-        host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
-        if not host:
+        candidate = _request_host_origin(request)
+        if candidate is None:
             return None, False
-        candidate = f"{scheme}://{host}"
 
     # Enforce CORS allowlist when configured.
     allowlist = settings.cors_origins_list
@@ -650,15 +655,17 @@ async def get_browser_reachable_app_url(
     """The app URL for a document another machine loads, such as an exported style.
 
     A loopback app URL only reaches the caller's own machine. When the request
-    arrived from a non-loopback host, as with the shipped Compose default
-    ``http://localhost:8080`` left on a remote install, the request-derived
-    origin is returned instead.
+    reached GeoLens at a non-loopback host, as with the shipped Compose default
+    ``http://localhost:8080`` left on a remote install, that host is returned
+    instead. It comes from Host/X-Forwarded-Host, never Origin or Referer,
+    which name the consumer's page on a cross-origin fetch.
     """
     app_url = await get_public_app_url(db, request=request)
-    if not is_loopback_host(urlsplit(app_url).hostname or ""):
+    if request is None or not is_loopback_host(urlsplit(app_url).hostname or ""):
         return app_url
-    derived = resolve_public_app_url(None, None, None, request=request)
-    if is_loopback_host(urlsplit(derived).hostname or ""):
+    derived = _request_host_origin(request)
+    hostname = urlsplit(derived).hostname if derived else None
+    if not hostname or is_loopback_host(hostname) or hostname in ("api", "backend"):
         return app_url
     return derived
 

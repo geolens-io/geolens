@@ -577,6 +577,8 @@ async def test_get_public_api_url_propagates_for_external_use_flag(
         ("http://localhost:8080", "maps.example.com", "https://maps.example.com"),
         # Local dev: the caller is on the same machine, so loopback is right.
         ("http://localhost:8080", "localhost:8080", "http://localhost:8080"),
+        # Internal container hostnames aren't reachable from outside.
+        ("http://localhost:8080", "api:8000", "http://localhost:8080"),
         # A real configured URL always wins, sub-path included.
         (
             "https://example.com/geolens",
@@ -601,3 +603,29 @@ async def test_browser_reachable_app_url_replaces_a_remote_loopback_default(
     )
 
     assert url == expected
+
+
+async def test_browser_reachable_app_url_ignores_a_cross_origin_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A style fetched from another site's page names GeoLens, not that page."""
+    monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
+    monkeypatch.setattr(
+        public_urls.settings, "public_app_url", "http://localhost:8080", raising=False
+    )
+    monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "cors_allowed_origins", "", raising=False)
+    request = _make_request(
+        netloc="api:8000",
+        headers={
+            "host": "maps.example.com",
+            "x-forwarded-host": "maps.example.com",
+            "x-forwarded-proto": "https",
+            "origin": "https://consumer.example",
+        },
+    )
+
+    url = await public_urls.get_browser_reachable_app_url(AsyncMock(), request=request)
+
+    assert url == "https://maps.example.com"
