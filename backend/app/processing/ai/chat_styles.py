@@ -85,7 +85,7 @@ async def _build_data_driven_style(
     allowed_tables = {layer.dataset_table_name for layer in layers}
 
     if mode == "categorical":
-        return await _build_categorical_style(
+        style = await _build_categorical_style(
             session,
             table_name,
             column,
@@ -95,18 +95,26 @@ async def _build_data_driven_style(
             allowed_tables=allowed_tables,
             port=port,
         )
-    return await _build_graduated_style(
-        session,
-        table_name,
-        column,
-        ramp,
-        method,
-        class_count,
-        color_prop,
-        layer_id,
-        allowed_tables=allowed_tables,
-        port=port,
-    )
+    else:
+        style = await _build_graduated_style(
+            session,
+            table_name,
+            column,
+            ramp,
+            method,
+            class_count,
+            color_prop,
+            layer_id,
+            allowed_tables=allowed_tables,
+            port=port,
+        )
+    if render_mode == "cluster" and "error" not in style:
+        # Bubbles aggregate many features, so only the loose points take the colours.
+        style["note"] = (
+            "Cluster bubbles keep the cluster colour; "
+            "these colours show on the unclustered points."
+        )
+    return style
 
 
 async def _build_categorical_style(
