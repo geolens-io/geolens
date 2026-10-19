@@ -290,6 +290,13 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
             "error": f"'{render_as}' is not available for this layer. "
             f"Choose one of: {', '.join(allowed) or 'none'}."
         }
+    # Mirrors canUseClusterSource in frontend components/builder/cluster-source.ts.
+    if render_as == "cluster" and target.layer_type not in (
+        None,
+        "vector_geolens",
+        "geojson",
+    ):
+        return {"error": "Only vector layers can be clustered."}
     if render_as == "cluster" and target.feature_count is None:
         return {"error": "Cluster needs the layer's feature count, which is unknown."}
     if render_as == "extrusion-3d":

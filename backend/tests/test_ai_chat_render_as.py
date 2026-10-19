@@ -109,6 +109,7 @@ async def test_leaving_heatmap_clears_the_render_mode():
             "Raster layers",
         ),
         (_layer(feature_count=None), {"render_as": "cluster"}, "feature count"),
+        (_layer(layer_type="pointcloud"), {"render_as": "cluster"}, "vector layers"),
         (
             _layer(geometry_type="Polygon"),
             {"render_as": "extrusion-3d", "height_column": "name"},
