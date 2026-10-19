@@ -22,33 +22,27 @@ from app.core.runtime.staging import ensure_staging_ready
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
-# conversions of unchanged data must produce identical bytes. #1532 keys its
-# cached artifact on that digest, so a writer that stamps the conversion
-# moment makes every rebuild look new: the selection stays permanently
-# `contested`, and a contested selection refuses every range.
-# `test_export_artifact_cache_1532.py` pins it per format; a new format needs
-# a row there.
+# Every export format must produce identical bytes for two conversions of
+# unchanged data. The artifact cache keys on that digest, so a writer that
+# stamps the conversion moment makes every rebuild look new: the selection
+# stays permanently `contested`, and a contested selection refuses every range.
+# `test_export_artifact_cache_1532.py` pins it per format.
 
-# The DOS epoch, the earliest a ZIP directory entry can represent. Chosen for
-# the same reason as the GeoPackage constant below: it reads as "deliberately
-# not a time" rather than as a wrong one.
+# The DOS epoch, the earliest a ZIP directory entry can represent; like the
+# GeoPackage constant below, it reads as "deliberately not a time".
 _ZIP_FIXED_DATE_TIME = (1980, 1, 1, 0, 0, 0)
 
-# Regular file, 0644. Pinned rather than copied from the member's own stat
-# so the archive can't move with the worker's umask.
-#
-# DEFLATE level is deliberately NOT pinned: zlib's default already resolves
-# to a fixed level, and level 6 output can itself change between zlib
-# releases, so pinning would read as a guarantee against an upgrade while
-# providing none.
+# Regular file, 0644. Pinned rather than copied from the member's own stat so
+# the archive can't move with the worker's umask. The DEFLATE level is not
+# pinned: zlib's default already resolves to a fixed level, and level 6 output
+# can itself change between zlib releases, so pinning would guarantee nothing.
 _ZIP_FIXED_EXTERNAL_ATTR = 0o100644 << 16
 
 # dBASE III header: byte 0 is the version, bytes 1..3 are the date of last
-# update as (year-1900, month, day). ogr2ogr writes TODAY, so two shapefile
-# exports differ across a midnight boundary; rewritten to 1970-01-01.
-# Nothing reads this field (verified with ogrinfo), and it's three bytes at
-# a fixed offset, so it's patched in place rather than reopened via GDAL.
+# update as (year-1900, month, day). ogr2ogr writes today's date, so two
+# shapefile exports differ across a midnight boundary; it is rewritten to
+# 1970-01-01. Nothing reads this field (verified with ogrinfo), and it's three
+# bytes at a fixed offset, so it's patched in place rather than reopened via GDAL.
 _DBF_LAST_UPDATE_OFFSET = 1
 _DBF_FIXED_LAST_UPDATE = bytes((70, 1, 1))
 
@@ -63,10 +57,9 @@ def _normalize_dbf_date(path: str) -> None:
 def _zip_export_files(temp_dir: str, zip_path: str) -> None:
     """DEFLATE every ``export.*`` sidecar in *temp_dir* into *zip_path*.
 
-    Byte-deterministic for unchanged data (see rule above): sorted member
-    order (not the filesystem's), a fixed ``date_time`` instead of mtime,
-    and stated mode/compression level. Blocking; call via
-    ``asyncio.to_thread``.
+    Byte-deterministic for unchanged data: sorted member order (not the
+    filesystem's), a fixed ``date_time`` instead of mtime, and stated
+    mode/compression level. Blocking; call via ``run_in_thread_draining``.
     """
     members = sorted(f for f in os.listdir(temp_dir) if f.startswith("export."))
     for fname in members:
@@ -80,17 +73,16 @@ def _zip_export_files(temp_dir: str, zip_path: str) -> None:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = _ZIP_FIXED_EXTERNAL_ATTR
             # ZipFile.open() decides ZIP64 from `file_size` alone (normally
-            # filled by ZipFile.write() from stat). Without it, a >2 GiB
-            # member (#435's payload) raises instead of writing.
+            # filled by ZipFile.write() from stat); without it a >2 GiB member
+            # raises instead of writing.
             info.file_size = os.path.getsize(member)
             with open(member, "rb") as src, zf.open(info, "w") as dest:
                 # Streamed rather than read whole, for the same size reason.
                 shutil.copyfileobj(src, dest)
 
 
-# The timestamp ogr2ogr stamps into every GeoPackage,
-# rewritten to this. Any constant works; the GeoPackage epoch reads as
-# "deliberately not a time" rather than a wrong one.
+# The timestamp ogr2ogr stamps into every GeoPackage is rewritten to this. Any
+# constant works; the epoch reads as "deliberately not a time".
 _GPKG_FIXED_LAST_CHANGE = "1970-01-01T00:00:00.000Z"
 
 # Tables the GeoPackage spec gives a timestamp column. `gpkg_contents` is always
@@ -101,35 +93,31 @@ _GPKG_TIMESTAMP_COLUMNS = (
     ("gpkg_metadata_reference", "timestamp"),
 )
 
-# SQLite header fields the row-level UPDATEs can't reach —
-# offset 24-27 (change counter, bumped per write txn) and offset 92-95
-# ("version-valid-for") diverge between otherwise-identical builds because
-# ogr2ogr's write path commits a different transaction count under load.
-#
-# A FIXED value here would defeat what SQLite
-# uses the pair for (detecting another connection's write) — derive it from
-# the NORMALIZED content instead so unchanged data still gets one counter.
+# SQLite header fields the row-level UPDATEs can't reach: offset 24-27 (change
+# counter, bumped per write txn) and offset 92-95 ("version-valid-for")
+# diverge between otherwise-identical builds because ogr2ogr's write path
+# commits a different transaction count under load. A fixed value would defeat
+# what SQLite uses the pair for (detecting another connection's write), so it
+# is derived from the normalized content instead.
 _GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
 _GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
-# Never write a change counter of 0 — a brand-new SQLite file always starts
-# at 1, so 0 does not read as "a real counter value" even though the format
-# does not forbid it.
+# Never write a change counter of 0: a brand-new SQLite file starts at 1, so 0
+# doesn't read as a real counter value even though the format allows it.
 _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
-# Read/hash size for _stamp_gpkg_header_counters.
-# `export_dataset` supports multi-GB GeoPackages under a 2 GiB container
-# memory cap, so loading the whole file into a bytearray (then hashlib
-# copying it again) could OOM. Both header offsets sit inside byte 0..99, so
-# only the FIRST chunk ever needs the zero substitution.
+# Read/hash size for _stamp_gpkg_header_counters. `export_dataset` supports
+# multi-GB GeoPackages under a 2 GiB container memory cap, so loading the whole
+# file into a bytearray (then hashlib copying it again) could OOM. Both header
+# offsets sit inside byte 0..99, so only the first chunk needs the zeroing.
 _GPKG_HASH_CHUNK_SIZE = 1024 * 1024
 
 
 def _stamp_gpkg_header_counters(path: str) -> None:
     """Derive the SQLite change-counter pair from the file's own content.
 
-    A fixed value would defeat detection of a
-    different connection's write; the digest of the file with both counter
-    fields zeroed keeps unchanged data on one counter, changed data on
-    another. Streamed in chunks, same digest as hashing whole.
+    A fixed value would defeat detection of a different connection's write;
+    the digest of the file with both counter fields zeroed keeps unchanged
+    data on one counter and changed data on another. Streamed in chunks, with
+    the same digest as hashing whole.
 
     Must run after the sqlite3 connection that did the row-level normalize
     is closed, or writing through it would re-bump the counter it just set.
@@ -171,21 +159,17 @@ def normalize_gpkg_timestamps(path: str) -> None:
     """Make a GeoPackage byte-deterministic for unchanged data.
 
     ogr2ogr stamps ``gpkg_contents.last_change`` with the conversion moment,
-    so identical data produces different bytes, and #1532's cache keys the
-    artifact on that digest — every rebuild looked like a DIFFERENT
-    representation, so `contested` never cleared and ranges never worked
-    for the default format.
+    so identical data produces different bytes, and the artifact cache keys on
+    that digest: every rebuild would look like a different representation,
+    `contested` would never clear and ranges would never work.
 
-    Fixes the digest rather than the rule (distinct bytes SHOULD refuse
-    ranges): GeoPackage was reporting a change that hadn't happened.
-    GeoJSON already has this property; this gives it to GPKG.
+    This fixes the digest, not the rule (distinct bytes should refuse ranges).
+    Uses stdlib sqlite3, not GDAL: the columns are spec-defined, and the driver
+    would mean a second full open and rewrite.
 
-    Uses stdlib sqlite3, not GDAL: the columns are spec-defined, and the
-    driver would mean a second full open and rewrite.
-
-    Also derives the SQLite header's change-counter pair from
-    the normalized content (see `_stamp_gpkg_header_counters`), since that
-    counter is bumped by transaction COUNT, not content.
+    Also derives the SQLite header's change-counter pair from the normalized
+    content (see `_stamp_gpkg_header_counters`), since that counter is bumped
+    by transaction count, not content.
     """
     import sqlite3
 
@@ -204,21 +188,19 @@ def normalize_gpkg_timestamps(path: str) -> None:
         conn.commit()
         normalized = True
     except sqlite3.DatabaseError:
-        # Not a SQLite file at all ("file is not a database"). This step
-        # exists for cache determinism, not validation: an unopenable
-        # GeoPackage is served exactly as ogr2ogr wrote it, and the cache
-        # degrades to whole responses on a contested selection rather than a
-        # wrong one.
+        # Not a SQLite file at all ("file is not a database"). This step is
+        # for cache determinism, not validation: an unopenable GeoPackage is
+        # served exactly as ogr2ogr wrote it, and the cache degrades to whole
+        # responses on a contested selection rather than a wrong one.
         logger.warning("gpkg_timestamp_normalize_skipped", path=path, exc_info=True)
     finally:
-        # Closed explicitly: sqlite3's context manager commits but does NOT
+        # Closed explicitly: sqlite3's context manager commits but doesn't
         # close, and an open handle can leave the rollback journal beside the
-        # file — which the caller is about to hash.
+        # file the caller is about to hash.
         conn.close()
 
     if normalized:
-        # Only for a file genuinely opened as SQLite above — the
-        # DatabaseError branch already left the invalid file untouched.
+        # The DatabaseError branch leaves an invalid file untouched.
         _stamp_gpkg_header_counters(path)
 
 
@@ -233,8 +215,8 @@ def file_response_content_disposition(filename: str) -> str:
     """Restate starlette ``FileResponse``'s Content-Disposition rule.
 
     HEAD has no file to hand ``FileResponse``, so the rule (quoted
-    ``filename=``, or RFC 5987 ``filename*=`` when percent-encoding
-    changes it) is restated here — not ``safe_content_disposition()``,
+    ``filename=``, or RFC 5987 ``filename*=`` when percent-encoding changes
+    it) is restated here rather than using ``safe_content_disposition()``,
     which always appends ``filename*`` and would disagree with GET.
     """
     quoted = quote(filename)
@@ -287,10 +269,10 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # Explicit pre-parse rejection of meta-SQL tokens.
-    # validate_where_ast catches most via AST allowlist, but
-    # string-level rejection gives a clearer error and defends against a
-    # sqlglot parser bug tolerating a terminator/comment in a future release.
+    # Pre-parse rejection of meta-SQL tokens. validate_where_ast catches most
+    # via its AST allowlist, but string-level rejection gives a clearer error
+    # and defends against a sqlglot parser bug tolerating a terminator or
+    # comment.
     if ";" in where:
         raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
@@ -304,17 +286,16 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if quote_count % 2 != 0:
         raise ValueError("WHERE clause has unbalanced single-quotes")
 
-    # AST gate — rejects UNION / subqueries / DDL /
-    # function calls that the identifier-only regex below cannot detect.
+    # AST gate: rejects UNION, subqueries, DDL and function calls that the
+    # identifier-only regex below cannot detect.
     validate_where_ast(where)
 
-    # Existing identifier check (defense-in-depth): rejects column names that
-    # aren't in this dataset's column_info, even if they parse cleanly.
+    # Defense in depth: rejects column names that aren't in this dataset's
+    # column_info, even if they parse cleanly.
     valid_names = {col["name"].lower() for col in column_info}
 
-    # The walk reads the code around the values, never the values.
-    # A quoted literal is never a column reference, so masking it here cannot
-    # admit an unknown column before, after or between literals.
+    # A quoted literal is never a column reference, so masking it cannot admit
+    # an unknown column before, after or between literals.
     identifiers = _IDENTIFIER_RE.findall(mask_quoted_literals(where))
     for ident in identifiers:
         upper = ident.upper()
@@ -329,10 +310,10 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
 
 
 def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
-    """The download's ``(filename, media_type)``, derived WITHOUT exporting.
+    """The download's ``(filename, media_type)``, derived without exporting.
 
-    Both HEAD and GET read this one function so they can't
-    advertise different Content-Type/Disposition.
+    HEAD and GET both read this so they can't advertise different
+    Content-Type/Disposition.
 
     Raises:
         ValueError: If format_key is not a supported export format.
@@ -350,8 +331,8 @@ def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
         raise ValueError(f"Unsupported export format: {format_key}")
 
     fmt = FORMAT_MAP[format_key]
-    # Shapefile is a multi-file format: ogr2ogr writes the export.* sidecars
-    # and the caller ships the zip, so the DOWNLOAD's extension is .zip while
+    # Shapefile is multi-file: ogr2ogr writes the export.* sidecars and the
+    # caller ships the zip, so the download's extension is .zip while
     # fmt["ext"] stays the driver's .shp.
     ext = ".zip" if format_key == "shp" else fmt["ext"]
     return f"{safe_name}{ext}", fmt["media"]
@@ -403,22 +384,20 @@ async def export_dataset(
     ext = fmt["ext"]
     filename, media_type = export_descriptor(dataset_name, format_key)
 
-    # Verify export staging root before creating per-export temp directories.
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
     )
 
-    # Create unique temp directory for this export.
     export_id = uuid.uuid4().hex
     temp_dir_path = exports_root / export_id
     temp_dir_path.mkdir(parents=False, exist_ok=False)
     temp_dir = str(temp_dir_path)
 
-    # Own the temp directory until a path is handed back to the
-    # caller — a failure or cancelled request otherwise left it behind.
+    # Own the temp directory until a path is handed back to the caller; a
+    # failure or cancelled request would otherwise leave it behind.
     try:
         if format_key == "shp":
-            # Shapefile: ogr2ogr outputs multiple files, then zip them
+            # ogr2ogr outputs multiple files, which are then zipped.
             ogr_output = os.path.join(temp_dir, f"export{ext}")
             await run_ogr2ogr_export(
                 table_name,
@@ -433,10 +412,10 @@ async def export_dataset(
                 deadline=deadline,
             )
 
-            # Zip all export.* files. DEFLATE of a multi-GB
-            # shapefile is CPU-bound, so it runs off the event loop; drained on
-            # cancellation so the `except BaseException` rmtree below can't
-            # delete temp_dir while the zip thread still writes into it.
+            # DEFLATE of a multi-GB shapefile is CPU-bound, so it runs off the
+            # event loop, drained on cancellation so the `except BaseException`
+            # rmtree below can't delete temp_dir while the zip thread still
+            # writes into it.
             zip_path = os.path.join(temp_dir, filename)
             await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
@@ -453,25 +432,23 @@ async def export_dataset(
             bbox=bbox,
             where=where,
             format_key=format_key,
-            # Pmtiles is a single-file format, so THIS
-            # call is the one that must carry the extent-budgeted cap — the
-            # shp branch above can never be pmtiles.
+            # Pmtiles is single-file, so this call carries the extent-budgeted
+            # cap; the shp branch above is never pmtiles.
             pmtiles_maxzoom=pmtiles_maxzoom,
             deadline=deadline,
-            # CSV formula hardening exempts a leading
-            # sign only in columns the database calls numeric, so it needs
-            # types, not values. Empty for other formats or missing column_info.
+            # CSV formula hardening exempts a leading sign only in columns the
+            # database calls numeric, so it needs types, not values. Empty for
+            # other formats or missing column_info.
             numeric_columns=numeric_column_names(column_info),
         )
         if format_key == "gpkg":
-            # Off the event loop, like every other
-            # blocking step here — it is a SQLite write over a file that can be
+            # Off the event loop: a SQLite write over a file that can be
             # gigabytes.
             await run_in_thread_draining(normalize_gpkg_timestamps, output_path)
 
         return output_path, filename, media_type
     except BaseException:
-        # BaseException, not Exception: a client disconnect cancels this task, and
-        # asyncio.CancelledError inherits from BaseException on 3.8+.
+        # BaseException: a client disconnect cancels this task, and
+        # asyncio.CancelledError inherits from BaseException.
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise

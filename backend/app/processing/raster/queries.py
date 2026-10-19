@@ -20,8 +20,8 @@ def _row_to_meta(row: Any, *, include_vrt: bool, include_generation_id: bool) ->
     meta: dict = {
         "band_count": row.band_count,
         "epsg": row.epsg,
-        # Lets consumers render res_x/res_y honestly — degree
-        # resolutions must not be formatted as meters.
+        # Lets consumers render res_x/res_y honestly: degree resolutions must
+        # not be formatted as meters.
         "crs_is_geographic": facts["crs_is_geographic"],
         # Converts res_x/res_y to STAC's metres; None for a geographic or unknown CRS.
         "crs_metres_per_unit": facts["crs_metres_per_unit"],

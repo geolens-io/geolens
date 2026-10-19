@@ -7,7 +7,7 @@ and only a whole 200 can't splice two representations together.
 
 Exceptions: a rebuild that reproduced the only bytes the URL holds is
 sliced like the artifact it replaces; a Range starting at byte 0 is honoured
-on a fresh build (#1585, GDAL vsicurl's first request); ranges are answered
+on a fresh build (GDAL vsicurl's first request); ranges are answered
 whole for one TTL after a URL's bytes change; and a matching ``If-Range``
 (RFC 9110 13.1.5) is always honoured, since it proves what bytes the client
 already holds.
@@ -36,8 +36,8 @@ _FILE_CHUNK_BYTES = 1024 * 1024
 def artifact_headers(artifact: ExportArtifact) -> dict[str, str]:
     """Headers every response describing a stored artifact carries.
 
-    ``ETag`` is the artifact's digest, not a mtime-derived tag (#1532:
-    mtime changed between conversions of unchanged data). Uses
+    ``ETag`` is the artifact's digest, not a mtime-derived tag, which changed
+    between conversions of unchanged data. Uses
     ``file_response_content_disposition``, not ``safe_content_disposition``,
     so HEAD and GET agree byte for byte.
     """
@@ -52,7 +52,7 @@ def head_response(artifact: ExportArtifact) -> Response:
     """HEAD, answered from the artifact: a real Content-Length, no conversion.
 
     Without a real length, ``/vsicurl/`` retries with a ranged GET to learn
-    the size instead — costing a round trip and, before this fix, a rebuild.
+    the size, costing a round trip.
     """
     return Response(
         status_code=status.HTTP_200_OK,
@@ -76,16 +76,15 @@ def read_response(
     ``may_serve_range``: true only if these bytes were served before this
     request (gates the splice in the module docstring). ``leading_slice_ok``
     is the byte-0 exception, set only for a fresh build with no other live
-    representation. ``background`` must run AFTER the response.
+    representation. ``background`` must run after the response.
     """
     headers = artifact_headers(artifact)
 
-    # Evaluate If-Range before slicing — a client naming
-    # the previous artifact must not get a slice of the current one. Strong
-    # comparison, ignore-on-mismatch, per RFC 9110 13.1.5.
-    #
-    # A MATCHING If-Range outranks `may_serve_range`,
-    # since it proves what a bare Range after a rebuild cannot.
+    # If-Range is evaluated before slicing: a client naming the previous
+    # artifact must not get a slice of the current one. Strong comparison,
+    # ignore-on-mismatch, per RFC 9110 13.1.5. A matching If-Range outranks
+    # `may_serve_range`, since it proves what a bare Range after a rebuild
+    # cannot.
     proven = if_range is not None and range_bound_to_this_version(
         if_range, artifact.etag
     )

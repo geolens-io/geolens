@@ -1388,7 +1388,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1867,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1454,
+    "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1543,
     # Feature writes, single and batch, share the dataset guards, the database
@@ -1401,7 +1401,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2860,
+    "backend/app/processing/tiles/router.py": 2841,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1414,7 +1414,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_export.py": 1572,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
-    "backend/app/processing/export/artifact_cache.py": 620,
+    "backend/app/processing/export/artifact_cache.py": 616,
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
     "backend/app/modules/embed_tokens/service.py": 1016,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
