@@ -341,7 +341,8 @@ Python 3.10+ und `httpx` und lädt öffentliche Daten aus etwa einem Dutzend Que
 - Die unterstützte Installation mit Docker Compose läuft auf einem Host. Für Hochverfügbarkeit
   betreiben Sie mehrere Replikate von API, Worker, Frontend und Titiler an einer verwalteten
   PostgreSQL-Datenbank mit automatischem Failover, mit gemeinsamem Objektspeicher und einem
-  gemeinsamen Valkey- oder Redis-Cache.
+  gemeinsamen Valkey- oder Redis-Cache. Mit Azure Blob oder lokalem Speicher brauchen die API- und
+  Worker-Replikate zusätzlich ein gemeinsames Staging-Volume, denn nur S3 hält Uploads im Bucket.
   [geolens-deployments](https://github.com/geolens-io/geolens-deployments) enthält ein von der
   Community gepflegtes Helm-Chart, Terraform-Rezepte für AWS und Azure sowie Anleitungen für AWS,
   Azure, Google Cloud und DigitalOcean. GeoLens selbst clustert die Datenbank nicht und liest nicht

@@ -332,7 +332,9 @@ sizes and options.
 
 - The supported install, Docker Compose, runs on one host. For high availability, run several
   replicas of the API, worker, frontend and Titiler against a managed PostgreSQL with automatic
-  failover, shared object storage and one Valkey or Redis cache.
+  failover, shared object storage and one Valkey or Redis cache. With Azure Blob or local storage,
+  API and worker replicas also need a shared staging volume, since only S3 keeps uploads in the
+  bucket.
   [geolens-deployments](https://github.com/geolens-io/geolens-deployments) has a
   community-maintained Helm chart, Terraform recipes for AWS and Azure, and guides for AWS, Azure,
   Google Cloud and DigitalOcean. GeoLens itself doesn't cluster the database or read from replicas.

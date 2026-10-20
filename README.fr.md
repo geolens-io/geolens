@@ -342,7 +342,9 @@ donne les tailles et les options.
 - L’installation prise en charge, Docker Compose, tourne sur un seul hôte. Pour la haute
   disponibilité, exécutez plusieurs réplicas de l’API, du worker, du frontend et de Titiler sur une
   base PostgreSQL gérée avec basculement automatique, un stockage objet partagé et un seul cache
-  Valkey ou Redis. [geolens-deployments](https://github.com/geolens-io/geolens-deployments) propose
+  Valkey ou Redis. Avec Azure Blob ou le stockage local, les réplicas de l’API et du worker ont
+  aussi besoin d’un volume de staging partagé, car seul S3 garde les envois dans le bucket.
+  [geolens-deployments](https://github.com/geolens-io/geolens-deployments) propose
   un chart Helm maintenu par la communauté, des recettes Terraform pour AWS et Azure, et des guides
   pour AWS, Azure, Google Cloud et DigitalOcean. GeoLens ne met pas lui-même la base en cluster et
   ne lit pas depuis des réplicas.

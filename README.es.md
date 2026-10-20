@@ -339,7 +339,9 @@ Python 3.10+ y `httpx`, y descarga datos públicos de una docena de fuentes;
 - La instalación con soporte oficial, Docker Compose, se ejecuta en un solo host. Para alta
   disponibilidad, ejecuta varias réplicas de la API, el worker, el frontend y Titiler contra un
   PostgreSQL gestionado con conmutación por error automática, con almacenamiento de objetos
-  compartido y una única caché Valkey o Redis.
+  compartido y una única caché Valkey o Redis. Con Azure Blob o almacenamiento local, las réplicas
+  de la API y del worker necesitan además un volumen de staging compartido, porque solo S3 guarda
+  las subidas en el bucket.
   [geolens-deployments](https://github.com/geolens-io/geolens-deployments) tiene un chart de Helm
   mantenido por la comunidad, recetas de Terraform para AWS y Azure, y guías para AWS, Azure,
   Google Cloud y DigitalOcean. GeoLens no agrupa la base de datos en clúster ni lee de réplicas.
