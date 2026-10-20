@@ -343,11 +343,12 @@ donne les tailles et les options.
   disponibilité, exécutez plusieurs réplicas de l’API, du worker, du frontend et de Titiler sur une
   base PostgreSQL gérée avec basculement automatique, un stockage objet partagé et un seul cache
   Valkey ou Redis. Avec Azure Blob ou le stockage local, les réplicas de l’API et du worker ont
-  aussi besoin d’un volume de staging partagé, car seul S3 garde les envois dans le bucket.
-  [geolens-deployments](https://github.com/geolens-io/geolens-deployments) propose
-  un chart Helm maintenu par la communauté, des recettes Terraform pour AWS et Azure, et des guides
-  pour AWS, Azure, Google Cloud et DigitalOcean. GeoLens ne met pas lui-même la base en cluster et
-  ne lit pas depuis des réplicas.
+  aussi besoin d’un volume de staging partagé, car seul S3 garde les envois dans le bucket. Le
+  stockage local y conserve tous les fichiers, donc les réplicas de Titiler le montent aussi.
+  [geolens-deployments](https://github.com/geolens-io/geolens-deployments) propose un chart Helm
+  maintenu par la communauté, des recettes Terraform pour AWS et Azure, et des guides pour AWS,
+  Azure, Google Cloud et DigitalOcean. GeoLens ne met pas lui-même la base en cluster et ne lit pas
+  depuis des réplicas.
 - Une organisation par déploiement.
 - Le rendu du terrain suppose une élévation en mètres ; les autres unités verticales produisent un
   rendu exagéré.
