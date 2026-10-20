@@ -4,12 +4,15 @@ import asyncio
 import time
 import uuid
 from contextvars import ContextVar
-from typing import Any, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+if TYPE_CHECKING:
+    from app.platform.extensions.protocols import Notification
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -195,8 +198,8 @@ async def claim_health_alert(failing: list[str]) -> bool:
 
     cache = get_cache()
     token = uuid.uuid4().hex
-    async with _alert_claim_lock:
-        try:
+    try:
+        async with asyncio.timeout(HEALTH_TIMEOUT), _alert_claim_lock:
             if await cache.set_if_absent(
                 _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
             ):
@@ -206,9 +209,9 @@ async def claim_health_alert(failing: list[str]) -> bool:
             # replica sees recovery can release it.
             _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
             return _alert_claim_token is None
-        except Exception as exc:  # broad: a cache fault must not block the alert
-            logger.warning("health_alert_claim_failed", error=str(exc))
-            return True
+    except Exception as exc:  # broad: a cache fault or stall must not block the alert
+        logger.warning("health_alert_claim_failed", error=str(exc))
+        return True
 
 
 async def release_health_alert() -> None:
@@ -219,13 +222,24 @@ async def release_health_alert() -> None:
     global _alert_claim_token
     from app.platform.cache import get_cache
 
-    async with _alert_claim_lock:
-        token, _alert_claim_token = _alert_claim_token, None
-        if token is None:
-            return
-        cache = get_cache()
-        try:
+    try:
+        async with asyncio.timeout(HEALTH_TIMEOUT), _alert_claim_lock:
+            token, _alert_claim_token = _alert_claim_token, None
+            if token is None:
+                return
+            cache = get_cache()
             if await cache.get(_HEALTH_ALERT_KEY) == token:
                 await cache.delete(_HEALTH_ALERT_KEY)
-        except Exception as exc:  # broad: recovery must not fail on a cache fault
-            logger.warning("health_alert_release_failed", error=str(exc))
+    except Exception as exc:  # broad: recovery must not fail on a cache fault
+        logger.warning("health_alert_release_failed", error=str(exc))
+
+
+async def deliver_health_alert(build: "Callable[[], Notification]") -> None:
+    """Send the alert this process claimed.
+
+    A failed delivery gives the claim back, so another replica can alert.
+    """
+    from app.platform.notifications.events import emit_event_safe
+
+    if not await emit_event_safe(event_key="health_alert", build=build):
+        await release_health_alert()

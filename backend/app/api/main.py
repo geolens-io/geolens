@@ -1612,6 +1612,7 @@ async def health(request: Request):
         HEALTH_ALERT_COOLDOWN_SECS,
         check_health,
         claim_health_alert,
+        deliver_health_alert,
         release_health_alert,
     )
     from fastapi.responses import JSONResponse
@@ -1657,7 +1658,6 @@ async def health(request: Request):
             _last_health_alert_at = now
             from app.platform.notifications.events import (  # LAZY
                 build_event_notification,
-                emit_event_safe,
             )
 
             # One replica wins the shared key per window, so the fleet sends a
@@ -1665,8 +1665,7 @@ async def health(request: Request):
             if await claim_health_alert(failing):
                 _component = component
                 health_alert_task = BackgroundTask(
-                    emit_event_safe,
-                    event_key="health_alert",
+                    deliver_health_alert,
                     build=lambda: build_event_notification(
                         "health_alert",
                         subject=f"GeoLens health degraded: {_component}",
