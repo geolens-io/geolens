@@ -265,6 +265,7 @@ class TestHealthAlert:
         from app.platform.cache.memory import InMemoryCacheProvider
 
         monkeypatch.setattr(provider, "_cache_provider", InMemoryCacheProvider())
+        monkeypatch.setattr("app.observability.health.service._alert_claim_token", None)
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
@@ -366,6 +367,34 @@ class TestHealthAlert:
 
         # The second incident starts inside the first one's cooldown window.
         assert len(notify_calls) == 2
+
+    @pytest.mark.anyio
+    async def test_recovery_keeps_another_replicas_newer_claim(
+        self, monkeypatch
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        import app.api.main as main_mod
+        from app.observability.health import service as health_svc
+        from app.platform.cache import get_cache
+
+        monkeypatch.setattr(
+            health_svc,
+            "check_health",
+            AsyncMock(return_value={"status": "healthy", "providers": {}}),
+        )
+        # This process alerted for an earlier incident; another replica now
+        # holds the claim for a newer one.
+        monkeypatch.setattr(health_svc, "_alert_claim_token", "earlier")
+        await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, "newer", ttl=300)
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "degraded"
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        await _run_health(request)
+
+        assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) == "newer"
 
     @pytest.mark.anyio
     async def test_health_alert_fires_on_degraded_when_toggle_on(

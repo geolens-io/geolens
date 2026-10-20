@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import uuid
 from contextvars import ContextVar
 from typing import Any, Coroutine
 
@@ -168,6 +169,7 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
 
 HEALTH_ALERT_COOLDOWN_SECS = 300
 _HEALTH_ALERT_KEY = "health_alert:sent"
+_alert_claim_token: str | None = None
 
 
 async def claim_health_alert(failing: list[str]) -> bool:
@@ -179,16 +181,19 @@ async def claim_health_alert(failing: list[str]) -> bool:
     answers False when its write fails, and that must not swallow the alert.
     Without a reachable Redis the claim is per-process.
     """
+    global _alert_claim_token
     if "cache" in failing:
         return True
 
     from app.platform.cache import get_cache
 
     cache = get_cache()
+    token = uuid.uuid4().hex
     try:
         if await cache.set_if_absent(
-            _HEALTH_ALERT_KEY, 1, ttl=HEALTH_ALERT_COOLDOWN_SECS
+            _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
         ):
+            _alert_claim_token = token
             return True
         return await cache.get(_HEALTH_ALERT_KEY) is None
     except Exception as exc:  # broad: a cache fault must not block the alert
@@ -197,10 +202,21 @@ async def claim_health_alert(failing: list[str]) -> bool:
 
 
 async def release_health_alert() -> None:
-    """Drop the shared claim when this process sees recovery, so a new incident alerts."""
+    """Drop this process's own claim on recovery, so a new incident alerts.
+
+    A claim another replica took for a newer incident holds a different token
+    and stays.
+    """
+    global _alert_claim_token
+    token, _alert_claim_token = _alert_claim_token, None
+    if token is None:
+        return
+
     from app.platform.cache import get_cache
 
+    cache = get_cache()
     try:
-        await get_cache().delete(_HEALTH_ALERT_KEY)
+        if await cache.get(_HEALTH_ALERT_KEY) == token:
+            await cache.delete(_HEALTH_ALERT_KEY)
     except Exception as exc:  # broad: recovery must not fail on a cache fault
         logger.warning("health_alert_release_failed", error=str(exc))
