@@ -50,7 +50,7 @@ async def test_health_ready_returns_200_when_db_reachable(health_app):
 @pytest.mark.asyncio
 async def test_health_ready_returns_503_when_db_unreachable(health_app):
     mock_engine = MagicMock()
-    mock_engine.connect.side_effect = Exception("connection refused")
+    mock_engine.connect.side_effect = Exception("connection refused host=db.internal")
 
     with patch("app.observability.health.worker._get_engine", return_value=mock_engine):
         transport = ASGITransport(app=health_app)
@@ -60,7 +60,7 @@ async def test_health_ready_returns_503_when_db_unreachable(health_app):
     assert resp.status_code == 503
     body = resp.json()
     assert body["status"] == "not_ready"
-    assert "error" in body
+    assert "db.internal" not in str(body)
 
 
 @pytest.mark.asyncio
@@ -354,3 +354,13 @@ async def test_main_passes_install_signal_handlers_true():
 
     call_kwargs = mock_task_app.run_worker_async.call_args
     assert call_kwargs.kwargs.get("install_signal_handlers") is True
+
+
+def test_worker_readiness_does_not_use_the_shared_pool():
+    import app.core.db as db
+    from app.observability.health.worker import _get_engine
+
+    engine = _get_engine()
+
+    assert engine is not db.engine
+    assert engine.sync_engine.pool is not db.engine.sync_engine.pool

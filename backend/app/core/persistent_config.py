@@ -7,6 +7,7 @@ DB overrides are ignored and writes are blocked.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -499,6 +500,33 @@ LOG_LEVEL = _LogLevelConfig(
     tab="general",
     label="Log Level",
 )
+
+
+async def sync_log_level(session: AsyncSession) -> None:
+    """Apply the stored log level when this process's root logger differs.
+
+    ``_on_change`` runs only in the process that saved the setting; every
+    other API worker and replica converges here from its periodic loop.
+    """
+    value = (await LOG_LEVEL.get(session)).upper()
+    if logging.getLevelName(logging.getLogger().level) != value:
+        LOG_LEVEL._on_change(value)
+
+
+async def run_log_level_sync(interval_seconds: float = 30.0) -> None:
+    """Keep this process's log level in step with the shared setting."""
+    from app.core.db import async_session
+
+    while True:
+        try:
+            async with async_session() as session:
+                await sync_log_level(session)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # broad: the loop must survive a transient DB error
+            logger.warning("log_level_sync_failed", error=str(exc))
+        await asyncio.sleep(interval_seconds)
+
 
 LOG_JSON = PersistentConfig[bool](
     key="log_json",

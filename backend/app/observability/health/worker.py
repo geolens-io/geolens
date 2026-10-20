@@ -12,16 +12,18 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+logger = structlog.stdlib.get_logger(__name__)
+
 # Bind service field for worker log entries. Safe to call even if already bound
 # by the worker entrypoint -- bind_contextvars is idempotent (last call wins).
 structlog.contextvars.bind_contextvars(service="worker")
 
 
 def _get_engine():
-    """Lazy import to avoid triggering DB connection at module load time."""
-    from app.core.db import engine
+    """The readiness engine, so a saturated job pool cannot mark the worker unready."""
+    from app.observability.health.service import get_readiness_engine
 
-    return engine
+    return get_readiness_engine()
 
 
 async def liveness(request: Request) -> JSONResponse:
@@ -37,8 +39,9 @@ async def readiness(request: Request) -> JSONResponse:
             await conn.execute(text("SELECT 1"))
         return JSONResponse({"status": "ready"})
     except Exception as exc:  # broad: readiness probe must report any DB/connection failure as 503 rather than 500
+        logger.warning("worker_readiness_failed", error=str(exc))
         return JSONResponse(
-            {"status": "not_ready", "error": str(exc)},
+            {"status": "not_ready", "error": "database unavailable"},
             status_code=503,
         )
 

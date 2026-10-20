@@ -8,7 +8,7 @@ from typing import Any, Coroutine
 import structlog
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -49,6 +49,19 @@ async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
         return result
 
 
+_readiness_engine: AsyncEngine | None = None
+
+
+def get_readiness_engine() -> AsyncEngine:
+    """Engine whose pool is separate from the request pool's."""
+    global _readiness_engine
+    if _readiness_engine is None:
+        from app.core.db.session import build_readiness_engine
+
+        _readiness_engine = build_readiness_engine()
+    return _readiness_engine
+
+
 async def _check_database() -> None:
     """Probe database health by exercising a real query path.
 
@@ -57,9 +70,7 @@ async def _check_database() -> None:
     We additionally run a tiny query against the catalog schema so a
     genuinely unhealthy DB (hung, wrong schema, locks) reports as degraded.
     """
-    from app.core.db import engine  # late-bind for tests
-
-    async with engine.connect() as conn:
+    async with get_readiness_engine().connect() as conn:
         await conn.execute(text("SELECT 1"))
         # Exercise the search_path and catalog schema. `to_regclass` returns
         # NULL rather than raising for a missing table, so the value itself
@@ -153,3 +164,29 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
     finally:
         _include_probe_errors.reset(token)
     return {p.slug: result for p, result in zip(providers, probes)}
+
+
+HEALTH_ALERT_COOLDOWN_SECS = 300
+_HEALTH_ALERT_KEY = "health_alert:sent"
+
+
+async def claim_health_alert(failing: list[str]) -> bool:
+    """True when this process should send the degraded-health alert.
+
+    With a shared cache (Redis) one replica wins the key per cooldown window,
+    so the fleet sends a single alert; the key expires on its own. A failing
+    cache bypasses the claim, since its errors make ``set_if_absent`` answer
+    False and would swallow the alert. Without Redis the key is per-process.
+    """
+    if "cache" in failing:
+        return True
+
+    from app.platform.cache import get_cache
+
+    try:
+        return await get_cache().set_if_absent(
+            _HEALTH_ALERT_KEY, 1, ttl=HEALTH_ALERT_COOLDOWN_SECS
+        )
+    except Exception as exc:  # broad: a cache fault must not block the alert
+        logger.warning("health_alert_claim_failed", error=str(exc))
+        return True

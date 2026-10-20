@@ -1,4 +1,9 @@
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
@@ -31,6 +36,36 @@ else:
     )
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
+
+
+def build_readiness_engine() -> AsyncEngine:
+    """Engine for readiness probes, with a one-connection pool of its own.
+
+    Probes must not queue behind request traffic, or pool exhaustion would
+    fail every replica's probe at once. Behind an external pooler the pooler
+    owns pooling, so the shared kwargs (NullPool) are kept.
+    """
+    pool_keys = (
+        "poolclass",
+        "pool_size",
+        "max_overflow",
+        "pool_timeout",
+        "pool_recycle",
+    )
+    kwargs = {k: v for k, v in _engine_kwargs.items() if k not in pool_keys}
+    if settings.db_use_external_pooler:
+        kwargs["poolclass"] = NullPool
+    else:
+        kwargs.update(
+            pool_size=1,
+            max_overflow=0,
+            pool_timeout=2,
+            pool_recycle=settings.db_pool_recycle,
+            pool_pre_ping=True,
+        )
+    return create_async_engine(settings.database_url, **kwargs)
+
+
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 # Register the tenant GUC hook on the global engine

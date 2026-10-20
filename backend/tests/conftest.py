@@ -261,6 +261,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _reset_readiness_engine():
+    """The readiness engine pools a connection bound to the loop that used it;
+    tests each get their own loop, so drop it after every test."""
+    yield
+    from app.observability.health import service
+
+    if service._readiness_engine is not None:
+        service._readiness_engine.sync_engine.dispose()
+        service._readiness_engine = None
+
+
+@pytest.fixture(autouse=True)
 def _dispose_shared_app_engine_after_test(request):
     """Clear the app's shared async-engine pool BEFORE AND AFTER each test in the
     modules listed in ``_DISPOSE_SHARED_ENGINE_MODULES`` (see that set for the why).

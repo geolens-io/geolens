@@ -258,6 +258,67 @@ class TestHealthAlert:
         yield
         limiter.enabled = prev
 
+    @pytest.fixture(autouse=True)
+    def _fresh_cache(self, monkeypatch):
+        """The shared alert key must not leak between tests."""
+        from app.platform.cache import provider
+        from app.platform.cache.memory import InMemoryCacheProvider
+
+        monkeypatch.setattr(provider, "_cache_provider", InMemoryCacheProvider())
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("failing", "expected_alerts"),
+        [
+            # Another replica already holds the shared claim.
+            ("database", 0),
+            # A cache outage makes the claim unreliable, so the alert still goes out.
+            ("cache", 1),
+        ],
+    )
+    async def test_health_alert_with_a_held_shared_claim(
+        self, monkeypatch, failing, expected_alerts
+    ) -> None:
+        monkeypatch.setattr("app.core.config.settings.notify_on_health_alert", True)
+        monkeypatch.setattr(
+            "app.core.config.settings.notification_admin_email", "admin@example.com"
+        )
+        from app.observability.health import service as health_svc
+        from app.platform.cache import get_cache
+        from app.platform.notifications import events as events_mod
+
+        notify_calls: list = []
+
+        async def _capture_notify(n):
+            notify_calls.append(n)
+
+        monkeypatch.setattr(events_mod, "notify", _capture_notify)
+        monkeypatch.setattr(
+            health_svc,
+            "check_health",
+            AsyncMock(
+                return_value={
+                    "status": "degraded",
+                    "providers": {failing: {"status": "error"}},
+                }
+            ),
+        )
+        await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, 1, ttl=300)
+
+        import app.api.main as main_mod
+
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "healthy"
+
+        from unittest.mock import MagicMock
+
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+        response = await _run_health(request)
+
+        assert response.status_code == 503
+        assert len(notify_calls) == expected_alerts
+
     @pytest.mark.anyio
     async def test_health_alert_fires_on_degraded_when_toggle_on(
         self, monkeypatch

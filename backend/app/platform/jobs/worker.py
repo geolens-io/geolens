@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
+from app.core.persistent_config import run_log_level_sync
 from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import (
     ensure_staging_ready,
@@ -635,6 +636,7 @@ async def main() -> None:
     # to claim a credential the API's downtime expired. EXPIRE is idempotent,
     # so the two hosts overlapping is cheap.
     credential_renewal_task = asyncio.create_task(renew_credentials_periodically())
+    log_level_task = asyncio.create_task(run_log_level_sync())
 
     try:
         shutdown_timeout = settings.worker_shutdown_timeout
@@ -716,6 +718,7 @@ async def main() -> None:
         memory_metrics_task.cancel()
         pool_metrics_task.cancel()
         credential_renewal_task.cancel()
+        log_level_task.cancel()
         health_task.cancel()
         try:
             await asyncio.gather(
@@ -723,6 +726,7 @@ async def main() -> None:
                 memory_metrics_task,
                 pool_metrics_task,
                 credential_renewal_task,
+                log_level_task,
                 health_task,
                 return_exceptions=True,
             )
