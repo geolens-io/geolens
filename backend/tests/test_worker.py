@@ -324,9 +324,10 @@ async def test_main_does_not_warn_when_worker_queues_lists_the_drain_queue():
     assert warnings == []
 
 
-@pytest.mark.asyncio
-async def test_main_passes_install_signal_handlers_true():
-    """main() should pass install_signal_handlers=True to run_worker_async."""
+async def _run_worker_main(*extra_patches) -> MagicMock:
+    """Run the worker's main() with its startup stubbed; returns the task app."""
+    from contextlib import ExitStack
+
     from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
@@ -336,24 +337,50 @@ async def test_main_passes_install_signal_handlers_true():
     mock_task_app.open_async.return_value = mock_open
     mock_task_app.run_worker_async = AsyncMock()
 
-    with (
-        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
-        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
-        patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # Storage/cache/edition init now lives inside the shared bootstrap()
-        # helper that worker.main() delegates to — patch it (not the old inline calls).
-        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
-        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
-        patch(
-            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
-        ),
-        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
-        patch("app.processing.ingest.tasks.task_app", mock_task_app),
-    ):
+    with ExitStack() as stack:
+        for p in (
+            patch(
+                "app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock
+            ),
+            patch(
+                "app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock
+            ),
+            patch("app.platform.jobs.worker.ensure_staging_ready"),
+            # Storage/cache/edition init now lives inside the shared bootstrap()
+            # helper that worker.main() delegates to — patch it (not the old inline calls).
+            patch(
+                "app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock
+            ),
+            patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
+            patch(
+                "app.observability.metrics.jobs.update_job_metrics",
+                new_callable=AsyncMock,
+            ),
+            patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
+            patch("app.processing.ingest.tasks.task_app", mock_task_app),
+            *extra_patches,
+        ):
+            stack.enter_context(p)
         await main()
+    return mock_task_app
+
+
+@pytest.mark.asyncio
+async def test_main_passes_install_signal_handlers_true():
+    """main() should pass install_signal_handlers=True to run_worker_async."""
+    mock_task_app = await _run_worker_main()
 
     call_kwargs = mock_task_app.run_worker_async.call_args
     assert call_kwargs.kwargs.get("install_signal_handlers") is True
+
+
+@pytest.mark.asyncio
+async def test_main_keeps_the_log_level_in_step_with_the_setting():
+    sync = AsyncMock()
+
+    await _run_worker_main(patch("app.core.persistent_config.run_log_level_sync", sync))
+
+    sync.assert_called_once()
 
 
 def test_worker_readiness_does_not_use_the_shared_pool():

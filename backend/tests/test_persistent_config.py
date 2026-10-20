@@ -2254,3 +2254,17 @@ async def test_sync_log_level_applies_a_level_saved_by_another_process(monkeypat
     finally:
         root.setLevel(original)
         pc.apply_http_logger_levels(logging.getLevelName(original))
+
+
+@pytest.mark.anyio
+async def test_the_api_warmer_applies_the_shared_log_level():
+    """Structural, because the warmer is a closure inside the API lifespan."""
+    import inspect
+
+    from app.api import main
+
+    source = inspect.getsource(main.lifespan)
+    start = source.index("async def _rate_limit_warmer")
+    end = source.index("rate_limit_warmer_task = asyncio.create_task", start)
+
+    assert "await sync_log_level(session)" in source[start:end]
