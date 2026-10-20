@@ -369,6 +369,35 @@ class TestHealthAlert:
         assert len(notify_calls) == 2
 
     @pytest.mark.anyio
+    async def test_recovery_releases_a_claim_another_replica_took(
+        self, monkeypatch
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        import app.api.main as main_mod
+        from app.observability.health import service as health_svc
+        from app.platform.cache import get_cache
+
+        degraded = {
+            "status": "degraded",
+            "providers": {"database": {"status": "error"}},
+        }
+        healthy = {"status": "healthy", "providers": {}}
+        monkeypatch.setattr(
+            health_svc, "check_health", AsyncMock(side_effect=[degraded, healthy])
+        )
+        await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, "other", ttl=300)
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "healthy"
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        await _run_health(request)
+        await _run_health(request)
+
+        assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
+
+    @pytest.mark.anyio
     async def test_recovery_keeps_another_replicas_newer_claim(
         self, monkeypatch
     ) -> None:

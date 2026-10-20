@@ -195,17 +195,19 @@ async def claim_health_alert(failing: list[str]) -> bool:
         ):
             _alert_claim_token = token
             return True
-        return await cache.get(_HEALTH_ALERT_KEY) is None
+        # Remember the incident another replica claimed, so whichever replica
+        # sees recovery can release it.
+        _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
+        return _alert_claim_token is None
     except Exception as exc:  # broad: a cache fault must not block the alert
         logger.warning("health_alert_claim_failed", error=str(exc))
         return True
 
 
 async def release_health_alert() -> None:
-    """Drop this process's own claim on recovery, so a new incident alerts.
+    """Drop the claim for the incident this process saw, so a new incident alerts.
 
-    A claim another replica took for a newer incident holds a different token
-    and stays.
+    A claim taken for a newer incident holds a different token and stays.
     """
     global _alert_claim_token
     token, _alert_claim_token = _alert_claim_token, None
