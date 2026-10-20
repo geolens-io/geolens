@@ -174,19 +174,23 @@ async def claim_health_alert(failing: list[str]) -> bool:
     """True when this process should send the degraded-health alert.
 
     With a shared cache (Redis) one replica wins the key per cooldown window,
-    so the fleet sends a single alert; the key expires on its own. A failing
-    cache bypasses the claim, since its errors make ``set_if_absent`` answer
-    False and would swallow the alert. Without Redis the key is per-process.
+    so the fleet sends a single alert; the key expires on its own. Only a
+    stored key counts as another replica's claim: ``set_if_absent`` also
+    answers False when its write fails, and that must not swallow the alert.
+    Without a reachable Redis the claim is per-process.
     """
     if "cache" in failing:
         return True
 
     from app.platform.cache import get_cache
 
+    cache = get_cache()
     try:
-        return await get_cache().set_if_absent(
+        if await cache.set_if_absent(
             _HEALTH_ALERT_KEY, 1, ttl=HEALTH_ALERT_COOLDOWN_SECS
-        )
+        ):
+            return True
+        return await cache.get(_HEALTH_ALERT_KEY) is None
     except Exception as exc:  # broad: a cache fault must not block the alert
         logger.warning("health_alert_claim_failed", error=str(exc))
         return True

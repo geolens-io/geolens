@@ -268,16 +268,18 @@ class TestHealthAlert:
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
-        ("failing", "expected_alerts"),
+        ("failing", "write_fails", "expected_alerts"),
         [
             # Another replica already holds the shared claim.
-            ("database", 0),
+            ("database", False, 0),
             # A cache outage makes the claim unreliable, so the alert still goes out.
-            ("cache", 1),
+            ("cache", False, 1),
+            # A failed write is not a claim, so the alert still goes out.
+            ("database", True, 1),
         ],
     )
     async def test_health_alert_with_a_held_shared_claim(
-        self, monkeypatch, failing, expected_alerts
+        self, monkeypatch, failing, write_fails, expected_alerts
     ) -> None:
         monkeypatch.setattr("app.core.config.settings.notify_on_health_alert", True)
         monkeypatch.setattr(
@@ -303,7 +305,17 @@ class TestHealthAlert:
                 }
             ),
         )
-        await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, 1, ttl=300)
+        if write_fails:
+            from app.platform.cache import provider
+            from app.platform.cache.memory import InMemoryCacheProvider
+
+            class _WriteFails(InMemoryCacheProvider):
+                async def set_if_absent(self, key, value, ttl=300, *, security=False):
+                    return False
+
+            monkeypatch.setattr(provider, "_cache_provider", _WriteFails())
+        else:
+            await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, 1, ttl=300)
 
         import app.api.main as main_mod
 
