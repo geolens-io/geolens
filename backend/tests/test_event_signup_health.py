@@ -398,6 +398,47 @@ class TestHealthAlert:
         assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
 
     @pytest.mark.anyio
+    async def test_recovery_waits_for_an_in_flight_claim(self, monkeypatch) -> None:
+        import asyncio
+        from unittest.mock import MagicMock
+
+        import app.api.main as main_mod
+        from app.observability.health import service as health_svc
+        from app.platform.cache import get_cache, provider
+        from app.platform.cache.memory import InMemoryCacheProvider
+
+        entered, proceed = asyncio.Event(), asyncio.Event()
+
+        class _SlowClaim(InMemoryCacheProvider):
+            async def set_if_absent(self, key, value, ttl=300, *, security=False):
+                entered.set()
+                await proceed.wait()
+                return await super().set_if_absent(key, value, ttl, security=security)
+
+        monkeypatch.setattr(provider, "_cache_provider", _SlowClaim())
+        degraded = {
+            "status": "degraded",
+            "providers": {"database": {"status": "error"}},
+        }
+        healthy = {"status": "healthy", "providers": {}}
+        monkeypatch.setattr(
+            health_svc, "check_health", AsyncMock(side_effect=[degraded, healthy])
+        )
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "healthy"
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        claiming = asyncio.create_task(_run_health(request))
+        await entered.wait()
+        recovering = asyncio.create_task(_run_health(request))
+        await asyncio.sleep(0)
+        proceed.set()
+        await asyncio.gather(claiming, recovering)
+
+        assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
+
+    @pytest.mark.anyio
     async def test_recovery_keeps_another_replicas_newer_claim(
         self, monkeypatch
     ) -> None:

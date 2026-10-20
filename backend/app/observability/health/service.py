@@ -170,6 +170,8 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
 HEALTH_ALERT_COOLDOWN_SECS = 300
 _HEALTH_ALERT_KEY = "health_alert:sent"
 _alert_claim_token: str | None = None
+# A recovery must not run between a claim's write and its token being stored.
+_alert_claim_lock = asyncio.Lock()
 
 
 async def claim_health_alert(failing: list[str]) -> bool:
@@ -189,19 +191,20 @@ async def claim_health_alert(failing: list[str]) -> bool:
 
     cache = get_cache()
     token = uuid.uuid4().hex
-    try:
-        if await cache.set_if_absent(
-            _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
-        ):
-            _alert_claim_token = token
+    async with _alert_claim_lock:
+        try:
+            if await cache.set_if_absent(
+                _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
+            ):
+                _alert_claim_token = token
+                return True
+            # Remember the incident another replica claimed, so whichever
+            # replica sees recovery can release it.
+            _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
+            return _alert_claim_token is None
+        except Exception as exc:  # broad: a cache fault must not block the alert
+            logger.warning("health_alert_claim_failed", error=str(exc))
             return True
-        # Remember the incident another replica claimed, so whichever replica
-        # sees recovery can release it.
-        _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
-        return _alert_claim_token is None
-    except Exception as exc:  # broad: a cache fault must not block the alert
-        logger.warning("health_alert_claim_failed", error=str(exc))
-        return True
 
 
 async def release_health_alert() -> None:
@@ -210,15 +213,15 @@ async def release_health_alert() -> None:
     A claim taken for a newer incident holds a different token and stays.
     """
     global _alert_claim_token
-    token, _alert_claim_token = _alert_claim_token, None
-    if token is None:
-        return
-
     from app.platform.cache import get_cache
 
-    cache = get_cache()
-    try:
-        if await cache.get(_HEALTH_ALERT_KEY) == token:
-            await cache.delete(_HEALTH_ALERT_KEY)
-    except Exception as exc:  # broad: recovery must not fail on a cache fault
-        logger.warning("health_alert_release_failed", error=str(exc))
+    async with _alert_claim_lock:
+        token, _alert_claim_token = _alert_claim_token, None
+        if token is None:
+            return
+        cache = get_cache()
+        try:
+            if await cache.get(_HEALTH_ALERT_KEY) == token:
+                await cache.delete(_HEALTH_ALERT_KEY)
+        except Exception as exc:  # broad: recovery must not fail on a cache fault
+            logger.warning("health_alert_release_failed", error=str(exc))
