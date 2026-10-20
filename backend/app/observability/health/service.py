@@ -63,15 +63,19 @@ def get_readiness_engine() -> AsyncEngine:
     return _readiness_engine
 
 
-async def _check_database() -> None:
+async def _check_database(engine: AsyncEngine | None = None) -> None:
     """Probe database health by exercising a real query path.
 
     A plain ``SELECT 1`` only verifies the connection pool; it does not
     detect a hung database, broken search_path, or missing catalog schema.
     We additionally run a tiny query against the catalog schema so a
     genuinely unhealthy DB (hung, wrong schema, locks) reports as degraded.
+    ``engine`` defaults to the request pool; readiness passes its own.
     """
-    async with get_readiness_engine().connect() as conn:
+    if engine is None:
+        from app.core.db import engine  # late-bind for tests
+
+    async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
         # Exercise the search_path and catalog schema. `to_regclass` returns
         # NULL rather than raising for a missing table, so the value itself
@@ -131,7 +135,7 @@ async def check_readiness() -> dict[str, str]:
     every replica, so neither decides whether one API process can take
     traffic; ``check_health`` still reports both.
     """
-    database = await _probe("database", _check_database())
+    database = await _probe("database", _check_database(get_readiness_engine()))
     return {"status": "ready" if database["status"] == "ok" else "not_ready"}
 
 

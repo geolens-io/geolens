@@ -16,11 +16,11 @@ from httpx import ASGITransport, AsyncClient
 from app.observability.health import service
 
 
-async def _answers() -> None:
+async def _answers(*_engine) -> None:
     return None
 
 
-async def _unreachable() -> None:
+async def _unreachable(*_engine) -> None:
     raise ConnectionError("unreachable")
 
 
@@ -101,6 +101,21 @@ async def test_ready_when_the_catalog_table_resolves(monkeypatch):
     )
 
     assert await service.check_readiness() == {"status": "ready"}
+
+
+@pytest.mark.anyio
+async def test_general_health_leaves_the_readiness_pool_to_readiness(monkeypatch):
+    """`/health` traffic must not queue a readiness probe behind its one slot."""
+    import app.core.db as db
+
+    monkeypatch.setattr(db, "engine", _Engine("catalog.datasets"))
+    monkeypatch.setattr(service, "get_readiness_engine", lambda: _Engine(None))
+    monkeypatch.setattr(service, "_check_cache", _answers)
+    monkeypatch.setattr(service, "_check_storage", _answers)
+
+    result = await service.check_health()
+
+    assert result["providers"]["database"]["status"] == "ok"
 
 
 def test_readiness_engine_is_not_the_shared_engine():
