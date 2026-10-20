@@ -88,7 +88,7 @@ the answer to that finding.
 **Guard:** never enable `python-slugify`'s `[unidecode]` extra. It pulls
 `Unidecode`, which is GPL-only, and no election is available there.
 
-## certifi 2026.2.25 — MPL-2.0
+## certifi 2026.10.19 — MPL-2.0
 
 Mozilla's CA root certificate bundle. Reaches the image through `httpx`,
 `httpcore`, `requests`, `rasterio` and `sentry-sdk` — effectively every
@@ -102,9 +102,9 @@ The package ships unmodified. MPL-2.0 is file-level copyleft: the obligation
 attaches to the MPL-licensed files, not to GeoLens code that merely imports
 them, and §3.3 explicitly permits distributing a Larger Work under other terms.
 Obligations discharged here: the license text is included, the files are
-unmodified, and the corresponding source is `certifi==2026.2.25` from PyPI,
+unmodified, and the corresponding source is `certifi==2026.10.19` from PyPI,
 identifiable from `/app/uv.lock` and installable with
-`uv pip download certifi==2026.2.25 --no-binary :all:`.
+`uv pip download certifi==2026.10.19 --no-binary :all:`.
 
 ## Scope
 
