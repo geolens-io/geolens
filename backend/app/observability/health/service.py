@@ -194,3 +194,13 @@ async def claim_health_alert(failing: list[str]) -> bool:
     except Exception as exc:  # broad: a cache fault must not block the alert
         logger.warning("health_alert_claim_failed", error=str(exc))
         return True
+
+
+async def release_health_alert() -> None:
+    """Drop the shared claim when this process sees recovery, so a new incident alerts."""
+    from app.platform.cache import get_cache
+
+    try:
+        await get_cache().delete(_HEALTH_ALERT_KEY)
+    except Exception as exc:  # broad: recovery must not fail on a cache fault
+        logger.warning("health_alert_release_failed", error=str(exc))

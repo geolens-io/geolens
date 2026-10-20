@@ -332,6 +332,42 @@ class TestHealthAlert:
         assert len(notify_calls) == expected_alerts
 
     @pytest.mark.anyio
+    async def test_recovery_releases_the_shared_alert_claim(self, monkeypatch) -> None:
+        monkeypatch.setattr("app.core.config.settings.notify_on_health_alert", True)
+        monkeypatch.setattr(
+            "app.core.config.settings.notification_admin_email", "admin@example.com"
+        )
+        from unittest.mock import MagicMock
+
+        import app.api.main as main_mod
+        from app.observability.health import service as health_svc
+        from app.platform.notifications import events as events_mod
+
+        notify_calls: list = []
+
+        async def _capture_notify(n):
+            notify_calls.append(n)
+
+        monkeypatch.setattr(events_mod, "notify", _capture_notify)
+        degraded = {
+            "status": "degraded",
+            "providers": {"database": {"status": "error"}},
+        }
+        healthy = {"status": "healthy", "providers": {}}
+        check = AsyncMock(side_effect=[degraded, healthy, degraded])
+        monkeypatch.setattr(health_svc, "check_health", check)
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "healthy"
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        for _ in range(3):
+            await _run_health(request)
+
+        # The second incident starts inside the first one's cooldown window.
+        assert len(notify_calls) == 2
+
+    @pytest.mark.anyio
     async def test_health_alert_fires_on_degraded_when_toggle_on(
         self, monkeypatch
     ) -> None:

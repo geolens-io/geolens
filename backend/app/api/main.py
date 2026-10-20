@@ -1612,6 +1612,7 @@ async def health(request: Request):
         HEALTH_ALERT_COOLDOWN_SECS,
         check_health,
         claim_health_alert,
+        release_health_alert,
     )
     from fastapi.responses import JSONResponse
 
@@ -1678,6 +1679,8 @@ async def health(request: Request):
                 )
     else:
         # System is healthy: reset status so a future recurrence re-alerts.
+        if _last_health_status != "healthy":
+            await release_health_alert()
         _last_health_status = "healthy"
         _last_health_alert_at = None
 
