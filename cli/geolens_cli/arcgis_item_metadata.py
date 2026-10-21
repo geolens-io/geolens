@@ -32,7 +32,8 @@ _HTML_ELEMENTS = frozenset(
     "strong style sub sup script table tbody td tfoot th thead tr u ul".split()
 )
 _BLOCK_TAGS = frozenset(
-    "blockquote br caption dd div dl dt h1 h2 h3 h4 h5 h6 hr li ol p pre table "
+    "blockquote br caption center dd div dl dt h1 h2 h3 h4 h5 h6 hr li ol p pre "
+    "table "
     "tr ul".split()
 )
 
@@ -57,6 +58,13 @@ class _Text(HTMLParser):
             self.parts.append("\n")
         elif tag in ("td", "th"):
             self.parts.append(" ")
+
+    def handle_startendtag(self, tag: str, attrs: Any) -> None:
+        # "<br/>" is one element; a literal "<https://example.org/>" is one
+        # piece of text, so it mustn't also get a closing tag.
+        self.handle_starttag(tag, attrs)
+        if tag in _HTML_ELEMENTS:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
         if tag not in _HTML_ELEMENTS:
