@@ -133,6 +133,11 @@ class MigrationState:
             raise StateError(
                 f"can't read the state file {path}: {exc.strerror}"
             ) from None
+        except UnicodeDecodeError:
+            raise StateError(
+                f"the state file {path} is not a migration state v{STATE_VERSION} "
+                "file (not UTF-8 text)"
+            ) from None
         try:
             data = json.loads(raw)
             if data.get("schema_version") != STATE_VERSION:

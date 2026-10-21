@@ -860,3 +860,9 @@ def test_the_state_file_is_locked_where_flock_is_missing(tmp_path, monkeypatch):
     with pytest.raises(StateError, match="another `geolens arcgis migrate` run"):
         MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
     release_locks()
+
+
+def test_a_state_file_that_is_not_utf8_is_a_usage_error(runner, tmp_path, geolens):
+    (tmp_path / "arcgis-migration-state.json").write_bytes(b"\xff\xfe\x00garbage")
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+    assert result.exit_code == 2 and "not UTF-8 text" in result.output
