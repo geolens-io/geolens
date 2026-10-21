@@ -522,7 +522,8 @@ def test_the_token_is_not_sent_to_a_host_outside_the_organization(
     assert all(token not in s.body.decode() for s in geolens.seen)
     assert service.bodies(PROBE) == []
     error = _state(plan_file)["items"][A1]["error"]
-    assert "collector.example.net is not one of the organization's servers" in error
+    assert error.startswith("the service host collector")
+    assert "is not one of the organization's servers" in error
 
 
 def test_a_named_federated_host_receives_the_token(runner, tmp_path, geolens):
