@@ -6,6 +6,10 @@ export const MAX_RANGE_BYTES = 64 * 1024 * 1024;
 /** Reads and bytes one load may issue; the route allows 1200 reads and 1 GiB a minute. */
 export const MAX_LOAD_READS = 400;
 export const MAX_LOAD_BYTES = 256 * 1024 * 1024;
+/** Range size the route serves under its cheap per-minute limit (_EXEMPT_RANGE_BYTES in router_pointcloud.py). */
+export const CHEAP_RANGE_BYTES = 16 * 1024 * 1024;
+/** Nodes above that size one load reads; the route rate-limits larger ranges more tightly. */
+export const MAX_LARGE_NODES = 8;
 /** Nodes one load draws, leaving room in the read budget for the header, VLRs and hierarchy. */
 export const MAX_SELECTED_NODES = MAX_LOAD_READS - 100;
 /** Compressed bytes of the selected nodes, leaving room in the byte budget for the rest. */

@@ -1,5 +1,7 @@
 import type { Hierarchy } from 'copc';
 import {
+  CHEAP_RANGE_BYTES,
+  MAX_LARGE_NODES,
   MAX_NODE_DECODED_BYTES,
   MAX_RANGE_BYTES,
   MAX_SELECTED_BYTES,
@@ -39,11 +41,13 @@ export function selectNodes(
   const selected: [string, Hierarchy.Node][] = [];
   let points = 0;
   let bytes = 0;
+  let large = 0;
   for (const [, key, node] of usable) {
     // Stop before the point, node-count or byte budget, so a load never aborts
     // partway on its read budget with a half-drawn cloud.
     if (points + node.pointCount > pointBudget) break;
     if (selected.length >= MAX_SELECTED_NODES || bytes + node.pointDataLength > MAX_SELECTED_BYTES) break;
+    if (node.pointDataLength > CHEAP_RANGE_BYTES && ++large > MAX_LARGE_NODES) break;
     selected.push([key, node]);
     points += node.pointCount;
     bytes += node.pointDataLength;

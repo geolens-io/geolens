@@ -1,6 +1,6 @@
 import type { Hierarchy } from 'copc';
 import { describe, expect, it } from 'vitest';
-import { MAX_RANGE_BYTES, MAX_SELECTED_BYTES, MAX_SELECTED_NODES, POINT_BUDGET } from '../copc-limits';
+import { MAX_LARGE_NODES, MAX_RANGE_BYTES, MAX_SELECTED_BYTES, MAX_SELECTED_NODES, POINT_BUDGET } from '../copc-limits';
 import { selectNodes } from '../copc-select';
 
 const node = (pointCount: number, offset = 1000, length = 500): Hierarchy.Node => ({
@@ -43,6 +43,13 @@ describe('selectNodes', () => {
     );
     expect(picked.length * big).toBeLessThanOrEqual(MAX_SELECTED_BYTES);
     expect(picked.length).toBe(3);
+  });
+
+  it('selects at most eight nodes above the cheap range size', () => {
+    const large = 17 * 1024 * 1024;
+    const nodes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`${i}-0-0-0`, node(10, 1000, large)]));
+    expect(MAX_LARGE_NODES).toBe(8);
+    expect(selectNodes(map(nodes), POINT_BUDGET, 34, null)).toHaveLength(8);
   });
 
   it('accepts a node whose compressed chunk is between 16 and 64 MiB', () => {
