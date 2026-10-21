@@ -1840,7 +1840,8 @@ loss_dump_ts() {
 }
 
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$LOSS_DB"
-loss_db_sql "CREATE SCHEMA catalog; CREATE TABLE catalog.records (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO catalog.records (name) SELECT 'kept' FROM generate_series(1, 10);"
+LOSS_RECORDS_DDL="CREATE SCHEMA catalog; CREATE TABLE catalog.records (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL);"
+loss_db_sql "${LOSS_RECORDS_DDL} INSERT INTO catalog.records (name) SELECT 'kept' FROM generate_series(1, 10);"
 loss_cycle populated "$CYCLE_STAGING"
 GOOD_TS="$(loss_dump_ts)"
 [ -n "$GOOD_TS" ] || fail "the populated cycle produced no dump"
@@ -1853,7 +1854,7 @@ createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$LOSS_DB"
 sleep 1
 loss_cycle empty "${WORKDIR}/loss-empty-staging"
 # Migrations ran, so the schema exists, but it holds no records yet.
-loss_db_sql "CREATE SCHEMA catalog; CREATE TABLE catalog.records (id serial PRIMARY KEY, name text NOT NULL);"
+loss_db_sql "$LOSS_RECORDS_DDL"
 sleep 1
 loss_cycle "freshly initialised" "${WORKDIR}/loss-empty-staging"
 EMPTY_TS="$(loss_dump_ts)"
@@ -1869,16 +1870,18 @@ for artifact in "${LOSS_DB}_${GOOD_TS}.dump" "globals-${GOOD_TS}.sql" "staging-$
     [ -f "${LOSS_BACKUPS}/daily/${artifact}" ] \
         || fail "${artifact} was pruned by cycles over an emptied database"
 done
-grep -q "under half of the 10 in ${GOOD_TS}" "$LOSS_LOG" \
-    || fail "the re-created-database cycle never logged both record counts"
+grep -q "has 1 catalog records, 0 of the 10 sampled from ${GOOD_TS}" "$LOSS_LOG" \
+    || fail "the re-created-database cycle never logged how many marked records remain"
 
-# With half the records back, the protection moves to the new dump and
-# retention prunes the old set as usual, so it holds at most one extra set.
-loss_db_sql "INSERT INTO catalog.records (name) SELECT 'restored' FROM generate_series(1, 4);"
+# Restoring the good dump brings its records back, so the protection moves to
+# the new dump and retention prunes the old set as usual.
+pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$LOSS_DB" --clean --if-exists \
+    --no-owner "${LOSS_BACKUPS}/daily/${LOSS_DB}_${GOOD_TS}.dump" \
+    || fail "could not restore the good dump into the re-created database"
 sleep 1
-loss_cycle repopulated "$CYCLE_STAGING"
+loss_cycle restored "$CYCLE_STAGING"
 [ ! -f "${LOSS_BACKUPS}/daily/${LOSS_DB}_${GOOD_TS}.dump" ] \
-    || fail "the old good dump outlived a newer dump with half its records"
+    || fail "the old good dump outlived a newer dump of the restored database"
 echo "      lost-database restart OK — the last dump with catalog records and its companions survived."
 echo ""
 

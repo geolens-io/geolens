@@ -41,8 +41,9 @@ WEEKLY_DIR="${BACKUP_DIR}/weekly"
 # if the compose file changes it.
 STAGING_DIR="${STAGING_DIR:-/staging}"
 
-# "<timestamp> <catalog record count>" of the dump retention always keeps, so
-# cycles over a database restarted on an empty volume cannot rotate it out.
+# "<timestamp> <record id>..." for the dump retention always keeps, with a
+# sample of its catalog record ids, so cycles over a database restarted on an
+# empty volume cannot rotate it out.
 LAST_GOOD_FILE="${BACKUP_DIR}/.last-good-dump"
 
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
@@ -105,11 +106,11 @@ run_backup() {
     # there to copy or upload after a verification failure removes it.
     local cycle_failed=0
     local dump_ok=1
-    # A marker from before record counts were stored has no count field.
-    local good_ts="" good_count=""
-    read -r good_ts good_count 2>/dev/null < "$LAST_GOOD_FILE" || true
+    local good_ts="" good_ids="" uuid_re
+    uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+    read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
-    [[ -n "$good_ts" && "$good_count" =~ ^[0-9]+$ ]] || good_count=""
+    [[ -n "$good_ts" && "$good_ids" =~ ^${uuid_re}(\ ${uuid_re})*$ ]] || good_ids=""
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -161,7 +162,7 @@ run_backup() {
         dump_ok=0
     else
         log "Backup verified: ${filename} fully readable"
-        good_ts="$(record_good_dump "$timestamp" "$good_ts" "$good_count")"
+        good_ts="$(record_good_dump "$timestamp" "$good_ts" "$good_ids")"
     fi
 
     # Weekly copy on Sundays. Skipped when verification above already
@@ -278,31 +279,39 @@ run_backup() {
     log "Backup cycle complete"
 }
 
-# Prints the timestamp retention keeps: this cycle's when the database holds at
-# least half the catalog records of the kept dump (any, for a marker without a
-# count), else the kept one, so a re-created database's first upload can't take
-# over. The count runs after pg_dump, outside its snapshot; a database filled in
-# that window could mark a dump missing those rows, too narrow to engineer for.
-# Stdout carries the result, so logs go to stderr.
+# Prints the timestamp retention keeps: this cycle's when the database has
+# catalog records and at least half of the record ids sampled from the kept
+# dump (any records, for a marker without ids), else the kept one. Ids rather
+# than counts, so a re-created database's first upload can't take over even
+# when the lost catalog held a single record. The check runs after pg_dump,
+# outside its snapshot; a database restored in that window could mark a dump
+# that lacks the restored rows, too narrow to engineer for. Stdout carries the
+# result, so logs go to stderr.
 record_good_dump() {
-    local timestamp="$1" good_ts="$2" good_count="$3" count
-    count="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" <<'SQL'
+    local timestamp="$1" good_ts="$2" good_ids="$3" row count present sample
+    local -a marked=()
+    read -r -a marked <<< "$good_ids"
+    row="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        -d "$POSTGRES_DB" -v ids="{$(IFS=,; printf '%s' "${marked[*]:-}")}" <<'SQL'
 SELECT to_regclass('catalog.records') IS NOT NULL AS has_records_table \gset
 \if :has_records_table
-SELECT count(*) FROM catalog.records;
+SELECT count(*), count(*) FILTER (WHERE id = ANY (:'ids'::uuid[])),
+    (SELECT string_agg(id::text, ' ')
+     FROM (SELECT id FROM catalog.records ORDER BY random() LIMIT 100) sampled)
+FROM catalog.records;
 \else
-SELECT 0;
+SELECT 0, 0, '';
 \endif
 SQL
-    )" || count=""
-    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
-        log "WARNING: could not count catalog records in ${POSTGRES_DB}${good_ts:+; retention keeps ${good_ts}}" >&2
-    elif [ "$count" -eq 0 ] || [ $((count * 2)) -lt "${good_count:-0}" ]; then
+    )" || row=""
+    IFS='|' read -r count present sample <<< "$row"
+    if ! [[ "$count" =~ ^[0-9]+$ && "$present" =~ ^[0-9]+$ ]]; then
+        log "WARNING: could not check catalog records in ${POSTGRES_DB}${good_ts:+; retention keeps ${good_ts}}" >&2
+    elif [ "$count" -eq 0 ] || [ $((present * 2)) -lt "${#marked[@]}" ]; then
         if [ -n "$good_ts" ]; then
-            log "WARNING: ${POSTGRES_DB} has ${count} catalog records${good_count:+, under half of the ${good_count} in ${good_ts}}; retention keeps ${good_ts}. If the records were deleted on purpose, delete ${LAST_GOOD_FILE} to release that dump." >&2
+            log "WARNING: ${POSTGRES_DB} has ${count} catalog records, ${present} of the ${#marked[@]} sampled from ${good_ts}; retention keeps ${good_ts}. If the records were deleted on purpose, delete ${LAST_GOOD_FILE} to release that dump." >&2
         fi
-    elif printf '%s %s\n' "$timestamp" "$count" > "${LAST_GOOD_FILE}.tmp" \
+    elif printf '%s %s\n' "$timestamp" "$sample" > "${LAST_GOOD_FILE}.tmp" \
         && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
         good_ts="$timestamp"
     else
