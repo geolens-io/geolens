@@ -304,7 +304,9 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
     expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ filter: closed }));
 
-    sync(makeLayer(), ['source-cluster-1']);
+    (map.removeSource as ReturnType<typeof vi.fn>).mockClear();
+    sync(makeLayer({ filter: [] as unknown as SyncLayerInput['filter'] }), ['source-cluster-1']);
+    expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
     expect(map.addSource).toHaveBeenLastCalledWith(
       'source-cluster-1',
       expect.not.objectContaining({ filter: expect.anything() }),

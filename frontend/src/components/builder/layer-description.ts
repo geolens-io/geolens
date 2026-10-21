@@ -20,7 +20,7 @@ import { resolveHeightColumn } from './layer-adapters/fill-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
-import { getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
+import { filterSpec, getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerSpec } from './layer-adapters/types';
 import type { SyncLayerInput } from './map-sync';
@@ -300,13 +300,12 @@ function vectorSource(
   const data = ctx.boundedGeoJson.get(layer.id);
   if (described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson' && data) {
     // The source filter drops points before they are grouped, so bubble counts match what the layer shows.
-    const filter = described.filter;
     return {
       type: 'geojson',
       data,
       cluster: true,
       ...clusterOptions(layer),
-      ...(Array.isArray(filter) && filter.length > 0 ? { filter } : {}),
+      ...filterSpec(described.filter),
       ...(attribution ? { attribution } : {}),
     };
   }

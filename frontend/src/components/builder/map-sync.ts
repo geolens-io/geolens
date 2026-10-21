@@ -37,6 +37,7 @@ import { getCompanionLayerIds, getDrawingLayerIds, COLOR_RELIEF_SUFFIX } from '.
 import { finishDescribedLayer } from './layer-writer';
 
 import {
+  filterSpec,
   normalizeRasterBounds,
   setDynamicLayoutProperty,
   setDynamicPaintProperty,
@@ -590,6 +591,11 @@ function clusterSourceSignature(input: AdapterLayerInput) {
   return `${options.clusterRadius}:${options.clusterMaxZoom}`;
 }
 
+/** A clustered GeoJSON source filters its points when it is built, so the filter belongs in its signature. */
+function boundedClusterFilterKey(input: AdapterLayerInput) {
+  return JSON.stringify(filterSpec(input.filter).filter ?? null);
+}
+
 function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
   const clusterCountId = clusterCountLayerId(layerId);
   const clusterCircleId = clusterCircleLayerId(layerId);
@@ -764,7 +770,7 @@ function resolveVectorSourceMode(
   // tile source takes them in its URL, which refreshes in place.
   const desiredClusterSignature = canUseCluster
     ? `${getClusterSourceStrategy(layer).kind}:${clusterSourceSignature(adapterInput)}${
-      source.type === 'geojson' ? `:${JSON.stringify(adapterInput.filter ?? null)}` : ''}`
+      source.type === 'geojson' ? `:${boundedClusterFilterKey(adapterInput)}` : ''}`
     : null;
   return {
     adapter: getAdapter(drawsAs),
