@@ -851,16 +851,18 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
 
 @pytest.mark.anyio
 async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
-    client: AsyncClient, admin_auth_header, owner, test_db_session
+    client: AsyncClient, admin_auth_header, owner, datasets, test_db_session
 ):
     """An admin's publish key can't stop or rerun another user's job; the admin could."""
     from app.platform.jobs.models import IngestJob
 
     _, owner_id = owner
     publish = await _mint(client, admin_auth_header, "publish")
+    dataset = datasets[0]
     job = IngestJob(
         status="pending",
         created_by=owner_id,
+        dataset_id=dataset.id,
         attempt_id=uuid.uuid4(),
         source_filename="someone-elses.geojson",
     )
@@ -875,6 +877,10 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert _refused_with(read, "A publish key can read only its owner's jobs"), (
             read.text
         )
+        by_dataset = await client.get(f"/jobs/by-dataset/{dataset.id}", headers=publish)
+        assert by_dataset.status_code == 200, by_dataset.text
+        assert by_dataset.json()["id"] == str(job.id)
+        assert by_dataset.json()["source_filename"] is None
         retry = await client.post(f"/jobs/{job.id}/retry", headers=publish)
         assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
             retry.text

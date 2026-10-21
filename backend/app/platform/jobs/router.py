@@ -27,7 +27,7 @@ from app.modules.auth.dependencies import (
 )
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
-from app.platform.request_credential import refuse_publish_key
+from app.platform.request_credential import api_key_credential, refuse_publish_key
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
@@ -802,9 +802,12 @@ async def get_job_status_by_dataset(
     # The gate above is a VISIBILITY check; it says nothing about whose job
     # row this is. The creator keeps the full payload (the import flow polls
     # this route); everyone else goes through the provenance predicate
-    # ``list_dataset_refresh_runs`` applies to this text.
-    include_detail = job.created_by == user.id or can_view_dataset_provenance(
-        record, user, user_roles
+    # ``list_dataset_refresh_runs`` applies to this text, except a publish key,
+    # which reads only its owner's jobs in full.
+    credential = api_key_credential(db)
+    include_detail = job.created_by == user.id or (
+        (credential is None or credential.scope != "publish")
+        and can_view_dataset_provenance(record, user, user_roles)
     )
     return await _job_to_status_response(job, include_detail=include_detail)
 
