@@ -40,10 +40,11 @@ and releases use semantic versioning.
   invalid key's `401` is readable too. Cookies sent with the request are
   ignored. Under `/api/auth/`, only `/api/auth/me` accepts a keyed preflight. A
   request that also carries `Authorization`, an embed token, or `?api_key=` or
-  `?embed_token=` in the URL keeps the old rule. Every API response now lists
+  `?embed_token=` in the URL keeps the old rule. A keyed answer lists
   `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
-  `Origin`. This changes the CORS contract: a keyed request from an origin
-  outside the allowlist used to get no CORS headers at all.
+  `Origin`, and a keyed request refused by the rate or body-size limit gets a
+  readable `429` or `413`. This changes the CORS contract: a keyed request
+  from an origin outside the allowlist used to get no CORS headers at all.
 - Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
   the public app URL that opens from another machine, and `viewer_url`, the map's page in
   the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.

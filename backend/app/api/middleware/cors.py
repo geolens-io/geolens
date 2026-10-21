@@ -9,7 +9,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.middleware.liveness import is_liveness_request
-from app.platform.request_credential import header_api_key_evaluated
+from app.platform.request_credential import (
+    header_api_key_evaluated,
+    refused_before_auth,
+)
 from app.standards.ogc.utils import standards_api_path
 
 # In-memory cache to avoid a DB pool checkout on every CORS request.
@@ -90,10 +93,6 @@ _HEADER_KEY_ALLOWED_LOWER = frozenset(
 
 _ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
-# The rate and body-size limits answer before the auth layer runs, so these
-# never carry the auth layer's mark. They hold a status and a retry window,
-# nothing a key protects, so a keyed caller may read them on any route.
-_REFUSED_BEFORE_AUTH = frozenset({413, 429})
 
 # What every policy lets a script read. The anonymous public answer omits the
 # two headers only authenticated routes send.
@@ -114,9 +113,11 @@ _PUBLIC_EXPOSE_HEADERS = (
 )
 _EXPOSE_HEADERS = "X-Total-Count, Content-Disposition, " + _PUBLIC_EXPOSE_HEADERS
 
-# The answer depends on the Origin and on which credential headers came, so a
-# cache keyed on the URL alone must not replay one variant for another.
-_VARY_HEADERS = ("Origin", "Authorization", "X-Api-Key", "X-Embed-Token")
+# A header-key answer exists only because a key came, so it varies on the
+# credential headers too. Answers that don't depend on a credential (a public
+# tile, a standards document) keep Vary: Origin alone, so a shared cache can
+# still serve them to everyone.
+_CREDENTIAL_VARY_HEADERS = ("Authorization", "X-Api-Key", "X-Embed-Token")
 
 
 def _merge_vary(response: Response, *names: str) -> None:
@@ -163,8 +164,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await self._dispatch(request, call_next)
         # One call at the one exit, since several branches return early and every
-        # answer depends on the origin and the credential headers.
-        _merge_vary(response, *_VARY_HEADERS)
+        # answer depends on the origin.
+        _merge_vary(response, "Origin")
         return response
 
     async def _dispatch(self, request: Request, call_next) -> Response:
@@ -235,9 +236,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         # Shared with the auth layer, which marks it when it reads the key.
         request.scope.setdefault("state", {})
         response = await call_next(request)
-        if (
-            header_api_key_evaluated(request.scope)
-            or response.status_code in _REFUSED_BEFORE_AUTH
+        if header_api_key_evaluated(request.scope) or refused_before_auth(
+            request.scope
         ):
             self._set_header_key_cors_headers(response)
             return response
@@ -348,6 +348,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Allow-Headers"] = _HEADER_KEY_ALLOWED_HEADERS
         response.headers["Access-Control-Expose-Headers"] = _EXPOSE_HEADERS
         response.headers["Access-Control-Max-Age"] = "3600"
+        _merge_vary(response, *_CREDENTIAL_VARY_HEADERS)
 
     @staticmethod
     def _request_path(request: Request) -> str:

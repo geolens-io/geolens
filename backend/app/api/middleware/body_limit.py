@@ -21,6 +21,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from app.api.middleware.liveness import is_liveness_request
+from app.platform.request_credential import mark_refused_before_auth
 from app.standards.ogc.errors import ProblemDetail
 
 # Sync in-memory cache for the upload limit — avoids an async DB pool
@@ -267,6 +268,7 @@ class RequestBodyLimitMiddleware:
                 pass  # Malformed Content-Length — let downstream handle it
             else:
                 if length > max_bytes:
+                    mark_refused_before_auth(scope)
                     response = _too_large_response(max_bytes)
                     await response(scope, receive, send)
                     return
@@ -292,6 +294,7 @@ class RequestBodyLimitMiddleware:
         async def sending(message: dict) -> None:
             if limit_exceeded and message.get("type") == "http.response.start":
                 # Override the response with 413 before headers are sent
+                mark_refused_before_auth(scope)
                 error_response = _too_large_response(max_bytes)
                 await error_response(scope, receive, send)
                 return

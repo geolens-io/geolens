@@ -3,8 +3,8 @@
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
 same request, and to nothing else. Also the routes each dataset-bound key
-scope may call, and whether a request's header key was looked up, which the
-CORS layer reads.
+scope may call, and two marks the CORS layer reads: whether a request's header
+key was looked up, and whether a limit refused it before that could happen.
 """
 
 from __future__ import annotations
@@ -19,11 +19,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _SESSION_KEY = "geolens.api_key_credential"
 _HEADER_KEY_EVALUATED = "geolens.header_api_key_evaluated"
+_REFUSED_BEFORE_AUTH = "geolens.refused_before_auth"
 
 
 def mark_header_api_key_evaluated(scope: MutableMapping[str, Any]) -> None:
     """Record that the auth layer looked up this request's X-Api-Key header."""
     scope.setdefault("state", {})[_HEADER_KEY_EVALUATED] = True
+
+
+def mark_refused_before_auth(scope: MutableMapping[str, Any]) -> None:
+    """Record that a limit refused this request before the auth layer ran."""
+    scope.setdefault("state", {})[_REFUSED_BEFORE_AUTH] = True
+
+
+def refused_before_auth(scope: Mapping[str, Any]) -> bool:
+    """Whether a rate or body-size limit refused this request before auth."""
+    return bool(scope.get("state", {}).get(_REFUSED_BEFORE_AUTH))
 
 
 def header_api_key_evaluated(scope: Mapping[str, Any]) -> bool:

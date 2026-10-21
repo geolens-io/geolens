@@ -22,6 +22,8 @@ from starlette.requests import Request
 from starlette.routing import BaseRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.platform.request_credential import mark_refused_before_auth
+
 
 def find_route_handler(
     routes: Iterable[BaseRoute], scope: Scope
@@ -83,6 +85,7 @@ class GlobalRateLimitMiddleware:
         try:
             await limiter.check_default_limits(request, endpoint)
         except RateLimitExceeded as exc:
+            mark_refused_before_auth(scope)
             handler = app.exception_handlers.get(
                 RateLimitExceeded, _rate_limit_exceeded_handler
             )

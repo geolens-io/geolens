@@ -20,7 +20,10 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from app.api.middleware.cors import DynamicCORSMiddleware
-from app.platform.request_credential import mark_header_api_key_evaluated
+from app.platform.request_credential import (
+    mark_header_api_key_evaluated,
+    mark_refused_before_auth,
+)
 from app.core.config import settings
 from tests.conftest import get_auth_header
 from tests import test_api_key_scope_875 as _scope_tests
@@ -208,16 +211,28 @@ async def test_auth_routes_take_a_keyed_preflight_only_for_me(
 
 
 @pytest.mark.anyio
-async def test_every_answer_varies_on_the_credential_headers(client, allow_one_origin):
-    resp = await client.get(
+async def test_only_a_keyed_answer_varies_on_the_credential_headers(
+    client, allow_one_origin
+):
+    """A public answer stays shareable by a cache; a keyed one never is."""
+
+    def vary(resp) -> set[str]:
+        return {
+            token.strip().lower()
+            for line in resp.headers.get_list("vary")
+            for token in line.split(",")
+        }
+
+    public = await client.get(
         "/search/datasets/?q=x", headers={"Origin": _FOREIGN_ORIGIN}
     )
-    vary = {
-        token.strip().lower()
-        for line in resp.headers.get_list("vary")
-        for token in line.split(",")
-    }
-    assert {"origin", "authorization", "x-api-key", "x-embed-token"} <= vary
+    assert "origin" in vary(public)
+    assert not {"authorization", "x-api-key", "x-embed-token"} & vary(public)
+
+    keyed = await client.get(
+        "/auth/me/", headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "not-a-real-key"}
+    )
+    assert {"origin", "authorization", "x-api-key", "x-embed-token"} <= vary(keyed)
 
 
 def test_nothing_that_reads_credentials_runs_before_the_cookie_strip():
@@ -414,10 +429,11 @@ async def test_no_route_that_reads_no_key_gives_a_junk_key_the_key_answer(
 
 
 @pytest.mark.parametrize("status_code", [413, 429])
-def test_a_limit_refusal_before_auth_is_readable_to_a_keyed_caller(
-    monkeypatch, status_code
+@pytest.mark.parametrize("marked", [True, False])
+def test_only_a_limit_refusal_before_auth_is_readable_to_a_keyed_caller(
+    monkeypatch, status_code, marked
 ):
-    """The rate and body-size limits answer before any key is looked up."""
+    """The limits mark what they refuse; a route's own 413 or 429 isn't marked."""
 
     async def _deny(_self, _origin):
         return False
@@ -426,7 +442,9 @@ def test_a_limit_refusal_before_auth_is_readable_to_a_keyed_caller(
         "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed", _deny
     )
 
-    async def refused(_request: Request) -> JSONResponse:
+    async def refused(request: Request) -> JSONResponse:
+        if marked:
+            mark_refused_before_auth(request.scope)
         return JSONResponse({"detail": "limited"}, status_code=status_code)
 
     app = Starlette(routes=[Route("/limited", refused)])
@@ -437,7 +455,23 @@ def test_a_limit_refusal_before_auth_is_readable_to_a_keyed_caller(
         "/limited", headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "k"}
     )
     assert keyed.status_code == status_code
-    assert keyed.headers["access-control-allow-origin"] == "*"
+    assert ("access-control-allow-origin" in keyed.headers) is marked
     assert "access-control-allow-credentials" not in keyed.headers
     plain = client.get("/limited", headers={"Origin": _FOREIGN_ORIGIN})
     assert "access-control-allow-origin" not in plain.headers
+
+
+@pytest.mark.anyio
+async def test_the_body_limit_marks_its_refusal(client, allow_one_origin):
+    resp = await client.post(
+        "/maps/",
+        content=b"{}",
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "X-Api-Key": "not-a-real-key",
+            "Content-Type": "application/json",
+            "Content-Length": str(1 << 30),
+        },
+    )
+    assert resp.status_code == 413
+    assert resp.headers["access-control-allow-origin"] == "*"
