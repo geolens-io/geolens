@@ -156,8 +156,16 @@ async def _may_read_job(
     *,
     log_denial: bool = True,
 ) -> bool:
-    """Owners always read their job; anyone else follows the permission policy."""
-    return job.created_by == user.id or await _can_access_another_users_job(
+    """Owners always read their job; anyone else follows the permission policy.
+
+    A publish key reads only its owner's jobs, whatever its owner may read.
+    """
+    if job.created_by == user.id:
+        return True
+    credential = api_key_credential(db)
+    if credential is not None and credential.scope == "publish":
+        return False
+    return await _can_access_another_users_job(
         request, db, user, job, log_denial=log_denial
     )
 

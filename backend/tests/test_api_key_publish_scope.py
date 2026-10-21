@@ -881,6 +881,16 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert by_dataset.status_code == 200, by_dataset.text
         assert by_dataset.json()["id"] == str(job.id)
         assert by_dataset.json()["source_filename"] is None
+        batch = await client.post(
+            "/jobs/status/", json={"job_ids": [str(job.id)]}, headers=publish
+        )
+        assert batch.status_code == 200, batch.text
+        assert batch.json()["jobs"][0]["status"] == "not_found"
+        full = await _mint(client, admin_auth_header, "full")
+        seen = await client.post(
+            "/jobs/status/", json={"job_ids": [str(job.id)]}, headers=full
+        )
+        assert seen.json()["jobs"][0]["status"] == "pending", seen.text
         retry = await client.post(f"/jobs/{job.id}/retry", headers=publish)
         assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
             retry.text
