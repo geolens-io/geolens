@@ -64,6 +64,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.style_json import build_maplibre_style
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.cache.scope import public_cache_control
+from app.platform.request_credential import refuse_publish_key
 from app.standards.ogc.errors import FORBIDDEN_RESPONSE, GONE_RESPONSE
 
 router = APIRouter()
@@ -333,6 +334,10 @@ async def share_map_endpoint(
     await check_map_ownership(map_obj, user, db)
     if map_obj.visibility != "public":
         raise HTTPException(status_code=400, detail="Map must be public before sharing")
+    # A new expiry on the live link could end it early.
+    if body and (body.expires_at is not None or body.expires_in_days is not None):
+        if await get_active_share_token(db, map_id) is not None:
+            refuse_publish_key(db, "A publish key can't change a share link's expiry")
     try:
         token_obj = await create_share_token(
             db,

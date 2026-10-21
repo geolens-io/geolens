@@ -217,20 +217,26 @@ def _publish_key_may_call(
     route_template: str,
     query_params: Mapping[str, str] | None = None,
 ) -> bool:
+    if route_template.startswith("/admin/") or "/api-keys" in route_template:
+        return False
     return (method, route_template) in _PUBLISH_KEY_ROUTES or _read_only_key_may_call(
         method, route_template, query_params
     )
 
 
-# Each restricted scope's rule and the message its refusal carries. A full key
-# may call anything and a dataset key that strays resolves as no key, so any
-# other scope without a rule here is refused everything.
+# Each restricted scope's rule and the ``detail`` its 403 carries. The
+# read-only detail stays the bare string clients already match. A full key may
+# call anything and a dataset key that strays resolves as no key, so any other
+# scope without a rule here is refused everything.
 _SCOPE_RULES = {
     "read_only": (_read_only_key_may_call, "This API key is read-only"),
     "publish": (
         _publish_key_may_call,
-        "This API key has the publish scope, which can't delete datasets or "
-        "maps, write features or reach admin and key routes",
+        {
+            "code": "api_key_scope",
+            "message": "This API key has the publish scope, which can't delete "
+            "datasets or maps, write features or reach admin and key routes",
+        },
     ),
 }
 _UNRESTRICTED_SCOPES = frozenset({"full", *DATASET_KEY_SCOPE_ROUTES})
@@ -446,9 +452,9 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             method=request.method,
             path=route_template,
         )
-        raise api_key_scope_refusal(
-            rule[1] if rule else "This API key's scope is not recognized"
-        )
+        if rule is None:
+            raise api_key_scope_refusal("This API key's scope is not recognized")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=rule[1])
     record_api_key(
         db,
         ApiKeyCredential(

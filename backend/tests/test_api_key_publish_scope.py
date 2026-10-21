@@ -257,6 +257,16 @@ def test_a_publish_key_inherits_the_read_only_rules():
     )
 
 
+def test_admin_and_key_reads_are_refused():
+    for template in (
+        "/admin/users",
+        "/auth/api-keys/",
+        "/datasets/{dataset_id}/api-keys",
+    ):
+        assert not _publish_key_may_call("GET", template), template
+    assert _publish_key_may_call("GET", "/auth/me/")
+
+
 def test_an_allowed_path_does_not_carry_other_methods():
     assert _publish_key_may_call("PATCH", "/datasets/{dataset_id}")
     assert not _publish_key_may_call("DELETE", "/datasets/{dataset_id}")
@@ -285,6 +295,8 @@ def _scope_refused(resp) -> bool:
     if resp.status_code != 403:
         return False
     detail = resp.json().get("detail")
+    if detail == "This API key is read-only":
+        return True
     return isinstance(detail, dict) and detail.get("code") == "api_key_scope"
 
 
@@ -607,3 +619,49 @@ async def test_a_null_layer_list_revokes_no_embed_token(
         assert token.is_active
     finally:
         await client.delete(url, headers=headers)
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_reads_no_key_or_admin_route(
+    client: AsyncClient, admin_auth_header, datasets
+):
+    """Even an admin's publish key, whose owner may read both."""
+    publish = await _mint(client, admin_auth_header, "publish")
+    for url in (
+        "/auth/api-keys/",
+        "/admin/api-keys/",
+        "/admin/users/",
+        f"/datasets/{datasets[0].id}/api-keys",
+    ):
+        resp = await client.get(url, headers=publish)
+        assert (resp.status_code, resp.json()["detail"]) == (403, PUBLISH_REFUSAL), url
+    assert (await client.get("/auth/me/", headers=publish)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_change_a_live_share_links_expiry(
+    client: AsyncClient, owner
+):
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    try:
+        made_public = await client.put(
+            f"/maps/{map_id}", json={"visibility": "public"}, headers=headers
+        )
+        assert made_public.status_code == 200, made_public.text
+        share_url = f"/maps/{map_id}/share/"
+        first = await client.post(share_url, headers=publish)
+        assert first.status_code == 200, first.text
+
+        shortened = await client.post(
+            share_url, json={"expires_in_days": 1}, headers=publish
+        )
+        assert _refused_with(
+            shortened, "A publish key can't change a share link's expiry"
+        ), shortened.text
+        reused = await client.post(share_url, headers=publish)
+        assert reused.status_code == 200, reused.text
+        assert reused.json()["expires_at"] is None
+    finally:
+        await client.delete(f"/maps/{map_id}", headers=headers)
