@@ -740,7 +740,7 @@ class TestPruneS3Prefix:
 
 
 def _run_full_cycle(
-    tmp_path: Path, rm_exit: int = 0, offsite_marker: str = ""
+    tmp_path: Path, rm_exit: int = 0, local_marker: str = ""
 ) -> tuple[subprocess.CompletedProcess, Path]:
     """Runs the REAL run_backup() end to end (extracted from
     scripts/backup-entrypoint.sh, same technique as _run above), stubbing
@@ -753,9 +753,9 @@ def _run_full_cycle(
     bin_dir.mkdir()
     backup_dir = tmp_path / "backups"
     staging_dir = tmp_path / "no-such-staging-mount"  # never created: skips cleanly
-    if offsite_marker:
+    if local_marker:
         backup_dir.mkdir()
-        (backup_dir / ".last-good-offsite").write_text(f"{offsite_marker}\n")
+        (backup_dir / ".last-good-dump").write_text(f"{local_marker}\n")
 
     ls_file = tmp_path / "ls_output.txt"
     ls_file.write_text(_ls_json(_LS_LISTING))
@@ -824,12 +824,12 @@ class TestRunBackupS3PruneFailureMarksCycleFailed:
         assert "could not delete" in result.stdout
 
     @pytest.mark.parametrize(
-        ("marker", "kept"), [("20260801_020000", True), ("", False)]
+        ("marker", "kept"), [("20260801_120000", True), ("", False)]
     )
-    def test_offsite_retention_keeps_the_last_good_offsite_dump(
+    def test_offsite_keeps_the_newest_dump_before_a_local_only_marker(
         self, tmp_path: Path, marker: str, kept: bool
     ):
-        result, _ = _run_full_cycle(tmp_path, offsite_marker=marker)
+        result, _ = _run_full_cycle(tmp_path, local_marker=marker)
         assert result.returncode == 0, result.stderr
         deleted = (tmp_path / "deleted.txt").read_bytes().split(b"\0")
         assert bool([d for d in deleted if b"20260801_020000" in d]) is not kept

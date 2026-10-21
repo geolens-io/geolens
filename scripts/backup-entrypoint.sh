@@ -45,9 +45,6 @@ STAGING_DIR="${STAGING_DIR:-/staging}"
 # sample of its catalog record ids, so cycles over a database restarted on an
 # empty volume cannot rotate it out.
 LAST_GOOD_FILE="${BACKUP_DIR}/.last-good-dump"
-# Timestamp of the newest such dump that also went offsite. Offsite retention
-# keeps that one, since the local marker can name a dump taken with upload off.
-LAST_GOOD_OFFSITE_FILE="${BACKUP_DIR}/.last-good-offsite"
 
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 POSTGRES_HOST="${POSTGRES_HOST:-db}"
@@ -114,9 +111,6 @@ run_backup() {
     read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
     [[ -n "$good_ts" && "$good_ids" =~ ^${uuid_re}(\ ${uuid_re})*$ ]] || good_ids=""
-    local good_offsite_ts=""
-    read -r good_offsite_ts 2>/dev/null < "$LAST_GOOD_OFFSITE_FILE" || true
-    [[ "$good_offsite_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_offsite_ts=""
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -259,15 +253,6 @@ run_backup() {
             rm -f "${LAST_GOOD_FILE}.tmp"
             log "WARNING: could not record ${filename} as the dump retention keeps"
         fi
-        if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-            if printf '%s\n' "$timestamp" > "${LAST_GOOD_OFFSITE_FILE}.tmp" \
-                && mv "${LAST_GOOD_OFFSITE_FILE}.tmp" "$LAST_GOOD_OFFSITE_FILE"; then
-                good_offsite_ts="$timestamp"
-            else
-                rm -f "${LAST_GOOD_OFFSITE_FILE}.tmp"
-                log "WARNING: could not record ${filename} as the offsite dump retention keeps"
-            fi
-        fi
     fi
 
     # Retention runs regardless of S3 outcome (dumps set the window; their
@@ -284,8 +269,8 @@ run_backup() {
     # same reason local pruning does — a transient S3 hiccup on THIS cycle's
     # upload must not stop last cycle's objects from being pruned.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day "$good_offsite_ts" || cycle_failed=1
-        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week "$good_offsite_ts" || cycle_failed=1
+        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day "$good_ts" || cycle_failed=1
+        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week "$good_ts" || cycle_failed=1
     fi
 
     # Surface the S3 failure now that retention has run, so the cycle is still
@@ -1058,9 +1043,10 @@ backup_period_key() {
 # that hold a backup count, so neither a stopped service nor a wrong clock
 # ages out history that nothing newer has replaced. `protect` is the newest
 # complete set, kept by the caller outside RK_TS: it stands for its own
-# period, so only a newer entry in that period is kept beside it. `good` is
-# always kept but still takes its period's slot, so it costs nothing when it
-# is the newest.
+# period, so only a newer entry in that period is kept beside it. `good` names
+# the last dump known to hold the catalog; the newest entry at or before it is
+# always kept, unless `protect` already stands for it. "At or before" covers a
+# tier without that exact dump: weekly/, or offsite after upload was off.
 mark_retained() {
     local period="$1" keep="$2" protect="${3:-}" good="${4:-}"
     local protect_key=""
@@ -1069,11 +1055,14 @@ mark_retained() {
         protect_key="$PERIOD_KEY"
     fi
     RK_KEEP=()
-    local _i last="" seen=0
+    local _i last="" seen=0 good_found=0
     for ((_i = ${#RK_TS[@]} - 1; _i >= 0; _i--)); do
         RK_KEEP[_i]=0
-        if [ "${RK_TS[$_i]}" = "$good" ]; then
-            RK_KEEP[_i]=1
+        if [ -n "$good" ] && [ "$good_found" -eq 0 ] && ! [ "${RK_TS[$_i]}" \> "$good" ]; then
+            good_found=1
+            if [ -z "$protect" ] || [ "$protect" \> "$good" ] || [ "${RK_TS[$_i]}" \> "$protect" ]; then
+                RK_KEEP[_i]=1
+            fi
         fi
         backup_period_key "$period" "${RK_TS[$_i]}"
         if [ "$PERIOD_KEY" = "$protect_key" ] && [ "${RK_TS[$_i]}" \< "$protect" ]; then

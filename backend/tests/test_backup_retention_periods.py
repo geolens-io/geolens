@@ -202,6 +202,26 @@ class TestDailyRetention:
             "geolens_20261011_020000.dump",
         }
 
+    def test_a_marker_the_protected_set_covers_keeps_nothing_extra(
+        self, tmp_path: Path
+    ):
+        daily = tmp_path / "daily"
+        for day in (9, 10, 11):
+            _seed(
+                daily,
+                [
+                    f"geolens_202610{day:02d}_020000.dump",
+                    f"globals-202610{day:02d}_020000.sql",
+                ],
+            )
+        _seed(daily, ["geolens_20261012_020000.dump"])
+        _prune(daily, keep=1, period="day", good="20261011_020000")
+        assert _names(daily) == {
+            "geolens_20261011_020000.dump",
+            "globals-20261011_020000.sql",
+            "geolens_20261012_020000.dump",
+        }
+
     def test_files_retention_did_not_write_are_left_alone(self, tmp_path: Path):
         daily = tmp_path / "daily"
         foreign = ["notes.txt", "manual.dump", "before-upgrade.sql", "geolens.dump.bak"]
@@ -212,6 +232,19 @@ class TestDailyRetention:
 
 
 class TestWeeklyRetention:
+    def test_keeps_the_last_weekly_set_before_the_marked_daily_dump(
+        self, tmp_path: Path
+    ):
+        weekly = tmp_path / "weekly"
+        names = [
+            f"{kind}{d}_020000.{ext}"
+            for d in ("20261004", "20261011", "20261018")
+            for kind, ext in (("geolens_", "dump"), ("globals-", "sql"))
+        ]
+        _seed(weekly, names)
+        _prune(weekly, keep=1, period="week", good="20261007_020000")
+        assert _names(weekly) == set(names)
+
     def test_runs_on_two_sundays_keep_two_weeklies(self, tmp_path: Path):
         weekly = tmp_path / "weekly"
         _seed(
@@ -456,19 +489,6 @@ class TestLastDumpWithRecords:
         args = (tmp_path / "psql-args").read_text().splitlines()
         assert f"ids={{{_ID_A},{_ID_B}}}" in args
         assert f"5 catalog records, 0 of the 2 sampled from {good_ts}" in result.stderr
-
-    @pytest.mark.parametrize("s3_enabled", [True, False])
-    def test_the_offsite_marker_moves_only_with_an_offsite_copy(
-        self, tmp_path: Path, s3_enabled: bool
-    ):
-        backups = tmp_path / "backups"
-        good_ts, _ = _seed_earlier_good_set(backups, _ID_A)
-        (backups / ".last-good-offsite").write_text(f"{good_ts}\n")
-        result, _ = _cycle(tmp_path, psql_row=f"1|1|{_ID_A}", s3_enabled=s3_enabled)
-        assert result.returncode == 0, result.stdout + result.stderr
-        new_ts = (backups / ".last-good-dump").read_text().split()[0]
-        offsite_ts = (backups / ".last-good-offsite").read_text().strip()
-        assert offsite_ts == (new_ts if s3_enabled else good_ts)
 
     @pytest.mark.parametrize(
         "failure",
