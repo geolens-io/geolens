@@ -428,6 +428,8 @@ async def get_job_status(
             detail="Job not found",
         )
 
+    if job.created_by != user.id:
+        refuse_publish_key(db, "A publish key can read only its owner's jobs")
     if not await _may_read_job(request, db, user, job):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

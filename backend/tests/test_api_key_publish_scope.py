@@ -248,7 +248,7 @@ def test_a_publish_key_inherits_the_read_only_rules():
 
 
 def _admin_only_reads() -> set[str]:
-    """GET templates gated by an instance-mode permission or a manage_* capability."""
+    """GET templates gated by an instance-mode permission or an admin capability."""
     import inspect
 
     from fastapi.routing import APIRoute, iter_route_contexts
@@ -270,7 +270,7 @@ def _admin_only_reads() -> set[str]:
                 found.add(ctx.path)
             elif "_permission_checker" in name:
                 needed = inspect.getclosurevars(call).nonlocals.get("capabilities", ())
-                if {"manage_settings", "manage_users"} & set(needed):
+                if {"manage_settings", "manage_users", "manage_tenants"} & set(needed):
                     found.add(ctx.path)
     return found
 
@@ -871,6 +871,10 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert _refused_with(resp, "A publish key can cancel only its owner's jobs"), (
             resp.text
         )
+        read = await client.get(f"/jobs/{job.id}", headers=publish)
+        assert _refused_with(read, "A publish key can read only its owner's jobs"), (
+            read.text
+        )
         retry = await client.post(f"/jobs/{job.id}/retry", headers=publish)
         assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
             retry.text
@@ -937,5 +941,44 @@ async def test_a_hidden_layer_the_replacement_keeps_is_not_dropped(
         await client.delete(url, headers=headers)
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": hidden_record}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_an_admin_capability_refuses_a_publish_key_wherever_mounted(
+    client: AsyncClient, admin_auth_header, monkeypatch
+):
+    """The capability check backs up the route list, so a new admin read is covered."""
+    publish = await _mint(client, admin_auth_header, "publish")
+    detail = dependencies._SCOPE_RULES["publish"][1]
+    monkeypatch.setitem(
+        dependencies._SCOPE_RULES, "publish", (lambda *_a, **_k: True, detail)
+    )
+
+    resp = await client.get("/admin/users/", headers=publish)
+    assert (resp.status_code, resp.json()["detail"]) == (403, PUBLISH_REFUSAL)
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_refresh_a_stac_dataset(
+    client: AsyncClient, owner, test_db_session
+):
+    from tests.factories import create_dataset
+
+    headers, owner_id = owner
+    stac = await create_dataset(
+        test_db_session, created_by=owner_id, source_format="stac", visibility="private"
+    )
+    record_id = stac.record_id
+    try:
+        publish = await _mint(client, headers, "publish")
+        resp = await client.post(f"/datasets/{stac.id}/refresh", headers=publish)
+        assert _refused_with(
+            resp, "A publish key can't refresh a raster or STAC dataset"
+        ), resp.text
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
         )
         await test_db_session.commit()

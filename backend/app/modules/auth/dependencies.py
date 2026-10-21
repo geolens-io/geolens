@@ -28,6 +28,7 @@ from app.platform.request_credential import (
     api_key_scope_refusal,
     mark_header_api_key_evaluated,
     record_api_key,
+    refuse_publish_key,
 )
 
 oauth2_scheme_optional = OAuth2PasswordBearer(
@@ -255,6 +256,14 @@ def _publish_key_may_call(
     )
 
 
+_PUBLISH_REFUSAL = (
+    "This API key has the publish scope, which can't delete datasets or maps, "
+    "write features or reach admin and key routes"
+)
+# A route needing one of these is an admin route, wherever it is mounted, so a
+# publish key is refused it.
+_ADMIN_CAPABILITIES = frozenset({"manage_settings", "manage_users", "manage_tenants"})
+
 # Each restricted scope's rule and the ``detail`` its 403 carries. The
 # read-only detail stays the bare string clients already match. A full key may
 # call anything and a dataset key that strays resolves as no key, so any other
@@ -263,11 +272,7 @@ _SCOPE_RULES = {
     "read_only": (_read_only_key_may_call, "This API key is read-only"),
     "publish": (
         _publish_key_may_call,
-        {
-            "code": "api_key_scope",
-            "message": "This API key has the publish scope, which can't delete "
-            "datasets or maps, write features or reach admin and key routes",
-        },
+        {"code": "api_key_scope", "message": _PUBLISH_REFUSAL},
     ),
 }
 _UNRESTRICTED_SCOPES = frozenset({"full", *DATASET_KEY_SCOPE_ROUTES})
@@ -886,6 +891,9 @@ def require_permission(*capabilities: str):
         else:
             matrix = await get_effective_permissions(db)
             request.state._effective_permissions = matrix
+
+        if _ADMIN_CAPABILITIES.intersection(capabilities):
+            refuse_publish_key(db, _PUBLISH_REFUSAL)
 
         permission_ext = get_permission_extension()
 
