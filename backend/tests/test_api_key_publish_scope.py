@@ -119,8 +119,6 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("POST", "/datasets/{dataset_id}/analysis/materialize/"),
             ("POST", "/datasets/{dataset_id}/analysis/preview"),
             ("POST", "/datasets/{dataset_id}/analysis/preview/"),
-            ("POST", "/datasets/{dataset_id}/reupload/presigned"),
-            ("POST", "/datasets/{dataset_id}/reupload/presigned/{job_id}/complete"),
             ("POST", "/maps/icons"),
             ("POST", "/maps/{map_id}/duplicate"),
             ("POST", "/maps/{map_id}/duplicate/"),
@@ -163,14 +161,6 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("POST", "/ingest/vrt/{dataset_id}/sources/"),
         ],
         "VRT authoring",
-    ),
-    **dict.fromkeys(
-        [
-            ("POST", "/ingest/preview/{job_id}"),
-            ("POST", "/ingest/commit/{job_id}"),
-            ("POST", "/ingest/commit-fan-out/{job_id}"),
-        ],
-        "the interactive import wizard; clients publish through the manifest",
     ),
     **dict.fromkeys(
         [
@@ -255,6 +245,41 @@ def test_a_publish_key_inherits_the_read_only_rules():
     assert not _publish_key_may_call(
         "GET", "/datasets/{dataset_id}/validate/", {"refresh": "true"}
     )
+
+
+def _admin_only_reads() -> set[str]:
+    """GET templates gated by an instance-mode permission or a manage_* capability."""
+    import inspect
+
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    def gates(dependant):
+        for sub in dependant.dependencies:
+            yield sub.call
+            yield from gates(sub)
+
+    found = set()
+    for ctx in iter_route_contexts(app.routes):
+        if not isinstance(ctx.route, APIRoute) or "GET" not in ctx.route.methods:
+            continue
+        for call in gates(ctx.route.dependant):
+            name = getattr(call, "__qualname__", "")
+            if "_mode_permission_checker" in name:
+                found.add(ctx.path)
+            elif "_permission_checker" in name:
+                needed = inspect.getclosurevars(call).nonlocals.get("capabilities", ())
+                if {"manage_settings", "manage_users"} & set(needed):
+                    found.add(ctx.path)
+    return found
+
+
+def test_every_admin_only_read_is_refused():
+    reads = _admin_only_reads()
+    assert "/settings/all" in reads and "/admin/users" in reads
+    allowed = sorted(t for t in reads if _publish_key_may_call("GET", t))
+    assert not allowed, allowed
 
 
 def test_admin_and_key_reads_are_refused():
@@ -671,4 +696,96 @@ async def test_a_publish_key_cannot_change_a_live_share_links_expiry(
         assert reused.status_code == 200, reused.text
         assert reused.json()["expires_at"] is None
     finally:
+        await client.delete(f"/maps/{map_id}", headers=headers)
+
+
+@pytest.mark.anyio
+async def test_a_null_layer_list_keeps_the_public_map_check(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        added = await client.put(
+            url, json={"layers": [{"dataset_id": str(datasets[0].id)}]}, headers=headers
+        )
+        assert added.status_code == 200, added.text
+        resp = await client.put(
+            url, json={"visibility": "public", "layers": None}, headers=headers
+        )
+        assert resp.status_code == 400, resp.text
+    finally:
+        await client.delete(url, headers=headers)
+
+
+@pytest.mark.anyio
+async def test_an_expired_embed_token_does_not_pin_layers(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, owner_id = owner
+    kept, other = (str(dataset.id) for dataset in datasets)
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        setup = await client.put(
+            url, json={"layers": [{"dataset_id": kept}]}, headers=headers
+        )
+        assert setup.status_code == 200, setup.text
+        test_db_session.add(
+            EmbedToken(
+                map_id=uuid.UUID(map_id),
+                token_hash=uuid.uuid4().hex,
+                token_hint="expired",
+                scoped_dataset_ids=[kept],
+                expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+                created_by=owner_id,
+            )
+        )
+        await test_db_session.commit()
+
+        swapped = await client.put(
+            url, json={"layers": [{"dataset_id": other}]}, headers=publish
+        )
+        assert swapped.status_code == 200, swapped.text
+    finally:
+        await client.delete(url, headers=headers)
+
+
+@pytest.mark.anyio
+async def test_the_visibility_check_reads_the_map_under_its_lock(
+    client: AsyncClient, owner, monkeypatch
+):
+    """A publish that commits before the lock is granted is what gets compared."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.maps import _router_helpers
+    from app.modules.catalog.maps.models import Map
+
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    lock = _router_helpers.lock_map_layers
+
+    async def published_while_waiting(session, locked_map_id):
+        # Not synchronized into the session, as another transaction's write isn't.
+        await session.execute(
+            update(Map)
+            .where(Map.id == locked_map_id)
+            .values(visibility="public")
+            .execution_options(synchronize_session=False)
+        )
+        await lock(session, locked_map_id)
+
+    monkeypatch.setattr(_router_helpers, "lock_map_layers", published_while_waiting)
+    try:
+        resp = await client.put(
+            f"/maps/{map_id}", json={"visibility": "internal"}, headers=publish
+        )
+        assert _refused_with(resp, "A publish key can't lower a map's visibility"), (
+            resp.text
+        )
+    finally:
+        monkeypatch.undo()
         await client.delete(f"/maps/{map_id}", headers=headers)

@@ -552,11 +552,16 @@ async def revoke_embed_tokens_for_dropped_datasets(
 async def embed_tokens_reach_beyond(
     db: AsyncSession, map_id: uuid.UUID, dataset_ids: set[str]
 ) -> bool:
-    """Whether an active token on the map is scoped to a dataset outside ``dataset_ids``."""
+    """Whether a live token on the map is scoped to a dataset outside ``dataset_ids``.
+
+    An expired token serves nothing, and every token's datasets are rechecked
+    against the map's layers when it is used, so only live ones count.
+    """
     result = await db.execute(
         select(EmbedToken.scoped_dataset_ids).where(
             EmbedToken.map_id == map_id,
             EmbedToken.is_active.is_(True),
+            EmbedToken.expires_at > func.now(),
         )
     )
     return any(

@@ -9,6 +9,7 @@ import uuid
 
 import structlog
 from fastapi import HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -439,16 +440,20 @@ async def _refuse_publish_key_link_revocation(
     visibility at all, and a layer list that drops a dataset an active embed
     token covers revokes every embed token. Neither can be undone.
     """
+    credential = api_key_credential(db)
+    if credential is None or credential.scope != "publish":
+        return
+    if body.visibility is None and body.layers is None:
+        return
+    # Held through the commit and read after it, so a concurrent publish or a
+    # token minted meanwhile is what gets checked.
+    await lock_map_layers(db, map_obj.id)
+    current = await db.scalar(select(Map.visibility).where(Map.id == map_obj.id))
     if body.visibility is not None and (
-        _VISIBILITY_RANK[body.visibility] < _VISIBILITY_RANK.get(map_obj.visibility, 0)
+        _VISIBILITY_RANK[body.visibility] < _VISIBILITY_RANK.get(current, 0)
     ):
         refuse_publish_key(db, "A publish key can't lower a map's visibility")
-    credential = api_key_credential(db)
-    if body.layers is None or credential is None or credential.scope != "publish":
-        return
-    # Held through the commit, so a token minted meanwhile can't be revoked.
-    await lock_map_layers(db, map_obj.id)
-    if await embed_tokens_reach_beyond(
+    if body.layers is not None and await embed_tokens_reach_beyond(
         db, map_obj.id, {str(layer.dataset_id) for layer in body.layers}
     ):
         refuse_publish_key(

@@ -489,10 +489,7 @@ async def update_map_endpoint(
 
     # Hard block: prevent publishing maps with non-public datasets. A request
     # that also replaces the layers is checked on the layers it leaves.
-    if (
-        body.visibility == MapVisibility.public
-        and "layers" not in body.model_fields_set
-    ):
+    if body.visibility == MapVisibility.public and body.layers is None:
         non_public = await validate_public_visibility(db, map_id, user)
         if non_public:
             raise HTTPException(

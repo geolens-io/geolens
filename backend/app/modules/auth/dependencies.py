@@ -145,6 +145,9 @@ _PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/ingest/upload"),
         ("POST", "/ingest/upload/presigned"),
         ("POST", "/ingest/upload/presigned/{job_id}/complete"),
+        ("POST", "/ingest/preview/{job_id}"),
+        ("POST", "/ingest/commit/{job_id}"),
+        ("POST", "/ingest/commit-fan-out/{job_id}"),
         ("POST", "/ingest/manifest/apply"),
         ("POST", "/jobs/{job_id}/cancel"),
         ("POST", "/jobs/{job_id}/retry"),
@@ -158,6 +161,8 @@ _PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/datasets/{dataset_id}/refresh"),
         ("POST", "/datasets/{dataset_id}/previous-version/restore"),
         ("POST", "/datasets/{dataset_id}/reupload"),
+        ("POST", "/datasets/{dataset_id}/reupload/presigned"),
+        ("POST", "/datasets/{dataset_id}/reupload/presigned/{job_id}/complete"),
         ("POST", "/datasets/{dataset_id}/reupload/{job_id}/preview"),
         ("POST", "/datasets/{dataset_id}/reupload/{job_id}/commit"),
         ("POST", "/maps/"),
@@ -170,6 +175,28 @@ _PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("PUT", "/maps/{map_id}/og-image"),
         ("POST", "/maps/{map_id}/share/"),
         ("POST", "/maps/{map_id}/share"),
+    }
+)
+
+
+# Admin-only reads outside ``/admin/``, which a publish key is refused like
+# every admin route.
+_PUBLISH_KEY_REFUSED_READS: frozenset[str] = frozenset(
+    {
+        "/settings/all",
+        "/settings/all/",
+        "/settings/enterprise-tabs",
+        "/settings/enterprise-tabs/",
+        "/settings/api-key-status",
+        "/settings/api-key-status/",
+        "/settings/notifications/status",
+        "/settings/notifications/status/",
+        "/settings/oauth-providers",
+        "/settings/oauth-providers/",
+        "/config-ops/export",
+        "/config-ops/export/",
+        "/ingest/discover",
+        "/ingest/discover/",
     }
 )
 
@@ -217,7 +244,11 @@ def _publish_key_may_call(
     route_template: str,
     query_params: Mapping[str, str] | None = None,
 ) -> bool:
-    if route_template.startswith("/admin/") or "/api-keys" in route_template:
+    if (
+        route_template.startswith("/admin/")
+        or "/api-keys" in route_template
+        or route_template in _PUBLISH_KEY_REFUSED_READS
+    ):
         return False
     return (method, route_template) in _PUBLISH_KEY_ROUTES or _read_only_key_may_call(
         method, route_template, query_params
