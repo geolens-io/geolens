@@ -11,6 +11,7 @@ from collections.abc import Iterator
 import pytest
 
 from geolens_cli import arcgis_inventory as inventory
+from geolens_cli import arcgis_portal
 from geolens_cli.main import app
 
 from .arcgis_fake import (
@@ -28,7 +29,7 @@ SECRET_TOKEN = "SENTINEL-token-7f3a9c-not-real"
 SECRET_PASSWORD = "SENTINEL-password-b81e-not-real"
 MINTED_TOKEN = "SENTINEL-minted-token-44d2-not-real"
 SECRETS = (SECRET_TOKEN, SECRET_PASSWORD, MINTED_TOKEN)
-HEADER = inventory.ESRI_AUTHORIZATION_HEADER.lower()
+HEADER = arcgis_portal.ESRI_AUTHORIZATION_HEADER.lower()
 
 
 @pytest.fixture

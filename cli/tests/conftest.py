@@ -1,14 +1,22 @@
 """Shared pytest fixtures for cli/tests/.
 
 Hand-maintained — NOT regenerated. Provides CliRunner + tmp_xdg_home +
-mock_keyring fixtures used across every test module in this package.
+mock_keyring fixtures used across every test module in this package, and
+fake_geolens for commands that call the API through the SDK.
 """
+
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
+import httpx
 import pytest
 from typer.testing import CliRunner
+
+from .sdk_fake import FakeGeoLens
+
+GEOLENS_INSTANCE = "https://geolens.example.org/api"
 
 
 @pytest.fixture
@@ -41,3 +49,26 @@ def mock_keyring(monkeypatch) -> dict:
     monkeypatch.setattr("keyring.get_password", get_password)
     monkeypatch.setattr("keyring.delete_password", delete_password)
     return store
+
+
+@pytest.fixture
+def fake_geolens(monkeypatch, tmp_xdg_home) -> FakeGeoLens:
+    """Route every SDK client the CLI builds to a FakeGeoLens.
+
+    The active instance is ``GEOLENS_INSTANCE`` with a generated bearer token
+    (``fake.token``), so no stored login or network is involved.
+    """
+    import geolens
+
+    fake = FakeGeoLens(GEOLENS_INSTANCE)
+    monkeypatch.setenv("GEOLENS_INSTANCE", GEOLENS_INSTANCE)
+    monkeypatch.setenv("GEOLENS_TOKEN", fake.token)
+    monkeypatch.setattr(
+        geolens,
+        "GeolensClient",
+        functools.partial(
+            geolens.GeolensClient,
+            httpx_args={"transport": httpx.MockTransport(fake.handle)},
+        ),
+    )
+    return fake
