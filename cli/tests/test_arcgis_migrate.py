@@ -13,6 +13,8 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli.main import app
 
+from .conftest import GEOLENS_INSTANCE
+
 PORTAL = "https://examplecounty.maps.arcgis.com"
 OPERATOR = "00000000-0000-0000-0000-0000000000a0"
 ALICE = "00000000-0000-0000-0000-0000000000a1"
@@ -199,9 +201,21 @@ def _state(tmp_path: Path) -> dict:
     return json.loads((tmp_path / "arcgis-migration-state.json").read_text())
 
 
-def _write_state(tmp_path: Path, items: dict[str, dict]) -> None:
+def _write_state(
+    tmp_path: Path,
+    items: dict[str, dict],
+    portal: str = PORTAL,
+    instance: str = GEOLENS_INSTANCE,
+) -> None:
     (tmp_path / "arcgis-migration-state.json").write_text(
-        json.dumps({"schema_version": "1", "portal_url": PORTAL, "items": items})
+        json.dumps(
+            {
+                "schema_version": "1",
+                "portal_url": portal,
+                "geolens_instance": instance,
+                "items": items,
+            }
+        )
     )
 
 
@@ -316,14 +330,23 @@ def test_only_with_an_unknown_id_is_a_usage_error(runner, tmp_path, geolens, han
 def test_a_state_file_from_another_portal_is_refused(
     runner, tmp_path, geolens, handled
 ):
-    (tmp_path / "arcgis-migration-state.json").write_text(
-        json.dumps(
-            {"schema_version": "1", "portal_url": "https://other.example", "items": {}}
-        )
-    )
+    _write_state(tmp_path, {}, portal="https://other.example")
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
     assert result.exit_code == 2 and "other.example" in result.output
     assert handled == []
+
+
+def test_a_state_file_from_another_geolens_is_refused(
+    runner, tmp_path, geolens, handled
+):
+    _write_state(
+        tmp_path,
+        {L1: {"status": "done", "dataset_ids": [_created_id(L1)]}},
+        instance="https://old.example.org/api",
+    )
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+    assert result.exit_code == 2 and "old.example.org" in result.output
+    assert handled == [] and geolens.seen == []
 
 
 def test_dry_run_writes_no_state_and_changes_nothing(
@@ -433,15 +456,18 @@ def test_items_are_transferred_to_the_mapped_owner(runner, tmp_path, geolens, ha
     assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
 
 
-def test_items_owned_by_the_operator_are_not_transferred(
+def test_a_retry_mapped_to_the_operator_reclaims_partly_transferred_items(
     runner, tmp_path, geolens, handled
 ):
+    _allow_transfers(geolens, _created_id(L1))
+    _write_state(tmp_path, {L1: {"status": "failed", "owner_id": ALICE}})
     plan = _plan([_item(L1)], owner_map={"agol_alice": "operator@example.org"})
 
     result, _ = _run(runner, tmp_path, plan)
 
     assert result.exit_code == 0, result.output
-    assert [s for s in geolens.seen if s.method == "PATCH"] == []
+    patches = [s.json() for s in geolens.seen if s.method == "PATCH"]
+    assert patches == [{"owner_id": OPERATOR}]
     assert _state(tmp_path)["items"][L1]["owner_id"] == OPERATOR
 
 
@@ -681,3 +707,49 @@ def test_a_refreshed_access_token_is_redacted_too(fake_geolens, monkeypatch):
     assert redact(f"echo {renewed} and {fake_geolens.token}") == (
         "echo [REDACTED] and [REDACTED]"
     )
+
+
+def test_a_name_that_is_one_users_email_and_anothers_username_is_refused(
+    runner, tmp_path, geolens, handled
+):
+    users = geolens.routes["GET /admin/users/"]["users"]
+    impostor = _user("00000000-0000-0000-0000-0000000000a9", "x", ["editor"])
+    impostor["email"] = "Alice"
+    geolens.routes["GET /admin/users/"] = {"users": [*users, impostor], "total": 5}
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 2
+    assert "matches more than one GeoLens user" in result.output
+    assert handled == []
+
+
+def test_stored_role_overrides_apply_over_the_built_in_grants(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    geolens.routes["GET /settings/all/"] = _settings(
+        {"admin": {"manage_users": True, "manage_settings": True}}
+    )
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
+
+
+@pytest.mark.parametrize(("status", "code"), [(401, 3), (403, 3), (500, 5), (404, 1)])
+def test_a_preflight_failure_keeps_the_cli_exit_codes_and_redacts(
+    runner, tmp_path, geolens, handled, status, code
+):
+    geolens.routes["GET /admin/users/"] = (
+        status,
+        {"title": "Error", "status": status, "detail": f"echo {geolens.token}"},
+    )
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == code
+    assert geolens.token not in result.output
+    # A 401 on GEOLENS_TOKEN ends in the shared reauth refusal instead.
+    assert status == 401 or "echo [REDACTED]" in result.output

@@ -66,24 +66,38 @@ class MigrationState:
     """Per-item progress for one plan, saved after every change."""
 
     def __init__(
-        self, path: Path, portal_url: str, redact: Redactor, *, persist: bool = True
+        self,
+        path: Path,
+        portal_url: str,
+        instance: str,
+        redact: Redactor,
+        *,
+        persist: bool = True,
     ) -> None:
         self.path = path
         self.portal_url = portal_url
+        self.instance = instance
         self.items: dict[str, ItemState] = {}
         self._redact = redact
         self._persist = persist
 
     @classmethod
     def load(
-        cls, path: Path, portal_url: str, redact: Redactor, *, persist: bool = True
+        cls,
+        path: Path,
+        portal_url: str,
+        instance: str,
+        redact: Redactor,
+        *,
+        persist: bool = True,
     ) -> MigrationState:
         """The state at *path*, or an empty one when the file doesn't exist.
 
-        Refuses a file written for another portal: its ids would be matched
-        against the wrong organization's items.
+        Refuses a file written for another portal or another GeoLens
+        instance: its item ids would be matched against the wrong
+        organization, or its GeoLens ids against the wrong catalog.
         """
-        state = cls(path, portal_url, redact, persist=persist)
+        state = cls(path, portal_url, instance, redact, persist=persist)
         try:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -101,6 +115,7 @@ class MigrationState:
                 for item_id, entry in data["items"].items()
             }
             recorded_portal = data["portal_url"]
+            recorded_instance = data["geolens_instance"]
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise StateError(
                 f"the state file {path} is not a migration state v{STATE_VERSION} "
@@ -110,6 +125,11 @@ class MigrationState:
             raise StateError(
                 f"the state file {path} records a migration from {recorded_portal}, "
                 f"not {portal_url}; pass --state with another path"
+            )
+        if recorded_instance != instance:
+            raise StateError(
+                f"the state file {path} records a migration into {recorded_instance}, "
+                f"not {instance}; pass --state with another path"
             )
         state.items = items
         return state
@@ -148,6 +168,7 @@ class MigrationState:
         payload = {
             "schema_version": STATE_VERSION,
             "portal_url": self.portal_url,
+            "geolens_instance": self.instance,
             "items": {k: vars(v) for k, v in self.items.items()},
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

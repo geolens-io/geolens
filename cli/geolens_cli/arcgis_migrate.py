@@ -25,7 +25,7 @@ import typer
 
 from . import arcgis_plan as _plan
 from . import output as _output
-from ._sdk_helpers import EXIT_GENERIC, EXIT_OK, EXIT_USAGE
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_OK, EXIT_SERVER, EXIT_USAGE
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -50,6 +50,13 @@ TRANSFER_PERMISSION = {
     _plan.IMPORT_LAYERS: "upload",
     _plan.IMPORT_FILE: "upload",
     _plan.IMPORT_MAP: "edit_metadata",
+}
+# The server's built-in grants of the two permissions; the role_permissions
+# setting stores only the overrides, which the server applies on top.
+DEFAULT_TRANSFER_GRANTS = {
+    "viewer": {"upload": False, "edit_metadata": False},
+    "editor": {"upload": True, "edit_metadata": True},
+    "admin": {"upload": True, "edit_metadata": True},
 }
 USER_PAGE_SIZE = 200
 EXIT_INTERRUPTED = 130
@@ -173,6 +180,17 @@ def _list_users(geolens: GeoLens) -> list[Any]:
             return users
 
 
+def _effective(
+    stored: Mapping[str, Mapping[str, bool]],
+) -> dict[str, dict[str, bool]]:
+    """The stored role overrides applied over the built-in grants."""
+    effective = {role: dict(grants) for role, grants in DEFAULT_TRANSFER_GRANTS.items()}
+    for role, grants in stored.items():
+        if isinstance(grants, Mapping):
+            effective.setdefault(role, {}).update(grants)
+    return effective
+
+
 def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | None:
     """The instance's role permissions, or None when the setting can't be read."""
     from geolens.api.admin import get_all_settings_settings_all_get as get_settings
@@ -194,15 +212,23 @@ class _Directory:
     def __init__(
         self, users: Iterable[Any], roles: Mapping[str, Mapping[str, bool]] | None
     ) -> None:
-        self._by_name: dict[str, Any] = {}
+        self._by_name: dict[str, dict[str, Any]] = {}
         for user in users:
             for name in (user.username, user.email):
                 if isinstance(name, str) and name:
-                    self._by_name.setdefault(name.lower(), user)
-        self.roles = roles
+                    self._by_name.setdefault(name.lower(), {})[str(user.id)] = user
+        self.roles = _effective(roles) if roles is not None else None
 
     def find(self, name: str) -> Any | None:
-        return self._by_name.get(name.strip().lower())
+        """The one user *name* names, or None; ``UsageError`` when one user's
+        email is another's username, since either could be meant."""
+        matches = self._by_name.get(name.strip().lower(), {})
+        if len(matches) > 1:
+            raise UsageError(
+                f"{name} matches more than one GeoLens user (one's username and "
+                "another's email); name the owner by a value only one user has"
+            )
+        return next(iter(matches.values()), None)
 
     def unusable(self, user: Any, permission: str) -> str | None:
         """Why *user* can't own what needs *permission*, or None.
@@ -297,13 +323,16 @@ def _changed_owners(
         entry = state.items.get(item["id"])
         if item["id"] in running or entry is None or entry.status not in FINISHED:
             continue
-        user = directory.find(_target_name(item, plan))
+        try:
+            user = directory.find(_target_name(item, plan))
+        except UsageError:
+            continue
         if user is not None and entry.owner_id and str(user.id) != entry.owner_id:
             changed.append({"item": item["id"], "owner": user.username})
     return changed
 
 
-def _require_admin(geolens: GeoLens) -> str:
+def _require_admin(geolens: GeoLens) -> None:
     from geolens.api.auth import me_auth_me_get
 
     me = geolens.call(me_auth_me_get.sync_detailed)
@@ -312,7 +341,6 @@ def _require_admin(geolens: GeoLens) -> str:
             "migrate needs a GeoLens admin session: it reads the user list and "
             "transfers ownership. Run `geolens login` as an admin."
         )
-    return str(me.id)
 
 
 def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
@@ -365,14 +393,14 @@ def _migrate_one(
     item: Mapping[str, Any],
     handler: Handler,
     owner: Owner,
-    operator_id: str,
 ) -> None:
     entry = state.start(item["id"])
     try:
         result = handler(ctx, item, entry)
         state.save()
-        if owner.id != operator_id:
-            transfer(ctx.geolens, entry, owner)
+        # Even to the operator: a run that failed part way may have handed
+        # some of the item's objects to another owner already.
+        transfer(ctx.geolens, entry, owner)
         entry.owner_id = owner.id
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
@@ -392,7 +420,6 @@ def run_items(
     state: MigrationState,
     to_run: list[Mapping[str, Any]],
     owners: Mapping[str, Owner],
-    operator_id: str,
 ) -> RunSummary:
     by_id = {item["id"]: item for item in plan["items"]}
     summary = RunSummary()
@@ -408,7 +435,7 @@ def run_items(
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
-        _migrate_one(ctx, state, item, handler, owners[item["id"]], operator_id)
+        _migrate_one(ctx, state, item, handler, owners[item["id"]])
     state.save()
     return summary
 
@@ -511,7 +538,11 @@ def _run(
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
-            state_path, plan["portal"]["url"], redact, persist=not opts.dry_run
+            state_path,
+            plan["portal"]["url"],
+            instance,
+            redact,
+            persist=not opts.dry_run,
         )
         to_run = select_items(plan, state, opts.only, opts.no_retry)
     except (_plan.PlanError, StateError, UsageError) as exc:
@@ -521,20 +552,22 @@ def _run(
     sdk = sdk_factory()
     geolens = GeoLens(sdk, instance, redact)
     try:
-        operator_id = _require_admin(geolens)
+        _require_admin(geolens)
         owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)
     except UsageError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
     except GeoLensError as exc:
-        fmt.error(f"can't read GeoLens users: {exc}")
-        return EXIT_GENERIC
+        fmt.error(redact(f"can't check the GeoLens session and users: {exc}"))
+        if exc.status in (401, 403):
+            return EXIT_AUTH
+        return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
     if opts.dry_run:
         return _report(fmt, opts, state, to_run, owners, RunSummary())
     try:
         ctx = MigrationContext(geolens=geolens, save=state.save)
-        summary = run_items(ctx, plan, state, to_run, owners.by_item, operator_id)
+        summary = run_items(ctx, plan, state, to_run, owners.by_item)
     except KeyboardInterrupt:
         fmt.error(
             f"interrupted; rerun with the same state file ({state.path}) to resume"
