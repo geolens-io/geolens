@@ -2615,7 +2615,8 @@ async def cluster_tile_endpoint(
         compiled_filter = await cluster_filters.compile_filter(
             db, table_name, layer_filter, meta.tile_columns
         )
-        await db.rollback()
+        if compiled_filter:
+            await db.rollback()
         tid = _require_tile_tenant_context()
         _schema = tenant_data_schema(tid)
 
