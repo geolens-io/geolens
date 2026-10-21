@@ -50,27 +50,34 @@ for one item, `apply_visibility_filter` for lists), and both honour grants.
 Maps don't: they check visibility by hand in several places and need their
 own guard and grant storage.
 
-Access has to change the moment a grant or a membership does. Signed tile URLs
-authorize before the visibility check, so every grant or membership change
-bumps the affected items' publication version, as an ownership transfer does.
-Every grant or membership change, widening or narrowing, runs the
-derived-dataset audience check before it commits, so a derived dataset never
-gains a reader who can't read its sources. Narrowing also runs the shared-map
-guard, as a visibility change does today. Layer data stays behind each
-dataset's own guard, so a new member of a group that a map is shared with sees
-only the layers they can read.
+Access has to change the moment a grant or a membership does. Every such
+change, widening or narrowing:
+
+- bumps the affected items' publication version, as an ownership transfer
+  does, because signed tile URLs authorize before the visibility check;
+- runs the derived-dataset audience check before it commits, so a derived
+  dataset never gains a reader who can't read its sources.
+
+Narrowing also runs the shared-map guard, as a visibility change does today.
+Sharing with groups changes visibility through the same path as any other
+visibility change, so a public map that becomes restricted loses its share
+and embed tokens. Layer data stays behind each dataset's own guard, so a new
+member of a group that a map is shared with sees only the layers they can
+read.
 
 The change adds `restricted` to the published map visibility values, and older
 generated clients reject unknown values. Clients opt in with an
 `X-GeoLens-Map-Visibility: restricted` request header, negotiated the way
-`X-GeoLens-Auth-Mode` is, and every endpoint that returns a map honours it.
-The API's CORS allow-list carries it for split-origin deployments, and map
-responses send `Vary: X-GeoLens-Map-Visibility` so a cache never hands one
-form to the other client. The frontend, the CLI, the MCP server and the SDKs
-released with groups send the header. For one minor release a request without
-it sees restricted maps as private, and a write without it that sends
-`private` for a restricted map leaves the map restricted, since that client
-can't tell the two apart; after that every client sees `restricted`.
+`X-GeoLens-Auth-Mode` is. Every endpoint that returns a map honours it and
+sends `Vary: X-GeoLens-Map-Visibility`, so a cache never hands one form to the
+other client, and the API's CORS allow-list carries it for split-origin
+deployments. The frontend, the CLI, the MCP server and the SDKs released with
+groups send the header.
+
+For one minor release, a request without the header sees restricted maps as
+private, and a write without it that sends `private` for a restricted map
+leaves the map restricted, since that client can't tell the two apart. After
+that release every client sees `restricted`.
 
 No GeoLens surface writes role grants, so rows exist only where someone
 inserted them directly. Those rows keep authorizing as they do today, so an

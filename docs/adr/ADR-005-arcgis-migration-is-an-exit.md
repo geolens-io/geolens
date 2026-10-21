@@ -22,29 +22,37 @@ An ArcGIS migration is a one-way exit. Service layers arrive through a service
 import and data files through an upload, each as a managed copy. Every
 dataset records the portal item id and portal URL as provenance.
 
-Until cutover the operator can run the migration again. A rerun merges new
-portal items into the migration plan without losing the operator's edits,
-brings migrated datasets up to date (a refresh for service imports, a replace
-for files), re-translates in place the migrated maps and stories whose portal
-items changed, and keeps the datasets, maps and stories whose items were
-deleted in the portal. Sharing merges the same way: a change to an item's
-sharing in the portal replaces the groups and visibility the migration gave
-it, unless the operator edited them in the plan, in which case the conflict is
-reported and the operator's choice stays. A rerun never overwrites a change
-made in GeoLens since the last run: a dataset, map or story whose content,
-metadata or sharing changed there is reported instead of updated, and a
-refresh that stops for review is reported and never accepted on the operator's
-behalf.
+Until cutover the operator can run the migration again. A rerun:
+
+- merges new portal items into the migration plan without losing the
+  operator's edits;
+- brings migrated datasets up to date: a refresh for service imports, a
+  replace for files;
+- re-translates in place the migrated maps and stories whose portal items
+  changed;
+- keeps the datasets, maps and stories whose portal items were deleted;
+- follows changes to an item's sharing and owner in the portal. Where the
+  operator set those in the plan, the operator's choice stays and the conflict
+  is reported.
+
+A rerun never overwrites a change made in GeoLens since the last run. A
+dataset, map or story whose content, metadata, sharing or owner changed there
+is reported instead of updated. A refresh that stops for review is reported
+and never accepted on the operator's behalf.
 
 Cutover is the last run, made after edits in the portal are frozen. It refuses
 while anything the plan covers hasn't fully carried over, unless the operator
-accepts each of those losses: an item that isn't done (failed, unavailable or
-waiting on one that failed), an incomplete inventory behind the plan, content
-GeoLens can't hold yet such as attachments, and owners or group members who
-don't resolve to GeoLens users. No rerun can fix them once the portal is gone.
-From then on GeoLens is the system of record. Nothing detaches a migrated
-dataset from its source; after the portal is retired, a refresh fails with the
-service's own error.
+accepts each loss:
+
+- an item that isn't done (failed, unavailable, or waiting on one that
+  failed);
+- an incomplete inventory, including sharing the inventory couldn't read;
+- content GeoLens can't hold yet, such as attachments;
+- owners or group members who don't resolve to GeoLens users.
+
+No rerun can fix these once the portal is gone. From then on GeoLens is the
+system of record. Nothing detaches a migrated dataset from its source; after
+the portal is retired, a refresh fails with the service's own error.
 
 ## Consequences
 
