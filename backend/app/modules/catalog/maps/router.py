@@ -469,7 +469,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    await _refuse_publish_key_link_revocation(db, map_obj, body)
+    await _refuse_publish_key_link_revocation(db, map_obj, body, user)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
     # Auto-revoke share tokens when visibility moves away from public. Layer

@@ -432,7 +432,7 @@ _VISIBILITY_RANK = {"private": 0, "internal": 1, "public": 2}
 
 
 async def _refuse_publish_key_link_revocation(
-    db: AsyncSession, map_obj: Map, body: MapUpdate
+    db: AsyncSession, map_obj: Map, body: MapUpdate, user: Identity
 ) -> None:
     """Refuse a publish key a map update that revokes share links or embed tokens.
 
@@ -454,11 +454,38 @@ async def _refuse_publish_key_link_revocation(
     ):
         refuse_publish_key(db, "A publish key can't lower a map's visibility")
     if body.layers is not None and await embed_tokens_reach_beyond(
-        db, map_obj.id, {str(layer.dataset_id) for layer in body.layers}
+        db, map_obj.id, await _datasets_after_replacement(db, map_obj.id, body, user)
     ):
         refuse_publish_key(
             db, "A publish key can't drop a dataset an active embed token covers"
         )
+
+
+async def _datasets_after_replacement(
+    db: AsyncSession, map_id: uuid.UUID, body: MapUpdate, user: Identity
+) -> set[str]:
+    """The dataset ids a full layer replacement leaves on the map.
+
+    The replacement keeps an omitted layer whose dataset ``user`` can't read.
+    """
+    requested = {layer.id for layer in body.layers or [] if layer.id is not None}
+    omitted = [
+        row
+        for row in (
+            await db.execute(
+                select(MapLayer.id, MapLayer.dataset_id).where(
+                    MapLayer.map_id == map_id
+                )
+            )
+        ).all()
+        if row.id not in requested
+    ]
+    readable = await bulk_check_dataset_access(
+        db, [row.dataset_id for row in omitted], user, await get_user_roles(db, user)
+    )
+    return {str(layer.dataset_id) for layer in body.layers or []} | {
+        str(row.dataset_id) for row in omitted if row.dataset_id not in readable
+    }
 
 
 async def _readable_terrain(

@@ -886,3 +886,53 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
     finally:
         await test_db_session.delete(job)
         await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_hidden_layer_the_replacement_keeps_is_not_dropped(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """A layer the owner can no longer read survives a replacement that omits it."""
+    from tests.factories import create_dataset, get_user_id
+
+    headers, owner_id = owner
+    kept = str(datasets[0].id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    other = await create_dataset(test_db_session, created_by=admin_id)
+    hidden, hidden_record = str(other.id), other.record_id
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        setup = await client.put(
+            url,
+            json={"layers": [{"dataset_id": kept}, {"dataset_id": hidden}]},
+            headers=headers,
+        )
+        assert setup.status_code == 200, setup.text
+        test_db_session.add(
+            EmbedToken(
+                map_id=uuid.UUID(map_id),
+                token_hash=uuid.uuid4().hex,
+                token_hint="hidden",
+                scoped_dataset_ids=[kept, hidden],
+                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+                created_by=owner_id,
+            )
+        )
+        await test_db_session.execute(
+            text("UPDATE catalog.records SET visibility = 'private' WHERE id = :id"),
+            {"id": hidden_record},
+        )
+        await test_db_session.commit()
+
+        resp = await client.put(
+            url, json={"layers": [{"dataset_id": kept}]}, headers=publish
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        await client.delete(url, headers=headers)
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": hidden_record}
+        )
+        await test_db_session.commit()
