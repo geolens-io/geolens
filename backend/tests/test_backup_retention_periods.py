@@ -499,6 +499,14 @@ class TestLastDumpWithRecords:
         assert (backup_dir / ".last-good-dump").read_text() == marker_before
         assert f"retention keeps {good_ts}" in result.stderr
 
+    def test_with_no_marker_an_empty_catalog_keeps_the_prior_set(self, tmp_path: Path):
+        _, good_set = _seed_earlier_good_set(tmp_path / "backups", "")
+        (tmp_path / "backups" / ".last-good-dump").unlink()
+        result, backup_dir = _cycle(tmp_path, psql_row="0|0|")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert good_set <= _names(backup_dir / "daily")
+        assert not (backup_dir / ".last-good-dump").exists()
+
     def test_a_failed_check_fails_the_cycle_and_keeps_the_marker(self, tmp_path: Path):
         good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups", _ID_A)
         marker_before = (tmp_path / "backups" / ".last-good-dump").read_text()

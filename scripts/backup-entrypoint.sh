@@ -110,6 +110,10 @@ run_backup() {
     read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
     [[ -n "$good_ts" && "$good_ids" =~ ^[0-9A-Za-z-]+(\ [0-9A-Za-z-]+)*$ ]] || good_ids=""
+    # With no marker yet (first run after an upgrade), the newest set from
+    # before this cycle may be the only real backup of a database already lost.
+    local prior_ts=""
+    [ -n "$good_ts" ] || prior_ts="$(newest_complete_ts "$DAILY_DIR")"
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -255,6 +259,10 @@ run_backup() {
             log "ERROR: could not record ${filename} as the dump retention keeps — this cycle will be reported as failed"
             cycle_failed=1
         fi
+    fi
+    if [ -z "$good_ts" ] && [ -n "$prior_ts" ]; then
+        log "No dump is marked yet; retention also keeps ${prior_ts} until a cycle can mark one"
+        good_ts="$prior_ts"
     fi
 
     # Retention runs regardless of S3 outcome (dumps set the window; their
