@@ -38,7 +38,8 @@ and releases use semantic versioning.
   response carries `Access-Control-Allow-Origin: *` without
   `Access-Control-Allow-Credentials`, and only on routes that check the key; an
   invalid key's `401` is readable too. Cookies sent with the request are
-  ignored. Under `/api/auth/`, only `/api/auth/me` accepts a keyed preflight. A
+  ignored. The sign-in, registration and session routes under `/api/auth/`,
+  which read no key, refuse a keyed preflight. A
   request that also carries `Authorization`, an embed token, or `?api_key=` or
   `?embed_token=` in the URL keeps the old rule. A keyed answer lists
   `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
