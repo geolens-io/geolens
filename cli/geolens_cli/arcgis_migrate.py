@@ -25,15 +25,15 @@ import typer
 
 from . import arcgis_plan as _plan
 from . import output as _output
-from ._sdk_helpers import (
-    EXIT_GENERIC,
-    EXIT_OK,
-    EXIT_USAGE,
-    call_sdk_with_reauth,
-    detail_text,
+from ._sdk_helpers import EXIT_GENERIC, EXIT_OK, EXIT_USAGE
+from .arcgis_migrate_session import (
+    GeoLens,
+    GeoLensError,
+    ItemFailed,
+    ItemResult,
+    MigrationContext,
 )
 from .arcgis_migrate_state import (
-    DONE,
     FAILED,
     FINISHED,
     SKIPPED,
@@ -59,66 +59,7 @@ class UsageError(Exception):
     """The plan, state or owner mapping can't be run; nothing was imported."""
 
 
-class GeoLensError(Exception):
-    """A GeoLens request answered with an error status."""
-
-    def __init__(self, message: str, status: int) -> None:
-        super().__init__(message)
-        self.status = status
-
-
-class ItemFailed(Exception):
-    """An item could not be migrated; the message goes to the state file."""
-
-
-@dataclass
-class ItemResult:
-    """What an action handler created or found for one item."""
-
-    status: str = DONE
-    dataset_ids: list[str] = field(default_factory=list)
-    record_ids: list[str] = field(default_factory=list)
-    map_id: str | None = None
-    job_ids: list[str] = field(default_factory=list)
-
-
-class GeoLens:
-    """The operator's SDK session; a 401 spends a stored refresh token once."""
-
-    def __init__(self, sdk: Any, instance: str) -> None:
-        self._sdk = sdk
-        self._instance = instance
-        self.client = sdk.client
-
-    def call(
-        self, fn: Callable[..., Any], *, expected: int = 200, **kwargs: Any
-    ) -> Any:
-        from geolens.models.problem_detail import ProblemDetail  # lazy
-
-        def replace_client(replacement: Any) -> None:
-            self.client = replacement
-
-        resp = call_sdk_with_reauth(
-            fn,
-            instance=self._instance,
-            credential_kind=self._sdk.credential_kind,
-            credential_provenance=self._sdk.credential_provenance,
-            on_reauthenticated=replace_client,
-            client=self.client,
-            **kwargs,
-        )
-        status = int(resp.status_code)
-        if status != expected or isinstance(resp.parsed, ProblemDetail):
-            detail = (
-                detail_text(resp.parsed.detail)
-                if isinstance(resp.parsed, ProblemDetail)
-                else "no detail"
-            )
-            raise GeoLensError(f"HTTP {status}: {detail}", status)
-        return resp.parsed
-
-
-Handler = Callable[[GeoLens, Mapping[str, Any], ItemState], ItemResult]
+Handler = Callable[[MigrationContext, Mapping[str, Any], ItemState], ItemResult]
 # Action -> handler. An action without one is reported as not available in
 # this version and left pending, so a later version can run it.
 HANDLERS: dict[str, Handler] = {}
@@ -412,12 +353,14 @@ def _unmet(
     return [
         dep
         for dep in item["depends_on"]
-        if dep in by_id and state.status(dep) not in (*FINISHED, SKIPPED)
+        if dep in by_id
+        and dep != item["id"]
+        and state.status(dep) not in (*FINISHED, SKIPPED)
     ]
 
 
 def _migrate_one(
-    geolens: GeoLens,
+    ctx: MigrationContext,
     state: MigrationState,
     item: Mapping[str, Any],
     handler: Handler,
@@ -426,14 +369,10 @@ def _migrate_one(
 ) -> None:
     entry = state.start(item["id"])
     try:
-        result = handler(geolens, item, entry)
-        entry.dataset_ids = result.dataset_ids
-        entry.record_ids = result.record_ids
-        entry.map_id = result.map_id
-        entry.job_ids = result.job_ids
+        result = handler(ctx, item, entry)
         state.save()
         if owner.id != operator_id:
-            transfer(geolens, entry, owner)
+            transfer(ctx.geolens, entry, owner)
         entry.owner_id = owner.id
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
@@ -448,7 +387,7 @@ def _migrate_one(
 
 
 def run_items(
-    geolens: GeoLens,
+    ctx: MigrationContext,
     plan: Mapping[str, Any],
     state: MigrationState,
     to_run: list[Mapping[str, Any]],
@@ -469,7 +408,7 @@ def run_items(
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
-        _migrate_one(geolens, state, item, handler, owners[item["id"]], operator_id)
+        _migrate_one(ctx, state, item, handler, owners[item["id"]], operator_id)
     state.save()
     return summary
 
@@ -595,7 +534,8 @@ def _run(
     if opts.dry_run:
         return _report(fmt, opts, state, to_run, owners, RunSummary())
     try:
-        summary = run_items(geolens, plan, state, to_run, owners.by_item, operator_id)
+        ctx = MigrationContext(geolens=geolens, save=state.save)
+        summary = run_items(ctx, plan, state, to_run, owners.by_item, operator_id)
     except KeyboardInterrupt:
         fmt.error(
             f"interrupted; rerun with the same state file ({state.path}) to resume"

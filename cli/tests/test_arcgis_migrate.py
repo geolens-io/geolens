@@ -175,11 +175,13 @@ def handled(monkeypatch):
     """Handlers for every import action that record the order they ran in."""
     calls: list[str] = []
 
-    def handler(geolens, item, entry):
+    def handler(ctx, item, entry):
         calls.append(item["id"])
         if item["action"] == "import_map":
-            return migrate.ItemResult(map_id=_created_id(item["id"]))
-        return migrate.ItemResult(dataset_ids=[_created_id(item["id"])])
+            entry.map_id = _created_id(item["id"])
+        else:
+            entry.dataset_ids = [_created_id(item["id"])]
+        return migrate.ItemResult()
 
     _install(monkeypatch, handler)
     return calls
@@ -355,7 +357,7 @@ def test_an_action_without_a_handler_is_left_pending(runner, tmp_path, geolens):
 
 
 def test_a_map_waits_while_its_layer_failed(runner, tmp_path, geolens, monkeypatch):
-    def handler(geolens, item, entry):
+    def handler(ctx, item, entry):
         if item["id"] == L1:
             raise migrate.ItemFailed("the service answered 500")
         raise AssertionError("the map must not run")
@@ -380,7 +382,7 @@ def test_skip_items_are_recorded_as_skipped(runner, tmp_path, geolens, handled):
 def test_interrupt_marks_the_item_and_stops(runner, tmp_path, geolens, monkeypatch):
     seen: list[str] = []
 
-    def handler(geolens, item, entry):
+    def handler(ctx, item, entry):
         seen.append(item["id"])
         raise KeyboardInterrupt
 
@@ -398,7 +400,7 @@ def test_interrupt_marks_the_item_and_stops(runner, tmp_path, geolens, monkeypat
 def test_errors_in_the_state_file_are_redacted(runner, tmp_path, geolens, monkeypatch):
     portal_token = secrets.token_urlsafe(16)
 
-    def handler(geolens_, item, entry):
+    def handler(ctx, item, entry):
         raise migrate.ItemFailed(
             f"GET https://svc.example/q?token={portal_token} as Bearer {geolens.token}"
         )
@@ -611,3 +613,41 @@ def test_an_owner_changed_after_import_is_reported_not_reimported(
     assert handled == []
     assert payload["owner_changed"] == [{"item": L1, "owner": "operator"}]
     assert [s for s in geolens.seen if s.method == "PATCH"] == []
+
+
+def test_ids_a_handler_recorded_survive_its_failure(
+    runner, tmp_path, geolens, monkeypatch
+):
+    def handler(ctx, item, entry):
+        entry.dataset_ids.append(_created_id(L1))
+        ctx.save()
+        raise migrate.ItemFailed("the second layer failed")
+
+    _install(monkeypatch, handler)
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 1
+    entry = _state(tmp_path)["items"][L1]
+    assert entry["status"] == "failed"
+    assert entry["dataset_ids"] == [_created_id(L1)]
+
+
+def test_ids_a_handler_saved_survive_a_crash(runner, tmp_path, geolens, monkeypatch):
+    def handler(ctx, item, entry):
+        entry.dataset_ids.append(_created_id(L1))
+        ctx.save()
+        raise SystemExit(9)
+
+    _install(monkeypatch, handler)
+
+    _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert _state(tmp_path)["items"][L1]["dataset_ids"] == [_created_id(L1)]
+
+
+def test_an_item_that_depends_on_itself_still_runs(runner, tmp_path, geolens, handled):
+    _allow_transfers(geolens, _created_id(L1))
+    result, _ = _run(runner, tmp_path, _plan([_item(L1, depends_on=[L1])]))
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
