@@ -994,6 +994,8 @@ async def upload_thumbnail(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    if map_obj.thumbnail_uri:
+        refuse_publish_key(db, "A publish key can't replace a map's thumbnail")
 
     if not data_uri.startswith("data:image/"):
         raise HTTPException(
@@ -1063,6 +1065,8 @@ async def upload_thumbnail(
         # the PUT would let a stalled backend block every other writer.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.thumbnail_uri
+        if previous_key:
+            refuse_publish_key(db, "A publish key can't replace a map's thumbnail")
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
         # Commit is the boundary, marked before it —

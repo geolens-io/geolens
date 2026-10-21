@@ -259,11 +259,13 @@ async def refuse_publish_key_widening(
     visibility: str | None,
     record_status: str | None,
 ) -> None:
-    """Refuse a publish key a metadata change that lets more people read a record.
+    """Refuse a publish key a metadata change that widens a record's visibility
+    or opens it to anonymous readers.
 
-    A publish key may keep a record's visibility or narrow it, and may not
-    publish a public record, which is what opens it to anonymous readers. Call
-    holding the record row, so the values compared are the committed ones.
+    A publish key may keep a record's visibility or narrow it. It may publish
+    an internal or restricted draft, but not a public one, since publishing is
+    what opens a public record to anonymous readers. Call holding the record
+    row, so the values compared are the committed ones.
     """
     if not is_publish_key(db):
         return

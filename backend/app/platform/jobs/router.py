@@ -850,9 +850,12 @@ async def retry_job(
         refuse_publish_key(db, "A publish key can retry only its owner's jobs")
     metadata = job.user_metadata or {}
     # Asked for by another credential: a publish key's own jobs never make
-    # anything public or change an existing dataset's visibility.
+    # anything public or change an existing dataset's visibility. A job aimed
+    # at an existing dataset names it in its metadata, since retry clears the
+    # column.
+    targets_dataset = metadata.get("dataset_id") or metadata.get("reupload")
     if metadata.get("visibility") == "public" or (
-        metadata.get("reupload") and "visibility" in metadata
+        targets_dataset and "visibility" in metadata
     ):
         refuse_publish_key(db, "A publish key can't retry a job that sets visibility")
     # Owners always retain access. Cross-user retries additionally require the

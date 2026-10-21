@@ -31,6 +31,7 @@ from tests import test_api_key_dataset_scope as _dataset_scope
 from tests.factories import create_map_via_api, create_raster_dataset
 from tests.test_api_key_scope_875 import _mounted_route_pairs
 from tests.test_manifest_apply_api import valid_manifest_payload
+from tests.test_maps import _valid_png_data_uri
 
 PUBLISH_REFUSAL = {
     "code": "api_key_scope",
@@ -1369,6 +1370,14 @@ async def test_a_publish_key_creates_anything_but_public(
         ({"reupload": True, "visibility": "internal"}, True),
         ({"visibility": "internal"}, False),
         ({"reupload": True}, False),
+        (
+            {
+                "dataset_id": "6f1c2a8e-0000-4000-8000-000000000001",
+                "visibility": "private",
+            },
+            True,
+        ),
+        ({"dataset_id": "6f1c2a8e-0000-4000-8000-000000000001"}, False),
     ],
 )
 async def test_a_publish_key_retries_no_job_that_sets_visibility(
@@ -1507,3 +1516,100 @@ def test_a_publish_keys_acceptance_keeps_the_datasets_publication():
     assert "publish_key=is_publish_key(db)" in inspect.getsource(
         dispatch_upload_acceptance
     )
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_replace_a_maps_thumbnail(
+    client: AsyncClient, owner, test_db_session
+):
+    """A first thumbnail is allowed; replacing one deletes the old image."""
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}/thumbnail/"
+    image = {"data_uri": _valid_png_data_uri()}
+    try:
+        first = await client.put(url, json=image, headers=publish)
+        assert not _scope_refused(first), first.text
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.maps SET thumbnail_uri = 'maps/thumbnails/x.png' "
+                "WHERE id = :id"
+            ),
+            {"id": map_id},
+        )
+        await test_db_session.commit()
+        second = await client.put(url, json=image, headers=publish)
+        assert _refused_with(second, "A publish key can't replace a map's thumbnail"), (
+            second.text
+        )
+        kept = await test_db_session.scalar(
+            text("SELECT thumbnail_uri FROM catalog.maps WHERE id = :id"),
+            {"id": map_id},
+        )
+        assert kept == "maps/thumbnails/x.png"
+        signed_in = await client.put(url, json=image, headers=headers)
+        assert signed_in.status_code == 204, signed_in.text
+    finally:
+        await client.delete(f"/maps/{map_id}", headers=headers)
+
+
+def test_the_thumbnail_refusal_is_rechecked_under_the_asset_lock():
+    """A thumbnail uploaded while the request waited is still not replaced."""
+    import inspect
+
+    from app.modules.catalog.maps.router import upload_thumbnail
+
+    source = inspect.getsource(upload_thumbnail)
+    locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
+    refused = source.index("refuse_publish_key(", locked)
+    written = source.index("_record_image_capture(", locked)
+    assert locked < refused < written
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_fan_out_a_public_import(
+    client: AsyncClient, owner, test_db_session
+):
+    from app.platform.jobs.models import IngestJob
+
+    headers, owner_id = owner
+    publish = await _mint(client, headers, "publish")
+    job = IngestJob(
+        status="pending",
+        created_by=owner_id,
+        attempt_id=uuid.uuid4(),
+        source_filename="parks.gpkg",
+        user_metadata={"visibility": "public", "all_layers": ["parks", "trails"]},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    try:
+        resp = await client.post(
+            f"/ingest/commit-fan-out/{job.id}",
+            json={"layers": [{"layer_name": "parks"}]},
+            headers=publish,
+        )
+        assert _refused_with(resp, "A publish key can't make anything public"), (
+            resp.text
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job.id}
+        )
+        await test_db_session.commit()
+
+
+def test_only_a_public_intent_publishes_a_manifest_record():
+    """A publish key's manifest update keeps its record_status, which is safe
+    only while the one intent that publishes also asks for public, which the
+    visibility gate refuses."""
+    from app.processing.ingest.manifest_sources import (
+        _COMMUNITY_INTENT_VISIBILITY,
+        _UNMAPPED_INTENT_VISIBILITY,
+    )
+
+    assert _COMMUNITY_INTENT_VISIBILITY["published"] == "public"
+    assert _UNMAPPED_INTENT_VISIBILITY != "public"
