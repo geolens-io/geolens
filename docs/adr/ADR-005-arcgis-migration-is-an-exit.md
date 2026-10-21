@@ -27,10 +27,13 @@ portal items into the migration plan without losing the operator's edits,
 brings migrated datasets up to date (a refresh for service imports, a replace
 for files), re-translates in place the migrated maps and stories whose portal
 items changed, and keeps the datasets, maps and stories whose items were
-deleted in the portal. A map or story edited in GeoLens since the last run is
-reported instead of re-translated, and a refresh that stops for review is
-reported and never accepted on the operator's behalf, so edits made in GeoLens
-aren't silently overwritten.
+deleted in the portal. Sharing merges the same way: a change to an item's
+sharing in the portal replaces the groups and visibility the migration gave
+it, unless the operator edited them in the plan, in which case the conflict is
+reported and the operator's choice stays. A map or story edited in GeoLens
+since the last run is reported instead of re-translated, and a refresh that
+stops for review is reported and never accepted on the operator's behalf, so
+edits made in GeoLens aren't silently overwritten.
 
 Cutover is the last run, made after edits in the portal are frozen. It refuses
 while the inventory behind the plan is incomplete, or while a migrated layer

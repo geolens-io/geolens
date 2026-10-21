@@ -53,8 +53,12 @@ own guard and grant storage.
 Access has to change the moment a grant or a membership does. Signed tile URLs
 authorize before the visibility check, so every grant or membership change
 bumps the affected items' publication version, as an ownership transfer does.
-Narrowing an audience runs the same derived-dataset audience check and
-shared-map guard that a visibility change runs today.
+Every grant or membership change, widening or narrowing, runs the
+derived-dataset audience check before it commits, so a derived dataset never
+gains a reader who can't read its sources. Narrowing also runs the shared-map
+guard, as a visibility change does today. Layer data stays behind each
+dataset's own guard, so a new member of a group that a map is shared with sees
+only the layers they can read.
 
 The change adds `restricted` to the published map visibility values, and older
 generated clients reject unknown values. Clients opt in with an
