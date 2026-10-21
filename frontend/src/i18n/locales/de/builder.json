@@ -309,7 +309,9 @@
       "title": "Pfeilrichtung",
       "color": "Pfeilfarbe",
       "size": "Pfeilgröße",
-      "spacing": "Abstand"
+      "spacing": "Abstand",
+      "matchLine": "Linienfarbe übernehmen",
+      "colorMatchesLine": "Pfeilfarbe: entspricht der Linienfarbe"
     },
     "heatmap": {
       "weight": "Gewichtsspalte",

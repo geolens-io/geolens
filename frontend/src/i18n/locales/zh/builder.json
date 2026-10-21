@@ -309,7 +309,9 @@
       "title": "箭头方向",
       "color": "箭头颜色",
       "size": "箭头大小",
-      "spacing": "间距"
+      "spacing": "间距",
+      "matchLine": "与线条颜色一致",
+      "colorMatchesLine": "箭头颜色：与线条颜色一致"
     },
     "heatmap": {
       "weight": "权重列",

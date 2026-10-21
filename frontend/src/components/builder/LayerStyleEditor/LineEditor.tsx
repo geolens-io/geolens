@@ -4,9 +4,13 @@ import { LineGradientControls } from '../LineGradientControls';
 import { ZoomExpressionEditor } from '../ZoomExpressionEditor';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { LINE_DASH_PRESETS, LINE_DASH_SERIALIZED, LINE_DEFAULTS, getPaintValue, getEditableNumericPaintValue } from './utils';
 import type { BaseStyleEditorProps } from './types';
 import type { BuilderStyleConfig } from '@/types/api';
+
+const [SWATCH_A, SWATCH_B, SWATCH_C] = MAP_COLORS.categorical;
+const ARROW_FOLLOWS_LINE_SWATCH = `conic-gradient(${SWATCH_A}, ${SWATCH_B}, ${SWATCH_C}, ${SWATCH_A})`;
 
 export function LineEditor({
   layer,
@@ -22,8 +26,11 @@ export function LineEditor({
   const isWidthDataDriven = isDataDriven && layer.style_config?.target === 'width';
   const builder = styleConfig?.builder ?? {};
   const isArrow = styleConfig?.render_mode === 'arrow';
-  const arrowColor = (builder as BuilderStyleConfig).arrowColor
-    ?? (typeof paint['line-color'] === 'string' ? paint['line-color'] as string : LINE_DEFAULTS['line-color']);
+  const pickedArrowColor = (builder as BuilderStyleConfig).arrowColor;
+  const lineColor = typeof paint['line-color'] === 'string' ? paint['line-color'] as string : undefined;
+  const arrowColor = pickedArrowColor ?? lineColor ?? LINE_DEFAULTS['line-color'];
+  // Arrows follow a data-driven line colour, so a single swatch would misstate them.
+  const arrowMatchesDataDrivenLine = pickedArrowColor === undefined && lineColor === undefined;
 
   return (
     <>
@@ -89,7 +96,20 @@ export function LineEditor({
             label={t('style.arrow.color')}
             color={arrowColor}
             onChange={(hex) => onBuilderChange({ arrowColor: hex } as BuilderStyleConfig)}
+            {...(arrowMatchesDataDrivenLine && {
+              swatchBackground: ARROW_FOLLOWS_LINE_SWATCH,
+              swatchLabel: t('style.arrow.colorMatchesLine'),
+            })}
           />
+          {pickedArrowColor !== undefined && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              onClick={() => onBuilderChange({ arrowColor: undefined } as BuilderStyleConfig)}
+            >
+              {t('style.arrow.matchLine')}
+            </button>
+          )}
           <SliderRow
             label={t('style.arrow.size')}
             value={(builder as BuilderStyleConfig).arrowSize ?? 14}

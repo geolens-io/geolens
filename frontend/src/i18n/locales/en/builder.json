@@ -309,7 +309,9 @@
       "title": "Arrow direction",
       "color": "Arrow color",
       "size": "Arrow size",
-      "spacing": "Spacing"
+      "spacing": "Spacing",
+      "matchLine": "Match line color",
+      "colorMatchesLine": "Arrow color: matches line color"
     },
     "heatmap": {
       "weight": "Weight column",

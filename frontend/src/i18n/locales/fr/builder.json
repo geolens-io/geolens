@@ -309,7 +309,9 @@
       "title": "Direction des flèches",
       "color": "Couleur des flèches",
       "size": "Taille des flèches",
-      "spacing": "Espacement"
+      "spacing": "Espacement",
+      "matchLine": "Utiliser la couleur de la ligne",
+      "colorMatchesLine": "Couleur de flèche : identique à la couleur de la ligne"
     },
     "heatmap": {
       "weight": "Colonne de poids",

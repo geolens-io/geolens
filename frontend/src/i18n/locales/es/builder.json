@@ -309,7 +309,9 @@
       "title": "Dirección de flecha",
       "color": "Color de flecha",
       "size": "Tamaño de flecha",
-      "spacing": "Espaciado"
+      "spacing": "Espaciado",
+      "matchLine": "Igualar al color de la línea",
+      "colorMatchesLine": "Color de flecha: coincide con el color de la línea"
     },
     "heatmap": {
       "weight": "Columna de peso",

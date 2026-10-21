@@ -198,6 +198,29 @@ describe('LineEditor', () => {
   });
 
 
+  it('lets arrows go back to the line colour once an arrow colour is picked', () => {
+    const onBuilderChange = vi.fn();
+    const layer = makeLineLayer({
+      style_config: { render_mode: 'arrow', builder: { arrowColor: '#fb923c' } } as MapLayerResponse['style_config'],
+    });
+    render(<LineEditor {...makeProps(layer, { styleConfig: layer.style_config ?? null, onBuilderChange })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'style.arrow.matchLine' }));
+
+    expect(onBuilderChange).toHaveBeenCalledWith({ arrowColor: undefined });
+  });
+
+  it('names the arrow swatch as following a data-driven line colour and offers no reset', () => {
+    const layer = makeLineLayer({
+      paint: { 'line-color': ['match', ['get', 'kind'], 'a', '#ff0000', '#00ff00'], 'line-width': 2 },
+      style_config: { render_mode: 'arrow', column: 'kind', mode: 'categorical' } as MapLayerResponse['style_config'],
+    });
+    render(<LineEditor {...makeProps(layer, { isDataDriven: true, styleConfig: layer.style_config ?? null })} />);
+
+    expect(screen.getByRole('button', { name: 'style.arrow.colorMatchesLine' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'style.arrow.matchLine' })).not.toBeInTheDocument();
+  });
+
   // Line-cap / line-join Selects
   it('renders a "Line ends" section heading after the dash pattern row', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {
