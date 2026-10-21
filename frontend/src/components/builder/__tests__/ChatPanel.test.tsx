@@ -540,6 +540,33 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('set_opacity on a 3D extrusion also sets the extrusion opacity the layer draws with', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_opacity', layer_id: 'layer-1', opacity: 0.5 }] },
+      };
+      yield { event: 'done', data: { explanation: 'Set opacity' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      onOpacityChange: vi.fn(),
+      layers: [makeLayer({
+        style_config: { builder: { heightColumn: 'height', extrusionOpacity: 0.92 } } as MapLayerResponse['style_config'],
+      })],
+    });
+    await typeAndSend(user, 'make the buildings 50% transparent');
+
+    await waitFor(() => {
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        { builder: { heightColumn: 'height', extrusionOpacity: 0.5 } },
+        expect.anything(),
+      );
+    });
+  });
+
   it('clamps AI opacity actions before dispatching them to layer controls', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

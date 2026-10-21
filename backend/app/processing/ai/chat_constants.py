@@ -290,6 +290,10 @@ def _sample_stops(stops: tuple[str, ...], t: float) -> str:
     )
 
 
+def is_known_ramp(ramp: str) -> bool:
+    return ramp.lower() in _STOPS_BY_LOWER_NAME
+
+
 def _get_ramp_colors(ramp: str, count: int) -> list[str]:
     """Colors for ``count`` classes, as the style editor's ``getRampColors`` gives.
 

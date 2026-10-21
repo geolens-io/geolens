@@ -248,4 +248,92 @@ async def test_extrusion_paint_the_3d_layer_never_reads_is_dropped_with_a_hint()
 
     assert result["paint"] == {"fill-color": "#dc2626"}
     assert "fill-color" in result["warnings"][0]
-    assert "style editor" in result["warnings"][0]
+    assert "set_opacity" in result["warnings"][0]
+
+
+class _ValuesPort:
+    async def get_distinct_values(self, session, table_name, column, **kwargs):
+        return ["a", "b", "c"]
+
+
+async def _run_with_values(tool_name: str, tool_input: dict, layers) -> dict:
+    return await _execute_chat_tool(
+        tool_name,
+        tool_input,
+        AsyncMock(),
+        SimpleNamespace(id=uuid.uuid4(), username="test_user"),
+        set(),
+        layers,
+        port=_ValuesPort(),
+    )
+
+
+@pytest.mark.anyio
+async def test_a_fill_coloured_by_a_column_cannot_then_be_made_invisible():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"fillDisabled": True, "strokeDisabled": False}},
+        )
+    ]
+    await _run(
+        "set_render_as", {"layer_id": "layer-1", "render_as": "fill-stroke"}, layers
+    )
+    coloured = await _run_with_values(
+        "set_data_driven_style",
+        {"layer_id": "layer-1", "mode": "categorical", "column": "name"},
+        layers,
+    )
+    assert "error" not in coloured
+    assert any("fill" in note for note in coloured["notes"])
+
+    hide = await _run_with_values(
+        "set_style",
+        {
+            "layer_id": "layer-1",
+            "paint": {"fill-opacity": 0, "_outline-color": "#111111"},
+        },
+        layers,
+    )
+
+    assert hide["paint"] == {"_outline-color": "#111111"}
+    assert "set_render_as stroke" in hide["warnings"][0]
+
+
+@pytest.mark.anyio
+async def test_an_unknown_ramp_is_reported_with_the_ramp_that_was_used():
+    layers = [_layer(geometry_type="Point")]
+
+    result = await _run_with_values(
+        "set_data_driven_style",
+        {
+            "layer_id": "layer-1",
+            "mode": "categorical",
+            "column": "name",
+            "ramp": "Cividis",
+        },
+        layers,
+    )
+
+    assert (
+        "'Cividis' is not a ramp in the style editor, so YlOrRd was used"
+        in result["notes"][0]
+    )
+
+
+@pytest.mark.anyio
+async def test_a_known_ramp_carries_no_note_on_a_point_layer():
+    layers = [_layer(geometry_type="Point")]
+
+    result = await _run_with_values(
+        "set_data_driven_style",
+        {
+            "layer_id": "layer-1",
+            "mode": "categorical",
+            "column": "name",
+            "ramp": "viridis",
+        },
+        layers,
+    )
+
+    assert "notes" not in result

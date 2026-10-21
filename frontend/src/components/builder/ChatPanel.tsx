@@ -12,6 +12,8 @@ import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-
 import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
 import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/components/builder/layer-adapters/shared';
+import { resolveHeightColumn } from '@/components/builder/layer-adapters/fill-adapter';
+import { withBuilderConfig } from '@/components/builder/LayerStyleEditor/utils';
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
@@ -730,6 +732,11 @@ export function ChatPanel({
         const opacity = normalizeLayerOpacity(action.opacity);
         if (layerId && opacity !== null) {
           onOpacityChange?.(layerId, opacity);
+          // An extrusion draws at its own configured opacity, so the layer opacity alone changes nothing visible.
+          const layer = findLayer(layerId);
+          if (layer && resolveHeightColumn(layer.style_config?.builder ?? {}, layer.paint ?? {})) {
+            onStyleConfigChange(layerId, withBuilderConfig(layer.style_config, { extrusionOpacity: opacity }), layer.paint ?? {});
+          }
           return true;
         }
         return false;

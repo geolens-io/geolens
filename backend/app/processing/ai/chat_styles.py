@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.csv_safety import numeric_column_names
 from app.processing.ai.chat_constants import _get_ramp_colors
+from app.processing.ai.chat_style_guards import (
+    annotate_data_driven_result,
+    outline_only_error,
+)
 from app.processing.ai.schemas import ChatMapLayer
 
 if TYPE_CHECKING:
@@ -35,12 +39,7 @@ def _get_color_property(
     return "circle-color"
 
 
-def _polygon_fill_disabled(layer: ChatMapLayer) -> bool:
-    builder = (layer.style_config or {}).get("builder") or {}
-    flag = builder.get("fillDisabled", (layer.paint or {}).get("_fill-disabled"))
-    return flag is True or flag == "true"
-
-
+@annotate_data_driven_result
 async def _build_data_driven_style(
     tool_input: dict,
     session: AsyncSession,
@@ -82,11 +81,8 @@ async def _build_data_driven_style(
     color_prop = _get_color_property(
         target_layer.geometry_type, layer_type=target_layer.layer_type
     )
-    if color_prop == "fill-color" and _polygon_fill_disabled(target_layer):
-        return {
-            "error": "This polygon layer is outline only, so a fill colour would "
-            "not show. Switch it to fill or fill-stroke with set_render_as first."
-        }
+    if error := outline_only_error(target_layer, color_prop):
+        return {"error": error}
 
     table_name = target_layer.dataset_table_name
 

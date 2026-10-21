@@ -191,8 +191,8 @@ def _removed_property_warning(key: str, layer_type: str) -> str:
         # The 3D companion takes its colour from fill-color; height and opacity
         # live in the builder config, which paint edits cannot reach.
         message += (
-            ". A 3D polygon layer is coloured with fill-color; its height and"
-            " opacity are set in the style editor"
+            ". A 3D polygon layer is coloured with fill-color; change its opacity"
+            " with set_opacity"
         )
     return message
 

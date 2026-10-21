@@ -1203,7 +1203,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
-        "backend/app/processing/ai/chat_actions.py": 548,
+        "backend/app/processing/ai/chat_actions.py": 547,
         "backend/app/processing/ai/chat_geojson.py": 424,
         # Default adapters expose explicit extension contracts rather than catch-all shims.
         "backend/app/platform/extensions/defaults_ai_openai.py": 484,
