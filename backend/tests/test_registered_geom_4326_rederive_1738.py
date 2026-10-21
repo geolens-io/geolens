@@ -755,17 +755,20 @@ async def test_an_armed_transaction_timeout_meets_the_repair_bound(
     try:
         dataset = await _register(test_db_session, table_name, admin_id)
         monkeypatch.setattr(
-            core_db, "async_session", _session_with_a_configured_timeout
-        )
-        monkeypatch.setattr(
             tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
         )
         monkeypatch.setattr(
             tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", repair_bound_ms
         )
-        with patch(
-            "app.processing.ingest.metadata.rederive_geom_4326",
-            new=_slow_rederive,
+        # A context manager, not monkeypatch: monkeypatch can be undone after
+        # the client fixture restores the real factory, and would then put the
+        # test engine's factory back as the module's async_session.
+        with (
+            patch.object(core_db, "async_session", _session_with_a_configured_timeout),
+            patch(
+                "app.processing.ingest.metadata.rederive_geom_4326",
+                new=_slow_rederive,
+            ),
         ):
             report = await tasks_postgis_refresh._repair_geom_4326(
                 dataset.id, Dataset, schema="data", role="geolens_reader"
