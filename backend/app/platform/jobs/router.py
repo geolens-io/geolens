@@ -4,6 +4,7 @@ The stale-job recovery/sweep handlers live in ``sweep.py``; this module
 keeps the job CRUD routes and re-exports what it imports from there.
 """
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -76,6 +77,8 @@ log = structlog.get_logger()
 # Contract: only these two keys may appear in temporal_parse_errors. The
 # alias lets ``cast`` narrow dict writes without ruff F821 on Literal strings.
 TemporalParseKey = Literal["temporal_start", "temporal_end"]
+
+_BATCH_STATUS_CONCURRENCY = 10
 
 router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
@@ -379,23 +382,28 @@ async def get_job_statuses(
     await _settle_stale(db, list(readable.values()))
 
     runs = await latest_runs_for_jobs(db, list(readable))
-    entries: list[JobStatusBatchEntry] = []
-    for job_id in ids:
-        job = readable.get(job_id)
-        if job is None:
-            entries.append(JobStatusBatchEntry(id=job_id, status="not_found"))
-            continue
-        entry = JobStatusBatchEntry.model_validate(
-            await _job_to_status_response(job, include_detail=True)
-        )
-        run = runs.get(job_id)
+    # A failed job's retry check probes storage; run the probes concurrently
+    # with a bound so one slow store cannot serialize a hundred of them.
+    gate = asyncio.Semaphore(_BATCH_STATUS_CONCURRENCY)
+
+    async def _entry(job: IngestJob) -> JobStatusBatchEntry:
+        async with gate:
+            full = await _job_to_status_response(job, include_detail=True)
+        entry = JobStatusBatchEntry.model_validate(full)
+        run = runs.get(job.id)
         if run is not None:
             entry.refresh_run = JobRefreshRunSummary(
                 id=run.id,
                 status=run.status,
                 review_reasons=stored_review_reasons(run.verification),
             )
-        entries.append(entry)
+        return entry
+
+    found = dict(zip(readable, await asyncio.gather(*map(_entry, readable.values()))))
+    entries = [
+        found.get(job_id) or JobStatusBatchEntry(id=job_id, status="not_found")
+        for job_id in ids
+    ]
     return JobStatusBatchResponse(jobs=entries)
 
 

@@ -223,3 +223,33 @@ async def test_a_readable_entry_has_exactly_the_documented_fields(
         "can_retry",
         "refresh_run",
     }
+
+
+async def test_storage_probes_for_failed_jobs_run_concurrently(
+    client, test_db_session, admin_auth_header, monkeypatch
+):
+    import asyncio
+
+    from app.platform.jobs import router as jobs_router
+
+    in_flight = 0
+    peak = 0
+
+    async def _slow_probe(_job):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        return True, None
+
+    monkeypatch.setattr(jobs_router, "staged_input_available", _slow_probe)
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    jobs = [
+        await _job(test_db_session, owner_id, status="failed", file_path="/x/in.gpkg")
+        for _ in range(4)
+    ]
+
+    resp = await _post(client, admin_auth_header, [job.id for job in jobs])
+    assert [e["can_retry"] for e in resp.json()["jobs"]] == [True] * 4
+    assert 1 < peak <= jobs_router._BATCH_STATUS_CONCURRENCY
