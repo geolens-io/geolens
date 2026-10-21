@@ -106,7 +106,7 @@ run_backup() {
     # there to copy or upload after a verification failure removes it.
     local cycle_failed=0
     local dump_ok=1
-    local good_ts="" good_ids="" uuid_re
+    local good_ts="" good_ids="" good_sample="" uuid_re
     uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
     read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
@@ -162,7 +162,7 @@ run_backup() {
         dump_ok=0
     else
         log "Backup verified: ${filename} fully readable"
-        good_ts="$(record_good_dump "$timestamp" "$good_ts" "$good_ids")"
+        good_sample="$(good_dump_sample "$good_ts" "$good_ids")"
     fi
 
     # Weekly copy on Sundays. Skipped when verification above already
@@ -240,6 +240,21 @@ run_backup() {
         fi
     fi
 
+    # Only a cycle whose artifacts all landed may take over: retention would
+    # otherwise keep a set with a missing companion and prune a complete one.
+    if [ -n "$good_sample" ] && [ "$cycle_failed" -eq 1 ]; then
+        log "WARNING: this cycle failed, so retention keeps ${good_ts:-no older dump} rather than ${filename}"
+    elif [ -n "$good_sample" ]; then
+        # Through a .tmp name: a torn marker would read back as no marker.
+        if printf '%s %s\n' "$timestamp" "$good_sample" > "${LAST_GOOD_FILE}.tmp" \
+            && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
+            good_ts="$timestamp"
+        else
+            rm -f "${LAST_GOOD_FILE}.tmp"
+            log "WARNING: could not record ${filename} as the dump retention keeps"
+        fi
+    fi
+
     # Retention runs regardless of S3 outcome (dumps set the window; their
     # companions follow) — local backups must be pruned even when the offsite
     # upload failed, or backup_data fills up during an S3 outage.
@@ -279,16 +294,16 @@ run_backup() {
     log "Backup cycle complete"
 }
 
-# Prints the timestamp retention keeps: this cycle's when the database has
-# catalog records and at least half of the record ids sampled from the kept
-# dump (any records, for a marker without ids), else the kept one. Ids rather
-# than counts, so a re-created database's first upload can't take over even
-# when the lost catalog held a single record. The check runs after pg_dump,
-# outside its snapshot; a database restored in that window could mark a dump
-# that lacks the restored rows, too narrow to engineer for. Stdout carries the
-# result, so logs go to stderr.
-record_good_dump() {
-    local timestamp="$1" good_ts="$2" good_ids="$3" row count present sample
+# Prints a fresh sample of catalog record ids when this cycle's dump may take
+# over from the kept one: the database has records and at least half of the ids
+# sampled from the kept dump (any records, for a marker without ids). Prints
+# nothing otherwise. Ids rather than counts, so a re-created database's first
+# upload can't take over even when the lost catalog held a single record. The
+# check runs after pg_dump, outside its snapshot; a database restored in that
+# window could mark a dump that lacks the restored rows, too narrow to engineer
+# for. Stdout carries the result, so logs go to stderr.
+good_dump_sample() {
+    local good_ts="$1" good_ids="$2" row count present sample
     local -a marked=()
     read -r -a marked <<< "$good_ids"
     row="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
@@ -311,15 +326,9 @@ SQL
         if [ -n "$good_ts" ]; then
             log "WARNING: ${POSTGRES_DB} has ${count} catalog records, ${present} of the ${#marked[@]} sampled from ${good_ts}; retention keeps ${good_ts}. If the records were deleted on purpose, delete ${LAST_GOOD_FILE} to release that dump." >&2
         fi
-    elif printf '%s %s\n' "$timestamp" "$sample" > "${LAST_GOOD_FILE}.tmp" \
-        && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
-        good_ts="$timestamp"
     else
-        # Through a .tmp name: a torn marker would read back as no marker.
-        rm -f "${LAST_GOOD_FILE}.tmp"
-        log "WARNING: could not record ${timestamp} as the dump retention keeps" >&2
+        printf '%s' "$sample"
     fi
-    printf '%s' "$good_ts"
 }
 
 # Weekly entries are hard links to the daily files: a weekly set costs no extra

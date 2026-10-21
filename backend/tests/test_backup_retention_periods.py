@@ -309,6 +309,7 @@ def _cycle(
     s3_enabled: bool = False,
     cp_exit: int = 0,
     refuse_links: bool = False,
+    globals_fail: bool = False,
     psql_row: str | None = f"1|0|{_ID_A}",
 ) -> tuple[subprocess.CompletedProcess, Path]:
     bin_dir = tmp_path / "bin"
@@ -321,6 +322,8 @@ def _cycle(
         "aws": _AWS_STUB,
         "psql": _PSQL_STUB,
     }
+    if globals_fail:
+        stubs["pg_dumpall"] = "#!/bin/sh\nexit 1\n"
     if refuse_links:
         stubs["ln"] = _REFUSING_LN_STUB
     for name, content in stubs.items():
@@ -453,6 +456,22 @@ class TestLastDumpWithRecords:
         args = (tmp_path / "psql-args").read_text().splitlines()
         assert f"ids={{{_ID_A},{_ID_B}}}" in args
         assert f"5 catalog records, 0 of the 2 sampled from {good_ts}" in result.stderr
+
+    @pytest.mark.parametrize(
+        "failure",
+        [{"globals_fail": True}, {"s3_enabled": True, "cp_exit": 1}],
+        ids=["globals", "offsite-upload"],
+    )
+    def test_a_failed_cycle_does_not_take_over(self, tmp_path: Path, failure: dict):
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups", _ID_A)
+        marker_before = (tmp_path / "backups" / ".last-good-dump").read_text()
+        result, backup_dir = _cycle(
+            tmp_path, psql_row=f"2|1|{_ID_A} {_ID_B}", **failure
+        )
+        assert result.returncode != 0
+        assert good_set <= _names(backup_dir / "daily")
+        assert (backup_dir / ".last-good-dump").read_text() == marker_before
+        assert f"retention keeps {good_ts} rather than" in result.stdout
 
     @pytest.mark.parametrize(
         ("marked_ids", "psql_row"),
