@@ -313,13 +313,13 @@ def _stored_to_source_names(
     """Stored column name to source field name, matched by position.
 
     GDAL creates columns in source field order and a rename keeps the position.
-    A source field named ``gid`` becomes the table's own ``gid`` column, which
+    A source field named ``gid`` in any case becomes the table's own ``gid`` column, which
     ``column_info`` leaves out. When the counts still differ a field was
     dropped or added, so position proves nothing and no column is mapped.
     """
     names = [col["name"] for col in source_columns or []]
     if len(column_info) != len(names):
-        names = [name for name in names if name != "gid"]
+        names = [name for name in names if name.lower() != "gid"]
     if len(column_info) != len(names):
         return {}
     return {col["name"]: name for col, name in zip(column_info, names)}

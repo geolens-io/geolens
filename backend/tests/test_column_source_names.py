@@ -95,8 +95,11 @@ class TestSourceNames:
         assert sorted(mapping.values()) == ["Name", "name"]
         assert len(mapping) == 2
 
-    async def test_source_field_named_gid_does_not_shift_the_others(self, tmp_path):
-        path = _geojson(tmp_path, {"gid": 7, "Label": "x"})
+    @pytest.mark.parametrize("key", ["gid", "GID", "Gid"])
+    async def test_source_field_named_gid_does_not_shift_the_others(
+        self, tmp_path, key
+    ):
+        path = _geojson(tmp_path, {key: 7, "Label": "x"})
         assert await _stage(tmp_path, path) == {"label": "Label"}
 
     async def test_reserved_names_map_to_their_renamed_column(self, tmp_path):
