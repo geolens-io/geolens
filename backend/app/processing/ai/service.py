@@ -103,11 +103,9 @@ When a dataset has a column that is well-suited for thematic visualization, use 
   Use an "interpolate" expression: ["interpolate", ["linear"], ["get", "column_name"], min, "#startColor", max, "#endColor"]
 
 Available color ramps (use these hex values):
-- YlOrRd: #ffffb2, #fecc5c, #fd8d3c, #f03b20, #bd0026
-- Viridis: #440154, #3b528b, #21918c, #5ec962, #fde725
-- Blues: #eff3ff, #bdd7e7, #6baed6, #3182bd, #08519c
-- Cividis (colorblind-safe): #002051, #3b4f6b, #6d7e53, #b4a436, #fdca26
-- PuOr (colorblind-safe diverging): #e66101, #fdb863, #f7f7f7, #b2abd2, #5e3c99
+- YlOrRd: #ffffcc, #fed976, #fd8d3c, #e31a1c, #800026
+- Viridis: #440154, #3f4a8a, #26838f, #6cce5a, #fee825
+- Blues: #f7fbff, #c6dbef, #6baed6, #2171b5, #08306b
 
 Apply data-driven styling ONLY if:
 - The user explicitly asks for a thematic, choropleth, or "color by X" map, OR

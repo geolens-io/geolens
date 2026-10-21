@@ -37,7 +37,6 @@ from app.processing.ai.chat_constants import (
     _MAX_SYSTEM_PROMPT_LAYERS,
     ERROR_MESSAGES,
     QUERY_RESULT_SANITY_PROMPT,
-    RAMP_COLORS,
     _get_ramp_colors,
     _sanitize_layer_name,
     fence_untrusted_content,
@@ -96,7 +95,6 @@ __all__ = [
     "build_dataset_chat_system_prompt",
     # Constants / language utilities (used by service.py + metadata_service.py)
     "ERROR_MESSAGES",
-    "RAMP_COLORS",
     "lang_name",
     # Tool-call entry points (used by streaming.py + tests)
     "_execute_chat_tool",

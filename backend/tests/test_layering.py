@@ -1175,7 +1175,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 114,
-        "backend/app/processing/ai/chat_service.py": 489,
+        "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
     private_service_default_line_budget = 350
@@ -1406,7 +1406,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
     # release and truncated-reply refusal around provider calls and SSE failures.
-    "backend/app/processing/ai/service.py": 991,
+    "backend/app/processing/ai/service.py": 989,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 853,
     # Export formats and catalog feeds share visibility, lineage, raster-asset

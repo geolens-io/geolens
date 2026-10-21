@@ -226,9 +226,9 @@ CHAT_TOOLS_ANTHROPIC = [
                 "ramp": {
                     "type": "string",
                     "description": (
-                        "Color ramp name: YlOrRd, Viridis, Blues, Greens, "
-                        "RdYlBu, Set2, Cividis (colorblind-safe), "
-                        "PuOr (colorblind-safe diverging). Default: YlOrRd"
+                        "Color ramp name from the style editor, such as YlOrRd, "
+                        "Viridis, Blues, Greens, RdYlBu or Set2. "
+                        "Default: YlOrRd"
                     ),
                 },
                 "method": {
