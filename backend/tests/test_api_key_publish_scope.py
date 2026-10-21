@@ -872,6 +872,15 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
             retry.text
         )
+        for url, body in (
+            (f"/ingest/preview/{job.id}", None),
+            (f"/ingest/commit/{job.id}", {"title": "Not mine"}),
+        ):
+            used = await client.post(url, json=body, headers=publish)
+            assert _refused_with(used, "A publish key can use only its owner's jobs"), (
+                url,
+                used.text,
+            )
         await test_db_session.refresh(job)
         assert job.status == "pending"
     finally:

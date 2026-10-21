@@ -32,6 +32,7 @@ from app.core.service_tokens import (
     requires_header_token_policy,
 )
 from app.core.db.tenant_session import defer_async_with_tenant
+from app.platform.request_credential import refuse_publish_key
 from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
@@ -217,7 +218,8 @@ async def get_job_or_404(
 
     Raises:
         HTTPException 404: Job not found.
-        HTTPException 403: User is not the job creator and is not an admin.
+        HTTPException 403: User is not the job creator and is not an admin, or
+            the request uses a publish key and the job isn't its owner's.
     """
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -229,6 +231,7 @@ async def get_job_or_404(
         )
 
     if job.created_by != user.id:
+        refuse_publish_key(db, "A publish key can use only its owner's jobs")
         port = get_processing_port()
         user_roles = await port.get_user_roles(db, user)
         if "admin" not in user_roles:
