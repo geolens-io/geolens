@@ -83,3 +83,8 @@ def test_every_block_element_is_a_text_boundary():
     assert html_to_text("<dl><dt>License</dt><dd>CC0</dd></dl>") == "License\nCC0"
     assert html_to_text("<blockquote>CC BY</blockquote>4.0") == "CC BY\n4.0"
     assert html_to_text("<h6>Use</h6><pre>free</pre>") == "Use\nfree"
+
+
+def test_an_image_keeps_its_alt_text():
+    html = '<p>License: <img alt="CC BY 4.0" src="badge.png"><img src="x.png"></p>'
+    assert html_to_text(html) == "License: CC BY 4.0"

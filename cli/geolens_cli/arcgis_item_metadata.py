@@ -49,6 +49,10 @@ class _Text(HTMLParser):
             self.handle_data(self.get_starttag_text() or "")
         elif tag in ("script", "style"):
             self._skip += 1
+        elif tag == "img":
+            alt = dict(attrs).get("alt")
+            if alt:
+                self.handle_data(f" {alt} ")
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
         elif tag in ("td", "th"):
