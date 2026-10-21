@@ -254,7 +254,7 @@ const MAX_CLUSTER_FILTER_VALUES = 1000;
 function countValues(node: unknown): number {
   if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
   if (node && typeof node === 'object') {
-    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' ? 0 : countValues(child)), 0);
+    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' || key === 'op' ? 0 : countValues(child)), 0);
   }
   return 1;
 }
