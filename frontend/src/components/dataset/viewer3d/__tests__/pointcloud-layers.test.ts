@@ -87,4 +87,32 @@ describe('loadPointCloud', () => {
     await run();
     expect(posted.every((p) => p.copc.eb.length === 0)).toBe(true);
   });
+
+  it('stops the load and settles the pending decode when a worker dies', async () => {
+    const terminated = vi.fn();
+    vi.stubGlobal(
+      'Worker',
+      class {
+        onmessage: unknown = null;
+        onerror: ((event: { message: string }) => void) | null = null;
+        postMessage() {
+          queueMicrotask(() => this.onerror?.({ message: 'boom' }));
+        }
+        terminate = terminated;
+      },
+    );
+    const errors: string[] = [];
+    await new Promise<void>((resolve) => {
+      loadPointCloud('/api/datasets/d1/copc/a/data.copc.laz', null, async () => new Response(), {
+        onLayer: () => undefined,
+        onError: (message) => {
+          errors.push(message);
+          if (errors.length === 1) setTimeout(resolve, 20);
+        },
+      });
+    });
+    expect(errors[0]).toContain('boom');
+    expect(terminated).toHaveBeenCalled();
+    expect(copcMock.loadCompressedPointDataBuffer).toHaveBeenCalledTimes(1);
+  });
 });

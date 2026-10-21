@@ -56,7 +56,8 @@ export function loadPointCloud(
       worker.onmessage = (event: MessageEvent<DecodeResponse>) => pending.get(event.data.id)?.(event.data);
       worker.onerror = (event) => {
         handlers.onError(`worker: ${event.message}`);
-        // A dead worker never answers; settle its requests so the load ends.
+        // A dead worker never answers: stop the load and settle its requests.
+        abort.abort();
         pending.forEach((resolve, id) => resolve({ id, count: 0, error: 'worker failed' }));
       };
       workers.push(worker);
@@ -73,6 +74,7 @@ export function loadPointCloud(
       if (!entry || abort.signal.aborted) return false;
       const [key, node] = entry;
       const compressed = await Copc.loadCompressedPointDataBuffer(getter, node);
+      if (abort.signal.aborted) return false;
       const bytes = compressed.slice().buffer;
       const id = nextId++;
       const result = await new Promise<DecodeResponse>((resolve) => {
@@ -117,9 +119,12 @@ export function loadPointCloud(
     const run = async (worker: Worker) => {
       while (await decodeNext(worker));
     };
-    await decodeNext(workers[0]);
-    await Promise.all(workers.map(run));
-    workers.forEach((worker) => worker.terminate());
+    try {
+      await decodeNext(workers[0]);
+      await Promise.all(workers.map(run));
+    } finally {
+      workers.forEach((worker) => worker.terminate());
+    }
   })().catch((error: unknown) => {
     if (!abort.signal.aborted) handlers.onError(String(error));
   });
