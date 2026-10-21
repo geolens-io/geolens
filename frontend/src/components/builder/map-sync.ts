@@ -249,6 +249,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     is_dem: layer.is_dem,
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
+    dataset_column_info: layer.dataset_column_info,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
     tile_version: layer.tile_version,

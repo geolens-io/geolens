@@ -247,10 +247,30 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
-/** The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is none or it has no CQL2 form (counts then include the hidden points). */
+// The route's limits on a filter: its length and its bind parameters.
+const MAX_CLUSTER_FILTER_CHARS = 4096;
+const MAX_CLUSTER_FILTER_VALUES = 1000;
+
+function countValues(node: unknown): number {
+  if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
+  if (node && typeof node === 'object') {
+    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' ? 0 : countValues(child)), 0);
+  }
+  return 1;
+}
+
+/**
+ * The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is
+ * none, it has no CQL2 form, or it exceeds the route's limits. Bubble counts then include the
+ * points the filter hides, as before.
+ */
 function serverClusterFilter(layer: SyncLayerInput): string | undefined {
   const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
-  return cql2 && cql2 !== 'unsupported' ? JSON.stringify(cql2) : undefined;
+  if (!cql2 || cql2 === 'unsupported') return undefined;
+  const json = JSON.stringify(cql2);
+  return json.length <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_CLUSTER_FILTER_VALUES
+    ? json
+    : undefined;
 }
 
 function nonBlank(value: string | null | undefined) {

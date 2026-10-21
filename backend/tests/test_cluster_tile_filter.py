@@ -308,6 +308,20 @@ async def test_the_route_keys_filtered_tiles_apart_from_unfiltered(
         (_cmp("<", "ts", "2003-06-01"), "3"),
         (_cmp("<", "ts", "2003-06-01T00:00:00Z"), "3"),
         (_cmp("<", "ts", "2001-01-01 06:30:00"), None),
+        (
+            {
+                "op": "<",
+                "args": [{"property": "seen"}, {"timestamp": "2004-01-01T12:00:00Z"}],
+            },
+            "4",
+        ),
+        (
+            {
+                "op": "<",
+                "args": [{"timestamp": "2004-01-01T12:00:00Z"}, {"property": "seen"}],
+            },
+            None,
+        ),
         ({"op": "<", "args": ["2003-01-01", {"property": "seen"}]}, "2"),
         (_cmp(">", "ts", "2001-01-01 06:30:00"), "4"),
         (

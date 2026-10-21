@@ -176,3 +176,11 @@ describe('describeLayers', () => {
     expect(describeLayers([layer], RENDER_CONTEXTS.builder).layers[0].layout).toBe(layer.layout);
   });
 });
+
+describe('toSyncInput column types', () => {
+  it('carries the layer column types so a server-clustered filter is typed', () => {
+    const columns = [{ name: 'seen', type: 'date' }];
+
+    expect(toSyncInput(savedLayer({ dataset_column_info: columns })).dataset_column_info).toEqual(columns);
+  });
+});

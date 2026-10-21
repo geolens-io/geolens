@@ -220,6 +220,19 @@ describe('syncLayersToMap cluster rendering', () => {
     });
   });
 
+  it('leaves a filter off the server-cluster URL when it exceeds the route limits', () => {
+    const map = makeMockMap();
+    const many = Array.from({ length: 150 }, (_, i) => `a-value-that-is-long-${i}-xxxxxxxxxxxx`);
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['in', ['get', 'kind'], ...many] as unknown as SyncLayerInput['filter'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+  });
+
   it('forwards data-driven columns to the server-cluster tile URL', () => {
     const map = makeMockMap();
     const layer = makeLayer({

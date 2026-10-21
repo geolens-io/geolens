@@ -109,6 +109,27 @@ def _type_temporal_literals(node: Any, types: dict[str, str]) -> Any:
     return out
 
 
+def _pg_type(sa_type: Any) -> str | None:
+    """The PostgreSQL type the compiler chose for a bind, so asyncpg does not infer another."""
+    from sqlalchemy import types as t
+
+    for sa_class, pg_type in (
+        (t.Uuid, "uuid"),
+        (t.Boolean, "boolean"),
+        (t.Date, "date"),
+        (t.REAL, "real"),
+        (t.Float, "double precision"),
+        (t.Numeric, "numeric"),
+        (t.BigInteger, "bigint"),
+        (t.Text, "text"),
+    ):
+        if isinstance(sa_type, sa_class):
+            return pg_type
+    if isinstance(sa_type, t.DateTime):
+        return "timestamptz" if sa_type.timezone else "timestamp"
+    return None
+
+
 async def compile_filter(
     session: AsyncSession,
     table_name: str,
@@ -139,7 +160,14 @@ async def compile_filter(
     position = {
         bind.key: FIRST_FILTER_PARAM + index for index, bind in enumerate(binds)
     }
-    sql = _BIND_REF.sub(lambda m: f"${position[f'cql2_{m.group(1)}']}", where_sql)
+    pg_types = {bind.key: _pg_type(bind.type) for bind in binds}
+
+    def _placeholder(match: re.Match) -> str:
+        key = f"cql2_{match.group(1)}"
+        cast = pg_types[key]
+        return f"${position[key]}::{cast}" if cast else f"${position[key]}"
+
+    sql = _BIND_REF.sub(_placeholder, where_sql)
     if ":cql2_" in sql:
         raise ValueError("cluster filter has an unmapped bind parameter")
     return ClusterFilter(sql, [bind.value for bind in binds])
