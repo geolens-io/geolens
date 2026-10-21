@@ -232,6 +232,17 @@ class TestDailyRetention:
 
 
 class TestWeeklyRetention:
+    def test_prefers_a_complete_set_before_the_marked_daily_dump(self, tmp_path: Path):
+        weekly = tmp_path / "weekly"
+        complete = [
+            f"{kind}{d}_020000.{ext}"
+            for d in ("20261004", "20261018", "20261025")
+            for kind, ext in (("geolens_", "dump"), ("globals-", "sql"))
+        ]
+        _seed(weekly, [*complete, "geolens_20261011_020000.dump"])
+        _prune(weekly, keep=1, period="week", good="20261012_020000")
+        assert _names(weekly) == set(complete)
+
     def test_keeps_the_last_weekly_set_before_the_marked_daily_dump(
         self, tmp_path: Path
     ):

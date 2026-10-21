@@ -467,6 +467,26 @@ class TestPruneS3Prefix:
         assert result.returncode == 0, result.stderr
         assert deleted == []
 
+    def test_prefers_a_complete_set_before_the_marked_dump(self, tmp_path: Path):
+        listing = "\n".join(
+            [
+                "geolens_20261004_020000.dump",
+                "globals-20261004_020000.sql",
+                "geolens_20261011_020000.dump",
+                "geolens_20261018_020000.dump",
+                "globals-20261018_020000.sql",
+                "geolens_20261025_020000.dump",
+                "globals-20261025_020000.sql",
+            ]
+        )
+        result, deleted = _run(
+            tmp_path, keep="1", ls_listing=listing, good="20261012_020000"
+        )
+        assert result.returncode == 0, result.stderr
+        assert deleted == [
+            "s3://test-bucket/backups/daily/geolens_20261011_020000.dump"
+        ]
+
     def test_empty_prefix_does_not_abort_under_set_e(self, tmp_path: Path):
         """The prefix has zero objects (fresh install, or weekly/ before the
         first Sunday cycle) and `aws s3 ls` exits 0 with empty output.

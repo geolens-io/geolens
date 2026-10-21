@@ -662,7 +662,8 @@ for obj in data.get("Contents", []):
 # the same cycle, leaving a dump with no globals to rebuild roles on a fresh
 # cluster.
 #
-# The listing arrives as positional parameters ("$@"), one key per parameter,
+# The first parameter is an upper bound on the timestamp, or empty for none.
+# The listing follows as positional parameters, one key per parameter,
 # because the caller expands a bash array and array elements are never
 # re-split: a key containing a newline or tab stays one parameter. The
 # `_${ts}.dump` membership check is a plain `[[ glob ]]` test per parameter,
@@ -676,7 +677,8 @@ for obj in data.get("Contents", []):
 # newline can only make the anchored ^...$ pattern fail, never produce a
 # second match.
 s3_newest_complete_ts() {
-    local name ts best="" n2 matched
+    local bound="$1" name ts best="" n2 matched
+    shift
     for name in "${@:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == globals-*.sql ]]; then
@@ -692,6 +694,9 @@ s3_newest_complete_ts() {
                     break
                 fi
             done
+            if [ -n "$bound" ] && [ "$ts" \> "$bound" ]; then
+                continue
+            fi
             if [ "$matched" -eq 1 ] && { [ -z "$best" ] || [ "$ts" \> "$best" ]; }; then
                 best="$ts"
             fi
@@ -765,7 +770,12 @@ prune_s3_prefix() {
     # otherwise remove the only set restorable onto a fresh cluster.
     local protect=""
     if [ "${#all_names[@]}" -gt 0 ]; then
-        protect="$(s3_newest_complete_ts "${all_names[@]:-}")"
+        protect="$(s3_newest_complete_ts "" "${all_names[@]:-}")"
+        # Prefer a complete set for the marked dump too, when this prefix has one.
+        if [ -n "$good" ]; then
+            good="$(s3_newest_complete_ts "$good" "${all_names[@]:-}")"
+            good="${good:-${4:-}}"
+        fi
     fi
 
     # Dump timestamp and name are two parallel arrays indexed together,
@@ -987,8 +997,8 @@ dump_listing_arrays() {
 }
 
 # The timestamp of the newest set that is complete: a dump with the globals
-# dump that pairs with it. prune_old_backups keeps that one out of the
-# retention window.
+# dump that pairs with it, no later than the optional bound in $2.
+# prune_old_backups keeps that one out of the retention window.
 #
 # Without the exemption a run of pg_dumpall failures walks every complete set
 # out of retention: each failed cycle still produces a valid dump (discarding
@@ -999,7 +1009,7 @@ dump_listing_arrays() {
 # dumps, but nothing that restores onto a fresh cluster. Holding one complete
 # set back costs at most one extra dump plus a few KB of SQL.
 newest_complete_ts() {
-    local dir="$1"
+    local dir="$1" bound="${2:-}"
     local globals ts best=""
     for globals in "$dir"/globals-*.sql; do
         [ -f "$globals" ] || continue
@@ -1011,6 +1021,9 @@ newest_complete_ts() {
         if [[ "${globals##*/}" =~ ^globals-([0-9]{8}_[0-9]{6})\.sql$ ]]; then
             ts="${BASH_REMATCH[1]}"
         else
+            continue
+        fi
+        if [ -n "$bound" ] && [ "$ts" \> "$bound" ]; then
             continue
         fi
         find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q . || continue
@@ -1096,6 +1109,11 @@ prune_old_backups() {
     # So a directory holds at most `keep` + 1 dumps.
     local protect
     protect="$(newest_complete_ts "$dir")"
+    # Prefer a complete set for the marked dump too, when this tier has one.
+    if [ -n "$good" ]; then
+        good="$(newest_complete_ts "$dir" "$good")"
+        good="${good:-${4:-}}"
+    fi
 
     # Filter DL_TS/DL_PATH by array index, never by grepping a
     # "<ts>\t<path>" text line: $protect is compared against a validated,
