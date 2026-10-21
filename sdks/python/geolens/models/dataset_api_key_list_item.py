@@ -25,9 +25,10 @@ class DatasetApiKeyListItem:
         name (str):
         fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         is_active (bool):
-        scope (str): Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and
-            map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in
-            dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+        scope (str): Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata
+            edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads
+            and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates
+            features in that dataset)
         created_at (datetime.datetime):
         last_used_at (datetime.datetime | None):
         user_id (UUID): The user who minted the key; it acts as them

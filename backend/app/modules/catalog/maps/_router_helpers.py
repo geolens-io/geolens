@@ -9,7 +9,6 @@ import uuid
 
 import structlog
 from fastapi import HTTPException, Request, Response, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -21,10 +20,8 @@ from app.modules.catalog.maps.schemas import (
     DatasetMetaKwargs,
     MapLayerResponse,
     MapResponse,
-    MapUpdate,
 )
 from app.modules.catalog.maps.service import (
-    lock_map_layers,
     LayerRow,
     bulk_check_dataset_access,
     filter_layer_rows_by_dataset_visibility,
@@ -33,11 +30,6 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.style_json import project_terrain_config
-from app.modules.embed_tokens.service import (
-    embed_tokens_orphaned,
-    revoke_embed_tokens_by_map,
-)
-from app.platform.request_credential import api_key_credential, refuse_publish_key
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.extensions import get_permission_extension
 
@@ -429,41 +421,6 @@ async def _visible_map_response(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),
     )
-
-
-_VISIBILITY_RANK = {"private": 0, "internal": 1, "public": 2}
-
-
-async def _refuse_publish_key_visibility_drop(
-    db: AsyncSession, map_obj: Map, body: MapUpdate
-) -> None:
-    """Refuse a publish key a map update that lowers the map's visibility.
-
-    Moving a map off public revokes its share links and embed tokens, which
-    can't be undone, so a publish key can't lower visibility at all.
-    """
-    credential = api_key_credential(db)
-    if body.visibility is None or credential is None or credential.scope != "publish":
-        return
-    # Held through the commit and read after it, so a concurrent publish is
-    # what gets compared.
-    await lock_map_layers(db, map_obj.id)
-    current = await db.scalar(select(Map.visibility).where(Map.id == map_obj.id))
-    if _VISIBILITY_RANK[body.visibility] < _VISIBILITY_RANK.get(current, 0):
-        refuse_publish_key(db, "A publish key can't lower a map's visibility")
-
-
-async def _revoke_orphaned_embed_tokens(db: AsyncSession, map_id: uuid.UUID) -> None:
-    """Revoke every embed token on the map when a saved layer change orphans one.
-
-    A publish key is refused instead, since the revocation can't be undone.
-    Judged on the saved layers, under the map lock the save took.
-    """
-    if await embed_tokens_orphaned(db, map_id):
-        refuse_publish_key(
-            db, "A publish key can't drop a dataset an active embed token covers"
-        )
-        await revoke_embed_tokens_by_map(db, map_id)
 
 
 async def _readable_terrain(

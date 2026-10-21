@@ -121,8 +121,13 @@ def api_key_scope_refusal(message: str) -> HTTPException:
     )
 
 
+def is_publish_key(session: AsyncSession) -> bool:
+    """Whether a publish-scoped key authenticated this session's request."""
+    credential = api_key_credential(session)
+    return credential is not None and credential.scope == "publish"
+
+
 def refuse_publish_key(session: AsyncSession, message: str) -> None:
     """Refuse a write a publish key's route allows but whose effect can't be undone."""
-    credential = api_key_credential(session)
-    if credential is not None and credential.scope == "publish":
+    if is_publish_key(session):
         raise api_key_scope_refusal(message)

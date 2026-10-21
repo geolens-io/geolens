@@ -387,7 +387,7 @@
     "scopeFull": "Voller Zugriff",
     "scopeReadOnly": "Nur Lesen",
     "scopePublish": "Veröffentlichen",
-    "scopePublishDescription": "Fügt eigene Daten und Karten hinzu, bearbeitet sie und ersetzt hochgeladene Datensätze; eine frühere Version bleibt erhalten. Kann keine Raster-Datensätze oder an einen Dienst, ein STAC-Element oder eine Tabelle gebundene Datensätze ersetzen, keine Features schreiben und nichts löschen.",
+    "scopePublishDescription": "Fügt eigene Daten und Karten hinzu, bearbeitet die Angaben eigener Datensätze und ersetzt hochgeladene Datensätze; eine frühere Version bleibt erhalten. Kann nichts öffentlich machen oder den Kreis der Betrachter eines Datensatzes erweitern, keine bestehende Karte aktualisieren, keine Raster-Datensätze oder an einen Dienst, ein STAC-Element oder eine Tabelle gebundene Datensätze ersetzen, keine Features schreiben und nichts löschen.",
     "scopeDatasetWrite": "Ein Datensatz",
     "scopeDatasetAppend": "Ein Datensatz, nur hinzufügen",
     "expiry": "Läuft ab",

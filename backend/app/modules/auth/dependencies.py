@@ -136,8 +136,8 @@ _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
 # A publish key may do what a read_only key may, plus these exact (METHOD,
 # route template) pairs: writes that add something or that the catalog can
 # undo (a republish keeps the previous version). Every delete, feature write,
-# admin and key route stays out, since none of them can be undone. Same
-# matching rules and spelling as the read_only exemptions above; only the
+# map update, admin and key route stays out, since none of them can be undone.
+# Same matching rules and spelling as the read_only exemptions above; only the
 # spellings each route registers are listed.
 _PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
@@ -168,7 +168,6 @@ _PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/datasets/{dataset_id}/reupload/{job_id}/commit"),
         ("POST", "/maps/"),
         ("POST", "/maps"),
-        ("PUT", "/maps/{map_id}"),
         ("POST", "/maps/import"),
         ("PUT", "/maps/{map_id}/thumbnail/"),
         ("PUT", "/maps/{map_id}/thumbnail"),
@@ -258,7 +257,7 @@ def _publish_key_may_call(
 
 _PUBLISH_REFUSAL = (
     "This API key has the publish scope, which can't delete datasets or maps, "
-    "write features or reach admin and key routes"
+    "update a map, write features or reach admin and key routes"
 )
 # A route needing one of these is an admin route, wherever it is mounted, so a
 # publish key is refused it.

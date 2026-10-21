@@ -27,7 +27,7 @@ from app.modules.auth.dependencies import (
 )
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
-from app.platform.request_credential import api_key_credential, refuse_publish_key
+from app.platform.request_credential import is_publish_key, refuse_publish_key
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
@@ -162,8 +162,7 @@ async def _may_read_job(
     """
     if job.created_by == user.id:
         return True
-    credential = api_key_credential(db)
-    if credential is not None and credential.scope == "publish":
+    if is_publish_key(db):
         return False
     return await _can_access_another_users_job(
         request, db, user, job, log_denial=log_denial
@@ -812,10 +811,8 @@ async def get_job_status_by_dataset(
     # this route); everyone else goes through the provenance predicate
     # ``list_dataset_refresh_runs`` applies to this text, except a publish key,
     # which reads only its owner's jobs in full.
-    credential = api_key_credential(db)
     include_detail = job.created_by == user.id or (
-        (credential is None or credential.scope != "publish")
-        and can_view_dataset_provenance(record, user, user_roles)
+        not is_publish_key(db) and can_view_dataset_provenance(record, user, user_roles)
     )
     return await _job_to_status_response(job, include_detail=include_detail)
 
@@ -851,6 +848,13 @@ async def retry_job(
 
     if job.created_by != user.id:
         refuse_publish_key(db, "A publish key can retry only its owner's jobs")
+    metadata = job.user_metadata or {}
+    # Asked for by another credential: a publish key's own jobs never make
+    # anything public or change an existing dataset's visibility.
+    if metadata.get("visibility") == "public" or (
+        metadata.get("reupload") and "visibility" in metadata
+    ):
+        refuse_publish_key(db, "A publish key can't retry a job that sets visibility")
     # Owners always retain access. Cross-user retries additionally require the
     # effective manage_users capability through PermissionExtension.
     if job.created_by != user.id and not await _can_access_another_users_job(

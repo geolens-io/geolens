@@ -36,6 +36,7 @@ from app.platform.refresh.verification import (
     canonical_service_source_binding_fingerprint,
 )
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
+from app.platform.request_credential import is_publish_key
 
 # What a manifest apply wrote on its job, so an accepted run publishes the
 # manifest's record metadata as the blocked one would have.
@@ -212,6 +213,7 @@ def _accepted_upload_metadata(
     run_id: uuid.UUID,
     fingerprint: str,
     held_version: int | None,
+    publish_key: bool = False,
 ) -> dict:
     blocked = blocked_job.user_metadata or {}
     carried = {
@@ -221,6 +223,11 @@ def _accepted_upload_metadata(
         or key.startswith("manifest_")
         or ("manifest_key" in blocked and key in _MANIFEST_RECORD_KEYS)
     }
+    if publish_key:
+        # The held entry may be another credential's, so the dataset keeps its
+        # visibility and status.
+        carried.pop("visibility", None)
+        carried.pop("record_status", None)
     return {
         **carried,
         "reupload": True,
@@ -299,6 +306,7 @@ async def dispatch_upload_acceptance(
             run_id=run_id,
             fingerprint=fingerprint,
             held_version=held_version,
+            publish_key=is_publish_key(db),
         ),
     )
     await db.flush()

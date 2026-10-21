@@ -255,8 +255,9 @@ class ApiKeyCreateRequest(BaseModel):
             "Privilege scope. 'full' impersonates the owner completely. "
             "'read_only' authenticates GET, HEAD and "
             "OPTIONS requests only; any other method is refused with 403. "
-            "'publish' also allows uploads, manifest apply, and metadata and "
-            "map writes, but no delete, feature write, admin or key route."
+            "'publish' also allows uploads, manifest apply, dataset metadata "
+            "edits and new maps, but no map update, delete, feature write, "
+            "public visibility, admin or key route."
         ),
     )
 
@@ -298,7 +299,8 @@ class DatasetApiKeyCreateRequest(BaseModel):
 
 _SCOPE_DESCRIPTION = (
     "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest "
-    "apply, and metadata and map writes, but no deletes or feature writes), "
+    "apply, dataset metadata edits and new maps, but no map updates, deletes, "
+    "feature writes or public visibility), "
     "'dataset_write' (reads and writes the features of the dataset in "
     "dataset_id, and nothing else), or 'dataset_append' (only creates features "
     "in that dataset)"

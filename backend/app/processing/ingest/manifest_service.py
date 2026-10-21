@@ -38,7 +38,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
-from app.platform.request_credential import refuse_publish_key
+from app.platform.request_credential import is_publish_key, refuse_publish_key
 
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
@@ -805,6 +805,10 @@ async def _reserve_entry(
     if dataset_id is not None:
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
+        if is_publish_key(db):
+            # The worker applies it later, over whatever the dataset's
+            # visibility is by then, so a publish key's update keeps it.
+            metadata.pop("visibility", None)
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
         from app.modules.catalog.authorization import admitted_public_visibility
 

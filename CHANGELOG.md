@@ -53,12 +53,19 @@ and releases use semantic versioning.
   from an origin outside the allowlist used to get no CORS headers at all.
 - API keys can be created with a Publish scope, in Settings > API keys or with
   `scope: "publish"` on `POST /auth/api-keys` and `POST /admin/api-keys`. A
-  publish key can read, upload and import, apply manifests, edit dataset and
-  map metadata, create and update maps, and replace an uploaded dataset's data
-  (keeping one previous version). It can't delete anything, write features,
-  reach admin or key routes, or replace a raster dataset or one bound to a
-  service, STAC item or table, and it acts only on its owner's own objects
-  even when the owner is an admin. Its refusals are `403` with
+  publish key can read, upload and import, apply manifests, edit dataset
+  metadata, create and import maps, and replace an uploaded dataset's data.
+  A replacement keeps one previous version, as a reupload in the app does, so
+  a second replacement in a row leaves only the first one's data to restore.
+  It can't update an existing map (`PUT /maps/{id}`; a republish creates a new
+  map), delete anything, write features, reach admin or key routes, or replace
+  a raster dataset or one bound to a service, STAC item or table, and it acts
+  only on its owner's own objects even when the owner is an admin. It can't
+  make anything public: a request for `public` visibility is refused even when
+  the dataset already is, an update may keep or narrow a dataset's
+  visibility but not widen it (a manifest re-apply keeps it), and an
+  unpublished public dataset can't be published. Making data public takes a
+  signed-in user or a full key. Its refusals are `403` with
   `detail.code == "api_key_scope"`. Downgrading past this release's migration
   needs every publish key revoked first (see `UPGRADING.md`).
 - Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on

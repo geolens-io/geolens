@@ -32,7 +32,8 @@ class AdminApiKeyCreateRequest:
         scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely.
             'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-
             account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest
-            apply, and metadata and map writes, but no delete, feature write, admin or key route. Default: 'full'.
+            apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin
+            or key route. Default: 'full'.
     """
 
     user_id: UUID

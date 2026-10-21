@@ -406,7 +406,7 @@
     "scopeFull": "Full access",
     "scopeReadOnly": "Read only",
     "scopePublish": "Publish",
-    "scopePublishDescription": "Adds and edits your own data and maps, and replaces uploaded datasets, keeping one previous version. It can't replace raster datasets or ones bound to a service, STAC item or table, write features, or delete anything.",
+    "scopePublishDescription": "Adds your own data and maps, edits your datasets' details and replaces uploaded datasets, keeping one previous version. It can't make anything public or widen who sees a dataset, update an existing map, replace raster datasets or ones bound to a service, STAC item or table, write features, or delete anything.",
     "scopeDatasetWrite": "One dataset",
     "scopeDatasetAppend": "One dataset, add only",
     "expiry": "Expires",

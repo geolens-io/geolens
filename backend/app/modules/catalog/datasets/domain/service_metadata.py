@@ -23,6 +23,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
+from app.modules.catalog.write_recheck import refuse_publish_key_widening
 from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.protocols import WorkflowTransitionContext
@@ -361,6 +362,9 @@ async def update_user_metadata(
     touches_raster = "is_dem" in meta.model_fields_set
     await lock_catalog_rows_for_write(
         session, dataset, with_raster_asset=touches_raster
+    )
+    await refuse_publish_key_widening(
+        session, record.id, visibility=meta.visibility, record_status=meta.record_status
     )
 
     if "language" in meta.model_fields_set:

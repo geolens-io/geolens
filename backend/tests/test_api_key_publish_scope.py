@@ -1,9 +1,9 @@
 """Publish-scoped API keys: what a desktop or browser publishing client may do.
 
-A ``publish`` key may read, upload, apply manifests and write metadata and
-maps, because each of those adds something or can be undone. It may not
-delete anything, write features, or reach admin and key routes, since none of
-those can be undone.
+A ``publish`` key may read, upload, apply manifests, write dataset metadata and
+create maps, because each of those adds something or can be undone. It may
+not update a map, delete anything, write features, make anything public, or
+reach admin and key routes, since none of those can be undone.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from app.modules.auth.dependencies import (
     _publish_key_may_call,
 )
 from app.modules.embed_tokens.models import EmbedToken
-from app.platform.request_credential import DATASET_WRITE_KEY_ROUTES
+from app.platform.request_credential import _SESSION_KEY, DATASET_WRITE_KEY_ROUTES
 from app.processing.ingest.manifest_schemas import ManifestApplyResponse
 from tests import test_api_key_dataset_scope as _dataset_scope
 from tests.factories import create_map_via_api, create_raster_dataset
@@ -36,7 +36,7 @@ PUBLISH_REFUSAL = {
     "code": "api_key_scope",
     "message": (
         "This API key has the publish scope, which can't delete datasets or "
-        "maps, write features or reach admin and key routes"
+        "maps, update a map, write features or reach admin and key routes"
     ),
 }
 
@@ -73,6 +73,10 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         "not needed to publish; PATCH /datasets/{id} and the manifest set status",
     ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
+    ("PUT", "/maps/{map_id}"): (
+        "replaces a map's layers and settings in place, with no earlier "
+        "version to restore; a republish creates a new map"
+    ),
     **dict.fromkeys(
         [
             ("POST", "/maps/{map_id}/embed-tokens"),
@@ -532,65 +536,6 @@ async def test_a_publish_key_cannot_replace_a_raster(
 
 
 @pytest.mark.anyio
-async def test_a_publish_key_cannot_revoke_map_links(
-    client: AsyncClient, owner, datasets, test_db_session
-):
-    headers, owner_id = owner
-    kept, other = (str(dataset.id) for dataset in datasets)
-    publish = await _mint(client, headers, "publish")
-    map_id = (await create_map_via_api(client, headers))["id"]
-    url = f"/maps/{map_id}"
-    try:
-        setup = await client.put(
-            url,
-            json={"visibility": "internal", "layers": [{"dataset_id": kept}]},
-            headers=headers,
-        )
-        assert setup.status_code == 200, setup.text
-        token = EmbedToken(
-            map_id=uuid.UUID(map_id),
-            token_hash=uuid.uuid4().hex,
-            token_hint="smoke",
-            scoped_dataset_ids=[kept],
-            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
-            created_by=owner_id,
-        )
-        test_db_session.add(token)
-        await test_db_session.commit()
-
-        dropped = await client.put(
-            url, json={"layers": [{"dataset_id": other}]}, headers=publish
-        )
-        assert _refused_with(
-            dropped, "A publish key can't drop a dataset an active embed token covers"
-        ), dropped.text
-        # The refusal comes after the save and rolls it back.
-        layers = (await client.get(url, headers=headers)).json()["layers"]
-        assert [layer["dataset_id"] for layer in layers] == [kept]
-        lowered = await client.put(url, json={"visibility": "private"}, headers=publish)
-        assert _refused_with(lowered, "A publish key can't lower a map's visibility"), (
-            lowered.text
-        )
-
-        added = await client.put(
-            url,
-            json={
-                "name": "Parks, updated",
-                "layers": [
-                    {"dataset_id": kept, "sort_order": 0},
-                    {"dataset_id": other, "sort_order": 1},
-                ],
-            },
-            headers=publish,
-        )
-        assert added.status_code == 200, added.text
-        await test_db_session.refresh(token)
-        assert token.is_active
-    finally:
-        await client.delete(url, headers=headers)
-
-
-@pytest.mark.anyio
 async def test_a_publish_key_cannot_transfer_dataset_ownership(
     client: AsyncClient, admin_auth_header, owner, datasets
 ):
@@ -626,7 +571,6 @@ async def test_a_null_layer_list_revokes_no_embed_token(
     """``"layers": null`` replaces nothing, so it must not run the revocation either."""
     headers, owner_id = owner
     on_map, off_map = (str(dataset.id) for dataset in datasets)
-    publish = await _mint(client, headers, "publish")
     map_id = (await create_map_via_api(client, headers))["id"]
     url = f"/maps/{map_id}"
     try:
@@ -648,7 +592,7 @@ async def test_a_null_layer_list_revokes_no_embed_token(
         await test_db_session.commit()
 
         renamed = await client.put(
-            url, json={"name": "Renamed", "layers": None}, headers=publish
+            url, json={"name": "Renamed", "layers": None}, headers=headers
         )
         assert renamed.status_code == 200, renamed.text
         await test_db_session.refresh(token)
@@ -736,78 +680,6 @@ async def test_a_null_layer_list_keeps_the_public_map_check(
         assert resp.status_code == 400, resp.text
     finally:
         await client.delete(url, headers=headers)
-
-
-@pytest.mark.anyio
-async def test_an_expired_embed_token_does_not_pin_layers(
-    client: AsyncClient, owner, datasets, test_db_session
-):
-    headers, owner_id = owner
-    kept, other = (str(dataset.id) for dataset in datasets)
-    publish = await _mint(client, headers, "publish")
-    map_id = (await create_map_via_api(client, headers))["id"]
-    url = f"/maps/{map_id}"
-    try:
-        setup = await client.put(
-            url, json={"layers": [{"dataset_id": kept}]}, headers=headers
-        )
-        assert setup.status_code == 200, setup.text
-        test_db_session.add(
-            EmbedToken(
-                map_id=uuid.UUID(map_id),
-                token_hash=uuid.uuid4().hex,
-                token_hint="expired",
-                scoped_dataset_ids=[kept],
-                expires_at=datetime.now(timezone.utc) - timedelta(days=1),
-                created_by=owner_id,
-            )
-        )
-        await test_db_session.commit()
-
-        swapped = await client.put(
-            url, json={"layers": [{"dataset_id": other}]}, headers=publish
-        )
-        assert swapped.status_code == 200, swapped.text
-    finally:
-        await client.delete(url, headers=headers)
-
-
-@pytest.mark.anyio
-async def test_the_visibility_check_reads_the_map_under_its_lock(
-    client: AsyncClient, owner, monkeypatch
-):
-    """A publish that commits before the lock is granted is what gets compared."""
-    from sqlalchemy import update
-
-    from app.modules.catalog.maps import _router_helpers
-    from app.modules.catalog.maps.models import Map
-
-    headers, _ = owner
-    publish = await _mint(client, headers, "publish")
-    map_id = (await create_map_via_api(client, headers))["id"]
-    lock = _router_helpers.lock_map_layers
-
-    async def published_while_waiting(session, locked_map_id):
-        # Not synchronized into the session, as another transaction's write isn't.
-        await session.execute(
-            update(Map)
-            .where(Map.id == locked_map_id)
-            .values(visibility="public")
-            .execution_options(synchronize_session=False)
-        )
-        await lock(session, locked_map_id)
-
-    monkeypatch.setattr(_router_helpers, "lock_map_layers", published_while_waiting)
-    try:
-        resp = await client.put(
-            f"/maps/{map_id}", json={"visibility": "internal"}, headers=publish
-        )
-        assert _refused_with(resp, "A publish key can't lower a map's visibility"), (
-            resp.text
-        )
-    finally:
-        monkeypatch.undo()
-        await client.delete(f"/maps/{map_id}", headers=headers)
 
 
 @pytest.mark.anyio
@@ -908,56 +780,6 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert job.status == "pending"
     finally:
         await test_db_session.delete(job)
-        await test_db_session.commit()
-
-
-@pytest.mark.anyio
-async def test_a_hidden_layer_the_replacement_keeps_is_not_dropped(
-    client: AsyncClient, owner, datasets, test_db_session
-):
-    """A layer the owner can no longer read survives a replacement that omits it."""
-    from tests.factories import create_dataset, get_user_id
-
-    headers, owner_id = owner
-    kept = str(datasets[0].id)
-    admin_id = await get_user_id(test_db_session, "admin")
-    other = await create_dataset(test_db_session, created_by=admin_id)
-    hidden, hidden_record = str(other.id), other.record_id
-    publish = await _mint(client, headers, "publish")
-    map_id = (await create_map_via_api(client, headers))["id"]
-    url = f"/maps/{map_id}"
-    try:
-        setup = await client.put(
-            url,
-            json={"layers": [{"dataset_id": kept}, {"dataset_id": hidden}]},
-            headers=headers,
-        )
-        assert setup.status_code == 200, setup.text
-        test_db_session.add(
-            EmbedToken(
-                map_id=uuid.UUID(map_id),
-                token_hash=uuid.uuid4().hex,
-                token_hint="hidden",
-                scoped_dataset_ids=[kept, hidden],
-                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
-                created_by=owner_id,
-            )
-        )
-        await test_db_session.execute(
-            text("UPDATE catalog.records SET visibility = 'private' WHERE id = :id"),
-            {"id": hidden_record},
-        )
-        await test_db_session.commit()
-
-        resp = await client.put(
-            url, json={"layers": [{"dataset_id": kept}]}, headers=publish
-        )
-        assert resp.status_code == 200, resp.text
-    finally:
-        await client.delete(url, headers=headers)
-        await test_db_session.execute(
-            text("DELETE FROM catalog.records WHERE id = :id"), {"id": hidden_record}
-        )
         await test_db_session.commit()
 
 
@@ -1203,7 +1025,7 @@ async def test_run_admission_refuses_a_publish_key_on_a_remote_origin(
             )
         assert exc.value.detail["code"] == "api_key_scope"
     finally:
-        test_db_session.info.clear()
+        test_db_session.info.pop(_SESSION_KEY, None)
         await test_db_session.rollback()
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
@@ -1255,7 +1077,7 @@ async def test_run_admission_rechecks_the_origin_after_the_insert(
         assert exc.value.detail["code"] == "api_key_scope"
     finally:
         monkeypatch.undo()
-        test_db_session.info.clear()
+        test_db_session.info.pop(_SESSION_KEY, None)
         await test_db_session.rollback()
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
@@ -1281,7 +1103,7 @@ async def test_an_admins_publish_key_acts_only_on_its_owners_objects(
     try:
         attempts = [
             ("PATCH", f"/datasets/{dataset.id}", {"title": "Taken"}),
-            ("PUT", f"/maps/{map_id}", {"name": "Taken"}),
+            ("POST", f"/maps/{map_id}/share/", None),
             (
                 "POST",
                 f"/catalog/collections/{collection_id}/datasets/",
@@ -1342,3 +1164,346 @@ def test_the_preview_image_refusal_is_rechecked_under_the_asset_lock():
     refused = source.index("refuse_publish_key(", locked)
     written = source.index("_record_image_capture(", locked)
     assert locked < refused < written
+
+
+# ---------------------------------------------------------------------------
+# Map updates and visibility
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_update_a_map(client: AsyncClient, owner, datasets):
+    """Nothing restores a map's earlier layers, so a republish creates a new map."""
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        resp = await client.put(
+            url,
+            json={"name": "Taken", "layers": [{"dataset_id": str(datasets[0].id)}]},
+            headers=publish,
+        )
+        assert (resp.status_code, resp.json()["detail"]) == (403, PUBLISH_REFUSAL)
+        kept = (await client.get(url, headers=headers)).json()
+        assert kept["name"] != "Taken" and kept["layers"] == []
+        renamed = await client.put(url, json={"name": "Renamed"}, headers=headers)
+        assert renamed.status_code == 200, renamed.text
+    finally:
+        await client.delete(url, headers=headers)
+
+
+async def _set_record(session, record_id, **values) -> None:
+    sets = ", ".join(f"{column} = :{column}" for column in values)
+    await session.execute(
+        text(f"UPDATE catalog.records SET {sets} WHERE id = :id"),
+        {"id": record_id, **values},
+    )
+    await session.commit()
+
+
+async def _record_values(session, record_id) -> tuple[str, str]:
+    row = (
+        await session.execute(
+            text(
+                "SELECT visibility, record_status FROM catalog.records WHERE id = :id"
+            ),
+            {"id": record_id},
+        )
+    ).one()
+    return row.visibility, row.record_status
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_set_public_visibility(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """Refused even for a dataset that is already public; the owner signed in may."""
+    headers, _ = owner
+    dataset = datasets[0]
+    publish = await _mint(client, headers, "publish")
+    url = f"/datasets/{dataset.id}"
+
+    raised = await client.patch(url, json={"visibility": "public"}, headers=publish)
+    assert _refused_with(raised, "A publish key can't make anything public"), (
+        raised.text
+    )
+    await _set_record(test_db_session, dataset.record_id, visibility="public")
+    kept = await client.patch(
+        url, json={"visibility": "public", "title": "Same"}, headers=publish
+    )
+    assert _refused_with(kept, "A publish key can't make anything public"), kept.text
+
+    await _set_record(test_db_session, dataset.record_id, visibility="private")
+    signed_in = await client.patch(url, json={"visibility": "public"}, headers=headers)
+    assert signed_in.status_code == 200, signed_in.text
+    assert await _record_values(test_db_session, dataset.record_id) == (
+        "public",
+        "published",
+    )
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_keeps_or_narrows_a_datasets_visibility(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    dataset = datasets[0]
+    publish = await _mint(client, headers, "publish")
+    url = f"/datasets/{dataset.id}"
+
+    widened = await client.patch(url, json={"visibility": "internal"}, headers=publish)
+    assert _refused_with(widened, "A publish key can't widen a dataset's visibility"), (
+        widened.text
+    )
+    assert await _record_values(test_db_session, dataset.record_id) == (
+        "private",
+        "published",
+    )
+
+    await _set_record(test_db_session, dataset.record_id, visibility="internal")
+    for visibility in ("internal", "restricted", "private"):
+        narrowed = await client.patch(
+            url, json={"visibility": visibility}, headers=publish
+        )
+        assert narrowed.status_code == 200, (visibility, narrowed.text)
+    assert await _record_values(test_db_session, dataset.record_id) == (
+        "private",
+        "published",
+    )
+
+    signed_in = await client.patch(
+        url, json={"visibility": "internal"}, headers=headers
+    )
+    assert signed_in.status_code == 200, signed_in.text
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_publish_a_public_dataset(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """An unpublished public dataset is a preview; publishing opens it to anyone."""
+    headers, _ = owner
+    dataset = datasets[0]
+    publish = await _mint(client, headers, "publish")
+    url = f"/datasets/{dataset.id}"
+    await _set_record(
+        test_db_session, dataset.record_id, visibility="public", record_status="draft"
+    )
+
+    resp = await client.patch(url, json={"record_status": "published"}, headers=publish)
+    assert _refused_with(resp, "A publish key can't publish a public dataset"), (
+        resp.text
+    )
+    assert await _record_values(test_db_session, dataset.record_id) == (
+        "public",
+        "draft",
+    )
+
+    await _set_record(test_db_session, dataset.record_id, visibility="internal")
+    internal = await client.patch(
+        url, json={"record_status": "published"}, headers=publish
+    )
+    assert internal.status_code == 200, internal.text
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_creates_anything_but_public(
+    client: AsyncClient, owner, test_db_session
+):
+    """An import commit and a manifest entry may ask for any visibility but public."""
+    from app.platform.jobs.models import IngestJob
+
+    headers, owner_id = owner
+    publish = await _mint(client, headers, "publish")
+    job = IngestJob(
+        status="pending",
+        created_by=owner_id,
+        attempt_id=uuid.uuid4(),
+        source_filename="parks.geojson",
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    try:
+        with patch(
+            "app.processing.ingest.router.queue_ingest_job", new_callable=AsyncMock
+        ):
+            public = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parks", "visibility": "public"},
+                headers=publish,
+            )
+            assert _refused_with(public, "A publish key can't make anything public"), (
+                public.text
+            )
+            internal = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parks", "visibility": "internal"},
+                headers=publish,
+            )
+            assert not _scope_refused(internal), internal.text
+
+        manifest = valid_manifest_payload()
+        manifest["datasets"][0]["publication"] = {"intent": "published"}
+        applied = await client.post(
+            "/ingest/manifest/apply",
+            json={**manifest, "dry_run": True},
+            headers=publish,
+        )
+        assert applied.status_code == 200, applied.text
+        [entry] = applied.json()["results"]
+        assert entry["action"] == "error", entry
+        assert "A publish key can't make anything public" in entry["message"]
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job.id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "metadata,refused",
+    [
+        ({"visibility": "public"}, True),
+        ({"reupload": True, "visibility": "internal"}, True),
+        ({"visibility": "internal"}, False),
+        ({"reupload": True}, False),
+    ],
+)
+async def test_a_publish_key_retries_no_job_that_sets_visibility(
+    client: AsyncClient, owner, test_db_session, metadata, refused
+):
+    """Such a job came from another credential; a publish key's own never does."""
+    from app.platform.jobs.models import IngestJob
+
+    headers, owner_id = owner
+    publish = await _mint(client, headers, "publish")
+    job = IngestJob(
+        status="failed",
+        created_by=owner_id,
+        attempt_id=uuid.uuid4(),
+        source_filename="parks.geojson",
+        user_metadata=metadata,
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    try:
+        resp = await client.post(f"/jobs/{job.id}/retry", headers=publish)
+        if refused:
+            assert _refused_with(
+                resp, "A publish key can't retry a job that sets visibility"
+            ), resp.text
+        else:
+            assert not _scope_refused(resp), resp.text
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job.id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("scope,kept", [("publish", False), ("full", True)])
+async def test_a_publish_keys_manifest_update_keeps_the_datasets_visibility(
+    owner, datasets, test_db_session, scope, kept
+):
+    """The worker applies the entry's visibility later, over whatever is current then."""
+    from pathlib import Path
+    from shutil import copyfile
+
+    from app.core.config import settings
+    from app.modules.auth.models import User
+    from app.platform.request_credential import ApiKeyCredential, record_api_key
+    from app.processing.ingest import manifest_service
+    from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+    from app.processing.ingest.manifest_sources import classify_manifest_source
+
+    fixture = "tests/fixtures/ingest/basic_attrs.geojson"
+    staged = Path(settings.upload_staging_dir) / fixture
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    copyfile(Path(__file__).parent / "fixtures/ingest/basic_attrs.geojson", staged)
+    entry = ManifestApplyRequest.model_validate(
+        {
+            "manifest_version": "1",
+            "catalog": {"title": "Manifest catalog"},
+            "datasets": [
+                {
+                    "key": f"publish-{uuid.uuid4().hex[:8]}",
+                    "title": "Roads",
+                    "sources": [
+                        {"type": "vector", "uri": fixture, "format": "geojson"}
+                    ],
+                    "publication": {"intent": "internal"},
+                }
+            ],
+        }
+    ).datasets[0]
+    prepared = await classify_manifest_source(entry.sources[0])
+    _, owner_id = owner
+    user = await test_db_session.get(User, owner_id)
+    record_api_key(
+        test_db_session,
+        ApiKeyCredential(id=uuid.uuid4(), scope=scope, dataset_id=None),
+    )
+    reserved = None
+    try:
+        reserved = await manifest_service._reserve_entry(
+            test_db_session,
+            entry,
+            prepared,
+            "fingerprint",
+            user,
+            dataset_id=datasets[0].id,
+            quota=manifest_service._ManifestQuotaReservation(),
+        )
+        metadata = reserved.job.user_metadata
+        assert ("visibility" in metadata) is kept, metadata
+        assert metadata["record_status"] == "internal"
+    finally:
+        test_db_session.info.pop(_SESSION_KEY, None)
+        if reserved is not None:
+            await test_db_session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                {"id": reserved.job.id},
+            )
+            await test_db_session.commit()
+
+
+def test_a_publish_keys_acceptance_keeps_the_datasets_publication():
+    """A held manifest entry may be another credential's."""
+    import inspect
+    from types import SimpleNamespace
+
+    from app.modules.catalog.datasets.api.refresh_acceptance import (
+        _accepted_upload_metadata,
+        dispatch_upload_acceptance,
+    )
+
+    held = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_metadata={
+            "manifest_key": "roads",
+            "title": "Roads",
+            "visibility": "public",
+            "record_status": "published",
+        },
+    )
+
+    def accepted(publish_key: bool) -> dict:
+        return _accepted_upload_metadata(
+            held,
+            dataset_id=uuid.uuid4(),
+            run_id=uuid.uuid4(),
+            fingerprint="fingerprint",
+            held_version=None,
+            publish_key=publish_key,
+        )
+
+    withheld = accepted(True)
+    assert withheld["title"] == "Roads"
+    assert "visibility" not in withheld and "record_status" not in withheld
+    assert accepted(False)["visibility"] == "public"
+    assert "publish_key=is_publish_key(db)" in inspect.getsource(
+        dispatch_upload_acceptance
+    )

@@ -27,8 +27,8 @@ class ApiKeyCreateRequest:
             null for a non-expiring key; expired keys stop authenticating.
         scope (ApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely. 'read_only'
             authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows
-            uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route. Default:
-            'full'.
+            uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public
+            visibility, admin or key route. Default: 'full'.
     """
 
     name: str

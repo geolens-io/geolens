@@ -23,6 +23,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -98,6 +99,7 @@ async def test_catalog_authorization_delegates_role_lookup_to_auth(monkeypatch):
     delegate = AsyncMock(return_value={"editor"})
     monkeypatch.setattr(authorization, "_get_user_roles", delegate)
 
-    session, user = object(), object()
+    # The wrapper also reads the session's info for the key behind the request.
+    session, user = SimpleNamespace(info={}), object()
     assert await authorization.get_user_roles(session, user) == {"editor"}
     delegate.assert_awaited_once_with(session, user)

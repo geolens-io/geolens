@@ -30,7 +30,7 @@ from app.platform.dataset_origin import classify_origin
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import Outcome, hold
 from app.platform.refresh.models import DatasetRefreshRun
-from app.platform.request_credential import api_key_credential, api_key_scope_refusal
+from app.platform.request_credential import api_key_scope_refusal, is_publish_key
 
 logger = structlog.get_logger(__name__)
 
@@ -330,8 +330,7 @@ async def _refuse_publish_key_irreversible_run(
     previous version, and a restore can bring back only an upload's or a drawn
     layer's source binding, not a service's, STAC item's or table's.
     """
-    credential = api_key_credential(session)
-    if credential is None or credential.scope != "publish":
+    if not is_publish_key(session):
         return
     row = (
         await session.execute(

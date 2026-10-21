@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.modules.auth.permissions import admitted_capabilities, user_standing_columns
 from app.platform.extensions import get_permission_extension
+from app.platform.request_credential import api_key_scope_refusal, is_publish_key
 
 
 @dataclass
@@ -246,3 +247,43 @@ async def recheck_record_write_access(db: AsyncSession, record_id: uuid.UUID) ->
     await recheck_admitted_writer(
         db, ("record", record_id), (Record.created_by,), Record.id == record_id, enforce
     )
+
+
+_VISIBILITY_ORDER = ("private", "restricted", "internal", "public")
+
+
+async def refuse_publish_key_widening(
+    db: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    visibility: str | None,
+    record_status: str | None,
+) -> None:
+    """Refuse a publish key a metadata change that lets more people read a record.
+
+    A publish key may keep a record's visibility or narrow it, and may not
+    publish a public record, which is what opens it to anonymous readers. Call
+    holding the record row, so the values compared are the committed ones.
+    """
+    if not is_publish_key(db):
+        return
+    from app.modules.catalog.datasets.domain.models import Record
+
+    with db.no_autoflush:
+        now = (
+            await db.execute(
+                select(Record.visibility, Record.record_status).where(
+                    Record.id == record_id
+                )
+            )
+        ).one()
+    if visibility is not None and _VISIBILITY_ORDER.index(
+        visibility
+    ) > _VISIBILITY_ORDER.index(now.visibility):
+        raise api_key_scope_refusal("A publish key can't widen a dataset's visibility")
+    if (
+        now.visibility == "public"
+        and record_status == "published"
+        and now.record_status != "published"
+    ):
+        raise api_key_scope_refusal("A publish key can't publish a public dataset")
