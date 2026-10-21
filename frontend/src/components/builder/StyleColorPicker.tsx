@@ -13,10 +13,8 @@ interface StyleColorPickerProps {
   label: string;
   color: string;
   onChange: (hex: string) => void;
-  /** CSS background for the trigger when `color` is only the picker's starting point. */
-  swatchBackground?: string;
-  /** Accessible name for the trigger when it differs from `label`. */
-  swatchLabel?: string;
+  /** Shown on the trigger instead of `color`, which then only seeds the picker. */
+  followsColor?: { background: string; label: string };
 }
 
 // Single source for the 6-digit hex validation regex.
@@ -78,7 +76,7 @@ export function SwatchColorPopover({
   );
 }
 
-export function StyleColorPicker({ label, color, onChange, swatchBackground, swatchLabel }: StyleColorPickerProps) {
+export function StyleColorPicker({ label, color, onChange, followsColor }: StyleColorPickerProps) {
   const { t } = useTranslation('builder');
   const [localColor, setLocalColor] = useState(color);
   useEffect(() => { setLocalColor(color); }, [color]);
@@ -102,9 +100,9 @@ export function StyleColorPicker({ label, color, onChange, swatchBackground, swa
         <PopoverTrigger asChild>
           <button
             className="w-8 h-6 rounded-sm border border-border cursor-pointer"
-            style={{ background: swatchBackground ?? localColor }}
-            title={swatchLabel ?? localColor}
-            aria-label={swatchLabel ?? label}
+            style={{ background: followsColor?.background ?? localColor }}
+            title={followsColor?.label ?? localColor}
+            aria-label={followsColor?.label ?? label}
           />
         </PopoverTrigger>
         <PopoverContent className="w-auto p-3" align="start">

@@ -138,4 +138,8 @@ export const MAP_COLORS = {
    * branding v0.2.0's frozen sRGB primary; the remaining slots are clipped.
    */
   categorical: LIGHT_THEME_TOKEN_COLORS.viz,
+  swatch: {
+    /** Stands in for a colour that follows the data, where one swatch would misstate it. */
+    followsData: `conic-gradient(${LIGHT_THEME_TOKEN_COLORS.viz[0]}, ${LIGHT_THEME_TOKEN_COLORS.viz[1]}, ${LIGHT_THEME_TOKEN_COLORS.viz[2]}, ${LIGHT_THEME_TOKEN_COLORS.viz[0]})`,
+  },
 } as const;
