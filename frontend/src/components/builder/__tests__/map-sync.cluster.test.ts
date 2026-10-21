@@ -233,7 +233,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
   });
 
-  it('keeps points with a missing value that the layer filter keeps for a less-than comparison', () => {
+  it('drops points with a missing value for a less-than comparison, as the layer filter does', () => {
     const map = makeMockMap();
     const layer = makeLayer({
       feature_count: 20_000,
@@ -242,12 +242,10 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
+    // The layer's sanitized filter gives a missing value a high fallback, so it fails `<`.
     expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter ?? 'null')).toEqual({
-      op: 'or',
-      args: [
-        { op: 'isNull', args: [{ property: 'score' }] },
-        { op: '<', args: [{ property: 'score' }, 5] },
-      ],
+      op: '<',
+      args: [{ property: 'score' }, 5],
     });
   });
 
