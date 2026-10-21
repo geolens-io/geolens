@@ -89,7 +89,11 @@ def item_metadata(
         )[:MAX_ORGANIZATION],
     }
     fields = {name: value for name, value in fields.items() if value}
-    keywords = [t.strip()[:MAX_KEYWORD] for t in target.get("tags") or [] if t.strip()]
+    keywords = [
+        unicodedata.normalize("NFC", t.strip())[:MAX_KEYWORD]
+        for t in target.get("tags") or []
+        if t.strip()
+    ]
     fields["keywords"] = list(dict.fromkeys(keywords))
     return fields
 

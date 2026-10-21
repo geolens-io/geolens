@@ -58,3 +58,9 @@ def test_text_is_normalized_like_geolens_stores_it():
     fields = item_metadata({"snippet": decomposed}, {"tags": []}, {"name": decomposed})
     assert fields["summary"] == "Caf\u00e9 map"
     assert fields["source_organization"] == "Caf\u00e9 map"
+
+
+def test_a_tag_is_normalized_before_it_is_cut():
+    tag = "a" * 499 + "e\u0301"
+    fields = item_metadata({}, {"tags": [tag]}, None)
+    assert fields["keywords"] == ["a" * 499 + "\u00e9"]
