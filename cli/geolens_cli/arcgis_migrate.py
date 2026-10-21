@@ -583,9 +583,10 @@ def _inventory_rows(
     """Inventory rows by item id and the inventory's portal record, read only
     when an item imports a service.
 
-    Refuses an inventory from another portal than the plan's: the plan's
-    portal receives the password, and the inventory's decides where the
-    token may go.
+    Refuses an inventory from another portal than the plan's (the plan's
+    portal receives the password, and the inventory's decides where the token
+    may go), and an inventory rewritten since the plan was built, whose URLs
+    and sharing the operator hasn't reviewed.
     """
     if not any(item["action"] == _plan.IMPORT_LAYERS for item in to_run):
         return {}, None
@@ -600,6 +601,12 @@ def _inventory_rows(
         raise UsageError(
             "the plan's portal.url doesn't match the portal of the inventory it "
             f"names ({inventory['portal']['url']}); rebuild the plan from that inventory"
+        )
+    if inventory["generated_at"] != plan["inventory"]["generated_at"]:
+        raise UsageError(
+            "the inventory the plan names was written at "
+            f"{inventory['generated_at']}, not {plan['inventory']['generated_at']} "
+            "when the plan was built; rebuild the plan and review it again"
         )
     return {row["id"]: row for row in inventory["items"]}, inventory["portal"]
 

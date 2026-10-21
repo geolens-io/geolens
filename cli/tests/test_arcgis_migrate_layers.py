@@ -741,3 +741,16 @@ def test_a_public_selection_reads_no_credential(runner, plan_file, geolens):
         runner, plan_file, "--only", A2, "--username", "gis_admin", "--password-stdin"
     )
     assert result.exit_code == 0, result.output
+
+
+def test_an_inventory_rewritten_after_the_plan_is_refused(runner, plan_file, geolens):
+    path = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(path.read_text())
+    report["generated_at"] = "2026-10-02T00:00:00Z"
+    path.write_text(json.dumps(report))
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 2
+    assert "rebuild the plan" in result.output
+    assert geolens.seen == []
