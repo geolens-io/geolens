@@ -62,6 +62,10 @@ describe('parseCopcCrs', () => {
     expect(crs?.zToMeters).toBeCloseTo(0.3048, 6);
   });
 
+  it('does not mistake a quoted name containing "geocentric" for a geocentric CRS', () => {
+    expect(parseCopcCrs(UTM2.replace('"WGS 84 / UTM zone 10N"', '"Not geocentric, GEOCCS[ in the name"'))).not.toBeNull();
+  });
+
   it('reads a plain WKT2 projected CRS', () => {
     expect(parseCopcCrs(UTM2)).toEqual({ horizontalWkt: UTM2, zToMeters: 1 });
   });
