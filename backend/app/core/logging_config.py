@@ -175,6 +175,11 @@ def _redact_api_keys(value: str) -> str:
     return _API_KEY_VALUE_RE.sub("glk_[REDACTED]", value) if "glk_" in value else value
 
 
+# A renderer writes these as their repr, which carries their text verbatim
+# (an exception's message, raw header bytes), so the repr is scrubbed instead.
+_RENDERED_AS_REPR = (BaseException, bytes, bytearray)
+
+
 def _redact_token_value_repr(value: str) -> str:
     """Redact a `'token': '...'` (dict-repr) or `token='...'` (kwarg) pair."""
 
@@ -302,7 +307,7 @@ def _redact_sensitive_fields(
             continue
         if isinstance(value, str):
             event_dict[key] = _redact_api_keys(value)
-        elif isinstance(value, BaseException):
+        elif isinstance(value, _RENDERED_AS_REPR):
             event_dict[key] = _scrub_text(repr(value))
         elif _is_walkable(value):
             # A container in `extra` is third-party
@@ -360,8 +365,9 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     a self-referencing structure would otherwise not terminate.
 
     ``frozenset``, ``deque`` and dataclass instances are walked, and an
-    exception becomes its scrubbed repr; anything else is returned as-is. A
-    dataclass yields field name to redacted value via ``dataclasses.fields``.
+    exception or byte string becomes its scrubbed repr; anything else is
+    returned as-is. A dataclass yields field name to redacted value via
+    ``dataclasses.fields``.
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
@@ -371,8 +377,7 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
         return _redact_items(value.items(), _depth)
     if isinstance(value, _ITERABLE_CONTAINERS):
         return [redact_nested(item, _depth + 1) for item in value]
-    if isinstance(value, BaseException):
-        # A renderer would write its repr, message included, verbatim.
+    if isinstance(value, _RENDERED_AS_REPR):
         return _scrub_text(repr(value))
     if _is_dataclass_instance(value):
         return _redact_items(

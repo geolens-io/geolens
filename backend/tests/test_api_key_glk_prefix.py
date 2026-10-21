@@ -67,6 +67,8 @@ def test_a_key_is_redacted_in_every_logged_string():
             "by_key": {key: "failed"},
             "error": ValueError(f"bad key {key}"),
             "errors": [ValueError(f"bad key {key}")],
+            "raw": key.encode(),
+            "headers": [(b"x-api-key", key.encode())],
         },
     )
 
