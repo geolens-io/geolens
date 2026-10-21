@@ -1,6 +1,6 @@
 import type { Hierarchy } from 'copc';
 import { describe, expect, it } from 'vitest';
-import { MAX_RANGE_BYTES, POINT_BUDGET } from '../copc-limits';
+import { MAX_RANGE_BYTES, MAX_SELECTED_BYTES, MAX_SELECTED_NODES, POINT_BUDGET } from '../copc-limits';
 import { selectNodes } from '../copc-select';
 
 const node = (pointCount: number, offset = 1000, length = 500): Hierarchy.Node => ({
@@ -24,6 +24,29 @@ describe('selectNodes', () => {
   it('selects a single node holding more than a million points, up to the budget', () => {
     const picked = selectNodes(map({ '0-0-0-0': node(1_500_000) }), 2_000_000, 34, null);
     expect(picked).toHaveLength(1);
+  });
+
+  it('keeps a load inside its read budget when the hierarchy has many small nodes', () => {
+    const many = Object.fromEntries(
+      Array.from({ length: MAX_SELECTED_NODES + 50 }, (_, i) => [`3-${i}-0-0`, node(10, 1000 + i, 5)]),
+    );
+    expect(selectNodes(map(many), POINT_BUDGET, 34, null)).toHaveLength(MAX_SELECTED_NODES);
+  });
+
+  it('keeps a load inside its byte budget when nodes are large', () => {
+    const big = 60 * 1024 * 1024;
+    const picked = selectNodes(
+      map({ '0-0-0-0': node(100, 1000, big), '1-0-0-0': node(100, 1000, big), '1-1-0-0': node(100, 1000, big), '1-0-1-0': node(100, 1000, big) }),
+      POINT_BUDGET,
+      34,
+      null,
+    );
+    expect(picked.length * big).toBeLessThanOrEqual(MAX_SELECTED_BYTES);
+    expect(picked.length).toBe(3);
+  });
+
+  it('accepts a node whose compressed chunk is between 16 and 64 MiB', () => {
+    expect(selectNodes(map({ '0-0-0-0': node(100, 1000, 40 * 1024 * 1024) }), POINT_BUDGET, 34, null)).toHaveLength(1);
   });
 
   it('stops at the first node that would pass the budget', () => {
