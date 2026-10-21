@@ -1237,6 +1237,7 @@
     "instructions": "QGIS, Potree et copc.js"
   },
   "tileset": {
+    "viewerError": "La vue 3D n'a pas pu charger ce jeu de tuiles.",
     "title": "Tileset 3D Tiles",
     "version": "Version",
     "geometricError": "Erreur géométrique",

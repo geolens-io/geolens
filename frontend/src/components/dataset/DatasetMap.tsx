@@ -1,4 +1,4 @@
-import { memo, useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
+import { lazy, memo, Suspense, useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
@@ -53,6 +53,8 @@ import { reportTileTokenRemint } from '@/lib/report';
 // Wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
+
+const Dataset3DOverlay = lazy(() => import('@/components/dataset/viewer3d/Dataset3DOverlay'));
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -131,6 +133,8 @@ interface DatasetMapProps {
   containerRef?: RefObject<HTMLDivElement | null>;
   canEdit?: boolean;
   recordType?: string;
+  /** Draw this dataset's 3D Tiles tileset over the map. */
+  showTileset?: boolean;
   rasterTileUrl?: string | null;
   isDem?: boolean;
   /** ISO timestamp or version string appended to tile URLs to bust browser cache after mutations */
@@ -158,6 +162,7 @@ export const DatasetMap = memo(function DatasetMap({
   containerRef,
   canEdit = false,
   recordType,
+  showTileset = false,
   rasterTileUrl,
   isDem,
   tileVersion,
@@ -1074,7 +1079,7 @@ export const DatasetMap = memo(function DatasetMap({
     setPendingGeometry(null);
   }, []);
 
-  if (!hasBbox && !tableName) {
+  if (!hasBbox && !tableName && !showTileset) {
     return (
       <div className="flex items-center justify-center h-[500px] bg-muted rounded-md text-muted-foreground text-sm">
         {t('page.noSpatialExtent')}
@@ -1137,6 +1142,12 @@ export const DatasetMap = memo(function DatasetMap({
         onError={logUnhandledMapError}
       >
         <NavigationControl position="top-right" />
+
+        {showTileset && mapInstance && datasetId && (
+          <Suspense fallback={null}>
+            <Dataset3DOverlay datasetId={datasetId} fitToTileset={!hasBbox} />
+          </Suspense>
+        )}
 
         {/* Bbox overlay for spatial context */}
         {bboxGeojson && (

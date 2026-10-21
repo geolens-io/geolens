@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import datasetPageSrc from '@/pages/DatasetPage.tsx?raw';
+import datasetMapSrc from '@/components/dataset/DatasetMap.tsx?raw';
 import mapBuilderPageSrc from '@/pages/MapBuilderPage.tsx?raw';
 import publicViewerPageSrc from '@/pages/PublicViewerPage.tsx?raw';
 import publicMapViewerPageSrc from '@/pages/PublicMapViewerPage.tsx?raw';
@@ -56,5 +57,16 @@ describe('PERF-06: map-rendering pages lazy-load their Map child', () => {
       /lazy\(\(\)\s*=>\s*import\(['"]@\/components\/viewer\/ViewerMap['"]/
     );
     expect(src).toMatch(/<Suspense/);
+  });
+
+  it('DatasetMap lazy-loads the 3D overlay, and the overlay lazy-loads the deck.gl layers', async () => {
+    expect(datasetMapSrc).not.toMatch(/^import .*viewer3d\/Dataset3DOverlay/m);
+    expect(datasetMapSrc).toMatch(
+      /lazy\(\(\)\s*=>\s*import\(['"]@\/components\/dataset\/viewer3d\/Dataset3DOverlay['"]/
+    );
+    const overlaySrc = (await import('@/components/dataset/viewer3d/Dataset3DOverlay.tsx?raw')).default;
+    expect(overlaySrc).not.toMatch(/^import .*['"]\.\/tileset-layers['"]/m);
+    expect(overlaySrc).toMatch(/import\(['"]\.\/tileset-layers['"]\)/);
+    expect(overlaySrc).not.toMatch(/from ['"]@loaders\.gl|from ['"]@deck\.gl\/(geo-layers|layers|mesh-layers)/);
   });
 });

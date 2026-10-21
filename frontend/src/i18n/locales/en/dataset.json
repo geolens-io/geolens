@@ -1237,6 +1237,7 @@
     "instructions": "QGIS, Potree, and copc.js"
   },
   "tileset": {
+    "viewerError": "The 3D view could not load this tileset.",
     "title": "3D Tiles tileset",
     "version": "Version",
     "geometricError": "Geometric error",

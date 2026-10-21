@@ -53,6 +53,7 @@ import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { FreshnessChip, HealthChip } from '@/components/dataset/SourceStateChips';
 import { CopyButton } from '@/components/ui/copy-button';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
+import { canViewTileset } from '@/components/dataset/viewer3d/tileset-support';
 import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
 import { getRecordStatusLabel, getVisibilityLabel } from '@/i18n/labels';
@@ -385,6 +386,7 @@ export function DatasetPage() {
   const isPointCloud = dataset.record_type === 'pointcloud_dataset';
   // Neither type has in-app tiles, so the preview shows only the extent as an
   // outline over the basemap.
+  const showTilesetViewer = isTileset && canViewTileset(dataset.tileset);
   const showFootprintOnly = (isTileset || isPointCloud) && bbox !== null;
   const { featureTable, mapLayerType, tileToken: tileKind } = recordTypeCapabilities(dataset.record_type);
   const canAddToMap = !isTable && mapLayerType !== null;
@@ -579,14 +581,14 @@ export function DatasetPage() {
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && <TableHero />}
 
-      {/* Task tabs lead with their own work instead of a full-height map. 3D
-          Tiles and COPC have no in-app renderer, so they get a map section only
-          to show an existing extent. Expanding the Data tab would unmount this
+      {/* Task tabs lead with their own work instead of a full-height map. A
+          3D Tiles tileset the viewer can draw renders in it; other 3D Tiles and
+          COPC datasets get a map section only to show an existing extent. Expanding the Data tab would unmount this
           section and destroy an in-progress geometry edit, which lives only in
           this map's TerraDraw instance; toggling isDataTabExpanded doesn't
           change the route, so the unsaved-changes guard never sees it. The
           section stays mounted, just hidden, while a session is active. */}
-      {(!isDataTabExpanded || isDrawing) && !isTable && (!(isTileset || isPointCloud) || showFootprintOnly) && (
+      {(!isDataTabExpanded || isDrawing) && !isTable && (!(isTileset || isPointCloud) || showFootprintOnly || showTilesetViewer) && (
         <section
           aria-label={t('page.mapPreview')}
           className={cn('rounded-lg border shadow-sm overflow-hidden', isDataTabExpanded && 'hidden')}
@@ -645,6 +647,7 @@ export function DatasetPage() {
                   containerRef={mapContainerRef}
                   canEdit={canEditData && featureTable && !isTable}
                   recordType={dataset.record_type}
+                  showTileset={showTilesetViewer}
                   rasterTileUrl={dataset.raster?.tile_url}
                   isDem={dataset.raster?.is_dem ?? false}
                   tileVersion={dataset.updated_at}

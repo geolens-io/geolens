@@ -1237,6 +1237,7 @@
     "instructions": "QGIS, Potree y copc.js"
   },
   "tileset": {
+    "viewerError": "La vista 3D no pudo cargar este conjunto de teselas.",
     "title": "Tileset de 3D Tiles",
     "version": "Versión",
     "geometricError": "Error geométrico",
