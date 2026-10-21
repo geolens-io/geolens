@@ -27,6 +27,7 @@ from app.modules.auth.dependencies import (
 )
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
+from app.platform.request_credential import refuse_publish_key
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
@@ -1010,6 +1011,8 @@ async def cancel_job(
             detail="Job not found",
         )
 
+    if job.created_by != user.id:
+        refuse_publish_key(db, "A publish key can cancel only its owner's jobs")
     if not await _may_cancel_job(request, db, user, job):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
