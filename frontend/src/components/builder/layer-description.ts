@@ -249,7 +249,12 @@ function clusterOptions(layer: SyncLayerInput) {
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
-const LAYER_ONLY_EXPRESSION = /\["(zoom|pitch|distance-from-center|within|distance)"/;
+const LAYER_ONLY_OPERATORS = new Set(['zoom', 'pitch', 'distance-from-center', 'within', 'distance']);
+
+function needsLayerContext(node: unknown): boolean {
+  if (!Array.isArray(node) || node[0] === 'literal') return false;
+  return LAYER_ONLY_OPERATORS.has(node[0] as string) || node.some(needsLayerContext);
+}
 const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
 
 /**
@@ -258,7 +263,7 @@ const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
  * An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
  */
 function sourceFilter(filter: FilterSpecification | null): FilterSpecification | null {
-  if (!filter || LAYER_ONLY_EXPRESSION.test(JSON.stringify(filter))) return null;
+  if (!filter || needsLayerContext(filter)) return null;
   try {
     const converted = convertFilter(filter as Parameters<typeof convertFilter>[0]);
     return converted === false ? MATCHES_NOTHING : (converted as FilterSpecification | true);
