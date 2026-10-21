@@ -682,8 +682,9 @@ async def get_browser_reachable_api_url(
     """The API URL for a document another machine loads, such as an exported style.
 
     The configured API URL, unless it is loopback while the app URL
-    :func:`get_browser_reachable_app_url` finds is not: then that app URL's API
-    path, so a remote install left on the Compose default stays reachable.
+    :func:`get_browser_reachable_app_url` finds is not: then the configured API
+    path on that app URL's origin, so a remote install left on the Compose
+    default stays reachable.
     """
     api_url = await get_public_api_url(db, request=request)
     app_url = await get_browser_reachable_app_url(db, request=request)
@@ -692,7 +693,10 @@ async def get_browser_reachable_api_url(
         and is_loopback_host(urlsplit(api_url).hostname or "")
         and not is_loopback_host(urlsplit(app_url).hostname or "")
     ):
-        return append_api_suffix(app_url)
+        origin = urlsplit(app_url)
+        return urlunsplit(
+            (origin.scheme, origin.netloc, urlsplit(api_url).path.rstrip("/"), "", "")
+        )
     return api_url
 
 

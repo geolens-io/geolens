@@ -637,3 +637,43 @@ async def test_browser_reachable_app_url(
     )
 
     assert url == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("api_url", "app_url", "expected"),
+    [
+        # Loopback default: the reachable app origin replaces it, keeping /api.
+        (
+            "http://localhost:8080/api",
+            "https://gis.example.org",
+            "https://gis.example.org/api",
+        ),
+        # An API served at its root keeps no /api path.
+        ("http://localhost:8000", "https://api.example.org", "https://api.example.org"),
+        (
+            "http://localhost:8080/gl/api",
+            "https://gis.example.org/gl",
+            "https://gis.example.org/gl/api",
+        ),
+        # A real configured API URL is never replaced.
+        (
+            "https://api.example.org/api",
+            "https://gis.example.org",
+            "https://api.example.org/api",
+        ),
+        # Nothing reachable to swap in: the configured value stands.
+        ("http://localhost:8080/api", None, "http://localhost:8080/api"),
+    ],
+)
+async def test_browser_reachable_api_url(monkeypatch, api_url, app_url, expected):
+    async def _api(*_a, **_k):
+        return api_url
+
+    async def _app(*_a, **_k):
+        return app_url
+
+    monkeypatch.setattr(public_urls, "get_public_api_url", _api)
+    monkeypatch.setattr(public_urls, "get_browser_reachable_app_url", _app)
+
+    assert await public_urls.get_browser_reachable_api_url(AsyncMock()) == expected
