@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TilesetMetadata } from '@/types/api';
-import { viewableTilesetUrl } from '../tileset-support';
+import { viewablePointCloud, viewableTilesetUrl } from '../viewer-support';
 
 const base: TilesetMetadata = { url: '/api/datasets/x/tiles3d/tileset.json' };
 
@@ -35,5 +35,21 @@ describe('viewableTilesetUrl', () => {
   it('has nothing to view without a published tileset', () => {
     expect(viewableTilesetUrl(null)).toBeNull();
     expect(viewableTilesetUrl(undefined)).toBeNull();
+  });
+});
+
+describe('viewablePointCloud', () => {
+  it('reads a published COPC file, with its size for read bounds', () => {
+    expect(viewablePointCloud({ url: '/api/datasets/x/copc/1/data.copc.laz', size_bytes: 1234 })).toEqual({
+      kind: 'pointcloud',
+      url: '/api/datasets/x/copc/1/data.copc.laz',
+      sizeBytes: 1234,
+    });
+    expect(viewablePointCloud({ url: '/u' })?.sizeBytes).toBeNull();
+  });
+
+  it('has nothing to view without a published file', () => {
+    expect(viewablePointCloud(null)).toBeNull();
+    expect(viewablePointCloud({ url: null })).toBeNull();
   });
 });

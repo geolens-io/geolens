@@ -5,7 +5,7 @@ import { Tiles3DLoader } from '@loaders.gl/3d-tiles';
 import createDracoDecoderModule from 'draco3d/draco_decoder_nodejs.js';
 import dracoWasmUrl from 'draco3d/draco_decoder.wasm?url';
 import { separateMeshoptFallbackViews } from './glb-meshopt-layout';
-import { requestUrl } from './tileset-fetch';
+import { requestUrl } from './dataset-fetch';
 
 // A content-less root meets loaders.gl's default error budget of 8 px at the
 // page's fit-to-extent zoom, so traversal would stop there and draw nothing.

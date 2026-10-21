@@ -1216,6 +1216,7 @@
     "leave": "Verlassen"
   },
   "pointcloud": {
+    "viewerError": "Die 3D-Ansicht konnte diese Punktwolke nicht laden.",
     "title": "COPC-Punktwolke",
     "pointCount": "Punkte",
     "crs": "Horizontales KBS",

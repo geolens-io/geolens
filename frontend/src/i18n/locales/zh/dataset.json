@@ -1216,6 +1216,7 @@
     "leave": "离开"
   },
   "pointcloud": {
+    "viewerError": "3D 视图无法加载此点云。",
     "title": "COPC 点云",
     "pointCount": "点数",
     "crs": "水平坐标参考系",

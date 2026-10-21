@@ -1216,6 +1216,7 @@
     "leave": "Leave"
   },
   "pointcloud": {
+    "viewerError": "The 3D view could not load this point cloud.",
     "title": "COPC point cloud",
     "pointCount": "Points",
     "crs": "Horizontal CRS",

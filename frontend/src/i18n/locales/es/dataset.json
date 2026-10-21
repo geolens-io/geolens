@@ -1216,6 +1216,7 @@
     "leave": "Salir"
   },
   "pointcloud": {
+    "viewerError": "La vista 3D no pudo cargar esta nube de puntos.",
     "title": "Nube de puntos COPC",
     "pointCount": "Puntos",
     "crs": "SRC horizontal",

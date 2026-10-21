@@ -71,8 +71,9 @@ const mapInstances = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/components/dataset/DatasetMap', async () => {
   const { useState } = await import('react');
   return {
-    DatasetMap: ({ canEdit, bbox, shortcutsEnabled }: {
+    DatasetMap: ({ canEdit, bbox, shortcutsEnabled, viewer3d }: {
       canEdit?: boolean;
+      viewer3d?: { kind: string; url: string } | null;
       bbox?: [number, number, number, number] | null;
       shortcutsEnabled?: boolean;
     }) => {
@@ -84,6 +85,7 @@ vi.mock('@/components/dataset/DatasetMap', async () => {
           data-instance={instance}
           data-bbox={bbox ? JSON.stringify(bbox) : ''}
           data-shortcuts-enabled={String(shortcutsEnabled !== false)}
+          data-viewer3d={viewer3d ? `${viewer3d.kind}:${viewer3d.url}` : ''}
         />
       );
     },
@@ -470,6 +472,7 @@ describe('DatasetPage actions by record type', () => {
     const map = await screen.findByTestId('dataset-map');
     expect(screen.getByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
     expect(map).toHaveAttribute('data-bbox', JSON.stringify([-180, -90, 180, 90]));
+    expect(map).toHaveAttribute('data-viewer3d', 'pointcloud:/api/datasets/dataset-1/copc/attempt-1/data.copc.laz');
     expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
   });

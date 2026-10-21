@@ -2357,7 +2357,7 @@ describe('DatasetMap record types', () => {
         geometryType={null}
         datasetId="dataset-1"
         recordType="tiles3d_dataset"
-        tilesetUrl="/api/datasets/dataset-1/tiles3d/tileset.json"
+        viewer3d={{ kind: 'tileset', url: '/api/datasets/dataset-1/tiles3d/tileset.json' }}
         attribution="3DBAG (CC BY 4.0)"
       />,
     );

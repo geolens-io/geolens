@@ -54,6 +54,8 @@ import { reportTileTokenRemint } from '@/lib/report';
 // main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
 
+import type { Viewer3DSource } from '@/components/dataset/viewer3d/viewer-support';
+
 const EMPTY_FEATURES = { type: 'FeatureCollection' as const, features: [] };
 
 const Dataset3DOverlay = lazy(() => import('@/components/dataset/viewer3d/Dataset3DOverlay'));
@@ -135,8 +137,8 @@ interface DatasetMapProps {
   containerRef?: RefObject<HTMLDivElement | null>;
   canEdit?: boolean;
   recordType?: string;
-  /** The 3D Tiles tileset to draw over the map, when the viewer can draw it. */
-  tilesetUrl?: string | null;
+  /** The 3D Tiles tileset or COPC point cloud to draw over the map, when the viewer can draw it. */
+  viewer3d?: Viewer3DSource | null;
   rasterTileUrl?: string | null;
   isDem?: boolean;
   /** ISO timestamp or version string appended to tile URLs to bust browser cache after mutations */
@@ -164,7 +166,7 @@ export const DatasetMap = memo(function DatasetMap({
   containerRef,
   canEdit = false,
   recordType,
-  tilesetUrl = null,
+  viewer3d = null,
   rasterTileUrl,
   isDem,
   tileVersion,
@@ -1081,7 +1083,7 @@ export const DatasetMap = memo(function DatasetMap({
     setPendingGeometry(null);
   }, []);
 
-  if (!hasBbox && !tableName && !tilesetUrl) {
+  if (!hasBbox && !tableName && !viewer3d) {
     return (
       <div className="flex items-center justify-center h-[500px] bg-muted rounded-md text-muted-foreground text-sm">
         {t('page.noSpatialExtent')}
@@ -1145,14 +1147,14 @@ export const DatasetMap = memo(function DatasetMap({
       >
         <NavigationControl position="top-right" />
 
-        {tilesetUrl && mapInstance && datasetId && (
+        {viewer3d && mapInstance && datasetId && (
           <Suspense fallback={null}>
-            <Dataset3DOverlay datasetId={datasetId} tilesetUrl={tilesetUrl} fitToTileset={!hasBbox} />
+            <Dataset3DOverlay datasetId={datasetId} source={viewer3d} fitToData={!hasBbox} />
           </Suspense>
         )}
 
-        {/* An extentless tileset has no outline to hang the required credit line on. */}
-        {!bboxGeojson && tilesetUrl && bboxAttribution && (
+        {/* An extentless 3D dataset has no outline to hang the required credit line on. */}
+        {!bboxGeojson && viewer3d && bboxAttribution && (
           <Source id="bbox-source" type="geojson" data={EMPTY_FEATURES} attribution={bboxAttribution}>
             {/* MapLibre lists a source's attribution only while a layer uses it. */}
             <Layer id="bbox-attribution" type="line" paint={{ 'line-opacity': 0 }} />

@@ -1,0 +1,52 @@
+import type { Hierarchy } from 'copc';
+import { describe, expect, it } from 'vitest';
+import { MAX_NODE_POINTS, MAX_RANGE_BYTES } from '../copc-limits';
+import { selectNodes } from '../copc-select';
+
+const node = (pointCount: number, offset = 1000, length = 500): Hierarchy.Node => ({
+  pointCount,
+  pointDataOffset: offset,
+  pointDataLength: length,
+});
+const map = (entries: Record<string, Hierarchy.Node>) => entries as Hierarchy.Node.Map;
+
+describe('selectNodes', () => {
+  it('takes the coarsest nodes first until the point budget is spent', () => {
+    const picked = selectNodes(
+      map({ '2-0-0-0': node(400), '0-0-0-0': node(300), '1-0-0-0': node(300), '3-0-0-0': node(10) }),
+      1000,
+      34,
+      null,
+    );
+    expect(picked.map(([key]) => key)).toEqual(['0-0-0-0', '1-0-0-0', '2-0-0-0']);
+  });
+
+  it('stops at the first node that would pass the budget', () => {
+    const picked = selectNodes(map({ '0-0-0-0': node(600), '1-0-0-0': node(600), '2-0-0-0': node(1) }), 1000, 34, null);
+    expect(picked.map(([key]) => key)).toEqual(['0-0-0-0']);
+  });
+
+  it.each([
+    ['a negative count', node(-1)],
+    ['a zero count', node(0)],
+    ['a fractional count', node(1.5)],
+    ['a non-finite count', node(Number.POSITIVE_INFINITY)],
+    ['a count past the node cap', node(MAX_NODE_POINTS + 1)],
+    ['a negative offset', node(10, -5)],
+    ['a zero length', node(10, 1000, 0)],
+    ['a length past the read cap', node(10, 1000, MAX_RANGE_BYTES + 1)],
+    ['a range past the file size', node(10, 9900, 500)],
+  ])('drops %s', (_label, bad) => {
+    expect(selectNodes(map({ '0-0-0-0': bad }), 1_000_000, 34, 10_000)).toEqual([]);
+  });
+
+  it('drops a node whose decoded size would pass the cap, whatever its point count', () => {
+    expect(selectNodes(map({ '0-0-0-0': node(MAX_NODE_POINTS) }), 10_000_000, 65535, null)).toEqual([]);
+  });
+
+  it('drops malformed keys and an unusable record length', () => {
+    expect(selectNodes(map({ 'x-0-0-0': node(10), '0-0-0': node(10) }), 1000, 34, null)).toEqual([]);
+    expect(selectNodes(map({ '0-0-0-0': node(10) }), 1000, 0, null)).toEqual([]);
+    expect(selectNodes(map({ '0-0-0-0': node(10) }), 1000, Number.NaN, null)).toEqual([]);
+  });
+});

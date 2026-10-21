@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useControl, useMap } from '@vis.gl/react-maplibre';
 import { MapLibreOverlay } from '@deck.gl/maplibre';
+import type { Layer } from '@deck.gl/core';
 import { useTranslation } from 'react-i18next';
-import { makeTilesetFetch } from './tileset-fetch';
+import { makeDatasetFetch } from './dataset-fetch';
+import type { Viewer3DSource } from './viewer-support';
 
 interface Props {
   datasetId: string;
-  tilesetUrl: string;
-  /** Fit the camera to the tileset when the dataset has no recorded extent. */
-  fitToTileset: boolean;
+  source: Viewer3DSource;
+  /** Fit the camera to the data when the dataset has no recorded extent. */
+  fitToData: boolean;
 }
 
 const VIEW_PITCH = 55;
 
 /**
- * Draws a 3D Tiles tileset over the dataset page's MapLibre map. The overlay
+ * Draws a 3D Tiles tileset or a COPC point cloud over the dataset page's MapLibre map. The overlay
  * is not interleaved: deck.gl owns a second canvas, whose context is lost and
  * restored separately from the map's and does not recover on its own, so a
  * restore remounts the overlay.
@@ -32,13 +34,13 @@ export default function Dataset3DOverlay(props: Props) {
 
 function OverlayLayers({
   datasetId,
-  tilesetUrl,
-  fitToTileset,
+  source,
+  fitToData,
   onDeckRestored,
 }: Props & { onDeckRestored: () => void }) {
   const { t } = useTranslation('dataset');
   const { current: mapRef } = useMap();
-  const datasetFetch = useMemo(() => makeTilesetFetch(datasetId), [datasetId]);
+  const datasetFetch = useMemo(() => makeDatasetFetch(datasetId, source.kind === 'tileset' ? 'tiles3d' : 'copc'), [datasetId, source.kind]);
   const onDeckRestoredRef = useRef(onDeckRestored);
   onDeckRestoredRef.current = onDeckRestored;
   // Deck creates its device, and so its canvas, asynchronously; the listeners
@@ -60,35 +62,58 @@ function OverlayLayers({
   // later does not rebuild the layer and refetch the tiles.
   const mapRefLatest = useRef(mapRef);
   mapRefLatest.current = mapRef;
-  const fitRef = useRef(fitToTileset);
-  fitRef.current = fitToTileset;
+  const fitRef = useRef(fitToData);
+  fitRef.current = fitToData;
 
+  const { kind, url } = source;
+  const sizeBytes = source.kind === 'pointcloud' ? source.sizeBytes : null;
   useEffect(() => {
     let cancelled = false;
-    void import('./tileset-layers').then(
-      ({ createTilesetLayers }) => {
-        if (cancelled) return;
-        overlay.setProps({
-          layers: createTilesetLayers(tilesetUrl, datasetFetch, {
-            onLoad: ({ cartographicCenter, zoom }) => {
-              mapRefLatest.current?.getMap().easeTo({
-                pitch: VIEW_PITCH,
-                duration: 0,
-                ...(fitRef.current
-                  ? { center: [cartographicCenter[0], cartographicCenter[1]], zoom }
-                  : {}),
-              });
+    let stopLoad: (() => void) | undefined;
+    const tilt = () => mapRefLatest.current?.getMap().easeTo({ pitch: VIEW_PITCH, duration: 0 });
+    if (kind === 'tileset') {
+      void import('./tileset-layers').then(
+        ({ createTilesetLayers }) => {
+          if (cancelled) return;
+          overlay.setProps({
+            layers: createTilesetLayers(url, datasetFetch, {
+              onLoad: ({ cartographicCenter, zoom }) => {
+                mapRefLatest.current?.getMap().easeTo({
+                  pitch: VIEW_PITCH,
+                  duration: 0,
+                  ...(fitRef.current
+                    ? { center: [cartographicCenter[0], cartographicCenter[1]], zoom }
+                    : {}),
+                });
+              },
+              onError: () => setFailed(true),
+            }),
+          });
+        },
+        () => setFailed(true),
+      );
+    } else {
+      void import('./pointcloud-layers').then(
+        ({ loadPointCloud }) => {
+          if (cancelled) return;
+          const layers: Layer[] = [];
+          stopLoad = loadPointCloud(url, sizeBytes, datasetFetch, {
+            onLayer: (layer) => {
+              if (layers.length === 0) tilt();
+              layers.push(layer);
+              overlay.setProps({ layers: [...layers] });
             },
             onError: () => setFailed(true),
-          }),
-        });
-      },
-      () => setFailed(true),
-    );
+          });
+        },
+        () => setFailed(true),
+      );
+    }
     return () => {
       cancelled = true;
+      stopLoad?.();
     };
-  }, [overlay, tilesetUrl, datasetFetch]);
+  }, [overlay, kind, url, sizeBytes, datasetFetch]);
 
   if (!failed) return null;
   return (
@@ -96,7 +121,7 @@ function OverlayLayers({
       role="alert"
       className="absolute start-2 top-2 z-10 rounded-sm bg-background/90 px-2 py-1 text-xs text-destructive"
     >
-      {t('tileset.viewerError')}
+      {t(kind === 'tileset' ? 'tileset.viewerError' : 'pointcloud.viewerError')}
     </p>
   );
 }

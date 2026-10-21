@@ -35,6 +35,8 @@ vi.mock('@vis.gl/react-maplibre', async () => {
 });
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
 vi.mock('../tileset-layers', () => ({ createTilesetLayers: h.createLayers }));
+const loadPointCloud = vi.hoisted(() => vi.fn());
+vi.mock('../pointcloud-layers', () => ({ loadPointCloud }));
 
 import Dataset3DOverlay from '../Dataset3DOverlay';
 
@@ -46,16 +48,16 @@ describe('Dataset3DOverlay', () => {
   });
 
   it('builds the layer once per tileset URL, not when the extent decision changes', async () => {
-    const { rerender } = render(<Dataset3DOverlay datasetId="d1" tilesetUrl="/u" fitToTileset={false} />);
+    const { rerender } = render(<Dataset3DOverlay datasetId="d1" source={{ kind: 'tileset', url: '/u' }} fitToData={false} />);
     await waitFor(() => expect(h.createLayers).toHaveBeenCalledTimes(1));
-    rerender(<Dataset3DOverlay datasetId="d1" tilesetUrl="/u" fitToTileset />);
+    rerender(<Dataset3DOverlay datasetId="d1" source={{ kind: 'tileset', url: '/u' }} fitToData />);
     await new Promise((r) => setTimeout(r, 20));
     expect(h.createLayers).toHaveBeenCalledTimes(1);
     expect(h.controls[0].setProps).toHaveBeenCalledWith({ layers: ['layer'] });
   });
 
   it('remounts the overlay when its canvas context is restored, even if the canvas arrives late', async () => {
-    render(<Dataset3DOverlay datasetId="d1" tilesetUrl="/u" fitToTileset={false} />);
+    render(<Dataset3DOverlay datasetId="d1" source={{ kind: 'tileset', url: '/u' }} fitToData={false} />);
     await waitFor(() => expect(h.createLayers).toHaveBeenCalledTimes(1));
     // Deck reports its device after mount; no rerender follows.
     h.controls[0].props.onDeviceInitialized({ getDefaultCanvasContext: () => ({ canvas: h.canvas }) });
@@ -67,5 +69,26 @@ describe('Dataset3DOverlay', () => {
     });
     await waitFor(() => expect(h.createLayers).toHaveBeenCalledTimes(2));
     expect(h.controls).toHaveLength(2);
+  });
+
+  it('loads a point cloud instead of a tileset, adds layers as nodes arrive, and stops the load on unmount', async () => {
+    const stop = vi.fn();
+    loadPointCloud.mockReturnValue(stop);
+    const { unmount } = render(
+      <Dataset3DOverlay
+        datasetId="d1"
+        source={{ kind: 'pointcloud', url: '/api/datasets/d1/copc/a/data.copc.laz', sizeBytes: 99 }}
+        fitToData={false}
+      />,
+    );
+    await waitFor(() => expect(loadPointCloud).toHaveBeenCalledTimes(1));
+    expect(h.createLayers).not.toHaveBeenCalled();
+    const [url, size, , handlers] = loadPointCloud.mock.calls[0];
+    expect([url, size]).toEqual(['/api/datasets/d1/copc/a/data.copc.laz', 99]);
+    handlers.onLayer('a');
+    handlers.onLayer('b');
+    expect(h.controls[0].setProps).toHaveBeenLastCalledWith({ layers: ['a', 'b'] });
+    unmount();
+    expect(stop).toHaveBeenCalled();
   });
 });

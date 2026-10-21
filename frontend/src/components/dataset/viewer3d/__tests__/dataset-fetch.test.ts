@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeTilesetFetch, resolveTilesetUrl } from '../tileset-fetch';
+import { makeDatasetFetch, resolveDatasetUrl } from '../dataset-fetch';
 
 const ORIGIN = 'https://geolens.example';
 const ID = '5a2cc880-122e-447f-b5fe-f76a24a1ae2c';
@@ -9,12 +9,12 @@ const OWN = `/api/datasets/${ID}/tiles3d/`;
 const rawFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/api/client', () => ({ authenticatedRawFetch: rawFetch }));
 
-describe('resolveTilesetUrl', () => {
+describe('resolveDatasetUrl', () => {
   it.each([
     [`${OWN}tileset.json`, `${OWN}tileset.json`],
     [`${ORIGIN}${OWN}tiles/0.glb?v=2`, `${OWN}tiles/0.glb`],
   ])('resolves %s', (raw, path) => {
-    expect(resolveTilesetUrl(raw, ID, ORIGIN)?.pathname).toBe(path);
+    expect(resolveDatasetUrl(raw, ID, 'tiles3d', ORIGIN)?.pathname).toBe(path);
   });
 
   it.each([
@@ -36,11 +36,32 @@ describe('resolveTilesetUrl', () => {
     ['a relative path that resolves off the dataset', 'tiles/0.glb'],
     ['an empty string', ''],
   ])('refuses %s', (_label, raw) => {
-    expect(resolveTilesetUrl(raw, ID, ORIGIN)).toBeNull();
+    expect(resolveDatasetUrl(raw, ID, 'tiles3d', ORIGIN)).toBeNull();
   });
 });
 
-describe('makeTilesetFetch', () => {
+describe('resolveDatasetUrl for COPC files', () => {
+  const COPC = `/api/datasets/${ID}/copc/659d4634/data.copc.laz`;
+
+  it('accepts this dataset\'s own COPC file and nothing from the other file areas', () => {
+    expect(resolveDatasetUrl(COPC, ID, 'copc', ORIGIN)?.pathname).toBe(COPC);
+    expect(resolveDatasetUrl(`${OWN}tileset.json`, ID, 'copc', ORIGIN)).toBeNull();
+    expect(resolveDatasetUrl(COPC, ID, 'tiles3d', ORIGIN)).toBeNull();
+  });
+
+  it.each([
+    `https://evil.example${COPC}`,
+    `//evil.example${COPC}`,
+    `/api/datasets/${OTHER_ID}/copc/659d4634/data.copc.laz`,
+    `/api/datasets/${ID}/copc/../../auth/me`,
+    `/api/datasets/${ID}/copc/%2e%2e/auth/me`,
+    `/api/datasets/${ID}/copc/..%2fauth/me`,
+  ])('refuses %s', (raw) => {
+    expect(resolveDatasetUrl(raw, ID, 'copc', ORIGIN)).toBeNull();
+  });
+});
+
+describe('makeDatasetFetch', () => {
   beforeEach(() => {
     vi.stubGlobal('location', { ...window.location, origin: ORIGIN, href: `${ORIGIN}/datasets/${ID}` });
     rawFetch.mockReset();
@@ -49,7 +70,7 @@ describe('makeTilesetFetch', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('sends an own-path request through the credentialed session fetch, as a path', async () => {
-    const fetchTileset = makeTilesetFetch(ID);
+    const fetchTileset = makeDatasetFetch(ID, 'tiles3d');
     await fetchTileset(`${ORIGIN}${OWN}tileset.json`, { headers: { Range: 'bytes=0-9' } });
     expect(rawFetch).toHaveBeenCalledTimes(1);
     const [target, init] = rawFetch.mock.calls[0];
@@ -59,7 +80,7 @@ describe('makeTilesetFetch', () => {
   });
 
   it('keeps the credential out of the URL', async () => {
-    await makeTilesetFetch(ID)(`${OWN}tileset.json`);
+    await makeDatasetFetch(ID, 'tiles3d')(`${OWN}tileset.json`);
     expect(rawFetch.mock.calls[0][0]).not.toMatch(/token|key|bearer/i);
   });
 
@@ -70,37 +91,37 @@ describe('makeTilesetFetch', () => {
     `${OWN}../../auth/me`,
     `${OWN}%2e%2e/auth/me`,
   ])('refuses %s without any request', async (url) => {
-    await expect(makeTilesetFetch(ID)(url)).rejects.toThrow(/refused/);
+    await expect(makeDatasetFetch(ID, 'tiles3d')(url)).rejects.toThrow(/refused/);
     expect(rawFetch).not.toHaveBeenCalled();
   });
 
   it('refuses a Request that names a hostile URL', async () => {
     await expect(
-      makeTilesetFetch(ID)(new Request('https://evil.example/x')),
+      makeDatasetFetch(ID, 'tiles3d')(new Request('https://evil.example/x')),
     ).rejects.toThrow(/refused/);
     expect(rawFetch).not.toHaveBeenCalled();
   });
 
   it('refuses a POST Request to an own-path URL', async () => {
     await expect(
-      makeTilesetFetch(ID)(new Request(`${ORIGIN}${OWN}tileset.json`, { method: 'POST', body: 'x' })),
+      makeDatasetFetch(ID, 'tiles3d')(new Request(`${ORIGIN}${OWN}tileset.json`, { method: 'POST', body: 'x' })),
     ).rejects.toThrow(/refused/);
     expect(rawFetch).not.toHaveBeenCalled();
   });
 
   it('refuses redirects, which would carry the credential elsewhere', async () => {
-    await makeTilesetFetch(ID)(`${OWN}tileset.json`);
+    await makeDatasetFetch(ID, 'tiles3d')(`${OWN}tileset.json`);
     expect(rawFetch.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
   });
 
   it('refuses methods other than GET and HEAD', async () => {
-    await expect(makeTilesetFetch(ID)(`${OWN}tileset.json`, { method: 'POST' })).rejects.toThrow(/refused/);
+    await expect(makeDatasetFetch(ID, 'tiles3d')(`${OWN}tileset.json`, { method: 'POST' })).rejects.toThrow(/refused/);
     expect(rawFetch).not.toHaveBeenCalled();
   });
 
   it('returns the response of the session fetch, which renews on 401', async () => {
     const response = new Response('ok', { status: 200 });
     rawFetch.mockResolvedValue(response);
-    await expect(makeTilesetFetch(ID)(`${OWN}tileset.json`)).resolves.toBe(response);
+    await expect(makeDatasetFetch(ID, 'tiles3d')(`${OWN}tileset.json`)).resolves.toBe(response);
   });
 });

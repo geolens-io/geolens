@@ -1,4 +1,11 @@
-import type { TilesetMetadata } from '@/types/api';
+import type { components } from '@/types/api.generated';
+
+type TilesetMetadata = components['schemas']['TilesetMetadata'];
+type PointCloudMetadata = components['schemas']['PointCloudMetadata'];
+
+export type Viewer3DSource =
+  | { kind: 'tileset'; url: string }
+  | { kind: 'pointcloud'; url: string; sizeBytes: number | null };
 
 // Vector, geometry, voxel, composite and JSON glTF tiles, KTX2 textures, and
 // the legacy multiple-contents and implicit-tiling spellings need renderers,
@@ -20,4 +27,12 @@ export function viewableTilesetUrl(tileset: TilesetMetadata | null | undefined):
   if (tileset.content_types?.some((type) => UNSUPPORTED_CONTENT_TYPES.has(type))) return null;
   if (tileset.extensions_required?.some((name) => UNSUPPORTED_EXTENSIONS.has(name))) return null;
   return tileset.url;
+}
+
+/** The COPC file the in-page viewer can read; formats 6 to 8 are the only ones the catalog accepts. */
+export function viewablePointCloud(
+  pointcloud: PointCloudMetadata | null | undefined,
+): Extract<Viewer3DSource, { kind: 'pointcloud' }> | null {
+  if (!pointcloud?.url) return null;
+  return { kind: 'pointcloud', url: pointcloud.url, sizeBytes: pointcloud.size_bytes ?? null };
 }
