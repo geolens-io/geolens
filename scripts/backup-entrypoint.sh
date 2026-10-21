@@ -41,9 +41,8 @@ WEEKLY_DIR="${BACKUP_DIR}/weekly"
 # if the compose file changes it.
 STAGING_DIR="${STAGING_DIR:-/staging}"
 
-# Timestamp of the newest dump taken while the database had catalog records.
-# Retention always keeps that dump, so cycles over a database restarted on an
-# empty volume cannot rotate the last real backup out.
+# "<timestamp> <catalog record count>" of the dump retention always keeps, so
+# cycles over a database restarted on an empty volume cannot rotate it out.
 LAST_GOOD_FILE="${BACKUP_DIR}/.last-good-dump"
 
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
@@ -106,6 +105,11 @@ run_backup() {
     # there to copy or upload after a verification failure removes it.
     local cycle_failed=0
     local dump_ok=1
+    # A marker from before record counts were stored has no count field.
+    local good_ts="" good_count=""
+    read -r good_ts good_count 2>/dev/null < "$LAST_GOOD_FILE" || true
+    [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
+    [[ -n "$good_ts" && "$good_count" =~ ^[0-9]+$ ]] || good_count=""
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -157,7 +161,7 @@ run_backup() {
         dump_ok=0
     else
         log "Backup verified: ${filename} fully readable"
-        record_good_dump "$timestamp"
+        good_ts="$(record_good_dump "$timestamp" "$good_ts" "$good_count")"
     fi
 
     # Weekly copy on Sundays. Skipped when verification above already
@@ -238,8 +242,6 @@ run_backup() {
     # Retention runs regardless of S3 outcome (dumps set the window; their
     # companions follow) — local backups must be pruned even when the offsite
     # upload failed, or backup_data fills up during an S3 outage.
-    local good_ts
-    good_ts="$(last_good_ts)"
     prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY" day "$good_ts"
     prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY" week "$good_ts"
     # Must run after prune_old_backups — it prunes by what that just left.
@@ -276,35 +278,39 @@ run_backup() {
     log "Backup cycle complete"
 }
 
-last_good_ts() {
-    local ts=""
-    read -r ts 2>/dev/null < "$LAST_GOOD_FILE" || true
-    if [[ "$ts" =~ ^[0-9]{8}_[0-9]{6}$ ]]; then
-        printf '%s' "$ts"
-    fi
-}
-
-# Moves the marker only on positive evidence of catalog records. A missing
-# catalog schema fails the query like an unreachable database does, and either
-# way the marker stays on the older dump.
+# Prints the timestamp retention keeps: this cycle's when the database holds at
+# least half the catalog records of the kept dump (any, for a marker without a
+# count), else the kept one, so a re-created database's first upload can't take
+# over. The count runs after pg_dump, outside its snapshot; a database filled in
+# that window could mark a dump missing those rows, too narrow to engineer for.
+# Stdout carries the result, so logs go to stderr.
 record_good_dump() {
-    local timestamp="$1" has_records good
-    has_records="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" -c "SELECT EXISTS (SELECT 1 FROM catalog.records)")" || has_records=""
-    if [ "$has_records" = "t" ]; then
-        # Through a .tmp name: a torn marker reads back as no marker at all.
-        if printf '%s\n' "$timestamp" > "${LAST_GOOD_FILE}.tmp" \
-            && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
-            return 0
+    local timestamp="$1" good_ts="$2" good_count="$3" count
+    count="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        -d "$POSTGRES_DB" <<'SQL'
+SELECT to_regclass('catalog.records') IS NOT NULL AS has_records_table \gset
+\if :has_records_table
+SELECT count(*) FROM catalog.records;
+\else
+SELECT 0;
+\endif
+SQL
+    )" || count=""
+    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+        log "WARNING: could not count catalog records in ${POSTGRES_DB}${good_ts:+; retention keeps ${good_ts}}" >&2
+    elif [ "$count" -eq 0 ] || [ $((count * 2)) -lt "${good_count:-0}" ]; then
+        if [ -n "$good_ts" ]; then
+            log "WARNING: ${POSTGRES_DB} has ${count} catalog records${good_count:+, under half of the ${good_count} in ${good_ts}}; retention keeps ${good_ts}. If the records were deleted on purpose, delete ${LAST_GOOD_FILE} to release that dump." >&2
         fi
+    elif printf '%s %s\n' "$timestamp" "$count" > "${LAST_GOOD_FILE}.tmp" \
+        && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
+        good_ts="$timestamp"
+    else
+        # Through a .tmp name: a torn marker would read back as no marker.
         rm -f "${LAST_GOOD_FILE}.tmp"
-        log "WARNING: could not record ${timestamp} as the last dump with catalog records"
-        return 0
+        log "WARNING: could not record ${timestamp} as the dump retention keeps" >&2
     fi
-    good="$(last_good_ts)"
-    if [ -n "$good" ]; then
-        log "WARNING: found no catalog records in ${POSTGRES_DB}; retention keeps ${good}, the last dump that had them"
-    fi
+    printf '%s' "$good_ts"
 }
 
 # Weekly entries are hard links to the daily files: a weekly set costs no extra
@@ -1019,9 +1025,9 @@ backup_period_key() {
 # that hold a backup count, so neither a stopped service nor a wrong clock
 # ages out history that nothing newer has replaced. `protect` is the newest
 # complete set, kept by the caller outside RK_TS: it stands for its own
-# period, so only a newer entry in that period is kept beside it. `good` is the
-# last dump taken while the database had catalog records; it is always kept
-# but still takes its period's slot, so it costs nothing when it is the newest.
+# period, so only a newer entry in that period is kept beside it. `good` is
+# always kept but still takes its period's slot, so it costs nothing when it
+# is the newest.
 mark_retained() {
     local period="$1" keep="$2" protect="${3:-}" good="${4:-}"
     local protect_key=""

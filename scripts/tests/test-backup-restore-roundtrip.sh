@@ -1840,7 +1840,7 @@ loss_dump_ts() {
 }
 
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$LOSS_DB"
-loss_db_sql "CREATE SCHEMA catalog; CREATE TABLE catalog.records (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO catalog.records (name) VALUES ('kept');"
+loss_db_sql "CREATE SCHEMA catalog; CREATE TABLE catalog.records (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO catalog.records (name) SELECT 'kept' FROM generate_series(1, 10);"
 loss_cycle populated "$CYCLE_STAGING"
 GOOD_TS="$(loss_dump_ts)"
 [ -n "$GOOD_TS" ] || fail "the populated cycle produced no dump"
@@ -1859,20 +1859,26 @@ loss_cycle "freshly initialised" "${WORKDIR}/loss-empty-staging"
 EMPTY_TS="$(loss_dump_ts)"
 [ "$EMPTY_TS" != "$GOOD_TS" ] || fail "the empty-database cycles produced no dump of their own"
 
+grep -q "has 0 catalog records.*retention keeps ${GOOD_TS}" "$LOSS_LOG" \
+    || fail "the empty-database cycle never logged why it kept the older dump"
+# A first upload into the re-created database is not a restore.
+loss_db_sql "INSERT INTO catalog.records (name) VALUES ('first upload');"
+sleep 1
+loss_cycle "re-created" "${WORKDIR}/loss-empty-staging"
 for artifact in "${LOSS_DB}_${GOOD_TS}.dump" "globals-${GOOD_TS}.sql" "staging-${GOOD_TS}.tar.gz"; do
     [ -f "${LOSS_BACKUPS}/daily/${artifact}" ] \
-        || fail "${artifact} was pruned by cycles over a database with no catalog records"
+        || fail "${artifact} was pruned by cycles over an emptied database"
 done
-grep -q "found no catalog records" "$LOSS_LOG" \
-    || fail "the empty-database cycle never logged why it kept the older dump"
+grep -q "under half of the 10 in ${GOOD_TS}" "$LOSS_LOG" \
+    || fail "the re-created-database cycle never logged both record counts"
 
-# Once the database has records again, the protection moves to the new dump and
+# With half the records back, the protection moves to the new dump and
 # retention prunes the old set as usual, so it holds at most one extra set.
-loss_db_sql "INSERT INTO catalog.records (name) VALUES ('restored');"
+loss_db_sql "INSERT INTO catalog.records (name) SELECT 'restored' FROM generate_series(1, 4);"
 sleep 1
 loss_cycle repopulated "$CYCLE_STAGING"
 [ ! -f "${LOSS_BACKUPS}/daily/${LOSS_DB}_${GOOD_TS}.dump" ] \
-    || fail "the old good dump outlived a newer dump of a database with records"
+    || fail "the old good dump outlived a newer dump with half its records"
 echo "      lost-database restart OK — the last dump with catalog records and its companions survived."
 echo ""
 

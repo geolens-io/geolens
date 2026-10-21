@@ -97,10 +97,14 @@ settings/provider replacement tool, not a backup.
 Retention keeps the newest dump of each of the last `BACKUP_RETENTION_DAILY`
 days and `BACKUP_RETENTION_WEEKLY` ISO weeks, locally and, with offsite upload
 on, in the S3 `backups/daily/` and `backups/weekly/` prefixes. Companions go
-with their dump, and the newest complete set is always kept. So is the newest
-dump taken while the database had catalog records, which cycles over an emptied
-or freshly initialised database cannot rotate out. Its timestamp is in
-`/backups/.last-good-dump`. The guide's
+with their dump, and the newest complete set is always kept. So is the dump named in
+`/backups/.last-good-dump` with its catalog record count. A cycle moves that
+marker to its own dump only when the database holds at least half as many
+records, so cycles over an emptied or freshly initialised database cannot
+rotate the last real backup out. Each such cycle logs a warning with both
+counts. If you deleted most of the catalog on purpose, release the old dump by
+deleting the marker (`docker compose exec backup rm /backups/.last-good-dump`);
+the next cycle writes a new one. The guide's
 [Retention policy](https://docs.getgeolens.com/guides/admin/backups/#retention-policy)
 has the details.
 
@@ -1608,9 +1612,9 @@ docker compose exec -T db \
 The backup service stays stopped because a day keeps only its newest dump. A
 scheduled run, or the dump every start of the container takes at once, would
 replace that day's good dump with a dump of the damaged or half-restored
-database, and could prune files while you copy them. Retention keeps the last
-dump taken while the database had catalog records, but a database that still
-holds some records counts as good. `restore.sh` restarts only
+database, and could prune files while you copy them. Retention keeps the dump named
+in `/backups/.last-good-dump` until a database with at least half its catalog
+records replaces it, but a half-restored database can reach that. `restore.sh` restarts only
 `api` and `worker`, so it leaves the backup service stopped. Copy out that day's
 whole backup set too if the one you plan to restore is older.
 

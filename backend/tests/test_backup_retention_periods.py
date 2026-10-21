@@ -290,10 +290,10 @@ esac
 exit 0
 """
 
-# Answers the catalog-records check with $PSQL_STUB_OUT, or fails when unset.
+# Answers the catalog record count with $PSQL_STUB_COUNT; unset fails the query.
 _PSQL_STUB = """#!/bin/sh
-[ -n "$PSQL_STUB_OUT" ] || exit 2
-echo "$PSQL_STUB_OUT"
+[ -n "${PSQL_STUB_COUNT+set}" ] || exit 2
+echo "$PSQL_STUB_COUNT"
 """
 
 _REFUSING_LN_STUB = "#!/bin/sh\necho 'ln: Operation not permitted' >&2\nexit 1\n"
@@ -305,7 +305,7 @@ def _cycle(
     s3_enabled: bool = False,
     cp_exit: int = 0,
     refuse_links: bool = False,
-    psql_out: str = "t",
+    record_count: int | None = 1,
 ) -> tuple[subprocess.CompletedProcess, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -351,7 +351,7 @@ def _cycle(
             "S3_ACCESS_KEY_ID": "test-key",
             "S3_SECRET_ACCESS_KEY": "test-secret",
             "AWS_STUB_CP_EXIT": str(cp_exit),
-            "PSQL_STUB_OUT": psql_out,
+            **({} if record_count is None else {"PSQL_STUB_COUNT": str(record_count)}),
         },
     )
     return result, backup_dir
@@ -409,38 +409,49 @@ class TestOffsiteMarker:
         assert not (backup_dir / ".last-offsite-success").exists()
 
 
-def _seed_earlier_good_set(backup_dir: Path) -> tuple[str, set[str]]:
+def _seed_earlier_good_set(backup_dir: Path, count: str) -> tuple[str, set[str]]:
     ts = time.strftime("%Y%m%d") + "_000000"
     names = {f"geolens_{ts}.dump", f"globals-{ts}.sql", f"staging-{ts}.tar.gz"}
     _seed(backup_dir / "daily", sorted(names))
-    (backup_dir / ".last-good-dump").write_text(f"{ts}\n")
+    (backup_dir / ".last-good-dump").write_text(f"{ts} {count}".strip() + "\n")
     return ts, names
 
 
 class TestLastDumpWithRecords:
-    def test_a_cycle_over_an_empty_database_keeps_the_days_good_set(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("marked_count", "record_count"),
+        [("10", 0), ("10", 4), ("", 0), ("10", None)],
+        ids=["empty", "under-half", "empty-old-marker", "check-failed"],
+    )
+    def test_the_days_good_set_survives(
+        self, tmp_path: Path, marked_count: str, record_count: int | None
     ):
-        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
-        result, backup_dir = _cycle(tmp_path, psql_out="f")
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups", marked_count)
+        marker_before = (tmp_path / "backups" / ".last-good-dump").read_text()
+        result, backup_dir = _cycle(tmp_path, record_count=record_count)
         assert result.returncode == 0, result.stdout + result.stderr
         assert good_set <= _names(backup_dir / "daily")
-        assert (backup_dir / ".last-good-dump").read_text().strip() == good_ts
-        assert "no catalog records" in result.stdout
+        assert (backup_dir / ".last-good-dump").read_text() == marker_before
+        assert f"retention keeps {good_ts}" in result.stderr
 
-    def test_a_failed_records_check_keeps_the_days_good_set(self, tmp_path: Path):
-        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
-        result, backup_dir = _cycle(tmp_path, psql_out="")
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert good_set <= _names(backup_dir / "daily")
-        assert (backup_dir / ".last-good-dump").read_text().strip() == good_ts
+    def test_the_warning_names_both_counts(self, tmp_path: Path):
+        good_ts, _ = _seed_earlier_good_set(tmp_path / "backups", "10")
+        result, _ = _cycle(tmp_path, record_count=4)
+        assert f"4 catalog records, under half of the 10 in {good_ts}" in result.stderr
 
-    def test_a_cycle_over_a_database_with_records_takes_over(self, tmp_path: Path):
-        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
-        result, backup_dir = _cycle(tmp_path)
+    @pytest.mark.parametrize(
+        ("marked_count", "record_count"),
+        [("10", 5), ("", 1)],
+        ids=["half", "old-marker"],
+    )
+    def test_a_database_with_enough_records_takes_over(
+        self, tmp_path: Path, marked_count: str, record_count: int
+    ):
+        _, good_set = _seed_earlier_good_set(tmp_path / "backups", marked_count)
+        result, backup_dir = _cycle(tmp_path, record_count=record_count)
         assert result.returncode == 0, result.stdout + result.stderr
-        new_ts = (backup_dir / ".last-good-dump").read_text().strip()
-        assert re.fullmatch(r"\d{8}_\d{6}", new_ts) and new_ts != good_ts
+        new_ts, count = (backup_dir / ".last-good-dump").read_text().split()
+        assert count == str(record_count)
         assert f"geolens_{new_ts}.dump" in _names(backup_dir / "daily")
         assert not good_set & _names(backup_dir / "daily")
 
