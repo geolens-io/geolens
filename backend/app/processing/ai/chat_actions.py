@@ -30,11 +30,10 @@ from app.processing.ai.chat_geojson import (
 )
 from app.processing.ai.colors import is_css_colorish, label_halo_color
 from app.processing.ai import sandbox_bounds
-from app.processing.ai.chat_style_guards import validate_paint_keeping_fill
+from app.processing.ai.chat_style_guards import validate_set_style
 from app.processing.ai.chat_styles import _build_data_driven_style, apply_render_as
 from app.processing.ai.schemas import (
     ChatMapLayer,
-    validate_paint_property_names_with_feedback,
 )
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
 from app.processing.ai.sql_generator import build_sql_schema_context
@@ -395,24 +394,7 @@ async def _execute_chat_tool(
                 if target.style_config
                 else None
             )
-            warnings: list[str] = []
-            next_input = {**tool_input}
-            if tool_input.get("paint"):
-                next_input["paint"], paint_warnings = validate_paint_keeping_fill(
-                    tool_input["paint"], target, render_mode
-                )
-                warnings.extend(paint_warnings)
-            if tool_input.get("clear_paint"):
-                validated_clear, clear_warnings = (
-                    validate_paint_property_names_with_feedback(
-                        tool_input.get("clear_paint"),
-                        target.geometry_type,
-                        render_mode,
-                    )
-                )
-                next_input["clear_paint"] = validated_clear
-                warnings.extend(clear_warnings)
-            tool_input = next_input
+            tool_input, warnings = validate_set_style(tool_input, target, render_mode)
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 

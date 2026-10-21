@@ -387,3 +387,32 @@ async def test_leaving_3d_in_a_turn_lets_fill_opacity_through():
     )
 
     assert result["paint"] == {"fill-opacity": 0.5}
+
+
+@pytest.mark.anyio
+async def test_a_later_style_call_sees_the_paint_an_earlier_one_set():
+    expression = ["match", ["get", "name"], "a", "#ef4444", "#374151"]
+    layers = [_layer(geometry_type="Polygon", paint={"fill-color": expression})]
+
+    await _run(
+        "set_style", {"layer_id": "layer-1", "paint": {"fill-color": "#111111"}}, layers
+    )
+    result = await _run(
+        "set_style", {"layer_id": "layer-1", "paint": {"fill-opacity": 0}}, layers
+    )
+
+    assert result["paint"] == {"fill-opacity": 0}
+
+
+@pytest.mark.anyio
+async def test_a_null_ramp_falls_back_to_the_default():
+    layers = [_layer(geometry_type="Point")]
+
+    result = await _run_with_values(
+        "set_data_driven_style",
+        {"layer_id": "layer-1", "mode": "categorical", "column": "name", "ramp": None},
+        layers,
+    )
+
+    assert "error" not in result
+    assert result["style_config"]["ramp"] == "Set2"

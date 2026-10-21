@@ -52,7 +52,9 @@ async def _build_data_driven_style(
     mode = tool_input["mode"]
     column = tool_input["column"]
     default_ramp = "Set2" if mode == "categorical" else "YlOrRd"
-    ramp = tool_input.get("ramp", default_ramp)
+    ramp = tool_input.get("ramp")
+    if not isinstance(ramp, str) or not ramp:
+        ramp = default_ramp
     method = tool_input.get("method", "quantile")
     class_count = tool_input.get("class_count", 5)
     class_count = max(2, min(class_count, 9))

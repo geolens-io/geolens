@@ -1,7 +1,11 @@
 """Checks that keep Ask AI from reporting styles the builder cannot show."""
 
 from app.processing.ai.chat_constants import is_known_ramp
-from app.processing.ai.schemas import ChatMapLayer, validate_paint_with_feedback
+from app.processing.ai.schemas import (
+    ChatMapLayer,
+    validate_paint_property_names_with_feedback,
+    validate_paint_with_feedback,
+)
 
 
 _OUTLINE_COLOR_KEYS = ("_outline-color", "fill-outline-color")
@@ -79,7 +83,36 @@ def _drop(paint: dict, warnings: list[str], key: str, reason: str) -> None:
     warnings.append(f"Removed '{key}': {reason}")
 
 
-def validate_paint_keeping_fill(
+def validate_set_style(
+    tool_input: dict, layer: ChatMapLayer, render_mode: str | None
+) -> tuple[dict, list[str]]:
+    """Validate a set_style call against the layer, and record it on the layer.
+
+    Later calls in the same turn are checked against the recorded paint, before
+    the client has applied anything.
+    """
+    next_input = {**tool_input}
+    warnings: list[str] = []
+    if tool_input.get("paint"):
+        next_input["paint"], warnings = _validate_paint(
+            tool_input["paint"], layer, render_mode
+        )
+    if tool_input.get("clear_paint"):
+        next_input["clear_paint"], clear_warnings = (
+            validate_paint_property_names_with_feedback(
+                tool_input["clear_paint"], layer.geometry_type, render_mode
+            )
+        )
+        warnings.extend(clear_warnings)
+    base = {} if tool_input.get("replace_paint") else layer.paint or {}
+    recorded = {**base, **(next_input.get("paint") or {})}
+    layer.paint = {
+        k: v for k, v in recorded.items() if k not in next_input.get("clear_paint", [])
+    }
+    return next_input, warnings
+
+
+def _validate_paint(
     paint: dict, layer: ChatMapLayer, render_mode: str | None
 ) -> tuple[dict, list[str]]:
     """Validate set_style paint, dropping edits the builder would ignore or that hide a column's colours."""
