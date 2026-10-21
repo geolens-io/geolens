@@ -271,6 +271,12 @@ async def test_a_listed_origin_keeps_its_credentialed_answer(client, allow_one_o
     assert resp.status_code == 200
     assert resp.headers["access-control-allow-origin"] == _ALLOWED_ORIGIN
     assert resp.headers["access-control-allow-credentials"] == "true"
+    assert "x-api-key" in resp.headers["vary"].lower()
+
+    anonymous = await client.get(
+        "/search/datasets/?q=x", headers={"Origin": _ALLOWED_ORIGIN}
+    )
+    assert "x-api-key" not in anonymous.headers["vary"].lower()
 
 
 @pytest.mark.anyio

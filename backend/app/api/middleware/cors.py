@@ -206,6 +206,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
         response = await self._answer(request, call_next)
         self._set_cors_headers(response, origin)
+        # A credentialed answer must not be served to another caller from a cache.
+        if any(request.headers.get(header) for header in _CREDENTIAL_HEADERS):
+            _merge_vary(response, *_CREDENTIAL_VARY_HEADERS)
         return response
 
     @staticmethod
