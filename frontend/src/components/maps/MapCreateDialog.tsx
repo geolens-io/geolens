@@ -102,7 +102,9 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
         language: i18n.language,
       }, controller.signal)) {
         if (event === 'tool_start') {
-          setProgressLabel((data as { label?: string }).label ?? '');
+          // The server's label is English; it only covers a tool this bundle doesn't know yet.
+          const { tool, label } = data as { tool?: string; label?: string };
+          setProgressLabel(t(`chat.toolProgress.${String(tool)}`, { defaultValue: label ?? '' }));
         } else if (event === 'done') {
           const result = data as {
             map_id: string;
