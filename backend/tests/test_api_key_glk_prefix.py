@@ -1,15 +1,21 @@
 """API keys carry the glk_ prefix, keys minted before it still work, and logs redact them."""
 
 import hashlib
+import logging
+import pathlib
 import secrets
 
+import httpx
+import pydantic
 import pytest
+import structlog
 from httpx import AsyncClient
 
 from app.core.logging_config import _API_KEY_VALUE_RE, _redact_sensitive_fields
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.service import API_KEY_PREFIX
 from tests import test_api_key_scope_875 as _scope_tests
+from tests._logging_state import configured_logging
 from tests.factories import get_user_id
 
 _remove_keys_minted_by_the_test = _scope_tests._remove_keys_minted_by_the_test
@@ -81,3 +87,53 @@ def test_a_key_is_redacted_in_every_logged_string():
 def test_short_glk_words_are_left_alone():
     record = _redact_sensitive_fields(None, "info", {"event": "the glk_ prefix"})
     assert record["event"] == "the glk_ prefix"
+
+
+class _Lines(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(self.format(record))
+
+
+class _Serialized:
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def __structlog__(self) -> str:
+        return f"serialized {self.key}"
+
+
+class _Model(pydantic.BaseModel):
+    token: str
+
+
+@pytest.mark.parametrize("json_logs", [True, False])
+def test_no_rendered_line_carries_a_key(json_logs):
+    """Through the real pipeline, for what the field redactor can't see into."""
+    key = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    fields = {
+        "path": pathlib.PurePosixPath(f"/keys/{key}"),
+        "url": httpx.URL(f"https://example.org/{key}"),
+        "model": _Model(token=key),
+        "custom": _Serialized(key),
+        "by_bytes": {key.encode(): "failed"},
+        "by_tuple": {(key, 1): "failed"},
+    }
+    with configured_logging(json_logs=json_logs, log_level="DEBUG"):
+        root = logging.getLogger()
+        capture = _Lines()
+        capture.setFormatter(root.handlers[0].formatter)
+        root.addHandler(capture)
+        try:
+            structlog.get_logger("glk.test").warning("structured", **fields)
+            logging.getLogger("glk.stdlib").warning("stdlib", extra=fields)
+        finally:
+            root.removeHandler(capture)
+
+    assert len(capture.lines) == 2, capture.lines
+    for line in capture.lines:
+        assert key not in line
+        assert "glk_[REDACTED]" in line
