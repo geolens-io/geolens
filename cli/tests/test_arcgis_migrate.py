@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import stat
 from pathlib import Path
@@ -832,4 +833,30 @@ def test_the_lock_is_released_when_a_run_stops_on_an_error(
     MigrationState.load(
         tmp_path / "arcgis-migration-state.json", PORTAL, GEOLENS_INSTANCE, Redactor()
     )
+    release_locks()
+
+
+def test_the_state_file_is_locked_where_flock_is_missing(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from geolens_cli.arcgis_migrate_state import MigrationState, StateError
+    from geolens_cli.arcgis_portal import Redactor
+
+    held: set[str] = set()
+
+    def locking(fd, mode, length):
+        key = str(os.fstat(fd).st_ino)
+        if key in held:
+            raise OSError("locked")
+        held.add(key)
+
+    fake = types.SimpleNamespace(LK_NBLCK=2, locking=locking)
+    monkeypatch.setitem(sys.modules, "fcntl", None)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    path = tmp_path / "arcgis-migration-state.json"
+
+    MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
+    with pytest.raises(StateError, match="another `geolens arcgis migrate` run"):
+        MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
     release_locks()

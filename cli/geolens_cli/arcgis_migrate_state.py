@@ -35,6 +35,20 @@ MAX_ERROR_CHARS = 2000
 _HELD_LOCKS: list[Any] = []
 
 
+def _lock_exclusive(handle: Any) -> None:
+    """Take a non-blocking exclusive lock on an open file; ``OSError`` if
+    another process holds it."""
+    try:
+        import fcntl
+    except ImportError:
+        import msvcrt  # Windows
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def release_locks() -> None:
     """Release every state file lock this process took."""
     while _HELD_LOCKS:
@@ -148,14 +162,10 @@ class MigrationState:
         return state
 
     def _lock(self) -> None:
-        try:
-            import fcntl
-        except ImportError:  # Windows has no flock; runs aren't serialized there.
-            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(f"{self.path}.lock", "a")
+        handle = open(f"{self.path}.lock", "a+")
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_exclusive(handle)
         except OSError:
             handle.close()
             raise StateError(
