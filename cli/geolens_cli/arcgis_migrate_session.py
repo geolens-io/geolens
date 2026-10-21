@@ -15,7 +15,12 @@ from typing import Any
 
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
 from .arcgis_migrate_state import DONE
-from .arcgis_portal import TOKEN_EXPIRATION_MINUTES, PortalClient, Redactor
+from .arcgis_portal import (
+    TOKEN_EXPIRATION_MINUTES,
+    PortalClient,
+    Redactor,
+    _retry_after,
+)
 
 RATE_LIMIT_ATTEMPTS = 3
 RATE_LIMIT_WAIT = 5.0
@@ -111,7 +116,8 @@ class GeoLens:
                 status = int(resp.status_code)
                 if status != 429 or attempt == RATE_LIMIT_ATTEMPTS:
                     break
-                self._sleep(_retry_after(resp.headers))
+                wait = _retry_after(resp.headers)
+                self._sleep(RATE_LIMIT_WAIT if wait is None else wait)
         finally:
             for http, timeout in restore:
                 http.timeout = timeout
@@ -124,14 +130,6 @@ class GeoLens:
             detail = raw.to_dict() if hasattr(raw, "to_dict") else raw
             text = detail_text(raw)
         raise GeoLensError(f"HTTP {status}: {text}", status, detail)
-
-
-def _retry_after(headers: Any) -> float:
-    value = headers.get("retry-after") if headers is not None else None
-    try:
-        return min(max(float(value), 0.0), 60.0)
-    except (TypeError, ValueError):
-        return RATE_LIMIT_WAIT
 
 
 class PortalAuth:

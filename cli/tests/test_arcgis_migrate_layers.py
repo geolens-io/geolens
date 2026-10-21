@@ -896,6 +896,46 @@ def test_a_refreshed_session_keeps_the_long_timeout_for_the_retry(
     )
 
 
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [("7", 7.0), ("nan", session.RATE_LIMIT_WAIT), (None, session.RATE_LIMIT_WAIT)],
+)
+def test_a_rate_limited_call_waits_the_servers_retry_after(
+    fake_geolens, retry_after, expected
+):
+    from geolens.api.auth import me_auth_me_get
+
+    from geolens_cli._sdk_helpers import make_client
+    from geolens_cli.arcgis_portal import Redactor
+
+    replies = [
+        (
+            429,
+            _problem(429, "slow down"),
+            {"Retry-After": retry_after} if retry_after else {},
+        ),
+        {
+            "id": OPERATOR,
+            "username": "o",
+            "email": None,
+            "is_active": True,
+            "status": "active",
+            "last_login_at": None,
+            "created_at": NOW,
+            "roles": ["admin"],
+            "can_reset_password": False,
+        },
+    ]
+    fake_geolens.routes["GET /auth/me/"] = lambda seen: replies.pop(0)
+    sdk = make_client(GEOLENS_INSTANCE, bearer_token=fake_geolens.token)
+    waits: list[float] = []
+    geolens = session.GeoLens(sdk, GEOLENS_INSTANCE, Redactor(), sleep=waits.append)
+
+    geolens.call(me_auth_me_get.sync_detailed)
+
+    assert waits == [expected]
+
+
 def test_generated_titles_stay_within_the_title_limit(runner, tmp_path, geolens):
     report_plan = _write_plan(tmp_path)
     plan = json.loads(report_plan.read_text())
