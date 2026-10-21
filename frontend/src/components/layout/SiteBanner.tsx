@@ -39,10 +39,10 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // punctuation group lets the engine retry every split point on adversarial
 // runs (quadratic).
 const URL_RE_SOURCE = String.raw`https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+`;
-// [label](https://…) is tried first at each position. The label cannot contain
-// brackets and the target cannot contain parentheses, so a failed match gives
+// [label](https://…) is tried first at each position. The label needs a
+// visible character and cannot contain brackets and the target cannot contain parentheses, so a failed match gives
 // up at the next bracket and the scan stays linear.
-const LINK_RE_SOURCE = String.raw`\[([^\[\]]+)\]\((https:\/\/[^\s()<>"]+)\)`;
+const LINK_RE_SOURCE = String.raw`\[(?=[^\[\]]*[^\s\[\]])([^\[\]]+)\]\((https:\/\/[^\s()<>"]+)\)`;
 const LINK_OR_URL_RE = new RegExp(`${LINK_RE_SOURCE}|${URL_RE_SOURCE}`, 'gi');
 const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 

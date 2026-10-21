@@ -266,6 +266,12 @@ describe('SiteBanner', () => {
     expect(screen.getByRole('status')).toHaveTextContent('[label (no close) [x]( [](ok)');
   });
 
+  it('Y0) a whitespace-only label is not a labelled link', () => {
+    renderBanner({ banner_text: '[   ](https://ok.example/)' });
+    const link = screen.getByRole('link');
+    expect(link).toHaveTextContent('https://ok.example/');
+  });
+
   it('Y) an unclosed target falls back to the bare URL, not the label', () => {
     renderBanner({ banner_text: '[label](https://ok.example/path' });
     const link = screen.getByRole('link');
