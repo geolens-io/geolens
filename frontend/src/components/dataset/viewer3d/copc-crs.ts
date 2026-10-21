@@ -93,7 +93,7 @@ export function normalizeWkt(wkt: string): string | null {
 // Geocentric (Earth-centred Cartesian) coordinates need a three-dimensional
 // transform; the viewer reprojects X and Y only, so these keep the footprint.
 const QUOTED = /"(?:[^"]|"")*"/g;
-const GEOCENTRIC = /GEOCCS\[|geocentric|CS\[Cartesian,\s*3\]/i;
+const GEOCENTRIC = /GEOCCS\[|geocentric/i;
 
 export interface CopcCrs {
   /** WKT of the horizontal CRS; proj4 refuses a compound CRS as a whole. */

@@ -66,6 +66,10 @@ describe('parseCopcCrs', () => {
     expect(parseCopcCrs(UTM2.replace('"WGS 84 / UTM zone 10N"', '"Not geocentric, GEOCCS[ in the name"'))).not.toBeNull();
   });
 
+  it('keeps a projected CRS with a three-dimensional coordinate system', () => {
+    expect(parseCopcCrs(UTM2.replace('CS[Cartesian,2]', 'CS[Cartesian,3]'))).not.toBeNull();
+  });
+
   it('reads a plain WKT2 projected CRS', () => {
     expect(parseCopcCrs(UTM2)).toEqual({ horizontalWkt: UTM2, zToMeters: 1 });
   });
