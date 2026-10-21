@@ -248,13 +248,21 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
-/** A GeoJSON source reads only expression filters, so legacy forms such as `['==', '$type', 'Point']` are converted. */
-function expressionFilter(filter: FilterSpecification | null): FilterSpecification | null {
-  if (!filter) return null;
+// A source filter runs once, at load, outside any camera state.
+const CAMERA_DEPENDENT_EXPRESSION = /\["(zoom|pitch|distance-from-center)"\]/;
+const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
+
+/**
+ * A GeoJSON source reads only expression filters evaluated once at load, so legacy forms such as
+ * `['==', '$type', 'Point']` are converted and camera-dependent filters are left to the layer.
+ * An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
+ */
+function sourceFilter(filter: FilterSpecification | null): FilterSpecification | null {
+  if (!filter || CAMERA_DEPENDENT_EXPRESSION.test(JSON.stringify(filter))) return null;
   try {
-    return convertFilter(filter as Parameters<typeof convertFilter>[0]) as FilterSpecification;
+    const converted = convertFilter(filter as Parameters<typeof convertFilter>[0]);
+    return converted === false ? MATCHES_NOTHING : (converted as FilterSpecification | true);
   } catch {
-    // An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
     return null;
   }
 }
@@ -317,7 +325,7 @@ function vectorSource(
       data,
       cluster: true,
       ...clusterOptions(layer),
-      ...filterSpec(expressionFilter(described.filter)),
+      ...filterSpec(sourceFilter(described.filter)),
       ...(attribution ? { attribution } : {}),
     };
   }

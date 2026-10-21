@@ -326,6 +326,19 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  it('keeps zoom-dependent filters off the clustered source and matches nothing for a legacy filter that converts to false', () => {
+    const sourceFor = (filter: unknown) => {
+      const map = makeMockMap();
+      const layer = makeLayer({ filter: filter as SyncLayerInput['filter'] });
+      const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+      return (map.addSource as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    };
+
+    expect(sourceFor(['>=', ['zoom'], 8])).not.toHaveProperty('filter');
+    expect(sourceFor(['in', 'x'])).toHaveProperty('filter', ['==', 0, 1]);
+  });
+
   it('keeps a bounded cluster source when its tile token rotates', () => {
     vi.mocked(buildSignedTileUrl).mockImplementation(
       (table: string, token: { sig: string } | null) => `/tiles/${table}/{z}/{x}/{y}.pbf?sig=${token?.sig ?? ''}`,
