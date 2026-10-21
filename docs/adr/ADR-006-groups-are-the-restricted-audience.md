@@ -55,9 +55,10 @@ The change adds `restricted` to the published map visibility values, and older
 generated clients reject unknown values. Clients opt in with an
 `X-GeoLens-Map-Visibility: restricted` request header, negotiated the way
 `X-GeoLens-Auth-Mode` is, and every endpoint that returns a map honours it.
-The frontend, the CLI, the MCP server and the SDKs released with groups send
-it. For one minor release a request without it sees restricted maps as
-private; after that every client sees `restricted`.
+The API's CORS allow-list carries it for split-origin deployments. The
+frontend, the CLI, the MCP server and the SDKs released with groups send it.
+For one minor release a request without it sees restricted maps as private;
+after that every client sees `restricted`.
 
 No GeoLens surface writes role grants, so rows exist only where someone
 inserted them directly. Those rows keep authorizing as they do today, so an
