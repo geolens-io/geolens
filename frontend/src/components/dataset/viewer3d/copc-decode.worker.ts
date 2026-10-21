@@ -4,6 +4,7 @@ import proj4 from 'proj4';
 import { createLazPerf } from 'laz-perf/lib/worker/index.js';
 import lazPerfWasmUrl from 'laz-perf/lib/worker/laz-perf.wasm?url';
 import { colorShiftFor } from './copc-color';
+import { lngOffset } from './copc-placement';
 import { checkDecodeLimits } from './copc-decode-limits';
 import { MAX_NODE_POINTS } from './copc-limits';
 
@@ -92,7 +93,7 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     const colors = new Uint8Array(count * 4);
     for (let i = 0; i < count; i++) {
       const [lng, lat] = toLngLat.forward([x(i), y(i)]);
-      positions[i * 3] = lng - origin[0];
+      positions[i * 3] = lngOffset(lng, origin[0]);
       positions[i * 3 + 1] = lat - origin[1];
       positions[i * 3 + 2] = (z(i) - zMin) * zToMeters;
       if (r && g && b) {
