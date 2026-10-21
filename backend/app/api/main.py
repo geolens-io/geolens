@@ -1565,6 +1565,9 @@ init_metrics(app)
 #   "healthy" resets _last_health_alert_at so recovery gets a fresh alert.
 _last_health_alert_at: float | None = None
 _last_health_status: str = "healthy"
+# Probes can finish out of order; an older one never moves the alert state.
+_health_probe_seq = 0
+_health_applied_seq = 0
 
 
 # Liveness, split out from readiness. `/health` 503s if the
@@ -1616,6 +1619,9 @@ async def health(request: Request):
     )
     from fastapi.responses import JSONResponse
 
+    global _health_probe_seq, _health_applied_seq  # noqa: PLW0603
+    _health_probe_seq += 1
+    seq = _health_probe_seq
     result = await check_health()
     # Report version + build commit so a deployment can be
     # verified over HTTP (prod disables /docs). GEOLENS_BUILD_SHA is
@@ -1625,6 +1631,9 @@ async def health(request: Request):
     result["version"] = app.version
     result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
+    if seq < _health_applied_seq:
+        return JSONResponse(content=result, status_code=status_code)
+    _health_applied_seq = seq
 
     # Emit a health-alert when degraded and the toggle is on, cooldown-deduped
     # so repeated unhealthy polls don't spam admin channels. Runs as a

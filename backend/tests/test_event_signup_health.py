@@ -488,6 +488,45 @@ class TestHealthAlert:
         assert len(notify_calls) == 1
 
     @pytest.mark.anyio
+    async def test_a_slower_older_probe_does_not_undo_a_recovery(
+        self, monkeypatch
+    ) -> None:
+        import asyncio
+        from unittest.mock import MagicMock
+
+        import app.api.main as main_mod
+        from app.observability.health import service as health_svc
+        from app.platform.cache import get_cache
+
+        finish_old_probe = asyncio.Event()
+        probes = iter(["old", "new"])
+
+        async def _check_health():
+            if next(probes) == "old":
+                await finish_old_probe.wait()
+                return {
+                    "status": "degraded",
+                    "providers": {"database": {"status": "error"}},
+                }
+            return {"status": "healthy", "providers": {}}
+
+        monkeypatch.setattr(health_svc, "check_health", _check_health)
+        main_mod._last_health_alert_at = None
+        main_mod._last_health_status = "healthy"
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+
+        old_probe = asyncio.create_task(_run_health(request))
+        await asyncio.sleep(0)
+        await _run_health(request)
+        finish_old_probe.set()
+        response = await old_probe
+
+        assert response.status_code == 503
+        assert main_mod._last_health_status == "healthy"
+        assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
+
+    @pytest.mark.anyio
     async def test_recovery_keeps_another_replicas_newer_claim(
         self, monkeypatch
     ) -> None:
