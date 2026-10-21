@@ -17,6 +17,7 @@ import {
   getRampColors,
   reverseRamp,
   buildCategoricalExpression,
+  categoricalFallbackOf,
   buildGraduatedExpression,
   buildGraduatedSizeExpression,
   getColorProperty,
@@ -733,7 +734,8 @@ export function DataDrivenStyleEditor({
       const expression = buildCategoricalExpression(
         styleConfig.column,
         valueColorMap,
-        MAP_COLORS.fallback,
+        // Keep a catch-all colour set elsewhere (a QGIS publish, the style JSON).
+        categoricalFallbackOf(layerPaint[colorProp]) ?? MAP_COLORS.fallback,
         columnIsBoolean,
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };

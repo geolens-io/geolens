@@ -252,6 +252,17 @@ export function buildCategoricalExpression(
 }
 
 /**
+ * The fallback colour of an expression `buildCategoricalExpression` produced,
+ * or null when the paint is not one (a plain colour, a different shape).
+ */
+export function categoricalFallbackOf(expression: unknown): string | null {
+  if (!Array.isArray(expression)) return null;
+  if (expression[0] === 'case' && typeof expression[2] === 'string') return expression[2];
+  const last = expression[expression.length - 1];
+  return expression[0] === 'match' && typeof last === 'string' ? last : null;
+}
+
+/**
  * Graduated (step) expression. Requires colors.length === breaks.length + 1.
  */
 export function buildGraduatedExpression(

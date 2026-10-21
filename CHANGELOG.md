@@ -24,6 +24,11 @@ and releases use semantic versioning.
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
 
+### Fixed
+
+- Editing a category colour in the map builder no longer resets the layer's catch-all colour to
+  grey. A fallback colour set elsewhere, such as in imported style JSON, is kept.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
-import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
+import { categoricalFallbackOf, getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
 import { equalIntervalBreaks } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { DataDrivenStyleEditor } from '../DataDrivenStyleEditor';
@@ -562,6 +562,35 @@ describe('DataDrivenStyleEditor', () => {
       expect((newConfig as StyleConfig).ramp).toBe('custom');
       expect((newConfig as StyleConfig).categories![0].color).toBe('#ff0000');
       expect((newConfig as StyleConfig).categories![1].color).toBe(COLORS[1]);
+    });
+
+    it.each([
+      ['a case expression', ['case', ['==', ['get', 'typeA'], null], '#123456', ['match', ['get', 'typeA'], 'cat1', '#e41a1c', 'cat2', '#377eb8', '#123456']]],
+      ['a bare match expression', ['match', ['get', 'typeA'], 'cat1', '#e41a1c', 'cat2', '#377eb8', '#123456']],
+    ])('editing a category colour keeps a custom fallback colour (%s)', async (_label, expression) => {
+      const VALUES = ['cat1', 'cat2'];
+      const config: StyleConfig = {
+        mode: 'categorical',
+        column: 'typeA',
+        ramp: 'Set2',
+        categories: VALUES.map((v, i) => ({ value: v, color: getRampColors('Set2', 2)[i] })),
+      };
+      mockUseColumnValues.mockReturnValue(hookData({ values: VALUES, count: VALUES.length }));
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': expression } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getAllByTestId('hex-color-picker')[0]);
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled(), { timeout: 1000 });
+
+      const paint = onStyleConfigChange.mock.calls[0][2] as Record<string, unknown>;
+      const written = paint['fill-color'] as unknown[];
+      expect(categoricalFallbackOf(written)).toBe('#123456');
+      expect(JSON.stringify(written)).not.toContain('#cccccc');
     });
 
     describe('boolean column (AI style)', () => {

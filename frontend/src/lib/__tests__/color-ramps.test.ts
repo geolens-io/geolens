@@ -4,6 +4,7 @@ import {
   colorClassificationIsOrphaned,
   reconcileColorClassification,
   buildCategoricalExpression,
+  categoricalFallbackOf,
   buildGraduatedSizeExpression,
   getSizeProperty,
   getColorProperty,
@@ -445,5 +446,19 @@ describe('reconcileColorClassification', () => {
   it('collapses to null when the claim was all the config had', () => {
     const claimOnly = { mode: 'categorical', categories: [{ value: 'a', color: '#111' }] } as StyleConfig;
     expect(reconcileColorClassification(claimOnly, {}, 'Polygon')).toBeNull();
+  });
+});
+
+describe('categoricalFallbackOf', () => {
+  it('reads back the fallback buildCategoricalExpression wrote', () => {
+    const expression = buildCategoricalExpression('kind', [['a', '#111111']], '#abcdef');
+    expect(categoricalFallbackOf(expression)).toBe('#abcdef');
+    expect(categoricalFallbackOf(['match', ['get', 'kind'], 'a', '#111111', '#fedcba'])).toBe('#fedcba');
+  });
+
+  it('returns null for a paint that is not a categorical expression', () => {
+    expect(categoricalFallbackOf('#3b82f6')).toBeNull();
+    expect(categoricalFallbackOf(undefined)).toBeNull();
+    expect(categoricalFallbackOf(['step', ['get', 'n'], '#000000', 5, '#ffffff'])).toBeNull();
   });
 });
