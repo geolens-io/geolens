@@ -519,8 +519,7 @@ def _run(
         return EXIT_USAGE
 
     sdk = sdk_factory()
-    redact.add(getattr(sdk.client, "token", None))
-    geolens = GeoLens(sdk, instance)
+    geolens = GeoLens(sdk, instance, redact)
     try:
         operator_id = _require_admin(geolens)
         owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)

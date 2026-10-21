@@ -651,3 +651,33 @@ def test_an_item_that_depends_on_itself_still_runs(runner, tmp_path, geolens, ha
     result, _ = _run(runner, tmp_path, _plan([_item(L1, depends_on=[L1])]))
     assert result.exit_code == 0, result.output
     assert handled == [L1]
+
+
+def test_a_refreshed_access_token_is_redacted_too(fake_geolens, monkeypatch):
+    from geolens.api.auth import me_auth_me_get
+
+    from geolens_cli._sdk_helpers import make_client
+    from geolens_cli.arcgis_migrate_session import GeoLens
+    from geolens_cli.arcgis_portal import Redactor
+
+    renewed = secrets.token_urlsafe(24)
+    monkeypatch.setattr("geolens_cli.auth.try_refresh", lambda instance: renewed)
+    replies = [
+        (401, {"title": "Unauthorized", "status": 401, "detail": "expired"}),
+        _user(OPERATOR, "operator", ["admin"]),
+    ]
+    fake_geolens.routes["GET /auth/me/"] = lambda seen: replies.pop(0)
+    sdk = make_client(
+        "https://geolens.example.org/api",
+        bearer_token=fake_geolens.token,
+        provenance="stored-bearer",
+    )
+    redact = Redactor()
+    session = GeoLens(sdk, "https://geolens.example.org/api", redact)
+
+    session.call(me_auth_me_get.sync_detailed)
+
+    assert fake_geolens.seen[-1].headers["authorization"] == f"Bearer {renewed}"
+    assert redact(f"echo {renewed} and {fake_geolens.token}") == (
+        "echo [REDACTED] and [REDACTED]"
+    )

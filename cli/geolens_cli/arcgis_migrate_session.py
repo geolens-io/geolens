@@ -14,6 +14,7 @@ from typing import Any
 
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
 from .arcgis_migrate_state import DONE
+from .arcgis_portal import Redactor
 
 
 class GeoLensError(Exception):
@@ -41,12 +42,18 @@ class ItemResult:
 
 
 class GeoLens:
-    """The operator's SDK session; a 401 spends a stored refresh token once."""
+    """The operator's SDK session; a 401 spends a stored refresh token once.
 
-    def __init__(self, sdk: Any, instance: str) -> None:
+    Every access token the session holds, the first and each refreshed one,
+    is given to *redact*.
+    """
+
+    def __init__(self, sdk: Any, instance: str, redact: Redactor) -> None:
         self._sdk = sdk
         self._instance = instance
+        self._redact = redact
         self.client = sdk.client
+        redact.add(getattr(sdk.client, "token", None))
 
     def call(
         self, fn: Callable[..., Any], *, expected: int = 200, **kwargs: Any
@@ -54,6 +61,7 @@ class GeoLens:
         from geolens.models.problem_detail import ProblemDetail  # lazy
 
         def replace_client(replacement: Any) -> None:
+            self._redact.add(getattr(replacement, "token", None))
             self.client = replacement
 
         resp = call_sdk_with_reauth(
