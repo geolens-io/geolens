@@ -411,3 +411,33 @@ async def test_no_route_that_reads_no_key_gives_a_junk_key_the_key_answer(
         )
         if "access-control-allow-origin" in resp.headers:
             assert "PUT" not in resp.headers["access-control-allow-methods"], path
+
+
+@pytest.mark.parametrize("status_code", [413, 429])
+def test_a_limit_refusal_before_auth_is_readable_to_a_keyed_caller(
+    monkeypatch, status_code
+):
+    """The rate and body-size limits answer before any key is looked up."""
+
+    async def _deny(_self, _origin):
+        return False
+
+    monkeypatch.setattr(
+        "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed", _deny
+    )
+
+    async def refused(_request: Request) -> JSONResponse:
+        return JSONResponse({"detail": "limited"}, status_code=status_code)
+
+    app = Starlette(routes=[Route("/limited", refused)])
+    app.add_middleware(DynamicCORSMiddleware)
+    client = TestClient(app)
+
+    keyed = client.get(
+        "/limited", headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "k"}
+    )
+    assert keyed.status_code == status_code
+    assert keyed.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in keyed.headers
+    plain = client.get("/limited", headers={"Origin": _FOREIGN_ORIGIN})
+    assert "access-control-allow-origin" not in plain.headers

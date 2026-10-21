@@ -90,6 +90,11 @@ _HEADER_KEY_ALLOWED_LOWER = frozenset(
 
 _ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
+# The rate and body-size limits answer before the auth layer runs, so these
+# never carry the auth layer's mark. They hold a status and a retry window,
+# nothing a key protects, so a keyed caller may read them on any route.
+_REFUSED_BEFORE_AUTH = frozenset({413, 429})
+
 # What every policy lets a script read. The anonymous public answer omits the
 # two headers only authenticated routes send.
 _PUBLIC_EXPOSE_HEADERS = (
@@ -230,7 +235,10 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         # Shared with the auth layer, which marks it when it reads the key.
         request.scope.setdefault("state", {})
         response = await call_next(request)
-        if header_api_key_evaluated(request.scope):
+        if (
+            header_api_key_evaluated(request.scope)
+            or response.status_code in _REFUSED_BEFORE_AUTH
+        ):
             self._set_header_key_cors_headers(response)
             return response
         allow_methods = self._anonymous_public_methods(request, ignore_header_key=True)
