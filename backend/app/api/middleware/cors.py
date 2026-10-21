@@ -84,6 +84,7 @@ _HEADER_KEY_ALLOWED_HEADER_NAMES = (
     *_SAFE_REQUEST_HEADERS,
     "Idempotency-Key",
     "Idempotency-Attempt",
+    "X-Config-Preview-Token",
     *_CONDITIONAL_HEADERS,
 )
 _HEADER_KEY_ALLOWED_HEADERS = ", ".join(_HEADER_KEY_ALLOWED_HEADER_NAMES)

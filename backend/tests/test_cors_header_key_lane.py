@@ -86,13 +86,27 @@ async def test_a_preflight_asking_for_the_key_header_is_allowed(
 
 
 @pytest.mark.anyio
+async def test_a_keyed_config_import_can_send_its_preview_token(
+    client, allow_one_origin
+):
+    resp = await client.options(
+        "/config-ops/import/",
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-api-key, content-type, x-config-preview-token",
+        },
+    )
+    _assert_header_key_answer(resp)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "requested",
     [
         "content-type",
         "x-api-key, authorization",
         "x-api-key, x-embed-token",
-        "x-api-key, x-config-preview-token",
         "x-api-key, x-custom",
     ],
 )
