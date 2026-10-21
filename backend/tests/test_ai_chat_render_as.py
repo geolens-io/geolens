@@ -377,6 +377,7 @@ async def test_leaving_3d_in_a_turn_lets_fill_opacity_through():
         _layer(
             geometry_type="Polygon",
             style_config={"builder": {"heightColumn": "height_m"}},
+            paint={"_height_column": "height_m"},
         )
     ]
     await _run("set_render_as", {"layer_id": "layer-1", "render_as": "fill"}, layers)

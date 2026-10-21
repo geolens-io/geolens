@@ -17,13 +17,18 @@ def polygon_fill_disabled(layer: ChatMapLayer) -> bool:
     return flag is True or flag == "true"
 
 
-def record_polygon_mode(style: dict, render_as: str, height_column: str | None) -> None:
+def record_polygon_mode(
+    layer: ChatMapLayer, style: dict, render_as: str, height_column: str | None
+) -> None:
     """Record a polygon render switch on the style, so later edits in the turn see the new mode."""
     builder = dict(style.get("builder") or {})
     builder["fillDisabled"] = render_as == "stroke"
     builder["strokeDisabled"] = render_as == "fill"
     if render_as != "extrusion-3d":
         builder.pop("heightColumn", None)
+        layer.paint = {
+            k: v for k, v in (layer.paint or {}).items() if k != "_height_column"
+        }
     elif height_column:
         builder["heightColumn"] = height_column
     style["builder"] = builder

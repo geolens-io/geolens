@@ -336,7 +336,7 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
             }
     style = dict(target.style_config or {})
     if family == "polygon":
-        record_polygon_mode(style, render_as, tool_input.get("height_column"))
+        record_polygon_mode(target, style, render_as, tool_input.get("height_column"))
     if render_as in _RENDER_AS_STORED_AS_RENDER_MODE:
         style["render_mode"] = render_as
     else:
