@@ -104,7 +104,9 @@ def validate_set_style(
             )
         )
         warnings.extend(clear_warnings)
-    base = {} if tool_input.get("replace_paint") else layer.paint or {}
+    # The client treats a replacement that validated to nothing as a no-op.
+    mutates = bool(next_input.get("paint") or next_input.get("clear_paint"))
+    base = {} if tool_input.get("replace_paint") and mutates else layer.paint or {}
     recorded = {**base, **(next_input.get("paint") or {})}
     layer.paint = {
         k: v for k, v in recorded.items() if k not in next_input.get("clear_paint", [])

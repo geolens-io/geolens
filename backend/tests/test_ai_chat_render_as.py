@@ -416,3 +416,21 @@ async def test_a_null_ramp_falls_back_to_the_default():
 
     assert "error" not in result
     assert result["style_config"]["ramp"] == "Set2"
+
+
+@pytest.mark.anyio
+async def test_an_empty_replacement_leaves_the_recorded_paint_alone():
+    expression = ["match", ["get", "name"], "a", "#ef4444", "#374151"]
+    layers = [_layer(geometry_type="Polygon", paint={"fill-color": expression})]
+
+    await _run(
+        "set_style",
+        {
+            "layer_id": "layer-1",
+            "paint": {"circle-color": "#111111"},
+            "replace_paint": True,
+        },
+        layers,
+    )
+
+    assert layers[0].paint == {"fill-color": expression}
