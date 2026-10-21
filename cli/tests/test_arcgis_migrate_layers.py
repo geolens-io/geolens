@@ -889,3 +889,20 @@ def test_a_refreshed_session_keeps_the_long_timeout_for_the_retry(
     assert (
         geolens.client.get_httpx_client().timeout.read == DEFAULT_HTTP_TIMEOUT_SECONDS
     )
+
+
+def test_generated_titles_stay_within_the_title_limit(runner, tmp_path, geolens):
+    report_plan = _write_plan(tmp_path)
+    plan = json.loads(report_plan.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["title"] = "T" * 600
+    report_plan.write_text(json.dumps(plan))
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "L" * 400)])
+
+    result, _ = _migrate(runner, report_plan, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    titles = [c["title"] for c in service.bodies("POST /ingest/commit/")]
+    assert [len(title) for title in titles] == [500, 500]
+    assert titles[0].endswith(" - Parcels")

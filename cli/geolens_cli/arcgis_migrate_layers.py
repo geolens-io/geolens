@@ -30,6 +30,7 @@ from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
 # ArcGIS sub-layer types that hold features GeoLens can import.
 IMPORTABLE_LAYER_TYPES = frozenset({"Feature Layer", "Table"})
+MAX_TITLE = 500
 JOB_POLL_INTERVAL = 5.0
 JOB_TIMEOUT = 3600.0
 _JOB_FAILED = frozenset({"failed", "cancelled", "fanned_out"})
@@ -121,6 +122,15 @@ def _send(
                 "expired. Rerun with a fresh token to resume."
             ) from None
     raise AssertionError("unreachable")
+
+
+def _title(base: str, layer: str | None) -> str:
+    """The dataset title: the item's, then `` - <layer>`` for a service with
+    several layers, within GeoLens's title limit."""
+    if layer is None:
+        return base[:MAX_TITLE]
+    suffix = f" - {layer}"[: MAX_TITLE // 2]
+    return base[: MAX_TITLE - len(suffix)] + suffix
 
 
 def _layer_key(layer: Any) -> str:
@@ -373,7 +383,7 @@ def import_layers(
     for layer in wanted:
         if _layer_key(layer) in entry.layer_datasets:
             continue
-        title = base if len(wanted) == 1 else f"{base} - {_layer_label(layer)}"
+        title = _title(base, _layer_label(layer) if len(wanted) > 1 else None)
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )
