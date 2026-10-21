@@ -315,14 +315,14 @@ describe('syncLayersToMap cluster rendering', () => {
 
   it('hands the clustered source an expression filter when the layer filter is a legacy one', () => {
     const map = makeMockMap();
-    const layer = makeLayer({ filter: ['==', '$type', 'Point'] as SyncLayerInput['filter'] });
+    const layer = makeLayer({ filter: ['==', 'status', 'open'] as SyncLayerInput['filter'] });
     const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
 
     expect(map.addSource).toHaveBeenLastCalledWith(
       'source-cluster-1',
-      expect.objectContaining({ filter: ['==', ['geometry-type'], 'Point'] }),
+      expect.objectContaining({ filter: ['==', ['get', 'status'], 'open'] }),
     );
   });
 
@@ -339,6 +339,10 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(sourceFor(['is-supported-script', ['get', 'name']])).not.toHaveProperty('filter');
     expect(sourceFor(['within', { type: 'Polygon', coordinates: [] }])).not.toHaveProperty('filter');
     expect(sourceFor(['in', ['get', 'kind'], ['literal', ['zoom', 'other']]])).toHaveProperty('filter');
+    expect(sourceFor(['==', ['geometry-type'], 'Point'])).not.toHaveProperty('filter');
+    expect(sourceFor(['==', '$type', 'Point'])).not.toHaveProperty('filter');
+    expect(sourceFor(['match', ['get', 'kind'], ['zoom', 'other'], true, false])).toHaveProperty('filter');
+    expect(sourceFor(['==', ['number-format', 1, { 'max-fraction-digits': ['zoom'] }], '1'])).not.toHaveProperty('filter');
     expect(sourceFor(['in', 'x'])).toHaveProperty('filter', ['==', 0, 1]);
   });
 

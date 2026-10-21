@@ -249,11 +249,28 @@ function clusterOptions(layer: SyncLayerInput) {
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
-const LAYER_ONLY_OPERATORS = new Set(['zoom', 'pitch', 'distance-from-center', 'within', 'distance', 'is-supported-script']);
+const LAYER_ONLY_OPERATORS = new Set([
+  'zoom',
+  'pitch',
+  'distance-from-center',
+  'within',
+  'distance',
+  'is-supported-script',
+  // The source evaluates raw features, whose `type` is "Feature", not their geometry's type.
+  'geometry-type',
+]);
 
+/** Whether an expression needs the layer's evaluation context. Literal arrays and match labels are data. */
 function needsLayerContext(node: unknown): boolean {
+  if (node && typeof node === 'object' && !Array.isArray(node)) {
+    return Object.values(node).some(needsLayerContext);
+  }
   if (!Array.isArray(node) || node[0] === 'literal') return false;
-  return LAYER_ONLY_OPERATORS.has(node[0] as string) || node.some(needsLayerContext);
+  if (LAYER_ONLY_OPERATORS.has(node[0] as string)) return true;
+  if (node[0] === 'match') {
+    return node.some((child, index) => index > 0 && (index % 2 === 1 || index === node.length - 1) && needsLayerContext(child));
+  }
+  return node.slice(1).some(needsLayerContext);
 }
 const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
 
@@ -263,9 +280,10 @@ const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
  * An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
  */
 function sourceFilter(filter: FilterSpecification | null): FilterSpecification | null {
-  if (!filter || needsLayerContext(filter)) return null;
+  if (!filter) return null;
   try {
     const converted = convertFilter(filter as Parameters<typeof convertFilter>[0]);
+    if (needsLayerContext(converted)) return null;
     return converted === false ? MATCHES_NOTHING : (converted as FilterSpecification | true);
   } catch {
     return null;
