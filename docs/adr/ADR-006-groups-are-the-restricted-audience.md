@@ -46,48 +46,25 @@ invitations and join requests, and content owned by a group.
 
 ## Consequences
 
-Dataset reads already go through the sanctioned guards (`check_dataset_access`
-for one item, `apply_visibility_filter` for lists), and both honour grants.
-Maps don't: they check visibility by hand in several places and need their
-own guard and grant storage.
+Dataset reads already go through the sanctioned guards, which honour
+grants. Maps check visibility by hand in several places and need their own
+guard and grant storage.
 
-Access has to change the moment a grant or a membership does. Every such
-change, widening or narrowing:
+Access changes the moment a grant or a membership does, in either direction.
+Each change keeps derived datasets and shared maps consistent with their
+audiences, as a visibility change does today. Sharing with groups is a
+visibility change, with everything that implies for share and embed tokens.
 
-- bumps the affected items' publication version, as an ownership transfer
-  does, because signed tile URLs authorize before the visibility check;
-- runs the derived-dataset audience check before it commits, so a derived
-  dataset never gains a reader who can't read its sources.
+Adding `restricted` to map visibility changes the REST contract. Older
+generated clients reject unknown values. So for one minor release, clients
+that haven't opted in see restricted maps as private and can't strip a map's
+groups by accident.
 
-Narrowing also runs the shared-map guard, as a visibility change does today.
-Sharing with groups changes visibility through the same path as any other
-visibility change, so a public map that becomes restricted loses its share
-and embed tokens. Layer data stays behind each dataset's own guard, so a new
-member of a group that a map is shared with sees only the layers they can
-read.
+Existing role grants keep working, and nothing creates new ones.
 
-The change adds `restricted` to the published map visibility values, and older
-generated clients reject unknown values. Clients opt in with an
-`X-GeoLens-Map-Visibility: restricted` request header, negotiated the way
-`X-GeoLens-Auth-Mode` is. Every endpoint that returns a map honours it and
-sends `Vary: X-GeoLens-Map-Visibility`, so a cache never hands one form to the
-other client, and the API's CORS allow-list carries it for split-origin
-deployments. The frontend, the CLI, the MCP server and the SDKs released with
-groups send the header.
+Group grants change what the permission extension contract means. The groups
+release therefore bumps `EXTENSION_API_VERSION` and ships alongside the paid
+permission extension, and an extension that doesn't declare the new version
+doesn't load.
 
-For one minor release, a request without the header sees restricted maps as
-private, and a write without it that sends `private` for a restricted map
-leaves the map restricted, since that client can't tell the two apart. After
-that release every client sees `restricted`.
-
-No GeoLens surface writes role grants, so rows exist only where someone
-inserted them directly. Those rows keep authorizing as they do today, so an
-upgrade changes no one's access, and nothing creates new ones. They are the
-one exception to restricted meaning owner, admins and group members.
-
-Group grants change what an extension filling the `permission` slot has to
-answer, even where no method signature changes. The groups release therefore
-bumps `EXTENSION_API_VERSION`, and the paid permission extension ships its
-matching release with it. An extension for the `permission` slot that declares
-an older version, or no version at all, refuses to load instead of ignoring
-group grants.
+The implementation rules are in #3262.
