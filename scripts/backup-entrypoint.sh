@@ -106,11 +106,10 @@ run_backup() {
     # there to copy or upload after a verification failure removes it.
     local cycle_failed=0
     local dump_ok=1
-    local good_ts="" good_ids="" good_sample="" uuid_re
-    uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+    local good_ts="" good_ids="" good_sample=""
     read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
-    [[ -n "$good_ts" && "$good_ids" =~ ^${uuid_re}(\ ${uuid_re})*$ ]] || good_ids=""
+    [[ -n "$good_ts" && "$good_ids" =~ ^[0-9A-Za-z-]+(\ [0-9A-Za-z-]+)*$ ]] || good_ids=""
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -162,7 +161,9 @@ run_backup() {
         dump_ok=0
     else
         log "Backup verified: ${filename} fully readable"
-        good_sample="$(good_dump_sample "$good_ts" "$good_ids")"
+        # A check that can't run fails the cycle: the healthcheck must show
+        # that this dump may not be protected.
+        good_sample="$(good_dump_sample "$good_ts" "$good_ids")" || cycle_failed=1
     fi
 
     # Weekly copy on Sundays. Skipped when verification above already
@@ -251,7 +252,8 @@ run_backup() {
             good_ts="$timestamp"
         else
             rm -f "${LAST_GOOD_FILE}.tmp"
-            log "WARNING: could not record ${filename} as the dump retention keeps"
+            log "ERROR: could not record ${filename} as the dump retention keeps — this cycle will be reported as failed"
+            cycle_failed=1
         fi
     fi
 
@@ -297,7 +299,7 @@ run_backup() {
 # Prints a fresh sample of catalog record ids when this cycle's dump may take
 # over from the kept one: the database has records and at least half of the ids
 # sampled from the kept dump (any records, for a marker without ids). Prints
-# nothing otherwise. Ids rather than counts, so a re-created database's first
+# nothing otherwise, and fails when the check itself can't run. Ids rather than counts, so a re-created database's first
 # upload can't take over even when the lost catalog held a single record. The
 # check runs after pg_dump, outside its snapshot; a database restored in that
 # window could mark a dump that lacks the restored rows, too narrow to engineer
@@ -310,7 +312,7 @@ good_dump_sample() {
         -d "$POSTGRES_DB" -v ids="{$(IFS=,; printf '%s' "${marked[*]:-}")}" <<'SQL'
 SELECT to_regclass('catalog.records') IS NOT NULL AS has_records_table \gset
 \if :has_records_table
-SELECT count(*), count(*) FILTER (WHERE id = ANY (:'ids'::uuid[])),
+SELECT count(*), count(*) FILTER (WHERE id::text = ANY (:'ids'::text[])),
     (SELECT string_agg(id::text, ' ')
      FROM (SELECT id FROM catalog.records ORDER BY random() LIMIT 100) sampled)
 FROM catalog.records;
@@ -321,7 +323,8 @@ SQL
     )" || row=""
     IFS='|' read -r count present sample <<< "$row"
     if ! [[ "$count" =~ ^[0-9]+$ && "$present" =~ ^[0-9]+$ ]]; then
-        log "WARNING: could not check catalog records in ${POSTGRES_DB}${good_ts:+; retention keeps ${good_ts}}" >&2
+        log "ERROR: could not check catalog records in ${POSTGRES_DB}${good_ts:+; retention keeps ${good_ts}} — this cycle will be reported as failed" >&2
+        return 1
     elif [ "$count" -eq 0 ] || [ $((present * 2)) -lt "${#marked[@]}" ]; then
         if [ -n "$good_ts" ]; then
             log "WARNING: ${POSTGRES_DB} has ${count} catalog records, ${present} of the ${#marked[@]} sampled from ${good_ts}; retention keeps ${good_ts}. If the records were deleted on purpose, delete ${LAST_GOOD_FILE} to release that dump." >&2

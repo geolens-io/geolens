@@ -190,6 +190,9 @@ echo '-- fake globals dump'
 exit 0
 """
 
+# Answers the catalog records check with an empty catalog: no marker moves.
+_PSQL_EMPTY_CATALOG_STUB = "#!/bin/sh\necho '0|0|'\n"
+
 # The same portable shim that scripts/tests/test-backup-restore-roundtrip.sh
 # uses to force a
 # Sunday cycle without depending on the day the test happens to run — only
@@ -767,6 +770,7 @@ def _run_full_cycle(
         ("pg_dump", _PG_DUMP_STUB),
         ("pg_restore", _PG_RESTORE_STUB),
         ("pg_dumpall", _PG_DUMPALL_STUB),
+        ("psql", _PSQL_EMPTY_CATALOG_STUB),
     ):
         stub = bin_dir / name
         stub.write_text(content)
@@ -864,6 +868,7 @@ def _run_weekly_copy_failure_cycle(
         ("pg_dump", _PG_DUMP_STUB),
         ("pg_restore", _PG_RESTORE_STUB),
         ("pg_dumpall", _PG_DUMPALL_STUB),
+        ("psql", _PSQL_EMPTY_CATALOG_STUB),
     ):
         stub = bin_dir / name
         stub.write_text(content)
@@ -962,6 +967,7 @@ def _run_weekly_staging_globals_upload_cycle(
         ("pg_dump", _PG_DUMP_STUB),
         ("pg_restore", _PG_RESTORE_STUB),
         ("pg_dumpall", _PG_DUMPALL_STUB),
+        ("psql", _PSQL_EMPTY_CATALOG_STUB),
         ("aws", _AWS_STUB),
     ):
         stub = bin_dir / name

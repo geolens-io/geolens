@@ -333,6 +333,11 @@ echo "$PSQL_STUB_ROW"
 
 _ID_A, _ID_B, _ID_C = (f"{n}0000000-0000-4000-8000-000000000000" for n in "abc")
 
+_MARKER_MV_FAILS_STUB = """#!/bin/sh
+case "$*" in *last-good-dump*) exit 1;; esac
+exec /bin/mv "$@"
+"""
+
 _REFUSING_LN_STUB = "#!/bin/sh\necho 'ln: Operation not permitted' >&2\nexit 1\n"
 
 
@@ -343,6 +348,7 @@ def _cycle(
     cp_exit: int = 0,
     refuse_links: bool = False,
     globals_fail: bool = False,
+    marker_publish_fails: bool = False,
     psql_row: str | None = f"1|0|{_ID_A}",
 ) -> tuple[subprocess.CompletedProcess, Path]:
     bin_dir = tmp_path / "bin"
@@ -357,6 +363,8 @@ def _cycle(
     }
     if globals_fail:
         stubs["pg_dumpall"] = "#!/bin/sh\nexit 1\n"
+    if marker_publish_fails:
+        stubs["mv"] = _MARKER_MV_FAILS_STUB
     if refuse_links:
         stubs["ln"] = _REFUSING_LN_STUB
     for name, content in stubs.items():
@@ -466,9 +474,8 @@ class TestLastDumpWithRecords:
             (f"{_ID_A} {_ID_B}", f"5|0|{_ID_C}"),
             (_ID_A, f"1|0|{_ID_C}"),
             ("", "0|0|"),
-            (f"{_ID_A} {_ID_B}", None),
         ],
-        ids=["empty", "new-records-only", "one-record-catalog", "old-marker", "failed"],
+        ids=["empty", "new-records-only", "one-record-catalog", "old-marker"],
     )
     def test_the_days_good_set_survives(
         self, tmp_path: Path, marked_ids: str, psql_row: str | None
@@ -480,6 +487,22 @@ class TestLastDumpWithRecords:
         assert good_set <= _names(backup_dir / "daily")
         assert (backup_dir / ".last-good-dump").read_text() == marker_before
         assert f"retention keeps {good_ts}" in result.stderr
+
+    def test_a_failed_check_fails_the_cycle_and_keeps_the_marker(self, tmp_path: Path):
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups", _ID_A)
+        marker_before = (tmp_path / "backups" / ".last-good-dump").read_text()
+        result, backup_dir = _cycle(tmp_path, psql_row=None)
+        assert result.returncode != 0
+        assert not (backup_dir / ".last-success").exists()
+        assert good_set <= _names(backup_dir / "daily")
+        assert (backup_dir / ".last-good-dump").read_text() == marker_before
+        assert f"retention keeps {good_ts}" in result.stderr
+
+    def test_a_failed_marker_write_fails_the_cycle(self, tmp_path: Path):
+        result, backup_dir = _cycle(tmp_path, marker_publish_fails=True)
+        assert result.returncode != 0
+        assert not (backup_dir / ".last-success").exists()
+        assert "could not record" in result.stdout
 
     def test_the_check_gets_the_marked_ids_and_logs_how_many_remain(
         self, tmp_path: Path
