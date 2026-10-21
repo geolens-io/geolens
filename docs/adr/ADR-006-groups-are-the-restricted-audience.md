@@ -62,13 +62,17 @@ The API's CORS allow-list carries it for split-origin deployments, and map
 responses send `Vary: X-GeoLens-Map-Visibility` so a cache never hands one
 form to the other client. The frontend, the CLI, the MCP server and the SDKs
 released with groups send the header. For one minor release a request without
-it sees restricted maps as private; after that every client sees `restricted`.
+it sees restricted maps as private, and a write without it that sends
+`private` for a restricted map leaves the map restricted, since that client
+can't tell the two apart; after that every client sees `restricted`.
 
 No GeoLens surface writes role grants, so rows exist only where someone
 inserted them directly. Those rows keep authorizing as they do today, so an
 upgrade changes no one's access, and nothing creates new ones. They are the
 one exception to restricted meaning owner, admins and group members.
 
-The paid permission extension mirrors the grant check, so it ships a
-release alongside. `EXTENSION_API_VERSION` moves only if a Protocol member
-changes, for example a required map access method.
+Group grants change what an extension filling the `permission` slot has to
+answer, even where no method signature changes. The groups release therefore
+bumps `EXTENSION_API_VERSION`, and the paid permission extension ships its
+matching release with it. An older extension that declares its version refuses
+to load instead of ignoring group grants.
