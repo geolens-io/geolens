@@ -173,14 +173,15 @@ def test_python_system_audit_builds_and_enforces_patched_stage():
     assert expected_scan_config.items() <= scan_step["with"].items()
 
 
-def test_backend_runtime_removes_pip_and_its_vendored_sbom():
+def test_backend_system_layer_removes_pip_and_its_vendored_sbom():
     text = DOCKERFILE.read_text()
-    base_stage = text.split("FROM backend-system AS backend-base", 1)[1]
-    base_stage = base_stage.split("\nFROM ", 1)[0]
+    system_stage = text.split(" AS backend-system\n", 1)[1]
+    system_stage = system_stage.split("\nFROM ", 1)[0]
 
-    assert "rm -rf /usr/local/lib/python3*/site-packages/pip" in base_stage
-    assert "/usr/local/lib/python3*/ensurepip" in base_stage
-    assert "pip install" not in base_stage
+    assert "rm -rf /usr/local/lib/python3*/site-packages/pip" in system_stage
+    assert "/usr/local/lib/python3*/ensurepip" in system_stage
+    assert "pip install" not in system_stage
+    assert "FROM backend-system AS backend-base" in text
 
 
 def test_backend_runtime_does_not_recursively_chown_application_tree():
