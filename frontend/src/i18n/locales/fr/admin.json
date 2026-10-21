@@ -387,7 +387,7 @@
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
     "scopePublish": "Publication",
-    "scopePublishDescription": "Ajoute et remplace des données et des cartes (sauf les jeux de données raster ou STAC), en conservant une version précédente des jeux de données remplacés. Elle ne peut pas supprimer de jeux de données, de cartes, d'entités ni de clés.",
+    "scopePublishDescription": "Ajoute et modifie vos propres données et cartes, et remplace les jeux de données téléversés en conservant une version précédente. Elle ne peut pas remplacer les jeux de données raster ou liés à un service, un élément STAC ou une table, écrire des entités ni rien supprimer.",
     "scopeDatasetWrite": "Un jeu de données",
     "scopeDatasetAppend": "Un jeu de données, ajout uniquement",
     "expiry": "Expiration",

@@ -406,7 +406,7 @@
     "scopeFull": "完全访问",
     "scopeReadOnly": "只读",
     "scopePublish": "发布",
-    "scopePublishDescription": "添加和替换数据与地图（栅格和 STAC 数据集除外），被替换的数据集保留一个先前版本。不能删除数据集、地图、要素或密钥。",
+    "scopePublishDescription": "添加和编辑您自己的数据与地图，并替换已上传的数据集，保留一个先前版本。不能替换栅格数据集或绑定到服务、STAC 项或数据表的数据集，不能写入要素，也不能删除任何内容。",
     "scopeDatasetWrite": "单个数据集",
     "scopeDatasetAppend": "单个数据集，仅添加",
     "expiry": "有效期",
