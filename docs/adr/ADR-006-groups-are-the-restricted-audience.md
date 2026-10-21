@@ -30,6 +30,9 @@ grants name groups, and roles stay permission tiers. Maps gain `restricted`.
   only with that group is then visible to its owner and admins.
 - Sharing a map lists the layers the group can't see and offers to share the
   owner's datasets too. Nothing is shared without that confirmation.
+- An ArcGIS migration run by an admin creates a GeoLens group for each mapped
+  portal group and adds the members who resolve to GeoLens users. Its report
+  lists members who don't resolve yet, and a rerun adds them once they do.
 
 In Community, groups are managed inside GeoLens. Filling groups from an
 identity provider's groups claim belongs with the existing paid identity
@@ -55,10 +58,11 @@ The change adds `restricted` to the published map visibility values, and older
 generated clients reject unknown values. Clients opt in with an
 `X-GeoLens-Map-Visibility: restricted` request header, negotiated the way
 `X-GeoLens-Auth-Mode` is, and every endpoint that returns a map honours it.
-The API's CORS allow-list carries it for split-origin deployments. The
-frontend, the CLI, the MCP server and the SDKs released with groups send it.
-For one minor release a request without it sees restricted maps as private;
-after that every client sees `restricted`.
+The API's CORS allow-list carries it for split-origin deployments, and map
+responses send `Vary: X-GeoLens-Map-Visibility` so a cache never hands one
+form to the other client. The frontend, the CLI, the MCP server and the SDKs
+released with groups send the header. For one minor release a request without
+it sees restricted maps as private; after that every client sees `restricted`.
 
 No GeoLens surface writes role grants, so rows exist only where someone
 inserted them directly. Those rows keep authorizing as they do today, so an
