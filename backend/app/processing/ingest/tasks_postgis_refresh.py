@@ -353,14 +353,18 @@ async def _repair_geom_4326(
             # with a bound value (`SET` takes no parameters). First, so every
             # statement below is covered, DDL included. The CASE skips
             # transaction_timeout before PostgreSQL 17, which doesn't know it.
-            # The inner call sets it to 0 first: a longer timer armed from the
-            # role or database setting isn't rescheduled by a new positive value.
+            # A shorter configured timeout stays. A longer one is set to 0 first
+            # (the inner call), since an armed timer isn't rescheduled by a new
+            # positive value.
             await session.execute(
                 text(
                     "SELECT set_config('statement_timeout', :ms, true), "
                     "       set_config('lock_timeout', :lock_ms, true), "
                     "       CASE WHEN current_setting('server_version_num')::int"
-                    " >= 170000 THEN set_config('transaction_timeout',"
+                    " >= 170000 AND (SELECT setting::int FROM pg_settings"
+                    " WHERE name = 'transaction_timeout')"
+                    " NOT BETWEEN 1 AND :tx_ms_int"
+                    " THEN set_config('transaction_timeout',"
                     " CASE WHEN set_config('transaction_timeout', '0', true) = '0'"
                     " THEN :tx_ms END, true) END"
                 ),
@@ -368,6 +372,7 @@ async def _repair_geom_4326(
                     "ms": str(_REPAIR_STATEMENT_TIMEOUT_MS),
                     "lock_ms": str(_REPAIR_LOCK_TIMEOUT_MS),
                     "tx_ms": str(_REPAIR_TRANSACTION_TIMEOUT_MS),
+                    "tx_ms_int": _REPAIR_TRANSACTION_TIMEOUT_MS,
                 },
             )
             # Columns, not the ORM instance: only the binding is needed, and

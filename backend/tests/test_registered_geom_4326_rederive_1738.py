@@ -709,11 +709,17 @@ async def test_the_whole_repair_transaction_is_bounded(
         await _drop(test_db_session, table_name)
 
 
-async def test_a_longer_armed_transaction_timeout_is_replaced(
-    test_db_session, monkeypatch
+@pytest.mark.parametrize(
+    ("configured", "repair_bound_ms"),
+    [("10min", 300), ("200ms", 60_000)],
+    ids=["longer-is-replaced", "shorter-is-kept"],
+)
+async def test_an_armed_transaction_timeout_meets_the_repair_bound(
+    test_db_session, monkeypatch, configured: str, repair_bound_ms: int
 ) -> None:
     """A role or database transaction_timeout arms its timer when the
-    transaction begins; the repair's shorter bound must still apply."""
+    transaction begins; whichever of it and the repair bound is shorter
+    applies."""
     if not await _server_has_transaction_timeout(test_db_session):
         pytest.skip("transaction_timeout needs PostgreSQL 17 or later")
     from app.core import db as core_db
@@ -723,7 +729,10 @@ async def test_a_longer_armed_transaction_timeout_is_replaced(
     @asynccontextmanager
     async def _session_with_a_long_timeout():
         async with real_async_session() as session:
-            await session.execute(text("SET transaction_timeout = '10min'"))
+            await session.execute(
+                text("SELECT set_config('transaction_timeout', :t, false)"),
+                {"t": configured},
+            )
             await session.commit()
             yield session
 
@@ -742,7 +751,7 @@ async def test_a_longer_armed_transaction_timeout_is_replaced(
             tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
         )
         monkeypatch.setattr(
-            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 300
+            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", repair_bound_ms
         )
         with patch(
             "app.processing.ingest.metadata.rederive_geom_4326",
