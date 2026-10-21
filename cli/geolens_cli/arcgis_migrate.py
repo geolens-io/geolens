@@ -164,7 +164,12 @@ def select_items(
 
 
 def _target_name(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
-    return item["target"]["owner"] or plan["owner_map"].get(item["owner"], "")
+    """The item's owner name: ``target.owner`` unless it is null (an empty
+    override stays empty), else ``owner_map``."""
+    override = item["target"]["owner"]
+    if override is not None:
+        return override
+    return plan["owner_map"].get(item["owner"], "")
 
 
 def _list_users(geolens: GeoLens) -> list[Any]:

@@ -753,3 +753,12 @@ def test_a_preflight_failure_keeps_the_cli_exit_codes_and_redacts(
     assert geolens.token not in result.output
     # A 401 on GEOLENS_TOKEN ends in the shared reauth refusal instead.
     assert status == 401 or "echo [REDACTED]" in result.output
+
+
+def test_an_empty_target_owner_does_not_fall_back_to_owner_map(
+    runner, tmp_path, geolens, handled
+):
+    result, _ = _run(runner, tmp_path, _plan([_item(L1, target_owner="")]))
+    assert result.exit_code == 2
+    assert "has no GeoLens owner" in result.output
+    assert handled == []
