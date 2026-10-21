@@ -336,7 +336,8 @@ def test_a_state_file_from_another_portal_is_refused(
 ):
     _write_state(tmp_path, {}, portal="https://other.example")
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
-    assert result.exit_code == 2 and "other.example" in result.output
+    assert result.exit_code == 2
+    assert "records a migration from" in result.output
     assert handled == []
 
 
@@ -349,7 +350,8 @@ def test_a_state_file_from_another_geolens_is_refused(
         instance="https://old.example.org/api",
     )
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
-    assert result.exit_code == 2 and "old.example.org" in result.output
+    assert result.exit_code == 2
+    assert "records a migration into" in result.output
     assert handled == [] and geolens.seen == []
 
 
