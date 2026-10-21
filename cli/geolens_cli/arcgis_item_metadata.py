@@ -10,6 +10,7 @@ descriptions and license text are HTML; they are stored as plain text.
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from collections.abc import Mapping
 from html.parser import HTMLParser
 from typing import Any
@@ -38,6 +39,8 @@ class _Text(HTMLParser):
             self._skip += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
+        elif tag in ("td", "th"):
+            self.parts.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style") and self._skip:
@@ -58,7 +61,8 @@ def html_to_text(value: str | None) -> str:
     parser = _Text()
     parser.feed(value)
     parser.close()
-    text = "".join(parser.parts)
+    # NFC, as GeoLens stores it, so a summary compares and hashes the same.
+    text = unicodedata.normalize("NFC", "".join(parser.parts))
     lines = (" ".join(line.split()) for line in text.splitlines())
     return "\n".join(line for line in lines if line)
 
@@ -80,7 +84,9 @@ def item_metadata(
             _NO_ANGLE_BRACKETS
         )[:MAX_ATTRIBUTION],
         "license": html_to_text(row.get("license_info"))[:MAX_LICENSE],
-        "source_organization": str((portal or {}).get("name") or "")[:MAX_ORGANIZATION],
+        "source_organization": unicodedata.normalize(
+            "NFC", str((portal or {}).get("name") or "")
+        )[:MAX_ORGANIZATION],
     }
     fields = {name: value for name, value in fields.items() if value}
     keywords = [t.strip()[:MAX_KEYWORD] for t in target.get("tags") or [] if t.strip()]

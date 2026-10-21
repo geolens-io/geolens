@@ -46,3 +46,15 @@ def test_an_attribution_never_carries_angle_brackets():
     }
     fields = item_metadata(row, {"tags": []}, None)
     assert fields["attribution"] == "County GIS (gis@example.org) & a ( b"
+
+
+def test_table_cells_keep_a_separator():
+    html = "<table><tr><td>CC BY</td><td>4.0</td></tr><tr><th>A</th><th>B</th></tr></table>"
+    assert html_to_text(html) == "CC BY 4.0\nA B"
+
+
+def test_text_is_normalized_like_geolens_stores_it():
+    decomposed = "Cafe\u0301 map"
+    fields = item_metadata({"snippet": decomposed}, {"tags": []}, {"name": decomposed})
+    assert fields["summary"] == "Caf\u00e9 map"
+    assert fields["source_organization"] == "Caf\u00e9 map"
