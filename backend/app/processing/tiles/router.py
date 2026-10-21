@@ -67,6 +67,7 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.processing.tiles.admission import tile_render_slot
+from app.processing.tiles import cluster_filter as cluster_filters
 from app.processing.tiles.cache_key import (
     generation_table_key as _generation_table_key,
     tile_cache_key,
@@ -2329,6 +2330,7 @@ def _cluster_cache_table_key(
     tile_cache_version: int,
     cluster_radius: int,
     cluster_max_zoom: int,
+    filter_digest: str | None = None,
 ) -> str:
     # The version tag pins the cluster SQL semantics. Bump it whenever
     # _build_cluster_tile_query changes the emitted tile geometry/properties, or
@@ -2336,7 +2338,8 @@ def _cluster_cache_table_key(
     generation = _generation_table_key(
         table_name, dataset_id, publication_version, tile_cache_version
     )
-    return f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    key = f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    return f"{key}:f{filter_digest}" if filter_digest else key
 
 
 async def _acquire_and_serve_tile(
@@ -2470,6 +2473,7 @@ async def cluster_tile_endpoint(
     cols: str | None = None,
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
+    layer_filter: str | None = Query(None, alias="filter", max_length=4096),
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user_fail_open),
 ) -> Response:
@@ -2496,7 +2500,10 @@ async def cluster_tile_endpoint(
 
     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-    features are grouped. ``cols`` works as it does on the vector route, and
+    features are grouped. ``filter`` is an optional CQL2-JSON expression over
+    the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+    points it keeps are clustered. An invalid expression responds 400. ``cols``
+    works as it does on the vector route, and
     the named columns are projected onto the unclustered features, so
     data-driven styling and popups keep working here too.
 
@@ -2541,6 +2548,8 @@ async def cluster_tile_endpoint(
         mode="cluster",
     )
 
+    filter_digest = cluster_filters.validated_digest(layer_filter)
+
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
     # In multi_tenant the cluster cache key is prefixed with the tenant id so
@@ -2557,6 +2566,7 @@ async def cluster_tile_endpoint(
         tile_cache_version=meta.tile_cache_version,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
+        filter_digest=filter_digest,
     )
 
     tile_cache = get_tile_cache()
@@ -2580,6 +2590,10 @@ async def cluster_tile_endpoint(
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
+
+    compiled_filter = await cluster_filters.compile_filter(
+        db, table_name, tenant_data_schema(_cluster_tid), layer_filter
+    )
 
     tenant_sem = _cluster_limiter if is_multi_tenant() else None
     # Authorization is complete; admission waits must not retain an API connection.
@@ -2617,6 +2631,8 @@ async def cluster_tile_endpoint(
                 cluster_max_zoom=cluster_max_zoom,
                 conn=conn,
                 schema=_schema,
+                filter_sql=compiled_filter.sql if compiled_filter else None,
+                filter_params=compiled_filter.params if compiled_filter else (),
             )
 
         return await _acquire_and_serve_tile(

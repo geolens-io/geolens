@@ -30502,6 +30502,10 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
          * Cluster Max Zoom
          */
         cluster_max_zoom?: number;
+        /**
+         * Filter
+         */
+        filter?: string | null;
     };
     url: '/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf';
 };

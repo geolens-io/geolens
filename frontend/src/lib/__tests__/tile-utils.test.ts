@@ -134,6 +134,13 @@ describe('buildClusterTileUrl', () => {
     );
   });
 
+  it('carries a CQL2 filter as an encoded filter param', () => {
+    const filter = JSON.stringify({ op: '=', args: [{ property: 'kind' }, 'a b'] });
+    const url = buildClusterTileUrl('my_table', null, 'https://tiles.example.com', null, { filter });
+
+    expect(new URL(url.replace('{z}/{x}/{y}', '0/0/0')).searchParams.get('filter')).toBe(filter);
+  });
+
   it('supports public or embed-token cluster tiles without signed params', () => {
     const url = buildClusterTileUrl('my_table', null, 'https://tiles.example.com', 'v1', {
       clusterRadius: 48,

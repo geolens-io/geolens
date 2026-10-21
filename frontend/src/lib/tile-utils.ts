@@ -191,7 +191,7 @@ export function buildClusterTileUrl(
   tileToken: { sig: string; exp: number; scope: string } | null,
   tileBaseUrl?: string | null,
   tileVersion?: string | number | null,
-  options: { clusterRadius?: number; clusterMaxZoom?: number } = {},
+  options: { clusterRadius?: number; clusterMaxZoom?: number; filter?: string } = {},
   extraCols?: string[] | null,
 ): string {
   const base = tileBaseUrl
@@ -205,6 +205,7 @@ export function buildClusterTileUrl(
   return appendTileParams(url, tileToken, tileVersion, {
     cluster_radius: options.clusterRadius,
     cluster_max_zoom: options.clusterMaxZoom,
+    filter: options.filter,
     ...(cols ? { cols } : {}),
   });
 }

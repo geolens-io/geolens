@@ -184,6 +184,25 @@ describe('syncLayersToMap cluster rendering', () => {
   // Server-cluster sources forward the data-driven / popup columns
   // as cols= so UNCLUSTERED features (past cluster max zoom) keep the
   // attributes their categorical paint and popups reference.
+  it('sends the layer filter to the server-cluster tile URL as CQL2', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['==', ['get', 'kind'], 'a'] as SyncLayerInput['filter'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(buildClusterTileUrl).toHaveBeenLastCalledWith(
+      'points',
+      VECTOR_TOKEN,
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ filter: JSON.stringify({ op: '=', args: [{ property: 'kind' }, 'a'] }) }),
+      ['kind'],
+    );
+  });
+
   it('forwards data-driven columns to the server-cluster tile URL', () => {
     const map = makeMockMap();
     const layer = makeLayer({

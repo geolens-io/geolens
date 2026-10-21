@@ -9,7 +9,7 @@ import type {
 import type { TileToken, UnsignedRasterTileTemplate } from '@/api/tiles';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { maplibreFilterToCql2, sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -247,6 +247,12 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
+/** The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is none or it has no CQL2 form (counts then include the hidden points). */
+function serverClusterFilter(layer: SyncLayerInput): string | undefined {
+  const cql2 = maplibreFilterToCql2(layer.filter);
+  return cql2 && cql2 !== 'unsupported' ? JSON.stringify(cql2) : undefined;
+}
+
 function nonBlank(value: string | null | undefined) {
   return value ? value : undefined;
 }
@@ -311,7 +317,7 @@ function vectorSource(
   return {
     type: 'vector',
     tiles: [serverCluster
-      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, clusterOptions(layer), cols)
+      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: serverClusterFilter(layer) }, cols)
       : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols)],
     minzoom: VECTOR_SOURCE_MINZOOM,
     maxzoom: serverCluster ? CLUSTER_SOURCE_MAXZOOM : VECTOR_SOURCE_MAXZOOM,

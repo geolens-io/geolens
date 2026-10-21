@@ -5676,7 +5676,10 @@ export interface paths {
          *
          *     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
          *     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-         *     features are grouped. ``cols`` works as it does on the vector route, and
+         *     features are grouped. ``filter`` is an optional CQL2-JSON expression over
+         *     the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+         *     points it keeps are clustered. An invalid expression responds 400. ``cols``
+         *     works as it does on the vector route, and
          *     the named columns are projected onto the unclustered features, so
          *     data-driven styling and popups keep working here too.
          *
@@ -43787,6 +43790,7 @@ export interface operations {
                 cols?: string | null;
                 cluster_radius?: number;
                 cluster_max_zoom?: number;
+                filter?: string | null;
             };
             header?: never;
             path: {

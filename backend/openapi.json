@@ -64056,7 +64056,7 @@
     },
     "/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf": {
       "get": {
-        "description": "Serve a server-side clustered vector tile for a point dataset.\n\nURL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``\n\nAuthorization matches the plain vector tile route, in three cases. A\npublic, published dataset is readable without credentials. A non-public\ndataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an\nembed token scoped to it, or an API key (``X-Api-Key`` header or\n``api_key`` query parameter) or bearer token for a caller with access to\nit. A public dataset that is not yet published is readable by its owner,\nby an admin, with an embed token, or with valid signature parameters. A\ncaller who cannot see the dataset gets the answer an unknown table gets,\nso a refusal never discloses that the table exists: 403 when an embed\ntoken, or an anonymous request's signature parameters, did not authorize\nit, and 404 otherwise.\n\nA request that no capability authorized and that carried a credential which\ndid not resolve is refused with 401 rather than served as an anonymous\nread, so an expired token is rejected instead of being silently downgraded.\nA request sending no credential is served normally.\n\n``cluster_radius`` is a screen-pixel distance, the same units MapLibre's\n``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which\nfeatures are grouped. ``cols`` works as it does on the vector route, and\nthe named columns are projected onto the unclustered features, so\ndata-driven styling and popups keep working here too.\n\nRequires a vector point dataset; another record type responds 400, as does\na malformed table path or an out-of-range tile coordinate.\n\nA tile holding no features answers 204, and a repeat request whose\n``If-None-Match`` matches answers 304. Where a deployment runs cold storage,\na dataset still being restored answers 202 with a job id to poll. Requests\nanswer 429 with ``Retry-After`` when the per-process capacity for uncached\nrenders stays full for a short wait, tile-pool acquisition times out, a\ntile query exceeds the pool's per-command timeout, or the configured\nper-tenant concurrency limit is exceeded. Any other failure serving the\ntile answers 503.",
+        "description": "Serve a server-side clustered vector tile for a point dataset.\n\nURL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``\n\nAuthorization matches the plain vector tile route, in three cases. A\npublic, published dataset is readable without credentials. A non-public\ndataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an\nembed token scoped to it, or an API key (``X-Api-Key`` header or\n``api_key`` query parameter) or bearer token for a caller with access to\nit. A public dataset that is not yet published is readable by its owner,\nby an admin, with an embed token, or with valid signature parameters. A\ncaller who cannot see the dataset gets the answer an unknown table gets,\nso a refusal never discloses that the table exists: 403 when an embed\ntoken, or an anonymous request's signature parameters, did not authorize\nit, and 404 otherwise.\n\nA request that no capability authorized and that carried a credential which\ndid not resolve is refused with 401 rather than served as an anonymous\nread, so an expired token is rejected instead of being silently downgraded.\nA request sending no credential is served normally.\n\n``cluster_radius`` is a screen-pixel distance, the same units MapLibre's\n``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which\nfeatures are grouped. ``filter`` is an optional CQL2-JSON expression over\nthe dataset's attribute columns, as the OGC items ``filter`` takes; only the\npoints it keeps are clustered. An invalid expression responds 400. ``cols``\nworks as it does on the vector route, and\nthe named columns are projected onto the unclustered features, so\ndata-driven styling and popups keep working here too.\n\nRequires a vector point dataset; another record type responds 400, as does\na malformed table path or an out-of-range tile coordinate.\n\nA tile holding no features answers 204, and a repeat request whose\n``If-None-Match`` matches answers 304. Where a deployment runs cold storage,\na dataset still being restored answers 202 with a job id to poll. Requests\nanswer 429 with ``Retry-After`` when the per-process capacity for uncached\nrenders stays full for a short wait, tile-pool acquisition times out, a\ntile query exceeds the pool's per-command timeout, or the configured\nper-tenant concurrency limit is exceeded. Any other failure serving the\ntile answers 503.",
         "operationId": "cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get",
         "parameters": [
           {
@@ -64181,6 +64181,23 @@
               "minimum": 0,
               "title": "Cluster Max Zoom",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
             }
           }
         ],

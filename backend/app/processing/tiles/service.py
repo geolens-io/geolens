@@ -1,6 +1,8 @@
 """Tile query builder and executor using PostGIS ST_AsMVT."""
 
 import re
+from collections.abc import Sequence
+from typing import Any
 
 import asyncpg
 import structlog
@@ -386,6 +388,7 @@ def _build_cluster_tile_query(
     table_name: str,
     schema: str = "data",
     attr_columns: list[dict] | None = None,
+    filter_sql: str | None = None,
 ) -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
@@ -394,6 +397,10 @@ def _build_cluster_tile_query(
     $6=cluster radius in CSS/screen pixels (MapLibre ``clusterRadius``
     semantics; converted to MVT extent units in-query via
     ``_CLUSTER_PX_TO_EXTENT_UNITS``).
+
+    ``filter_sql`` narrows the points before they are grouped, so cluster
+    counts match the features a layer filter keeps. It must come from
+    ``compile_cluster_filter`` (vetted column names, values as ``$7`` and up).
 
     The bucket grid anchors to the world minimum in absolute EPSG:3857
     coordinates, not the tile's own minx/miny, so adjacent tiles' grids line
@@ -477,6 +484,8 @@ def _build_cluster_tile_query(
         else ""
     )
 
+    filter_clause = f"\n      AND ({filter_sql})" if filter_sql else ""
+
     return f"""
 WITH
 _env AS (
@@ -534,7 +543,7 @@ candidates AS (
         ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
     FROM {qualified_table} t, scan
     WHERE t.geom_4326 && scan.geom_4326
-      AND NOT ST_IsEmpty(t.geom_4326)
+      AND NOT ST_IsEmpty(t.geom_4326){filter_clause}
     -- Deterministic under the input cap, so neighboring tiles
     -- that both see a straddling cell agree on membership and centroid.
     ORDER BY t.gid
@@ -780,6 +789,8 @@ async def get_cluster_tile(
     cluster_max_zoom: int = 14,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
+    filter_sql: str | None = None,
+    filter_params: Sequence[Any] = (),
 ) -> bytes | None:
     """Execute a server-side point-cluster MVT query.
 
@@ -805,6 +816,8 @@ async def get_cluster_tile(
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
             docstring for details).
         schema: Data schema name; defaults to ``"data"`` (single_tenant).
+        filter_sql: Compiled layer filter, see ``_build_cluster_tile_query``.
+        filter_params: Values for the filter's ``$7`` and up.
     """
     _validate_tile_table_name(table_name)
 
@@ -815,7 +828,7 @@ async def get_cluster_tile(
         additional_columns=additional_columns,
     )
     query = _build_cluster_tile_query(
-        table_name, schema=schema, attr_columns=attr_columns
+        table_name, schema=schema, attr_columns=attr_columns, filter_sql=filter_sql
     )
     layer_name = f"{schema}.{table_name}"
 
@@ -828,6 +841,7 @@ async def get_cluster_tile(
             layer_name,
             cluster_max_zoom,
             cluster_radius,
+            *filter_params,
         )
     else:
         result = await pool.fetchval(
@@ -838,6 +852,7 @@ async def get_cluster_tile(
             layer_name,
             cluster_max_zoom,
             cluster_radius,
+            *filter_params,
         )
 
     if result is None or len(result) == 0:

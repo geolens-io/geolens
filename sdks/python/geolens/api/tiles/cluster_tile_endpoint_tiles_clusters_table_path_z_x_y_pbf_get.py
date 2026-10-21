@@ -26,6 +26,7 @@ def _get_kwargs(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
+    filter_: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -61,6 +62,13 @@ def _get_kwargs(
     params["cluster_radius"] = cluster_radius
 
     params["cluster_max_zoom"] = cluster_max_zoom
+
+    json_filter_: None | str | Unset
+    if isinstance(filter_, Unset):
+        json_filter_ = UNSET
+    else:
+        json_filter_ = filter_
+    params["filter"] = json_filter_
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -151,6 +159,7 @@ def sync_detailed(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
+    filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
     """Cluster Tile Endpoint
 
@@ -177,7 +186,10 @@ def sync_detailed(
 
     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-    features are grouped. ``cols`` works as it does on the vector route, and
+    features are grouped. ``filter`` is an optional CQL2-JSON expression over
+    the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+    points it keeps are clustered. An invalid expression responds 400. ``cols``
+    works as it does on the vector route, and
     the named columns are projected onto the unclustered features, so
     data-driven styling and popups keep working here too.
 
@@ -204,6 +216,7 @@ def sync_detailed(
         cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
+        filter_ (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -224,6 +237,7 @@ def sync_detailed(
         cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
+        filter_=filter_,
     )
 
     response = client.get_httpx_client().request(
@@ -246,6 +260,7 @@ def sync(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
+    filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
     """Cluster Tile Endpoint
 
@@ -272,7 +287,10 @@ def sync(
 
     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-    features are grouped. ``cols`` works as it does on the vector route, and
+    features are grouped. ``filter`` is an optional CQL2-JSON expression over
+    the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+    points it keeps are clustered. An invalid expression responds 400. ``cols``
+    works as it does on the vector route, and
     the named columns are projected onto the unclustered features, so
     data-driven styling and popups keep working here too.
 
@@ -299,6 +317,7 @@ def sync(
         cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
+        filter_ (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -320,6 +339,7 @@ def sync(
         cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
+        filter_=filter_,
     ).parsed
 
 
@@ -336,6 +356,7 @@ async def asyncio_detailed(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
+    filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
     """Cluster Tile Endpoint
 
@@ -362,7 +383,10 @@ async def asyncio_detailed(
 
     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-    features are grouped. ``cols`` works as it does on the vector route, and
+    features are grouped. ``filter`` is an optional CQL2-JSON expression over
+    the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+    points it keeps are clustered. An invalid expression responds 400. ``cols``
+    works as it does on the vector route, and
     the named columns are projected onto the unclustered features, so
     data-driven styling and popups keep working here too.
 
@@ -389,6 +413,7 @@ async def asyncio_detailed(
         cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
+        filter_ (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -409,6 +434,7 @@ async def asyncio_detailed(
         cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
+        filter_=filter_,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -429,6 +455,7 @@ async def asyncio(
     cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
+    filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
     """Cluster Tile Endpoint
 
@@ -455,7 +482,10 @@ async def asyncio(
 
     ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
     ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
-    features are grouped. ``cols`` works as it does on the vector route, and
+    features are grouped. ``filter`` is an optional CQL2-JSON expression over
+    the dataset's attribute columns, as the OGC items ``filter`` takes; only the
+    points it keeps are clustered. An invalid expression responds 400. ``cols``
+    works as it does on the vector route, and
     the named columns are projected onto the unclustered features, so
     data-driven styling and popups keep working here too.
 
@@ -482,6 +512,7 @@ async def asyncio(
         cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
+        filter_ (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -504,5 +535,6 @@ async def asyncio(
             cols=cols,
             cluster_radius=cluster_radius,
             cluster_max_zoom=cluster_max_zoom,
+            filter_=filter_,
         )
     ).parsed
