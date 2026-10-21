@@ -48,6 +48,34 @@ function shortKeyword(wkt: string): string {
   return match ? match[1] + wkt.slice(match[0].length) : wkt;
 }
 
+// The tokens the catalog's ingestion reads: quoted strings, either bracket
+// form, commas and bare words, with optional whitespace between them.
+const WKT_TOKEN = /\s*(?:("(?:[^"]|"")*")|([[(])|([\])])|(,)|([^\s[\](),"]+))/y;
+
+/** The WKT with square brackets, no padding, and uppercase node keywords, so the rest of the parser sees one form. */
+export function normalizeWkt(wkt: string): string | null {
+  const text = wkt.trim();
+  const tokens: { text: string; opens?: boolean; bare?: boolean }[] = [];
+  WKT_TOKEN.lastIndex = 0;
+  while (WKT_TOKEN.lastIndex < text.length) {
+    const match = WKT_TOKEN.exec(text);
+    if (!match) return null;
+    const [, quoted, opening, closing, comma, bare] = match;
+    if (quoted !== undefined) tokens.push({ text: quoted });
+    else if (opening !== undefined) tokens.push({ text: '[', opens: true });
+    else if (closing !== undefined) tokens.push({ text: ']' });
+    else if (comma !== undefined) tokens.push({ text: ',' });
+    else tokens.push({ text: bare, bare: true });
+  }
+  return tokens
+    .map((token, i) => {
+      const keyword = token.bare && tokens[i + 1]?.opens;
+      const pad = token.bare && tokens[i - 1]?.bare ? ' ' : '';
+      return pad + (keyword ? token.text.toUpperCase() : token.text);
+    })
+    .join('');
+}
+
 export interface CopcCrs {
   /** WKT of the horizontal CRS; proj4 refuses a compound CRS as a whole. */
   horizontalWkt: string;
@@ -59,8 +87,10 @@ export interface CopcCrs {
  * The CRS parts the viewer needs from the file's WKT, or null when proj4
  * cannot use it (the dataset page then keeps its footprint view).
  */
-export function parseCopcCrs(wkt: string | undefined): CopcCrs | null {
-  if (!wkt || wkt.length > MAX_WKT_LENGTH) return null;
+export function parseCopcCrs(rawWkt: string | undefined): CopcCrs | null {
+  if (!rawWkt || rawWkt.length > MAX_WKT_LENGTH) return null;
+  const wkt = normalizeWkt(rawWkt);
+  if (!wkt) return null;
   const compound = COMPOUND.some((keyword) => wkt.startsWith(keyword));
   const projected = compound ? firstNode(wkt, PROJECTED) : null;
   const found = compound ? projected ?? firstNode(wkt, GEOGRAPHIC) : wkt;

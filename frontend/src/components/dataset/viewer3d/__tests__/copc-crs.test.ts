@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_WKT_LENGTH } from '../copc-limits';
-import { parseCopcCrs } from '../copc-crs';
+import { normalizeWkt, parseCopcCrs } from '../copc-crs';
 
 const UTM =
   'PROJCS["WGS 84 / UTM zone 10N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-123],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1]]';
@@ -40,6 +40,18 @@ describe('parseCopcCrs', () => {
     expect(parseCopcCrs(geographic)).toEqual({ horizontalWkt: geographic, zToMeters: 1 });
     const geographic2 = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[ellipsoidal,2],AXIS["lat",north],AXIS["lon",east],ANGLEUNIT["degree",0.0174532925199433]]';
     expect(parseCopcCrs(geographic2)?.zToMeters).toBe(1);
+  });
+
+  it('reads WKT with parentheses, padding and lowercase keywords as ingestion does', () => {
+    const alt = ` compoundcrs ("x" , ${UTM2.replace(/\[/g, ' (').replace(/\]/g, ')')} , vertcrs ("h", vdatum ("d"), cs (vertical, 1), axis ("H", up, lengthunit ("foot", 0.3048))) )`;
+    const crs = parseCopcCrs(alt);
+    expect(crs?.horizontalWkt).toBe(UTM2);
+    expect(crs?.zToMeters).toBeCloseTo(0.3048, 6);
+  });
+
+  it('normalizes brackets and keeps quoted text as written', () => {
+    expect(normalizeWkt('proj (  "a (b)" , up east )')).toBe('PROJ["a (b)",up east]');
+    expect(normalizeWkt('PROJ["unterminated')).toBeNull();
   });
 
   it('reads a plain WKT2 projected CRS', () => {
