@@ -81,6 +81,18 @@ describe('makeTilesetFetch', () => {
     expect(rawFetch).not.toHaveBeenCalled();
   });
 
+  it('refuses a POST Request to an own-path URL', async () => {
+    await expect(
+      makeTilesetFetch(ID)(new Request(`${ORIGIN}${OWN}tileset.json`, { method: 'POST', body: 'x' })),
+    ).rejects.toThrow(/refused/);
+    expect(rawFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses redirects, which would carry the credential elsewhere', async () => {
+    await makeTilesetFetch(ID)(`${OWN}tileset.json`);
+    expect(rawFetch.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
+  });
+
   it('refuses methods other than GET and HEAD', async () => {
     await expect(makeTilesetFetch(ID)(`${OWN}tileset.json`, { method: 'POST' })).rejects.toThrow(/refused/);
     expect(rawFetch).not.toHaveBeenCalled();

@@ -133,8 +133,8 @@ interface DatasetMapProps {
   containerRef?: RefObject<HTMLDivElement | null>;
   canEdit?: boolean;
   recordType?: string;
-  /** Draw this dataset's 3D Tiles tileset over the map. */
-  showTileset?: boolean;
+  /** The 3D Tiles tileset to draw over the map, when the viewer can draw it. */
+  tilesetUrl?: string | null;
   rasterTileUrl?: string | null;
   isDem?: boolean;
   /** ISO timestamp or version string appended to tile URLs to bust browser cache after mutations */
@@ -162,7 +162,7 @@ export const DatasetMap = memo(function DatasetMap({
   containerRef,
   canEdit = false,
   recordType,
-  showTileset = false,
+  tilesetUrl = null,
   rasterTileUrl,
   isDem,
   tileVersion,
@@ -1079,7 +1079,7 @@ export const DatasetMap = memo(function DatasetMap({
     setPendingGeometry(null);
   }, []);
 
-  if (!hasBbox && !tableName && !showTileset) {
+  if (!hasBbox && !tableName && !tilesetUrl) {
     return (
       <div className="flex items-center justify-center h-[500px] bg-muted rounded-md text-muted-foreground text-sm">
         {t('page.noSpatialExtent')}
@@ -1143,9 +1143,9 @@ export const DatasetMap = memo(function DatasetMap({
       >
         <NavigationControl position="top-right" />
 
-        {showTileset && mapInstance && datasetId && (
+        {tilesetUrl && mapInstance && datasetId && (
           <Suspense fallback={null}>
-            <Dataset3DOverlay datasetId={datasetId} fitToTileset={!hasBbox} />
+            <Dataset3DOverlay datasetId={datasetId} tilesetUrl={tilesetUrl} fitToTileset={!hasBbox} />
           </Suspense>
         )}
 

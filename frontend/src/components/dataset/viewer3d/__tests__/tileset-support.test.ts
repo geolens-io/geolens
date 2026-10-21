@@ -1,34 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import type { TilesetMetadata } from '@/types/api';
-import { canViewTileset } from '../tileset-support';
+import { viewableTilesetUrl } from '../tileset-support';
 
 const base: TilesetMetadata = { url: '/api/datasets/x/tiles3d/tileset.json' };
 
-describe('canViewTileset', () => {
+describe('viewableTilesetUrl', () => {
   it('views a tileset with unrecorded facts', () => {
-    expect(canViewTileset({ ...base, content_types: null, extensions_required: null })).toBe(true);
+    expect(viewableTilesetUrl({ ...base, content_types: null, extensions_required: null })).toBe(base.url);
   });
 
   it.each([['b3dm'], ['glb'], ['b3dm', 'cmpt', 'subtree']])('views content %s', (...types) => {
-    expect(canViewTileset({ ...base, content_types: types, extensions_required: [] })).toBe(true);
+    expect(viewableTilesetUrl({ ...base, content_types: types, extensions_required: [] })).toBe(base.url);
   });
 
   it.each(['vctr', 'geom', 'voxl'])('refuses %s content', (type) => {
-    expect(canViewTileset({ ...base, content_types: ['b3dm', type] })).toBe(false);
+    expect(viewableTilesetUrl({ ...base, content_types: ['b3dm', type] })).toBeNull();
   });
 
   it.each(['KHR_texture_basisu', '3DTILES_content_voxels'])('refuses the %s extension', (name) => {
-    expect(canViewTileset({ ...base, extensions_required: ['KHR_draco_mesh_compression', name] })).toBe(false);
+    expect(viewableTilesetUrl({ ...base, extensions_required: ['KHR_draco_mesh_compression', name] })).toBeNull();
   });
 
   it('views Draco and meshopt tilesets', () => {
     expect(
-      canViewTileset({ ...base, extensions_required: ['KHR_draco_mesh_compression', 'EXT_meshopt_compression'] }),
-    ).toBe(true);
+      viewableTilesetUrl({ ...base, extensions_required: ['KHR_draco_mesh_compression', 'EXT_meshopt_compression'] }),
+    ).toBe(base.url);
   });
 
   it('has nothing to view without a published tileset', () => {
-    expect(canViewTileset(null)).toBe(false);
-    expect(canViewTileset(undefined)).toBe(false);
+    expect(viewableTilesetUrl(null)).toBeNull();
+    expect(viewableTilesetUrl(undefined)).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import { Tiles3DLoader } from '@loaders.gl/3d-tiles';
 import createDracoDecoderModule from 'draco3d/draco_decoder_nodejs.js';
 import dracoWasmUrl from 'draco3d/draco_decoder.wasm?url';
 import { separateMeshoptFallbackViews } from './glb-meshopt-layout';
+import { requestUrl } from './tileset-fetch';
 
 // A content-less root meets loaders.gl's default error budget of 8 px at the
 // page's fit-to-extent zoom, so traversal would stop there and draw nothing.
@@ -37,7 +38,9 @@ export function createTilesetLayers(
 ): Layer[] {
   const tileFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await datasetFetch(input, init);
-    if (!response.ok || !String(input).split('?')[0].endsWith('.glb')) return response;
+    if (!response.ok || !new URL(requestUrl(input), window.location.origin).pathname.endsWith('.glb')) {
+      return response;
+    }
     const body = separateMeshoptFallbackViews(await response.arrayBuffer());
     return new Response(body, { status: response.status, headers: response.headers });
   };
@@ -47,7 +50,9 @@ export function createTilesetLayers(
       data: tilesetUrl,
       loader: Tiles3DLoader,
       loadOptions: {
-        core: { fetch: tileFetch, worker: false },
+        // CDN: null keeps loaders.gl from fetching decoders (KTX2's Basis
+        // transcoder) from a public CDN; a tileset that needs one fails here.
+        core: { fetch: tileFetch, worker: false, CDN: null },
         modules: { draco3d: draco3dModule },
         gltf,
         tileset: { maximumScreenSpaceError: MAXIMUM_SCREEN_SPACE_ERROR },

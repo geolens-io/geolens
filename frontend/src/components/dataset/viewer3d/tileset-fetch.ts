@@ -22,6 +22,10 @@ export function resolveTilesetUrl(raw: string, datasetId: string, origin: string
   return url.pathname.startsWith(prefix) ? url : null;
 }
 
+export function requestUrl(input: RequestInfo | URL): string {
+  return input instanceof Request ? input.url : String(input);
+}
+
 /**
  * A fetch for one dataset's tileset files. The session credential is attached
  * (and renewed on 401) by `authenticatedRawFetch`, but only for URLs that pass
@@ -32,9 +36,8 @@ export function makeTilesetFetch(
   datasetId: string,
 ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
   return async (input, init) => {
-    const raw = input instanceof Request ? input.url : String(input);
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-    const url = resolveTilesetUrl(raw, datasetId, window.location.origin);
+    const url = resolveTilesetUrl(requestUrl(input), datasetId, window.location.origin);
     if (!url || (method !== 'GET' && method !== 'HEAD')) {
       throw new Error('The 3D viewer refused a URL outside this dataset');
     }
@@ -42,6 +45,8 @@ export function makeTilesetFetch(
       ...init,
       method,
       credentials: 'same-origin',
+      // A redirect would carry the session credential to wherever it points.
+      redirect: 'error',
     });
   };
 }
