@@ -258,9 +258,19 @@ export function buildCategoricalExpression(
 export function categoricalFallbackOf(expression: unknown): string | null {
   if (!Array.isArray(expression)) return null;
   const last = expression[expression.length - 1];
-  // A case ends in its final arm: a colour, or the nested match behind a null guard
-  // whose own catch-all wins over the null branch's colour.
-  if (expression[0] === 'case') return typeof last === 'string' ? last : categoricalFallbackOf(last);
+  if (expression[0] === 'case') {
+    if (typeof last === 'string') return last;
+    // Only the generated null guard hands over its nested match's catch-all.
+    const cond = expression[1];
+    const isNullGuard =
+      expression.length === 4 &&
+      Array.isArray(cond) &&
+      cond[0] === '==' &&
+      cond[2] === null &&
+      Array.isArray(cond[1]) &&
+      cond[1][0] === 'get';
+    return isNullGuard ? categoricalFallbackOf(last) : null;
+  }
   return expression[0] === 'match' && typeof last === 'string' ? last : null;
 }
 

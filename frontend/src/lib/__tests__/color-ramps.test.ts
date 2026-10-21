@@ -461,6 +461,14 @@ describe('categoricalFallbackOf', () => {
     expect(categoricalFallbackOf(guarded)).toBe('#fedcba');
   });
 
+  it('does not take a nested match from a hand-authored case', () => {
+    const match = ['match', ['get', 'kind'], 'a', '#111111', '#fedcba'];
+    expect(categoricalFallbackOf(['case', ['>', ['get', 'n'], 3], '#ff0000', match])).toBeNull();
+    expect(
+      categoricalFallbackOf(['case', ['==', ['get', 'kind'], null], '#000000', ['has', 'x'], '#222222', match]),
+    ).toBeNull();
+  });
+
   it('reads the final arm of a general case expression', () => {
     expect(categoricalFallbackOf(['case', ['>', ['get', 'n'], 3], '#ff0000', '#cccccc'])).toBe('#cccccc');
   });
