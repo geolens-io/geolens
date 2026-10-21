@@ -117,7 +117,7 @@ _EXPOSE_HEADERS = "X-Total-Count, Content-Disposition, " + _PUBLIC_EXPOSE_HEADER
 # credential headers too. Answers that don't depend on a credential (a public
 # tile, a standards document) keep Vary: Origin alone, so a shared cache can
 # still serve them to everyone.
-_CREDENTIAL_VARY_HEADERS = ("Authorization", "X-Api-Key", "X-Embed-Token")
+_CREDENTIAL_VARY_HEADERS = ("Authorization", "Cookie", "X-Api-Key", "X-Embed-Token")
 
 
 def _merge_vary(response: Response, *names: str) -> None:

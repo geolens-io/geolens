@@ -273,6 +273,12 @@ async def test_a_listed_origin_keeps_its_credentialed_answer(client, allow_one_o
     assert resp.headers["access-control-allow-credentials"] == "true"
     assert "x-api-key" in resp.headers["vary"].lower()
 
+    session = await client.get(
+        "/search/datasets/?q=x",
+        headers={"Origin": _ALLOWED_ORIGIN, "Cookie": "session=not-a-real-session"},
+    )
+    assert "cookie" in session.headers["vary"].lower()
+
     anonymous = await client.get(
         "/search/datasets/?q=x", headers={"Origin": _ALLOWED_ORIGIN}
     )
