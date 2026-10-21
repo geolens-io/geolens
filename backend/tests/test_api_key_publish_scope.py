@@ -789,3 +789,43 @@ async def test_the_visibility_check_reads_the_map_under_its_lock(
     finally:
         monkeypatch.undo()
         await client.delete(f"/maps/{map_id}", headers=headers)
+
+
+@pytest.mark.anyio
+async def test_lowering_visibility_revokes_links_by_the_locked_read(
+    client: AsyncClient, owner, monkeypatch
+):
+    """A map published while the update waited for the lock still loses its links."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.maps import router as maps_router
+    from app.modules.catalog.maps.models import Map
+
+    headers, _ = owner
+    map_id = (await create_map_via_api(client, headers))["id"]
+    lock = maps_router.lock_map_layers
+    revoked: list[uuid.UUID] = []
+
+    async def published_while_waiting(session, locked_map_id):
+        await session.execute(
+            update(Map)
+            .where(Map.id == locked_map_id)
+            .values(visibility="public")
+            .execution_options(synchronize_session=False)
+        )
+        await lock(session, locked_map_id)
+
+    async def record_revoke(session, revoked_map_id):
+        revoked.append(revoked_map_id)
+
+    monkeypatch.setattr(maps_router, "lock_map_layers", published_while_waiting)
+    monkeypatch.setattr(maps_router, "revoke_share_token_by_map", record_revoke)
+    try:
+        resp = await client.put(
+            f"/maps/{map_id}", json={"visibility": "private"}, headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        assert revoked == [uuid.UUID(map_id)]
+    finally:
+        monkeypatch.undo()
+        await client.delete(f"/maps/{map_id}", headers=headers)

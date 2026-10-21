@@ -472,12 +472,13 @@ async def update_map_endpoint(
     await _refuse_publish_key_link_revocation(db, map_obj, body)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
-    # Auto-revoke share tokens when visibility moves away from public
+    # Auto-revoke share tokens when visibility moves away from public. Layer
+    # writers hold the map while they revoke tokens; taking it first keeps the
+    # two from waiting on each other, and the visibility read under it is current.
     if body.visibility is not None and body.visibility != MapVisibility.public:
-        if map_obj.visibility == "public":
-            # Layer writers hold the map while they revoke tokens; taking it
-            # first keeps the two from waiting on each other.
-            await lock_map_layers(db, map_id)
+        await lock_map_layers(db, map_id)
+        current = await db.scalar(select(Map.visibility).where(Map.id == map_id))
+        if current == "public":
             await revoke_share_token_by_map(db, map_id)
             # Embed tokens must be revoked too, or they keep serving tiles
             # for a now-private map.
