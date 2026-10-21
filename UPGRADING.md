@@ -63,6 +63,11 @@ docker compose up -d
 
 `restore.sh` takes a custom-format (`-Fc`) dump; never feed one to `psql`.
 
+If you downgrade the schema anyway, the downgrade of
+`0087_publish_api_keys` stops while any active API key has the Publish scope,
+because the older schema could only keep it as a full-access key. Revoke those
+keys in Settings > API keys (or as an admin), then run the downgrade again.
+
 ## Backups and disaster recovery
 
 The `backup` service runs by default. The

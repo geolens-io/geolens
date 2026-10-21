@@ -1,9 +1,10 @@
 from typing import Literal, cast
 
-ApiKeyCreateRequestScope = Literal["full", "read_only"]
+ApiKeyCreateRequestScope = Literal["full", "publish", "read_only"]
 
 API_KEY_CREATE_REQUEST_SCOPE_VALUES: set[ApiKeyCreateRequestScope] = {
     "full",
+    "publish",
     "read_only",
 }
 

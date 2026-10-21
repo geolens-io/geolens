@@ -11,6 +11,7 @@ type LimitedScope = Exclude<
 // until it has a label. Literal keys, so the unused-key checks see each one.
 const SCOPE_LABEL_KEYS: Record<LimitedScope, string> = {
   read_only: 'admin:apiKeys.scopeReadOnly',
+  publish: 'admin:apiKeys.scopePublish',
   dataset_write: 'admin:apiKeys.scopeDatasetWrite',
   dataset_append: 'admin:apiKeys.scopeDatasetAppend',
 };

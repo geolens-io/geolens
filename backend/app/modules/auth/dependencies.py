@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import monotonic
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Annotated, NoReturn
 
 import jwt
@@ -131,6 +131,48 @@ _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
 )
 
 
+# A publish key may do what a read_only key may, plus these exact (METHOD,
+# route template) pairs: writes that add something or that the catalog can
+# undo (a republish keeps the previous version). Every delete, feature write,
+# admin and key route stays out, since none of them can be undone. Same
+# matching rules and spelling as the read_only exemptions above; only the
+# spellings each route registers are listed.
+_PUBLISH_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/tiles/tokens/"),
+        ("POST", "/tiles/tokens"),
+        ("POST", "/ingest/upload"),
+        ("POST", "/ingest/upload/presigned"),
+        ("POST", "/ingest/upload/presigned/{job_id}/complete"),
+        ("POST", "/ingest/manifest/apply"),
+        ("POST", "/jobs/{job_id}/cancel"),
+        ("POST", "/jobs/{job_id}/retry"),
+        ("PATCH", "/datasets/{dataset_id}"),
+        ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}/"),
+        ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}"),
+        ("POST", "/records/{record_id}/keywords/"),
+        ("POST", "/records/{record_id}/keywords"),
+        ("POST", "/catalog/collections/{collection_id}/datasets/"),
+        ("POST", "/catalog/collections/{collection_id}/datasets"),
+        ("POST", "/datasets/{dataset_id}/refresh"),
+        ("POST", "/datasets/{dataset_id}/previous-version/restore"),
+        ("POST", "/datasets/{dataset_id}/reupload"),
+        ("POST", "/datasets/{dataset_id}/reupload/{job_id}/preview"),
+        ("POST", "/datasets/{dataset_id}/reupload/{job_id}/commit"),
+        ("POST", "/maps/"),
+        ("POST", "/maps"),
+        ("PUT", "/maps/{map_id}"),
+        ("POST", "/maps/import"),
+        ("PUT", "/maps/{map_id}/thumbnail/"),
+        ("PUT", "/maps/{map_id}/thumbnail"),
+        ("PUT", "/maps/{map_id}/og-image/"),
+        ("PUT", "/maps/{map_id}/og-image"),
+        ("POST", "/maps/{map_id}/share/"),
+        ("POST", "/maps/{map_id}/share"),
+    }
+)
+
+
 def _route_template(request: Request) -> str:
     """The matched route's path template, or a generic placeholder.
 
@@ -167,6 +209,30 @@ def _read_only_key_may_call(
     if value is None:
         return True
     return value.strip().lower() in _FALSEY_QUERY_VALUES
+
+
+def _publish_key_may_call(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
+    return (method, route_template) in _PUBLISH_KEY_ROUTES or _read_only_key_may_call(
+        method, route_template, query_params
+    )
+
+
+# The scopes a request can outgrow, each with the rule it must pass and the
+# message its refusal carries. Full keys and dataset keys aren't listed: a full
+# key may call anything, and a dataset key that strays resolves as no key.
+_ScopeRule = Callable[[str, str, Mapping[str, str] | None], bool]
+_SCOPE_RULES: dict[str, tuple[_ScopeRule, str]] = {
+    "read_only": (_read_only_key_may_call, "This API key is read-only"),
+    "publish": (
+        _publish_key_may_call,
+        "This API key has the publish scope, which can't delete data, write "
+        "features or reach admin and key routes",
+    ),
+}
 
 
 def _dataset_key_may_call(
@@ -367,18 +433,20 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     # to the anonymous/JWT path as a confusing 401. Runs AFTER the last_used_at
     # bump so a read-only key hammering writes still shows activity.
     route_template = _route_template(request)
-    if api_key_obj.scope == "read_only" and not _read_only_key_may_call(
+    may_call, refusal = _SCOPE_RULES.get(api_key_obj.scope, (None, ""))
+    if may_call is not None and not may_call(
         request.method, route_template, request.query_params
     ):
         log.warning(
             "api_key_scope_denied",
             user_id=str(user.id),
+            scope=api_key_obj.scope,
             method=request.method,
             path=route_template,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This API key is read-only",
+            detail={"code": "api_key_scope", "message": refusal},
         )
     record_api_key(
         db,

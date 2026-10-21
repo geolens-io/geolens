@@ -405,6 +405,8 @@
     "scope": "Scope",
     "scopeFull": "Full access",
     "scopeReadOnly": "Read only",
+    "scopePublish": "Publish",
+    "scopePublishDescription": "Uploads data and creates or updates datasets and maps. It can't delete anything or edit features.",
     "scopeDatasetWrite": "One dataset",
     "scopeDatasetAppend": "One dataset, add only",
     "expiry": "Expires",

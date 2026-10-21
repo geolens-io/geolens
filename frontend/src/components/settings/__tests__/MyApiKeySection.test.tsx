@@ -221,6 +221,38 @@ describe('#875: API key scope', () => {
     });
   });
 
+  it('submits the publish scope and says what it allows', async () => {
+    const user = userEvent.setup();
+    render(<MyApiKeySection />);
+
+    await user.click(screen.getByRole('button', { name: 'admin:apiKeys.createKey' }));
+    expect(screen.queryByText('apiKeys.scopePublishDescription')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('admin:apiKeys.keyName'), 'QGIS laptop');
+    await user.click(screen.getByRole('combobox', { name: 'apiKeys.scope' }));
+    await user.click(await screen.findByRole('option', { name: 'apiKeys.scopePublish' }));
+
+    expect(screen.getByRole('combobox', { name: 'apiKeys.scope' })).toHaveAccessibleDescription(
+      'apiKeys.scopePublishDescription',
+    );
+    await user.click(screen.getByRole('button', { name: 'create' }));
+    expect(defaultCreateMutation.mutateAsync).toHaveBeenCalledWith({
+      name: 'QGIS laptop',
+      scope: 'publish',
+      expiresAt: null,
+    });
+  });
+
+  it('badges a publish key in the list', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'publish' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.scopePublish')).toBeInTheDocument();
+  });
+
   it('badges a read_only key in the list', () => {
     vi.mocked(useMyApiKeys).mockReturnValue({
       data: [makeKey({ scope: 'read_only' })],

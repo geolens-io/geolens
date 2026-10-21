@@ -30,6 +30,7 @@ from tests.factories import create_dataset
 
 ADMIN_USER = settings.geolens_admin_username
 ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
+READ_ONLY_REFUSAL = {"code": "api_key_scope", "message": "This API key is read-only"}
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +147,7 @@ async def test_unknown_scope_is_rejected(client: AsyncClient):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("scope", ["full", "read_only"])
+@pytest.mark.parametrize("scope", ["full", "read_only", "publish"])
 async def test_scope_appears_in_the_audit_event(
     client: AsyncClient, test_db_session, scope
 ):
@@ -215,7 +216,7 @@ async def test_read_only_key_is_refused_on_post_with_403_not_401(
         headers={"X-Api-Key": raw_key},
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "This API key is read-only"
+    assert resp.json()["detail"] == READ_ONLY_REFUSAL
 
 
 @pytest.mark.anyio
@@ -228,7 +229,7 @@ async def test_read_only_key_is_refused_on_delete(client: AsyncClient):
         f"/auth/api-keys/{victim['id']}", headers={"X-Api-Key": raw_key}
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "This API key is read-only"
+    assert resp.json()["detail"] == READ_ONLY_REFUSAL
 
     # And the target key is still there.
     listing = await client.get("/auth/api-keys/", headers=headers)
@@ -256,7 +257,7 @@ async def test_read_only_key_is_refused_on_an_optional_auth_post(
         headers={"X-Api-Key": raw_key},
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "This API key is read-only"
+    assert resp.json()["detail"] == READ_ONLY_REFUSAL
 
 
 @pytest.mark.anyio
@@ -562,7 +563,7 @@ async def test_read_only_key_carve_out_works_in_both_directions(
         headers={"X-Api-Key": raw_key},
     )
     assert refused.status_code == 403
-    assert refused.json()["detail"] == "This API key is read-only"
+    assert refused.json()["detail"] == READ_ONLY_REFUSAL
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +689,7 @@ async def test_read_only_key_is_refused_on_the_writing_get_variant(
         headers={"X-Api-Key": raw_key},
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "This API key is read-only"
+    assert resp.json()["detail"] == READ_ONLY_REFUSAL
 
 
 @pytest.mark.anyio

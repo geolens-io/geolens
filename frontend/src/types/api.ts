@@ -242,7 +242,10 @@ export type JobStatusResponse = components['schemas']['JobStatusResponse'];
 // plain imports don't); `already` marks the idempotent repeat.
 export type JobCancelResponse = components['schemas']['JobCancelResponse'];
 
-/** 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
+/**
+ * 'read_only' keys authenticate GET/HEAD/OPTIONS only; 'publish' keys also
+ * upload and write metadata and maps, but never delete or write features.
+ */
 export type ApiKeyScope = components['schemas']['ApiKeyCreateRequest']['scope'];
 
 export type ApiKeyResponse = components['schemas']['AdminApiKeyListItem'];

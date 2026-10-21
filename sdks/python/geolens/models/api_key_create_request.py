@@ -26,7 +26,9 @@ class ApiKeyCreateRequest:
         expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
             null for a non-expiring key; expired keys stop authenticating.
         scope (ApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely. 'read_only'
-            authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. Default: 'full'.
+            authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows
+            uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route. Default:
+            'full'.
     """
 
     name: str

@@ -191,7 +191,8 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
     __table_args__ = (
         CheckConstraint(
-            "scope IN ('full', 'read_only', 'dataset_write', 'dataset_append')",
+            "scope IN ('full', 'read_only', 'dataset_write', 'dataset_append', "
+            "'publish')",
             name="chk_api_keys_scope",
         ),
         CheckConstraint(
@@ -226,8 +227,9 @@ class ApiKey(Base):
     # the bump stop resolving.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
     # Least-privilege machine credentials. A "read_only" key is limited to
-    # reads (see _read_only_key_may_call) and refused elsewhere at the
-    # resolution chokepoint (_resolve_api_key).
+    # reads (see _read_only_key_may_call) and a "publish" key to reads plus
+    # additive or restorable writes (see _publish_key_may_call); both are
+    # refused elsewhere at the resolution chokepoint (_resolve_api_key).
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )

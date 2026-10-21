@@ -386,6 +386,8 @@
     "scope": "Alcance",
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
+    "scopePublish": "Publicar",
+    "scopePublishDescription": "Sube datos y crea o actualiza conjuntos de datos y mapas. No puede eliminar nada ni editar entidades.",
     "scopeDatasetWrite": "Un conjunto de datos",
     "scopeDatasetAppend": "Un conjunto de datos, solo añadir",
     "expiry": "Caduca",

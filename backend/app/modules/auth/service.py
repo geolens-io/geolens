@@ -664,7 +664,9 @@ async def create_api_key_for_user(
     active owner.
 
     ``scope="read_only"`` mints a key limited to reads (see
-    ``_read_only_key_may_call``). The default matches the column default.
+    ``_read_only_key_may_call``), and ``scope="publish"`` one limited to reads
+    plus additive or restorable writes (see ``_publish_key_may_call``). The
+    default matches the column default.
 
     ``scope="dataset_write"`` and ``scope="dataset_append"`` require
     ``dataset_id`` and other scopes forbid it; the caller must already have

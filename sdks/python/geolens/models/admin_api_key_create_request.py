@@ -31,7 +31,8 @@ class AdminApiKeyCreateRequest:
             null for a non-expiring key; expired keys stop authenticating.
         scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely.
             'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-
-            account key minted for an application is the usual case for 'read_only'. Default: 'full'.
+            account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest
+            apply, and metadata and map writes, but no delete, feature write, admin or key route. Default: 'full'.
     """
 
     user_id: UUID

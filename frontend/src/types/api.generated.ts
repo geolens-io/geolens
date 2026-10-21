@@ -6016,11 +6016,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only";
+            scope: "full" | "read_only" | "publish";
         };
         /** AdminApiKeyListItem */
         AdminApiKeyListItem: {
@@ -6058,7 +6058,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
              */
             scope: string;
             /**
@@ -6519,11 +6519,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only";
+            scope: "full" | "read_only" | "publish";
         };
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
@@ -6551,7 +6551,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -6588,7 +6588,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -8385,7 +8385,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**

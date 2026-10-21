@@ -161,9 +161,9 @@ export type AdminApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route.
      */
-    scope?: 'full' | 'read_only';
+    scope?: 'full' | 'read_only' | 'publish';
 };
 
 /**
@@ -209,7 +209,7 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
      */
     scope: string;
     /**
@@ -795,9 +795,9 @@ export type ApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, and metadata and map writes, but no delete, feature write, admin or key route.
      */
-    scope?: 'full' | 'read_only';
+    scope?: 'full' | 'read_only' | 'publish';
 };
 
 /**
@@ -833,7 +833,7 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -879,7 +879,7 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -3353,7 +3353,7 @@ export type DatasetApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, and metadata and map writes, but no deletes or feature writes), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
