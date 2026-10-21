@@ -23,11 +23,13 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.request_credential import refuse_publish_key
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -81,6 +83,15 @@ async def restore_previous_version(
     active.
     """
     dataset = await _writable_dataset(db, dataset_id, user)
+    # A restore can reinstate only an upload's or a drawn layer's binding, so
+    # restoring over a service, STAC or table binding would lose it for good.
+    if classify_origin(dataset.source_format, dataset.record.record_type) not in (
+        "upload",
+        "created",
+    ):
+        refuse_publish_key(
+            db, "A publish key can't restore over a dataset bound to a remote origin"
+        )
     try:
         job, run = await admit_restore(
             db, dataset, user_id=user.id, expected=body.expected_version_number

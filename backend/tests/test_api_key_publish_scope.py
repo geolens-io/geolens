@@ -1026,6 +1026,15 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
             headers=publish,
         )
         assert _refused_with(completed, refusal), completed.text
+        restored = await client.post(
+            f"/datasets/{stac.id}/previous-version/restore",
+            json={"expected_version_number": 1},
+            headers=publish,
+        )
+        assert _refused_with(
+            restored,
+            "A publish key can't restore over a dataset bound to a remote origin",
+        ), restored.text
     finally:
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
