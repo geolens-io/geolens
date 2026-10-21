@@ -408,15 +408,39 @@ class TestGetJobStatus:
         assert len(data["warnings"]) == 1
         assert data["warnings"][0] == {
             "kind": "mercator_clip",
-            # `clip_skipped` is an additive detail field with a
-            # False default, so a stored warning without it still validates and
-            # serializes with the flag present and clear.
+            # `clip_skipped` and `polar_only` are additive detail fields with a
+            # False default, so a stored warning without them still validates and
+            # serializes with the flags present and clear.
             "details": {
                 "dropped_features": 12,
                 "clipped_features": 3,
                 "clip_skipped": False,
+                "polar_only": False,
             },
         }
+
+    async def test_get_job_surfaces_a_polar_only_clip(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from app.processing.ingest.tasks_common import _append_mercator_clip_warning
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
+        job.user_metadata = {"title": "World countries"}
+        _append_mercator_clip_warning(
+            job,
+            {
+                "shifted_longitudes": False,
+                "dropped_features": 1,
+                "clipped_features": 2,
+                "polar_only": True,
+            },
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+
+        assert resp.json()["warnings"][0]["details"]["polar_only"] is True
 
     async def test_get_job_surfaces_archive_failed(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
