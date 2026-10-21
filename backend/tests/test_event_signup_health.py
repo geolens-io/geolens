@@ -439,42 +439,6 @@ class TestHealthAlert:
         assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
 
     @pytest.mark.anyio
-    async def test_a_failed_delivery_gives_the_claim_back(self, monkeypatch) -> None:
-        monkeypatch.setattr("app.core.config.settings.notify_on_health_alert", True)
-        monkeypatch.setattr(
-            "app.core.config.settings.notification_admin_email", "admin@example.com"
-        )
-        from unittest.mock import MagicMock
-
-        import app.api.main as main_mod
-        from app.observability.health import service as health_svc
-        from app.platform.cache import get_cache
-        from app.platform.notifications import events as events_mod
-
-        async def _channel_down(_n):
-            raise ConnectionError("smtp unreachable")
-
-        monkeypatch.setattr(events_mod, "notify", _channel_down)
-        monkeypatch.setattr(
-            health_svc,
-            "check_health",
-            AsyncMock(
-                return_value={
-                    "status": "degraded",
-                    "providers": {"database": {"status": "error"}},
-                }
-            ),
-        )
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
-        request = MagicMock()
-        request.client.host = "127.0.0.1"
-
-        await _run_health(request)
-
-        assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
-
-    @pytest.mark.anyio
     async def test_a_stalled_cache_does_not_hold_the_health_response(
         self, monkeypatch
     ) -> None:

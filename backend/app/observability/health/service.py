@@ -4,15 +4,12 @@ import asyncio
 import time
 import uuid
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import Any, Coroutine
 
 import structlog
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
-
-if TYPE_CHECKING:
-    from app.platform.extensions.protocols import Notification
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -232,14 +229,3 @@ async def release_health_alert() -> None:
                 await cache.delete(_HEALTH_ALERT_KEY)
     except Exception as exc:  # broad: recovery must not fail on a cache fault
         logger.warning("health_alert_release_failed", error=str(exc))
-
-
-async def deliver_health_alert(build: "Callable[[], Notification]") -> None:
-    """Send the alert this process claimed.
-
-    A failed delivery gives the claim back, so another replica can alert.
-    """
-    from app.platform.notifications.events import emit_event_safe
-
-    if not await emit_event_safe(event_key="health_alert", build=build):
-        await release_health_alert()
