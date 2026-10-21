@@ -56,6 +56,10 @@ class MercatorClipDetail(BaseModel):
     # degenerates under ST_Transform (e.g. EPSG:4807 collapses it to a line);
     # counts are 0/0 then. Defaults False so older warnings validate.
     clip_skipped: bool = False
+    # True when every trimmed geometry was valid lon/lat data reaching past the
+    # box only at the poles. Defaults False so older warnings validate and keep
+    # the check-your-source wording.
+    polar_only: bool = False
 
     model_config = ConfigDict(extra="forbid")
 

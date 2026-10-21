@@ -27,11 +27,13 @@ class MercatorClipDetail:
             dropped_features (int):
             clipped_features (int):
             clip_skipped (bool | Unset):  Default: False.
+            polar_only (bool | Unset):  Default: False.
     """
 
     dropped_features: int
     clipped_features: int
     clip_skipped: bool | Unset = False
+    polar_only: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
         dropped_features = self.dropped_features
@@ -39,6 +41,8 @@ class MercatorClipDetail:
         clipped_features = self.clipped_features
 
         clip_skipped = self.clip_skipped
+
+        polar_only = self.polar_only
 
         field_dict: dict[str, Any] = {}
 
@@ -50,6 +54,8 @@ class MercatorClipDetail:
         )
         if clip_skipped is not UNSET:
             field_dict["clip_skipped"] = clip_skipped
+        if polar_only is not UNSET:
+            field_dict["polar_only"] = polar_only
 
         return field_dict
 
@@ -62,10 +68,13 @@ class MercatorClipDetail:
 
         clip_skipped = d.pop("clip_skipped", UNSET)
 
+        polar_only = d.pop("polar_only", UNSET)
+
         mercator_clip_detail = cls(
             dropped_features=dropped_features,
             clipped_features=clipped_features,
             clip_skipped=clip_skipped,
+            polar_only=polar_only,
         )
 
         return mercator_clip_detail

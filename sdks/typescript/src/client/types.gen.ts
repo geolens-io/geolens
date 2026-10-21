@@ -7299,6 +7299,10 @@ export type MercatorClipDetail = {
      * Clip Skipped
      */
     clip_skipped?: boolean;
+    /**
+     * Polar Only
+     */
+    polar_only?: boolean;
 };
 
 /**

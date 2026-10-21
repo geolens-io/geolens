@@ -201,6 +201,32 @@ async def _mercator_envelope_degenerates(
         return True
 
 
+async def _clip_candidates_are_polar_only(
+    session: AsyncSession, table_name: str, schema: str, src_srid: int, envelope: str
+) -> bool:
+    """True when the clip will trim geometry and all of it is valid lon/lat data.
+
+    Valid data reaches past the Mercator box only at the poles (Antarctica at
+    -90°). A geometry beyond longitude ±180° or latitude ±90° in EPSG:4326
+    points at swapped axes or a wrong CRS instead. A transform that raises
+    counts as out of range, since the coordinates are unusable then.
+    """
+    geom = "geom" if src_srid == 4326 else "ST_Transform(geom, 4326)"
+    probe = text(
+        f"SELECT count(*) > 0 AND NOT COALESCE(bool_or("
+        f"  ST_XMin({geom}) < -180 OR ST_XMax({geom}) > 180 "
+        f"  OR ST_YMin({geom}) < -90 OR ST_YMax({geom}) > 90), false) "
+        f"FROM {_qtable(table_name, schema=schema)} "
+        f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
+        f"  AND NOT ST_CoveredBy(geom, {envelope})"
+    )
+    try:
+        async with session.begin_nested():
+            return bool((await session.execute(probe)).scalar_one())
+    except DBAPIError:
+        return False
+
+
 async def clip_to_mercator_bounds(
     session: AsyncSession, table_name: str, schema: str = "data"
 ) -> "MercatorClipCounts | None":
@@ -222,8 +248,8 @@ async def clip_to_mercator_bounds(
     measure left to lose.
 
     Returns the clip accounting (``dropped_features``,
-    ``clipped_features``) so the caller can surface loss at the point it
-    happens. Returns None when the table has no registered ``geom``
+    ``clipped_features``, ``polar_only``) so the caller can surface loss at
+    the point it happens. Returns None when the table has no registered ``geom``
     metadata. Raises ``ValueError`` when a measured feature crosses the
     envelope; the ingest task's failure handling turns this into a job
     failure naming the count.
@@ -305,6 +331,10 @@ async def clip_to_mercator_bounds(
                 "measure values. Trim the data to that limit, then import again."
             )
 
+    polar_only = await _clip_candidates_are_polar_only(
+        session, table_name, schema, src_srid, envelope
+    )
+
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
     if force_dims is not None:
         clipped = f"{force_dims}({clipped})"
@@ -340,8 +370,11 @@ async def clip_to_mercator_bounds(
         )
     # No internal commit: the caller (_finalize_ingest) owns the phase-2
     # commit boundary, so a downstream failure rolls back this clip atomically.
-    return {
+    counts_out: "MercatorClipCounts" = {
         "shifted_longitudes": shifted,
         "dropped_features": dropped_features,
         "clipped_features": clipped_features,
     }
+    if polar_only:
+        counts_out["polar_only"] = True
+    return counts_out

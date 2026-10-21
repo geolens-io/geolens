@@ -16,7 +16,7 @@ describe('IngestWarningsBanner', () => {
     const user = userEvent.setup();
     render(<IngestWarningsBanner compact job={job([{
       kind: 'mercator_clip',
-      details: { dropped_features: 12, clipped_features: 3, clip_skipped: false },
+      details: { dropped_features: 12, clipped_features: 3, clip_skipped: false, polar_only: false },
     }])} />);
 
     const toggle = screen.getByRole('button', { name: /Some data may have changed/ });
@@ -44,7 +44,7 @@ describe('IngestWarningsBanner', () => {
         job={job([
           {
             kind: 'mercator_clip',
-            details: { dropped_features: 12, clipped_features: 3, clip_skipped: false },
+            details: { dropped_features: 12, clipped_features: 3, clip_skipped: false, polar_only: false },
           },
         ])}
       />,
@@ -66,13 +66,29 @@ describe('IngestWarningsBanner', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not blame the source when the clip only trimmed the poles', () => {
+    render(
+      <IngestWarningsBanner
+        job={job([
+          {
+            kind: 'mercator_clip',
+            details: { dropped_features: 1, clipped_features: 2, clip_skipped: false, polar_only: true },
+          },
+        ])}
+      />,
+    );
+
+    expect(screen.getByText(/Features near the poles were trimmed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Check both the coordinate order/)).not.toBeInTheDocument();
+  });
+
   it('uses the singular form for a single dropped feature', () => {
     render(
       <IngestWarningsBanner
         job={job([
           {
             kind: 'mercator_clip',
-            details: { dropped_features: 1, clipped_features: 0, clip_skipped: false },
+            details: { dropped_features: 1, clipped_features: 0, clip_skipped: false, polar_only: false },
           },
         ])}
       />,
@@ -97,6 +113,7 @@ describe('IngestWarningsBanner', () => {
               dropped_features: 0,
               clipped_features: 0,
               clip_skipped: true,
+              polar_only: false,
             },
           },
         ])}

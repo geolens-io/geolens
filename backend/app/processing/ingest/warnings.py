@@ -36,6 +36,9 @@ class MercatorClipDetail(TypedDict):
     # degenerates under ST_Transform into the source CRS (e.g. EPSG:4807
     # collapses to a line). Counts are 0/0 then; warn so it isn't silent.
     clip_skipped: NotRequired[bool]
+    # True when every trimmed geometry was valid lon/lat data reaching past the
+    # box only at the poles, so the source itself is not at fault.
+    polar_only: NotRequired[bool]
 
 
 class MercatorClipWarning(TypedDict):
@@ -49,13 +52,15 @@ class MercatorClipCounts(TypedDict):
     ``shifted_longitudes``: source was 0..360, translated to -180..180
     before the clip ran. ``clip_skipped``: clip didn't run
     because the safe envelope degenerated in the source CRS; the
-    longitude shift was still applied.
+    longitude shift was still applied. ``polar_only``: nothing the clip
+    trimmed lay outside longitude ±180° or latitude ±90°.
     """
 
     shifted_longitudes: bool
     dropped_features: int
     clipped_features: int
     clip_skipped: NotRequired[bool]
+    polar_only: NotRequired[bool]
 
 
 IngestJobWarning = (
@@ -121,4 +126,6 @@ def make_mercator_clip_warning(
     )
     if skipped:
         details["clip_skipped"] = True
+    if clip.get("polar_only") is True:
+        details["polar_only"] = True
     return MercatorClipWarning(kind="mercator_clip", details=details)

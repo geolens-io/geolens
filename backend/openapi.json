@@ -12647,6 +12647,11 @@
             "default": false,
             "title": "Clip Skipped",
             "type": "boolean"
+          },
+          "polar_only": {
+            "default": false,
+            "title": "Polar Only",
+            "type": "boolean"
           }
         },
         "required": [

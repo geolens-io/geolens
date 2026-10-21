@@ -72,16 +72,18 @@ function MercatorClipBody({
     dropped_features: dropped,
     clipped_features: clipped,
     clip_skipped: skipped,
+    polar_only: polarOnly,
   } = warning.details;
+  const descriptionKey = skipped
+    ? 'warnings.mercatorClip.skippedDescription'
+    : polarOnly
+      ? 'warnings.mercatorClip.polarDescription'
+      : 'warnings.mercatorClip.description';
   return (
     <div className="space-y-1">
       <p className="font-medium">{t('warnings.mercatorClip.title')}</p>
       <p className="text-xs text-muted-foreground">
-        {t(
-          skipped
-            ? 'warnings.mercatorClip.skippedDescription'
-            : 'warnings.mercatorClip.description',
-        )}
+        {t(descriptionKey)}
       </p>
       <ul className="mt-1 list-disc ps-4 text-xs">
         {dropped > 0 && (

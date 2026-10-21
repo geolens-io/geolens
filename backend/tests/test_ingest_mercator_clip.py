@@ -438,7 +438,11 @@ class TestClipAccounting(_FixtureTable):
 
         assert warning == {
             "kind": "mercator_clip",
-            "details": {"dropped_features": 1, "clipped_features": 0},
+            "details": {
+                "dropped_features": 1,
+                "clipped_features": 0,
+                "polar_only": True,
+            },
         }
 
     async def test_partial_clip_is_counted_separately_from_a_drop(
@@ -464,7 +468,11 @@ class TestClipAccounting(_FixtureTable):
         assert float(ymax) == pytest.approx(85.06)
         assert make_mercator_clip_warning(counts) == {
             "kind": "mercator_clip",
-            "details": {"dropped_features": 0, "clipped_features": 1},
+            "details": {
+                "dropped_features": 0,
+                "clipped_features": 1,
+                "polar_only": True,
+            },
         }
 
     async def test_a_measured_line_crossing_the_envelope_is_refused(
@@ -542,6 +550,7 @@ class TestClipAccounting(_FixtureTable):
             "shifted_longitudes": False,
             "dropped_features": 1,
             "clipped_features": 0,
+            "polar_only": True,
         }
         is_empty = await test_db_session.scalar(
             text(f"SELECT ST_IsEmpty(geom) FROM data.{TABLE}")
@@ -717,6 +726,7 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
             "shifted_longitudes": False,
             "dropped_features": 1,
             "clipped_features": 0,
+            "polar_only": True,
         }
 
     async def test_geographic_3d_crs_polar_clip_is_unchanged(self, test_db_session):
@@ -731,6 +741,7 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
             "shifted_longitudes": False,
             "dropped_features": 1,
             "clipped_features": 0,
+            "polar_only": True,
         }
 
     async def test_shift_still_runs_before_a_skipped_clip(
@@ -847,7 +858,11 @@ class TestMercatorClipWarningProducer:
         parsed = MercatorClipWarning.model_validate(
             {
                 "kind": "mercator_clip",
-                "details": {"dropped_features": 1, "clipped_features": 0},
+                "details": {
+                    "dropped_features": 1,
+                    "clipped_features": 0,
+                    "polar_only": True,
+                },
             }
         )
         assert parsed.details.clip_skipped is False
@@ -900,3 +915,43 @@ class TestAppendMercatorClipWarning:
         _append_mercator_clip_warning(job, None)
 
         assert job.user_metadata == {}
+
+
+class TestPolarOnlyClassification(_FixtureTable):
+    async def test_data_reaching_only_the_poles_is_polar_only(self, test_db_session):
+        await _seed_wkt(
+            test_db_session,
+            ["POLYGON((-180 -90, 180 -90, 180 -60, -180 -60, -180 -90))"],
+            "Polygon",
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None and counts.get("polar_only") is True
+
+    async def test_swapped_axes_are_not_polar_only(self, test_db_session):
+        """Latitudes past 90 can only be longitudes in the wrong column."""
+        await _seed_points(test_db_session, [(40.7, -74.0), (45.0, 120.0)])
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None and counts["dropped_features"] > 0
+        assert "polar_only" not in counts
+        warning = make_mercator_clip_warning(counts)
+        assert warning is not None and "polar_only" not in warning["details"]
+
+    async def test_one_out_of_range_geometry_among_polar_ones_is_not_polar_only(
+        self, test_db_session
+    ):
+        await _seed_points(test_db_session, [(0.0, -89.95), (400.0, 10.0)])
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None and "polar_only" not in counts
+
+    async def test_an_in_bounds_dataset_is_not_marked(self, test_db_session):
+        await _seed_points(test_db_session, [(-73.985, 40.748)])
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None and "polar_only" not in counts

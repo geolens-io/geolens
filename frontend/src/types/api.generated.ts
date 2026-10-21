@@ -11293,6 +11293,11 @@ export interface components {
              * @default false
              */
             clip_skipped: boolean;
+            /**
+             * Polar Only
+             * @default false
+             */
+            polar_only: boolean;
         };
         /** MercatorClipWarning */
         MercatorClipWarning: {

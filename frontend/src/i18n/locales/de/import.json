@@ -102,6 +102,7 @@
     "mercatorClip": {
       "title": "Geometrie außerhalb der Web-Mercator-Grenzen",
       "description": "GeoLens liefert Web-Mercator-Kacheln, die Längengrade von -180° bis 180° und Breitengrade von -85,06° bis 85,06° abdecken. Geometrie außerhalb dieses Rahmens wurde beim Import abgeschnitten. Die Zeilen sind weiterhin im Datensatz enthalten; nur ihre Geometrie hat sich geändert. Prüfen Sie sowohl die Reihenfolge als auch den Wertebereich der Quellkoordinaten.",
+      "polarDescription": "GeoLens liefert Web-Mercator-Kacheln, die bei den Breitengraden -85,06° und 85,06° enden. Objekte in Polnähe wurden beim Import auf diese Grenze gekürzt. Das ist bei globalen Daten normal, der Rest jeder Zeile bleibt unverändert.",
       "skippedDescription": "Das Quell-Koordinatensystem hat einen engen Gültigkeitsbereich: Die Web-Mercator-Grenzen konnten darin nicht ausgedrückt werden, daher wurde die Grenzprüfung übersprungen. Es wurde keine Geometrie entfernt, aber Geometrie außerhalb der Längengrade -180° bis 180° oder der Breitengrade -85,06° bis 85,06° kann weiterhin vorhanden sein und wird auf der Karte nicht dargestellt.",
       "dropped_one": "{{count}} Objekt hat seine Geometrie vollständig verloren",
       "dropped_other": "{{count}} Objekte haben ihre Geometrie vollständig verloren",

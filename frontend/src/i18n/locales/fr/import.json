@@ -102,6 +102,7 @@
     "mercatorClip": {
       "title": "Géométrie en dehors des limites Web Mercator",
       "description": "GeoLens diffuse des tuiles Web Mercator, qui couvrent les longitudes de -180° à 180° et les latitudes de -85,06° à 85,06°. La géométrie située en dehors de ce cadre a été découpée lors de l'importation. Les lignes restent dans le jeu de données : seule leur géométrie a changé. Vérifiez à la fois l'ordre et la plage des coordonnées source.",
+      "polarDescription": "GeoLens sert des tuiles Web Mercator, qui s'arrêtent aux latitudes -85,06° et 85,06°. Les entités proches des pôles ont été tronquées à cette limite lors de l'import. C'est normal pour des données mondiales, et le reste de chaque ligne est inchangé.",
       "skippedDescription": "Le système de coordonnées source a une zone de validité étroite : les limites Web Mercator n'ont pas pu y être exprimées et la vérification des limites a été ignorée. Aucune géométrie n'a été supprimée, mais une géométrie en dehors des longitudes -180° à 180° ou des latitudes -85,06° à 85,06° peut subsister et ne s'affichera pas sur la carte.",
       "dropped_one": "{{count}} entité a perdu toute sa géométrie",
       "dropped_other": "{{count}} entités ont perdu toute leur géométrie",
