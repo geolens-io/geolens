@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.middleware.liveness import is_liveness_request
+from app.platform.request_credential import header_api_key_evaluated
 from app.standards.ogc.utils import standards_api_path
 
 # In-memory cache to avoid a DB pool checkout on every CORS request.
@@ -55,23 +56,32 @@ _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 _ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 
-# A script that sends a key in the X-Api-Key header already holds it, so CORS
-# has no ambient credential to guard on that lane and any origin may read the
-# answer. Cookies, bearer tokens, embed tokens and query-string keys are ambient
-# or leak-prone and never qualify. A preflight can't carry the key, so it
-# qualifies when it asks for x-api-key and only these headers besides.
-_HEADER_KEY_ALLOWED_HEADER_NAMES: tuple[str, ...] = (
-    "X-Api-Key",
+# Request headers no credential rides on: the CORS-safelisted names, and the
+# range and conditional headers an asset or download answers.
+_SAFE_REQUEST_HEADERS = (
     "Content-Type",
     "Accept",
     "Accept-Language",
     "Content-Language",
+)
+_CONDITIONAL_HEADERS = ("Range", "If-Range", "If-None-Match", "If-Match")
+_SAFE_REQUEST_LOWER = frozenset(h.lower() for h in _SAFE_REQUEST_HEADERS)
+_CONDITIONAL_LOWER = frozenset(h.lower() for h in _CONDITIONAL_HEADERS)
+
+_CREDENTIAL_HEADERS = ("authorization", "cookie", "x-api-key", "x-embed-token")
+_CREDENTIAL_QUERY_PARAMS = ("api_key", "embed_token")
+
+# A script that sends a key in the X-Api-Key header already holds it, so CORS
+# has no ambient credential to guard on that lane and any origin may read the
+# answer. Cookies, bearer tokens, embed tokens and query-string credentials are
+# ambient or leak-prone and never qualify. A preflight can't carry the key, so
+# it qualifies when it asks for x-api-key and only these headers besides.
+_HEADER_KEY_ALLOWED_HEADER_NAMES = (
+    "X-Api-Key",
+    *_SAFE_REQUEST_HEADERS,
     "Idempotency-Key",
     "Idempotency-Attempt",
-    "Range",
-    "If-Range",
-    "If-None-Match",
-    "If-Match",
+    *_CONDITIONAL_HEADERS,
 )
 _HEADER_KEY_ALLOWED_HEADERS = ", ".join(_HEADER_KEY_ALLOWED_HEADER_NAMES)
 _HEADER_KEY_ALLOWED_LOWER = frozenset(
@@ -80,10 +90,11 @@ _HEADER_KEY_ALLOWED_LOWER = frozenset(
 
 _ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
-_EXPOSE_HEADERS = (
-    "X-Total-Count, Link, Content-Crs, Content-Language, "
-    "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
-    "Retry-After, "
+# What every policy lets a script read. The anonymous public answer omits the
+# two headers only authenticated routes send.
+_PUBLIC_EXPOSE_HEADERS = (
+    "Link, Content-Crs, Content-Language, Retry-After, "
+    "ETag, Content-Range, Accept-Ranges, "
     "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
     "X-GeoLens-Excluded-Dataset-Count, "
     "X-GeoLens-Metadata-Fallback-Dataset-Count, "
@@ -96,10 +107,15 @@ _EXPOSE_HEADERS = (
     # exposed to read it at all.
     "X-GeoLens-Tile-Cache-Version"
 )
+_EXPOSE_HEADERS = "X-Total-Count, Content-Disposition, " + _PUBLIC_EXPOSE_HEADERS
+
+# The answer depends on the Origin and on which credential headers came, so a
+# cache keyed on the URL alone must not replay one variant for another.
+_VARY_HEADERS = ("Origin", "Authorization", "X-Api-Key", "X-Embed-Token")
 
 
-def _merge_vary_origin(response: Response) -> None:
-    """Declare that this response was derived from the request's ``Origin``.
+def _merge_vary(response: Response, *names: str) -> None:
+    """Declare that this response was derived from the request headers ``names``.
 
     The answer depends on origin, so a cache keyed without
     ``Origin`` could replay one origin's CORS headers to another (the
@@ -125,8 +141,8 @@ def _merge_vary_origin(response: Response) -> None:
     if any(token == "*" for token in tokens):
         return
 
-    if not any(token.lower() == "origin" for token in tokens):
-        tokens.append("Origin")
+    present = {token.lower() for token in tokens}
+    tokens.extend(name for name in names if name.lower() not in present)
 
     # Assignment (not ``append``) so duplicate field-lines collapse into one.
     response.headers["Vary"] = ", ".join(tokens)
@@ -144,7 +160,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         # One call at the one exit: every representation this middleware returns is
         # origin-dependent, and two of the four policy-writer branches return without
         # calling it.
-        _merge_vary_origin(response)
+        _merge_vary(response, *_VARY_HEADERS)
         return response
 
     async def _dispatch(self, request: Request, call_next) -> Response:
@@ -165,47 +181,57 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
         if not allowed:
             if self._is_header_key_request(request):
-                if request.method == "OPTIONS":
-                    response = Response(status_code=status.HTTP_200_OK)
-                else:
-                    # The answer is readable by any origin, so a cookie the
-                    # browser attached must not authenticate anything here.
-                    request.scope["headers"] = [
-                        (name, value)
-                        for name, value in request.scope["headers"]
-                        if name != b"cookie"
-                    ]
-                    response = await call_next(request)
-                self._set_header_key_cors_headers(response)
-                return response
+                return await self._answer_header_key(request, call_next)
 
             # Standards discovery and anonymous catalog search are meant to
             # be usable by anonymous browser clients by default. A wildcard
             # is safe here since credential-bearing requests are excluded
             # and Access-Control-Allow-Credentials is never emitted.
             allow_methods = self._anonymous_public_methods(request)
-            if allow_methods is not None:
-                if request.method == "OPTIONS":
-                    response = Response(status_code=status.HTTP_200_OK)
-                else:
-                    response = await call_next(request)
-                    if (
-                        self._public_asset_methods(request) is not None
-                        and response.status_code not in _ASSET_WILDCARD_STATUSES
-                    ):
-                        return response
-                self._set_public_cors_headers(response, request, allow_methods)
+            if allow_methods is None:
+                return await call_next(request)
+            response = await self._answer(request, call_next)
+            if (
+                self._public_asset_methods(request) is not None
+                and response.status_code not in _ASSET_WILDCARD_STATUSES
+            ):
                 return response
-
-            return await call_next(request)
-
-        if request.method == "OPTIONS":
-            response = Response(status_code=status.HTTP_200_OK)
-            self._set_cors_headers(response, origin)
+            self._set_public_cors_headers(response, request, allow_methods)
             return response
 
-        response = await call_next(request)
+        response = await self._answer(request, call_next)
         self._set_cors_headers(response, origin)
+        return response
+
+    @staticmethod
+    async def _answer(request: Request, call_next) -> Response:
+        """An OPTIONS request's empty 200, or the route's own response."""
+        if request.method == "OPTIONS":
+            return Response(status_code=status.HTTP_200_OK)
+        return await call_next(request)
+
+    async def _answer_header_key(self, request: Request, call_next) -> Response:
+        """Serve a header-key request; any origin may read what its key unlocked.
+
+        A response gets the wildcard only when the auth layer looked the key up,
+        so a made-up key opens no route that never reads one.
+        """
+        if self._is_preflight(request):
+            response = Response(status_code=status.HTTP_200_OK)
+            self._set_header_key_cors_headers(response)
+            return response
+        # Everything below builds its own Request from this scope, so dropping
+        # the header here keeps a browser's cookie from authenticating anything.
+        request.scope["headers"] = [
+            (name, value)
+            for name, value in request.scope["headers"]
+            if name != b"cookie"
+        ]
+        # Shared with the auth layer, which marks it when it reads the key.
+        request.scope.setdefault("state", {})
+        response = await call_next(request)
+        if header_api_key_evaluated(request.scope):
+            self._set_header_key_cors_headers(response)
         return response
 
     async def _is_origin_allowed(self, origin: str) -> bool:
@@ -274,14 +300,27 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             if value.strip()
         }
 
+    @staticmethod
+    def _is_preflight(request: Request) -> bool:
+        return request.method == "OPTIONS" and bool(
+            request.headers.get("access-control-request-method")
+        )
+
     @classmethod
     def _is_header_key_request(cls, request: Request) -> bool:
-        """Whether this request is on the header-key lane, preflight included."""
-        if request.method == "OPTIONS" and request.headers.get(
-            "access-control-request-method"
-        ):
+        """Whether this request is on the header-key lane, preflight included.
+
+        Under ``/auth/`` only ``/auth/me`` takes a keyed preflight: the rest are
+        sign-in, registration and session routes, which no key script calls.
+        """
+        if cls._is_preflight(request):
+            path = cls._request_path(request)
+            if path.startswith("/auth/") and path.rstrip("/") != "/auth/me":
+                return False
             requested = cls._requested_headers(request)
             return "x-api-key" in requested and requested <= _HEADER_KEY_ALLOWED_LOWER
+        if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
+            return False
         return bool(request.headers.get("x-api-key")) and not (
             request.headers.get("authorization") or request.headers.get("x-embed-token")
         )
@@ -328,7 +367,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         request_path = cls._request_path(request)
         standards_path = standards_api_path(request_path)
         asset_methods = cls._public_asset_methods(request)
-        asset_headers: set[str] = set()
+        asset_headers: frozenset[str] = frozenset()
         stac_search = False
         if standards_path is not None:
             allow_methods = _STANDARDS_PUBLIC_METHODS
@@ -340,7 +379,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         elif asset_methods is not None:
             allow_methods = asset_methods
             permitted = {m.strip() for m in asset_methods.split(",")} - {"OPTIONS"}
-            asset_headers = {"range", "if-range", "if-none-match", "if-match"}
+            asset_headers = _CONDITIONAL_LOWER
         else:
             return None
 
@@ -353,25 +392,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             return None
 
         # The anonymous wildcard never covers a credential, preflights included.
-        credential_headers = {
-            "authorization",
-            "cookie",
-            "x-api-key",
-            "x-embed-token",
-        }
-        if any(request.headers.get(header) for header in credential_headers):
+        if any(request.headers.get(header) for header in _CREDENTIAL_HEADERS):
             return None
-        if "api_key" in request.query_params or "embed_token" in request.query_params:
+        if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
             return None
-
-        requested_headers = cls._requested_headers(request)
-        allowed_headers = {
-            "accept",
-            "accept-language",
-            "content-language",
-            "content-type",
-        }
-        if not requested_headers <= allowed_headers | asset_headers:
+        if not cls._requested_headers(request) <= _SAFE_REQUEST_LOWER | asset_headers:
             return None
         return allow_methods
 
@@ -396,19 +421,5 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         requested_headers = request.headers.get("access-control-request-headers")
         if requested_headers:
             response.headers["Access-Control-Allow-Headers"] = requested_headers
-        response.headers["Access-Control-Expose-Headers"] = (
-            "Link, Content-Crs, Content-Language, Retry-After, "
-            "ETag, Content-Range, Accept-Ranges, "
-            "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
-            "X-GeoLens-Excluded-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Fields, "
-            # Says whether numberMatched is exact or the planner's
-            # estimate on a filtered feature page.
-            "X-GeoLens-Number-Matched, "
-            # The feature delete route's committed tile_cache_version; a 204
-            # has no body to carry it in, so a cross-origin caller needs it
-            # exposed to read it at all.
-            "X-GeoLens-Tile-Cache-Version"
-        )
+        response.headers["Access-Control-Expose-Headers"] = _PUBLIC_EXPOSE_HEADERS
         response.headers["Access-Control-Max-Age"] = "3600"

@@ -37,7 +37,7 @@ What these tests pin, beyond "the header is present":
 import pytest
 from starlette.responses import Response
 
-from app.api.middleware.cors import _merge_vary_origin
+from app.api.middleware.cors import _merge_vary
 
 _FOREIGN_ORIGIN = "https://cors-1602.example.org"
 _ALLOWED_ORIGIN = "https://allowed-1602.example.com"
@@ -317,7 +317,7 @@ def test_merge_vary_origin(existing, expected):
     if existing is not None:
         response.headers["Vary"] = existing
 
-    _merge_vary_origin(response)
+    _merge_vary(response, "Origin")
 
     assert response.headers.getlist("Vary") == [expected]
 
@@ -334,7 +334,7 @@ def test_merge_vary_origin_collapses_duplicate_field_lines():
     response.headers.append("Vary", "Accept-Language")
     response.headers.append("Vary", "Accept-Encoding")
 
-    _merge_vary_origin(response)
+    _merge_vary(response, "Origin")
 
     assert response.headers.getlist("Vary") == [
         "Accept-Language, Accept-Encoding, Origin"

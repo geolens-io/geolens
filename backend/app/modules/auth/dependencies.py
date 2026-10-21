@@ -25,6 +25,7 @@ from app.platform.extensions import get_identity_extension, get_permission_exten
 from app.platform.request_credential import (
     DATASET_KEY_SCOPE_ROUTES,
     ApiKeyCredential,
+    mark_header_api_key_evaluated,
     record_api_key,
 )
 
@@ -298,6 +299,8 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     api_key = _supplied_api_key(request)
     if not api_key:
         return None
+    if request.headers.get("X-Api-Key"):
+        mark_header_api_key_evaluated(request.scope)
     # codeql[py/weak-sensitive-data-hashing] API keys are server-minted 256-bit random tokens; SHA-256 makes a lookup key, not password storage
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     result = await db.execute(

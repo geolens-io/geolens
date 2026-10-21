@@ -3,18 +3,33 @@
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
 same request, and to nothing else. Also the routes each dataset-bound key
-scope may call.
+scope may call, and whether a request's header key was looked up, which the
+CORS layer reads.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _SESSION_KEY = "geolens.api_key_credential"
+_HEADER_KEY_EVALUATED = "geolens.header_api_key_evaluated"
+
+
+def mark_header_api_key_evaluated(scope: MutableMapping[str, Any]) -> None:
+    """Record that the auth layer looked up this request's X-Api-Key header."""
+    scope.setdefault("state", {})[_HEADER_KEY_EVALUATED] = True
+
+
+def header_api_key_evaluated(scope: Mapping[str, Any]) -> bool:
+    """Whether the auth layer looked up this request's X-Api-Key, valid or not."""
+    return bool(scope.get("state", {}).get(_HEADER_KEY_EVALUATED))
+
 
 # The only routes a dataset_write key authenticates, as exact (METHOD, route
 # template) pairs: reading and writing features of the dataset each template

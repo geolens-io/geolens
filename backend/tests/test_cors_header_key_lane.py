@@ -3,9 +3,11 @@
 A script that sends a key in a header already holds it, so there is no ambient
 credential for CORS to guard. The answer is ``Access-Control-Allow-Origin: *``
 with no credentials flag, so a browser never pairs it with cookies, and the
-middleware drops any cookie before the request is served. Bearer tokens,
-cookies, embed tokens and query-string keys keep the old rule: no wildcard
-outside ``CORS_ALLOWED_ORIGINS``.
+middleware drops any cookie before the request is served. A response gets the
+wildcard only when the auth layer looked the key up, so a made-up key opens no
+route that never reads one. Bearer tokens, cookies, embed tokens and
+query-string credentials keep the old rule: no wildcard outside
+``CORS_ALLOWED_ORIGINS``.
 """
 
 import uuid
@@ -18,6 +20,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from app.api.middleware.cors import DynamicCORSMiddleware
+from app.platform.request_credential import mark_header_api_key_evaluated
 from app.core.config import settings
 from tests.conftest import get_auth_header
 from tests import test_api_key_scope_875 as _scope_tests
@@ -155,6 +158,85 @@ async def test_a_key_sent_with_another_credential_gets_no_wildcard(
 
 
 @pytest.mark.anyio
+async def test_a_made_up_key_opens_no_route_that_never_reads_one(
+    client, allow_one_origin
+):
+    resp = await client.get(
+        "/settings/branding/",
+        headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "not-a-real-key"},
+    )
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("param", ["api_key", "embed_token"])
+async def test_a_header_key_with_a_query_credential_gets_no_wildcard(
+    client, allow_one_origin, param
+):
+    resp = await client.get(
+        "/auth/me/",
+        params={param: "x"},
+        headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": await _full_key(client)},
+    )
+    assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path,allowed",
+    [
+        ("/auth/me/", True),
+        ("/auth/me", True),
+        ("/auth/login", False),
+        ("/auth/register/", False),
+        ("/auth/oauth/exchange/", False),
+    ],
+)
+async def test_auth_routes_take_a_keyed_preflight_only_for_me(
+    client, allow_one_origin, path, allowed
+):
+    resp = await client.options(
+        path,
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-api-key, content-type",
+        },
+    )
+    assert ("access-control-allow-origin" in resp.headers) is allowed
+
+
+@pytest.mark.anyio
+async def test_every_answer_varies_on_the_credential_headers(client, allow_one_origin):
+    resp = await client.get(
+        "/search/datasets/?q=x", headers={"Origin": _FOREIGN_ORIGIN}
+    )
+    vary = {
+        token.strip().lower()
+        for line in resp.headers.get_list("vary")
+        for token in line.split(",")
+    }
+    assert {"origin", "authorization", "x-api-key", "x-embed-token"} <= vary
+
+
+def test_nothing_that_reads_credentials_runs_before_the_cookie_strip():
+    """Only the metrics layers sit outside the CORS middleware."""
+    from app.api.main import app
+
+    outer = []
+    for middleware in app.user_middleware:
+        if middleware.cls is DynamicCORSMiddleware:
+            break
+        dispatch = middleware.kwargs.get("dispatch")
+        outer.append(getattr(dispatch, "__name__", middleware.cls.__name__))
+    assert outer == [
+        "_hold_scrape_lock_during_metrics_response",
+        "PrometheusInstrumentatorMiddleware",
+    ]
+
+
+@pytest.mark.anyio
 async def test_a_query_string_key_gets_no_wildcard(client, allow_one_origin):
     resp = await client.get(
         "/auth/me/",
@@ -195,6 +277,9 @@ def _cookie_echo_client(monkeypatch) -> TestClient:
     )
 
     async def echo(request: Request) -> JSONResponse:
+        # Stands in for the auth layer reading the key.
+        if request.headers.get("x-api-key"):
+            mark_header_api_key_evaluated(request.scope)
         return JSONResponse({"cookies": dict(request.cookies)})
 
     app = Starlette(routes=[Route("/echo", echo, methods=["GET", "POST"])])
