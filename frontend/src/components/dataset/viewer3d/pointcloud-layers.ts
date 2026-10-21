@@ -65,41 +65,59 @@ export function loadPointCloud(
     // and its builders are quadratic in the entry count, so it stays behind.
     const workerCopc = { ...copc, eb: [] };
     let nextId = 0;
-    const run = async (worker: Worker) => {
-      for (let entry = queue.shift(); entry && !abort.signal.aborted; entry = queue.shift()) {
-        const [key, node] = entry;
-        const compressed = await Copc.loadCompressedPointDataBuffer(getter, node);
-        const bytes = compressed.slice().buffer;
-        const id = nextId++;
-        const result = await new Promise<DecodeResponse>((resolve) => {
-          pending.set(id, resolve);
-          const request: DecodeRequest = { id, copc: workerCopc, node, bytes, horizontalWkt: crs.horizontalWkt, zToMeters: crs.zToMeters, origin };
-          worker.postMessage(request, [bytes]);
-        });
-        pending.delete(id);
-        if (abort.signal.aborted) return;
-        if (result.error || !result.positions || !result.colors) {
-          handlers.onError(`node ${key}: ${result.error}`);
-          continue;
-        }
-        handlers.onLayer(
-          new PointCloudLayer({
-            id: `copc-${key}`,
-            data: {
-              length: result.count,
-              attributes: {
-                getPosition: { value: result.positions, size: 3 },
-                getColor: { value: result.colors, size: 4 },
-              },
-            },
-            coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
-            coordinateOrigin: [origin[0], origin[1], 0],
-            pointSize: 1.5,
-            sizeUnits: 'pixels',
-          }),
-        );
+    // LAS colour depth is a property of the file, so the first node decides it
+    // and the rest decode with the same shift.
+    let colorShift: 0 | 8 | undefined;
+    const decodeNext = async (worker: Worker) => {
+      const entry = queue.shift();
+      if (!entry || abort.signal.aborted) return false;
+      const [key, node] = entry;
+      const compressed = await Copc.loadCompressedPointDataBuffer(getter, node);
+      const bytes = compressed.slice().buffer;
+      const id = nextId++;
+      const result = await new Promise<DecodeResponse>((resolve) => {
+        pending.set(id, resolve);
+        const request: DecodeRequest = {
+          id,
+          copc: workerCopc,
+          node,
+          bytes,
+          horizontalWkt: crs.horizontalWkt,
+          zToMeters: crs.zToMeters,
+          origin,
+          colorShift,
+        };
+        worker.postMessage(request, [bytes]);
+      });
+      pending.delete(id);
+      if (abort.signal.aborted) return false;
+      if (result.error || !result.positions || !result.colors) {
+        handlers.onError(`node ${key}: ${result.error}`);
+        return true;
       }
+      colorShift ??= result.colorShift;
+      handlers.onLayer(
+        new PointCloudLayer({
+          id: `copc-${key}`,
+          data: {
+            length: result.count,
+            attributes: {
+              getPosition: { value: result.positions, size: 3 },
+              getColor: { value: result.colors, size: 4 },
+            },
+          },
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
+          coordinateOrigin: [origin[0], origin[1], 0],
+          pointSize: 1.5,
+          sizeUnits: 'pixels',
+        }),
+      );
+      return true;
     };
+    const run = async (worker: Worker) => {
+      while (await decodeNext(worker));
+    };
+    await decodeNext(workers[0]);
     await Promise.all(workers.map(run));
     workers.forEach((worker) => worker.terminate());
   })().catch((error: unknown) => {

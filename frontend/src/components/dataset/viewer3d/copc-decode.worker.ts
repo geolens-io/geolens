@@ -16,6 +16,8 @@ export interface DecodeRequest {
   horizontalWkt: string;
   zToMeters: number;
   origin: [number, number];
+  /** The cloud's colour depth, once the first node has settled it; otherwise the node decides. */
+  colorShift?: 0 | 8;
 }
 
 export interface DecodeResponse {
@@ -23,6 +25,7 @@ export interface DecodeResponse {
   count: number;
   positions?: Float32Array;
   colors?: Uint8Array;
+  colorShift?: 0 | 8;
   error?: string;
 }
 
@@ -88,7 +91,7 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     if (r && g && b) {
       for (let i = 0; i < count; i++) colorMax = Math.max(colorMax, r(i), g(i), b(i));
     }
-    const colorShift = colorShiftFor(colorMax);
+    const colorShift = request.colorShift ?? colorShiftFor(colorMax);
     const positions = new Float32Array(count * 3);
     const colors = new Uint8Array(count * 4);
     for (let i = 0; i < count; i++) {
@@ -105,7 +108,7 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       }
       colors[i * 4 + 3] = 255;
     }
-    const response: DecodeResponse = { id, count, positions, colors };
+    const response: DecodeResponse = { id, count, positions, colors, colorShift };
     scope.postMessage(response, [positions.buffer, colors.buffer]);
   } catch (error) {
     scope.postMessage({ id, count: 0, error: String(error) } satisfies DecodeResponse);
