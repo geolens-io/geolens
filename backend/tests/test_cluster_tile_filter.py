@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -37,16 +37,27 @@ async def cluster_table(test_db_session):
         text(
             f"CREATE TABLE data.{table_name} ("
             f"  gid SERIAL PRIMARY KEY, name TEXT, score DOUBLE PRECISION, yr INTEGER,"
+            f'  flag BOOLEAN, seen DATE, ts TIMESTAMPTZ, uid UUID, r REAL, "Mixed" TEXT,'
             f"  geom_4326 GEOMETRY(Point, 4326))"
         )
     )
     for name, score, yr in _ROWS:
         await test_db_session.execute(
             text(
-                f"INSERT INTO data.{table_name} (name, score, yr, geom_4326) VALUES "  # noqa: S608
-                f"(:name, :score, :yr, ST_SetSRID(ST_MakePoint(0.1, 0.1), 4326))"
+                f"INSERT INTO data.{table_name} "  # noqa: S608
+                f'(name, score, yr, flag, seen, ts, uid, r, "Mixed", geom_4326) VALUES '
+                f"(:name, :score, :yr, :flag, make_date(:yr, 1, 1), "
+                f"make_timestamptz(:yr, 1, 1, 0, 0, 0, 'UTC'), :uid, :r, :name, "
+                f"ST_SetSRID(ST_MakePoint(0.1, 0.1), 4326))"
             ),
-            {"name": name, "score": score, "yr": yr},
+            {
+                "name": name,
+                "score": score,
+                "yr": yr,
+                "flag": name == "a",
+                "r": score,
+                "uid": uuid.uuid5(uuid.NAMESPACE_DNS, str(yr)),
+            },
         )
     record = Record(
         title="Cluster filter test",
@@ -175,3 +186,59 @@ async def test_the_filter_is_part_of_the_cache_key():
     }
     assert len(keys) == 3
     assert one == reordered
+
+
+_TYPED = [
+    ({"op": "=", "args": [{"property": "flag"}, True]}, "3"),
+    ({"op": ">=", "args": [{"property": "seen"}, {"date": "2004-01-01"}]}, "2"),
+    (
+        {
+            "op": "<",
+            "args": [{"property": "ts"}, {"timestamp": "2003-06-01T00:00:00Z"}],
+        },
+        "3",
+    ),
+    (
+        {
+            "op": "=",
+            "args": [{"property": "uid"}, str(uuid.uuid5(uuid.NAMESPACE_DNS, "2001"))],
+        },
+        None,
+    ),
+    ({"op": ">", "args": [{"property": "r"}, 3.5]}, "2"),
+    ({"op": "=", "args": [{"property": "Mixed"}, "a"]}, "3"),
+]
+
+
+@pytest.mark.parametrize(("flt", "expected"), _TYPED)
+async def test_filter_on_each_column_type(client, cluster_table, flt, expected):
+    assert await _cluster_count(client, cluster_table, flt) == expected
+
+
+async def test_incomparable_columns_are_a_400_not_a_503(client, cluster_table):
+    flt = {"op": "=", "args": [{"property": "name"}, {"property": "yr"}]}
+    resp = await client.get(
+        f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf",
+        params={"filter": json.dumps(flt)},
+    )
+    assert resp.status_code == 400
+
+
+async def test_an_invalid_filter_does_not_reveal_a_private_dataset(
+    client, cluster_table, test_db_session
+):
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset).where(Dataset.table_name == cluster_table)
+        )
+    ).scalar_one()
+    record = await test_db_session.get(Record, dataset.record_id)
+    record.visibility = "private"
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf",
+        params={"filter": json.dumps(_cmp("=", "no_such_column", "a"))},
+    )
+
+    assert resp.status_code in (401, 403, 404)

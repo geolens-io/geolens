@@ -2397,6 +2397,8 @@ async def _acquire_and_serve_tile(
                 # tid is None.
                 await set_tenant_role_for_tile_request(tile_conn, tid)
                 tile_data = await query_callable(pool, tile_conn)
+    except HTTPException:
+        raise
     except asyncio.TimeoutError:
         logger.warning(
             "Tile pool acquire timeout",
@@ -2591,10 +2593,6 @@ async def cluster_tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
 
-    compiled_filter = await cluster_filters.compile_filter(
-        db, table_name, tenant_data_schema(_cluster_tid), layer_filter
-    )
-
     tenant_sem = _cluster_limiter if is_multi_tenant() else None
     # Authorization is complete; admission waits must not retain an API connection.
     await db.rollback()
@@ -2614,6 +2612,9 @@ async def cluster_tile_endpoint(
         if _cluster_cold_result is not None:
             return _cluster_cold_result
 
+        compiled_filter = await cluster_filters.compile_filter(
+            db, table_name, layer_filter
+        )
         tid = _require_tile_tenant_context()
         _schema = tenant_data_schema(tid)
 

@@ -23,6 +23,20 @@ class ClusterFilter(NamedTuple):
     params: list[Any]
 
 
+def refuse_type_fault(exc: Exception) -> None:
+    """Raise HTTP 400 when the database refused the filter's types or values."""
+    from fastapi import HTTPException, status
+
+    from app.core.db.sqlstate import TYPE_FAULT_SQLSTATES
+
+    code = getattr(exc, "sqlstate", None) or ""
+    if code.startswith("22") or code in TYPE_FAULT_SQLSTATES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The filter is not evaluable against this dataset's columns",
+        ) from exc
+
+
 def _parse(raw: str) -> Any:
     from app.standards.ogc.filtering import parse_feature_cql2
 
@@ -42,7 +56,7 @@ def validated_digest(raw: str | None) -> str | None:
 
 
 async def compile_filter(
-    session: AsyncSession, table_name: str, schema: str, raw: str | None
+    session: AsyncSession, table_name: str, raw: str | None
 ) -> ClusterFilter | None:
     """Compile ``raw`` against the table's live columns; HTTP 400 when it can't apply.
 
@@ -51,7 +65,7 @@ async def compile_filter(
     """
     if not raw:
         return None
-    from app.processing.ingest.metadata import get_column_info
+    from app.platform.extensions import get_catalog_port
     from app.standards.ogc.filtering import (
         compile_feature_cql2_ast,
         feature_queryable_columns,
@@ -59,7 +73,7 @@ async def compile_filter(
 
     ast_root = _parse(raw)
     queryables = feature_queryable_columns(
-        await get_column_info(session, table_name, schema=schema), None
+        await get_catalog_port().get_column_info(session, table_name), None
     )
     where_sql, binds = compile_feature_cql2_ast(ast_root, queryables)
     position = {

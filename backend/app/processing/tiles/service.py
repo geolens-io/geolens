@@ -400,7 +400,7 @@ def _build_cluster_tile_query(
 
     ``filter_sql`` narrows the points before they are grouped, so cluster
     counts match the features a layer filter keeps. It must come from
-    ``compile_cluster_filter`` (vetted column names, values as ``$7`` and up).
+    ``compile_filter`` (vetted column names, values as ``$7`` and up).
 
     The bucket grid anchors to the world minimum in absolute EPSG:3857
     coordinates, not the tile's own minx/miny, so adjacent tiles' grids line
@@ -816,7 +816,7 @@ async def get_cluster_tile(
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
             docstring for details).
         schema: Data schema name; defaults to ``"data"`` (single_tenant).
-        filter_sql: Compiled layer filter, see ``_build_cluster_tile_query``.
+        filter_sql: Compiled layer filter, see ``_build_cluster_tile_query``. A query the database refuses for the filter's types raises HTTP 400.
         filter_params: Values for the filter's ``$7`` and up.
     """
     _validate_tile_table_name(table_name)
@@ -832,8 +832,8 @@ async def get_cluster_tile(
     )
     layer_name = f"{schema}.{table_name}"
 
-    if conn is not None:
-        result = await conn.fetchval(
+    try:
+        result = await (conn if conn is not None else pool).fetchval(
             query,
             z,
             x,
@@ -843,17 +843,12 @@ async def get_cluster_tile(
             cluster_radius,
             *filter_params,
         )
-    else:
-        result = await pool.fetchval(
-            query,
-            z,
-            x,
-            y,
-            layer_name,
-            cluster_max_zoom,
-            cluster_radius,
-            *filter_params,
-        )
+    except asyncpg.PostgresError as exc:
+        if filter_sql:
+            from app.processing.tiles.cluster_filter import refuse_type_fault
+
+            refuse_type_fault(exc)
+        raise
 
     if result is None or len(result) == 0:
         return None
