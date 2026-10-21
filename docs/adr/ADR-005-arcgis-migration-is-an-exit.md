@@ -37,11 +37,13 @@ refresh that stops for review is reported and never accepted on the operator's
 behalf.
 
 Cutover is the last run, made after edits in the portal are frozen. It refuses
-while the inventory behind the plan is incomplete, or while a migrated layer
-carries content GeoLens can't hold yet, such as attachments, unless the
-operator accepts that loss. From then on GeoLens is the system of record.
-Nothing detaches a migrated dataset from its source; after the portal is
-retired, a refresh fails with the service's own error.
+while the inventory behind the plan is incomplete, while a migrated layer
+carries content GeoLens can't hold yet, such as attachments, or while plan
+owners or group members still don't resolve to GeoLens users, unless the
+operator accepts each of those losses. No rerun can fix them once the portal
+is gone. From then on GeoLens is the system of record. Nothing detaches a
+migrated dataset from its source; after the portal is retired, a refresh fails
+with the service's own error.
 
 ## Consequences
 
