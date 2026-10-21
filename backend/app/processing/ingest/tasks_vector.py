@@ -47,6 +47,7 @@ from app.processing.ingest.tasks_staging import (
     _archive_original_file,
     _cleanup_staging_on_failure,
     _validate_upload_file_safety,
+    source_columns_for,
 )
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
 from app.processing.ingest.uploaded_source import UploadedSource
@@ -655,7 +656,7 @@ async def ingest_file(
                     # allowlist omits absent keys.
                     origin_ref={"filename": source_filename},
                     archive_from=file_path,
-                    source_columns=info.get("columns"),
+                    source_columns=source_columns_for(info, layer_name),
                 )
             )
 

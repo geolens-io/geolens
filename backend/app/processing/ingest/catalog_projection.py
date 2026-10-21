@@ -174,13 +174,7 @@ async def project(
 
     metadata = measurement.metadata
     geometry_type = measurement.geometry_type
-    # A measurement that never matched source names (a restore, a registered
-    # table) keeps what the dataset recorded for the same stored column.
-    known = {c["name"]: c.get("source_name") for c in dataset.column_info or []}
-    column_info = [
-        c if "source_name" in c else {**c, "source_name": known.get(c["name"])}
-        for c in metadata.get("column_info") or []
-    ]
+    column_info = metadata.get("column_info") or []
     extent_wkt = metadata.get("extent_wkt")
     dataset.srid = metadata.get("srid")
     dataset.geometry_type = geometry_type

@@ -307,6 +307,17 @@ async def _clear_archive_pending(session, job) -> None:
     set_committed_value(job, "user_metadata", remaining)
 
 
+def source_columns_for(info: dict, layer_name: str | None) -> list[dict] | None:
+    """The ogrinfo field list, unless it may describe a layer other than the one loaded.
+
+    With no layer chosen for a multi-layer source, ogrinfo reads the first layer
+    and the loader may keep another.
+    """
+    if info.get("all_layers") and not layer_name:
+        return None
+    return info.get("columns")
+
+
 def _stored_to_source_names(
     column_info: list[dict], source_columns: list[dict] | None
 ) -> dict[str, str]:

@@ -153,3 +153,14 @@ async def test_dataset_response_carries_source_names(
     ).json()
     by_name = {c["name"]: c.get("source_name") for c in body["column_info"]}
     assert by_name == {"pop 2020": "POP 2020", "legacy": None}
+
+
+def test_a_multi_layer_source_without_a_chosen_layer_has_no_source_columns():
+    from app.processing.ingest.tasks_staging import source_columns_for
+
+    columns = [{"name": "A", "type": "String"}]
+    single = {"columns": columns, "all_layers": None}
+    multi = {"columns": columns, "all_layers": [{"name": "a"}, {"name": "b"}]}
+    assert source_columns_for(single, None) == columns
+    assert source_columns_for(multi, "a") == columns
+    assert source_columns_for(multi, None) is None

@@ -60,6 +60,7 @@ from app.processing.ingest.tasks_staging import (
     StagingResult,
     original_archive_key,
     _run_staging_pipeline,
+    source_columns_for,
     _validate_upload_file_safety,
 )
 
@@ -505,7 +506,7 @@ class _FileReupload:
             table_name=self.staging_table,
             has_geometry=self.info.get("geometry_type") is not None,
             effective_srid=self.effective_srid,
-            source_columns=self.info.get("columns"),
+            source_columns=source_columns_for(self.info, self.layer_name),
         )
         # The staging table, measured in the swap's transaction and never
         # carried forward from the preview, which can be minutes old.

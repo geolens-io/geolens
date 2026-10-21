@@ -756,32 +756,3 @@ def test_the_effective_geometry_type_prefers_a_row_then_the_declaration(
         _effective_geometry_type(measured=measured, declared=declared, stored=stored)
         == expected
     )
-
-
-async def test_a_measurement_without_source_names_keeps_the_ones_already_recorded(
-    test_db_session,
-) -> None:
-    """A restore or registered-table refresh measures the table without the file."""
-    session = test_db_session
-    dataset = await _dataset(
-        session,
-        geometry_type="POINT",
-        record_type="vector_dataset",
-        column_info=[{"name": "name", "type": "text", "source_name": "Name"}],
-    )
-    await _table(
-        session,
-        dataset.table_name,
-        geometry="Point",
-        wkts=_POINTS,
-        columns="name text, population integer",
-    )
-    try:
-        await _measure_and_project(session, dataset, dataset.table_name)
-        projected = await _reload(session, dataset.id)
-        assert {c["name"]: c["source_name"] for c in projected.column_info} == {
-            "name": "Name",
-            "population": None,
-        }
-    finally:
-        await _drop(session, dataset.table_name)
