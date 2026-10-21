@@ -106,4 +106,13 @@ describe('createTilesetLayers', () => {
     await expect(captured.props!.loader.parse({}, {}, {})).rejects.toThrow('bad tileset');
     expect(handlers.onError).toHaveBeenCalledTimes(1);
   });
+
+  it('returns a non-GLB tile as it came, unread', async () => {
+    const { fetch } = captured.props!.loadOptions.core;
+    const source = new Response(new Uint8Array([0x62, 0x33, 0x64, 0x6d, 1, 2, 3, 4]));
+    datasetFetch.mockResolvedValue(source);
+    const out = await fetch('/api/datasets/d1/tiles3d/t/0.b3dm');
+    expect(out).toBe(source);
+    expect(source.bodyUsed).toBe(false);
+  });
 });

@@ -31,6 +31,18 @@ export interface TilesetViewport {
   zoom: number;
 }
 
+async function startsWithGlbMagic(response: Response): Promise<boolean> {
+  const reader = response.clone().body?.getReader();
+  if (!reader) return false;
+  try {
+    const { value } = await reader.read();
+    // "glTF", little-endian
+    return !!value && value.length >= 4 && new DataView(value.buffer, value.byteOffset).getUint32(0, true) === 0x46546c67;
+  } finally {
+    void reader.cancel();
+  }
+}
+
 export function createTilesetLayers(
   tilesetUrl: string,
   datasetFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
@@ -55,9 +67,11 @@ export function createTilesetLayers(
       await response.clone().json().catch((error: unknown) => handlers.onError(String(error)));
       return response;
     }
-    // Sniffed by content, so a GLB under any extension gets the fix. loaders.gl
-    // resolves relative references against response.url, which a new Response
-    // does not carry, so it is copied over.
+    // Sniffed by content, so a GLB under any extension gets the fix, and any
+    // other tile is left unread. loaders.gl resolves relative references
+    // against response.url, which a new Response does not carry, so it is
+    // copied over.
+    if (!(await startsWithGlbMagic(response))) return response;
     const body = separateMeshoptFallbackViews(await response.arrayBuffer());
     const headers = new Headers(response.headers);
     headers.delete('content-length');

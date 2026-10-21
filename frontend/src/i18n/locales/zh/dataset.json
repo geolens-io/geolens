@@ -1237,7 +1237,7 @@
     "instructions": "QGIS、Potree 和 copc.js"
   },
   "tileset": {
-    "viewerError": "3D 视图无法加载此图块集。",
+    "viewerError": "3D 视图无法加载此瓦片集。",
     "title": "3D Tiles 瓦片集",
     "version": "版本",
     "geometricError": "几何误差",
