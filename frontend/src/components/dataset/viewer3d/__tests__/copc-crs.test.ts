@@ -69,6 +69,7 @@ describe('parseCopcCrs', () => {
   it.each([
     ['nothing', undefined],
     ['an empty string', ''],
+    ['a geocentric CRS', 'GEOCCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]'],
     ['text proj4 cannot read', 'not a CRS'],
     ['a compound CRS without a horizontal part', 'COMPD_CS["x",VERT_CS["h",UNIT["metre",1]]]'],
   ])('refuses %s', (_label, wkt) => {
