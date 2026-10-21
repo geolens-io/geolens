@@ -26,6 +26,7 @@
 [![最新版本](https://img.shields.io/github/v/release/geolens-io/geolens?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://github.com/geolens-io/geolens/releases/latest)
 [![CI 状态](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![许可证：Apache-2.0](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-Apache--2.0-2563eb?style=flat-square)](LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/geolens-io/geolens/badge)](https://securityscorecards.dev/viewer/?uri=github.com/geolens-io/geolens)
 
 </div>
 
