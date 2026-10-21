@@ -16,6 +16,10 @@ and releases use semantic versioning.
   reached while that URL is still a loopback default such as
   `http://localhost:8080`. An install that serves the API from its own origin
   needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
+- `GET /maps/{map_id}/style.json` now writes absolute URLs: vector tile and sprite URLs on
+  the public API URL, raster tile URLs on the public app URL. They were root-relative paths
+  (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
+  Re-importing an exported style is unaffected.
 
 ### Added
 

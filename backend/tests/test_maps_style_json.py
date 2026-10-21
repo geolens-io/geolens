@@ -421,6 +421,29 @@ def test_build_maplibre_style_glyphs_point_at_the_instance_fonts():
     assert style["glyphs"] == "https://maps.example.org/fonts/{fontstack}/{range}.pbf"
 
 
+def test_build_maplibre_style_urls_are_absolute_on_the_right_origins():
+    """Vector tiles and the sprite are served by the API, raster tiles by the app."""
+    vector_id, dem_id = uuid.uuid4(), uuid.uuid4()
+    style = build_maplibre_style(
+        _map(),
+        [_layer(dataset_id=vector_id), _dem_layer(dem_id=dem_id)],
+        app_url="https://gis.example.org",
+        api_url="https://gis.example.org/api",
+    )
+    vector_tile = style["sources"][f"geolens-{vector_id}"]["tiles"][0]
+    assert vector_tile.startswith(
+        "https://gis.example.org/api/tiles/data.public_stops/"
+    )
+    raster_tile = style["sources"][f"geolens-{dem_id}"]["tiles"][0]
+    assert raster_tile.startswith(
+        f"https://gis.example.org/raster-tiles/{dem_id}/tiles/"
+    )
+    assert (
+        style["sprite"][0]["url"] == "https://gis.example.org/api/maps/sprites/geolens"
+    )
+    assert style["glyphs"] == "https://gis.example.org/fonts/{fontstack}/{range}.pbf"
+
+
 def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
     dem_id = uuid.uuid4()
     layer = _dem_layer(dem_id=dem_id)

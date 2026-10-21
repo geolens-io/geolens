@@ -599,6 +599,20 @@ class TestMapLayerDatasetVisibilityLeak:
         assert glyphs.endswith("/fonts/{fontstack}/{range}.pbf"), glyphs
         assert "openfreemap" not in glyphs
 
+    async def test_style_json_tile_and_sprite_urls_are_absolute(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A client outside the app (QGIS, a MapLibre page) can load the style."""
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="public"
+        )
+        style = (await client.get(f"/maps/{map_id}/style.json")).json()
+        tile = style["sources"][f"geolens-{ds.id}"]["tiles"][0]
+        assert tile.startswith(("http://", "https://")), tile
+        assert f"/api/tiles/data.{ds.table_name}/" in tile
+        assert style["sprite"][0]["url"].startswith(("http://", "https://"))
+        assert style["sprite"][0]["url"].endswith("/api/maps/sprites/geolens")
+
     async def test_style_json_fails_closed_without_multi_tenant_context(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

@@ -337,7 +337,13 @@ def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
     return sorted(cols)
 
 
-def _tile_url_for_layer(layer: MapLayerResponse) -> str:
+def _absolute(base_url: str | None, path: str) -> str:
+    return join_public_url(base_url, path) if base_url else path
+
+
+def _tile_url_for_layer(
+    layer: MapLayerResponse, api_url: str | None = None, app_url: str | None = None
+) -> str:
     if (
         layer.layer_type == "raster_geolens"
         or layer.dataset_record_type in RASTER_FAMILY_RECORD_TYPES
@@ -345,8 +351,10 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         # Version the raster template so nginx's $arg_v and $arg_pv cache-key
         # segments roll the shared tile cache when a replace or a publication
         # transition bumps either counter.
-        return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
-            tile_template_query(layer.tile_version, layer.publication_version)
+        return _absolute(
+            app_url,
+            f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            + tile_template_query(layer.tile_version, layer.publication_version),
         )
     port = get_catalog_port()
     exp = port.round_tile_expiry()
@@ -364,27 +372,34 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
     if cols:
         params["cols"] = ",".join(cols)
     query = urlencode(params)
-    return f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf?{query}"
+    return _absolute(
+        api_url,
+        f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf?{query}",
+    )
 
 
-def _raster_dem_source(layer: MapLayerResponse) -> dict[str, Any]:
+def _raster_dem_source(
+    layer: MapLayerResponse, api_url: str | None = None, app_url: str | None = None
+) -> dict[str, Any]:
     return {
         "type": "raster-dem",
-        "tiles": [_tile_url_for_layer(layer)],
+        "tiles": [_tile_url_for_layer(layer, api_url, app_url)],
         "tileSize": 256,
         "encoding": "mapbox",
     }
 
 
-def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
+def _source_for_layer(
+    layer: MapLayerResponse, api_url: str | None = None, app_url: str | None = None
+) -> dict[str, Any]:
     source: dict[str, Any]
     source_type = _source_type_for_layer(layer)
     if source_type == "raster-dem":
-        source = _raster_dem_source(layer)
+        source = _raster_dem_source(layer, api_url, app_url)
     elif source_type == "raster":
         source = {
             "type": "raster",
-            "tiles": [_tile_url_for_layer(layer)],
+            "tiles": [_tile_url_for_layer(layer, api_url, app_url)],
             "tileSize": 256,
         }
     else:
@@ -394,7 +409,7 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
         is_cluster = (layer.style_config or {}).get("render_mode") == "cluster"
         source = {
             "type": "vector",
-            "tiles": [_tile_url_for_layer(layer)],
+            "tiles": [_tile_url_for_layer(layer, api_url, app_url)],
             "minzoom": 1,
             "maxzoom": 22 if is_cluster else 14,
         }
@@ -1449,12 +1464,14 @@ def build_maplibre_style(
     mvt_source_layer_prefix: str = "data",
     terrain_dataset_ids: Iterable[Any] | None = None,
     app_url: str | None = None,
+    api_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a complete MapLibre style document from saved map data.
 
     The terrain binding is kept only when its DEM is in ``terrain_dataset_ids``,
-    which defaults to the layers' datasets. ``glyphs`` points at the label fonts
-    the frontend serves under ``app_url``; without it the path stays relative.
+    which defaults to the layers' datasets. Vector tile and sprite URLs are on
+    ``api_url``; raster tile URLs and ``glyphs`` are on ``app_url``, where the
+    frontend serves them. Without a base URL a path stays relative.
     """
 
     sources: dict[str, Any] = {}
@@ -1472,7 +1489,7 @@ def build_maplibre_style(
                 _append_cluster_source_metadata(sources[source_id], layer)
                 new_source = None
             else:
-                new_source = _source_for_layer(layer)
+                new_source = _source_for_layer(layer, api_url, app_url)
         except _MALFORMED_STYLE_ERRORS:
             logger.warning(
                 "Dropping map layer %s from the exported style: its stored "
@@ -1546,7 +1563,7 @@ def build_maplibre_style(
             if terrain_layer is not None:
                 mesh_source_id = f"geolens-terrain-{_safe_id(terrain_dataset_id)}"
                 if mesh_source_id not in sources:
-                    mesh_source = _raster_dem_source(terrain_layer)
+                    mesh_source = _raster_dem_source(terrain_layer, api_url, app_url)
                     mesh_source["metadata"] = {
                         "geolens": {
                             "dataset_id": terrain_dataset_id,
@@ -1579,8 +1596,8 @@ def build_maplibre_style(
                 "terrain_config": tc,
             }
         },
-        "sprite": [{"id": GEOLENS_SPRITE_ID, "url": SPRITE_URL}],
-        "glyphs": join_public_url(app_url, GLYPHS_PATH) if app_url else GLYPHS_PATH,
+        "sprite": [{"id": GEOLENS_SPRITE_ID, "url": _absolute(api_url, SPRITE_URL)}],
+        "glyphs": _absolute(app_url, GLYPHS_PATH),
         "sources": sources,
         "layers": style_layers,
     }
