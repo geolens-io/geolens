@@ -10,6 +10,7 @@ from app.processing.ai.chat_constants import _get_ramp_colors
 from app.processing.ai.chat_style_guards import (
     finish_data_driven_result,
     outline_only_error,
+    record_polygon_mode,
 )
 from app.processing.ai.schemas import ChatMapLayer
 
@@ -335,10 +336,7 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
             }
     style = dict(target.style_config or {})
     if family == "polygon":
-        builder = dict(style.get("builder") or {})
-        builder["fillDisabled"] = render_as == "stroke"
-        builder["strokeDisabled"] = render_as == "fill"
-        style["builder"] = builder
+        record_polygon_mode(style, render_as, tool_input.get("height_column"))
     if render_as in _RENDER_AS_STORED_AS_RENDER_MODE:
         style["render_mode"] = render_as
     else:

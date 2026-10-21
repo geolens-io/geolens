@@ -369,3 +369,20 @@ async def test_fill_opacity_on_a_3d_layer_is_dropped_and_points_to_set_opacity()
 
     assert result["paint"] == {}
     assert "set_opacity" in result["warnings"][0]
+
+
+@pytest.mark.anyio
+async def test_leaving_3d_in_a_turn_lets_fill_opacity_through():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"heightColumn": "height_m"}},
+        )
+    ]
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "fill"}, layers)
+
+    result = await _run(
+        "set_style", {"layer_id": "layer-1", "paint": {"fill-opacity": 0.5}}, layers
+    )
+
+    assert result["paint"] == {"fill-opacity": 0.5}
