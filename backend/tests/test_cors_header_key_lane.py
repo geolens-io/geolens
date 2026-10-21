@@ -481,3 +481,43 @@ async def test_the_body_limit_marks_its_refusal(client, allow_one_origin):
     )
     assert resp.status_code == 413
     assert resp.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.anyio
+async def test_the_global_rate_limit_marks_its_refusal(monkeypatch):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.util import get_remote_address
+
+    from app.api.main import _rate_limit_handler
+    from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
+    from app.platform.ratelimit import _FallbackAnnouncingLimiter
+
+    async def _deny(_self, _origin):
+        return False
+
+    monkeypatch.setattr(
+        "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed", _deny
+    )
+    app = FastAPI()
+    app.state.limiter = _FallbackAnnouncingLimiter(
+        key_func=get_remote_address, default_limits=["1/minute"], key_style="endpoint"
+    )
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    app.add_middleware(GlobalRateLimitMiddleware)
+    app.add_middleware(DynamicCORSMiddleware)
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:  # pragma: no cover - trivial
+        return {"ok": True}
+
+    headers = {"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "k"}
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        await http.get("/limited", headers=headers)
+        refused = await http.get("/limited", headers=headers)
+
+    assert refused.status_code == 429
+    assert refused.headers["access-control-allow-origin"] == "*"
