@@ -61,29 +61,51 @@ def _data_driven_notes(ramp: str, on_fill: bool) -> list[str]:
 def validate_paint_keeping_fill(
     paint: dict, layer: ChatMapLayer, render_mode: str | None
 ) -> tuple[dict, list[str]]:
-    """Validate set_style paint; drop a fill-opacity of 0 while a column colours the fill."""
+    """Validate set_style paint, dropping edits the builder would ignore or that hide a column's colours."""
     validated, warnings = validate_paint_with_feedback(
         paint, layer.geometry_type, render_mode
     )
-    kept, hidden = _keep_data_driven_fill_visible(validated or {}, layer)
-    return kept, warnings + hidden
+    kept = dict(validated or {})
+    for key in _OUTLINE_COLOR_KEYS:
+        if isinstance(kept.get(key), list):
+            del kept[key]
+            warnings.append(
+                f"Removed '{key}': outlines take one colour, not a column's colours."
+            )
+    if "fill-opacity" in kept and _is_extrusion(layer):
+        del kept["fill-opacity"]
+        warnings.append(
+            "Removed 'fill-opacity': a 3D layer draws with its extrusion opacity. "
+            "Use set_opacity to change it."
+        )
+    hidden = _data_driven_fill_hidden(kept, layer)
+    if hidden:
+        del kept["fill-opacity"]
+        warnings.append(
+            "Removed 'fill-opacity': 0 would hide the colours this layer's fill gets "
+            "from a column. For outlines only, use set_render_as stroke instead."
+        )
+    return kept, warnings
 
 
-def _keep_data_driven_fill_visible(
-    paint: dict, layer: ChatMapLayer
-) -> tuple[dict, list[str]]:
+_OUTLINE_COLOR_KEYS = ("_outline-color", "fill-outline-color")
+
+
+def _is_extrusion(layer: ChatMapLayer) -> bool:
+    builder = (layer.style_config or {}).get("builder") or {}
+    return bool(
+        builder.get("heightColumn") or (layer.paint or {}).get("_height_column")
+    )
+
+
+def _data_driven_fill_hidden(paint: dict, layer: ChatMapLayer) -> bool:
     opacity = paint.get("fill-opacity")
     if (
         not isinstance(opacity, (int, float))
         or isinstance(opacity, bool)
         or opacity > 0
     ):
-        return paint, []
-    fill_color = paint.get("fill-color", (layer.paint or {}).get("fill-color"))
-    if not isinstance(fill_color, list):
-        return paint, []
-    kept = {k: v for k, v in paint.items() if k != "fill-opacity"}
-    return kept, [
-        "Removed 'fill-opacity': 0 would hide the colours this layer's fill gets "
-        "from a column. For outlines only, use set_render_as stroke instead."
-    ]
+        return False
+    return isinstance(
+        paint.get("fill-color", (layer.paint or {}).get("fill-color")), list
+    )

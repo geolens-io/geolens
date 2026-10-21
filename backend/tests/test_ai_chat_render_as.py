@@ -337,3 +337,35 @@ async def test_a_known_ramp_carries_no_note_on_a_point_layer():
     )
 
     assert "notes" not in result
+
+
+@pytest.mark.anyio
+async def test_a_data_driven_outline_colour_is_dropped_with_a_warning():
+    layers = [_layer(geometry_type="Polygon")]
+    expression = ["match", ["get", "name"], "a", "#ef4444", "#374151"]
+
+    result = await _run(
+        "set_style",
+        {"layer_id": "layer-1", "paint": {"_outline-color": expression}},
+        layers,
+    )
+
+    assert result["paint"] == {}
+    assert "outlines take one colour" in result["warnings"][0]
+
+
+@pytest.mark.anyio
+async def test_fill_opacity_on_a_3d_layer_is_dropped_and_points_to_set_opacity():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"heightColumn": "height_m"}},
+        )
+    ]
+
+    result = await _run(
+        "set_style", {"layer_id": "layer-1", "paint": {"fill-opacity": 0.5}}, layers
+    )
+
+    assert result["paint"] == {}
+    assert "set_opacity" in result["warnings"][0]
