@@ -1,7 +1,7 @@
 # ADR-005: An ArcGIS migration is a one-way exit
 
 **Status:** accepted. **Scope:** what an ArcGIS migration from an ArcGIS Online
-organization or ArcGIS Enterprise portal leaves behind in GeoLens, and what
+organization or self-hosted ArcGIS portal leaves behind in GeoLens, and what
 happens to the portal afterwards.
 
 ## Context
@@ -12,9 +12,9 @@ takes over and the portal can be retired.
 
 A mirror needs a stored portal credential and scheduled refresh, which are paid
 capabilities, plus incremental sync, which isn't built. It also keeps the
-organization paying for ArcGIS. GeoLens builds no mirror mode. Scheduled
-refresh in the Enterprise image comes close for a portal that stays in
-service, but it replaces whole tables rather than syncing changes.
+organization paying for ArcGIS. GeoLens builds no mirror mode. The paid
+scheduled refresh comes close for a portal that stays in service, but it
+replaces whole tables rather than syncing changes.
 
 ## Decision
 

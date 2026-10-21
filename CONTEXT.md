@@ -25,7 +25,7 @@ _Avoid_: ArcGIS import, when referring to a single layer.
 **ArcGIS migration**: Moving an ArcGIS organization's or one user's content into GeoLens item by item, as a migration plan directs.
 _Avoid_: Migration on its own (that is a database schema migration), AGOL import, ArcGIS exit.
 
-**Portal**: The ArcGIS Online organization or ArcGIS Enterprise portal an ArcGIS migration reads from.
+**Portal**: The ArcGIS Online organization or self-hosted ArcGIS portal an ArcGIS migration reads from.
 
 **Loss report**: The list of items and properties an ArcGIS migration did not carry over, each with its reason.
 

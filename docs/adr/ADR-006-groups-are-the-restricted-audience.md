@@ -64,6 +64,6 @@ inserted them directly. Those rows keep authorizing as they do today, so an
 upgrade changes no one's access, and nothing creates new ones. They are the
 one exception to restricted meaning owner, admins and group members.
 
-The Enterprise permission overlay mirrors the grant check, so it ships a
+The paid permission extension mirrors the grant check, so it ships a
 release alongside. `EXTENSION_API_VERSION` moves only if a Protocol member
 changes, for example a required map access method.
