@@ -9,7 +9,8 @@ vi.mock('@deck.gl/geo-layers', () => ({
     }
   },
 }));
-vi.mock('@loaders.gl/3d-tiles', () => ({ Tiles3DLoader: {} }));
+const parse = vi.hoisted(() => vi.fn());
+vi.mock('@loaders.gl/3d-tiles', () => ({ Tiles3DLoader: { id: '3d-tiles', parse } }));
 vi.mock('draco3d/draco_decoder_nodejs.js', () => ({ default: vi.fn() }));
 vi.mock('draco3d/draco_decoder.wasm?url', () => ({ default: '/assets/draco_decoder.wasm' }));
 
@@ -88,10 +89,21 @@ describe('createTilesetLayers', () => {
     view.setUint32(16, 0x4e4f534a, true);
     glb.set(json, 20);
     glb.fill(0x20, 20 + json.byteLength);
-    datasetFetch.mockResolvedValue(new Response(glb));
-    const out = new Uint8Array(await (await fetch('/api/datasets/d1/tiles3d/t/0.bin')).arrayBuffer());
+    const source = new Response(glb);
+    Object.defineProperty(source, 'url', { value: 'http://localhost/api/datasets/d1/tiles3d/t/0.bin' });
+    datasetFetch.mockResolvedValue(source);
+    const adapted = await fetch('/api/datasets/d1/tiles3d/t/0.bin');
+    // loaders.gl resolves relative references against response.url
+    expect(adapted.url).toBe('http://localhost/api/datasets/d1/tiles3d/t/0.bin');
+    const out = new Uint8Array(await adapted.arrayBuffer());
     const length = new DataView(out.buffer).getUint32(12, true);
     const fixed = JSON.parse(new TextDecoder().decode(out.subarray(20, 20 + length)));
     expect(fixed.bufferViews.map((v: { byteOffset: number }) => v.byteOffset)).toEqual([0, 48]);
+  });
+
+  it('reports a root tileset that parses as JSON but fails loaders.gl normalisation', async () => {
+    parse.mockRejectedValue(new Error('bad tileset'));
+    await expect(captured.props!.loader.parse({}, {}, {})).rejects.toThrow('bad tileset');
+    expect(handlers.onError).toHaveBeenCalledTimes(1);
   });
 });

@@ -9,15 +9,20 @@ describe('viewableTilesetUrl', () => {
     expect(viewableTilesetUrl({ ...base, content_types: null, extensions_required: null })).toBe(base.url);
   });
 
-  it.each([['b3dm'], ['glb'], ['b3dm', 'cmpt', 'subtree']])('views content %s', (...types) => {
+  it.each([['b3dm'], ['glb'], ['b3dm', 'i3dm', 'subtree']])('views content %s', (...types) => {
     expect(viewableTilesetUrl({ ...base, content_types: types, extensions_required: [] })).toBe(base.url);
   });
 
-  it.each(['vctr', 'geom', 'voxl'])('refuses %s content', (type) => {
+  it.each(['vctr', 'geom', 'voxl', 'cmpt', 'gltf'])('refuses %s content', (type) => {
     expect(viewableTilesetUrl({ ...base, content_types: ['b3dm', type] })).toBeNull();
   });
 
-  it.each(['KHR_texture_basisu', '3DTILES_content_voxels'])('refuses the %s extension', (name) => {
+  it.each([
+    'KHR_texture_basisu',
+    '3DTILES_content_voxels',
+    '3DTILES_multiple_contents',
+    '3DTILES_implicit_tiling',
+  ])('refuses the %s extension', (name) => {
     expect(viewableTilesetUrl({ ...base, extensions_required: ['KHR_draco_mesh_compression', name] })).toBeNull();
   });
 

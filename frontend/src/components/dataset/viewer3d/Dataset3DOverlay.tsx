@@ -39,7 +39,22 @@ function OverlayLayers({
   const { t } = useTranslation('dataset');
   const { current: mapRef } = useMap();
   const datasetFetch = useMemo(() => makeTilesetFetch(datasetId), [datasetId]);
-  const overlay = useControl(() => new MapLibreOverlay({ interleaved: false, layers: [] }));
+  const onDeckRestoredRef = useRef(onDeckRestored);
+  onDeckRestoredRef.current = onDeckRestored;
+  // Deck creates its device, and so its canvas, asynchronously; the listeners
+  // attach when it reports ready.
+  const overlay = useControl(
+    () =>
+      new MapLibreOverlay({
+        interleaved: false,
+        layers: [],
+        onDeviceInitialized: (device) => {
+          const canvas = device.getDefaultCanvasContext().canvas as HTMLCanvasElement;
+          canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
+          canvas.addEventListener('webglcontextrestored', () => onDeckRestoredRef.current());
+        },
+      }),
+  );
   const [failed, setFailed] = useState(false);
   // Read when the tileset finishes loading, so an extent or map that arrives
   // later does not rebuild the layer and refetch the tiles.
@@ -74,18 +89,6 @@ function OverlayLayers({
       cancelled = true;
     };
   }, [overlay, tilesetUrl, datasetFetch]);
-
-  useEffect(() => {
-    const canvas = overlay.getCanvas();
-    if (!canvas) return;
-    const onLost = (event: Event) => event.preventDefault();
-    canvas.addEventListener('webglcontextlost', onLost);
-    canvas.addEventListener('webglcontextrestored', onDeckRestored);
-    return () => {
-      canvas.removeEventListener('webglcontextlost', onLost);
-      canvas.removeEventListener('webglcontextrestored', onDeckRestored);
-    };
-  }, [overlay, onDeckRestored]);
 
   if (!failed) return null;
   return (

@@ -1153,7 +1153,10 @@ export const DatasetMap = memo(function DatasetMap({
 
         {/* An extentless tileset has no outline to hang the required credit line on. */}
         {!bboxGeojson && tilesetUrl && bboxAttribution && (
-          <Source id="bbox-source" type="geojson" data={EMPTY_FEATURES} attribution={bboxAttribution} />
+          <Source id="bbox-source" type="geojson" data={EMPTY_FEATURES} attribution={bboxAttribution}>
+            {/* MapLibre lists a source's attribution only while a layer uses it. */}
+            <Layer id="bbox-attribution" type="line" paint={{ 'line-opacity': 0 }} />
+          </Source>
         )}
 
         {/* Bbox overlay for spatial context */}

@@ -55,15 +55,36 @@ export function createTilesetLayers(
       await response.clone().json().catch((error: unknown) => handlers.onError(String(error)));
       return response;
     }
-    // Sniffed by content, so a GLB under any extension gets the fix.
-    const body = separateMeshoptFallbackViews(await response.arrayBuffer());
-    return new Response(body, { status: response.status, headers: response.headers });
+    // Sniffed by content, so a GLB under any extension gets the fix. loaders.gl
+    // resolves relative references against response.url, so an adapted body
+    // keeps it, and an unchanged one is returned as it came.
+    const original = await response.clone().arrayBuffer();
+    const body = separateMeshoptFallbackViews(original);
+    if (body === original) return response;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    const adapted = new Response(body, { status: response.status, statusText: response.statusText, headers });
+    Object.defineProperty(adapted, 'url', { value: response.url });
+    return adapted;
+  };
+  // Parse failures on the root tileset (valid JSON that does not normalise)
+  // reject deck.gl's own load before onTileError exists.
+  const loader = {
+    ...Tiles3DLoader,
+    parse: async (...args: Parameters<typeof Tiles3DLoader.parse>) => {
+      try {
+        return await Tiles3DLoader.parse(...args);
+      } catch (error) {
+        handlers.onError(String(error));
+        throw error;
+      }
+    },
   };
   return [
     new Tile3DLayer({
       id: 'dataset-tileset',
       data: tilesetUrl,
-      loader: Tiles3DLoader,
+      loader,
       loadOptions: {
         // CDN: null keeps loaders.gl from fetching decoders (KTX2's Basis
         // transcoder) from a public CDN; a tileset that needs one fails here.

@@ -1,25 +1,36 @@
 import { render, waitFor, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+interface FakeOverlay {
+  props: { onDeviceInitialized: (device: unknown) => void };
+  setProps: ReturnType<typeof vi.fn>;
+}
+
 const h = vi.hoisted(() => ({
-  controls: [] as { setProps: ReturnType<typeof vi.fn>; getCanvas: () => HTMLCanvasElement }[],
+  controls: [] as FakeOverlay[],
   canvas: null as unknown as HTMLCanvasElement,
   createLayers: vi.fn(() => ['layer']),
 }));
 
-vi.mock('@deck.gl/maplibre', () => ({ MapLibreOverlay: class {} }));
+vi.mock('@deck.gl/maplibre', () => ({
+  MapLibreOverlay: class {
+    setProps = vi.fn();
+    props: FakeOverlay['props'];
+    constructor(props: FakeOverlay['props']) {
+      this.props = props;
+    }
+  },
+}));
 vi.mock('@vis.gl/react-maplibre', async () => {
   const react = await import('react');
   return {
     useMap: () => ({ current: { getMap: () => ({ easeTo: vi.fn() }) } }),
-    useControl: (factory: () => unknown) => {
-      factory();
-      return react.useMemo(() => {
-        const control = { setProps: vi.fn(), getCanvas: () => h.canvas };
+    useControl: (factory: () => FakeOverlay) =>
+      react.useMemo(() => {
+        const control = factory();
         h.controls.push(control);
         return control;
-      }, []);
-    },
+      }, []),
   };
 });
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
@@ -43,9 +54,11 @@ describe('Dataset3DOverlay', () => {
     expect(h.controls[0].setProps).toHaveBeenCalledWith({ layers: ['layer'] });
   });
 
-  it('remounts the overlay when its canvas context is restored', async () => {
+  it('remounts the overlay when its canvas context is restored, even if the canvas arrives late', async () => {
     render(<Dataset3DOverlay datasetId="d1" tilesetUrl="/u" fitToTileset={false} />);
     await waitFor(() => expect(h.createLayers).toHaveBeenCalledTimes(1));
+    // Deck reports its device after mount; no rerender follows.
+    h.controls[0].props.onDeviceInitialized({ getDefaultCanvasContext: () => ({ canvas: h.canvas }) });
     const lost = new Event('webglcontextlost', { cancelable: true });
     h.canvas.dispatchEvent(lost);
     expect(lost.defaultPrevented).toBe(true);
