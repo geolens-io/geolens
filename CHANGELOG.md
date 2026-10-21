@@ -9,6 +9,11 @@ and releases use semantic versioning.
 
 ### Changed
 
+- New API keys start with `glk_` and are 47 characters long, so a pasted key is
+  recognisable to secret scanners, and the server redacts a `glk_` value
+  wherever it appears in its logs. Keys created earlier keep working. A new
+  key's fingerprint shows `glk_` and the next eight characters plus the last
+  four.
 - Map label fonts are bundled with the frontend, so labels on blank and raster
   basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
   exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
@@ -16,11 +21,6 @@ and releases use semantic versioning.
   reached while that URL is still a loopback default such as
   `http://localhost:8080`. An install that serves the API from its own origin
   needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
-- New API keys start with `glk_` and are 47 characters long, so a pasted key is
-  recognisable to secret scanners, and the server redacts a `glk_` value
-  wherever it appears in its logs. Keys created earlier keep working. A new
-  key's fingerprint shows `glk_` and the next eight characters plus the last
-  four.
 
 ### Added
 
