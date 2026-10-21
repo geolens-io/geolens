@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Map label fonts are bundled with the frontend, so labels on blank and raster
+  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
+  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
+  instance's `/fonts/` path, using the public app URL, or the host the request
+  reached while that URL is still a loopback default such as
+  `http://localhost:8080`. An install that serves the API from its own origin
+  needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
+
 ### Added
 
 - `POST /jobs/status/` reports the status of up to 100 import jobs in one
@@ -21,16 +31,6 @@ and releases use semantic versioning.
   name in the file it was imported from (for example `POP 2020` for the stored
   `pop 2020`). It is `null` for datasets imported before this release and for
   columns that could not be matched. Re-uploading a file fills it in.
-
-### Changed
-
-- Map label fonts are bundled with the frontend, so labels on blank and raster
-  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
-  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
-  instance's `/fonts/` path, using the public app URL, or the host the request
-  reached while that URL is still a loopback default such as
-  `http://localhost:8080`. An install that serves the API from its own origin
-  needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
 
 ## [1.26.0] - 2026-10-18
 
