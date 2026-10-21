@@ -233,6 +233,24 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
   });
 
+  it('keeps points with a missing value that the layer filter keeps for a less-than comparison', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['<', ['get', 'score'], 5] as SyncLayerInput['filter'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter ?? 'null')).toEqual({
+      op: 'or',
+      args: [
+        { op: 'isNull', args: [{ property: 'score' }] },
+        { op: '<', args: [{ property: 'score' }, 5] },
+      ],
+    });
+  });
+
   it('forwards data-driven columns to the server-cluster tile URL', () => {
     const map = makeMockMap();
     const layer = makeLayer({

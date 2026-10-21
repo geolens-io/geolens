@@ -265,7 +265,7 @@ function countValues(node: unknown): number {
  * points the filter hides, as before.
  */
 function serverClusterFilter(layer: SyncLayerInput): string | undefined {
-  const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
+  const cql2 = maplibreFilterToCql2(sanitizeNullableNumericFilter(layer.filter), layer.dataset_column_info);
   if (!cql2 || cql2 === 'unsupported') return undefined;
   const json = JSON.stringify(cql2);
   return json.length <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_CLUSTER_FILTER_VALUES
