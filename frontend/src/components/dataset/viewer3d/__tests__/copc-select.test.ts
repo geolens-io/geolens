@@ -21,6 +21,11 @@ describe('selectNodes', () => {
     expect(picked.map(([key]) => key)).toEqual(['0-0-0-0', '1-0-0-0', '2-0-0-0']);
   });
 
+  it('selects a single node holding more than a million points, up to the budget', () => {
+    const picked = selectNodes(map({ '0-0-0-0': node(1_500_000) }), 2_000_000, 34, null);
+    expect(picked).toHaveLength(1);
+  });
+
   it('stops at the first node that would pass the budget', () => {
     const picked = selectNodes(map({ '0-0-0-0': node(600), '1-0-0-0': node(600), '2-0-0-0': node(1) }), 1000, 34, null);
     expect(picked.map(([key]) => key)).toEqual(['0-0-0-0']);

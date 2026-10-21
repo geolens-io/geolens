@@ -48,6 +48,7 @@ export function loadPointCloud(
 
     const { nodes } = await Copc.loadHierarchyPage(getter, copc.info.rootHierarchyPage);
     const queue = selectNodes(nodes, POINT_BUDGET, copc.header.pointDataRecordLength, fileSize);
+    if (queue.length === 0) throw new Error('COPC has no node the viewer can read');
 
     const pending = new Map<number, (response: DecodeResponse) => void>();
     for (let i = 0; i < DECODE_WORKERS; i++) {

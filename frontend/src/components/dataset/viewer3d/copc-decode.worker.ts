@@ -87,8 +87,6 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     if (r && g && b) {
       for (let i = 0; i < count; i++) colorMax = Math.max(colorMax, r(i), g(i), b(i));
     }
-    // Colour is in use for the whole node once any sample has some, so black samples stay black.
-    const hasColor = colorMax > 0;
     const colorShift = colorShiftFor(colorMax);
     const positions = new Float32Array(count * 3);
     const colors = new Uint8Array(count * 4);
@@ -97,7 +95,7 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       positions[i * 3] = lng - origin[0];
       positions[i * 3 + 1] = lat - origin[1];
       positions[i * 3 + 2] = (z(i) - zMin) * zToMeters;
-      if (r && g && b && hasColor) {
+      if (r && g && b) {
         colors[i * 4] = r(i) >> colorShift;
         colors[i * 4 + 1] = g(i) >> colorShift;
         colors[i * 4 + 2] = b(i) >> colorShift;
