@@ -1,3 +1,4 @@
+import { MAP_COLORS } from '@/lib/map-colors';
 import { describe, expect, it } from 'vitest';
 import {
   RENDER_AS_WRITABLE_FIELDS,
@@ -548,6 +549,14 @@ describe('hasCustomizedRenderAsStyle — arrow color (fix #430 codex r17)', () =
       arrowLayer({ arrowColor: '#ff5500' }, { 'line-color': '#ff5500' }),
     )).toBe(false);
     expect(hasCustomizedRenderAsStyle(arrowLayer({}))).toBe(false);
+  });
+
+  it('an arrowColor picked over a data-driven line colour counts, even if it equals the default', () => {
+    const expression = ['match', ['get', 'kind'], 'a', '#ff0000', '#00ff00'];
+    expect(hasCustomizedRenderAsStyle(
+      arrowLayer({ arrowColor: MAP_COLORS.default.fill }, { 'line-color': expression }),
+    )).toBe(true);
+    expect(hasCustomizedRenderAsStyle(arrowLayer({}, { 'line-color': expression }))).toBe(false);
   });
 
   it('an arrowColor diverging from the seed counts', () => {

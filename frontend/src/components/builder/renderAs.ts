@@ -371,9 +371,11 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
       // entry) is not customization; a diverging one is destructible state.
       // Every editor-persisted builder field (arrow*, cluster*, heightColumn,
       // symbol.*) is covered by this switch.
-      const seededArrowColor = typeof paint['line-color'] === 'string'
-        ? paint['line-color']
-        : MAP_COLORS.default.fill;
+      // With a data-driven line colour the arrows follow the data, so any picked colour is a choice.
+      const lineColor = paint['line-color'];
+      const seededArrowColor = typeof lineColor === 'string'
+        ? lineColor
+        : Array.isArray(lineColor) ? undefined : MAP_COLORS.default.fill;
       return (
         (typeof builder.arrowSize === 'number' && builder.arrowSize !== DEFAULT_ARROW_SIZE)
         || (typeof builder.arrowSpacing === 'number' && builder.arrowSpacing !== DEFAULT_ARROW_SPACING)
