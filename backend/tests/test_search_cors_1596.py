@@ -233,7 +233,6 @@ async def test_a_429_exposes_its_retry_window(
     "credential",
     [
         {"Authorization": "Bearer not-a-real-token"},
-        {"X-Api-Key": "not-a-real-key"},
         {"Cookie": "session=not-a-real-session"},
     ],
 )

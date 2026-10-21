@@ -55,6 +55,48 @@ _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 _ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 
+# A script that sends a key in the X-Api-Key header already holds it, so CORS
+# has no ambient credential to guard on that lane and any origin may read the
+# answer. Cookies, bearer tokens, embed tokens and query-string keys are ambient
+# or leak-prone and never qualify. A preflight can't carry the key, so it
+# qualifies when it asks for x-api-key and only these headers besides.
+_HEADER_KEY_ALLOWED_HEADER_NAMES: tuple[str, ...] = (
+    "X-Api-Key",
+    "Content-Type",
+    "Accept",
+    "Accept-Language",
+    "Content-Language",
+    "Idempotency-Key",
+    "Idempotency-Attempt",
+    "Range",
+    "If-Range",
+    "If-None-Match",
+    "If-Match",
+)
+_HEADER_KEY_ALLOWED_HEADERS = ", ".join(_HEADER_KEY_ALLOWED_HEADER_NAMES)
+_HEADER_KEY_ALLOWED_LOWER = frozenset(
+    h.lower() for h in _HEADER_KEY_ALLOWED_HEADER_NAMES
+)
+
+_ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+
+_EXPOSE_HEADERS = (
+    "X-Total-Count, Link, Content-Crs, Content-Language, "
+    "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
+    "Retry-After, "
+    "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
+    "X-GeoLens-Excluded-Dataset-Count, "
+    "X-GeoLens-Metadata-Fallback-Dataset-Count, "
+    "X-GeoLens-Metadata-Fallback-Fields, "
+    # Says whether numberMatched is exact or the planner's
+    # estimate on a filtered feature page.
+    "X-GeoLens-Number-Matched, "
+    # The feature delete route's committed tile_cache_version; a 204
+    # has no body to carry it in, so a cross-origin caller needs it
+    # exposed to read it at all.
+    "X-GeoLens-Tile-Cache-Version"
+)
+
 
 def _merge_vary_origin(response: Response) -> None:
     """Declare that this response was derived from the request's ``Origin``.
@@ -122,6 +164,21 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         allowed = await self._is_origin_allowed(origin)
 
         if not allowed:
+            if self._is_header_key_request(request):
+                if request.method == "OPTIONS":
+                    response = Response(status_code=status.HTTP_200_OK)
+                else:
+                    # The answer is readable by any origin, so a cookie the
+                    # browser attached must not authenticate anything here.
+                    request.scope["headers"] = [
+                        (name, value)
+                        for name, value in request.scope["headers"]
+                        if name != b"cookie"
+                    ]
+                    response = await call_next(request)
+                self._set_header_key_cors_headers(response)
+                return response
+
             # Standards discovery and anonymous catalog search are meant to
             # be usable by anonymous browser clients by default. A wildcard
             # is safe here since credential-bearing requests are excluded
@@ -197,30 +254,45 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         """
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = (
-            "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
-        )
+        response.headers["Access-Control-Allow-Methods"] = _ALL_METHODS
         response.headers["Access-Control-Allow-Headers"] = (
             "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token, "
             "X-Config-Preview-Token, Idempotency-Key, Idempotency-Attempt, "
             "Range, If-Range, If-None-Match, If-Match"
         )
-        response.headers["Access-Control-Expose-Headers"] = (
-            "X-Total-Count, Link, Content-Crs, Content-Language, "
-            "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
-            "Retry-After, "
-            "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
-            "X-GeoLens-Excluded-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Fields, "
-            # Says whether numberMatched is exact or the planner's
-            # estimate on a filtered feature page.
-            "X-GeoLens-Number-Matched, "
-            # The feature delete route's committed tile_cache_version; a 204
-            # has no body to carry it in, so a cross-origin caller needs it
-            # exposed to read it at all.
-            "X-GeoLens-Tile-Cache-Version"
+        response.headers["Access-Control-Expose-Headers"] = _EXPOSE_HEADERS
+        response.headers["Access-Control-Max-Age"] = "3600"
+
+    @staticmethod
+    def _requested_headers(request: Request) -> set[str]:
+        """The lower-cased header names a preflight asks to send."""
+        return {
+            value.strip().lower()
+            for value in request.headers.get(
+                "access-control-request-headers", ""
+            ).split(",")
+            if value.strip()
+        }
+
+    @classmethod
+    def _is_header_key_request(cls, request: Request) -> bool:
+        """Whether this request is on the header-key lane, preflight included."""
+        if request.method == "OPTIONS" and request.headers.get(
+            "access-control-request-method"
+        ):
+            requested = cls._requested_headers(request)
+            return "x-api-key" in requested and requested <= _HEADER_KEY_ALLOWED_LOWER
+        return bool(request.headers.get("x-api-key")) and not (
+            request.headers.get("authorization") or request.headers.get("x-embed-token")
         )
+
+    @staticmethod
+    def _set_header_key_cors_headers(response: Response) -> None:
+        """Answer the header-key lane: any origin, never with credentials."""
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = _ALL_METHODS
+        response.headers["Access-Control-Allow-Headers"] = _HEADER_KEY_ALLOWED_HEADERS
+        response.headers["Access-Control-Expose-Headers"] = _EXPOSE_HEADERS
         response.headers["Access-Control-Max-Age"] = "3600"
 
     @staticmethod
@@ -280,8 +352,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         ):
             return None
 
-        # Never grant wildcard access to a request carrying an application
-        # identity — covers both actual requests and preflights.
+        # The anonymous wildcard never covers a credential, preflights included.
         credential_headers = {
             "authorization",
             "cookie",
@@ -293,13 +364,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if "api_key" in request.query_params or "embed_token" in request.query_params:
             return None
 
-        requested_headers = {
-            value.strip().lower()
-            for value in request.headers.get(
-                "access-control-request-headers", ""
-            ).split(",")
-            if value.strip()
-        }
+        requested_headers = cls._requested_headers(request)
         allowed_headers = {
             "accept",
             "accept-language",
