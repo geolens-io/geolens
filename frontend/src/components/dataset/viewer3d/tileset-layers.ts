@@ -56,11 +56,9 @@ export function createTilesetLayers(
       return response;
     }
     // Sniffed by content, so a GLB under any extension gets the fix. loaders.gl
-    // resolves relative references against response.url, so an adapted body
-    // keeps it, and an unchanged one is returned as it came.
-    const original = await response.clone().arrayBuffer();
-    const body = separateMeshoptFallbackViews(original);
-    if (body === original) return response;
+    // resolves relative references against response.url, which a new Response
+    // does not carry, so it is copied over.
+    const body = separateMeshoptFallbackViews(await response.arrayBuffer());
     const headers = new Headers(response.headers);
     headers.delete('content-length');
     const adapted = new Response(body, { status: response.status, statusText: response.statusText, headers });
