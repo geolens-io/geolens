@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -335,11 +336,14 @@ async def share_map_endpoint(
     await check_map_ownership(map_obj, user, db)
     if map_obj.visibility != "public":
         raise HTTPException(status_code=400, detail="Map must be public before sharing")
-    # A new expiry on the live link could end it early. Locked first, as
+    # A new expiry on a live link could end it early. Locked first, as
     # create_share_token locks, so the check and the write see the same token.
     if body and (body.expires_at is not None or body.expires_in_days is not None):
         await lock_map_layers(db, map_id)
-        if await get_active_share_token(db, map_id) is not None:
+        live = await get_active_share_token(db, map_id)
+        if live is not None and (
+            live.expires_at is None or live.expires_at > datetime.now(timezone.utc)
+        ):
             refuse_publish_key(db, "A publish key can't change a share link's expiry")
     try:
         token_obj = await create_share_token(

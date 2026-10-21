@@ -672,7 +672,7 @@ async def test_a_publish_key_reads_no_key_or_admin_route(
 
 @pytest.mark.anyio
 async def test_a_publish_key_cannot_change_a_live_share_links_expiry(
-    client: AsyncClient, owner
+    client: AsyncClient, owner, test_db_session
 ):
     headers, _ = owner
     publish = await _mint(client, headers, "publish")
@@ -695,6 +695,21 @@ async def test_a_publish_key_cannot_change_a_live_share_links_expiry(
         reused = await client.post(share_url, headers=publish)
         assert reused.status_code == 200, reused.text
         assert reused.json()["expires_at"] is None
+
+        # An expired link serves nothing, so a publish key may renew it.
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.map_share_tokens SET expires_at = now() - interval '1 day' "
+                "WHERE map_id = :id"
+            ),
+            {"id": map_id},
+        )
+        await test_db_session.commit()
+        renewed = await client.post(
+            share_url, json={"expires_in_days": 7}, headers=publish
+        )
+        assert renewed.status_code == 200, renewed.text
+        assert renewed.json()["expires_at"] is not None
     finally:
         await client.delete(f"/maps/{map_id}", headers=headers)
 
