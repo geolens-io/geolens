@@ -232,6 +232,8 @@ def _import_layer(
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
         del entry.layer_jobs[key]
         if dataset is not None:
+            # The commit that made it may predate an edit of the plan.
+            _apply_target(ctx, dataset, title_visibility)
             entry.layer_datasets[key] = dataset
             return False
         ctx.save()

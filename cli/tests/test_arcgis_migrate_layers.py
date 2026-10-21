@@ -296,7 +296,7 @@ def test_group_and_raster_layers_are_skipped_with_a_note(runner, plan_file, geol
         ],
     )
 
-    result, _ = _migrate(runner, plan_file, "--only", A2)
+    result, payload = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 0, result.output
     assert [b["layer_name"] for b in service.bodies(PREVIEW)] == ["Parcels"]
@@ -307,6 +307,7 @@ def test_group_and_raster_layers_are_skipped_with_a_note(runner, plan_file, geol
         "Districts: Group Layer layer, not imported",
         "Imagery: Raster Layer layer, not imported",
     ]
+    assert payload["items"][0]["notes"] == notes
 
 
 def test_a_service_with_nothing_to_import_is_done_and_not_probed_again(
@@ -793,6 +794,9 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     entry = _state(plan_file)["items"][A2]
     assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
     assert entry["layer_jobs"] == {}
+    assert {"title": "Parcels (public view)", "visibility": "public"} in [
+        s.json() for s in geolens.seen if s.method == "PATCH"
+    ]
 
 
 def test_a_recorded_job_geolens_no_longer_has_is_replaced(runner, plan_file, geolens):
