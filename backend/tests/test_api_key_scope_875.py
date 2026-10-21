@@ -490,6 +490,8 @@ def test_the_carve_out_is_a_named_method_and_route():
             ("POST", "/query/"),
             ("POST", "/query"),
             ("POST", "/stac/search"),
+            ("POST", "/jobs/status"),
+            ("POST", "/jobs/status/"),
         }
     )
     # Driven from the ROUTE TABLE rather than from a literal: this pair is
@@ -588,7 +590,6 @@ _BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
     "/datasets/{dataset_id}": "commits an audit row for the read",
     "/datasets/{dataset_id}/download/cog": "commits an audit row for the read",
     "/datasets/{dataset_id}/export": "commits an audit row for the read",
-    "/jobs/{job_id}": "commits an audit row for the read",
     # Repairs the stored schema for a dropped join column, only for a caller
     # who passes the write check and supplies no API key.
     "/datasets/{dataset_id}/features/{gid}/related/{relationship_id}/": (
@@ -883,7 +884,7 @@ def test_no_mutating_route_in_the_table_accepts_a_url_borne_key():
 
 def test_the_query_lane_does_not_inherit_the_read_only_scope_exemptions():
     """``_READ_ONLY_KEY_EXEMPT_ROUTES`` is about what a scoped key may do; this
-    is about what a credential written into a URL may do. The two POSTs there
+    is about what a credential written into a URL may do. The POSTs there
     are reads an owner chose to make with a credential they control, and the
     clients this lane exists for issue GETs, so the exemption stops here."""
     assert _READ_ONLY_KEY_EXEMPT_ROUTES

@@ -24,6 +24,7 @@ from app.platform.jobs.models import (
     IngestJob,
 )
 from app.platform.jobs.sweep import settle_stale_jobs
+from app.platform.refresh.job_runs import stored_review_reasons
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -125,7 +126,7 @@ async def held_entry(
         job_id=job.id,
         dataset_id=run.dataset_id,
         run_id=run.id,
-        review_reasons=[str(r) for r in verification.get("review_reasons") or ()],
+        review_reasons=stored_review_reasons(verification),
         message=(
             "Manifest dataset entry is unchanged since its last apply, which "
             f"is blocked for review, so nothing was queued. Accept run {run.id} "

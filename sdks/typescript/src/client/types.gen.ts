@@ -5443,6 +5443,94 @@ export type JobCancelResponse = {
 };
 
 /**
+ * JobRefreshRunSummary
+ */
+export type JobRefreshRunSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     *
+     * Refresh run status. `blocked` means the run is held for review.
+     */
+    status: string;
+    /**
+     * Review Reasons
+     *
+     * Why a blocked run needs review.
+     */
+    review_reasons?: Array<string>;
+};
+
+/**
+ * JobStatusBatchEntry
+ */
+export type JobStatusBatchEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     *
+     * Job status. `not_found` covers an unknown id and a job the caller may not read alike.
+     */
+    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out' | 'not_found';
+    /**
+     * Dataset Id
+     */
+    dataset_id?: string | null;
+    /**
+     * Progress
+     */
+    progress?: number | null;
+    /**
+     * Current Step
+     */
+    current_step?: 'queued' | 'downloading' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Warnings
+     */
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    /**
+     * Can Retry
+     */
+    can_retry?: boolean;
+    /**
+     * The refresh run bound to a reupload or manifest update job.
+     */
+    refresh_run?: JobRefreshRunSummary | null;
+};
+
+/**
+ * JobStatusBatchRequest
+ */
+export type JobStatusBatchRequest = {
+    /**
+     * Job Ids
+     *
+     * Jobs to report on. Repeated ids are answered once.
+     */
+    job_ids: Array<string>;
+};
+
+/**
+ * JobStatusBatchResponse
+ */
+export type JobStatusBatchResponse = {
+    /**
+     * Jobs
+     */
+    jobs: Array<JobStatusBatchEntry>;
+};
+
+/**
  * JobStatusResponse
  */
 export type JobStatusResponse = {
@@ -23830,6 +23918,59 @@ export type CleanupStaleJobsJobsCleanupStalePostResponses = {
 };
 
 export type CleanupStaleJobsJobsCleanupStalePostResponse = CleanupStaleJobsJobsCleanupStalePostResponses[keyof CleanupStaleJobsJobsCleanupStalePostResponses];
+
+export type GetJobStatusesJobsStatusPostData = {
+    body: JobStatusBatchRequest;
+    path?: never;
+    query?: never;
+    url: '/jobs/status/';
+};
+
+export type GetJobStatusesJobsStatusPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetJobStatusesJobsStatusPostError = GetJobStatusesJobsStatusPostErrors[keyof GetJobStatusesJobsStatusPostErrors];
+
+export type GetJobStatusesJobsStatusPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: JobStatusBatchResponse;
+};
+
+export type GetJobStatusesJobsStatusPostResponse = GetJobStatusesJobsStatusPostResponses[keyof GetJobStatusesJobsStatusPostResponses];
 
 export type GetJobStatusJobsJobIdGetData = {
     body?: never;

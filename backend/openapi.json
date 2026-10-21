@@ -9143,6 +9143,206 @@
         "title": "JobCancelResponse",
         "type": "object"
       },
+      "JobRefreshRunSummary": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Refresh run status. `blocked` means the run is held for review.",
+            "title": "Status",
+            "type": "string"
+          },
+          "review_reasons": {
+            "description": "Why a blocked run needs review.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Review Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "JobRefreshRunSummary",
+        "type": "object"
+      },
+      "JobStatusBatchEntry": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "running",
+                  "complete",
+                  "failed",
+                  "cancelled",
+                  "fanned_out"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "not_found",
+                "type": "string"
+              }
+            ],
+            "description": "Job status. `not_found` covers an unknown id and a job the caller may not read alike.",
+            "title": "Status"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "downloading",
+                  "validating",
+                  "ogr2ogr",
+                  "finalize",
+                  "complete",
+                  "cog_convert",
+                  "quicklook",
+                  "analyzing",
+                  "registering"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Step"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "warnings": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "mercator_clip": "#/components/schemas/MercatorClipWarning",
+                  "reserved_rename": "#/components/schemas/ReservedRenameWarning"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ReservedRenameWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/DbfTruncationCollisionWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/MercatorClipWarning"
+                }
+              ]
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "can_retry": {
+            "default": false,
+            "title": "Can Retry",
+            "type": "boolean"
+          },
+          "refresh_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobRefreshRunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The refresh run bound to a reupload or manifest update job."
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "JobStatusBatchEntry",
+        "type": "object"
+      },
+      "JobStatusBatchRequest": {
+        "properties": {
+          "job_ids": {
+            "description": "Jobs to report on. Repeated ids are answered once.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Job Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_ids"
+        ],
+        "title": "JobStatusBatchRequest",
+        "type": "object"
+      },
+      "JobStatusBatchResponse": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobStatusBatchEntry"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "title": "JobStatusBatchResponse",
+        "type": "object"
+      },
       "JobStatusResponse": {
         "properties": {
           "id": {
@@ -48537,6 +48737,138 @@
           }
         ],
         "summary": "Cleanup Stale Jobs",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/jobs/status/": {
+      "post": {
+        "description": "Get the status of up to 100 ingestion jobs in one request.\n\nApplies the same access rule as `GET /jobs/{id}`: the job creator, or a\ncaller the effective permission policy lets read other users' jobs. An\nunknown id and a job the caller may not read both come back as\n`not_found`, so the response does not reveal which jobs exist.",
+        "operationId": "get_job_statuses_jobs_status__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobStatusBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Job Statuses",
         "tags": [
           "Admin"
         ]

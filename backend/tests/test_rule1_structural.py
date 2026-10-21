@@ -279,7 +279,7 @@ ALLOWLIST: dict[str, str] = {
         "upload-gated physical-table registration; select is a dedupe existence check"
     ),
     # ---------------------------------------------------------------------
-    # The IngestJob sweep. These seven handlers fetch a job
+    # The IngestJob sweep. These eight handlers fetch a job
     # row and none of them calls a CATALOG guard, because a job is owned by
     # the user who created it rather than reached through a dataset's
     # visibility. Each names the check it does apply instead.
@@ -296,7 +296,11 @@ ALLOWLIST: dict[str, str] = {
     # _can_access_another_users_job (the effective permission matrix), and a
     # refusal is a 403 recorded as a permission denial.
     "app.platform.jobs.router.get_job_status": (
-        "owner-or-policy via _can_access_another_users_job; 403 on denial"
+        "owner-or-policy via _may_read_job; 403 on denial"
+    ),
+    "app.platform.jobs.router.get_job_statuses": (
+        "owner-or-policy via _may_read_job; a refused id is "
+        "reported as not_found, identical to an unknown id"
     ),
     "app.platform.jobs.router.retry_job": (
         "owner-or-policy via _can_access_another_users_job; 403 on denial"
@@ -1094,18 +1098,22 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
 
 @lru_cache(maxsize=1)
 def _disclosure_deciders() -> tuple[Any, ...]:
-    """The two predicates that settle how much of a run's record a caller sees.
+    """The predicates that settle how much of a run's record a caller sees.
 
-    ``_can_access_another_users_job`` is the owner-or-policy answer: the
-    caller gets the whole row or a 403. ``can_view_dataset_provenance`` is
+    ``_may_read_job`` is the owner-or-policy answer, owners included, over
+    ``_can_access_another_users_job``: the caller gets the whole row or is
+    refused. ``can_view_dataset_provenance`` is
     the graded answer ``list_dataset_refresh_runs`` uses: the full payload
     for the dataset's owner or an admin, a redacted one for everybody else.
     Either is a decision. Neither being present is the defect.
     """
     from app.modules.catalog.authorization import can_view_dataset_provenance
-    from app.platform.jobs.router import _can_access_another_users_job
+    from app.platform.jobs.router import (
+        _can_access_another_users_job,
+        _may_read_job,
+    )
 
-    return (_can_access_another_users_job, can_view_dataset_provenance)
+    return (_can_access_another_users_job, _may_read_job, can_view_dataset_provenance)
 
 
 # The three field names the provenance projection already decided are not for

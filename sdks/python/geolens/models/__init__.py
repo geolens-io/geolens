@@ -471,6 +471,14 @@ from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
 from .infrastructure_response_oidc_providers import InfrastructureResponseOidcProviders
 from .job_cancel_response import JobCancelResponse
+from .job_refresh_run_summary import JobRefreshRunSummary
+from .job_status_batch_entry import JobStatusBatchEntry
+from .job_status_batch_entry_current_step_type_0 import (
+    JobStatusBatchEntryCurrentStepType0,
+)
+from .job_status_batch_entry_status_type_0 import JobStatusBatchEntryStatusType0
+from .job_status_batch_request import JobStatusBatchRequest
+from .job_status_batch_response import JobStatusBatchResponse
 from .job_status_response import JobStatusResponse
 from .job_status_response_current_step_type_0 import JobStatusResponseCurrentStepType0
 from .job_status_response_status import JobStatusResponseStatus
@@ -1260,6 +1268,12 @@ __all__ = (
     "InfrastructureResponseHealth",
     "InfrastructureResponseOidcProviders",
     "JobCancelResponse",
+    "JobRefreshRunSummary",
+    "JobStatusBatchEntry",
+    "JobStatusBatchEntryCurrentStepType0",
+    "JobStatusBatchEntryStatusType0",
+    "JobStatusBatchRequest",
+    "JobStatusBatchResponse",
     "JobStatusResponse",
     "JobStatusResponseCurrentStepType0",
     "JobStatusResponseStatus",

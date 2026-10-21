@@ -73,11 +73,32 @@ IngestJobWarning = Annotated[
 ]
 
 
+JobStatus = Literal[
+    "pending", "running", "complete", "failed", "cancelled", "fanned_out"
+]
+
+# Stamped at creation so a pending job reads as queued, not as having nothing
+# to say. Analysis today; any producer may set it.
+JobCurrentStep = Literal[
+    "queued",
+    # The URL import's server-side download, before the file is staged and
+    # previewable.
+    "downloading",
+    "validating",
+    "ogr2ogr",
+    "finalize",
+    "complete",
+    "cog_convert",
+    "quicklook",
+    # Analysis materialize: single CTAS, no progress to report between these.
+    "analyzing",
+    "registering",
+]
+
+
 class JobStatusResponse(BaseModel):
     id: uuid.UUID
-    status: Literal[
-        "pending", "running", "complete", "failed", "cancelled", "fanned_out"
-    ]
+    status: JobStatus
     dataset_id: uuid.UUID | None
     source_filename: str | None
     error_message: str | None
@@ -100,26 +121,7 @@ class JobStatusResponse(BaseModel):
     # Default None so older and service rows validate. The DB column is
     # String(32); this Literal is the source of truth.
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
-    current_step: (
-        Literal[
-            # Stamped at creation so a pending job reads as queued, not as
-            # having nothing to say. Analysis today; any producer may set it.
-            "queued",
-            # The URL import's server-side download, before the
-            # file is staged and previewable.
-            "downloading",
-            "validating",
-            "ogr2ogr",
-            "finalize",
-            "complete",
-            "cog_convert",
-            "quicklook",
-            # Analysis materialize: single CTAS, no progress to report between these.
-            "analyzing",
-            "registering",
-        ]
-        | None
-    ) = None
+    current_step: JobCurrentStep | None = None
     rows_processed: Annotated[int, Field(ge=0)] | None = None
     # Rows processed but NOT completed. `rows_processed`
     # alone can't distinguish a clean run from a partial one (e.g. embedding
@@ -171,3 +173,46 @@ class StaleCleanupResponse(BaseModel):
     staged_paths_skipped: int
     staged_cleanup_failures: int
     total_affected: int
+
+
+class JobStatusBatchRequest(BaseModel):
+    job_ids: list[uuid.UUID] = Field(
+        min_length=1,
+        max_length=100,
+        description="Jobs to report on. Repeated ids are answered once.",
+    )
+
+
+class JobRefreshRunSummary(BaseModel):
+    id: uuid.UUID
+    status: str = Field(
+        description="Refresh run status. `blocked` means the run is held for review."
+    )
+    review_reasons: list[str] = Field(
+        default_factory=list,
+        description="Why a blocked run needs review.",
+    )
+
+
+class JobStatusBatchEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: JobStatus | Literal["not_found"] = Field(
+        description="Job status. `not_found` covers an unknown id and a job the "
+        "caller may not read alike."
+    )
+    dataset_id: uuid.UUID | None = None
+    progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    current_step: JobCurrentStep | None = None
+    error_code: str | None = None
+    warnings: list[IngestJobWarning] = Field(default_factory=list)
+    can_retry: bool = False
+    refresh_run: JobRefreshRunSummary | None = Field(
+        default=None,
+        description="The refresh run bound to a reupload or manifest update job.",
+    )
+
+
+class JobStatusBatchResponse(BaseModel):
+    jobs: list[JobStatusBatchEntry]

@@ -5,6 +5,7 @@ keeps the job CRUD routes and re-exports what it imports from there.
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, cast
@@ -39,11 +40,16 @@ from app.platform.jobs.models import (
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobCancelResponse,
+    JobStatusBatchEntry,
+    JobStatusBatchRequest,
+    JobStatusBatchResponse,
+    JobRefreshRunSummary,
     JobStatusResponse,
     MercatorClipWarning,
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
@@ -93,15 +99,14 @@ async def _can_access_another_users_job(
     refusal and must be recorded. Where a later arm can still grant
     (cancel's dataset-write arm), logging here would file a denial on every
     SUCCESSFUL cancel — such callers pass ``log_denial=False`` and emit
-    exactly one event once every arm has failed. Default True: a caller
-    that forgets the flag over-reports rather than losing a denial silently.
+    exactly one event once every arm has failed. The batch status read passes
+    ``False`` too and emits one event for the whole request. Default True: a
+    caller that forgets the flag over-reports rather than losing a denial
+    silently.
     """
     # Deferred by design: shared platform code must not import product-domain
     # policy implementations at module load time.
-    from app.modules.auth.dependencies import (
-        get_cached_user_roles,
-        log_permission_denial,
-    )
+    from app.modules.auth.dependencies import get_cached_user_roles
     from app.modules.auth.permissions import get_effective_permissions
 
     user_roles = await get_cached_user_roles(request, db, user)
@@ -118,14 +123,63 @@ async def _can_access_another_users_job(
         resource=job,
     )
     if not granted and log_denial:
-        log_permission_denial(
-            request,
-            user,
-            "manage_users",
-            user_roles,
-            resource_type="ingest_job",
-        )
+        await _log_job_read_denial(request, db, user)
     return granted
+
+
+async def _log_job_read_denial(
+    request: Request, db: AsyncSession, user: Identity
+) -> None:
+    from app.modules.auth.dependencies import (
+        get_cached_user_roles,
+        log_permission_denial,
+    )
+
+    log_permission_denial(
+        request,
+        user,
+        "manage_users",
+        await get_cached_user_roles(request, db, user),
+        resource_type="ingest_job",
+    )
+
+
+async def _may_read_job(
+    request: Request,
+    db: AsyncSession,
+    user: Identity,
+    job: IngestJob,
+    *,
+    log_denial: bool = True,
+) -> bool:
+    """Owners always read their job; anyone else follows the permission policy."""
+    return job.created_by == user.id or await _can_access_another_users_job(
+        request, db, user, job, log_denial=log_denial
+    )
+
+
+async def _settle_stale(db: AsyncSession, jobs: Sequence[IngestJob]) -> None:
+    """Settle the jobs among ``jobs`` that are stale, then reload them.
+
+    Clients poll every few seconds. A job inside its lease costs no statement
+    here, and a stale one its queue or children still hold costs one read.
+    """
+    now = datetime.now(timezone.utc)
+    stale = [
+        job
+        for job in jobs
+        if may_be_stale(job, now) and not await is_held_back(db, job)
+    ]
+    if not stale:
+        return
+    outcome = await settle_stale_jobs(db, now, job_ids=tuple(job.id for job in stale))
+    await db.commit()
+    publish_refresh_reconciliation(outcome)
+    # Only after the commit: a reap before it could delete what a
+    # rolled-back settlement still owns.
+    await _reap_committed_staged_paths(outcome)
+    for job in stale:
+        await db.refresh(job)
 
 
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
@@ -295,6 +349,56 @@ async def cleanup_stale_jobs(
     return StaleCleanupResponse(**details)
 
 
+@router.post("/status", response_model=JobStatusBatchResponse, include_in_schema=False)
+@router.post("/status/", response_model=JobStatusBatchResponse)
+async def get_job_statuses(
+    body: JobStatusBatchRequest,
+    request: Request,
+    user: Identity = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobStatusBatchResponse:
+    """Get the status of up to 100 ingestion jobs in one request.
+
+    Applies the same access rule as `GET /jobs/{id}`: the job creator, or a
+    caller the effective permission policy lets read other users' jobs. An
+    unknown id and a job the caller may not read both come back as
+    `not_found`, so the response does not reveal which jobs exist.
+    """
+    ids = list(dict.fromkeys(body.job_ids))
+    rows = await db.execute(select(IngestJob).where(IngestJob.id.in_(ids)))
+    readable: dict[uuid.UUID, IngestJob] = {}
+    refused = 0
+    for job in rows.scalars():
+        if await _may_read_job(request, db, user, job, log_denial=False):
+            readable[job.id] = job
+        else:
+            refused += 1
+    if refused:
+        await _log_job_read_denial(request, db, user)
+
+    await _settle_stale(db, list(readable.values()))
+
+    runs = await latest_runs_for_jobs(db, list(readable))
+    entries: list[JobStatusBatchEntry] = []
+    for job_id in ids:
+        job = readable.get(job_id)
+        if job is None:
+            entries.append(JobStatusBatchEntry(id=job_id, status="not_found"))
+            continue
+        entry = JobStatusBatchEntry.model_validate(
+            await _job_to_status_response(job, include_detail=True)
+        )
+        run = runs.get(job_id)
+        if run is not None:
+            entry.refresh_run = JobRefreshRunSummary(
+                id=run.id,
+                status=run.status,
+                review_reasons=stored_review_reasons(run.verification),
+            )
+        entries.append(entry)
+    return JobStatusBatchResponse(jobs=entries)
+
+
 @router.get("/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: uuid.UUID,
@@ -315,27 +419,13 @@ async def get_job_status(
             detail="Job not found",
         )
 
-    # Owners always retain access. Cross-user access follows the active
-    # capability policy rather than assuming a hard-coded "admin" role.
-    if job.created_by != user.id and not await _can_access_another_users_job(
-        request, db, user, job
-    ):
+    if not await _may_read_job(request, db, user, job):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this job",
         )
 
-    now = datetime.now(timezone.utc)
-    # Clients poll every few seconds. A job inside its lease costs no statement
-    # here, and a stale one its queue or children still hold costs one read.
-    if may_be_stale(job, now) and not await is_held_back(db, job):
-        outcome = await settle_stale_jobs(db, now, job_ids=(job.id,))
-        await db.commit()
-        publish_refresh_reconciliation(outcome)
-        # Only after the commit: a reap before it could delete what a
-        # rolled-back settlement still owns.
-        await _reap_committed_staged_paths(outcome)
-        await db.refresh(job)
+    await _settle_stale(db, [job])
 
     # This handler already refused non-creators without policy
     # access, so every caller here is entitled to the full payload.

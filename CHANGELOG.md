@@ -17,6 +17,13 @@ and releases use semantic versioning.
   `http://localhost:8080`. An install that serves the API from its own origin
   needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
 
+### Added
+
+- `POST /jobs/status/` reports the status of up to 100 import jobs in one
+  request, with the held refresh run for a replacement under review. Ids that
+  don't exist and jobs you may not read both come back as `not_found`. API
+  keys limited to read-only can call it.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

@@ -3709,6 +3709,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Job Statuses
+         * @description Get the status of up to 100 ingestion jobs in one request.
+         *
+         *     Applies the same access rule as `GET /jobs/{id}`: the job creator, or a
+         *     caller the effective permission policy lets read other users' jobs. An
+         *     unknown id and a job the caller may not read both come back as
+         *     `not_found`, so the response does not reveal which jobs exist.
+         */
+        post: operations["get_job_statuses_jobs_status__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -9947,6 +9972,67 @@ export interface components {
              * @default false
              */
             already: boolean;
+        };
+        /** JobRefreshRunSummary */
+        JobRefreshRunSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @description Refresh run status. `blocked` means the run is held for review.
+             */
+            status: string;
+            /**
+             * Review Reasons
+             * @description Why a blocked run needs review.
+             */
+            review_reasons?: string[];
+        };
+        /** JobStatusBatchEntry */
+        JobStatusBatchEntry: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @description Job status. `not_found` covers an unknown id and a job the caller may not read alike.
+             */
+            status: ("pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out") | "not_found";
+            /** Dataset Id */
+            dataset_id?: string | null;
+            /** Progress */
+            progress?: number | null;
+            /** Current Step */
+            current_step?: ("queued" | "downloading" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Warnings */
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            /**
+             * Can Retry
+             * @default false
+             */
+            can_retry: boolean;
+            /** @description The refresh run bound to a reupload or manifest update job. */
+            refresh_run?: components["schemas"]["JobRefreshRunSummary"] | null;
+        };
+        /** JobStatusBatchRequest */
+        JobStatusBatchRequest: {
+            /**
+             * Job Ids
+             * @description Jobs to report on. Repeated ids are answered once.
+             */
+            job_ids: string[];
+        };
+        /** JobStatusBatchResponse */
+        JobStatusBatchResponse: {
+            /** Jobs */
+            jobs: components["schemas"]["JobStatusBatchEntry"][];
         };
         /** JobStatusResponse */
         JobStatusResponse: {
@@ -33116,6 +33202,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StaleCleanupResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_job_statuses_jobs_status__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobStatusBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStatusBatchResponse"];
                 };
             };
             /** @description Bad request — invalid query parameters or payload */
