@@ -32,6 +32,8 @@ def _get_kwargs(
     filter_: None | str | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
     filter_crs: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
+    bbox_crs: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -85,6 +87,20 @@ def _get_kwargs(
     else:
         json_filter_crs = filter_crs
     params["filter-crs"] = json_filter_crs
+
+    json_crs: None | str | Unset
+    if isinstance(crs, Unset):
+        json_crs = UNSET
+    else:
+        json_crs = crs
+    params["crs"] = json_crs
+
+    json_bbox_crs: None | str | Unset
+    if isinstance(bbox_crs, Unset):
+        json_bbox_crs = UNSET
+    else:
+        json_bbox_crs = bbox_crs
+    params["bbox-crs"] = json_bbox_crs
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -188,6 +204,8 @@ def sync_detailed(
     filter_: None | str | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
     filter_crs: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
+    bbox_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
@@ -228,6 +246,10 @@ def sync_detailed(
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
             (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
+        crs (None | str | Unset): CRS of the returned geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is
+            supported; any other value is refused with 400.
+        bbox_crs (None | str | Unset): CRS of `bbox`. Only CRS84 is supported, as for `crs`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -249,6 +271,8 @@ def sync_detailed(
         filter_=filter_,
         filter_lang=filter_lang,
         filter_crs=filter_crs,
+        crs=crs,
+        bbox_crs=bbox_crs,
     )
 
     response = client.get_httpx_client().request(
@@ -272,6 +296,8 @@ def sync(
     filter_: None | str | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
     filter_crs: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
+    bbox_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
@@ -313,6 +339,10 @@ def sync(
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
             (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
+        crs (None | str | Unset): CRS of the returned geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is
+            supported; any other value is refused with 400.
+        bbox_crs (None | str | Unset): CRS of `bbox`. Only CRS84 is supported, as for `crs`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -335,6 +365,8 @@ def sync(
         filter_=filter_,
         filter_lang=filter_lang,
         filter_crs=filter_crs,
+        crs=crs,
+        bbox_crs=bbox_crs,
     ).parsed
 
 
@@ -352,6 +384,8 @@ async def asyncio_detailed(
     filter_: None | str | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
     filter_crs: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
+    bbox_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
@@ -392,6 +426,10 @@ async def asyncio_detailed(
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
             (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
+        crs (None | str | Unset): CRS of the returned geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is
+            supported; any other value is refused with 400.
+        bbox_crs (None | str | Unset): CRS of `bbox`. Only CRS84 is supported, as for `crs`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -413,6 +451,8 @@ async def asyncio_detailed(
         filter_=filter_,
         filter_lang=filter_lang,
         filter_crs=filter_crs,
+        crs=crs,
+        bbox_crs=bbox_crs,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -434,6 +474,8 @@ async def asyncio(
     filter_: None | str | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
     filter_crs: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
+    bbox_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
@@ -475,6 +517,10 @@ async def asyncio(
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
             (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
+        crs (None | str | Unset): CRS of the returned geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is
+            supported; any other value is refused with 400.
+        bbox_crs (None | str | Unset): CRS of `bbox`. Only CRS84 is supported, as for `crs`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -498,5 +544,7 @@ async def asyncio(
             filter_=filter_,
             filter_lang=filter_lang,
             filter_crs=filter_crs,
+            crs=crs,
+            bbox_crs=bbox_crs,
         )
     ).parsed

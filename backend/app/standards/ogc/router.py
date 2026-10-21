@@ -62,6 +62,21 @@ from app.standards.ogc.utils import build_url, link_header_value
 logger = structlog.stdlib.get_logger(__name__)
 
 _CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+# The spellings of CRS84 a client may send: the canonical URI, its https form
+# and the OGC API Features short form.
+_CRS84_SPELLINGS = frozenset(
+    {_CRS84_URI, _CRS84_URI.replace("http://", "https://", 1), "[OGC:CRS84]"}
+)
+
+
+def _require_crs84(name: str, value: str | None) -> None:
+    """Refuse a CRS parameter other than CRS84; every geometry here is WGS84."""
+    if value is not None and value not in _CRS84_SPELLINGS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported {name} {value!r}: only {_CRS84_URI} is supported.",
+        )
+
 
 # Every route that runs _check_cold_rehydrate can answer 202
 # {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
@@ -700,6 +715,19 @@ async def get_collection_items(
             "(http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported."
         ),
     ),
+    crs: str | None = Query(
+        None,
+        description=(
+            "CRS of the returned geometries. Only CRS84 "
+            "(http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or "
+            "[OGC:CRS84]) is supported; any other value is refused with 400."
+        ),
+    ),
+    bbox_crs: str | None = Query(
+        None,
+        alias="bbox-crs",
+        description="CRS of `bbox`. Only CRS84 is supported, as for `crs`.",
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -736,11 +764,9 @@ async def get_collection_items(
     # `filter=` is evaluated server-side (compiled below, after the
     # cold-rehydrate seam). Filter geometries are WGS84-only: reject any other
     # filter-crs instead of misinterpreting coordinates.
-    if filter_crs is not None and filter_crs != _CRS84_URI:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported filter-crs: only {_CRS84_URI} is supported.",
-        )
+    _require_crs84("filter-crs", filter_crs)
+    _require_crs84("crs", crs)
+    _require_crs84("bbox-crs", bbox_crs)
 
     bbox_parsed = None
     if bbox:
@@ -762,6 +788,7 @@ async def get_collection_items(
         "f",
         "datetime",
         "crs",
+        "bbox-crs",
         "api_key",
         "include_geometry",
         # The CQL2 filter params bind explicitly above; keep them
@@ -1018,11 +1045,16 @@ async def get_collection_item_feature(
     dataset_id: uuid.UUID,
     feature_id: int,
     f: str | None = Query(None),
+    crs: str | None = Query(
+        None,
+        description="CRS of the returned geometry. Only CRS84 is supported.",
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Features single feature endpoint -- returns a GeoJSON Feature."""
     _validate_f_param(f)
+    _require_crs84("crs", crs)
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
 

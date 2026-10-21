@@ -24,6 +24,13 @@ and releases use semantic versioning.
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
 
+### Fixed
+
+- OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a
+  single feature, now answer 400 for anything but CRS84 (its `http://` and `https://`
+  URIs or `[OGC:CRS84]`). They were ignored before, so `crs=EPSG:3857` returned
+  CRS84 coordinates without saying so. `filter-crs` accepts the same spellings.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

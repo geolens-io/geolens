@@ -22649,6 +22649,10 @@ export interface operations {
                 "filter-lang"?: string;
                 /** @description CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported. */
                 "filter-crs"?: string | null;
+                /** @description CRS of the returned geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is supported; any other value is refused with 400. */
+                crs?: string | null;
+                /** @description CRS of `bbox`. Only CRS84 is supported, as for `crs`. */
+                "bbox-crs"?: string | null;
             };
             header?: never;
             path: {
@@ -22798,6 +22802,8 @@ export interface operations {
         parameters: {
             query?: {
                 f?: string | null;
+                /** @description CRS of the returned geometry. Only CRS84 is supported. */
+                crs?: string | null;
             };
             header?: never;
             path: {

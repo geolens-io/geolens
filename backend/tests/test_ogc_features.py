@@ -769,3 +769,56 @@ async def test_items_self_link_includes_query_params(
     assert "bbox=" in self_link2["href"], (
         f"bbox missing from self link: {self_link2['href']}"
     )
+
+
+_CRS84_SPELLINGS = [
+    "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    "https://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    "[OGC:CRS84]",
+]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("param", ["crs", "bbox-crs", "filter-crs"])
+@pytest.mark.parametrize("value", _CRS84_SPELLINGS)
+async def test_every_crs84_spelling_is_accepted(
+    client: AsyncClient, public_dataset: Dataset, param: str, value: str
+):
+    params = {param: value}
+    if param == "bbox-crs":
+        params["bbox"] = "-180,-90,180,90"
+    if param == "filter-crs":
+        params["filter"] = "name = 'x'"
+    resp = await client.get(f"/collections/{public_dataset.id}/items", params=params)
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("param", ["crs", "bbox-crs", "filter-crs"])
+@pytest.mark.parametrize(
+    "value",
+    ["EPSG:3857", "http://www.opengis.net/def/crs/EPSG/0/3857", "CRS84"],
+)
+async def test_any_other_crs_is_refused_not_ignored(
+    client: AsyncClient, public_dataset: Dataset, param: str, value: str
+):
+    params = {param: value}
+    if param == "bbox-crs":
+        params["bbox"] = "-8238310,4970072,-8237310,4971072"
+    if param == "filter-crs":
+        params["filter"] = "name = 'x'"
+    resp = await client.get(f"/collections/{public_dataset.id}/items", params=params)
+    assert resp.status_code == 400
+    assert "CRS84" in resp.json()["detail"]
+    assert value in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_the_single_feature_route_refuses_another_crs_too(
+    client: AsyncClient, public_dataset: Dataset
+):
+    first = (await client.get(f"/collections/{public_dataset.id}/items?limit=1")).json()
+    feature_id = first["features"][0]["id"]
+    url = f"/collections/{public_dataset.id}/items/{feature_id}"
+    assert (await client.get(url, params={"crs": "EPSG:3857"})).status_code == 400
+    assert (await client.get(url, params={"crs": "[OGC:CRS84]"})).status_code == 200

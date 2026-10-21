@@ -17160,6 +17160,18 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
          * CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
          */
         'filter-crs'?: string | null;
+        /**
+         * Crs
+         *
+         * CRS of the returned geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84, its https form or [OGC:CRS84]) is supported; any other value is refused with 400.
+         */
+        crs?: string | null;
+        /**
+         * Bbox-Crs
+         *
+         * CRS of `bbox`. Only CRS84 is supported, as for `crs`.
+         */
+        'bbox-crs'?: string | null;
     };
     url: '/collections/{dataset_id}/items';
 };
@@ -17292,6 +17304,12 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetData = 
          * F
          */
         f?: string | null;
+        /**
+         * Crs
+         *
+         * CRS of the returned geometry. Only CRS84 is supported.
+         */
+        crs?: string | null;
     };
     url: '/collections/{dataset_id}/items/{feature_id}';
 };

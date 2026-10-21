@@ -24,6 +24,7 @@ def _get_kwargs(
     feature_id: int,
     *,
     f: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -34,6 +35,13 @@ def _get_kwargs(
     else:
         json_f = f
     params["f"] = json_f
+
+    json_crs: None | str | Unset
+    if isinstance(crs, Unset):
+        json_crs = UNSET
+    else:
+        json_crs = crs
+    params["crs"] = json_crs
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -128,6 +136,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
@@ -141,6 +150,7 @@ def sync_detailed(
         dataset_id (UUID):
         feature_id (int):
         f (None | str | Unset):
+        crs (None | str | Unset): CRS of the returned geometry. Only CRS84 is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -154,6 +164,7 @@ def sync_detailed(
         dataset_id=dataset_id,
         feature_id=feature_id,
         f=f,
+        crs=crs,
     )
 
     response = client.get_httpx_client().request(
@@ -169,6 +180,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
@@ -183,6 +195,7 @@ def sync(
         dataset_id (UUID):
         feature_id (int):
         f (None | str | Unset):
+        crs (None | str | Unset): CRS of the returned geometry. Only CRS84 is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -197,6 +210,7 @@ def sync(
         feature_id=feature_id,
         client=client,
         f=f,
+        crs=crs,
     ).parsed
 
 
@@ -206,6 +220,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
@@ -219,6 +234,7 @@ async def asyncio_detailed(
         dataset_id (UUID):
         feature_id (int):
         f (None | str | Unset):
+        crs (None | str | Unset): CRS of the returned geometry. Only CRS84 is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -232,6 +248,7 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         feature_id=feature_id,
         f=f,
+        crs=crs,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -245,6 +262,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
+    crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
@@ -259,6 +277,7 @@ async def asyncio(
         dataset_id (UUID):
         feature_id (int):
         f (None | str | Unset):
+        crs (None | str | Unset): CRS of the returned geometry. Only CRS84 is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -274,5 +293,6 @@ async def asyncio(
             feature_id=feature_id,
             client=client,
             f=f,
+            crs=crs,
         )
     ).parsed
