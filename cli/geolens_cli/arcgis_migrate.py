@@ -235,20 +235,25 @@ class _Directory:
             )
         return next(iter(matches.values()), None)
 
-    def unusable(self, user: Any, permission: str) -> str | None:
-        """Why *user* can't own what needs *permission*, or None.
-
-        Without the role permissions only the account status is checked; the
-        server still vets the new owner on every transfer.
-        """
+    @staticmethod
+    def inactive(user: Any) -> str | None:
+        """Why *user* can't own anything, or None."""
         if not user.is_active or str(user.status) != "active":
             return f"{user.username} is not an active GeoLens user"
-        if self.roles is None:
-            return None
-        if not any((self.roles.get(r) or {}).get(permission) for r in user.roles):
-            roles = ", ".join(user.roles) or "none"
-            return f"{user.username}'s roles ({roles}) don't grant {permission}"
         return None
+
+    def missing_grant(self, user: Any, permission: str) -> str | None:
+        """Why the role matrix says *user* lacks *permission*, or None.
+
+        Advisory only: a permission extension can grant it out of band, and
+        the server decides on every transfer.
+        """
+        if self.roles is None or any(
+            (self.roles.get(r) or {}).get(permission) for r in user.roles
+        ):
+            return None
+        roles = ", ".join(user.roles) or "none"
+        return f"{user.username}'s roles ({roles}) don't grant {permission}"
 
 
 @dataclass
@@ -257,6 +262,7 @@ class Owners:
     reassigned: list[str]
     changed: list[dict[str, str]]
     roles_checked: bool
+    warnings: list[str]
 
 
 def resolve_owners(
@@ -268,10 +274,11 @@ def resolve_owners(
 ) -> Owners:
     """The GeoLens owner of every importing item, or a ``UsageError``.
 
-    An empty mapping or an owner who can't hold the item (inactive, or a role
-    without the permission its transfer needs) falls back to *unmapped_owner*
-    when it is given. A name that matches no GeoLens user is always refused,
-    since it is most likely a typo.
+    An empty mapping or an inactive owner falls back to *unmapped_owner* when
+    it is given. A name that matches no GeoLens user is always refused, since
+    it is most likely a typo. An owner whose roles don't grant the permission
+    the transfer needs is kept with a warning: the server has the last word,
+    and a refused transfer fails only that item.
     """
     directory = _Directory(_list_users(geolens), _role_permissions(geolens))
     fallback = directory.find(unmapped_owner) if unmapped_owner else None
@@ -281,6 +288,7 @@ def resolve_owners(
 
     by_item: dict[str, Owner] = {}
     reassigned: list[str] = []
+    warnings: list[str] = []
     for item in to_run:
         permission = TRANSFER_PERMISSION.get(item["action"])
         if permission is None:
@@ -293,26 +301,28 @@ def resolve_owners(
         if user is None:
             reason = f"ArcGIS user {item['owner']} has no GeoLens owner in owner_map"
         else:
-            reason = directory.unusable(user, permission)
-        if reason is None:
-            by_item[item["id"]] = Owner(str(user.id), user.username)
-            continue
-        if fallback is None:
-            problems.add(reason)
-            continue
-        fallback_reason = directory.unusable(fallback, permission)
-        if fallback_reason:
-            problems.add(f"--unmapped-owner: {fallback_reason}")
-        else:
-            by_item[item["id"]] = Owner(str(fallback.id), fallback.username)
+            reason = directory.inactive(user)
+        if reason is not None:
+            if fallback is None:
+                problems.add(reason)
+                continue
+            fallback_reason = directory.inactive(fallback)
+            if fallback_reason:
+                problems.add(f"--unmapped-owner: {fallback_reason}")
+                continue
             reassigned.append(f"{item['id']}: {reason}")
+            user = fallback
+        by_item[item["id"]] = Owner(str(user.id), user.username)
+        grant = directory.missing_grant(user, permission)
+        if grant:
+            warnings.append(f"{item['id']}: {grant}")
     if problems:
         hint = "" if unmapped_owner else " Fix owner_map, or pass --unmapped-owner."
         raise UsageError(
             "can't assign owners: " + "; ".join(sorted(problems)) + "." + hint
         )
     changed = _changed_owners(directory, plan, to_run, state)
-    return Owners(by_item, reassigned, changed, directory.roles is not None)
+    return Owners(by_item, reassigned, changed, directory.roles is not None, warnings)
 
 
 def _changed_owners(
@@ -476,6 +486,7 @@ def _report(
         "owner_reassigned": owners.reassigned,
         "owner_changed": owners.changed,
         "owner_roles_checked": owners.roles_checked,
+        "owner_warnings": owners.warnings,
         "not_available": summary.unavailable,
         "waiting": summary.waiting,
     }
@@ -489,6 +500,8 @@ def _report(
             fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
         for line in owners.reassigned:
             fmt.warn(f"owner fell back to --unmapped-owner for {line}")
+        for line in owners.warnings:
+            fmt.warn(f"{line}; GeoLens may refuse the transfer")
         for change in owners.changed:
             fmt.warn(
                 f"{change['item']} was migrated before its owner changed to "

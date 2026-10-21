@@ -482,7 +482,6 @@ def test_target_owner_overrides_owner_map(runner, tmp_path, geolens, handled):
 @pytest.mark.parametrize(
     ("owner_map", "expected"),
     [
-        ({"agol_alice": "vic"}, "don't grant upload"),
         ({"agol_alice": "gone"}, "gone is not an active GeoLens user"),
         ({"agol_alice": ""}, "has no GeoLens owner in owner_map"),
         ({}, "has no GeoLens owner in owner_map"),
@@ -507,7 +506,7 @@ def test_unmapped_owner_takes_items_whose_owner_cannot_hold_them(
     _allow_transfers(geolens, _created_id(L1), _created_id(L2))
     plan = _plan(
         [_item(L1), _item(L2, owner="agol_bob")],
-        owner_map={"agol_alice": "vic", "agol_bob": ""},
+        owner_map={"agol_alice": "gone", "agol_bob": ""},
     )
 
     result, payload = _run(runner, tmp_path, plan, "--unmapped-owner", "alice")
@@ -527,8 +526,9 @@ def test_unmapped_owner_does_not_cover_an_unknown_name(
 
 def test_an_unusable_unmapped_owner_is_refused(runner, tmp_path, geolens, handled):
     plan = _plan([_item(L1)], owner_map={"agol_alice": ""})
-    result, _ = _run(runner, tmp_path, plan, "--unmapped-owner", "vic")
-    assert result.exit_code == 2 and "--unmapped-owner: vic's roles" in result.output
+    result, _ = _run(runner, tmp_path, plan, "--unmapped-owner", "gone")
+    assert result.exit_code == 2
+    assert "--unmapped-owner: gone is not an active" in result.output
     assert handled == []
 
 
@@ -547,18 +547,24 @@ def test_role_permissions_come_from_the_instance_settings(
     assert payload["owner_roles_checked"] is True
 
 
-def test_a_map_owner_needs_only_edit_metadata(runner, tmp_path, geolens, handled):
+def test_a_map_owner_is_checked_for_edit_metadata_only(
+    runner, tmp_path, geolens, handled
+):
     _allow_transfers(geolens, map_ids=(_created_id(M1),))
     geolens.routes["GET /settings/all/"] = _settings(
         {**DEFAULT_ROLES, "viewer": {"upload": False, "edit_metadata": True}}
     )
     owner_map = {"agol_alice": "vic"}
 
-    result, _ = _run(runner, tmp_path, _plan([_item(M1, "import_map")], owner_map))
-    assert result.exit_code == 0, result.output
+    result, payload = _run(
+        runner, tmp_path, _plan([_item(M1, "import_map")], owner_map), "--dry-run"
+    )
+    assert payload["owner_warnings"] == []
 
-    result, _ = _run(runner, tmp_path, _plan([_item(L1)], owner_map))
-    assert result.exit_code == 2 and "don't grant upload" in result.output
+    result, payload = _run(runner, tmp_path, _plan([_item(L1)], owner_map), "--dry-run")
+    assert payload["owner_warnings"] == [
+        f"{L1}: vic's roles (viewer) don't grant upload"
+    ]
 
 
 def test_unreadable_role_permissions_check_the_account_only(
@@ -771,3 +777,21 @@ def test_a_dry_run_names_actions_this_version_cannot_run(runner, tmp_path, geole
 
     assert result.exit_code == 1
     assert payload["not_available"] == [L1]
+
+
+def test_an_owner_without_the_grant_is_kept_with_a_warning(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = _plan([_item(L1)], owner_map={"agol_alice": "vic"})
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert payload["items"][0]["owner"] == "vic"
+    assert payload["owner_warnings"] == [
+        f"{L1}: vic's roles (viewer) don't grant upload"
+    ]
+    assert [s.json() for s in geolens.seen if s.method == "PATCH"] == [
+        {"owner_id": VIC}
+    ]
