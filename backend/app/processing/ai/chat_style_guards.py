@@ -39,7 +39,11 @@ def record_polygon_mode(
 
 
 def outline_only_error(layer: ChatMapLayer, color_prop: str) -> str | None:
-    if color_prop == "fill-color" and polygon_fill_disabled(layer):
+    if (
+        color_prop == "fill-color"
+        and polygon_fill_disabled(layer)
+        and not _is_extrusion(layer)
+    ):
         return (
             "This polygon layer is outline only, so a fill colour would not show. "
             "Switch it to fill or fill-stroke with set_render_as first."
@@ -91,6 +95,7 @@ def validate_set_style(
     Later calls in the same turn are checked against the recorded paint, before
     the client has applied anything.
     """
+    tool_input = {**tool_input, "clear_paint": tool_input.get("clear_paint") or []}
     next_input = {**tool_input}
     warnings: list[str] = []
     if tool_input.get("paint"):
@@ -98,7 +103,8 @@ def validate_set_style(
             tool_input["paint"],
             layer,
             render_mode,
-            tuple(tool_input.get("clear_paint") or ()),
+            tuple(tool_input["clear_paint"])
+            + (("fill-color",) if tool_input.get("replace_paint") else ()),
         )
     if tool_input.get("clear_paint"):
         next_input["clear_paint"], clear_warnings = (
@@ -112,7 +118,7 @@ def validate_set_style(
     base = {} if tool_input.get("replace_paint") and mutates else layer.paint or {}
     recorded = {**base, **(next_input.get("paint") or {})}
     layer.paint = {
-        k: v for k, v in recorded.items() if k not in next_input.get("clear_paint", [])
+        k: v for k, v in recorded.items() if k not in next_input["clear_paint"]
     }
     return next_input, warnings
 
@@ -139,6 +145,15 @@ def _validate_paint(
             warnings,
             "fill-opacity",
             "a 3D layer draws with its extrusion opacity. Use set_opacity to change it.",
+        )
+    if (
+        "fill-color" in kept
+        and polygon_fill_disabled(layer)
+        and not _is_extrusion(layer)
+    ):
+        warnings.append(
+            "This layer is outline only, so 'fill-color' shows nothing. Use "
+            "'_outline-color' for the outline, or set_render_as fill first."
         )
     if _data_driven_fill_hidden(kept, layer, cleared):
         _drop(

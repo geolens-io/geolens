@@ -452,3 +452,70 @@ async def test_clearing_the_data_driven_fill_in_the_same_call_allows_zero_opacit
     )
 
     assert result["paint"] == {"fill-opacity": 0}
+
+
+@pytest.mark.anyio
+async def test_a_null_clear_paint_does_not_abort_the_call():
+    layers = [_layer(geometry_type="Polygon")]
+
+    result = await _run(
+        "set_style",
+        {
+            "layer_id": "layer-1",
+            "paint": {"fill-color": "#111111"},
+            "clear_paint": None,
+        },
+        layers,
+    )
+
+    assert result["paint"] == {"fill-color": "#111111"}
+
+
+@pytest.mark.anyio
+async def test_colouring_a_3d_layer_whose_ground_fill_is_off_is_not_refused():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={
+                "builder": {"heightColumn": "height_m", "fillDisabled": True},
+            },
+        )
+    ]
+
+    result = await _run_with_values(
+        "set_data_driven_style",
+        {"layer_id": "layer-1", "mode": "categorical", "column": "name"},
+        layers,
+    )
+
+    assert "error" not in result
+
+
+@pytest.mark.anyio
+async def test_a_replacement_that_drops_the_expression_allows_zero_opacity():
+    expression = ["match", ["get", "name"], "a", "#ef4444", "#374151"]
+    layers = [_layer(geometry_type="Polygon", paint={"fill-color": expression})]
+
+    result = await _run(
+        "set_style",
+        {"layer_id": "layer-1", "paint": {"fill-opacity": 0}, "replace_paint": True},
+        layers,
+    )
+
+    assert result["paint"] == {"fill-opacity": 0}
+
+
+@pytest.mark.anyio
+async def test_a_flat_fill_colour_on_an_outline_only_layer_warns():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"fillDisabled": True, "strokeDisabled": False}},
+        )
+    ]
+
+    result = await _run(
+        "set_style", {"layer_id": "layer-1", "paint": {"fill-color": "#ef4444"}}, layers
+    )
+
+    assert "outline only" in result["warnings"][0]
