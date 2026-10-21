@@ -379,13 +379,14 @@ def test_a_failed_job_fails_the_item_with_its_error(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     service.job_errors["Parcels"] = "ogr2ogr could not read layer 0"
 
-    result, _ = _migrate(runner, plan_file, "--only", A2)
+    result, payload = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
     entry = _state(plan_file)["items"][A2]
     assert entry["status"] == "failed"
     assert "ogr2ogr could not read layer 0" in entry["error"]
     assert entry["job_ids"]
+    assert payload["items"][0]["error"] == entry["error"]
 
 
 def test_a_rerun_does_not_import_a_layer_again(runner, plan_file, geolens):

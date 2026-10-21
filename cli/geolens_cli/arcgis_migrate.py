@@ -517,6 +517,9 @@ def _report(
             "notes": list(state.items[item["id"]].notes)
             if item["id"] in state.items
             else [],
+            "error": state.items[item["id"]].error
+            if item["id"] in state.items
+            else None,
         }
         for item in to_run
     ]
@@ -546,6 +549,8 @@ def _report(
             fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
             for note in row["notes"]:
                 fmt.info(f"    {note}")
+            if row["error"]:
+                fmt.warn(f"    {row['error']}")
         for line in owners.reassigned:
             fmt.warn(f"owner fell back to --unmapped-owner for {line}")
         for line in owners.warnings:

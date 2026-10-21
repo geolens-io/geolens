@@ -375,6 +375,7 @@ def test_dry_run_writes_no_state_and_changes_nothing(
             "status": "pending",
             "owner": "alice",
             "notes": [],
+            "error": None,
         }
     ]
     assert not (tmp_path / "arcgis-migration-state.json").exists()
