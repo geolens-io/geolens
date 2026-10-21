@@ -28,11 +28,22 @@ describe('makeRangeGetter', () => {
     ['an empty range', 5, 5],
     ['a fractional offset', 0.5, 10],
     ['a non-finite end', 0, Number.POSITIVE_INFINITY],
-    ['a range past the cap', 0, MAX_RANGE_BYTES + 1],
-    ['a range past the recorded file size', 990, 1100],
+    ['a range starting at the end of the file', 1000, 1100],
   ])('refuses %s without a request', async (_label, begin, end) => {
     await expect(makeRangeGetter(datasetFetch, URL_PATH, 1000)(begin, end)).rejects.toThrow(/refused/);
     expect(datasetFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a range past the cap', async () => {
+    await expect(makeRangeGetter(datasetFetch, URL_PATH, null)(0, MAX_RANGE_BYTES + 1)).rejects.toThrow(/too large/);
+    expect(datasetFetch).not.toHaveBeenCalled();
+  });
+
+  it('clamps the head read of a file smaller than the read to the recorded size', async () => {
+    datasetFetch.mockResolvedValue(partial(300));
+    const bytes = await makeRangeGetter(datasetFetch, URL_PATH, 300)(0, 65536);
+    expect(bytes.byteLength).toBe(300);
+    expect(datasetFetch).toHaveBeenCalledWith(URL_PATH, expect.objectContaining({ headers: { Range: 'bytes=0-299' } }));
   });
 
   it('stops a load that exceeds its read budget, as a header with endless VLRs would drive', async () => {
@@ -61,6 +72,15 @@ describe('makeRangeGetter', () => {
     await vi.advanceTimersByTimeAsync(200);
     await expect(pending).resolves.toHaveLength(4);
     expect(datasetFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries within ten seconds even when Retry-After asks for a day', async () => {
+    datasetFetch
+      .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'Retry-After': '86400' } }))
+      .mockResolvedValueOnce(partial(4));
+    const pending = makeRangeGetter(datasetFetch, URL_PATH, null)(0, 4);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(pending).resolves.toHaveLength(4);
   });
 
   it('gives up after repeated 429s', async () => {

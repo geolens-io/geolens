@@ -21,10 +21,15 @@ describe('parseCopcCrs', () => {
     ['nothing', undefined],
     ['an empty string', ''],
     ['text proj4 cannot read', 'not a CRS'],
-    ['an oversized WKT', `PROJCS["${'x'.repeat(MAX_WKT_LENGTH)}"]`],
     ['a compound CRS without a horizontal part', 'COMPD_CS["x",VERT_CS["h",UNIT["metre",1]]]'],
   ])('refuses %s', (_label, wkt) => {
     expect(parseCopcCrs(wkt)).toBeNull();
+  });
+
+  it('refuses a valid WKT padded past the size cap', () => {
+    const padded = UTM.replace('"WGS 84 / UTM zone 10N"', `"${'x'.repeat(MAX_WKT_LENGTH)}"`);
+    expect(parseCopcCrs(UTM)).not.toBeNull();
+    expect(parseCopcCrs(padded)).toBeNull();
   });
 
   it('ignores an absurd vertical unit factor', () => {

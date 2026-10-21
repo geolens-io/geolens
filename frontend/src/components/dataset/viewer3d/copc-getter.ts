@@ -51,9 +51,12 @@ export function makeRangeGetter(
     if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin) {
       throw new Error('COPC read refused: invalid range');
     }
-    const length = end - begin;
+    // The copc package opens a file with a fixed head read, which a small file
+    // answers short: clamp to the recorded size instead of refusing it.
+    const readEnd = fileSize === null ? end : Math.min(end, fileSize);
+    if (readEnd <= begin) throw new Error('COPC read refused: range outside the file');
+    const length = readEnd - begin;
     if (length > MAX_RANGE_BYTES) throw new Error('COPC read refused: range too large');
-    if (fileSize !== null && end > fileSize) throw new Error('COPC read refused: range outside the file');
     reads += 1;
     bytes += length;
     if (reads > MAX_LOAD_READS || bytes > MAX_LOAD_BYTES) throw new Error('COPC read refused: load budget exceeded');
@@ -62,7 +65,7 @@ export function makeRangeGetter(
     try {
       for (let attempt = 0; ; attempt++) {
         if (signal?.aborted) throw new Error('COPC read aborted');
-        const response = await datasetFetch(url, { headers: { Range: `bytes=${begin}-${end - 1}` }, signal });
+        const response = await datasetFetch(url, { headers: { Range: `bytes=${begin}-${readEnd - 1}` }, signal });
         if ((response.status === 429 || response.status === 503) && attempt < MAX_RETRIES) {
           await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
           continue;

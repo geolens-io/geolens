@@ -60,6 +60,9 @@ export function loadPointCloud(
       };
       workers.push(worker);
     }
+    // The viewer reads core dimensions only; the extra-bytes table is untrusted
+    // and its builders are quadratic in the entry count, so it stays behind.
+    const workerCopc = { ...copc, eb: [] };
     let nextId = 0;
     const run = async (worker: Worker) => {
       for (let entry = queue.shift(); entry && !abort.signal.aborted; entry = queue.shift()) {
@@ -69,7 +72,7 @@ export function loadPointCloud(
         const id = nextId++;
         const result = await new Promise<DecodeResponse>((resolve) => {
           pending.set(id, resolve);
-          const request: DecodeRequest = { id, copc, node, bytes, horizontalWkt: crs.horizontalWkt, zToMeters: crs.zToMeters, origin };
+          const request: DecodeRequest = { id, copc: workerCopc, node, bytes, horizontalWkt: crs.horizontalWkt, zToMeters: crs.zToMeters, origin };
           worker.postMessage(request, [bytes]);
         });
         pending.delete(id);
