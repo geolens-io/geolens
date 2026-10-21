@@ -75,7 +75,7 @@ class FakeImport:
         for created in (dataset_id(name), self.duplicates.get(name)):
             if created:
                 self.fake.routes[f"PATCH /datasets/{created}"] = (
-                    lambda s, d=created: _dataset(d, s.json()["owner_id"])
+                    lambda s, d=created: _dataset(d, s.json().get("owner_id", OPERATOR))
                 )
         if name in self.duplicates:
             detail = {
@@ -334,6 +334,8 @@ def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geo
     assert entry["status"] == "exists"
     assert entry["dataset_ids"] == [dataset_id("earlier")]
     assert service.bodies("POST /ingest/commit/") == []
+    patches = [s.json() for s in geolens.seen if s.method == "PATCH"]
+    assert patches[0] == {"title": "Parcels (public view)", "visibility": "public"}
 
 
 def test_a_failed_job_fails_the_item_with_its_error(runner, plan_file, geolens):

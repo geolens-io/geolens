@@ -245,6 +245,7 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
+        _apply_target(ctx, existing, title_visibility)
         entry.layer_datasets[key] = existing
         return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
@@ -256,6 +257,26 @@ def _import_layer(
     entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
     del entry.layer_jobs[key]
     return False
+
+
+def _apply_target(ctx: MigrationContext, dataset: str, target: Any) -> None:
+    """Give a dataset GeoLens already held the plan's title and visibility,
+    which a fresh import would have received at commit."""
+    from geolens.api.datasets import (
+        update_dataset_metadata_datasets_dataset_id_patch as patch_dataset,
+    )
+    from geolens.models.dataset_meta import DatasetMeta
+
+    try:
+        ctx.geolens.call(
+            patch_dataset.sync_detailed,
+            dataset_id=UUID(dataset),
+            body=DatasetMeta(title=target.title, visibility=target.visibility),
+        )
+    except GeoLensError as exc:
+        raise ItemFailed(
+            f"{target.title}: updating the existing dataset failed, {exc}"
+        ) from None
 
 
 def _commit(
