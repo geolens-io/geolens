@@ -655,6 +655,7 @@ async def ingest_file(
                     # allowlist omits absent keys.
                     origin_ref={"filename": source_filename},
                     archive_from=file_path,
+                    source_columns=info.get("columns"),
                 )
             )
 

@@ -202,6 +202,7 @@ class IngestContext:
     # The local copy of the upload the task archives after the commit that
     # completes the job; that commit owes the archive in a follow-up record.
     archive_from: str | None = None
+    source_columns: list[dict] | None = None
 
 
 _connector_kwargs: dict = {
@@ -1320,6 +1321,7 @@ async def _finalize_ingest(ctx: IngestContext):
         table_name=table_name,
         has_geometry=ctx.has_geometry,
         effective_srid=ctx.effective_srid,
+        source_columns=ctx.source_columns,
     )
     _append_mercator_clip_warning(job, staging.mercator_clip)
     has_geometry = staging.has_geometry

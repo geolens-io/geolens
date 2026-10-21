@@ -7795,6 +7795,8 @@ export interface components {
             stats?: {
                 [key: string]: unknown;
             } | null;
+            /** Source Name */
+            source_name?: string | null;
         };
         /** ColumnListResponse */
         ColumnListResponse: {

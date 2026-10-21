@@ -105,6 +105,7 @@ class ColumnInfo(BaseModel):
     domain_type: str | None = None
     sample_values: list | None = None
     stats: dict | None = None
+    source_name: str | None = None
 
 
 class QualityDetail(BaseModel):

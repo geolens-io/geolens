@@ -505,6 +505,7 @@ class _FileReupload:
             table_name=self.staging_table,
             has_geometry=self.info.get("geometry_type") is not None,
             effective_srid=self.effective_srid,
+            source_columns=self.info.get("columns"),
         )
         # The staging table, measured in the swap's transaction and never
         # carried forward from the preview, which can be minutes old.

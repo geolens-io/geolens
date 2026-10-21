@@ -28,6 +28,7 @@ class ColumnInfo:
         domain_type (None | str | Unset):
         sample_values (list[Any] | None | Unset):
         stats (ColumnInfoStatsType0 | None | Unset):
+        source_name (None | str | Unset):
     """
 
     name: str
@@ -36,6 +37,7 @@ class ColumnInfo:
     domain_type: None | str | Unset = UNSET
     sample_values: list[Any] | None | Unset = UNSET
     stats: ColumnInfoStatsType0 | None | Unset = UNSET
+    source_name: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -74,6 +76,12 @@ class ColumnInfo:
         else:
             stats = self.stats
 
+        source_name: None | str | Unset
+        if isinstance(self.source_name, Unset):
+            source_name = UNSET
+        else:
+            source_name = self.source_name
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -90,6 +98,8 @@ class ColumnInfo:
             field_dict["sample_values"] = sample_values
         if stats is not UNSET:
             field_dict["stats"] = stats
+        if source_name is not UNSET:
+            field_dict["source_name"] = source_name
 
         return field_dict
 
@@ -154,6 +164,15 @@ class ColumnInfo:
 
         stats = _parse_stats(d.pop("stats", UNSET))
 
+        def _parse_source_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_name = _parse_source_name(d.pop("source_name", UNSET))
+
         column_info = cls(
             name=name,
             type_=type_,
@@ -161,6 +180,7 @@ class ColumnInfo:
             domain_type=domain_type,
             sample_values=sample_values,
             stats=stats,
+            source_name=source_name,
         )
 
         column_info.additional_properties = d
