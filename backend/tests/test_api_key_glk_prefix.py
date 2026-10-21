@@ -128,7 +128,9 @@ def test_no_rendered_line_carries_a_key(json_logs):
         capture.setFormatter(root.handlers[0].formatter)
         root.addHandler(capture)
         try:
+            # codeql[py/clear-text-logging-sensitive-data] a throwaway key, logged to check the output redacts it
             structlog.get_logger("glk.test").warning("structured", **fields)
+            # codeql[py/clear-text-logging-sensitive-data] a throwaway key, logged to check the output redacts it
             logging.getLogger("glk.stdlib").warning("stdlib", extra=fields)
         finally:
             root.removeHandler(capture)
