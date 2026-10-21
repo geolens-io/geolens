@@ -248,17 +248,17 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
-// A source filter runs once, at load, outside any camera state.
-const CAMERA_DEPENDENT_EXPRESSION = /\["(zoom|pitch|distance-from-center)"\]/;
+// A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
+const LAYER_ONLY_EXPRESSION = /\["(zoom|pitch|distance-from-center|within|distance)"/;
 const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
 
 /**
  * A GeoJSON source reads only expression filters evaluated once at load, so legacy forms such as
- * `['==', '$type', 'Point']` are converted and camera-dependent filters are left to the layer.
+ * `['==', '$type', 'Point']` are converted and filters that need the camera or tile geometry are left to the layer.
  * An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
  */
 function sourceFilter(filter: FilterSpecification | null): FilterSpecification | null {
-  if (!filter || CAMERA_DEPENDENT_EXPRESSION.test(JSON.stringify(filter))) return null;
+  if (!filter || LAYER_ONLY_EXPRESSION.test(JSON.stringify(filter))) return null;
   try {
     const converted = convertFilter(filter as Parameters<typeof convertFilter>[0]);
     return converted === false ? MATCHES_NOTHING : (converted as FilterSpecification | true);
