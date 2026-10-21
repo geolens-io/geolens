@@ -387,7 +387,7 @@
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
     "scopePublish": "Publication",
-    "scopePublishDescription": "Téléverse des données et crée ou met à jour des jeux de données et des cartes. Elle ne peut rien supprimer ni modifier les entités.",
+    "scopePublishDescription": "Ajoute et remplace des données et des cartes, en conservant une version précédente des jeux de données remplacés. Elle ne peut pas supprimer de jeux de données, de cartes, d'entités ni de clés.",
     "scopeDatasetWrite": "Un jeu de données",
     "scopeDatasetAppend": "Un jeu de données, ajout uniquement",
     "expiry": "Expiration",

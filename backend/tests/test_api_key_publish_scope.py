@@ -10,27 +10,33 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
+from app.modules.auth import dependencies
 from app.modules.auth.dependencies import (
     _PUBLISH_KEY_ROUTES,
     _READ_ONLY_KEY_EXEMPT_ROUTES,
+    _READ_ONLY_SAFE_METHODS,
     _publish_key_may_call,
 )
+from app.modules.embed_tokens.models import EmbedToken
 from app.platform.request_credential import DATASET_WRITE_KEY_ROUTES
 from app.processing.ingest.manifest_schemas import ManifestApplyResponse
 from tests import test_api_key_dataset_scope as _dataset_scope
+from tests.factories import create_map_via_api, create_raster_dataset
 from tests.test_api_key_scope_875 import _mounted_route_pairs
 from tests.test_manifest_apply_api import valid_manifest_payload
 
 PUBLISH_REFUSAL = {
     "code": "api_key_scope",
     "message": (
-        "This API key has the publish scope, which can't delete data, write "
-        "features or reach admin and key routes"
+        "This API key has the publish scope, which can't delete datasets or "
+        "maps, write features or reach admin and key routes"
     ),
 }
 
@@ -64,7 +70,7 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("PATCH", "/datasets/{dataset_id}/target-status"),
             ("PATCH", "/datasets/{dataset_id}/target-status/"),
         ],
-        "workflow transitions stay with full keys",
+        "not needed to publish; PATCH /datasets/{id} and the manifest set status",
     ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
     **dict.fromkeys(
@@ -87,8 +93,14 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "layer edits in place; publishing writes the whole map",
     ),
-    ("PATCH", "/maps/{map_id}/share"): "changes or revokes a share link",
-    ("PATCH", "/maps/{map_id}/share/"): "changes or revokes a share link",
+    (
+        "PATCH",
+        "/maps/{map_id}/share",
+    ): "changes a share link's expiry, which can end it",
+    (
+        "PATCH",
+        "/maps/{map_id}/share/",
+    ): "changes a share link's expiry, which can end it",
     **dict.fromkeys(
         [
             ("POST", "/records/{record_id}/contacts"),
@@ -126,16 +138,21 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("POST", "/datasets/{dataset_id}/attributes/{attribute_id}/reset"),
             ("POST", "/datasets/{dataset_id}/attributes/{attribute_id}/reset/"),
         ],
-        "discards edited attribute metadata",
+        "resets attribute metadata to harvested values; not needed to publish",
     ),
     **dict.fromkeys(
         [
             ("POST", "/datasets/{dataset_id}/reupload/service/preview"),
-            ("POST", "/datasets/{dataset_id}/source-health"),
-            ("POST", "/datasets/{dataset_id}/source-health/"),
             ("POST", "/ingest/upload/url"),
         ],
-        "server-side fetch of a remote URL",
+        "imports from a service or URL; publishing clients upload files",
+    ),
+    **dict.fromkeys(
+        [
+            ("POST", "/datasets/{dataset_id}/source-health"),
+            ("POST", "/datasets/{dataset_id}/source-health/"),
+        ],
+        "probes the dataset's stored origin; not needed to publish",
     ),
     **dict.fromkeys(
         [
@@ -176,8 +193,6 @@ owner = _dataset_scope.owner
 datasets = _dataset_scope.datasets
 _remove_keys_minted_by_the_test = _dataset_scope._remove_keys_minted_by_the_test
 
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
 
 def _refused_by_rule(method: str, path: str) -> bool:
     return (
@@ -188,7 +203,11 @@ def _refused_by_rule(method: str, path: str) -> bool:
 
 
 def _unsafe_mounted_pairs() -> set[tuple[str, str]]:
-    return {pair for pair in _mounted_route_pairs() if pair[0] not in _SAFE_METHODS}
+    return {
+        pair
+        for pair in _mounted_route_pairs()
+        if pair[0] not in _READ_ONLY_SAFE_METHODS
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +243,9 @@ def test_the_allowlist_holds_nothing_that_cannot_be_undone():
     assert not sorted(_PUBLISH_KEY_ROUTES & set(_REFUSED_ROUTES))
     assert not sorted(_PUBLISH_KEY_ROUTES & DATASET_WRITE_KEY_ROUTES)
     assert not sorted(p for p in _PUBLISH_KEY_ROUTES if "api-keys" in p[1])
-    assert all(method not in _SAFE_METHODS for method, _ in _PUBLISH_KEY_ROUTES)
+    assert all(
+        method not in _READ_ONLY_SAFE_METHODS for method, _ in _PUBLISH_KEY_ROUTES
+    )
 
 
 def test_a_publish_key_inherits_the_read_only_rules():
@@ -424,3 +445,165 @@ async def test_a_publish_key_publishes(client: AsyncClient, owner, datasets, tmp
     gone = await client.delete(f"/maps/{map_id}", headers=publish)
     assert (gone.status_code, gone.json()["detail"]) == (403, PUBLISH_REFUSAL)
     assert (await client.delete(f"/maps/{map_id}", headers=headers)).status_code == 204
+
+
+def _refused_with(resp, message: str) -> bool:
+    return resp.status_code == 403 and resp.json()["detail"] == {
+        "code": "api_key_scope",
+        "message": message,
+    }
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_replace_a_raster(
+    client: AsyncClient, owner, test_db_session
+):
+    """A raster replace deletes the old COG, so nothing could restore it."""
+    headers, owner_id = owner
+    raster = await create_raster_dataset(
+        test_db_session, created_by=owner_id, visibility="private"
+    )
+    record_id = raster.record_id
+    try:
+        publish = await _mint(client, headers, "publish")
+        full = await _mint(client, headers, "full")
+        refusal = "A publish key can't replace a raster dataset"
+
+        upload = await client.post(
+            f"/datasets/{raster.id}/reupload",
+            files={"file": ("new.tif", b"II*\x00", "image/tiff")},
+            headers=publish,
+        )
+        assert _refused_with(upload, refusal), upload.text
+        commit_url = f"/datasets/{raster.id}/reupload/{uuid.uuid4()}/commit"
+        commit = await client.post(commit_url, json={}, headers=publish)
+        assert _refused_with(commit, refusal), commit.text
+        # A full key gets past the refusal to the job lookup.
+        assert (await client.post(commit_url, json={}, headers=full)).status_code == 404
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_revoke_map_links(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, owner_id = owner
+    kept, other = (str(dataset.id) for dataset in datasets)
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        setup = await client.put(
+            url,
+            json={"visibility": "internal", "layers": [{"dataset_id": kept}]},
+            headers=headers,
+        )
+        assert setup.status_code == 200, setup.text
+        token = EmbedToken(
+            map_id=uuid.UUID(map_id),
+            token_hash=uuid.uuid4().hex,
+            token_hint="smoke",
+            scoped_dataset_ids=[kept],
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+            created_by=owner_id,
+        )
+        test_db_session.add(token)
+        await test_db_session.commit()
+
+        dropped = await client.put(
+            url, json={"layers": [{"dataset_id": other}]}, headers=publish
+        )
+        assert _refused_with(
+            dropped, "A publish key can't drop a dataset an active embed token covers"
+        ), dropped.text
+        lowered = await client.put(url, json={"visibility": "private"}, headers=publish)
+        assert _refused_with(lowered, "A publish key can't lower a map's visibility"), (
+            lowered.text
+        )
+
+        added = await client.put(
+            url,
+            json={
+                "name": "Parks, updated",
+                "layers": [
+                    {"dataset_id": kept, "sort_order": 0},
+                    {"dataset_id": other, "sort_order": 1},
+                ],
+            },
+            headers=publish,
+        )
+        assert added.status_code == 200, added.text
+        await test_db_session.refresh(token)
+        assert token.is_active
+    finally:
+        await client.delete(url, headers=headers)
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_transfer_dataset_ownership(
+    client: AsyncClient, admin_auth_header, datasets
+):
+    """Refused for the scope even when the key's owner is an admin who could."""
+    publish = await _mint(client, admin_auth_header, "publish")
+    admin_id = (await client.get("/auth/me/", headers=admin_auth_header)).json()["id"]
+
+    resp = await client.patch(
+        f"/datasets/{datasets[0].id}", json={"owner_id": admin_id}, headers=publish
+    )
+    assert _refused_with(resp, "A publish key can't transfer dataset ownership"), (
+        resp.text
+    )
+
+
+@pytest.mark.anyio
+async def test_a_restricted_scope_without_a_rule_is_refused_everything(
+    client: AsyncClient, owner, monkeypatch
+):
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    monkeypatch.delitem(dependencies._SCOPE_RULES, "publish")
+
+    resp = await client.get("/auth/me/", headers=publish)
+    assert _refused_with(resp, "This API key's scope is not recognized"), resp.text
+
+
+@pytest.mark.anyio
+async def test_a_null_layer_list_revokes_no_embed_token(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """``"layers": null`` replaces nothing, so it must not run the revocation either."""
+    headers, owner_id = owner
+    on_map, off_map = (str(dataset.id) for dataset in datasets)
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}"
+    try:
+        setup = await client.put(
+            url, json={"layers": [{"dataset_id": on_map}]}, headers=headers
+        )
+        assert setup.status_code == 200, setup.text
+        # Scoped wider than the layers, as a token minted before a layer
+        # removal is; any layer replacement would revoke it.
+        token = EmbedToken(
+            map_id=uuid.UUID(map_id),
+            token_hash=uuid.uuid4().hex,
+            token_hint="smoke",
+            scoped_dataset_ids=[on_map, off_map],
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+            created_by=owner_id,
+        )
+        test_db_session.add(token)
+        await test_db_session.commit()
+
+        renamed = await client.put(
+            url, json={"name": "Renamed", "layers": None}, headers=publish
+        )
+        assert renamed.status_code == 200, renamed.text
+        await test_db_session.refresh(token)
+        assert token.is_active
+    finally:
+        await client.delete(url, headers=headers)

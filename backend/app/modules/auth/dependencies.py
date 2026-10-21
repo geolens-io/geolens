@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import monotonic
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Annotated, NoReturn
 
 import jwt
@@ -25,6 +25,7 @@ from app.platform.extensions import get_identity_extension, get_permission_exten
 from app.platform.request_credential import (
     DATASET_KEY_SCOPE_ROUTES,
     ApiKeyCredential,
+    api_key_scope_refusal,
     mark_header_api_key_evaluated,
     record_api_key,
 )
@@ -221,18 +222,18 @@ def _publish_key_may_call(
     )
 
 
-# The scopes a request can outgrow, each with the rule it must pass and the
-# message its refusal carries. Full keys and dataset keys aren't listed: a full
-# key may call anything, and a dataset key that strays resolves as no key.
-_ScopeRule = Callable[[str, str, Mapping[str, str] | None], bool]
-_SCOPE_RULES: dict[str, tuple[_ScopeRule, str]] = {
+# Each restricted scope's rule and the message its refusal carries. A full key
+# may call anything and a dataset key that strays resolves as no key, so any
+# other scope without a rule here is refused everything.
+_SCOPE_RULES = {
     "read_only": (_read_only_key_may_call, "This API key is read-only"),
     "publish": (
         _publish_key_may_call,
-        "This API key has the publish scope, which can't delete data, write "
-        "features or reach admin and key routes",
+        "This API key has the publish scope, which can't delete datasets or "
+        "maps, write features or reach admin and key routes",
     ),
 }
+_UNRESTRICTED_SCOPES = frozenset({"full", *DATASET_KEY_SCOPE_ROUTES})
 
 
 def _dataset_key_may_call(
@@ -433,9 +434,10 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     # to the anonymous/JWT path as a confusing 401. Runs AFTER the last_used_at
     # bump so a read-only key hammering writes still shows activity.
     route_template = _route_template(request)
-    may_call, refusal = _SCOPE_RULES.get(api_key_obj.scope, (None, ""))
-    if may_call is not None and not may_call(
-        request.method, route_template, request.query_params
+    rule = _SCOPE_RULES.get(api_key_obj.scope)
+    if api_key_obj.scope not in _UNRESTRICTED_SCOPES and (
+        rule is None
+        or not rule[0](request.method, route_template, request.query_params)
     ):
         log.warning(
             "api_key_scope_denied",
@@ -444,9 +446,8 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             method=request.method,
             path=route_template,
         )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "api_key_scope", "message": refusal},
+        raise api_key_scope_refusal(
+            rule[1] if rule else "This API key's scope is not recognized"
         )
     record_api_key(
         db,

@@ -95,6 +95,7 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from app.core.dependencies import get_db
 from app.core.public_urls import get_dataset_service_url
+from app.platform.request_credential import refuse_publish_key
 from app.platform.storage import get_storage
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
@@ -374,6 +375,8 @@ async def update_dataset_metadata(
             detail="Dataset not found",
         )
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
+    if "owner_id" in meta.model_fields_set:
+        refuse_publish_key(db, "A publish key can't transfer dataset ownership")
     owner_id = (
         require_transfer_admin(user_roles, meta.owner_id)
         if "owner_id" in meta.model_fields_set

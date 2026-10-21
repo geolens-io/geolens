@@ -387,7 +387,7 @@
     "scopeFull": "Voller Zugriff",
     "scopeReadOnly": "Nur Lesen",
     "scopePublish": "Veröffentlichen",
-    "scopePublishDescription": "Lädt Daten hoch und erstellt oder aktualisiert Datensätze und Karten. Kann nichts löschen und keine Features bearbeiten.",
+    "scopePublishDescription": "Fügt Daten und Karten hinzu und ersetzt sie; von ersetzten Datensätzen bleibt eine frühere Version erhalten. Kann keine Datensätze, Karten, Features oder Schlüssel löschen.",
     "scopeDatasetWrite": "Ein Datensatz",
     "scopeDatasetAppend": "Ein Datensatz, nur hinzufügen",
     "expiry": "Läuft ab",

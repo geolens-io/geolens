@@ -1357,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1653,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1662,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
@@ -1390,7 +1390,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1515,
+    "backend/app/modules/catalog/maps/router.py": 1517,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1416,7 +1416,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 616,
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
-    "backend/app/modules/embed_tokens/service.py": 988,
+    "backend/app/modules/embed_tokens/service.py": 995,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

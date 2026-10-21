@@ -39,10 +39,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # The only older scope a publish key could become without losing its row is
-    # full, which would let it delete, so an active one blocks the downgrade.
-    # Lock first, users before api_keys as key creation takes them, so a key
-    # committed after the count cannot slip through.
+    # An older schema could keep an active publish key only as a full key.
+    # Locked in key creation's order, so no key commits between count and drop.
     bind = op.get_bind()
     op.execute("LOCK TABLE catalog.users, catalog.api_keys IN ACCESS EXCLUSIVE MODE")
     active = bind.execute(
@@ -52,17 +50,10 @@ def downgrade() -> None:
     ).scalar_one()
     if active:
         raise RuntimeError(
-            f"{active} ACTIVE catalog.api_keys row(s) are scoped 'publish'. "
-            "Inspect them with:\n"
-            "  SELECT id, user_id, name, fingerprint "
-            "FROM catalog.api_keys WHERE scope = 'publish' AND is_active;\n"
-            "Revoke them first, then re-run the downgrade:\n"
-            "  UPDATE catalog.api_keys SET is_active = false "
-            "WHERE scope = 'publish';"
+            f"{active} active publish-scoped API key(s); revoke them first "
+            "(see UPGRADING.md, Rollback)."
         )
-    # An inactive key cannot authenticate, so relabelling it read_only keeps the
-    # row for the audit trail. Its expiry is pulled to now as well, so
-    # reactivating the row by hand can't revive it.
+    # Expired too, so reactivating a relabelled row by hand revives nothing.
     op.execute(
         "UPDATE catalog.api_keys SET scope = 'read_only', "
         "expires_at = LEAST(COALESCE(expires_at, now()), now()) "

@@ -544,18 +544,25 @@ async def revoke_embed_tokens_for_dropped_datasets(
         if map_scope is not None
         else set()
     )
+    if await embed_tokens_reach_beyond(db, map_id, current_ids):
+        return await revoke_embed_tokens_by_map(db, map_id)
+    return 0
 
+
+async def embed_tokens_reach_beyond(
+    db: AsyncSession, map_id: uuid.UUID, dataset_ids: set[str]
+) -> bool:
+    """Whether an active token on the map is scoped to a dataset outside ``dataset_ids``."""
     result = await db.execute(
-        select(EmbedToken).where(
+        select(EmbedToken.scoped_dataset_ids).where(
             EmbedToken.map_id == map_id,
             EmbedToken.is_active.is_(True),
         )
     )
-    for token in result.scalars().all():
-        scoped = {str(d) for d in (token.scoped_dataset_ids or [])}
-        if not scoped.issubset(current_ids):
-            return await revoke_embed_tokens_by_map(db, map_id)
-    return 0
+    return any(
+        not {str(d) for d in (scoped or [])} <= dataset_ids
+        for scoped in result.scalars()
+    )
 
 
 async def get_active_embed_token(

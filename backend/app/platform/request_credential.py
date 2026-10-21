@@ -3,8 +3,9 @@
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
 same request, and to nothing else. Also the routes each dataset-bound key
-scope may call, and two marks the CORS layer reads: whether a request's header
-key was looked up, and whether a limit refused it before that could happen.
+scope may call, the refusal a key gets for exceeding its scope, and two marks
+the CORS layer reads: whether a request's header key was looked up, and whether
+a limit refused it before that could happen.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _SESSION_KEY = "geolens.api_key_credential"
@@ -109,3 +111,18 @@ def api_key_audit_details(session: AsyncSession) -> dict[str, str]:
     """Audit details naming the key that authenticated the request, if any."""
     credential = api_key_credential(session)
     return {"api_key_id": str(credential.id)} if credential is not None else {}
+
+
+def api_key_scope_refusal(message: str) -> HTTPException:
+    """The 403 a request gets for asking more than its key's scope allows."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "api_key_scope", "message": message},
+    )
+
+
+def refuse_publish_key(session: AsyncSession, message: str) -> None:
+    """Refuse a write a publish key's route allows but whose effect can't be undone."""
+    credential = api_key_credential(session)
+    if credential is not None and credential.scope == "publish":
+        raise api_key_scope_refusal(message)

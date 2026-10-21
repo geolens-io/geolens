@@ -67,6 +67,9 @@ If you downgrade the schema anyway, the downgrade of
 `0087_publish_api_keys` stops while any active API key has the Publish scope,
 because the older schema could only keep it as a full-access key. Revoke those
 keys in Settings > API keys (or as an admin), then run the downgrade again.
+Revoke them too before you start an older image against the newer schema with
+`GEOLENS_API_RUN_MIGRATIONS=false`: an older image doesn't know the Publish
+scope and treats those keys as full-access keys.
 
 ## Backups and disaster recovery
 

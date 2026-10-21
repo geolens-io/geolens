@@ -73,7 +73,7 @@ async def test_the_upgraded_schema_accepts_publish_keys_only_as_named(admin_id):
 
 async def test_downgrade_refuses_while_an_active_publish_key_exists(admin_id):
     def downgrade(conn):
-        with pytest.raises(RuntimeError, match="ACTIVE catalog.api_keys"):
+        with pytest.raises(RuntimeError, match="active publish-scoped API key"):
             migration.downgrade()
         return _scope_check(conn)
 
