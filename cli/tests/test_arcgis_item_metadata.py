@@ -64,3 +64,16 @@ def test_a_tag_is_normalized_before_it_is_cut():
     tag = "a" * 499 + "e\u0301"
     fields = item_metadata({}, {"tags": [tag]}, None)
     assert fields["keywords"] == ["a" * 499 + "\u00e9"]
+
+
+def test_angle_bracketed_literal_text_is_kept():
+    assert (
+        html_to_text("County GIS <gis@example.org>") == "County GIS <gis@example.org>"
+    )
+    assert html_to_text("<p>See <https://example.org/license> for terms</p>") == (
+        "See <https://example.org/license> for terms"
+    )
+    fields = item_metadata(
+        {"access_information": "County GIS <gis@example.org>"}, {"tags": []}, None
+    )
+    assert fields["attribution"] == "County GIS (gis@example.org)"

@@ -25,6 +25,12 @@ MAX_LICENSE = 1000
 MAX_ORGANIZATION = 1000
 MAX_KEYWORD = 500
 _NO_ANGLE_BRACKETS = str.maketrans("<>", "()")
+# Elements ArcGIS item descriptions use; any other "tag" is literal text.
+_HTML_ELEMENTS = frozenset(
+    "a abbr b blockquote br caption center code col colgroup dd del div dl dt "
+    "em font h1 h2 h3 h4 h5 h6 hr i img ins li ol p pre s small span strike "
+    "strong style sub sup script table tbody td tfoot th thead tr u ul".split()
+)
 _BLOCK_TAGS = frozenset({"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5"})
 
 
@@ -35,7 +41,10 @@ class _Text(HTMLParser):
         self._skip = 0
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag in ("script", "style"):
+        if tag not in _HTML_ELEMENTS:
+            # Not markup: a plain-text "<gis@example.org>" or "<https://...>".
+            self.handle_data(self.get_starttag_text() or "")
+        elif tag in ("script", "style"):
             self._skip += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
@@ -43,7 +52,9 @@ class _Text(HTMLParser):
             self.parts.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style") and self._skip:
+        if tag not in _HTML_ELEMENTS:
+            self.handle_data(f"</{tag}>")
+        elif tag in ("script", "style") and self._skip:
             self._skip -= 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
