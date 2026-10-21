@@ -73,8 +73,11 @@ _ERROR_CODE_SUPERSEDED = "superseded"
 # so bounding it caps how long it holds someone else's row locks. Five minutes
 # covers the common case (no rows match, one seq scan). It applies to each
 # statement in the transaction, DDL included, since the DDL's ACCESS EXCLUSIVE
-# lock blocks whether held or awaited; the transaction as a whole can run longer.
+# lock blocks whether held or awaited.
 _REPAIR_STATEMENT_TIMEOUT_MS = 300_000
+
+# Whole-transaction bound (PostgreSQL 17+): the DDL lock is held until commit.
+_REPAIR_TRANSACTION_TIMEOUT_MS = 300_000
 
 # A much shorter bound on waiting for the lock: a queued lock request already
 # blocks readers behind it, so a busy table gives its queue position back
@@ -84,6 +87,7 @@ _REPAIR_LOCK_TIMEOUT_MS = 5_000
 # query_canceled (statement_timeout) vs lock_not_available (lock_timeout):
 # too much data to re-derive, versus somebody else using the table now.
 _STATEMENT_TIMEOUT_SQLSTATE = "57014"
+_TRANSACTION_TIMEOUT_SQLSTATE = "25P04"
 _LOCK_TIMEOUT_SQLSTATE = "55P03"
 
 # Coded repair-phase outcomes, logged every run; not run error codes, since a
@@ -211,6 +215,9 @@ def _chained_sqlstates(exc: BaseException) -> Iterator[str]:
     retry inside the aborted transaction surfaces ``25P02``
     (in_failed_sql_transaction), which says nothing, with the real
     ``42P01``/``42501`` in ``__context__``.
+
+    Driver exceptions on the chain count too: a transaction timeout ends the
+    session, so only asyncpg's inner exception carries ``25P04``.
     """
     seen: set[int] = set()
     current: BaseException | None = exc
@@ -218,8 +225,12 @@ def _chained_sqlstates(exc: BaseException) -> Iterator[str]:
         seen.add(id(current))
         if isinstance(current, DBAPIError):
             code = sqlstate(current)
-            if code:
-                yield code
+        else:
+            code = getattr(current, "sqlstate", None) or getattr(
+                current, "pgcode", None
+            )
+        if code:
+            yield str(code)
         current = current.__cause__ or current.__context__
 
 
@@ -314,11 +325,10 @@ async def _repair_geom_4326(
     committed before the content token is read; a later bump would trip the
     write step's superseded check against this task's own repair.
 
-    Bounded twice (``_REPAIR_STATEMENT_TIMEOUT_MS``,
-    ``_REPAIR_LOCK_TIMEOUT_MS``), since holding and waiting on a lock are
-    different hazards on a table GeoLens doesn't own. The reader GRANT and
-    GiST index, the other things ``-overwrite`` destroys, are restored
-    whatever the geometry outcome.
+    Bounded per statement, per transaction and per lock wait, since holding
+    and waiting on a lock are different hazards on a table GeoLens doesn't
+    own. The reader GRANT and GiST index, the other things ``-overwrite``
+    destroys, are restored whatever the geometry outcome.
 
     Never fatal: a refresh whose repair can't run still takes its
     measurement and reports the repair outcome.
@@ -341,15 +351,20 @@ async def _repair_geom_4326(
         try:
             # set_config(..., is_local => true) keeps the statement static SQL
             # with a bound value (`SET` takes no parameters). First, so every
-            # statement below is covered, DDL included.
+            # statement below is covered, DDL included. The CASE skips
+            # transaction_timeout before PostgreSQL 17, which doesn't know it.
             await session.execute(
                 text(
                     "SELECT set_config('statement_timeout', :ms, true), "
-                    "       set_config('lock_timeout', :lock_ms, true)"
+                    "       set_config('lock_timeout', :lock_ms, true), "
+                    "       CASE WHEN current_setting('server_version_num')::int"
+                    " >= 170000 THEN set_config('transaction_timeout', :tx_ms, true)"
+                    " END"
                 ),
                 {
                     "ms": str(_REPAIR_STATEMENT_TIMEOUT_MS),
                     "lock_ms": str(_REPAIR_LOCK_TIMEOUT_MS),
+                    "tx_ms": str(_REPAIR_TRANSACTION_TIMEOUT_MS),
                 },
             )
             # Columns, not the ORM instance: only the binding is needed, and
@@ -434,7 +449,7 @@ async def _repair_geom_4326(
         except Exception as exc:  # broad: the repair is best-effort — see the docstring
             await session.rollback()
             codes = set(_chained_sqlstates(exc))
-            if _STATEMENT_TIMEOUT_SQLSTATE in codes:
+            if codes & {_STATEMENT_TIMEOUT_SQLSTATE, _TRANSACTION_TIMEOUT_SQLSTATE}:
                 code = _REPAIR_TIMED_OUT
             elif _LOCK_TIMEOUT_SQLSTATE in codes:
                 code = _REPAIR_BLOCKED

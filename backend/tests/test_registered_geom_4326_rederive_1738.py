@@ -650,6 +650,104 @@ async def test_the_repair_gives_up_its_lock_queue_position_on_a_busy_table(
         await _drop(test_db_session, table_name)
 
 
+async def _server_has_transaction_timeout(session) -> bool:
+    version = await session.scalar(
+        text("SELECT current_setting('server_version_num')::int")
+    )
+    return version >= 170000
+
+
+async def test_the_whole_repair_transaction_is_bounded(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    """Statements that each beat the statement deadline still add up; the
+    transaction deadline ends the session, and the refresh still measures."""
+    if not await _server_has_transaction_timeout(test_db_session):
+        pytest.skip("transaction_timeout needs PostgreSQL 17 or later")
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_txn_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    async def _slow_rederive(session, *args, **kwargs):
+        for _ in range(4):
+            await session.execute(text("SELECT pg_sleep(0.15)"))
+        raise AssertionError("the transaction deadline should have fired")
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        version_before = await _stored_version(test_db_session, dataset.id)
+
+        monkeypatch.setattr(
+            tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
+        )
+        monkeypatch.setattr(
+            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 300
+        )
+        with patch(
+            "app.processing.ingest.metadata.rederive_geom_4326",
+            new=_slow_rederive,
+        ):
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+            assert report.code == tasks_postgis_refresh._REPAIR_TIMED_OUT
+            assert report.rows_rewritten == 0
+            assert await _stored_version(test_db_session, dataset.id) == version_before
+
+            payload = await _refresh(
+                test_db_session, client, admin_auth_header, dataset.id
+            )
+
+        job = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == uuid.UUID(payload["job_id"]))
+            )
+        ).scalar_one()
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_lock_wait_cannot_outlast_the_transaction_bound(
+    test_db_session,
+) -> None:
+    """With the lock timeout far above it, only the transaction deadline can
+    end the wait on another session's lock, and the table is left as it was."""
+    if not await _server_has_transaction_timeout(test_db_session):
+        pytest.skip("transaction_timeout needs PostgreSQL 17 or later")
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_txlock_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+
+        with (
+            patch.object(tasks_postgis_refresh, "_REPAIR_LOCK_TIMEOUT_MS", 60_000),
+            patch.object(tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000),
+            patch.object(tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 300),
+        ):
+            await test_db_session.execute(text(f'SELECT 1 FROM data."{table_name}"'))  # noqa: S608
+
+            started = time.perf_counter()
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+            elapsed = time.perf_counter() - started
+
+        assert report.code == tasks_postgis_refresh._REPAIR_TIMED_OUT
+        assert elapsed < 5
+        await test_db_session.rollback()
+        assert not await _column_exists(test_db_session, table_name, "geom_4326")
+    finally:
+        await _drop(test_db_session, table_name)
+
+
 # ---------------------------------------------------------------------------
 # The grant and the index are not conditional on the re-derive
 # ---------------------------------------------------------------------------
