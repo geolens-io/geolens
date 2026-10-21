@@ -688,10 +688,17 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert key.status_code == 201, key.text
-        resp = await client.get(
-            f"/datasets/{source.id}/features/1/related/{rel_id}/",
-            headers={"X-Api-Key": key.json()["key"]},
-        )
+        # Revoked here: an active read_only key makes the 0032 downgrade refuse,
+        # failing any later migration test in the same database.
+        try:
+            resp = await client.get(
+                f"/datasets/{source.id}/features/1/related/{rel_id}/",
+                headers={"X-Api-Key": key.json()["key"]},
+            )
+        finally:
+            await client.delete(
+                f"/auth/api-keys/{key.json()['id']}", headers=admin_auth_header
+            )
         assert resp.status_code == 409, resp.text
 
         listed = await client.get(
