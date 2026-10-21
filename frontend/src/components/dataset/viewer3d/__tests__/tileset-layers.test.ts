@@ -22,6 +22,7 @@ describe('createTilesetLayers', () => {
   const datasetFetch = vi.fn();
   beforeEach(() => {
     captured.props = null;
+    handlers.onError.mockClear();
     datasetFetch.mockReset();
     datasetFetch.mockResolvedValue(new Response('{}'));
     createTilesetLayers(URL_PATH, datasetFetch, handlers);
@@ -46,5 +47,24 @@ describe('createTilesetLayers', () => {
     const response = await fetch(new Request('http://localhost/api/datasets/d1/tiles3d/t/0.glb'));
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(body);
     expect(datasetFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed or unparseable root tileset.json, which deck.gl rejects before any tile exists', async () => {
+    const { fetch } = captured.props!.loadOptions.core;
+    datasetFetch.mockResolvedValue(new Response('nope', { status: 404 }));
+    await fetch(URL_PATH);
+    expect(handlers.onError).toHaveBeenCalledTimes(1);
+    datasetFetch.mockResolvedValue(new Response('<html>'));
+    await fetch(URL_PATH);
+    expect(handlers.onError).toHaveBeenCalledTimes(2);
+    datasetFetch.mockRejectedValue(new Error('refused'));
+    await expect(fetch(URL_PATH)).rejects.toThrow('refused');
+    expect(handlers.onError).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not report a readable root tileset.json', async () => {
+    const { fetch } = captured.props!.loadOptions.core;
+    await fetch(URL_PATH);
+    expect(handlers.onError).not.toHaveBeenCalled();
   });
 });

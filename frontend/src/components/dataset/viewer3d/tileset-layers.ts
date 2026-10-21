@@ -36,11 +36,26 @@ export function createTilesetLayers(
   datasetFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   handlers: { onLoad: (viewport: TilesetViewport) => void; onError: (message: string) => void },
 ): Layer[] {
+  // deck.gl rejects a failed or unparseable root tileset.json before any tile
+  // exists, so onTileError never fires for it; the fetch reports it instead.
   const tileFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const response = await datasetFetch(input, init);
-    if (!response.ok || !new URL(requestUrl(input), window.location.origin).pathname.endsWith('.glb')) {
+    const path = new URL(requestUrl(input), window.location.origin).pathname;
+    let response: Response;
+    try {
+      response = await datasetFetch(input, init);
+    } catch (error) {
+      handlers.onError(String(error));
+      throw error;
+    }
+    if (!response.ok) {
+      handlers.onError(`${path}: ${response.status}`);
       return response;
     }
+    if (path === new URL(tilesetUrl, window.location.origin).pathname) {
+      await response.clone().json().catch((error: unknown) => handlers.onError(String(error)));
+      return response;
+    }
+    if (!path.endsWith('.glb')) return response;
     const body = separateMeshoptFallbackViews(await response.arrayBuffer());
     return new Response(body, { status: response.status, headers: response.headers });
   };
