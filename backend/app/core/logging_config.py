@@ -166,6 +166,15 @@ _TOKEN_VALUE_RE = re.compile(
 )
 
 
+# A GeoLens API key carries the glk_ prefix (auth/service.py API_KEY_PREFIX),
+# so a pasted one is recognisable in any string, whatever field it sits in.
+_API_KEY_VALUE_RE = re.compile(r"glk_[A-Za-z0-9_-]{20,}")
+
+
+def _redact_api_keys(value: str) -> str:
+    return _API_KEY_VALUE_RE.sub("glk_[REDACTED]", value) if "glk_" in value else value
+
+
 def _redact_token_value_repr(value: str) -> str:
     """Redact a `'token': '...'` (dict-repr) or `token='...'` (kwarg) pair."""
 
@@ -245,6 +254,7 @@ def _scrub_text(value: str) -> str:
     value = URL_LIKE_RE.sub(_redact_url_match, value)
     value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
     value = _redact_token_value_repr(value)
+    value = _redact_api_keys(value)
     return scrub_registered_credentials(value)
 
 
@@ -270,6 +280,9 @@ def _redact_sensitive_fields(
     line, Procrastinate's keyword-rendered task_kwargs). `event` is scrubbed
     here by pattern and shape instead.
 
+    Any other flat string field is checked for a ``glk_`` API key, which is
+    recognisable by shape whatever the field is called.
+
     `exception` gets the identical scrub when present as
     a string. `format_exc_info` runs BEFORE this processor (see
     `setup_logging`) so `exception` is already a plain string by then.
@@ -283,7 +296,9 @@ def _redact_sensitive_fields(
         value = event_dict[key]
         if key in _NEVER_WALKED_FIELDS:
             continue
-        if _is_walkable(value):
+        if isinstance(value, str):
+            event_dict[key] = _redact_api_keys(value)
+        elif _is_walkable(value):
             # A container in `extra` is third-party
             # input all the way down; a lazy Mapping whose `.items()` raises
             # would take the exception out through the chain and cost the

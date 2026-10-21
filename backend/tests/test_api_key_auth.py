@@ -39,7 +39,7 @@ async def test_create_api_key(client: AsyncClient):
     assert "id" in data
     assert data["name"] == "Test Key"
     assert len(data["key"]) > 20  # token_urlsafe(32) produces ~43 chars
-    assert data["fingerprint"] == f"{data['key'][:8]}…{data['key'][-4:]}"
+    assert data["fingerprint"] == f"{data['key'][:12]}…{data['key'][-4:]}"
 
 
 @pytest.mark.anyio
@@ -258,7 +258,7 @@ async def test_self_service_create_api_key(client: AsyncClient):
     assert "key" in data
     assert data["name"] == "Self-Service Key"
     assert len(data["key"]) > 20
-    assert data["fingerprint"] == f"{data['key'][:8]}…{data['key'][-4:]}"
+    assert data["fingerprint"] == f"{data['key'][:12]}…{data['key'][-4:]}"
 
     list_resp = await client.get("/auth/api-keys/", headers=admin_headers)
     listed = {item["id"]: item for item in list_resp.json()["items"]}

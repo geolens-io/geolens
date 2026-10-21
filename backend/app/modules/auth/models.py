@@ -209,7 +209,8 @@ class ApiKey(Base):
     )
     key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     # Non-secret operator identifier. Keys pre-dating migration 0016 are
-    # NULL; new keys store an 8-char prefix plus last four for identification.
+    # NULL; others store the key's start and last four characters: glk_ and
+    # eight more for prefixed keys, the first eight for older ones.
     fingerprint: Mapped[str | None] = mapped_column(String(20), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(

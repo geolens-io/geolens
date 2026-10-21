@@ -640,6 +640,11 @@ class ApiKeyTargetUserInactiveError(ValueError):
     """
 
 
+# Marks a GeoLens API key wherever one is pasted, so log redaction and secret
+# scanners can recognise it. Keys minted before the prefix still authenticate.
+API_KEY_PREFIX = "glk_"
+
+
 async def create_api_key_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -677,9 +682,9 @@ async def create_api_key_for_user(
             "API keys can only be created for active users"
         )
 
-    raw_key = secrets.token_urlsafe(32)
+    raw_key = API_KEY_PREFIX + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    fingerprint = f"{raw_key[:8]}…{raw_key[-4:]}"
+    fingerprint = f"{raw_key[: len(API_KEY_PREFIX) + 8]}…{raw_key[-4:]}"
     api_key = ApiKey(
         user_id=owner.id,
         key_hash=key_hash,
