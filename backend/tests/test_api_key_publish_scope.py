@@ -1277,3 +1277,16 @@ async def test_a_publish_key_cannot_replace_an_uploaded_preview_image(
         ), second.text
     finally:
         await client.delete(f"/maps/{map_id}", headers=headers)
+
+
+def test_the_preview_image_refusal_is_rechecked_under_the_asset_lock():
+    """A preview uploaded while the request waited is still not replaced."""
+    import inspect
+
+    from app.modules.catalog.maps.router import upload_og_image
+
+    source = inspect.getsource(upload_og_image)
+    locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
+    refused = source.index("refuse_publish_key(", locked)
+    written = source.index("_record_image_capture(", locked)
+    assert locked < refused < written

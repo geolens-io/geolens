@@ -51,6 +51,16 @@ and releases use semantic versioning.
   `Origin`, and a keyed request refused by the rate or body-size limit gets a
   readable `429` or `413`. This changes the CORS contract: a keyed request
   from an origin outside the allowlist used to get no CORS headers at all.
+- API keys can be created with a Publish scope, in Settings > API keys or with
+  `scope: "publish"` on `POST /auth/api-keys` and `POST /admin/api-keys`. A
+  publish key can read, upload and import, apply manifests, edit dataset and
+  map metadata, create and update maps, and replace an uploaded dataset's data
+  (keeping one previous version). It can't delete anything, write features,
+  reach admin or key routes, or replace a raster dataset or one bound to a
+  service, STAC item or table, and it acts only on its owner's own objects
+  even when the owner is an admin. Its refusals are `403` with
+  `detail.code == "api_key_scope"`. Downgrading past this release's migration
+  needs every publish key revoked first (see `UPGRADING.md`).
 - Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
   the public app URL that opens from another machine, and `viewer_url`, the map's page in
   the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.

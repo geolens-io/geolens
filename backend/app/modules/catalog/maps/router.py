@@ -1220,6 +1220,8 @@ async def upload_og_image(
         # Same row lock and ordering as the thumbnail PUT above.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.og_image_uri
+        if previous_key:
+            refuse_publish_key(db, "A publish key can't replace a map's preview image")
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
         # Commit is the boundary, marked before it —
