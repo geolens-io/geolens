@@ -2613,7 +2613,7 @@ async def cluster_tile_endpoint(
             return _cluster_cold_result
 
         compiled_filter = await cluster_filters.compile_filter(
-            db, table_name, layer_filter
+            db, table_name, layer_filter, meta.tile_columns
         )
         tid = _require_tile_tenant_context()
         _schema = tenant_data_schema(tid)

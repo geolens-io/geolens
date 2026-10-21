@@ -224,8 +224,11 @@ async def test_incomparable_columns_are_a_400_not_a_503(client, cluster_table):
     assert resp.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "bad", [json.dumps(_cmp("=", "no_such_column", "a")), "not json"]
+)
 async def test_an_invalid_filter_does_not_reveal_a_private_dataset(
-    client, cluster_table, test_db_session
+    client, cluster_table, test_db_session, bad
 ):
     dataset = (
         await test_db_session.execute(
@@ -238,7 +241,59 @@ async def test_an_invalid_filter_does_not_reveal_a_private_dataset(
 
     resp = await client.get(
         f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf",
-        params={"filter": json.dumps(_cmp("=", "no_such_column", "a"))},
+        params={"filter": bad},
     )
 
     assert resp.status_code in (401, 403, 404)
+
+
+@pytest.mark.parametrize(
+    ("tile_columns", "column", "expected_status"),
+    [(["name"], "name", 200), (["name"], "score", 400), ([], "name", 400)],
+)
+async def test_filter_reads_only_the_columns_the_dataset_exposes(
+    client, cluster_table, test_db_session, tile_columns, column, expected_status
+):
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset).where(Dataset.table_name == cluster_table)
+        )
+    ).scalar_one()
+    dataset.tile_columns = tile_columns
+    await test_db_session.commit()
+    value = "a" if column == "name" else 1.0
+
+    resp = await client.get(
+        f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf",
+        params={"filter": json.dumps(_cmp("=", column, value))},
+    )
+
+    assert resp.status_code == expected_status
+
+
+class _RecordingCache:
+    def __init__(self):
+        self.keys = []
+
+    async def get(self, key, *args, **kwargs):
+        self.keys.append(key)
+
+    async def set(self, key, *args, **kwargs):
+        pass
+
+
+async def test_the_route_keys_filtered_tiles_apart_from_unfiltered(
+    client, cluster_table, monkeypatch
+):
+    cache = _RecordingCache()
+    monkeypatch.setattr("app.processing.tiles.router.get_tile_cache", lambda: cache)
+    flt = json.dumps(_cmp("=", "name", "a"))
+
+    await client.get(f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf")
+    await client.get(
+        f"/tiles/clusters/data.{cluster_table}/0/0/0.pbf", params={"filter": flt}
+    )
+
+    plain, filtered = cache.keys
+    assert ":f" not in plain.rsplit(":cluster:", 1)[1]
+    assert filtered.endswith(f":f{validated_digest(flt)}")

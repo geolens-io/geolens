@@ -56,12 +56,16 @@ def validated_digest(raw: str | None) -> str | None:
 
 
 async def compile_filter(
-    session: AsyncSession, table_name: str, raw: str | None
+    session: AsyncSession,
+    table_name: str,
+    raw: str | None,
+    tile_columns: list[str] | None,
 ) -> ClusterFilter | None:
     """Compile ``raw`` against the table's live columns; HTTP 400 when it can't apply.
 
     Geometry predicates are not queryable here: the cluster tile query filters
-    attributes only.
+    attributes only. A dataset that limits its tile attributes to ``tile_columns``
+    exposes only those columns to filters too (``[]`` exposes none).
     """
     if not raw:
         return None
@@ -75,6 +79,8 @@ async def compile_filter(
     queryables = feature_queryable_columns(
         await get_catalog_port().get_column_info(session, table_name), None
     )
+    if tile_columns is not None:
+        queryables = {k: v for k, v in queryables.items() if k in set(tile_columns)}
     where_sql, binds = compile_feature_cql2_ast(ast_root, queryables)
     position = {
         bind.key: FIRST_FILTER_PARAM + index for index, bind in enumerate(binds)
