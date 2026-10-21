@@ -53,7 +53,13 @@ shared-map guard that a visibility change runs today.
 
 The change adds `restricted` to the published map visibility values, and older
 generated clients reject unknown values. For one minor release, clients that
-don't opt in see restricted maps as private. Existing role grants are kept.
+don't opt in see restricted maps as private.
+
+No GeoLens surface writes role grants, so rows exist only where someone
+inserted them directly. Those rows keep authorizing as they do today, so an
+upgrade changes no one's access, and nothing creates new ones. They are the
+one exception to restricted meaning owner, admins and group members.
+
 The Enterprise permission overlay mirrors the grant check, so it ships a
 release alongside. `EXTENSION_API_VERSION` moves only if a Protocol member
 changes, for example a required map access method.
