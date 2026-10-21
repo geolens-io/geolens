@@ -67,4 +67,31 @@ describe('createTilesetLayers', () => {
     await fetch(URL_PATH);
     expect(handlers.onError).not.toHaveBeenCalled();
   });
+
+  it('fixes overlapping meshopt views in a GLB whatever its URL ends with', async () => {
+    const { fetch } = captured.props!.loadOptions.core;
+    const json = new TextEncoder().encode(
+      JSON.stringify({
+        buffers: [{ byteLength: 100, extensions: { EXT_meshopt_compression: { fallback: true } } }],
+        bufferViews: [
+          { buffer: 0, byteOffset: 0, byteLength: 40 },
+          { buffer: 0, byteOffset: 0, byteLength: 24 },
+        ],
+      }),
+    );
+    const padded = Math.ceil(json.byteLength / 4) * 4;
+    const glb = new Uint8Array(20 + padded);
+    const view = new DataView(glb.buffer);
+    view.setUint32(0, 0x46546c67, true);
+    view.setUint32(8, glb.byteLength, true);
+    view.setUint32(12, padded, true);
+    view.setUint32(16, 0x4e4f534a, true);
+    glb.set(json, 20);
+    glb.fill(0x20, 20 + json.byteLength);
+    datasetFetch.mockResolvedValue(new Response(glb));
+    const out = new Uint8Array(await (await fetch('/api/datasets/d1/tiles3d/t/0.bin')).arrayBuffer());
+    const length = new DataView(out.buffer).getUint32(12, true);
+    const fixed = JSON.parse(new TextDecoder().decode(out.subarray(20, 20 + length)));
+    expect(fixed.bufferViews.map((v: { byteOffset: number }) => v.byteOffset)).toEqual([0, 48]);
+  });
 });

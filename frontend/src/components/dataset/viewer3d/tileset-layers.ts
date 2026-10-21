@@ -55,7 +55,7 @@ export function createTilesetLayers(
       await response.clone().json().catch((error: unknown) => handlers.onError(String(error)));
       return response;
     }
-    if (!path.endsWith('.glb')) return response;
+    // Sniffed by content, so a GLB under any extension gets the fix.
     const body = separateMeshoptFallbackViews(await response.arrayBuffer());
     return new Response(body, { status: response.status, headers: response.headers });
   };
