@@ -387,7 +387,7 @@
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
     "scopePublish": "Publicar",
-    "scopePublishDescription": "Añade y reemplaza datos y mapas, y conserva una versión anterior de los conjuntos de datos reemplazados. No puede eliminar conjuntos de datos, mapas, entidades ni claves.",
+    "scopePublishDescription": "Añade y reemplaza datos y mapas (salvo conjuntos de datos ráster o STAC), y conserva una versión anterior de los conjuntos de datos reemplazados. No puede eliminar conjuntos de datos, mapas, entidades ni claves.",
     "scopeDatasetWrite": "Un conjunto de datos",
     "scopeDatasetAppend": "Un conjunto de datos, solo añadir",
     "expiry": "Caduca",
