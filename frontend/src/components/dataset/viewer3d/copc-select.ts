@@ -1,5 +1,5 @@
 import type { Hierarchy } from 'copc';
-import { MAX_NODE_DECODED_BYTES, MAX_NODE_POINTS, MAX_RANGE_BYTES } from './copc-limits';
+import { MAX_NODE_DECODED_BYTES, MAX_RANGE_BYTES, POINT_BUDGET } from './copc-limits';
 
 const NODE_KEY = /^(\d{1,2})-(-?\d{1,9})-(-?\d{1,9})-(-?\d{1,9})$/;
 
@@ -22,7 +22,7 @@ export function selectNodes(
     const depth = NODE_KEY.exec(key)?.[1];
     if (!node || depth === undefined) continue;
     const { pointCount, pointDataOffset, pointDataLength } = node;
-    if (!Number.isSafeInteger(pointCount) || pointCount <= 0 || pointCount > MAX_NODE_POINTS) continue;
+    if (!Number.isSafeInteger(pointCount) || pointCount <= 0 || pointCount > POINT_BUDGET) continue;
     if (pointCount * recordLength > MAX_NODE_DECODED_BYTES) continue;
     if (!Number.isSafeInteger(pointDataOffset) || pointDataOffset < 0) continue;
     if (!Number.isSafeInteger(pointDataLength) || pointDataLength <= 0 || pointDataLength > MAX_RANGE_BYTES) continue;

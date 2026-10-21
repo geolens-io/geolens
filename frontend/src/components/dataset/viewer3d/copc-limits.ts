@@ -9,9 +9,8 @@ export const MAX_LOAD_BYTES = 256 * 1024 * 1024;
 export const MAX_CONCURRENT_READS = 4;
 export const MAX_RETRIES = 4;
 
-export const POINT_BUDGET = 2_000_000;
 // One node may hold the whole budget; the decoded-size cap below bounds it in bytes.
-export const MAX_NODE_POINTS = POINT_BUDGET;
+export const POINT_BUDGET = 2_000_000;
 /** Decoded bytes (points times record length) one node may occupy. */
 export const MAX_NODE_DECODED_BYTES = 128 * 1024 * 1024;
 export const MAX_WKT_LENGTH = 32 * 1024;

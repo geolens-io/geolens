@@ -6,7 +6,7 @@ import lazPerfWasmUrl from 'laz-perf/lib/worker/laz-perf.wasm?url';
 import { colorShiftFor } from './copc-color';
 import { lngOffset } from './copc-placement';
 import { checkDecodeLimits } from './copc-decode-limits';
-import { MAX_NODE_POINTS } from './copc-limits';
+import { POINT_BUDGET } from './copc-limits';
 
 export interface DecodeRequest {
   id: number;
@@ -74,7 +74,7 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       buffer.subarray(begin - node.pointDataOffset, end - node.pointDataOffset);
     const view = await Copc.loadPointDataView(getter, copc, node, { lazPerf });
     const count = view.pointCount;
-    if (count > MAX_NODE_POINTS) throw new Error('decoded point count outside the cap');
+    if (count > POINT_BUDGET) throw new Error('decoded point count outside the cap');
     const x = view.getter('X');
     const y = view.getter('Y');
     const z = view.getter('Z');

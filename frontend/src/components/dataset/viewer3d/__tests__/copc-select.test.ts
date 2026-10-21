@@ -1,6 +1,6 @@
 import type { Hierarchy } from 'copc';
 import { describe, expect, it } from 'vitest';
-import { MAX_NODE_POINTS, MAX_RANGE_BYTES } from '../copc-limits';
+import { MAX_RANGE_BYTES, POINT_BUDGET } from '../copc-limits';
 import { selectNodes } from '../copc-select';
 
 const node = (pointCount: number, offset = 1000, length = 500): Hierarchy.Node => ({
@@ -36,7 +36,7 @@ describe('selectNodes', () => {
     ['a zero count', node(0)],
     ['a fractional count', node(1.5)],
     ['a non-finite count', node(Number.POSITIVE_INFINITY)],
-    ['a count past the node cap', node(MAX_NODE_POINTS + 1)],
+    ['a count past the node cap', node(POINT_BUDGET + 1)],
     ['a negative offset', node(10, -5)],
     ['a zero length', node(10, 1000, 0)],
     ['a length past the read cap', node(10, 1000, MAX_RANGE_BYTES + 1)],
@@ -46,7 +46,7 @@ describe('selectNodes', () => {
   });
 
   it('drops a node whose decoded size would pass the cap, whatever its point count', () => {
-    expect(selectNodes(map({ '0-0-0-0': node(MAX_NODE_POINTS) }), 10_000_000, 65535, null)).toEqual([]);
+    expect(selectNodes(map({ '0-0-0-0': node(POINT_BUDGET) }), 10_000_000, 65535, null)).toEqual([]);
   });
 
   it('drops malformed keys and an unusable record length', () => {

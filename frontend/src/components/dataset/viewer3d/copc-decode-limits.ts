@@ -1,9 +1,4 @@
-import {
-  MAX_NODE_DECODED_BYTES,
-  MAX_NODE_POINTS,
-  MAX_RANGE_BYTES,
-  MAX_WKT_LENGTH,
-} from './copc-limits';
+import { MAX_NODE_DECODED_BYTES, MAX_RANGE_BYTES, MAX_WKT_LENGTH, POINT_BUDGET } from './copc-limits';
 
 interface DecodeInput {
   node: { pointCount: number };
@@ -17,7 +12,7 @@ interface DecodeInput {
 /** Throws unless a decode request stays inside the caps; the worker's own check on what the main thread posts. */
 export function checkDecodeLimits({ node, bytes, copc, horizontalWkt, zToMeters, origin }: DecodeInput) {
   const recordLength = copc.header.pointDataRecordLength;
-  if (!Number.isSafeInteger(node.pointCount) || node.pointCount <= 0 || node.pointCount > MAX_NODE_POINTS) {
+  if (!Number.isSafeInteger(node.pointCount) || node.pointCount <= 0 || node.pointCount > POINT_BUDGET) {
     throw new Error('node point count outside the cap');
   }
   if (!Number.isSafeInteger(recordLength) || recordLength <= 0 || node.pointCount * recordLength > MAX_NODE_DECODED_BYTES) {
