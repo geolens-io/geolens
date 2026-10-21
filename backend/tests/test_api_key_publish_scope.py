@@ -1212,6 +1212,58 @@ async def test_run_admission_refuses_a_publish_key_on_a_remote_origin(
 
 
 @pytest.mark.anyio
+async def test_run_admission_rechecks_the_origin_after_the_insert(
+    test_db_session, owner, monkeypatch
+):
+    """A rebinding that commits while the insert waits on the active run is seen."""
+    from fastapi import HTTPException
+
+    from app.platform.refresh.service import create_pending_run
+    from app.platform.request_credential import ApiKeyCredential, record_api_key
+    from tests.factories import create_dataset
+
+    _, owner_id = owner
+    upload = await create_dataset(
+        test_db_session, created_by=owner_id, source_format="gpkg", visibility="private"
+    )
+    record_id = upload.record_id
+    real_flush = test_db_session.flush
+
+    async def flush_then_rebind(*args, **kwargs):
+        await real_flush(*args, **kwargs)
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET source_format = 'wfs' WHERE id = :id"),
+            {"id": upload.id},
+        )
+
+    try:
+        record_api_key(
+            test_db_session,
+            ApiKeyCredential(id=uuid.uuid4(), scope="publish", dataset_id=None),
+        )
+        monkeypatch.setattr(test_db_session, "flush", flush_then_rebind)
+        with pytest.raises(HTTPException) as exc:
+            await create_pending_run(
+                test_db_session,
+                dataset_id=upload.id,
+                origin_kind="upload",
+                trigger="api",
+                triggered_by=owner_id,
+                ingest_job_id=None,
+                feature_count_before=0,
+            )
+        assert exc.value.detail["code"] == "api_key_scope"
+    finally:
+        monkeypatch.undo()
+        test_db_session.info.clear()
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
 async def test_an_admins_publish_key_acts_only_on_its_owners_objects(
     client: AsyncClient, admin_auth_header, owner, datasets
 ):

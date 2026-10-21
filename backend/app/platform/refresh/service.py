@@ -408,7 +408,6 @@ async def create_pending_run(
         )
     if trigger != "scheduled" and scheduled_for is not None:
         raise ValueError("only scheduled runs may carry scheduled_for")
-    await _refuse_publish_key_irreversible_run(session, dataset_id)
 
     # Read the parent's STORED tenant_id rather than copying an ORM attribute:
     # the stamping trigger fills `datasets.tenant_id` in the DB while the ORM
@@ -506,6 +505,9 @@ async def create_pending_run(
         async with session.begin_nested():
             session.add(run)
             await session.flush()
+            # After the insert: it can wait on another run that rebinds the
+            # dataset, so only a read after it sees the binding this run replaces.
+            await _refuse_publish_key_irreversible_run(session, dataset_id)
     except IntegrityError as exc:
         if _ACTIVE_RUN_INDEX not in str(getattr(exc, "orig", exc)):
             raise
