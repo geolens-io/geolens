@@ -26,7 +26,14 @@ import typer
 
 from . import arcgis_plan as _plan
 from . import output as _output
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_OK, EXIT_SERVER, EXIT_USAGE
+from ._sdk_helpers import (
+    EXIT_AUTH,
+    EXIT_GENERIC,
+    EXIT_NETWORK,
+    EXIT_OK,
+    EXIT_SERVER,
+    EXIT_USAGE,
+)
 from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
     GeoLens,
@@ -71,6 +78,12 @@ DEFAULT_TRANSFER_GRANTS = {
     "admin": {"upload": True, "edit_metadata": True},
 }
 USER_PAGE_SIZE = 200
+_PORTAL_EXIT = {
+    "auth": EXIT_AUTH,
+    "network": EXIT_NETWORK,
+    "server": EXIT_SERVER,
+    "redirect": EXIT_USAGE,
+}
 EXIT_INTERRUPTED = 130
 
 
@@ -431,7 +444,7 @@ def _migrate_one(
     entry = state.start(item["id"])
     try:
         result = handler(ctx, item, entry)
-        entry.notes = result.notes
+        entry.notes = [state.clean(note) for note in result.notes]
         state.save()
         # Even to the operator: a run that failed part way may have handed
         # some of the item's objects to another owner already.
@@ -721,7 +734,7 @@ def _run(
                 client.generate_token(opts.username, password)
         except PortalError as exc:
             fmt.error(str(exc))
-            return EXIT_AUTH if exc.kind == "auth" else EXIT_GENERIC
+            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
         auth = PortalAuth(client, renewable=password is not None)
     ctx = MigrationContext(
         geolens=geolens,

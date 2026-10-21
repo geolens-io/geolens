@@ -205,13 +205,14 @@ class MigrationState:
     ) -> None:
         entry = self.item(item_id)
         entry.status = status
-        entry.error = self._clean(error) if error else None
+        entry.error = self.clean(error) if error else None
         entry.finished_at = _now()
         if save:
             self.save()
 
-    def _clean(self, error: str) -> str:
-        return redact_json(error, self._redact)[:MAX_ERROR_CHARS]
+    def clean(self, text: str) -> str:
+        """*text* redacted and shortened, safe to store in the file."""
+        return redact_json(text, self._redact)[:MAX_ERROR_CHARS]
 
     def save(self) -> None:
         if not self._persist:

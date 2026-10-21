@@ -37,6 +37,8 @@ _JOB_FAILED = frozenset({"failed", "cancelled", "fanned_out"})
 # a missing credential store with this code.
 _TOKEN_REFUSED = "Provide a valid ArcGIS token"
 _STORE_UNAVAILABLE = "credential_store_unavailable"
+# GeoLens's answer to a commit of a job that was committed before.
+_ALREADY_COMMITTED = "already processed"
 
 
 def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -147,6 +149,10 @@ class _JobEnded(ItemFailed):
     """The ingest job finished without a dataset."""
 
 
+class _JobGone(ItemFailed):
+    """GeoLens no longer has the ingest job (expired or purged)."""
+
+
 def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
     from geolens.api.admin import get_job_status_jobs_job_id_get as get_job
 
@@ -205,7 +211,6 @@ def _import_layer(
     importing the layer again; only a job that ended without a dataset is
     replaced.
     """
-    from geolens.api.datasets import commit_import_ingest_commit_job_id_post as commit
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
     )
@@ -213,16 +218,15 @@ def _import_layer(
     from geolens.models.service_preview_request import ServicePreviewRequest
 
     key = _layer_key(layer)
-    committed = entry.layer_jobs.get(key)
-    if committed:
-        try:
-            entry.layer_datasets[key] = _wait_for_dataset(ctx, UUID(committed), title)
-        except _JobEnded:
-            del entry.layer_jobs[key]
-            ctx.save()
-        else:
-            del entry.layer_jobs[key]
+    title_visibility = CommitRequest(title=title, visibility=visibility)
+    recorded = entry.layer_jobs.get(key)
+    if recorded:
+        dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
+        del entry.layer_jobs[key]
+        if dataset is not None:
+            entry.layer_datasets[key] = dataset
             return False
+        ctx.save()
 
     request = ServicePreviewRequest(
         url=probe.url,
@@ -243,25 +247,69 @@ def _import_layer(
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
         entry.layer_datasets[key] = existing
         return True
+    # Recorded before the commit is sent: if its answer is lost, a rerun
+    # finds this job rather than importing the layer a second time.
     entry.job_ids.append(str(previewed.job_id))
+    entry.layer_jobs[key] = str(previewed.job_id)
     ctx.save()
+    _commit(ctx, row, probe, previewed.job_id, title_visibility)
+    entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
+    del entry.layer_jobs[key]
+    return False
+
+
+def _commit(
+    ctx: MigrationContext,
+    row: Mapping[str, Any],
+    probe: Any,
+    job_id: UUID,
+    body: Any,
+) -> None:
+    """Commit a previewed job; a job that was committed already is fine."""
+    from geolens.api.datasets import commit_import_ingest_commit_job_id_post as commit
+
     try:
         _send(
             ctx,
             row,
             probe.url,
             commit.sync_detailed,
-            job_id=previewed.job_id,
-            body=CommitRequest(title=title, visibility=visibility),
+            job_id=job_id,
+            body=body,
             expected=202,
         )
     except GeoLensError as exc:
-        raise ItemFailed(f"{title}: commit failed, {exc}") from None
-    entry.layer_jobs[key] = str(previewed.job_id)
-    ctx.save()
-    entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
-    del entry.layer_jobs[key]
-    return False
+        if exc.status in (400, 409) and _ALREADY_COMMITTED in str(exc):
+            return
+        if exc.status == 404:
+            raise _JobGone(f"{body.title}: the import job {job_id} is gone") from None
+        raise ItemFailed(f"{body.title}: commit failed, {exc}") from None
+
+
+def _finish_job(
+    ctx: MigrationContext,
+    row: Mapping[str, Any],
+    probe: Any,
+    job_id: UUID,
+    body: Any,
+) -> str | None:
+    """The dataset of a job a previous run recorded, or None when the layer
+    must be imported afresh.
+
+    The earlier run may have stopped before or after its commit landed, so the
+    commit is sent again (GeoLens answers "already processed" for a committed
+    job), then the job is waited for. A job that ended without a dataset, or
+    that GeoLens no longer has, is replaced.
+    """
+    try:
+        _commit(ctx, row, probe, job_id, body)
+        return _wait_for_dataset(ctx, job_id, body.title)
+    except (_JobEnded, _JobGone):
+        return None
+    except GeoLensError as exc:
+        if exc.status == 404:
+            return None
+        raise ItemFailed(f"{body.title}: {exc}") from None
 
 
 def import_layers(

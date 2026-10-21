@@ -86,24 +86,35 @@ class GeoLens:
     ) -> Any:
         from geolens.models.problem_detail import ProblemDetail  # lazy
 
+        restore: list[tuple[Any, Any]] = []
+
         def replace_client(replacement: Any) -> None:
+            # The retry keeps the timeout the caller set for this call (for
+            # example long_request_timeout's), then goes back to its own.
             self._redact.add(getattr(replacement, "token", None))
+            http = replacement.get_httpx_client()
+            restore.append((http, http.timeout))
+            http.timeout = self.client.get_httpx_client().timeout
             self.client = replacement
 
-        for attempt in range(1, RATE_LIMIT_ATTEMPTS + 1):
-            resp = call_sdk_with_reauth(
-                fn,
-                instance=self._instance,
-                credential_kind=self._sdk.credential_kind,
-                credential_provenance=self._sdk.credential_provenance,
-                on_reauthenticated=replace_client,
-                client=self.client,
-                **kwargs,
-            )
-            status = int(resp.status_code)
-            if status != 429 or attempt == RATE_LIMIT_ATTEMPTS:
-                break
-            self._sleep(_retry_after(resp.headers))
+        try:
+            for attempt in range(1, RATE_LIMIT_ATTEMPTS + 1):
+                resp = call_sdk_with_reauth(
+                    fn,
+                    instance=self._instance,
+                    credential_kind=self._sdk.credential_kind,
+                    credential_provenance=self._sdk.credential_provenance,
+                    on_reauthenticated=replace_client,
+                    client=self.client,
+                    **kwargs,
+                )
+                status = int(resp.status_code)
+                if status != 429 or attempt == RATE_LIMIT_ATTEMPTS:
+                    break
+                self._sleep(_retry_after(resp.headers))
+        finally:
+            for http, timeout in restore:
+                http.timeout = timeout
         if status == expected and not isinstance(resp.parsed, ProblemDetail):
             return resp.parsed
         detail: Any = None

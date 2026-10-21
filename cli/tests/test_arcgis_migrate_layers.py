@@ -50,6 +50,7 @@ class FakeImport:
         self.job_errors: dict[str, str] = {}
         self.duplicates: dict[str, str] = {}
         self.previews = 0
+        self.committed: set[str] = set()
         fake.routes[PROBE] = self.probe
         fake.routes[PREVIEW] = self.preview
 
@@ -107,6 +108,9 @@ class FakeImport:
         if refused:
             return refused
         job = seen.url.rsplit("/", 1)[-1]
+        if job in self.committed:
+            return (400, _problem(400, "Job already processed"))
+        self.committed.add(job)
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def job(self, job_id: str, name: str, error: str | None) -> dict:
@@ -754,3 +758,132 @@ def test_an_inventory_rewritten_after_the_plan_is_refused(runner, plan_file, geo
     assert result.exit_code == 2
     assert "rebuild the plan" in result.output
     assert geolens.seen == []
+
+
+def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geolens):
+    import httpx
+
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    commit = service.commit
+
+    def commit_then_time_out(seen):
+        commit(seen)
+        raise httpx.ReadTimeout("no answer")
+
+    preview = service.preview
+
+    def preview_with_a_lost_commit(seen):
+        reply = preview(seen)
+        geolens.routes[f"POST /ingest/commit/{reply['job_id']}"] = commit_then_time_out
+        return reply
+
+    geolens.routes[PREVIEW] = preview_with_a_lost_commit
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 4
+    [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
+
+    geolens.routes[PREVIEW] = preview
+    geolens.routes[f"POST /ingest/commit/{job}"] = commit
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.previews == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
+    assert entry["layer_jobs"] == {}
+
+
+def test_a_recorded_job_geolens_no_longer_has_is_replaced(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    service.job_errors["Parcels"] = "failed"
+    _migrate(runner, plan_file, "--only", A2)
+    [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
+    del geolens.routes[f"GET /jobs/{job}"], geolens.routes[f"POST /ingest/commit/{job}"]
+    del service.job_errors["Parcels"]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.previews == 2
+    assert _state(plan_file)["items"][A2]["layer_jobs"] == {}
+
+
+def test_service_derived_notes_are_redacted(runner, plan_file, geolens):
+    token = secrets.token_urlsafe(16)
+    FakeImport(
+        geolens,
+        [_layer(0, f"Districts {token}", "Group Layer"), _layer(1, "Parcels")],
+        needs_auth=True,
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A1, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert token not in raw and "Districts [REDACTED]" in raw
+
+
+def test_a_portal_sign_in_outage_exits_with_the_network_code(
+    runner, plan_file, geolens, monkeypatch
+):
+    import urllib.error
+
+    portal = FakePortal(portal_routes({"generateToken": urllib.error.URLError("down")}))
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": secrets.token_urlsafe(16)},
+    )
+
+    assert result.exit_code == 4
+
+
+def test_a_refreshed_session_keeps_the_long_timeout_for_the_retry(
+    fake_geolens, monkeypatch
+):
+    from geolens.api.auth import me_auth_me_get
+
+    from geolens_cli._sdk_helpers import (
+        DEFAULT_HTTP_TIMEOUT_SECONDS,
+        long_request_timeout,
+        make_client,
+    )
+    from geolens_cli.arcgis_portal import Redactor
+
+    monkeypatch.setattr(
+        "geolens_cli.auth.try_refresh", lambda instance: secrets.token_urlsafe(24)
+    )
+    replies = [
+        (401, _problem(401, "expired")),
+        {
+            "id": OPERATOR,
+            "username": "o",
+            "email": None,
+            "is_active": True,
+            "status": "active",
+            "last_login_at": None,
+            "created_at": NOW,
+            "roles": ["admin"],
+            "can_reset_password": False,
+        },
+    ]
+    fake_geolens.routes["GET /auth/me/"] = lambda seen: replies.pop(0)
+    sdk = make_client(
+        GEOLENS_INSTANCE, bearer_token=fake_geolens.token, provenance="stored-bearer"
+    )
+    geolens = session.GeoLens(sdk, GEOLENS_INSTANCE, Redactor())
+
+    with long_request_timeout(geolens.client, timeout=600.0):
+        geolens.call(me_auth_me_get.sync_detailed)
+
+    assert [s.timeout["read"] for s in fake_geolens.seen] == [600.0, 600.0]
+    assert (
+        geolens.client.get_httpx_client().timeout.read == DEFAULT_HTTP_TIMEOUT_SECONDS
+    )

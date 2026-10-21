@@ -17,6 +17,7 @@ class SdkRequest:
     url: str
     headers: dict[str, str]
     body: bytes
+    timeout: dict[str, float | None]
 
     def json(self) -> Any:
         return json.loads(self.body) if self.body else None
@@ -44,6 +45,7 @@ class FakeGeoLens:
             str(request.url),
             {k.lower(): v for k, v in request.headers.items()},
             request.read(),
+            dict(request.extensions.get("timeout") or {}),
         )
         self.seen.append(seen)
         path = urlsplit(seen.url).path.removeprefix(self.base_path)
