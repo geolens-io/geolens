@@ -13,17 +13,21 @@ Verify fail-before: drop the ``created_at >= cutoff`` clause and
 drop the ``used >= cap`` raise and `test_budget_blocks_when_over` FAILS.
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+import structlog.testing
 from fastapi import HTTPException
 from sqlalchemy import delete
 
 
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
+from app.processing.ai import token_usage
 from app.processing.ai.router import _check_ai_budget
+from app.processing.ai.streaming import _daily_token_budget
 from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from tests.factories import get_user_id
 
@@ -202,3 +206,50 @@ async def test_metadata_path_records_usage(monkeypatch):
     assert captured["user_id"] == uid
     assert captured["input_tokens"] == 111
     assert captured["output_tokens"] == 222
+
+
+class _FailingSession:
+    async def scalar(self, _stmt):
+        raise RuntimeError("usage query failed")
+
+
+@pytest.mark.parametrize("cap_read_fails", [False, True])
+async def test_mid_loop_budget_failure_is_logged(monkeypatch, cap_read_fails):
+    if cap_read_fails:
+
+        async def _failing_get(_db):
+            raise RuntimeError("settings read failed")
+
+        monkeypatch.setattr(MAX_AI_TOKENS_PER_USER_PER_DAY, "get", _failing_get)
+    else:
+        _patch_cap(monkeypatch, 1000)
+    user = SimpleNamespace(id=uuid.uuid4())
+
+    with structlog.testing.capture_logs() as logs:
+        assert await _daily_token_budget(_FailingSession(), user) == (0, 0)
+
+    [entry] = [e for e in logs if e["log_level"] == "warning"]
+    assert entry["user_id"] == str(user.id)
+    assert entry["daily_cap"] == (None if cap_read_fails else 1000)
+    assert entry["error_type"] == "RuntimeError"
+
+
+async def test_piling_up_usage_writes_are_logged(monkeypatch):
+    monkeypatch.setattr(token_usage, "_PENDING_USAGE_WRITES_WARN_AT", 2)
+    release = asyncio.Event()
+
+    async def _stalled_write():
+        await release.wait()
+
+    with structlog.testing.capture_logs() as logs:
+        waiters = [
+            asyncio.create_task(
+                token_usage._await_write_even_if_cancelled(_stalled_write())
+            )
+            for _ in range(3)
+        ]
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(*waiters)
+
+    assert [e["pending"] for e in logs if e["log_level"] == "warning"] == [2]

@@ -136,6 +136,9 @@ async def record_token_usage_from_error(
 # be garbage collected mid-flight; this set is the documented way to keep one
 # alive, and the done callback keeps it from growing.
 _PENDING_USAGE_WRITES: set[asyncio.Task] = set()
+# Writes normally finish within a request; this many pending means the
+# database is stalling.
+_PENDING_USAGE_WRITES_WARN_AT = 100
 
 
 @asynccontextmanager
@@ -177,6 +180,9 @@ async def _await_write_even_if_cancelled(coro) -> None:  # type: ignore[no-untyp
     task = asyncio.ensure_future(coro)
     _PENDING_USAGE_WRITES.add(task)
     task.add_done_callback(_PENDING_USAGE_WRITES.discard)
+    pending = len(_PENDING_USAGE_WRITES)
+    if pending % _PENDING_USAGE_WRITES_WARN_AT == 0:
+        logger.warning("AI token usage writes are piling up", pending=pending)
     try:
         await asyncio.shield(task)
     except asyncio.CancelledError:

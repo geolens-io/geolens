@@ -54,12 +54,14 @@ async def _daily_token_budget(session: AsyncSession, user: Identity) -> tuple[in
     The cap is enforced at request entry (enforce_ai_token_budget), so a caller
     near the cap could still run a full multi-round tool loop over it. Returns
     ``(cap, used_in_last_24h)``; ``cap <= 0`` means unlimited. Callers add this
-    request's in-memory accumulator and stop before crossing, so it costs one
+    request's in-memory accumulator and check it after each round, so the round
+    that crosses the cap is billed and no further round starts. It costs one
     query per request, not per round.
     """
-    # Fail-open: this is a best-effort mid-loop backstop, and a transient DB
-    # error must never crash the user's stream, so any failure disables
-    # mid-loop enforcement rather than raising.
+    # Fail-open: the entry gate already checked the cap and each request stays
+    # under MAX_REQUEST_TOKEN_BUDGET, so a DB error disables only this backstop
+    # rather than crashing the stream.
+    cap: int | None = None
     try:
         cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(session)
         if cap <= 0:
@@ -73,7 +75,14 @@ async def _daily_token_budget(session: AsyncSession, user: Identity) -> tuple[in
             ).where(AITokenUsage.user_id == user.id, AITokenUsage.created_at >= cutoff)
         )
         return cap, int(used or 0)
-    except Exception:  # broad: never let the backstop crash the stream
+    except Exception as exc:  # broad: never let the backstop crash the stream
+        logger.warning(
+            "Daily AI token budget unreadable; mid-loop cap off for this request",
+            user_id=str(user.id),
+            daily_cap=cap,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         return 0, 0
 
 
