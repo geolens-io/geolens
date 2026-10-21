@@ -13,8 +13,11 @@ function wktNode(wkt: string, keyword: string): string | null {
   return null;
 }
 
+// WKT1 spells the unit UNIT[...]; WKT2 LENGTHUNIT[...] (or UNIT[...]).
+const UNIT = /(?:LENGTH)?UNIT\["[^"]*",\s*([0-9.eE+-]+)/g;
+
 function unitFactor(node: string): number {
-  const factor = Number(/UNIT\["[^"]*",\s*([0-9.eE+-]+)/.exec(node.slice(node.lastIndexOf('UNIT[')))?.[1]);
+  const factor = Number([...node.matchAll(UNIT)].at(-1)?.[1]);
   return Number.isFinite(factor) && factor > 0 && factor < 1e4 ? factor : 1;
 }
 
@@ -31,14 +34,16 @@ export interface CopcCrs {
  */
 export function parseCopcCrs(wkt: string | undefined): CopcCrs | null {
   if (!wkt || wkt.length > MAX_WKT_LENGTH) return null;
-  const compound = wkt.startsWith('COMPD_CS');
-  const horizontalWkt = compound ? wktNode(wkt, 'PROJCS') ?? wktNode(wkt, 'GEOGCS') : wkt;
+  const compound = wkt.startsWith('COMPD_CS') || wkt.startsWith('COMPOUNDCRS');
+  const horizontalWkt = compound
+    ? (['PROJCS', 'GEOGCS', 'PROJCRS', 'GEOGCRS'].map((keyword) => wktNode(wkt, keyword)).find(Boolean) ?? null)
+    : wkt;
   if (!horizontalWkt) return null;
   try {
     proj4(horizontalWkt, 'EPSG:4326').forward([0, 0]);
   } catch {
     return null;
   }
-  const vertical = compound ? wktNode(wkt, 'VERT_CS') : null;
+  const vertical = compound ? wktNode(wkt, 'VERT_CS') ?? wktNode(wkt, 'VERTCRS') : null;
   return { horizontalWkt, zToMeters: unitFactor(vertical ?? horizontalWkt) };
 }
