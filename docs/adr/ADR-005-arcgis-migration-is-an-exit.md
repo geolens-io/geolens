@@ -25,9 +25,12 @@ dataset records the portal item id and portal URL as provenance.
 Until cutover the operator can run the migration again. A rerun merges new
 portal items into the migration plan without losing the operator's edits,
 brings migrated datasets up to date (a refresh for service imports, a replace
-for files), and keeps datasets whose items were deleted in the portal. A
-refresh that stops for review is reported and never accepted on the
-operator's behalf, so edits made in GeoLens aren't silently overwritten.
+for files), re-translates in place the migrated maps and stories whose portal
+items changed, and keeps the datasets, maps and stories whose items were
+deleted in the portal. A map or story edited in GeoLens since the last run is
+reported instead of re-translated, and a refresh that stops for review is
+reported and never accepted on the operator's behalf, so edits made in GeoLens
+aren't silently overwritten.
 
 Cutover is the last run, made after edits in the portal are frozen. It refuses
 while a migrated layer carries content GeoLens can't hold yet, such as
