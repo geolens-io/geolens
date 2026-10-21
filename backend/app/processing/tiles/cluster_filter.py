@@ -55,6 +55,7 @@ def validated_digest(raw: str | None) -> str | None:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _OFFSET = re.compile(r"(Z|[+-]\d\d(:?\d\d)?)$")
 _COMPARISONS = {"=", "<>", "<", ">", "<=", ">="}
 
@@ -63,7 +64,7 @@ def _typed_literal(value: Any, pg_type: str) -> Any:
     if not isinstance(value, str):
         return value
     if pg_type == "date":
-        return {"date": value[:10]}
+        return {"date": value} if _DATE.fullmatch(value) else value
     stamp = value.strip().replace(" ", "T", 1)
     if "T" not in stamp:
         stamp += "T00:00:00"

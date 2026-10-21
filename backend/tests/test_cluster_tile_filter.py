@@ -143,6 +143,7 @@ async def test_filter_matching_nothing_yields_an_empty_tile(client, cluster_tabl
     [
         "",
         "not json",
+        json.dumps(_cmp("=", "seen", "2004-01-01junk")),
         json.dumps(_cmp("=", "no_such_column", "a")),
         json.dumps(
             {
