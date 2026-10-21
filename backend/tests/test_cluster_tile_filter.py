@@ -141,6 +141,7 @@ async def test_filter_matching_nothing_yields_an_empty_tile(client, cluster_tabl
 @pytest.mark.parametrize(
     "bad",
     [
+        "",
         "not json",
         json.dumps(_cmp("=", "no_such_column", "a")),
         json.dumps(

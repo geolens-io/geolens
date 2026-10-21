@@ -48,7 +48,7 @@ def validated_digest(raw: str | None) -> str | None:
 
     None when there is no filter. HTTP 400 when ``raw`` does not parse.
     """
-    if not raw:
+    if raw is None:
         return None
     _parse(raw)
     canonical = json.dumps(json.loads(raw), sort_keys=True, separators=(",", ":"))
@@ -107,7 +107,7 @@ async def compile_filter(
     attributes only. A dataset that limits its tile attributes to ``tile_columns``
     exposes only those columns to filters too (``[]`` exposes none).
     """
-    if not raw:
+    if raw is None:
         return None
     from app.platform.extensions import get_catalog_port
     from app.standards.ogc.filtering import (
