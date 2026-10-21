@@ -545,6 +545,8 @@ export function buildRenderAsPatch(
     }
 
     const paint = polygonPaint(layer);
+    // The legacy paint key would keep a layer 3D after the builder's column is gone.
+    delete paint['_height_column'];
     if (renderAs === 'stroke') {
       paint['fill-opacity'] = 0;
     } else if (typeof paint['fill-opacity'] !== 'number' || paint['fill-opacity'] <= 0) {

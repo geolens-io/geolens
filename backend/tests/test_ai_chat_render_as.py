@@ -434,3 +434,21 @@ async def test_an_empty_replacement_leaves_the_recorded_paint_alone():
     )
 
     assert layers[0].paint == {"fill-color": expression}
+
+
+@pytest.mark.anyio
+async def test_clearing_the_data_driven_fill_in_the_same_call_allows_zero_opacity():
+    expression = ["match", ["get", "name"], "a", "#ef4444", "#374151"]
+    layers = [_layer(geometry_type="Polygon", paint={"fill-color": expression})]
+
+    result = await _run(
+        "set_style",
+        {
+            "layer_id": "layer-1",
+            "paint": {"fill-opacity": 0},
+            "clear_paint": ["fill-color"],
+        },
+        layers,
+    )
+
+    assert result["paint"] == {"fill-opacity": 0}

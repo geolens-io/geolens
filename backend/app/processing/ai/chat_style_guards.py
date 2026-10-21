@@ -95,7 +95,10 @@ def validate_set_style(
     warnings: list[str] = []
     if tool_input.get("paint"):
         next_input["paint"], warnings = _validate_paint(
-            tool_input["paint"], layer, render_mode
+            tool_input["paint"],
+            layer,
+            render_mode,
+            tuple(tool_input.get("clear_paint") or ()),
         )
     if tool_input.get("clear_paint"):
         next_input["clear_paint"], clear_warnings = (
@@ -115,7 +118,10 @@ def validate_set_style(
 
 
 def _validate_paint(
-    paint: dict, layer: ChatMapLayer, render_mode: str | None
+    paint: dict,
+    layer: ChatMapLayer,
+    render_mode: str | None,
+    cleared: tuple = (),
 ) -> tuple[dict, list[str]]:
     """Validate set_style paint, dropping edits the builder would ignore or that hide a column's colours."""
     validated, warnings = validate_paint_with_feedback(
@@ -134,7 +140,7 @@ def _validate_paint(
             "fill-opacity",
             "a 3D layer draws with its extrusion opacity. Use set_opacity to change it.",
         )
-    if _data_driven_fill_hidden(kept, layer):
+    if _data_driven_fill_hidden(kept, layer, cleared):
         _drop(
             kept,
             warnings,
@@ -151,7 +157,7 @@ def _is_extrusion(layer: ChatMapLayer) -> bool:
     )
 
 
-def _data_driven_fill_hidden(paint: dict, layer: ChatMapLayer) -> bool:
+def _data_driven_fill_hidden(paint: dict, layer: ChatMapLayer, cleared: tuple) -> bool:
     opacity = paint.get("fill-opacity")
     if (
         not isinstance(opacity, (int, float))
@@ -159,6 +165,5 @@ def _data_driven_fill_hidden(paint: dict, layer: ChatMapLayer) -> bool:
         or opacity > 0
     ):
         return False
-    return isinstance(
-        paint.get("fill-color", (layer.paint or {}).get("fill-color")), list
-    )
+    stored = None if "fill-color" in cleared else (layer.paint or {}).get("fill-color")
+    return isinstance(paint.get("fill-color", stored), list)
