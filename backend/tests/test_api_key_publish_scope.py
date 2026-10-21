@@ -978,7 +978,7 @@ async def test_an_admin_capability_refuses_a_publish_key_wherever_mounted(
 
 @pytest.mark.anyio
 async def test_a_publish_key_cannot_refresh_a_stac_dataset(
-    client: AsyncClient, owner, test_db_session
+    client: AsyncClient, owner, test_db_session, monkeypatch
 ):
     from tests.factories import create_dataset
 
@@ -1007,6 +1007,25 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
             headers=publish,
         )
         assert _refused_with(commit, refusal), commit.text
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        presigned = await client.post(
+            f"/datasets/{stac.id}/reupload/presigned",
+            json={
+                "filename": "new.geojson",
+                "file_size": 10,
+                "content_type": "application/geo+json",
+            },
+            headers=publish,
+        )
+        assert _refused_with(presigned, refusal), presigned.text
+        completed = await client.post(
+            f"/datasets/{stac.id}/reupload/presigned/{uuid.uuid4()}/complete",
+            json={},
+            headers=publish,
+        )
+        assert _refused_with(completed, refusal), completed.text
     finally:
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}

@@ -1340,6 +1340,7 @@ async def request_presigned_reupload(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _refuse_publish_key_irreversible_replace(db, dataset)
 
     refuse_control_characters(request.filename)
     staged_name = safe_upload_basename(request.filename)
@@ -1540,6 +1541,7 @@ async def complete_presigned_reupload(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _refuse_publish_key_irreversible_replace(db, dataset)
     _assert_compatible_record_type(dataset, None)
 
     job = await _get_bound_reupload_job_or_404(
