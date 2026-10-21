@@ -101,8 +101,15 @@ async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
     than re-exports because ``test_permission_chokepoints_use_extension``
     reads this file's ``async def get_user_roles`` as a block boundary, and
     callers that patch ``catalog.authorization.get_user_roles`` need a real def.
+
+    A publish key acts only on its owner's own objects, so a request it
+    authenticates is judged without the owner's admin role.
     """
-    return await _get_user_roles(db, user)
+    roles = await _get_user_roles(db, user)
+    credential = api_key_credential(db)
+    if credential is not None and credential.scope == "publish":
+        roles.discard("admin")
+    return roles
 
 
 async def check_dataset_access_or_anonymous(

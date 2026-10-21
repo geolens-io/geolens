@@ -90,6 +90,7 @@ from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
 )
+from app.platform.request_credential import refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
@@ -1157,6 +1158,8 @@ async def upload_og_image(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    if map_obj.og_image_uri:
+        refuse_publish_key(db, "A publish key can't replace a map's preview image")
 
     if not data_uri.startswith("data:image/"):
         raise HTTPException(

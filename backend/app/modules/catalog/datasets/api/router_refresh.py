@@ -915,12 +915,16 @@ async def _prior_service_ingest_settings(
 
 
 def _refuse_publish_key_asset_repoint(db: AsyncSession, dataset) -> None:
-    # A raster or STAC refresh repoints the asset and keeps no previous version.
-    if (
-        dataset.record.record_type == "raster_dataset"
-        or dataset.source_format == "stac"
+    # A raster refresh keeps no previous version, and accepting a held upload
+    # over a remote binding replaces a binding no restore can bring back.
+    origin = classify_origin(dataset.source_format, dataset.record.record_type)
+    if dataset.record.record_type == "raster_dataset" or origin not in (
+        "upload",
+        "created",
     ):
-        refuse_publish_key(db, "A publish key can't refresh a raster or STAC dataset")
+        refuse_publish_key(
+            db, "A publish key can't refresh a raster or remote-origin dataset"
+        )
 
 
 @router.post(

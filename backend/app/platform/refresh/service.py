@@ -26,9 +26,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import FixedReason, redact_failure_reason
+from app.platform.dataset_origin import classify_origin
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import Outcome, hold
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.request_credential import api_key_credential, api_key_scope_refusal
 
 logger = structlog.get_logger(__name__)
 
@@ -319,6 +321,37 @@ class DatasetBusyError(Exception):
     """
 
 
+async def _refuse_publish_key_irreversible_run(
+    session: AsyncSession, dataset_id: uuid.UUID
+) -> None:
+    """Refuse a publish key a run whose result no previous version could undo.
+
+    Every data-replacing door admits its run here. A raster replace keeps no
+    previous version, and a restore can bring back only an upload's or a drawn
+    layer's source binding, not a service's, STAC item's or table's.
+    """
+    credential = api_key_credential(session)
+    if credential is None or credential.scope != "publish":
+        return
+    row = (
+        await session.execute(
+            text(
+                "SELECT d.source_format, r.record_type FROM catalog.datasets d "
+                "JOIN catalog.records r ON r.id = d.record_id WHERE d.id = :id"
+            ),
+            {"id": dataset_id},
+        )
+    ).one_or_none()
+    if row is None:
+        return
+    origin = classify_origin(row.source_format, row.record_type)
+    if row.record_type == "raster_dataset" or origin not in ("upload", "created"):
+        raise api_key_scope_refusal(
+            "A publish key can't replace this dataset's data: no previous "
+            "version could restore it"
+        )
+
+
 async def create_pending_run(
     session: AsyncSession,
     *,
@@ -375,6 +408,7 @@ async def create_pending_run(
         )
     if trigger != "scheduled" and scheduled_for is not None:
         raise ValueError("only scheduled runs may carry scheduled_for")
+    await _refuse_publish_key_irreversible_run(session, dataset_id)
 
     # Read the parent's STORED tenant_id rather than copying an ORM attribute:
     # the stamping trigger fills `datasets.tenant_id` in the DB while the ORM

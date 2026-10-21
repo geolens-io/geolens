@@ -520,7 +520,7 @@ async def test_a_publish_key_cannot_replace_a_raster(
 
         refreshed = await client.post(f"/datasets/{raster.id}/refresh", headers=publish)
         assert _refused_with(
-            refreshed, "A publish key can't refresh a raster or STAC dataset"
+            refreshed, "A publish key can't refresh a raster or remote-origin dataset"
         ), refreshed.text
         full_refresh = await client.post(f"/datasets/{raster.id}/refresh", headers=full)
         assert not _scope_refused(full_refresh), full_refresh.text
@@ -592,10 +592,11 @@ async def test_a_publish_key_cannot_revoke_map_links(
 
 @pytest.mark.anyio
 async def test_a_publish_key_cannot_transfer_dataset_ownership(
-    client: AsyncClient, admin_auth_header, datasets
+    client: AsyncClient, admin_auth_header, owner, datasets
 ):
-    """Refused for the scope even when the key's owner is an admin who could."""
-    publish = await _mint(client, admin_auth_header, "publish")
+    """Refused for the scope, before the admin check a transfer also needs."""
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
     admin_id = (await client.get("/auth/me/", headers=admin_auth_header)).json()["id"]
 
     resp = await client.patch(
@@ -877,10 +878,9 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         assert _refused_with(read, "A publish key can read only its owner's jobs"), (
             read.text
         )
+        # The admin's publish key doesn't see the editor's private dataset at all.
         by_dataset = await client.get(f"/jobs/by-dataset/{dataset.id}", headers=publish)
-        assert by_dataset.status_code == 200, by_dataset.text
-        assert by_dataset.json()["id"] == str(job.id)
-        assert by_dataset.json()["source_filename"] is None
+        assert by_dataset.status_code == 404, by_dataset.text
         batch = await client.post(
             "/jobs/status/", json={"job_ids": [str(job.id)]}, headers=publish
         )
@@ -991,7 +991,7 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
         publish = await _mint(client, headers, "publish")
         resp = await client.post(f"/datasets/{stac.id}/refresh", headers=publish)
         assert _refused_with(
-            resp, "A publish key can't refresh a raster or STAC dataset"
+            resp, "A publish key can't refresh a raster or remote-origin dataset"
         ), resp.text
         # A restore couldn't bring the STAC binding back after a replacement.
         refusal = "A publish key can't replace a dataset bound to a remote origin"
@@ -1109,3 +1109,171 @@ def test_manifest_admission_rechecks_the_origin_under_the_lock():
     reread = source.index('db.refresh(dataset, attribute_names=["source_format"])')
     refused = source.index("_refuse_publish_key_remote_origin(db, dataset)")
     assert locked < reread < refused
+
+
+# The publish-allowlisted routes on a dataset that replace or repoint its data,
+# and the ones that don't. Exact, so a new dataset route has to be sorted here.
+_DATA_REPLACING_ROUTES = {
+    ("POST", "/datasets/{dataset_id}/refresh"),
+    ("POST", "/datasets/{dataset_id}/previous-version/restore"),
+    ("POST", "/datasets/{dataset_id}/reupload"),
+    ("POST", "/datasets/{dataset_id}/reupload/presigned"),
+    ("POST", "/datasets/{dataset_id}/reupload/presigned/{job_id}/complete"),
+    ("POST", "/datasets/{dataset_id}/reupload/{job_id}/commit"),
+}
+_DATA_KEEPING_ROUTES = {
+    ("PATCH", "/datasets/{dataset_id}"),
+    ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}"),
+    ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}/"),
+    ("POST", "/datasets/{dataset_id}/reupload/{job_id}/preview"),
+}
+
+
+@pytest.mark.anyio
+async def test_every_data_replacing_route_refuses_a_remote_origin_dataset(
+    client: AsyncClient, owner, test_db_session, monkeypatch
+):
+    from app.core.config import settings
+    from tests.factories import create_dataset
+
+    dataset_routes = {p for p in _PUBLISH_KEY_ROUTES if "{dataset_id}" in p[1]}
+    assert dataset_routes == _DATA_REPLACING_ROUTES | _DATA_KEEPING_ROUTES
+
+    headers, owner_id = owner
+    service = await create_dataset(
+        test_db_session, created_by=owner_id, source_format="wfs", visibility="private"
+    )
+    record_id = service.record_id
+    monkeypatch.setattr(settings, "storage_provider", "s3")
+    try:
+        publish = await _mint(client, headers, "publish")
+        for method, template in sorted(_DATA_REPLACING_ROUTES):
+            url = template.replace("{dataset_id}", str(service.id)).replace(
+                "{job_id}", str(uuid.uuid4())
+            )
+            if template.endswith("/reupload"):
+                kwargs = {
+                    "files": {"file": ("a.geojson", b'{"type":"FeatureCollection"}')}
+                }
+            elif template.endswith("/presigned"):
+                kwargs = {"json": {"filename": "a.geojson", "file_size": 10}}
+            elif template.endswith("/restore"):
+                kwargs = {"json": {"expected_version_number": 1}}
+            else:
+                kwargs = {"json": {}}
+            resp = await client.request(method, url, headers=publish, **kwargs)
+            assert _scope_refused(resp), (template, resp.text)
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_run_admission_refuses_a_publish_key_on_a_remote_origin(
+    test_db_session, owner
+):
+    """The chokepoint behind every data-replacing door, refresh acceptance included."""
+    from fastapi import HTTPException
+
+    from app.platform.refresh.service import create_pending_run
+    from app.platform.request_credential import ApiKeyCredential, record_api_key
+    from tests.factories import create_dataset
+
+    _, owner_id = owner
+    service = await create_dataset(
+        test_db_session, created_by=owner_id, source_format="wfs", visibility="private"
+    )
+    record_id = service.record_id
+    try:
+        record_api_key(
+            test_db_session,
+            ApiKeyCredential(id=uuid.uuid4(), scope="publish", dataset_id=None),
+        )
+        with pytest.raises(HTTPException) as exc:
+            await create_pending_run(
+                test_db_session,
+                dataset_id=service.id,
+                origin_kind="upload",
+                trigger="api",
+                triggered_by=owner_id,
+                ingest_job_id=None,
+                feature_count_before=0,
+            )
+        assert exc.value.detail["code"] == "api_key_scope"
+    finally:
+        test_db_session.info.clear()
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_an_admins_publish_key_acts_only_on_its_owners_objects(
+    client: AsyncClient, admin_auth_header, owner, datasets
+):
+    """Each object type an editor owns, against the admin's publish key and full key."""
+    headers, _ = owner
+    publish = await _mint(client, admin_auth_header, "publish")
+    full = await _mint(client, admin_auth_header, "full")
+    dataset = datasets[0]
+    map_id = (await create_map_via_api(client, headers))["id"]
+    collection = await client.post(
+        "/catalog/collections/", json={"name": "Editor collection"}, headers=headers
+    )
+    assert collection.status_code == 201, collection.text
+    collection_id = collection.json()["id"]
+    try:
+        attempts = [
+            ("PATCH", f"/datasets/{dataset.id}", {"title": "Taken"}),
+            ("PUT", f"/maps/{map_id}", {"name": "Taken"}),
+            (
+                "POST",
+                f"/catalog/collections/{collection_id}/datasets/",
+                {"dataset_ids": [str(dataset.id)]},
+            ),
+            ("POST", f"/records/{dataset.record_id}/keywords/", {"keyword": "taken"}),
+        ]
+        for method, url, body in attempts:
+            refused = await client.request(method, url, json=body, headers=publish)
+            assert refused.status_code in (403, 404), (url, refused.text)
+        allowed = await client.patch(
+            f"/datasets/{dataset.id}", json={"title": "Admin edit"}, headers=full
+        )
+        assert allowed.status_code == 200, allowed.text
+    finally:
+        await client.delete(f"/maps/{map_id}", headers=headers)
+        await client.delete(f"/catalog/collections/{collection_id}", headers=headers)
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_replace_an_uploaded_preview_image(
+    client: AsyncClient, owner, test_db_session
+):
+    headers, _ = owner
+    publish = await _mint(client, headers, "publish")
+    map_id = (await create_map_via_api(client, headers))["id"]
+    url = f"/maps/{map_id}/og-image/"
+    try:
+        first = await client.put(
+            url, json={"data_uri": "data:image/png;base64,AAAAAAAA"}, headers=publish
+        )
+        assert not _scope_refused(first), first.text
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.maps SET og_image_uri = 'maps/og/x.png' WHERE id = :id"
+            ),
+            {"id": map_id},
+        )
+        await test_db_session.commit()
+        second = await client.put(
+            url, json={"data_uri": "data:image/png;base64,AAAAAAAA"}, headers=publish
+        )
+        assert _refused_with(
+            second, "A publish key can't replace a map's preview image"
+        ), second.text
+    finally:
+        await client.delete(f"/maps/{map_id}", headers=headers)
