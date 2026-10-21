@@ -45,3 +45,32 @@ describe('MapCreateDialog AI generation errors', () => {
     await screen.findByText('No datasets matched');
   });
 });
+
+describe('MapCreateDialog AI generation progress', () => {
+  it('shows the progress label from the UI language bundle, not the server label', async () => {
+    mockStream.mockImplementation(async function* () {
+      yield { event: 'tool_start', data: { tool: 'search_datasets', label: 'English server label' } };
+      await new Promise(() => {});
+    });
+    render(<MapCreateDialog open onOpenChange={vi.fn()} />);
+    await userEvent.click(screen.getByRole('tab', { name: /AI Generate/ }));
+    await userEvent.type(screen.getByLabelText('Describe the map you want'), 'parks in Brooklyn');
+    await userEvent.click(screen.getByRole('button', { name: /Generate Map/ }));
+
+    await screen.findByText('Searching datasets...');
+    expect(screen.queryByText('English server label')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the server label for a tool the bundle does not know', async () => {
+    mockStream.mockImplementation(async function* () {
+      yield { event: 'tool_start', data: { tool: 'brand_new_tool', label: 'Doing something new...' } };
+      await new Promise(() => {});
+    });
+    render(<MapCreateDialog open onOpenChange={vi.fn()} />);
+    await userEvent.click(screen.getByRole('tab', { name: /AI Generate/ }));
+    await userEvent.type(screen.getByLabelText('Describe the map you want'), 'parks in Brooklyn');
+    await userEvent.click(screen.getByRole('button', { name: /Generate Map/ }));
+
+    await screen.findByText('Doing something new...');
+  });
+});

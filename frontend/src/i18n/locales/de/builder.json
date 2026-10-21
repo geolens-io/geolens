@@ -716,7 +716,9 @@
       "set_opacity": "Deckkraft wird angepasst...",
       "set_render_as": "Darstellung wird geändert...",
       "query_data": "Daten werden abgefragt...",
-      "run_analysis": "Analyse wird ausgeführt..."
+      "run_analysis": "Analyse wird ausgeführt...",
+      "get_dataset_details": "Datensatzdetails werden abgerufen...",
+      "create_map": "Karte wird erstellt..."
     },
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
     "placeholder": "Kartenänderung beschreiben...",

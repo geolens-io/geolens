@@ -20,7 +20,8 @@ import { resolveHeightColumn } from './layer-adapters/fill-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
-import { getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
+import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
+import { filterSpec, getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerSpec } from './layer-adapters/types';
 import type { SyncLayerInput } from './map-sync';
@@ -273,6 +274,49 @@ function serverClusterFilter(layer: SyncLayerInput): string | undefined {
     : undefined;
 }
 
+// A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
+const LAYER_ONLY_OPERATORS = new Set([
+  'zoom',
+  'pitch',
+  'distance-from-center',
+  'within',
+  'distance',
+  'is-supported-script',
+  'global-state',
+  // The source evaluates raw features, whose `type` is "Feature", not their geometry's type.
+  'geometry-type',
+]);
+
+/** Whether an expression needs the layer's evaluation context. Literal arrays and match labels are data. */
+function needsLayerContext(node: unknown): boolean {
+  if (node && typeof node === 'object' && !Array.isArray(node)) {
+    return Object.values(node).some(needsLayerContext);
+  }
+  if (!Array.isArray(node) || node[0] === 'literal') return false;
+  if (LAYER_ONLY_OPERATORS.has(node[0] as string)) return true;
+  if (node[0] === 'match') {
+    return node.some((child, index) => index > 0 && (index % 2 === 1 || index === node.length - 1) && needsLayerContext(child));
+  }
+  return node.slice(1).some(needsLayerContext);
+}
+const MATCHES_NOTHING = ['==', 0, 1] as unknown as FilterSpecification;
+
+/**
+ * A GeoJSON source reads only expression filters evaluated once at load, so legacy forms such as
+ * `['==', '$type', 'Point']` are converted and filters that need the camera or tile geometry are left to the layer.
+ * An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
+ */
+function sourceFilter(filter: FilterSpecification | null): FilterSpecification | null {
+  if (!filter) return null;
+  try {
+    const converted = convertFilter(filter as Parameters<typeof convertFilter>[0]);
+    if (needsLayerContext(converted)) return null;
+    return converted === false ? MATCHES_NOTHING : (converted as FilterSpecification | true);
+  } catch {
+    return null;
+  }
+}
+
 function nonBlank(value: string | null | undefined) {
   return value ? value : undefined;
 }
@@ -325,7 +369,15 @@ function vectorSource(
   const attribution = nonBlank(layer.attribution);
   const data = ctx.boundedGeoJson.get(layer.id);
   if (described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson' && data) {
-    return { type: 'geojson', data, cluster: true, ...clusterOptions(layer), ...(attribution ? { attribution } : {}) };
+    // The source filter drops points before they are grouped, so bubble counts match what the layer shows.
+    return {
+      type: 'geojson',
+      data,
+      cluster: true,
+      ...clusterOptions(layer),
+      ...filterSpec(sourceFilter(described.filter)),
+      ...(attribution ? { attribution } : {}),
+    };
   }
   const serverCluster = described.drawsAs === 'cluster';
   const token = ctx.tokens.get(layer.dataset_id);

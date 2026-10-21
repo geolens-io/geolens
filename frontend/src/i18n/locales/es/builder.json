@@ -716,7 +716,9 @@
       "set_opacity": "Ajustando opacidad...",
       "set_render_as": "Cambiando el tipo de renderizado...",
       "query_data": "Consultando datos...",
-      "run_analysis": "Ejecutando análisis..."
+      "run_analysis": "Ejecutando análisis...",
+      "get_dataset_details": "Obteniendo detalles del conjunto de datos...",
+      "create_map": "Creando el mapa..."
     },
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
     "placeholder": "Describa un cambio en el mapa...",

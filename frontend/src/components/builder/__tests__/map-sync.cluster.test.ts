@@ -351,6 +351,67 @@ describe('syncLayersToMap cluster rendering', () => {
     });
   });
 
+  it('filters the clustered source itself and rebuilds it when the layer filter changes', () => {
+    const map = makeMockMap();
+    const open = ['==', ['get', 'status'], 'open'];
+    const layer = makeLayer({ filter: open as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+    const sync = (next: SyncLayerInput, known: string[]) => syncLayersToMap(
+      map, [next], tokenMap(next), undefined, { current: new Set(known) }, { current: '' }, geojsonData,
+    );
+
+    sync(layer, []);
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ cluster: true, filter: open }));
+
+    (map.removeSource as ReturnType<typeof vi.fn>).mockClear();
+    const closed = ['==', ['get', 'status'], 'closed'];
+    sync(makeLayer({ filter: closed as SyncLayerInput['filter'] }), ['source-cluster-1']);
+    expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ filter: closed }));
+
+    (map.removeSource as ReturnType<typeof vi.fn>).mockClear();
+    sync(makeLayer({ filter: [] as unknown as SyncLayerInput['filter'] }), ['source-cluster-1']);
+    expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      'source-cluster-1',
+      expect.not.objectContaining({ filter: expect.anything() }),
+    );
+  });
+
+  it('hands the clustered source an expression filter when the layer filter is a legacy one', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({ filter: ['==', 'status', 'open'] as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      'source-cluster-1',
+      expect.objectContaining({ filter: ['==', ['get', 'status'], 'open'] }),
+    );
+  });
+
+  it('keeps zoom-dependent filters off the clustered source and matches nothing for a legacy filter that converts to false', () => {
+    const sourceFor = (filter: unknown) => {
+      const map = makeMockMap();
+      const layer = makeLayer({ filter: filter as SyncLayerInput['filter'] });
+      const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+      return (map.addSource as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    };
+
+    expect(sourceFor(['>=', ['zoom'], 8])).not.toHaveProperty('filter');
+    expect(sourceFor(['==', ['global-state', 'k'], 1])).not.toHaveProperty('filter');
+    expect(sourceFor(['is-supported-script', ['get', 'name']])).not.toHaveProperty('filter');
+    expect(sourceFor(['within', { type: 'Polygon', coordinates: [] }])).not.toHaveProperty('filter');
+    expect(sourceFor(['in', ['get', 'kind'], ['literal', ['zoom', 'other']]])).toHaveProperty('filter');
+    expect(sourceFor(['==', ['geometry-type'], 'Point'])).not.toHaveProperty('filter');
+    expect(sourceFor(['==', '$type', 'Point'])).not.toHaveProperty('filter');
+    expect(sourceFor(['match', ['get', 'kind'], ['zoom', 'other'], true, false])).toHaveProperty('filter');
+    expect(sourceFor(['==', ['number-format', 1, { 'max-fraction-digits': ['zoom'] }], '1'])).not.toHaveProperty('filter');
+    expect(sourceFor(['in', 'x'])).toHaveProperty('filter', ['==', 0, 1]);
+  });
+
   it('keeps a bounded cluster source when its tile token rotates', () => {
     vi.mocked(buildSignedTileUrl).mockImplementation(
       (table: string, token: { sig: string } | null) => `/tiles/${table}/{z}/{x}/{y}.pbf?sig=${token?.sig ?? ''}`,

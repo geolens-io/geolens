@@ -716,7 +716,9 @@
       "set_opacity": "Réglage de l'opacité...",
       "set_render_as": "Changement du mode d'affichage...",
       "query_data": "Interrogation des données...",
-      "run_analysis": "Exécution de l'analyse..."
+      "run_analysis": "Exécution de l'analyse...",
+      "get_dataset_details": "Récupération des détails du jeu de données...",
+      "create_map": "Création de la carte..."
     },
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
     "placeholder": "Décrivez une modification de carte...",

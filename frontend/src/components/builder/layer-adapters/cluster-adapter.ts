@@ -47,15 +47,10 @@ function combineFilter(base: FilterSpecification, filter: FilterSpecification | 
   return hasFilter(filter) ? ['all', base, filter] as FilterSpecification : base;
 }
 
-function clusterFilter(_input: AdapterLayerInput): FilterSpecification {
-  // Never AND the layer's data filter into the cluster
-  // bubble/count layers — cluster features only carry point_count/cluster_id,
-  // so any feature-property predicate fails for every cluster and blanks the
-  // whole low-zoom map. Ceiling: cluster counts include filtered-out points
-  // (clusters don't re-aggregate); filtering at the source would fix that at
-  // the cost of a per-filter tile refetch.
-  return ['has', 'point_count'];
-}
+// Cluster features carry only point_count/cluster_id, so a feature-property
+// predicate here would hide every bubble. A bounded GeoJSON source filters its
+// points before clustering; server tile clusters ignore the layer filter.
+const CLUSTER_FILTER: FilterSpecification = ['has', 'point_count'];
 
 function unclusteredFilter(input: AdapterLayerInput) {
   return combineFilter(['!', ['has', 'point_count']], input.filter);
@@ -192,7 +187,7 @@ function describeCluster(input: AdapterLayerInput): LayerDrawing {
           id: clusterCircleLayerId(input.layerId),
           type: 'circle',
           ...source,
-          filter: clusterFilter(input),
+          filter: CLUSTER_FILTER,
           layout: { visibility },
           paint: clusterCirclePaint(input),
         },
@@ -204,7 +199,7 @@ function describeCluster(input: AdapterLayerInput): LayerDrawing {
           id: clusterCountLayerId(input.layerId),
           type: 'symbol',
           ...source,
-          filter: clusterFilter(input),
+          filter: CLUSTER_FILTER,
           layout: clusterCountLayout(input),
           paint: clusterCountPaint(input),
         },

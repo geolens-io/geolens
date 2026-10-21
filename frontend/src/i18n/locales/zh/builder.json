@@ -716,7 +716,9 @@
       "set_opacity": "正在调整不透明度...",
       "set_render_as": "正在更改渲染方式...",
       "query_data": "正在查询数据...",
-      "run_analysis": "正在运行分析..."
+      "run_analysis": "正在运行分析...",
+      "get_dataset_details": "正在获取数据集详情...",
+      "create_map": "正在创建地图..."
     },
     "emptyState": "使用自然语言描述对地图的更改。",
     "placeholder": "描述地图更改...",
