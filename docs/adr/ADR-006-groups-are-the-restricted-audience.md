@@ -32,7 +32,9 @@ grants name groups, and roles stay permission tiers. Maps gain `restricted`.
   owner's datasets too. Nothing is shared without that confirmation.
 - An ArcGIS migration run by an admin creates a GeoLens group for each mapped
   portal group and adds the members who resolve to GeoLens users. Its report
-  lists members who don't resolve yet, and a rerun adds them once they do.
+  lists members who don't resolve yet, and a rerun adds them once they do. A
+  rerun also removes the members it added who have since left the portal
+  group, and leaves members added in GeoLens alone.
 
 In Community, groups are managed inside GeoLens. Filling groups from an
 identity provider's groups claim belongs with the existing paid identity
