@@ -722,19 +722,27 @@ async def test_an_armed_transaction_timeout_meets_the_repair_bound(
     applies."""
     if not await _server_has_transaction_timeout(test_db_session):
         pytest.skip("transaction_timeout needs PostgreSQL 17 or later")
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.core import db as core_db
 
-    real_async_session = core_db.async_session
-
+    # One pinned connection: a session commit would hand a pooled connection
+    # back, and the repair could check out another without the setting. It is
+    # invalidated afterwards so the setting never reaches the pool.
     @asynccontextmanager
-    async def _session_with_a_long_timeout():
-        async with real_async_session() as session:
-            await session.execute(
+    async def _session_with_a_configured_timeout():
+        conn = await core_db.engine.connect()
+        try:
+            await conn.execute(
                 text("SELECT set_config('transaction_timeout', :t, false)"),
                 {"t": configured},
             )
-            await session.commit()
-            yield session
+            await conn.commit()
+            async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+                yield session
+        finally:
+            await conn.invalidate()
+            await conn.close()
 
     async def _slow_rederive(session, *args, **kwargs):
         for _ in range(4):
@@ -746,7 +754,9 @@ async def test_an_armed_transaction_timeout_meets_the_repair_bound(
     await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
     try:
         dataset = await _register(test_db_session, table_name, admin_id)
-        monkeypatch.setattr(core_db, "async_session", _session_with_a_long_timeout)
+        monkeypatch.setattr(
+            core_db, "async_session", _session_with_a_configured_timeout
+        )
         monkeypatch.setattr(
             tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
         )
