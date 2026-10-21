@@ -22,12 +22,12 @@ def test_fields_are_capped_to_the_api_limits():
     row = {
         "snippet": "S",
         "description": "D" * 6000,
-        "license_info": "L" * 900,
+        "license_info": "L" * 1200,
         "access_information": "A",
     }
     fields = item_metadata(row, {"tags": []}, {"name": "N" * 1200})
     assert len(fields["summary"]) == 5000 and fields["summary"].startswith("S\n\nD")
-    assert len(fields["license"]) == 500
+    assert len(fields["license"]) == 1000
     assert len(fields["source_organization"]) == 1000
 
 

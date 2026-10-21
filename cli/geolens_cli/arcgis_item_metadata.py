@@ -20,7 +20,7 @@ from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
 MAX_ATTRIBUTION = 5000
-MAX_LICENSE = 500
+MAX_LICENSE = 1000
 MAX_ORGANIZATION = 1000
 MAX_KEYWORD = 500
 _NO_ANGLE_BRACKETS = str.maketrans("<>", "()")
