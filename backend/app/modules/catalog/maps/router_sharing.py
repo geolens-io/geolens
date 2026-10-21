@@ -287,9 +287,8 @@ async def export_map_style_endpoint(
     )
 
 
-async def _app_link(db: AsyncSession, request: Request, path: str) -> str | None:
+def _app_link(app_url: str | None, path: str) -> str | None:
     """``path`` on the app URL a person on another machine can open."""
-    app_url = await get_browser_reachable_app_url(db, request=request)
     return f"{app_url}{path}" if app_url else None
 
 
@@ -311,7 +310,9 @@ async def get_map_share_token_endpoint(
     return ShareTokenResponse(
         token=token_obj.token_hint,
         share_url=None,
-        viewer_url=await _app_link(db, request, f"/maps/{map_id}"),
+        viewer_url=_app_link(
+            await get_browser_reachable_app_url(db, request=request), f"/maps/{map_id}"
+        ),
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -353,15 +354,16 @@ async def share_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
+    # Resolved before the commit: the raw token exists only in this response, so
+    # a lookup that fails afterwards would strand a token nobody can read.
+    app_url = await get_browser_reachable_app_url(db, request=request)
     await db.commit()
     raw_token = getattr(token_obj, "_raw_token", None)
     return ShareTokenResponse(
         token=raw_token or token_obj.token_hint,
         share_url=f"/m/{raw_token}" if raw_token else None,
-        share_url_absolute=await _app_link(db, request, f"/m/{raw_token}")
-        if raw_token
-        else None,
-        viewer_url=await _app_link(db, request, f"/maps/{map_id}"),
+        share_url_absolute=_app_link(app_url, f"/m/{raw_token}") if raw_token else None,
+        viewer_url=_app_link(app_url, f"/maps/{map_id}"),
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )

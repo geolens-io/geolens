@@ -1997,6 +1997,30 @@ class TestShareToken:
         assert fetched["share_url_absolute"] is None
         assert fetched["viewer_url"] == created["viewer_url"]
 
+    async def test_share_url_lookup_failure_does_not_strand_a_token(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ):
+        """The only readable copy of the raw token is the create response, so
+        the app URL is resolved before the token is committed."""
+        map_id = (await _create_map(client, admin_auth_header))["id"]
+        await client.put(
+            f"/maps/{map_id}", json={"visibility": "public"}, headers=admin_auth_header
+        )
+
+        async def _fail(*_args, **_kwargs):
+            raise RuntimeError("public URL lookup failed")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.maps.router_sharing.get_browser_reachable_app_url",
+            _fail,
+        )
+        with pytest.raises(RuntimeError):
+            await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        monkeypatch.undo()
+
+        fetched = await client.get(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        assert fetched.json() is None
+
     async def test_share_expiration_allowed(
         self,
         client: AsyncClient,
