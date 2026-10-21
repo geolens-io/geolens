@@ -430,7 +430,7 @@
     "collectionNotFound": "Collection not found",
     "mapNotFound": "Map not found",
     "incorrectCredentials": "Incorrect username or password",
-    "loginThrottled": "Too many failed sign-ins for this account. Use a browser you've signed in with before, or sign in with SSO.",
+    "loginThrottled": "Too many failed sign-ins for this account. Use a browser you've signed in with before, sign in with SSO, or use an API key for scripts and desktop apps.",
     "deviceTrustLinkInvalid": "This link is invalid, expired or already used. Ask your administrator for a new one.",
     "deviceTrustBrowserFull": "This browser already remembers as many accounts as it can. Open the link in a private window or another browser.",
     "deviceTrustUnavailable": "This GeoLens can't remember browsers at its current address. Ask your administrator.",

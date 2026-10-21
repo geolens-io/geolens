@@ -52,7 +52,7 @@ describe('API error localization boundary', () => {
     const detail = { code: 'login_throttled', message: 'Too many failed sign-ins' };
     expect(classifyApiError(detail, 429)).toEqual({ key: 'errors.loginThrottled' });
     expect(translateApiErrorDetail(detail, 429)).toBe(
-      "Too many failed sign-ins for this account. Use a browser you've signed in with before, or sign in with SSO.",
+      "Too many failed sign-ins for this account. Use a browser you've signed in with before, sign in with SSO, or use an API key for scripts and desktop apps.",
     );
   });
 

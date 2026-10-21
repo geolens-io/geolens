@@ -299,7 +299,7 @@
     "collectionNotFound": "Colección no encontrada",
     "mapNotFound": "Mapa no encontrado",
     "incorrectCredentials": "Nombre de usuario o contraseña incorrectos",
-    "loginThrottled": "Demasiados intentos fallidos de inicio de sesión en esta cuenta. Usa un navegador con el que hayas iniciado sesión antes o inicia sesión con SSO.",
+    "loginThrottled": "Demasiados intentos fallidos de inicio de sesión en esta cuenta. Usa un navegador con el que hayas iniciado sesión antes, inicia sesión con SSO o usa una clave de API para scripts y aplicaciones de escritorio.",
     "deviceTrustLinkInvalid": "Este enlace no es válido, ha caducado o ya se usó. Pide uno nuevo a tu administrador.",
     "deviceTrustBrowserFull": "Este navegador ya recuerda tantas cuentas como puede. Abre el enlace en una ventana privada o en otro navegador.",
     "deviceTrustUnavailable": "Este GeoLens no puede recordar navegadores en su dirección actual. Consulta a tu administrador.",

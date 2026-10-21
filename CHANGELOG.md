@@ -24,6 +24,11 @@ and releases use semantic versioning.
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
 
+### Fixed
+
+- The message shown when an account is temporarily locked out of signing in now
+  also names API keys as the way back in for scripts and desktop apps.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

@@ -299,7 +299,7 @@
     "collectionNotFound": "Sammlung nicht gefunden",
     "mapNotFound": "Karte nicht gefunden",
     "incorrectCredentials": "Falscher Benutzername oder falsches Passwort",
-    "loginThrottled": "Zu viele fehlgeschlagene Anmeldungen für dieses Konto. Verwenden Sie einen Browser, mit dem Sie sich bereits angemeldet haben, oder melden Sie sich per SSO an.",
+    "loginThrottled": "Zu viele fehlgeschlagene Anmeldungen für dieses Konto. Verwenden Sie einen Browser, mit dem Sie sich bereits angemeldet haben, melden Sie sich per SSO an oder verwenden Sie einen API-Schlüssel für Skripte und Desktop-Apps.",
     "deviceTrustLinkInvalid": "Dieser Link ist ungültig, abgelaufen oder wurde bereits verwendet. Bitten Sie Ihren Administrator um einen neuen.",
     "deviceTrustBrowserFull": "Dieser Browser merkt sich bereits so viele Konten wie möglich. Öffnen Sie den Link in einem privaten Fenster oder einem anderen Browser.",
     "deviceTrustUnavailable": "Diese GeoLens-Instanz kann unter ihrer aktuellen Adresse keine Browser merken. Wenden Sie sich an Ihren Administrator.",

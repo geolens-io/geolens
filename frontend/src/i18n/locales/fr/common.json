@@ -299,7 +299,7 @@
     "collectionNotFound": "Collection introuvable",
     "mapNotFound": "Carte introuvable",
     "incorrectCredentials": "Nom d'utilisateur ou mot de passe incorrect",
-    "loginThrottled": "Trop d'échecs de connexion pour ce compte. Utilisez un navigateur avec lequel vous vous êtes déjà connecté, ou connectez-vous avec l'authentification unique (SSO).",
+    "loginThrottled": "Trop d'échecs de connexion pour ce compte. Utilisez un navigateur avec lequel vous vous êtes déjà connecté, connectez-vous avec l'authentification unique (SSO) ou utilisez une clé d'API pour les scripts et les applications de bureau.",
     "deviceTrustLinkInvalid": "Ce lien est invalide, expiré ou déjà utilisé. Demandez-en un nouveau à votre administrateur.",
     "deviceTrustBrowserFull": "Ce navigateur mémorise déjà autant de comptes que possible. Ouvrez le lien dans une fenêtre privée ou un autre navigateur.",
     "deviceTrustUnavailable": "Ce GeoLens ne peut pas mémoriser de navigateurs à son adresse actuelle. Contactez votre administrateur.",

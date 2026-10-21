@@ -119,6 +119,7 @@ async def test_untrusted_clients_are_refused_after_the_limit(client: AsyncClient
     refused = await _login(client, username, "wrong-password")
     assert refused.status_code == 429
     assert refused.json()["detail"]["code"] == "login_throttled"
+    assert "API key" in refused.json()["detail"]["message"]
     retry_after = int(refused.headers["retry-after"])
     assert 0 < retry_after <= 3600
 

@@ -73,7 +73,8 @@ _UNSETTLED_GRACE = timedelta(minutes=5)
 LOGIN_THROTTLED_CODE = "login_throttled"
 LOGIN_THROTTLED_MESSAGE = (
     "Too many failed sign-ins for this account. Use a browser you've signed "
-    "in with before, or sign in with SSO."
+    "in with before, sign in with SSO, or use an API key for scripts and "
+    "desktop apps."
 )
 PASSWORD_CHANGE_THROTTLED_CODE = "password_change_throttled"
 PASSWORD_CHANGE_THROTTLED_MESSAGE = (
