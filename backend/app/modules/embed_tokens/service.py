@@ -532,11 +532,22 @@ async def revoke_embed_tokens_for_dropped_datasets(
     """Revoke tokens orphaned by a layer change.
 
     A token is scoped to the dataset ids that were layers when it was
-    minted. If any active token now references a dataset no longer a layer
+    minted. If any live token now references a dataset no longer a layer
     on the map, ALL of the map's embed tokens are revoked via
     revoke_embed_tokens_by_map (also purges the positive cache). Pure
     additions/reorders that keep every scoped dataset present revoke
     nothing. Returns the number revoked.
+    """
+    if await embed_tokens_orphaned(db, map_id):
+        return await revoke_embed_tokens_by_map(db, map_id)
+    return 0
+
+
+async def embed_tokens_orphaned(db: AsyncSession, map_id: uuid.UUID) -> bool:
+    """Whether a live token on the map covers a dataset no longer a layer on it.
+
+    An expired token serves nothing, and every token's datasets are rechecked
+    against the map's layers when it is used, so only live ones count.
     """
     map_scope = await get_map_embed_scope(db, map_id)
     current_ids = (
@@ -544,19 +555,6 @@ async def revoke_embed_tokens_for_dropped_datasets(
         if map_scope is not None
         else set()
     )
-    if await embed_tokens_reach_beyond(db, map_id, current_ids):
-        return await revoke_embed_tokens_by_map(db, map_id)
-    return 0
-
-
-async def embed_tokens_reach_beyond(
-    db: AsyncSession, map_id: uuid.UUID, dataset_ids: set[str]
-) -> bool:
-    """Whether a live token on the map is scoped to a dataset outside ``dataset_ids``.
-
-    An expired token serves nothing, and every token's datasets are rechecked
-    against the map's layers when it is used, so only live ones count.
-    """
     result = await db.execute(
         select(EmbedToken.scoped_dataset_ids).where(
             EmbedToken.map_id == map_id,
@@ -565,7 +563,7 @@ async def embed_tokens_reach_beyond(
         )
     )
     return any(
-        not {str(d) for d in (scoped or [])} <= dataset_ids
+        not {str(d) for d in (scoped or [])} <= current_ids
         for scoped in result.scalars()
     )
 

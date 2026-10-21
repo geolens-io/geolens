@@ -103,7 +103,8 @@ from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
     _build_map_response,
     _readable_terrain,
-    _refuse_publish_key_link_revocation,
+    _refuse_publish_key_visibility_drop,
+    _revoke_orphaned_embed_tokens,
     _can_edit_map,
     _is_map_owner_or_admin,
     _check_map_read_access,
@@ -469,7 +470,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    await _refuse_publish_key_link_revocation(db, map_obj, body, user)
+    await _refuse_publish_key_visibility_drop(db, map_obj, body)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
     # Auto-revoke share tokens when visibility moves away from public. Layer
@@ -650,7 +651,7 @@ async def update_map_endpoint(
         await _reject_non_public_datasets(db, map_obj, user)
         # Replacing the layer set can drop a dataset an embed token is
         # scoped to; revoke orphaned tokens so they stop serving its tiles.
-        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
+        await _revoke_orphaned_embed_tokens(db, map_id)
     response = await _visible_map_response(
         db,
         map_obj,

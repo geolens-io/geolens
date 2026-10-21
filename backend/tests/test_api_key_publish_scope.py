@@ -564,6 +564,9 @@ async def test_a_publish_key_cannot_revoke_map_links(
         assert _refused_with(
             dropped, "A publish key can't drop a dataset an active embed token covers"
         ), dropped.text
+        # The refusal comes after the save and rolls it back.
+        layers = (await client.get(url, headers=headers)).json()["layers"]
+        assert [layer["dataset_id"] for layer in layers] == [kept]
         lowered = await client.put(url, json={"visibility": "private"}, headers=publish)
         assert _refused_with(lowered, "A publish key can't lower a map's visibility"), (
             lowered.text
