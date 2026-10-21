@@ -249,7 +249,7 @@ function clusterOptions(layer: SyncLayerInput) {
 
 /** The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is none or it has no CQL2 form (counts then include the hidden points). */
 function serverClusterFilter(layer: SyncLayerInput): string | undefined {
-  const cql2 = maplibreFilterToCql2(layer.filter);
+  const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
   return cql2 && cql2 !== 'unsupported' ? JSON.stringify(cql2) : undefined;
 }
 

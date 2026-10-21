@@ -203,6 +203,23 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  it('types temporal literals in the server-cluster filter from the layer column types', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['>=', ['get', 'seen'], '2004-01-01'] as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'seen', type: 'date' }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    const options = vi.mocked(buildClusterTileUrl).mock.lastCall?.[4];
+    expect(JSON.parse(options?.filter ?? 'null')).toEqual({
+      op: '>=',
+      args: [{ property: 'seen' }, { date: '2004-01-01' }],
+    });
+  });
+
   it('forwards data-driven columns to the server-cluster tile URL', () => {
     const map = makeMockMap();
     const layer = makeLayer({

@@ -55,6 +55,7 @@ def validated_digest(raw: str | None) -> str | None:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+_OFFSET = re.compile(r"(Z|[+-]\d\d(:?\d\d)?)$")
 _COMPARISONS = {"=", "<>", "<", ">", "<=", ">="}
 
 
@@ -63,7 +64,12 @@ def _typed_literal(value: Any, pg_type: str) -> Any:
         return value
     if pg_type == "date":
         return {"date": value[:10]}
-    return {"timestamp": value if "T" in value else f"{value[:10]}T00:00:00Z"}
+    stamp = value.strip().replace(" ", "T", 1)
+    if "T" not in stamp:
+        stamp += "T00:00:00"
+    if pg_type == "timestamp with time zone" and not _OFFSET.search(stamp):
+        stamp += "Z"
+    return {"timestamp": stamp}
 
 
 def _type_temporal_literals(node: Any, types: dict[str, str]) -> Any:

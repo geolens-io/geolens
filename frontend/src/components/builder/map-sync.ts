@@ -193,6 +193,8 @@ export interface SyncLayerInput {
   is_dem?: boolean | null;
   is_3d?: boolean | null;
   feature_count?: number | null;
+  /** Column types, so a server-clustered layer's filter is converted with typed literals. */
+  dataset_column_info?: { name: string; type?: string | null }[] | null;
   /** Source-id dedupe: consumed by `getSourceIdForLayer` to
    *  keep non-vector layers (raster/hillshade) on a per-layer source key. */
   layer_type?: string | null;

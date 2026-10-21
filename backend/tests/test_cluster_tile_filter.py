@@ -305,6 +305,8 @@ async def test_the_route_keys_filtered_tiles_apart_from_unfiltered(
         (_cmp(">=", "seen", "2004-01-01"), "2"),
         (_cmp("<", "ts", "2003-06-01"), "3"),
         (_cmp("<", "ts", "2003-06-01T00:00:00Z"), "3"),
+        (_cmp("<", "ts", "2001-01-01 06:30:00"), None),
+        (_cmp(">", "ts", "2001-01-01 06:30:00"), "4"),
         (
             {"op": "in", "args": [{"property": "seen"}, ["2001-01-01", "2005-01-01"]]},
             "2",
