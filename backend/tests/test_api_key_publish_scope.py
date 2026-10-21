@@ -1040,3 +1040,59 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
         )
         await test_db_session.commit()
+
+
+@pytest.mark.parametrize(
+    "scope,source_format,refused",
+    [
+        ("publish", "stac", True),
+        ("publish", "wfs", True),
+        ("publish", None, True),
+        ("publish", "geojson", False),
+        ("publish", "created", False),
+        ("full", "stac", False),
+    ],
+)
+def test_a_manifest_update_refuses_a_publish_key_on_a_remote_origin(
+    scope, source_format, refused
+):
+    """The manifest update replaces the binding, as a reupload does."""
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.platform.request_credential import ApiKeyCredential, record_api_key
+    from app.processing.ingest.manifest_service import (
+        _refuse_publish_key_remote_origin,
+    )
+
+    session = AsyncSession()
+    record_api_key(
+        session, ApiKeyCredential(id=uuid.uuid4(), scope=scope, dataset_id=None)
+    )
+    dataset = SimpleNamespace(
+        source_format=source_format,
+        record=SimpleNamespace(record_type="vector_dataset"),
+    )
+    if refused:
+        with pytest.raises(HTTPException) as exc:
+            _refuse_publish_key_remote_origin(session, dataset)
+        assert exc.value.detail["code"] == "api_key_scope"
+    else:
+        _refuse_publish_key_remote_origin(session, dataset)
+
+
+def test_the_manifest_update_path_runs_the_remote_origin_refusal():
+    """Wired where the update is validated, before staging or a dry-run answer."""
+    import inspect
+
+    from app.processing.ingest import manifest_service
+
+    source = inspect.getsource(manifest_service)
+    validated = source.index(
+        "_validate_existing_dataset_update(existing_dataset, prepared)"
+    )
+    refused = source.index("_refuse_publish_key_remote_origin(db, existing_dataset)")
+    dry_run = source.index("if request.dry_run:", validated)
+    assert validated < refused < dry_run
