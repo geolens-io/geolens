@@ -456,6 +456,11 @@ describe('categoricalFallbackOf', () => {
     expect(categoricalFallbackOf(['match', ['get', 'kind'], 'a', '#111111', '#fedcba'])).toBe('#fedcba');
   });
 
+  it('prefers the nested match catch-all over a different null colour', () => {
+    const guarded = ['case', ['==', ['get', 'kind'], null], '#000000', ['match', ['get', 'kind'], 'a', '#111111', '#fedcba']];
+    expect(categoricalFallbackOf(guarded)).toBe('#fedcba');
+  });
+
   it('returns null for a paint that is not a categorical expression', () => {
     expect(categoricalFallbackOf('#3b82f6')).toBeNull();
     expect(categoricalFallbackOf(undefined)).toBeNull();

@@ -257,7 +257,11 @@ export function buildCategoricalExpression(
  */
 export function categoricalFallbackOf(expression: unknown): string | null {
   if (!Array.isArray(expression)) return null;
-  if (expression[0] === 'case' && typeof expression[2] === 'string') return expression[2];
+  if (expression[0] === 'case') {
+    // The nested match's own catch-all wins over the null branch's colour.
+    const inner = categoricalFallbackOf(expression[expression.length - 1]);
+    return inner ?? (typeof expression[2] === 'string' ? expression[2] : null);
+  }
   const last = expression[expression.length - 1];
   return expression[0] === 'match' && typeof last === 'string' ? last : null;
 }
