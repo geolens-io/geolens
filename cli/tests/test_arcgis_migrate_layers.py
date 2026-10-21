@@ -51,6 +51,8 @@ class FakeImport:
         self.duplicates: dict[str, str] = {}
         self.previews = 0
         self.committed: set[str] = set()
+        self.summaries: dict[str, str] = {}
+        self.keywords: dict[str, list[str]] = {}
         fake.routes[PROBE] = self.probe
         fake.routes[PREVIEW] = self.preview
 
@@ -74,9 +76,7 @@ class FakeImport:
         name = seen.json()["layer_name"]
         for created in (dataset_id(name), self.duplicates.get(name)):
             if created:
-                self.fake.routes[f"PATCH /datasets/{created}"] = (
-                    lambda s, d=created: _dataset(d, s.json().get("owner_id", OPERATOR))
-                )
+                self._serve_dataset(created)
         if name in self.duplicates:
             detail = {
                 "code": "duplicate_source",
@@ -102,6 +102,38 @@ class FakeImport:
             "sample_rows": [],
             "layer_name": name,
         }
+
+    def _serve_dataset(self, dataset: str) -> None:
+        def patch(seen):
+            body = seen.json()
+            if "summary" in body:
+                self.summaries[dataset] = body["summary"]
+            return self.dataset(dataset, body.get("owner_id", OPERATOR))
+
+        def keyword(seen):
+            words = self.keywords.setdefault(dataset, [])
+            if seen.json()["keyword"] in words:
+                return (409, _problem(409, "Duplicate keyword for this record"))
+            words.append(seen.json()["keyword"])
+            return (
+                201,
+                {
+                    "id": _uuid("4e", seen.json()["keyword"]),
+                    "record_id": dataset,
+                    "keyword": seen.json()["keyword"],
+                    "vocabulary_uri": None,
+                    "keyword_type": "theme",
+                },
+            )
+
+        self.fake.routes[f"PATCH /datasets/{dataset}"] = patch
+        self.fake.routes[f"GET /datasets/{dataset}"] = lambda s: self.dataset(
+            dataset, OPERATOR
+        )
+        self.fake.routes[f"POST /records/{dataset}/keywords/"] = keyword
+
+    def dataset(self, dataset: str, owner: str) -> dict:
+        return {**_dataset(dataset, owner), "summary": self.summaries.get(dataset)}
 
     def commit(self, seen):
         refused = self._refused(seen)
@@ -189,12 +221,16 @@ def geolens(fake_geolens):
 
 
 def _write_plan(
-    tmp_path: Path, urls: dict[str, str] | None = None, portal: dict | None = None
+    tmp_path: Path,
+    urls: dict[str, str] | None = None,
+    portal: dict | None = None,
+    rows: dict[str, dict] | None = None,
 ) -> Path:
     report = inventory_report()
     report["portal"].update(portal or {})
     for row in report["items"]:
         row["url"] = (urls or {}).get(row["id"], row["url"])
+        row.update((rows or {}).get(row["id"], {}))
     (tmp_path / "arcgis-inventory.json").write_text(json.dumps(report))
     plan = plan_mod.build_plan(
         report,
@@ -1004,3 +1040,81 @@ def test_a_rerun_gives_layers_imported_earlier_the_edited_target(
         "private",
         "private",
     ]
+
+
+ITEM_TEXT = {
+    "snippet": "Tax parcels",
+    "description": "<p>Parcels from the <b>assessor</b> &amp; the clerk.</p><p>Updated weekly.</p>",
+    "access_information": "Example County GIS",
+    "license_info": "<div>CC BY 4.0</div>",
+    "tags": ["parcels", "cadastre", "parcels"],
+}
+
+
+def test_item_metadata_is_written_onto_the_datasets(runner, tmp_path, geolens):
+    plan_file = _write_plan(
+        tmp_path, rows={A2: ITEM_TEXT}, portal={"name": "Example County"}
+    )
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    [patch] = [
+        s.json() for s in geolens.seen if s.method == "PATCH" and "summary" in s.json()
+    ]
+    assert patch == {
+        "summary": "Tax parcels\n\nParcels from the assessor & the clerk.\nUpdated weekly.",
+        "attribution": "Example County GIS",
+        "license": "CC BY 4.0",
+        "source_organization": "Example County",
+    }
+    assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["record_ids"] == [dataset_id("Parcels")]
+    assert entry["metadata_hash"]
+
+
+def test_a_summary_edited_in_geolens_is_kept_on_rerun(runner, tmp_path, geolens):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    service.job_errors["Owners"] = "boom"
+    _migrate(runner, plan_file, "--only", A2)
+    service.summaries[dataset_id("Parcels")] = "Written by a person"
+    del service.job_errors["Owners"]
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.summaries[dataset_id("Parcels")] == "Written by a person"
+    assert service.summaries[dataset_id("Owners")].startswith("Tax parcels")
+
+
+def test_a_failed_metadata_write_fails_the_item_and_a_rerun_redoes_only_it(
+    runner, tmp_path, geolens
+):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed" and "item metadata" in entry["error"]
+    assert entry["dataset_ids"] == [dataset_id("Parcels")]
+
+    geolens.routes[PREVIEW] = preview
+    service._serve_dataset(dataset_id("Parcels"))
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.previews == 1
+    assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]

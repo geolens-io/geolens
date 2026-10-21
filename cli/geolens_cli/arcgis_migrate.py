@@ -34,6 +34,7 @@ from ._sdk_helpers import (
     EXIT_SERVER,
     EXIT_USAGE,
 )
+from .arcgis_item_metadata import apply_item_metadata
 from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
     GeoLens,
@@ -446,6 +447,7 @@ def _migrate_one(
         result = handler(ctx, item, entry)
         entry.notes = [state.clean(note) for note in result.notes]
         state.save()
+        apply_item_metadata(ctx, item, entry)
         # Even to the operator: a run that failed part way may have handed
         # some of the item's objects to another owner already.
         transfer(ctx.geolens, entry, owner)
