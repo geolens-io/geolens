@@ -73,6 +73,8 @@ class ItemState:
     # Service layer (its id, or its name) -> the dataset imported from it, so
     # a rerun never imports a layer twice, even after its dataset changed owner.
     layer_datasets: dict[str, str] = field(default_factory=dict)
+    # Layer -> its committed ingest job, until the job yields the dataset.
+    layer_jobs: dict[str, str] = field(default_factory=dict)
     owner_id: str | None = None
     notes: list[str] = field(default_factory=list)
     error: str | None = None

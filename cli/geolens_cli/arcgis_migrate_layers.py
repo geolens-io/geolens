@@ -26,7 +26,7 @@ from .arcgis_migrate_session import (
     MigrationContext,
     StopRun,
 )
-from .arcgis_migrate_state import DONE, EXISTS, SKIPPED, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
 # ArcGIS sub-layer types that hold features GeoLens can import.
 IMPORTABLE_LAYER_TYPES = frozenset({"Feature Layer", "Table"})
@@ -143,6 +143,10 @@ def _importable(layer: Any) -> str | None:
     return None
 
 
+class _JobEnded(ItemFailed):
+    """The ingest job finished without a dataset."""
+
+
 def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
     from geolens.api.admin import get_job_status_jobs_job_id_get as get_job
 
@@ -169,7 +173,7 @@ def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
             status = job.status
             if status in _JOB_FAILED or status == "complete":
                 reason = job.error_message or f"the import job ended {status}"
-                raise ItemFailed(f"{title}: {reason}")
+                raise _JobEnded(f"{title}: {reason}")
         if job is None or ctx.clock() >= deadline:
             raise ItemFailed(
                 f"{title}: the import job {job_id} was still {status} after "
@@ -195,13 +199,30 @@ def _import_layer(
     visibility: str,
     entry: ItemState,
 ) -> bool:
-    """Import one layer; True when GeoLens already had it."""
+    """Import one layer; True when GeoLens already had it.
+
+    A job a previous run committed for the layer is waited for instead of
+    importing the layer again; only a job that ended without a dataset is
+    replaced.
+    """
     from geolens.api.datasets import commit_import_ingest_commit_job_id_post as commit
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
     )
     from geolens.models.commit_request import CommitRequest
     from geolens.models.service_preview_request import ServicePreviewRequest
+
+    key = _layer_key(layer)
+    committed = entry.layer_jobs.get(key)
+    if committed:
+        try:
+            entry.layer_datasets[key] = _wait_for_dataset(ctx, UUID(committed), title)
+        except _JobEnded:
+            del entry.layer_jobs[key]
+            ctx.save()
+        else:
+            del entry.layer_jobs[key]
+            return False
 
     request = ServicePreviewRequest(
         url=probe.url,
@@ -219,7 +240,7 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        entry.layer_datasets[_layer_key(layer)] = existing
+        entry.layer_datasets[key] = existing
         return True
     entry.job_ids.append(str(previewed.job_id))
     ctx.save()
@@ -235,9 +256,10 @@ def _import_layer(
         )
     except GeoLensError as exc:
         raise ItemFailed(f"{title}: commit failed, {exc}") from None
-    entry.layer_datasets[_layer_key(layer)] = _wait_for_dataset(
-        ctx, previewed.job_id, title
-    )
+    entry.layer_jobs[key] = str(previewed.job_id)
+    ctx.save()
+    entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
+    del entry.layer_jobs[key]
     return False
 
 
@@ -272,7 +294,8 @@ def import_layers(
     notes = [reason for _layer, reason in reasons if reason]
     wanted = [layer for layer, reason in reasons if reason is None]
     if not wanted:
-        return ItemResult(status=SKIPPED, notes=notes or ["the service has no layers"])
+        # Done rather than skipped, so a rerun doesn't probe it again.
+        return ItemResult(notes=[*notes, "the service has no layer to import"])
 
     base = item["target"]["title"] or item["title"]
     found = 0

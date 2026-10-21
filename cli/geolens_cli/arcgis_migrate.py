@@ -623,12 +623,12 @@ def _portal_client(
         and item["id"] in rows
         and (rows[item["id"]].get("sharing") or {}).get("access") != "public"
     )
+    if not private:
+        return None
     try:
         token, password = read_credentials(
             opts.token, opts.token_stdin, opts.username, opts.password_stdin
         )
-        if not private:
-            return None
         if token is None and password is None:
             raise UsageError(
                 f"{private} item(s) to import are not public: pass --token, "

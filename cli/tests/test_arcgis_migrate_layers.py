@@ -49,6 +49,7 @@ class FakeImport:
         self.needs_auth = needs_auth
         self.job_errors: dict[str, str] = {}
         self.duplicates: dict[str, str] = {}
+        self.previews = 0
         fake.routes[PROBE] = self.probe
         fake.routes[PREVIEW] = self.preview
 
@@ -83,10 +84,12 @@ class FakeImport:
                 "existing_title": name,
             }
             return (409, _problem(409, detail))
-        job = _uuid("0b", name)
+        self.previews += 1
+        job = _uuid("0b", f"{name}{self.previews:02d}")
+        error = self.job_errors.get(name)
         self.fake.routes[f"POST /ingest/commit/{job}"] = self.commit
-        self.fake.routes[f"GET /jobs/{job}"] = lambda _seen, n=name, j=job: self.job(
-            j, n
+        self.fake.routes[f"GET /jobs/{job}"] = (
+            lambda _seen, n=name, j=job, e=error: self.job(j, n, e)
         )
         return {
             "job_id": job,
@@ -106,8 +109,7 @@ class FakeImport:
         job = seen.url.rsplit("/", 1)[-1]
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
-    def job(self, job_id: str, name: str) -> dict:
-        error = self.job_errors.get(name)
+    def job(self, job_id: str, name: str, error: str | None) -> dict:
         return {
             "id": job_id,
             "status": "failed" if error else "complete",
@@ -303,11 +305,18 @@ def test_group_and_raster_layers_are_skipped_with_a_note(runner, plan_file, geol
     ]
 
 
-def test_a_service_with_nothing_to_import_is_skipped(runner, plan_file, geolens):
-    FakeImport(geolens, [_layer(0, "Imagery", "Raster Layer")])
+def test_a_service_with_nothing_to_import_is_done_and_not_probed_again(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Imagery", "Raster Layer")])
     result, _ = _migrate(runner, plan_file, "--only", A2)
     assert result.exit_code == 0, result.output
-    assert _state(plan_file)["items"][A2]["status"] == "skipped"
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done" and entry["dataset_ids"] == []
+    assert "the service has no layer to import" in entry["notes"]
+
+    _migrate(runner, plan_file, "--only", A2)
+    assert len(service.bodies(PROBE)) == 1
 
 
 def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geolens):
@@ -677,3 +686,58 @@ def test_a_trusted_host_must_be_a_bare_host_name(runner, plan_file, geolens, hos
     assert result.exit_code == 2
     assert "bare host name" in result.output
     assert geolens.seen == []
+
+
+def test_a_job_committed_before_a_crash_is_resumed_not_repeated(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    preview = service.preview
+    finished: dict[str, Any] = {}
+
+    def crash(_seen):
+        raise KeyboardInterrupt
+
+    def preview_then_crash_on_poll(seen):
+        reply = preview(seen)
+        route = f"GET /jobs/{reply['job_id']}"
+        finished[route] = geolens.routes[route]
+        geolens.routes[route] = crash
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_crash_on_poll
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 130
+    entry = _state(plan_file)["items"][A2]
+    assert len(entry["layer_jobs"]) == 1 and entry["layer_datasets"] == {}
+
+    geolens.routes.update(finished)
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(service.bodies(PREVIEW)) == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
+    assert entry["layer_jobs"] == {}
+
+
+def test_a_committed_job_that_failed_is_replaced_on_resume(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    service.job_errors["Parcels"] = "the worker restarted"
+    _migrate(runner, plan_file, "--only", A2)
+    assert _state(plan_file)["items"][A2]["layer_jobs"]
+    del service.job_errors["Parcels"]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(service.bodies(PREVIEW)) == 2
+    assert _state(plan_file)["items"][A2]["layer_jobs"] == {}
+
+
+def test_a_public_selection_reads_no_credential(runner, plan_file, geolens):
+    FakeImport(geolens, [_layer(0, "Parcels")])
+    result, _ = _migrate(
+        runner, plan_file, "--only", A2, "--username", "gis_admin", "--password-stdin"
+    )
+    assert result.exit_code == 0, result.output
