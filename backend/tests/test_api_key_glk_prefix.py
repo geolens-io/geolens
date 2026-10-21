@@ -65,6 +65,8 @@ def test_a_key_is_redacted_in_every_logged_string():
             "exception": f"ValueError: bad key {key}",
             key: "failed",
             "by_key": {key: "failed"},
+            "error": ValueError(f"bad key {key}"),
+            "errors": [ValueError(f"bad key {key}")],
         },
     )
 

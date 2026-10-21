@@ -302,6 +302,8 @@ def _redact_sensitive_fields(
             continue
         if isinstance(value, str):
             event_dict[key] = _redact_api_keys(value)
+        elif isinstance(value, BaseException):
+            event_dict[key] = _scrub_text(repr(value))
         elif _is_walkable(value):
             # A container in `extra` is third-party
             # input all the way down; a lazy Mapping whose `.items()` raises
@@ -357,9 +359,9 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     Depth is capped since a caller-supplied payload need not be JSON-derived;
     a self-referencing structure would otherwise not terminate.
 
-    ``frozenset``, ``deque`` and dataclass instances are walked; anything
-    else is returned as-is. A dataclass yields field name to redacted value
-    via ``dataclasses.fields``.
+    ``frozenset``, ``deque`` and dataclass instances are walked, and an
+    exception becomes its scrubbed repr; anything else is returned as-is. A
+    dataclass yields field name to redacted value via ``dataclasses.fields``.
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
@@ -369,6 +371,9 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
         return _redact_items(value.items(), _depth)
     if isinstance(value, _ITERABLE_CONTAINERS):
         return [redact_nested(item, _depth + 1) for item in value]
+    if isinstance(value, BaseException):
+        # A renderer would write its repr, message included, verbatim.
+        return _scrub_text(repr(value))
     if _is_dataclass_instance(value):
         return _redact_items(
             [
