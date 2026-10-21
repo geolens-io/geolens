@@ -221,6 +221,17 @@ describe('LineEditor', () => {
     expect(screen.queryByRole('button', { name: 'style.arrow.matchLine' })).not.toBeInTheDocument();
   });
 
+  it('keeps the plain arrow swatch when the line has no stored colour', () => {
+    const layer = makeLineLayer({
+      paint: { 'line-width': 2 },
+      style_config: { render_mode: 'arrow' } as MapLayerResponse['style_config'],
+    });
+    render(<LineEditor {...makeProps(layer, { styleConfig: layer.style_config ?? null })} />);
+
+    expect(screen.queryByRole('button', { name: 'style.arrow.colorMatchesLine' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'style.arrow.color' })).toBeInTheDocument();
+  });
+
   // Line-cap / line-join Selects
   it('renders a "Line ends" section heading after the dash pattern row', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {

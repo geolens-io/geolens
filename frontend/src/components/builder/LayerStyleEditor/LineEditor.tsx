@@ -92,7 +92,7 @@ export function LineEditor({
             label={t('style.arrow.color')}
             color={arrowColor}
             onChange={(hex) => onBuilderChange({ arrowColor: hex } as BuilderStyleConfig)}
-            followsColor={pickedArrowColor === undefined && lineColor === undefined
+            followsColor={pickedArrowColor === undefined && Array.isArray(paint['line-color'])
               ? { background: MAP_COLORS.swatch.followsData, label: t('style.arrow.colorMatchesLine') }
               : undefined}
           />
