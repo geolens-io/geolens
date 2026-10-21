@@ -63,6 +63,8 @@ def test_a_key_is_redacted_in_every_logged_string():
             "note": f"pasted {key} into the plugin",
             "extra": {"headers": [f"X-Api-Key: {key}"]},
             "exception": f"ValueError: bad key {key}",
+            key: "failed",
+            "by_key": {key: "failed"},
         },
     )
 

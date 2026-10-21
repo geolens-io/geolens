@@ -280,8 +280,8 @@ def _redact_sensitive_fields(
     line, Procrastinate's keyword-rendered task_kwargs). `event` is scrubbed
     here by pattern and shape instead.
 
-    Any other flat string field is checked for a ``glk_`` API key, which is
-    recognisable by shape whatever the field is called.
+    Any other flat string field, and every field name, is checked for a
+    ``glk_`` API key, which is recognisable by shape wherever it sits.
 
     `exception` gets the identical scrub when present as
     a string. `format_exc_info` runs BEFORE this processor (see
@@ -290,6 +290,10 @@ def _redact_sensitive_fields(
     dev's rich-based renderer turns it into text after this processor.
     """
     for key in list(event_dict.keys()):
+        if isinstance(key, str) and "glk_" in key:
+            renamed = _redact_api_keys(key)
+            event_dict[renamed] = event_dict.pop(key)
+            key = renamed
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
             continue
@@ -379,7 +383,7 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
 def _redact_items(items: Any, _depth: int) -> dict:
     """Key-denylist plus a recursive walk, for anything with named members."""
     return {
-        key: (
+        (_redact_api_keys(key) if isinstance(key, str) else key): (
             "[REDACTED]"
             if str(key).lower() in _SENSITIVE_FIELDS
             else redact_nested(val, _depth + 1)
