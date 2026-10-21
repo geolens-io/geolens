@@ -38,3 +38,11 @@ def test_empty_fields_are_left_out_and_tags_deduplicated():
 
 def test_entities_are_decoded_once():
     assert html_to_text("<p>a &amp;lt; b</p>") == "a &lt; b"
+
+
+def test_an_attribution_never_carries_angle_brackets():
+    row = {
+        "access_information": "County GIS &lt;gis@example.org&gt; <b>&amp;</b> a < b"
+    }
+    fields = item_metadata(row, {"tags": []}, None)
+    assert fields["attribution"] == "County GIS (gis@example.org) & a ( b"

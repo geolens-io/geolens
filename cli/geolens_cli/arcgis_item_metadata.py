@@ -23,6 +23,7 @@ MAX_ATTRIBUTION = 5000
 MAX_LICENSE = 500
 MAX_ORGANIZATION = 1000
 MAX_KEYWORD = 500
+_NO_ANGLE_BRACKETS = str.maketrans("<>", "()")
 _BLOCK_TAGS = frozenset({"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5"})
 
 
@@ -73,7 +74,11 @@ def item_metadata(
     summary = "\n\n".join(p for p in (snippet, description) if p)
     fields: dict[str, Any] = {
         "summary": summary[:MAX_SUMMARY],
-        "attribution": html_to_text(row.get("access_information"))[:MAX_ATTRIBUTION],
+        # GeoLens refuses angle brackets in an attribution, which reaches an
+        # HTML render context; a decoded "<contact@example.org>" would 422.
+        "attribution": html_to_text(row.get("access_information")).translate(
+            _NO_ANGLE_BRACKETS
+        )[:MAX_ATTRIBUTION],
         "license": html_to_text(row.get("license_info"))[:MAX_LICENSE],
         "source_organization": str((portal or {}).get("name") or "")[:MAX_ORGANIZATION],
     }
