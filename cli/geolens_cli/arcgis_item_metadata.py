@@ -10,6 +10,7 @@ descriptions and license text are HTML; they are stored as plain text.
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
 from collections.abc import Mapping
 from html.parser import HTMLParser
@@ -25,15 +26,12 @@ MAX_LICENSE = 1000
 MAX_ORGANIZATION = 1000
 MAX_KEYWORD = 500
 _NO_ANGLE_BRACKETS = str.maketrans("<>", "()")
-# Elements ArcGIS item descriptions use; any other "tag" is literal text.
-_HTML_ELEMENTS = frozenset(
-    "a abbr b blockquote br caption center code col colgroup dd del div dl dt "
-    "em font h1 h2 h3 h4 h5 h6 hr i img ins li ol p pre s small span strike "
-    "strong style sub sup script table tbody td tfoot th thead tr u ul".split()
-)
+# A tag name made of letters and digits is markup; anything else, such as a
+# plain-text "<gis@example.org>" or "<https://...>", is literal text.
+_ELEMENT_NAME = re.compile(r"[a-z][a-z0-9]*")
 _BLOCK_TAGS = frozenset(
-    "blockquote br caption center dd div dl dt h1 h2 h3 h4 h5 h6 hr li ol p pre "
-    "table "
+    "address article aside blockquote br caption center dd div dl dt figcaption "
+    "figure footer h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre section table "
     "tr ul".split()
 )
 
@@ -45,7 +43,7 @@ class _Text(HTMLParser):
         self._skip = 0
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag not in _HTML_ELEMENTS:
+        if not _ELEMENT_NAME.fullmatch(tag):
             # Not markup: a plain-text "<gis@example.org>" or "<https://...>".
             self.handle_data(self.get_starttag_text() or "")
         elif tag in ("script", "style"):
@@ -63,11 +61,11 @@ class _Text(HTMLParser):
         # "<br/>" is one element; a literal "<https://example.org/>" is one
         # piece of text, so it mustn't also get a closing tag.
         self.handle_starttag(tag, attrs)
-        if tag in _HTML_ELEMENTS:
+        if _ELEMENT_NAME.fullmatch(tag):
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag not in _HTML_ELEMENTS:
+        if not _ELEMENT_NAME.fullmatch(tag):
             self.handle_data(f"</{tag}>")
         elif tag in ("script", "style") and self._skip:
             self._skip -= 1

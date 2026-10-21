@@ -96,3 +96,13 @@ def test_center_is_a_boundary_and_self_closing_literals_appear_once():
         "See <https://example.org/> for terms"
     )
     assert html_to_text("a<br/>b") == "a\nb"
+
+
+def test_html5_containers_are_markup_and_blocks():
+    assert html_to_text("<section>License</section><section>CC0</section>") == (
+        "License\nCC0"
+    )
+    fields = item_metadata(
+        {"access_information": "<address>County GIS</address>"}, {"tags": []}, None
+    )
+    assert fields["attribution"] == "County GIS"
