@@ -80,5 +80,6 @@ one exception to restricted meaning owner, admins and group members.
 Group grants change what an extension filling the `permission` slot has to
 answer, even where no method signature changes. The groups release therefore
 bumps `EXTENSION_API_VERSION`, and the paid permission extension ships its
-matching release with it. An older extension that declares its version refuses
-to load instead of ignoring group grants.
+matching release with it. An extension for the `permission` slot that declares
+an older version, or no version at all, refuses to load instead of ignoring
+group grants.
