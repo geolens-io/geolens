@@ -906,3 +906,56 @@ def test_generated_titles_stay_within_the_title_limit(runner, tmp_path, geolens)
     titles = [c["title"] for c in service.bodies("POST /ingest/commit/")]
     assert [len(title) for title in titles] == [500, 500]
     assert titles[0].endswith(" - Parcels")
+
+
+def test_allowing_an_http_portal_never_sends_the_token_over_http(
+    runner, tmp_path, geolens
+):
+    url = ORG_SERVICES.replace("https:", "http:") + "/Parcels/FeatureServer"
+    plan_file = _write_plan(tmp_path, {A1: url})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    token = secrets.token_urlsafe(16)
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", A1, "--token", token, "--allow-insecure-http"
+    )
+
+    assert result.exit_code == 1
+    assert service.bodies(PROBE) == []
+    assert all(token not in s.body.decode() for s in geolens.seen)
+
+
+def test_a_rerun_gives_layers_imported_earlier_the_edited_target(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    service.job_errors["Owners"] = "boom"
+    _migrate(runner, plan_file, "--only", A2)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["visibility"] = "private"
+    plan_file.write_text(json.dumps(plan))
+    del service.job_errors["Owners"]
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    patches = [
+        (s.url.rsplit("/", 1)[-1], s.json())
+        for s in geolens.seen
+        if s.method == "PATCH" and "visibility" in s.json()
+    ]
+    assert patches == [
+        (
+            dataset_id("Parcels"),
+            {"title": "Parcels (public view) - Parcels", "visibility": "private"},
+        )
+    ]
+    # The failed job is committed again (refused as already processed), then
+    # replaced by a fresh one.
+    assert [c["visibility"] for c in service.bodies("POST /ingest/commit/")] == [
+        "private",
+        "private",
+    ]

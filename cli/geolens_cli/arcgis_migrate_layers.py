@@ -60,10 +60,9 @@ def _trusted(ctx: MigrationContext, url: str) -> bool:
     named with --trust-service-host.
     """
     parts = urlsplit(url)
-    secure = parts.scheme == "https" or (
-        parts.scheme == "http" and ctx.allow_insecure_http
-    )
-    if not secure or ".." in unquote(parts.path).split("/"):
+    # Always https: --allow-insecure-http covers a test portal, not a token
+    # GeoLens would forward in clear text.
+    if parts.scheme != "https" or ".." in unquote(parts.path).split("/"):
         return False
     if (parts.hostname or "").lower() in ctx.trusted_hosts:
         return True
@@ -224,11 +223,10 @@ def _import_layer(
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
     )
-    from geolens.models.commit_request import CommitRequest
     from geolens.models.service_preview_request import ServicePreviewRequest
 
     key = _layer_key(layer)
-    title_visibility = CommitRequest(title=title, visibility=visibility)
+    title_visibility = _commit_body(title, visibility)
     recorded = entry.layer_jobs.get(key)
     if recorded:
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
@@ -267,6 +265,12 @@ def _import_layer(
     entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
     del entry.layer_jobs[key]
     return False
+
+
+def _commit_body(title: str, visibility: str) -> Any:
+    from geolens.models.commit_request import CommitRequest
+
+    return CommitRequest(title=title, visibility=visibility)
 
 
 def _apply_target(ctx: MigrationContext, dataset: str, target: Any) -> None:
@@ -381,9 +385,13 @@ def import_layers(
     base = item["target"]["title"] or item["title"]
     found = 0
     for layer in wanted:
-        if _layer_key(layer) in entry.layer_datasets:
-            continue
         title = _title(base, _layer_label(layer) if len(wanted) > 1 else None)
+        pinned = entry.layer_datasets.get(_layer_key(layer))
+        if pinned:
+            # The plan may have been edited since that layer was imported.
+            target = _commit_body(title, item["target"]["visibility"])
+            _apply_target(ctx, pinned, target)
+            continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )

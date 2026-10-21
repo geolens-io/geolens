@@ -181,6 +181,5 @@ class MigrationContext:
     # service hosts are the organization's own.
     portal_info: Mapping[str, Any] | None = None
     trusted_hosts: frozenset[str] = frozenset()
-    allow_insecure_http: bool = False
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic

@@ -743,7 +743,6 @@ def _run(
         save=state.save,
         portal_info=portal_info,
         trusted_hosts=frozenset(h.strip().lower() for h in opts.trusted_hosts),
-        allow_insecure_http=opts.allow_insecure_http,
     )
     try:
         summary = run_items(ctx, plan, state, to_run, owners.by_item)
