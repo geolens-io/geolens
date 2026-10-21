@@ -256,6 +256,7 @@ const LAYER_ONLY_OPERATORS = new Set([
   'within',
   'distance',
   'is-supported-script',
+  'global-state',
   // The source evaluates raw features, whose `type` is "Feature", not their geometry's type.
   'geometry-type',
 ]);

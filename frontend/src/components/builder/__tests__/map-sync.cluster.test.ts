@@ -336,6 +336,7 @@ describe('syncLayersToMap cluster rendering', () => {
     };
 
     expect(sourceFor(['>=', ['zoom'], 8])).not.toHaveProperty('filter');
+    expect(sourceFor(['==', ['global-state', 'k'], 1])).not.toHaveProperty('filter');
     expect(sourceFor(['is-supported-script', ['get', 'name']])).not.toHaveProperty('filter');
     expect(sourceFor(['within', { type: 'Polygon', coordinates: [] }])).not.toHaveProperty('filter');
     expect(sourceFor(['in', ['get', 'kind'], ['literal', ['zoom', 'other']]])).toHaveProperty('filter');
