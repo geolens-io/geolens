@@ -1096,3 +1096,16 @@ def test_the_manifest_update_path_runs_the_remote_origin_refusal():
     refused = source.index("_refuse_publish_key_remote_origin(db, existing_dataset)")
     dry_run = source.index("if request.dry_run:", validated)
     assert validated < refused < dry_run
+
+
+def test_manifest_admission_rechecks_the_origin_under_the_lock():
+    """The binding can change while the source stages; admission checks it again."""
+    import inspect
+
+    from app.processing.ingest.manifest_service import _admit_refresh_run
+
+    source = inspect.getsource(_admit_refresh_run)
+    locked = source.index("lock_dataset_rows_for_write(db, dataset)")
+    reread = source.index('db.refresh(dataset, attribute_names=["source_format"])')
+    refused = source.index("_refuse_publish_key_remote_origin(db, dataset)")
+    assert locked < reread < refused

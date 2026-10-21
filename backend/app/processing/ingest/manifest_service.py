@@ -686,6 +686,13 @@ async def _admit_refresh_run(
         raise DatasetBusyError(str(exc)) from exc
     except HTTPException as exc:
         raise WriteAccessRevoked from exc
+    # Rechecked under the lock: the binding may have changed while the source
+    # was being staged.
+    await db.refresh(dataset, attribute_names=["source_format"])
+    try:
+        _refuse_publish_key_remote_origin(db, dataset)
+    except HTTPException as exc:
+        raise ManifestSourceError(exc.detail["message"]) from exc
     if raw_source and "admin" not in await get_processing_port().get_user_roles(
         db, user
     ):
