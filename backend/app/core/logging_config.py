@@ -437,20 +437,13 @@ def apply_http_logger_levels(root_level: int | str) -> None:
         logging.getLogger(_log).setLevel(level)
 
 
-def _redacting_api_keys(
-    renderer: structlog.types.Processor,
-) -> structlog.types.Processor:
-    """Scrub glk_ API keys from the rendered line.
+def _redact_rendered_line(_logger: Any, _method_name: str, line: Any) -> Any:
+    """Scrub glk_ API keys from the line the renderer produced.
 
     The field redactor sees values, not what the renderer makes of them: an
     object's repr, a custom serializer's output, a mapping key's text.
     """
-
-    def render(logger: Any, method_name: str, event_dict: Any) -> Any:
-        line = renderer(logger, method_name, event_dict)
-        return _redact_api_keys(line) if isinstance(line, str) else line
-
-    return render
+    return _redact_api_keys(line) if isinstance(line, str) else line
 
 
 def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
@@ -514,7 +507,8 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
         foreign_pre_chain=shared_processors,
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-            _redacting_api_keys(log_renderer),
+            log_renderer,
+            _redact_rendered_line,
         ],
     )
 

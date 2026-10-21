@@ -29,6 +29,7 @@ import pytest
 import structlog
 
 import app.api.middleware.logging as logging_mw
+from app.core.logging_config import _redact_rendered_line
 from tests._logging_state import configured_logging
 
 # Appears only inside the repr of a frame local — never in an exception
@@ -121,7 +122,8 @@ def test_production_console_renderer_uses_plain_traceback() -> None:
     size of anything the frames happen to hold.
     """
     with configured_logging(json_logs=False):
-        renderer = _current_formatter().processors[-1]
+        *_, renderer, redact_rendered_line = _current_formatter().processors
+        assert redact_rendered_line is _redact_rendered_line
 
         assert isinstance(renderer, structlog.dev.ConsoleRenderer)
         assert renderer.exception_formatter is structlog.dev.plain_traceback
@@ -155,7 +157,8 @@ def test_development_console_renderer_uses_plain_traceback_too() -> None:
     renderer identically.
     """
     with configured_logging(json_logs=False):
-        renderer = _current_formatter().processors[-1]
+        *_, renderer, redact_rendered_line = _current_formatter().processors
+        assert redact_rendered_line is _redact_rendered_line
 
         assert isinstance(renderer, structlog.dev.ConsoleRenderer)
         assert renderer.exception_formatter is structlog.dev.plain_traceback
