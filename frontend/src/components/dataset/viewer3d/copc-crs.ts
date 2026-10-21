@@ -1,14 +1,28 @@
 import proj4 from 'proj4';
 import { MAX_WKT_LENGTH } from './copc-limits';
 
-/** The WKT node starting with `keyword[`, brackets balanced; null if absent. */
+/** The WKT node starting with `keyword[`, brackets balanced; null if absent. Quoted text is skipped. */
 function wktNode(wkt: string, keyword: string): string | null {
-  const start = wkt.indexOf(`${keyword}[`);
-  if (start < 0) return null;
+  let quoted = false;
+  let start = -1;
   let depth = 0;
-  for (let i = start + keyword.length; i < wkt.length; i++) {
-    if (wkt[i] === '[') depth++;
-    else if (wkt[i] === ']' && --depth === 0) return wkt.slice(start, i + 1);
+  for (let i = 0; i < wkt.length; i++) {
+    const ch = wkt[i];
+    if (ch === '"') {
+      // A doubled quote inside a string toggles twice and nets out.
+      quoted = !quoted;
+    } else if (quoted) {
+      continue;
+    } else if (start < 0) {
+      if (ch === '[' && wkt.startsWith(keyword, i - keyword.length) && !/[A-Za-z_]/.test(wkt[i - keyword.length - 1] ?? '')) {
+        start = i - keyword.length;
+        depth = 1;
+      }
+    } else if (ch === '[') {
+      depth++;
+    } else if (ch === ']' && --depth === 0) {
+      return wkt.slice(start, i + 1);
+    }
   }
   return null;
 }

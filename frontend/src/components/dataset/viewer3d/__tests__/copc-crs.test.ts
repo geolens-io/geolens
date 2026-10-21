@@ -54,6 +54,14 @@ describe('parseCopcCrs', () => {
     expect(normalizeWkt('PROJ["unterminated')).toBeNull();
   });
 
+  it('ignores node keywords and brackets inside quoted names', () => {
+    const named = UTM2.replace('"WGS 84 / UTM zone 10N"', '"see PROJCRS[ and ] in remarks"');
+    const compound = `COMPOUNDCRS["has PROJCRS[ and VERTCRS[ text",${named},VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up,LENGTHUNIT["foot",0.3048]]]]`;
+    const crs = parseCopcCrs(compound);
+    expect(crs?.horizontalWkt).toBe(named);
+    expect(crs?.zToMeters).toBeCloseTo(0.3048, 6);
+  });
+
   it('reads a plain WKT2 projected CRS', () => {
     expect(parseCopcCrs(UTM2)).toEqual({ horizontalWkt: UTM2, zToMeters: 1 });
   });
