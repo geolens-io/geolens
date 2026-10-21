@@ -696,9 +696,10 @@ class TestFKRelationships:
                 headers={"X-Api-Key": key.json()["key"]},
             )
         finally:
-            await client.delete(
+            revoked = await client.delete(
                 f"/auth/api-keys/{key.json()['id']}", headers=admin_auth_header
             )
+        assert revoked.status_code == 204, revoked.text
         assert resp.status_code == 409, resp.text
 
         listed = await client.get(
