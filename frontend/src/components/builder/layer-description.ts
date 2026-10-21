@@ -249,7 +249,7 @@ function clusterOptions(layer: SyncLayerInput) {
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
-const LAYER_ONLY_OPERATORS = new Set(['zoom', 'pitch', 'distance-from-center', 'within', 'distance']);
+const LAYER_ONLY_OPERATORS = new Set(['zoom', 'pitch', 'distance-from-center', 'within', 'distance', 'is-supported-script']);
 
 function needsLayerContext(node: unknown): boolean {
   if (!Array.isArray(node) || node[0] === 'literal') return false;
