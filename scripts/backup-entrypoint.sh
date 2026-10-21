@@ -45,6 +45,9 @@ STAGING_DIR="${STAGING_DIR:-/staging}"
 # sample of its catalog record ids, so cycles over a database restarted on an
 # empty volume cannot rotate it out.
 LAST_GOOD_FILE="${BACKUP_DIR}/.last-good-dump"
+# Timestamp of the newest such dump that also went offsite. Offsite retention
+# keeps that one, since the local marker can name a dump taken with upload off.
+LAST_GOOD_OFFSITE_FILE="${BACKUP_DIR}/.last-good-offsite"
 
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 POSTGRES_HOST="${POSTGRES_HOST:-db}"
@@ -111,6 +114,9 @@ run_backup() {
     read -r good_ts good_ids 2>/dev/null < "$LAST_GOOD_FILE" || true
     [[ "$good_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_ts=""
     [[ -n "$good_ts" && "$good_ids" =~ ^${uuid_re}(\ ${uuid_re})*$ ]] || good_ids=""
+    local good_offsite_ts=""
+    read -r good_offsite_ts 2>/dev/null < "$LAST_GOOD_OFFSITE_FILE" || true
+    [[ "$good_offsite_ts" =~ ^[0-9]{8}_[0-9]{6}$ ]] || good_offsite_ts=""
 
     # Orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -253,6 +259,15 @@ run_backup() {
             rm -f "${LAST_GOOD_FILE}.tmp"
             log "WARNING: could not record ${filename} as the dump retention keeps"
         fi
+        if [ "$BACKUP_S3_ENABLED" = "true" ]; then
+            if printf '%s\n' "$timestamp" > "${LAST_GOOD_OFFSITE_FILE}.tmp" \
+                && mv "${LAST_GOOD_OFFSITE_FILE}.tmp" "$LAST_GOOD_OFFSITE_FILE"; then
+                good_offsite_ts="$timestamp"
+            else
+                rm -f "${LAST_GOOD_OFFSITE_FILE}.tmp"
+                log "WARNING: could not record ${filename} as the offsite dump retention keeps"
+            fi
+        fi
     fi
 
     # Retention runs regardless of S3 outcome (dumps set the window; their
@@ -269,8 +284,8 @@ run_backup() {
     # same reason local pruning does — a transient S3 hiccup on THIS cycle's
     # upload must not stop last cycle's objects from being pruned.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day "$good_ts" || cycle_failed=1
-        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week "$good_ts" || cycle_failed=1
+        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day "$good_offsite_ts" || cycle_failed=1
+        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week "$good_offsite_ts" || cycle_failed=1
     fi
 
     # Surface the S3 failure now that retention has run, so the cycle is still

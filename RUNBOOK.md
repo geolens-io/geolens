@@ -97,14 +97,18 @@ settings/provider replacement tool, not a backup.
 Retention keeps the newest dump of each of the last `BACKUP_RETENTION_DAILY`
 days and `BACKUP_RETENTION_WEEKLY` ISO weeks, locally and, with offsite upload
 on, in the S3 `backups/daily/` and `backups/weekly/` prefixes. Companions go
-with their dump, and the newest complete set is always kept. So is the dump named in
-`/backups/.last-good-dump`, which also holds a sample of up to 100 of that
-dump's catalog record ids. A cycle moves the marker to its own dump only when
-at least half of those records are still in the database, so cycles over an
-emptied or re-created database cannot rotate the last real backup out, even
-after new uploads. Each such cycle logs a warning saying how many remain. If you deleted most of the catalog on purpose, release the old dump by
-deleting the marker (`docker compose exec backup rm /backups/.last-good-dump`);
-the next cycle writes a new one. The guide's
+with their dump, and the newest complete set is always kept. So is the dump
+named in `/backups/.last-good-dump`, which also holds a sample of up to 100 of
+that dump's catalog record ids. A fully successful cycle moves the marker to
+its own dump only when at least half of those records are still in the
+database, so cycles over an emptied or re-created database cannot rotate the
+last real backup out, even after new uploads. Each such cycle logs a warning
+saying how many remain. Offsite retention keeps the newest such dump that also
+went offsite, recorded in `/backups/.last-good-offsite`, because the local
+marker can name a dump taken while offsite upload was off. If you deleted most
+of the catalog on purpose, release the old dump by deleting the marker
+(`docker compose exec backup rm /backups/.last-good-dump`); the next cycle
+writes a new one. The guide's
 [Retention policy](https://docs.getgeolens.com/guides/admin/backups/#retention-policy)
 has the details.
 

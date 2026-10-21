@@ -23,6 +23,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
@@ -738,7 +740,7 @@ class TestPruneS3Prefix:
 
 
 def _run_full_cycle(
-    tmp_path: Path, rm_exit: int = 0
+    tmp_path: Path, rm_exit: int = 0, offsite_marker: str = ""
 ) -> tuple[subprocess.CompletedProcess, Path]:
     """Runs the REAL run_backup() end to end (extracted from
     scripts/backup-entrypoint.sh, same technique as _run above), stubbing
@@ -751,6 +753,9 @@ def _run_full_cycle(
     bin_dir.mkdir()
     backup_dir = tmp_path / "backups"
     staging_dir = tmp_path / "no-such-staging-mount"  # never created: skips cleanly
+    if offsite_marker:
+        backup_dir.mkdir()
+        (backup_dir / ".last-good-offsite").write_text(f"{offsite_marker}\n")
 
     ls_file = tmp_path / "ls_output.txt"
     ls_file.write_text(_ls_json(_LS_LISTING))
@@ -817,6 +822,17 @@ class TestRunBackupS3PruneFailureMarksCycleFailed:
         # The real log() (unlike _run's test-only override above) writes to
         # stdout, not stderr.
         assert "could not delete" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("marker", "kept"), [("20260801_020000", True), ("", False)]
+    )
+    def test_offsite_retention_keeps_the_last_good_offsite_dump(
+        self, tmp_path: Path, marker: str, kept: bool
+    ):
+        result, _ = _run_full_cycle(tmp_path, offsite_marker=marker)
+        assert result.returncode == 0, result.stderr
+        deleted = (tmp_path / "deleted.txt").read_bytes().split(b"\0")
+        assert bool([d for d in deleted if b"20260801_020000" in d]) is not kept
 
     def test_successful_cycle_still_touches_last_success(self, tmp_path: Path):
         """Positive control: the fix must not make an otherwise-healthy

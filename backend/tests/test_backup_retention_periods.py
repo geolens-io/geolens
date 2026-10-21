@@ -457,6 +457,19 @@ class TestLastDumpWithRecords:
         assert f"ids={{{_ID_A},{_ID_B}}}" in args
         assert f"5 catalog records, 0 of the 2 sampled from {good_ts}" in result.stderr
 
+    @pytest.mark.parametrize("s3_enabled", [True, False])
+    def test_the_offsite_marker_moves_only_with_an_offsite_copy(
+        self, tmp_path: Path, s3_enabled: bool
+    ):
+        backups = tmp_path / "backups"
+        good_ts, _ = _seed_earlier_good_set(backups, _ID_A)
+        (backups / ".last-good-offsite").write_text(f"{good_ts}\n")
+        result, _ = _cycle(tmp_path, psql_row=f"1|1|{_ID_A}", s3_enabled=s3_enabled)
+        assert result.returncode == 0, result.stdout + result.stderr
+        new_ts = (backups / ".last-good-dump").read_text().split()[0]
+        offsite_ts = (backups / ".last-good-offsite").read_text().strip()
+        assert offsite_ts == (new_ts if s3_enabled else good_ts)
+
     @pytest.mark.parametrize(
         "failure",
         [{"globals_fail": True}, {"s3_enabled": True, "cp_exit": 1}],
