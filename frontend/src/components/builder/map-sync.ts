@@ -760,10 +760,11 @@ function resolveVectorSourceMode(
   const canUseBoundedCluster = canUseCluster && source.type === 'geojson';
   const canUseServerCluster = canUseCluster && source.type === 'vector';
   adapterInput.tileUrl = source.type === 'vector' ? source.tiles?.[0] ?? '' : '';
-  // A clustered GeoJSON source is rebuilt when these options change; a cluster
+  // A clustered GeoJSON source is rebuilt when these options or its filter change; a cluster
   // tile source takes them in its URL, which refreshes in place.
   const desiredClusterSignature = canUseCluster
-    ? `${getClusterSourceStrategy(layer).kind}:${clusterSourceSignature(adapterInput)}`
+    ? `${getClusterSourceStrategy(layer).kind}:${clusterSourceSignature(adapterInput)}${
+      source.type === 'geojson' ? `:${JSON.stringify(adapterInput.filter ?? null)}` : ''}`
     : null;
   return {
     adapter: getAdapter(drawsAs),

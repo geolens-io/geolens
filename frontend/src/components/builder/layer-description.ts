@@ -299,7 +299,16 @@ function vectorSource(
   const attribution = nonBlank(layer.attribution);
   const data = ctx.boundedGeoJson.get(layer.id);
   if (described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson' && data) {
-    return { type: 'geojson', data, cluster: true, ...clusterOptions(layer), ...(attribution ? { attribution } : {}) };
+    // The source filter drops points before they are grouped, so bubble counts match what the layer shows.
+    const filter = described.filter;
+    return {
+      type: 'geojson',
+      data,
+      cluster: true,
+      ...clusterOptions(layer),
+      ...(Array.isArray(filter) && filter.length > 0 ? { filter } : {}),
+      ...(attribution ? { attribution } : {}),
+    };
   }
   const serverCluster = described.drawsAs === 'cluster';
   const token = ctx.tokens.get(layer.dataset_id);

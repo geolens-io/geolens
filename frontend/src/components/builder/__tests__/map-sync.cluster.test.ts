@@ -286,6 +286,31 @@ describe('syncLayersToMap cluster rendering', () => {
     });
   });
 
+  it('filters the clustered source itself and rebuilds it when the layer filter changes', () => {
+    const map = makeMockMap();
+    const open = ['==', ['get', 'status'], 'open'];
+    const layer = makeLayer({ filter: open as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+    const sync = (next: SyncLayerInput, known: string[]) => syncLayersToMap(
+      map, [next], tokenMap(next), undefined, { current: new Set(known) }, { current: '' }, geojsonData,
+    );
+
+    sync(layer, []);
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ cluster: true, filter: open }));
+
+    (map.removeSource as ReturnType<typeof vi.fn>).mockClear();
+    const closed = ['==', ['get', 'status'], 'closed'];
+    sync(makeLayer({ filter: closed as SyncLayerInput['filter'] }), ['source-cluster-1']);
+    expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ filter: closed }));
+
+    sync(makeLayer(), ['source-cluster-1']);
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      'source-cluster-1',
+      expect.not.objectContaining({ filter: expect.anything() }),
+    );
+  });
+
   it('keeps a bounded cluster source when its tile token rotates', () => {
     vi.mocked(buildSignedTileUrl).mockImplementation(
       (table: string, token: { sig: string } | null) => `/tiles/${table}/{z}/{x}/{y}.pbf?sig=${token?.sig ?? ''}`,
