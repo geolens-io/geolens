@@ -434,7 +434,10 @@ async def get_dataset_collection(
                 title="Queryables",
             )
         )
-        if capabilities(dataset.record.record_type).tile_token == "vector":
+        if (
+            capabilities(dataset.record.record_type).tile_token == "vector"
+            and dataset.geometry_type is not None
+        ):
             links.append(
                 OGCLink(
                     rel="tiles",

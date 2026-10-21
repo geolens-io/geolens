@@ -326,6 +326,26 @@ async def test_vector_collection_links_its_vector_tile_template(
 
 
 @pytest.mark.anyio
+async def test_a_table_without_geometry_advertises_no_vector_tiles(
+    client: AsyncClient, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    try:
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET geometry_type = NULL WHERE id = :id"),
+            {"id": dataset.id},
+        )
+        await test_db_session.commit()
+        data = (await client.get(f"/collections/{dataset.id}")).json()
+        assert _tiles_links(data) == []
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.anyio
 async def test_private_vector_collection_is_hidden_from_anonymous_callers(
     client: AsyncClient, private_dataset: Dataset, admin_auth_header: dict
 ):
