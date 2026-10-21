@@ -38,7 +38,12 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // One greedy group, with the trail peeled in plain code: a lazy body plus a
 // punctuation group lets the engine retry every split point on adversarial
 // runs (quadratic).
-const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+/gi;
+const URL_RE_SOURCE = String.raw`https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+`;
+// [label](https://…) is tried first at each position. The label cannot contain
+// brackets and the target cannot contain parentheses, so a failed match gives
+// up at the next bracket and the scan stays linear.
+const LINK_RE_SOURCE = String.raw`\[([^\[\]]+)\]\((https:\/\/[^\s()<>"]+)\)`;
+const LINK_OR_URL_RE = new RegExp(`${LINK_RE_SOURCE}|${URL_RE_SOURCE}`, 'gi');
 const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 
 // The linkifier runs per visitor render on admin text with no schema length
@@ -48,12 +53,18 @@ const LINKIFY_MAX_LENGTH = 2000;
 
 function renderBannerText(text: string) {
   if (text.length > LINKIFY_MAX_LENGTH) return [text];
-  const parts: Array<string | { url: string; trail: string }> = [];
+  const parts: Array<string | { url: string; trail: string; label?: string }> = [];
   let last = 0;
-  for (const m of text.matchAll(URL_RE)) {
+  for (const m of text.matchAll(LINK_OR_URL_RE)) {
     // A verbatim <…> span advances `last` past text matchAll has not seen; a
     // scheme inside it must not produce a second, overlapping link.
     if (m.index! < last) continue;
+    if (m[1] !== undefined) {
+      if (m.index! > last) parts.push(text.slice(last, m.index));
+      parts.push({ url: m[2], trail: '', label: m[1] });
+      last = m.index! + m[0].length;
+      continue;
+    }
     // Only at a token boundary: an https:// inside another token (nothttps://…
     // or a URL nested in another URL's path) is not a link of its own.
     if (m.index! > 0 && !/[\s<>"'()[\]\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]/.test(text[m.index! - 1])) {
@@ -122,7 +133,7 @@ function renderBannerText(text: string) {
           rel="noopener noreferrer"
           className="underline underline-offset-2 hover:opacity-80"
         >
-          {p.url}
+          {p.label ?? p.url}
         </a>
         {p.trail}
       </span>

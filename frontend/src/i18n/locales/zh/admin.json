@@ -587,7 +587,7 @@
       "bannerEnabled": "启用站点横幅",
       "bannerEnabledDescription": "向所有访客显示公告横幅。还须设置下方的横幅文本。",
       "bannerText": "站点横幅文本",
-      "bannerTextDescription": "显示在应用顶部、面向所有访客的公告横幅。留空则不显示横幅。",
+      "bannerTextDescription": "显示在应用顶部、面向所有访客的公告横幅。留空则不显示横幅。链接文字：[标签](https://example.org)。",
       "bannerColor": "站点横幅颜色",
       "bannerColorDescription": "公告横幅的颜色。",
       "bannerColorWarning": "警告（琥珀色）",

@@ -545,7 +545,7 @@
       "bannerEnabled": "Activer la bannière du site",
       "bannerEnabledDescription": "Afficher la bannière d'annonce à tous les visiteurs. Le texte de la bannière ci-dessous doit également être renseigné.",
       "bannerText": "Texte de la bannière du site",
-      "bannerTextDescription": "Bannière d'annonce affichée à tous les visiteurs en haut de l'application. Laissez vide pour aucune bannière.",
+      "bannerTextDescription": "Bannière d'annonce affichée à tous les visiteurs en haut de l'application. Laissez vide pour aucune bannière. Texte du lien : [libellé](https://example.org).",
       "bannerColor": "Couleur de la bannière du site",
       "bannerColorDescription": "Couleur de la bannière d'annonce.",
       "bannerColorWarning": "Avertissement (ambre)",

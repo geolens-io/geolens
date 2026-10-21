@@ -545,7 +545,7 @@
       "bannerEnabled": "Activar banner del sitio",
       "bannerEnabledDescription": "Mostrar el banner de aviso a todos los visitantes. El texto del banner de abajo también debe estar configurado.",
       "bannerText": "Texto del banner del sitio",
-      "bannerTextDescription": "Banner de aviso mostrado a todos los visitantes en la parte superior de la aplicación. Déjelo vacío para no mostrar ningún banner.",
+      "bannerTextDescription": "Banner de aviso mostrado a todos los visitantes en la parte superior de la aplicación. Déjelo vacío para no mostrar ningún banner. Texto del enlace: [etiqueta](https://example.org).",
       "bannerColor": "Color del banner del sitio",
       "bannerColorDescription": "Color del banner de aviso.",
       "bannerColorWarning": "Advertencia (ámbar)",

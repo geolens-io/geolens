@@ -220,4 +220,63 @@ describe('SiteBanner', () => {
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.getByRole('status')).toHaveTextContent('https://ok.example/tail');
   });
+
+  it('T) [label](https://…) renders the label as the link', () => {
+    renderBanner({
+      banner_text: 'Get [release notes](https://buttondown.com/geolens) by email.',
+    });
+    const link = screen.getByRole('link', { name: 'release notes' });
+    expect(link).toHaveAttribute('href', 'https://buttondown.com/geolens');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('status')).toHaveTextContent('Get release notes by email.');
+  });
+
+  it('U) a labelled link next to a bare URL keeps both', () => {
+    renderBanner({
+      banner_text: '[docs](https://docs.example/a) or https://other.example/b.',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveTextContent('docs');
+    expect(links[0]).toHaveAttribute('href', 'https://docs.example/a');
+    expect(links[1]).toHaveTextContent('https://other.example/b');
+  });
+
+  it('V) a label with markup is escaped, not rendered', () => {
+    renderBanner({ banner_text: '[<b>x</b>](https://ok.example/)' });
+    const link = screen.getByRole('link');
+    expect(link.textContent).toBe('<b>x</b>');
+    expect(link.querySelector('b')).toBeNull();
+  });
+
+  it('W) a non-https target stays plain text', () => {
+    renderBanner({
+      banner_text: '[a](javascript:alert(1)) [b](http://insecure.example) [c](//x.example)',
+    });
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '[a](javascript:alert(1)) [b](http://insecure.example) [c](//x.example)',
+    );
+  });
+
+  it('X) an unclosed [ or ( or an empty label is not a labelled link', () => {
+    renderBanner({ banner_text: '[label (no close) [x]( [](ok)' });
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('[label (no close) [x]( [](ok)');
+  });
+
+  it('Y) an unclosed target falls back to the bare URL, not the label', () => {
+    renderBanner({ banner_text: '[label](https://ok.example/path' });
+    const link = screen.getByRole('link');
+    expect(link).toHaveAttribute('href', 'https://ok.example/path');
+    expect(link).toHaveTextContent('https://ok.example/path');
+  });
+
+  it('Z) adversarial bracket runs stay fast', () => {
+    const start = performance.now();
+    renderBanner({ banner_text: '['.repeat(900) + ']('.repeat(300) + 'https://' });
+    renderBanner({ banner_text: '[a'.repeat(1000) });
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
 });
