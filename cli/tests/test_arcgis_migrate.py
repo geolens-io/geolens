@@ -866,3 +866,13 @@ def test_a_state_file_that_is_not_utf8_is_a_usage_error(runner, tmp_path, geolen
     (tmp_path / "arcgis-migration-state.json").write_bytes(b"\xff\xfe\x00garbage")
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
     assert result.exit_code == 2 and "not UTF-8 text" in result.output
+
+
+def test_no_configured_instance_stays_a_usage_error(
+    runner, tmp_path, tmp_xdg_home, monkeypatch
+):
+    for name in ("GEOLENS_INSTANCE", "GEOLENS_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+    assert result.exit_code == 2
+    assert "No instance configured" in result.output

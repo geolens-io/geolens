@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
 import typer
 
 from . import arcgis_plan as _plan
@@ -537,7 +538,7 @@ def run_cli(
     redact = Redactor()
     try:
         return _run(fmt, opts, redact, sdk_factory, instance)
-    except typer.Exit:
+    except (typer.Exit, click.ClickException):
         raise
     except (
         Exception
