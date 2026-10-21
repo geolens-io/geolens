@@ -470,7 +470,7 @@ def _refused_with(resp, message: str) -> bool:
 async def test_a_publish_key_cannot_replace_a_raster(
     client: AsyncClient, owner, test_db_session
 ):
-    """A raster replace deletes the old COG, so nothing could restore it."""
+    """A raster replace or refresh keeps no previous version to restore."""
     headers, owner_id = owner
     raster = await create_raster_dataset(
         test_db_session, created_by=owner_id, visibility="private"
@@ -492,6 +492,13 @@ async def test_a_publish_key_cannot_replace_a_raster(
         assert _refused_with(commit, refusal), commit.text
         # A full key gets past the refusal to the job lookup.
         assert (await client.post(commit_url, json={}, headers=full)).status_code == 404
+
+        refreshed = await client.post(f"/datasets/{raster.id}/refresh", headers=publish)
+        assert _refused_with(
+            refreshed, "A publish key can't refresh a raster or STAC dataset"
+        ), refreshed.text
+        full_refresh = await client.post(f"/datasets/{raster.id}/refresh", headers=full)
+        assert not _scope_refused(full_refresh), full_refresh.text
     finally:
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}

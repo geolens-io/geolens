@@ -74,6 +74,7 @@ from app.platform.refresh.credentials import (
     stash_service_credential,
 )
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
+from app.platform.request_credential import refuse_publish_key
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -913,6 +914,15 @@ async def _prior_service_ingest_settings(
     return prior.source_filename, (prior.user_metadata or {}).get("object_id_field")
 
 
+def _refuse_publish_key_asset_repoint(db: AsyncSession, dataset) -> None:
+    # A raster or STAC refresh repoints the asset and keeps no previous version.
+    if (
+        dataset.record.record_type == "raster_dataset"
+        or dataset.source_format == "stac"
+    ):
+        refuse_publish_key(db, "A publish key can't refresh a raster or STAC dataset")
+
+
 @router.post(
     "/{dataset_id}/refresh",
     response_model=DatasetRefreshResponse,
@@ -973,6 +983,7 @@ async def refresh_dataset(
     # Rule 1: this endpoint replaces the dataset's data. One gate, before the
     # strategy split below, so neither strategy can be reached without it.
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _refuse_publish_key_asset_repoint(db, dataset)
 
     # Judged and composed as soon as the origin is known: header line for
     # WFS/OGC API, bare token for ArcGIS, 422 for a method the origin
