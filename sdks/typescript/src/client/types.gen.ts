@@ -8028,6 +8028,12 @@ export type OgcLink = {
      * Optional human-readable label for the link.
      */
     title?: string | null;
+    /**
+     * Templated
+     *
+     * True when `href` is a URI template with variables such as {z}, {x} and {y}.
+     */
+    templated?: boolean | null;
 };
 
 /**
@@ -12423,6 +12429,12 @@ export type VectorTileToken = {
      * Expires In
      */
     expires_in: number;
+    /**
+     * Tile Url Template
+     *
+     * Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.
+     */
+    tile_url_template: string;
 };
 
 /**
@@ -17505,6 +17517,12 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
              * Optional human-readable label for the link.
              */
             title?: string | null;
+            /**
+             * Templated
+             *
+             * True when `href` is a URI template with variables such as {z}, {x} and {y}.
+             */
+            templated?: boolean | null;
         }>;
     };
     /**
@@ -17644,6 +17662,12 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
              * Optional human-readable label for the link.
              */
             title?: string | null;
+            /**
+             * Templated
+             *
+             * True when `href` is a URI template with variables such as {z}, {x} and {y}.
+             */
+            templated?: boolean | null;
         }>;
     };
     /**

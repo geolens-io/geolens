@@ -28,6 +28,11 @@ and releases use semantic versioning.
 
 ### Added
 
+- A vector dataset's OGC collection document (`GET /collections/{id}`) now has a
+  `rel: "tiles"` link to its vector tile template, with `type`
+  `application/vnd.mapbox-vector-tile` and `templated: true`. The tile token
+  response (`GET /tiles/token/{id}/`) for a vector dataset also returns
+  `tile_url_template`, a signed template relative to the API root.
 - `POST /jobs/status/` reports the status of up to 100 import jobs in one
   request, with the held refresh run for a replacement under review. Ids that
   don't exist and jobs you may not read both come back as `not_found`. API

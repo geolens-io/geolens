@@ -25,12 +25,14 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         rel (str): Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').
         type_ (str): Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
         title (None | str | Unset): Optional human-readable label for the link.
+        templated (bool | None | Unset): True when `href` is a URI template with variables such as {z}, {x} and {y}.
     """
 
     href: str
     rel: str
     type_: str
     title: None | str | Unset = UNSET
+    templated: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -46,6 +48,12 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         else:
             title = self.title
 
+        templated: bool | None | Unset
+        if isinstance(self.templated, Unset):
+            templated = UNSET
+        else:
+            templated = self.templated
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -57,6 +65,8 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         )
         if title is not UNSET:
             field_dict["title"] = title
+        if templated is not UNSET:
+            field_dict["templated"] = templated
 
         return field_dict
 
@@ -78,11 +88,21 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
 
         title = _parse_title(d.pop("title", UNSET))
 
+        def _parse_templated(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        templated = _parse_templated(d.pop("templated", UNSET))
+
         get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_ogc_link = cls(
             href=href,
             rel=rel,
             type_=type_,
             title=title,
+            templated=templated,
         )
 
         get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_ogc_link.additional_properties = d

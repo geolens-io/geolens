@@ -17,6 +17,10 @@ class OGCLink(BaseModel):
     title: str | None = Field(
         default=None, description="Optional human-readable label for the link."
     )
+    templated: bool | None = Field(
+        default=None,
+        description="True when `href` is a URI template with variables such as {z}, {x} and {y}.",
+    )
 
     @model_serializer
     def serialize_model(self):

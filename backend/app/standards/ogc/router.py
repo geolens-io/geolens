@@ -18,7 +18,7 @@ from app.core.identity import Identity
 from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
-from app.core.tile_scope import tile_template_query
+from app.core.tile_scope import tile_template_query, vector_tile_template
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
@@ -434,6 +434,23 @@ async def get_dataset_collection(
                 title="Queryables",
             )
         )
+        if capabilities(dataset.record.record_type).tile_token == "vector":
+            links.append(
+                OGCLink(
+                    rel="tiles",
+                    href=build_url(
+                        vector_tile_template(
+                            dataset.table_name,
+                            dataset.tile_cache_version,
+                            dataset.publication_version,
+                        ),
+                        base_url=public_api_url,
+                    ),
+                    type="application/vnd.mapbox-vector-tile",
+                    title="Vector tiles",
+                    templated=True,
+                )
+            )
     else:
         # A coverage collection has no rel=items, so without a
         # replacement link the body would only carry self+root and be a

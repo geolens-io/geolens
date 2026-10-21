@@ -11897,6 +11897,11 @@ export interface components {
              * @description Optional human-readable label for the link.
              */
             title?: string | null;
+            /**
+             * Templated
+             * @description True when `href` is a URI template with variables such as {z}, {x} and {y}.
+             */
+            templated?: boolean | null;
         };
         /**
          * OGCRasterBand
@@ -15233,6 +15238,11 @@ export interface components {
             scope: string;
             /** Expires In */
             expires_in: number;
+            /**
+             * Tile Url Template
+             * @description Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.
+             */
+            tile_url_template: string;
         };
         /** VerifyEmailRequest */
         VerifyEmailRequest: {
@@ -22948,6 +22958,11 @@ export interface operations {
                              * @description Optional human-readable label for the link.
                              */
                             title?: string | null;
+                            /**
+                             * Templated
+                             * @description True when `href` is a URI template with variables such as {z}, {x} and {y}.
+                             */
+                            templated?: boolean | null;
                         }[];
                     };
                     "application/json": unknown;
@@ -23101,6 +23116,11 @@ export interface operations {
                              * @description Optional human-readable label for the link.
                              */
                             title?: string | null;
+                            /**
+                             * Templated
+                             * @description True when `href` is a URI template with variables such as {z}, {x} and {y}.
+                             */
+                            templated?: boolean | null;
                         }[];
                     };
                     "application/json": unknown;

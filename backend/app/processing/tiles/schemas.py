@@ -10,6 +10,10 @@ class VectorTileToken(BaseModel):
     exp: int
     scope: str
     expires_in: int
+    tile_url_template: str = Field(
+        description="Signed vector tile URL template, relative to the API root, "
+        "with `{z}`, `{x}` and `{y}` left for the client to fill in."
+    )
 
 
 class RasterTileToken(BaseModel):

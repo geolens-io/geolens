@@ -13779,6 +13779,18 @@
             ],
             "description": "Optional human-readable label for the link.",
             "title": "Title"
+          },
+          "templated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when `href` is a URI template with variables such as {z}, {x} and {y}.",
+            "title": "Templated"
           }
         },
         "required": [
@@ -21134,6 +21146,11 @@
           "expires_in": {
             "title": "Expires In",
             "type": "integer"
+          },
+          "tile_url_template": {
+            "description": "Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.",
+            "title": "Tile Url Template",
+            "type": "string"
           }
         },
         "required": [
@@ -21141,7 +21158,8 @@
           "sig",
           "exp",
           "scope",
-          "expires_in"
+          "expires_in",
+          "tile_url_template"
         ],
         "title": "VectorTileToken",
         "type": "object"
@@ -33132,6 +33150,18 @@
                             ],
                             "description": "Optional human-readable label for the link.",
                             "title": "Title"
+                          },
+                          "templated": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "True when `href` is a URI template with variables such as {z}, {x} and {y}.",
+                            "title": "Templated"
                           }
                         },
                         "required": [
@@ -33426,6 +33456,18 @@
                             ],
                             "description": "Optional human-readable label for the link.",
                             "title": "Title"
+                          },
+                          "templated": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "True when `href` is a URI template with variables such as {z}, {x} and {y}.",
+                            "title": "Templated"
                           }
                         },
                         "required": [

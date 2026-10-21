@@ -296,6 +296,78 @@ async def test_get_dataset_collection_metadata(
     assert "application/json" in resp.headers["content-type"]
 
 
+def _tiles_links(data: dict) -> list[dict]:
+    return [link for link in data["links"] if link["rel"] == "tiles"]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_vector_collection_links_its_vector_tile_template(
+    client: AsyncClient, public_dataset: Dataset
+):
+    """A vector collection advertises a templated MVT link on the public API URL."""
+    data = (await client.get(f"/collections/{public_dataset.id}")).json()
+    (link,) = _tiles_links(data)
+    assert link["type"] == "application/vnd.mapbox-vector-tile"
+    assert link["templated"] is True
+    assert link["href"].startswith("http")
+    assert (
+        f"/tiles/data.{public_dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf" in link["href"]
+    )
+    assert f"v={public_dataset.tile_cache_version}" in link["href"]
+
+    # The template is the real tile route: filled in, it serves the dataset.
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(link["href"])
+    path = parts.path.removeprefix("/api").format(z=0, x=0, y=0)
+    tile = await client.get(f"{path}?{parts.query}")
+    assert tile.status_code in (200, 204)
+
+
+@pytest.mark.anyio
+async def test_private_vector_collection_is_hidden_from_anonymous_callers(
+    client: AsyncClient, private_dataset: Dataset, admin_auth_header: dict
+):
+    assert (await client.get(f"/collections/{private_dataset.id}")).status_code == 404
+    data = (
+        await client.get(
+            f"/collections/{private_dataset.id}", headers=admin_auth_header
+        )
+    ).json()
+    assert len(_tiles_links(data)) == 1
+
+
+@pytest.mark.anyio
+async def test_raster_collection_keeps_only_its_raster_tiles_link(
+    client: AsyncClient, raster_dataset: Dataset
+):
+    data = (await client.get(f"/collections/{raster_dataset.id}")).json()
+    (link,) = _tiles_links(data)
+    assert link["type"] == "image/png"
+    assert "templated" not in link
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_vector_tile_token_carries_a_working_signed_template(
+    client: AsyncClient, private_dataset: Dataset, admin_auth_header: dict
+):
+    resp = await client.get(
+        f"/tiles/token/{private_dataset.id}/", headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()
+    template = token["tile_url_template"]
+    assert template.startswith(
+        f"/tiles/data.{private_dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf?"
+    )
+    assert f"sig={token['sig']}" in template
+    # Signed, so an anonymous client can read the private dataset with it.
+    tile = await client.get(template.format(z=0, x=0, y=0))
+    assert tile.status_code in (200, 204)
+
+
 @pytest.mark.anyio
 async def test_collection_not_found(client: AsyncClient):
     """GET /collections/{nonexistent_uuid} returns 404."""

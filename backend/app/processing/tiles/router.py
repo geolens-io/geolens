@@ -35,6 +35,7 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
     TILE_PUBLICATION_VERSION_PARAM,
     tile_template_params,
+    vector_tile_template,
 )
 from app.modules.auth.dependencies import (
     capability_declined,
@@ -1581,6 +1582,12 @@ def _build_tile_token_for_dataset(
         exp=exp,
         scope=scope,
         expires_in=exp - int(time.time()),
+        tile_url_template=vector_tile_template(
+            dataset.table_name,
+            dataset.tile_cache_version,
+            dataset.publication_version,
+            {"sig": sig, "exp": exp, "scope": scope},
+        ),
     )
 
 
