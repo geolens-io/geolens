@@ -18,6 +18,15 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
         ge '5.40.1-6+deb13u1' && \
     rm -rf /var/lib/apt/lists/*
 
+# Nothing in the image calls pip (builder and runtime use uv). The base image's
+# pip bundles vendored packages (certifi, msgpack, setuptools) that image
+# scanners report against this shared layer, so pip is removed along with the
+# ensurepip bundle.
+RUN rm -rf /usr/local/lib/python3*/site-packages/pip \
+    /usr/local/lib/python3*/site-packages/pip-*.dist-info \
+    /usr/local/lib/python3*/ensurepip \
+    /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
+
 # ==============================================================================
 # Stage 2: backend-builder — uv sync, all build-time prep
 # ==============================================================================
@@ -131,14 +140,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 # Create non-root user (shared by api and worker runtime targets).
 RUN groupadd --system --gid 1001 appgroup && \
     useradd --system --gid 1001 --uid 1001 --create-home appuser
-
-# The runtime launches through uv and never calls pip. The base image's pip
-# carries a vendored-package SBOM (msgpack, setuptools) that image scanners
-# report against the runtime, so it is removed along with the ensurepip bundle.
-RUN rm -rf /usr/local/lib/python3*/site-packages/pip \
-    /usr/local/lib/python3*/site-packages/pip-*.dist-info \
-    /usr/local/lib/python3*/ensurepip \
-    /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
