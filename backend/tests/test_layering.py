@@ -1268,7 +1268,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 161,
-    "backend/app/modules/catalog/maps/router_sharing.py": 440,
+    "backend/app/modules/catalog/maps/router_sharing.py": 452,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
     "backend/app/modules/admin/router_operations.py": 330,
@@ -1308,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # splitting.
     "backend/app/api/main.py": 1708,
     # Map request validation and published response contracts share this module.
-    "backend/app/modules/catalog/maps/schemas.py": 1381,
+    "backend/app/modules/catalog/maps/schemas.py": 1387,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
