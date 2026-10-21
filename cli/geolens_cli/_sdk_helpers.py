@@ -243,7 +243,7 @@ def make_client(
     return client
 
 
-def _detail_text(detail: Any) -> str:
+def detail_text(detail: Any) -> str:
     """A ProblemDetail.detail value as printable text.
 
     A coded refusal's detail is a {"code", "message", ...} object; this
@@ -273,13 +273,13 @@ def unwrap(resp: Any, *, expected: int = 200) -> Any:
     sc = int(resp.status_code)
     if sc == expected:
         if isinstance(resp.parsed, ProblemDetail):
-            typer.secho(f"Error: {_detail_text(resp.parsed.detail)}", fg="red", err=True)
+            typer.secho(f"Error: {detail_text(resp.parsed.detail)}", fg="red", err=True)
             raise typer.Exit(EXIT_SERVER if sc >= 500 else EXIT_GENERIC)
         return resp.parsed
 
     detail = ""
     if isinstance(resp.parsed, ProblemDetail):
-        detail = f": {_detail_text(resp.parsed.detail)}"
+        detail = f": {detail_text(resp.parsed.detail)}"
 
     if sc == 401:
         typer.secho(f"Authentication required{detail}. Run `geolens login` first.", fg="red", err=True)

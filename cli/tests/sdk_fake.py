@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +17,9 @@ class SdkRequest:
     url: str
     headers: dict[str, str]
     body: bytes
+
+    def json(self) -> Any:
+        return json.loads(self.body) if self.body else None
 
 
 class FakeGeoLens:

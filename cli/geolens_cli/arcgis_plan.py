@@ -12,6 +12,7 @@ import json
 import os
 from collections import Counter
 from collections.abc import Mapping
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from ._sdk_helpers import EXIT_GENERIC, EXIT_OK, EXIT_USAGE
 
 SCHEMA_VERSION = "1"
 PLAN_FILENAME = "arcgis-migration-plan.json"
+_PLAN_SCHEMA_RESOURCE = "arcgis-migration-plan-v1.schema.json"
 _INVENTORY_VERSION = "2"
 
 IMPORT_LAYERS = "import_layers"
@@ -199,6 +201,17 @@ def _load_json(path: Path, what: str) -> Any:
         raise PlanError(f"the {what} {path} is not valid JSON") from None
 
 
+def _schema_error(data: Any, schema: Mapping[str, Any]) -> str | None:
+    """``"<where>: <message>"`` for the most relevant schema error, or None."""
+    error = best_match(
+        Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(data)
+    )
+    if error is None:
+        return None
+    where = "/".join(str(p) for p in error.absolute_path) or "(root)"
+    return f"{where}: {error.message}"
+
+
 def load_inventory(path: Path) -> dict[str, Any]:
     data = _load_json(path, "inventory")
     version = data.get("schema_version") if isinstance(data, dict) else None
@@ -208,16 +221,26 @@ def load_inventory(path: Path) -> dict[str, Any]:
             f"(schema_version {version!r}). Rerun `geolens arcgis inventory -o <dir>` "
             "with this version of the CLI and pass the new arcgis-inventory.json."
         )
-    error = best_match(
-        Draft202012Validator(
-            _report.inventory_schema(), format_checker=FormatChecker()
-        ).iter_errors(data)
-    )
+    error = _schema_error(data, _report.inventory_schema())
     if error is not None:
-        where = "/".join(str(p) for p in error.absolute_path) or "(root)"
         raise PlanError(
-            f"{path} is malformed at {where}: {error.message}; "
-            "rerun `geolens arcgis inventory`"
+            f"{path} is malformed at {error}; rerun `geolens arcgis inventory`"
+        )
+    return data
+
+
+def load_plan(path: Path) -> dict[str, Any]:
+    """A plan file, validated against the plan schema; ``PlanError`` otherwise."""
+    data = _load_json(path, "plan")
+    schema_path = files("geolens_cli.manifest.schemas").joinpath(_PLAN_SCHEMA_RESOURCE)
+    error = _schema_error(data, json.loads(schema_path.read_text(encoding="utf-8")))
+    if error is not None:
+        raise PlanError(f"{path} is not a valid migration plan at {error}")
+    counts = Counter(item["id"] for item in data["items"])
+    repeated = sorted(i for i, n in counts.items() if n > 1)
+    if repeated:
+        raise PlanError(
+            f"{path} lists these item ids more than once: {', '.join(repeated)}"
         )
     return data
 

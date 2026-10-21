@@ -22,6 +22,7 @@ from rich.table import Table
 
 from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
+from . import arcgis_migrate as _arcgis_migrate
 from . import arcgis_plan as _arcgis_plan
 from . import auth as _auth
 from . import config as _config
@@ -2138,6 +2139,68 @@ def arcgis_plan(
         output_dir=output_dir,
         owner_map_path=owner_map,
         force=force,
+    )
+    if code:
+        raise typer.Exit(code)
+
+
+# Hidden until it can import layers: today it validates the plan, orders it,
+# checks owners and keeps the state file, but runs no import action yet.
+@arcgis_app.command("migrate", hidden=True)
+def arcgis_migrate(
+    ctx: typer.Context,
+    plan: Annotated[
+        Path,
+        typer.Argument(help="arcgis-migration-plan.json written by `geolens arcgis plan`"),
+    ],
+    state_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--state",
+            help="Progress file to resume from (default: arcgis-migration-state.json next to the plan)",
+        ),
+    ] = None,
+    only: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--only",
+            help="Migrate only this item id, plus the unfinished items it depends on. Repeatable.",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Check the plan and owners and list what would run"),
+    ] = False,
+    no_retry: Annotated[
+        bool, typer.Option("--no-retry", help="Leave items that failed before alone")
+    ] = False,
+    unmapped_owner: Annotated[
+        Optional[str],
+        typer.Option(
+            "--unmapped-owner",
+            help="GeoLens username or email that owns items whose mapped owner is empty or can't own them",
+        ),
+    ] = None,
+) -> None:
+    """Migrate the items of a plan into GeoLens, resuming from the state file.
+
+    Needs a GeoLens admin session. Items are imported as you, in depends_on
+    order, then transferred to the owner the plan maps them to.
+    """
+    state: AppState = ctx.obj
+    options = _arcgis_migrate.MigrateOptions(
+        plan_path=plan,
+        state_path=state_file,
+        only=only or [],
+        dry_run=dry_run,
+        no_retry=no_retry,
+        unmapped_owner=unmapped_owner,
+    )
+    code = _arcgis_migrate.run_cli(
+        state.output,
+        options,
+        sdk_factory=state.sdk,
+        instance=state.active_instance() or "",
     )
     if code:
         raise typer.Exit(code)
