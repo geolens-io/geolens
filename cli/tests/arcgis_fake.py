@@ -149,3 +149,36 @@ def portal_routes(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def item_data_path(item_id: str) -> str:
     return f"content/items/{item_id}/data"
+
+
+def inventory_report(
+    overrides: dict[str, Any] | None = None, **run_kwargs: Any
+) -> dict[str, Any]:
+    """An inventory report of the fixture organization, as `inventory -o` writes it."""
+    from geolens_cli import arcgis_inventory as inventory
+    from geolens_cli import arcgis_report
+
+    portal = FakePortal(portal_routes(overrides))
+    client = inventory.PortalClient(
+        PORTAL,
+        opener=portal,
+        redact=inventory.Redactor(),
+        token="t",
+        sleep=lambda seconds: None,
+    )
+    inv = inventory.run_inventory(
+        client,
+        auth_mode="token",
+        scope="org",
+        max_items=100,
+        concurrency=1,
+        **run_kwargs,
+    )
+    return arcgis_report.build_report(
+        inv,
+        tool_version="test",
+        generated_at="2026-10-01T00:00:00Z",
+        max_items=100,
+        retirements=inventory.RETIREMENTS,
+        classes=inventory.CLASSES,
+    )

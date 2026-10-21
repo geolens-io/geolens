@@ -2144,8 +2144,8 @@ def arcgis_plan(
         raise typer.Exit(code)
 
 
-# Hidden until it can import layers: today it validates the plan, orders it,
-# checks owners and keeps the state file, but runs no import action yet.
+# Hidden until it can run every plan action: it imports service layers, while
+# data files and web maps are still left pending.
 @arcgis_app.command("migrate", hidden=True)
 def arcgis_migrate(
     ctx: typer.Context,
@@ -2181,11 +2181,50 @@ def arcgis_migrate(
             help="GeoLens username or email that owns items whose mapped owner is empty or can't own them",
         ),
     ] = None,
+    token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--token",
+            envvar="ARCGIS_TOKEN",
+            show_envvar=True,
+            help="ArcGIS token for items that aren't public (prefer ARCGIS_TOKEN or --token-stdin)",
+        ),
+    ] = None,
+    token_stdin: Annotated[
+        bool, typer.Option("--token-stdin", help="Read the ArcGIS token from stdin")
+    ] = False,
+    username: Annotated[
+        Optional[str],
+        typer.Option(
+            "--username",
+            help="Built-in ArcGIS account; the password comes from ARCGIS_PASSWORD, "
+            "--password-stdin or a prompt, and its token is renewed as it expires",
+        ),
+    ] = None,
+    password_stdin: Annotated[
+        bool,
+        typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
+    ] = False,
+    allow_insecure_http: Annotated[
+        bool,
+        typer.Option(
+            "--allow-insecure-http", help="Allow an http:// portal URL (test portals)"
+        ),
+    ] = False,
+    trust_service_host: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--trust-service-host",
+            help="Host of a federated ArcGIS Server that may receive the ArcGIS token "
+            "(the portal's host and its ArcGIS Online hosted services always may). Repeatable.",
+        ),
+    ] = None,
 ) -> None:
     """Migrate the items of a plan into GeoLens, resuming from the state file.
 
     Needs a GeoLens admin session. Items are imported as you, in depends_on
-    order, then transferred to the owner the plan maps them to.
+    order, then transferred to the owner the plan maps them to. Items that
+    aren't public need an ArcGIS token or a built-in account.
     """
     state: AppState = ctx.obj
     options = _arcgis_migrate.MigrateOptions(
@@ -2195,6 +2234,12 @@ def arcgis_migrate(
         dry_run=dry_run,
         no_retry=no_retry,
         unmapped_owner=unmapped_owner,
+        token=token,
+        token_stdin=token_stdin,
+        username=username,
+        password_stdin=password_stdin,
+        allow_insecure_http=allow_insecure_http,
+        trusted_hosts=trust_service_host or [],
     )
     code = _arcgis_migrate.run_cli(
         state.output,

@@ -142,6 +142,12 @@ def _install(monkeypatch, handler) -> None:
         monkeypatch.setitem(migrate.HANDLERS, action, handler)
 
 
+@pytest.fixture(autouse=True)
+def no_inventory(monkeypatch):
+    """These tests stub the handlers, which are what read the inventory."""
+    monkeypatch.setattr(migrate, "_inventory_rows", lambda *args: ({}, None))
+
+
 @pytest.fixture
 def geolens(fake_geolens):
     """The fake instance with an admin operator, alice (editor) and vic (viewer)."""
@@ -376,7 +382,7 @@ def test_dry_run_writes_no_state_and_changes_nothing(
 
 
 def test_an_action_without_a_handler_is_left_pending(runner, tmp_path, geolens):
-    plan = _plan([_item(L1), _item(M1, "import_map", depends_on=[L1])])
+    plan = _plan([_item(L1, "import_file"), _item(M1, "import_map", depends_on=[L1])])
 
     result, payload = _run(runner, tmp_path, plan)
 

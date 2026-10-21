@@ -70,7 +70,11 @@ class ItemState:
     record_ids: list[str] = field(default_factory=list)
     map_id: str | None = None
     job_ids: list[str] = field(default_factory=list)
+    # Service layer (its id, or its name) -> the dataset imported from it, so
+    # a rerun never imports a layer twice, even after its dataset changed owner.
+    layer_datasets: dict[str, str] = field(default_factory=dict)
     owner_id: str | None = None
+    notes: list[str] = field(default_factory=list)
     error: str | None = None
     loss_report_path: str | None = None
     metadata_hash: str | None = None

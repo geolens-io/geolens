@@ -27,12 +27,15 @@ import typer
 from . import arcgis_plan as _plan
 from . import output as _output
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_OK, EXIT_SERVER, EXIT_USAGE
+from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
     ItemFailed,
     ItemResult,
     MigrationContext,
+    PortalAuth,
+    StopRun,
 )
 from .arcgis_migrate_state import (
     FAILED,
@@ -44,7 +47,14 @@ from .arcgis_migrate_state import (
     StateError,
     release_locks,
 )
-from .arcgis_portal import Redactor
+from .arcgis_portal import (
+    PortalClient,
+    PortalError,
+    Redactor,
+    build_opener,
+    portal_root,
+    read_credentials,
+)
 
 # The permission the server checks before it transfers what each action
 # creates: datasets need upload, a map needs edit_metadata.
@@ -71,7 +81,7 @@ class UsageError(Exception):
 Handler = Callable[[MigrationContext, Mapping[str, Any], ItemState], ItemResult]
 # Action -> handler. An action without one is reported as not available in
 # this version and left pending, so a later version can run it.
-HANDLERS: dict[str, Handler] = {}
+HANDLERS: dict[str, Handler] = {_plan.IMPORT_LAYERS: import_layers}
 
 
 @dataclass(frozen=True)
@@ -88,6 +98,12 @@ class MigrateOptions:
     dry_run: bool
     no_retry: bool
     unmapped_owner: str | None
+    token: str | None = None
+    token_stdin: bool = False
+    username: str | None = None
+    password_stdin: bool = False
+    allow_insecure_http: bool = False
+    trusted_hosts: list[str] = field(default_factory=list)
 
 
 def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -390,6 +406,7 @@ def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
 class RunSummary:
     unavailable: list[str] = field(default_factory=list)
     waiting: list[dict[str, Any]] = field(default_factory=list)
+    stopped: str | None = None
 
 
 def _unmet(
@@ -414,6 +431,7 @@ def _migrate_one(
     entry = state.start(item["id"])
     try:
         result = handler(ctx, item, entry)
+        entry.notes = result.notes
         state.save()
         # Even to the operator: a run that failed part way may have handed
         # some of the item's objects to another owner already.
@@ -422,6 +440,9 @@ def _migrate_one(
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
         return
+    except StopRun as exc:
+        state.finish(item["id"], FAILED, str(exc))
+        raise
     except KeyboardInterrupt:
         state.finish(item["id"], FAILED, "interrupted")
         raise
@@ -452,7 +473,11 @@ def run_items(
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
-        _migrate_one(ctx, state, item, handler, owners[item["id"]])
+        try:
+            _migrate_one(ctx, state, item, handler, owners[item["id"]])
+        except StopRun:
+            summary.stopped = state.item(item["id"]).error
+            break
     state.save()
     return summary
 
@@ -491,6 +516,7 @@ def _report(
         "owner_warnings": owners.warnings,
         "not_available": summary.unavailable,
         "waiting": summary.waiting,
+        "stopped": summary.stopped,
     }
     if fmt.json_mode:
         fmt.json(payload)
@@ -521,9 +547,11 @@ def _report(
             )
         for wait in summary.waiting:
             fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+        if summary.stopped:
+            fmt.error(f"stopped: {summary.stopped}")
         if not opts.dry_run:
             fmt.info(f"State: {state.path}")
-    left = summary.unavailable or summary.waiting
+    left = summary.unavailable or summary.waiting or summary.stopped
     return EXIT_GENERIC if failed or left else EXIT_OK
 
 
@@ -549,6 +577,85 @@ def run_cli(
         release_locks()
 
 
+def _inventory_rows(
+    plan: Mapping[str, Any], plan_path: Path, to_run: list[Mapping[str, Any]]
+) -> tuple[dict[str, Mapping[str, Any]], Mapping[str, Any] | None]:
+    """Inventory rows by item id and the inventory's portal record, read only
+    when an item imports a service.
+
+    Refuses an inventory from another portal than the plan's: the plan's
+    portal receives the password, and the inventory's decides where the
+    token may go.
+    """
+    if not any(item["action"] == _plan.IMPORT_LAYERS for item in to_run):
+        return {}, None
+    inventory = _plan.load_inventory(plan_path.parent / plan["inventory"]["path"])
+    try:
+        same = portal_root(inventory["portal"]["url"], True) == portal_root(
+            plan["portal"]["url"], True
+        )
+    except ValueError:
+        same = False
+    if not same:
+        raise UsageError(
+            "the plan's portal.url doesn't match the portal of the inventory it "
+            f"names ({inventory['portal']['url']}); rebuild the plan from that inventory"
+        )
+    return {row["id"]: row for row in inventory["items"]}, inventory["portal"]
+
+
+def _portal_client(
+    opts: MigrateOptions,
+    plan: Mapping[str, Any],
+    to_run: list[Mapping[str, Any]],
+    rows: Mapping[str, Mapping[str, Any]],
+    redact: Redactor,
+) -> tuple[PortalClient, str | None] | None:
+    """A client for the plan's portal holding the run's token or password.
+
+    None when no item to import needs one; a ``UsageError`` when one does and
+    no credential was given.
+    """
+    private = sum(
+        1
+        for item in to_run
+        if item["action"] == _plan.IMPORT_LAYERS
+        and item["id"] in rows
+        and (rows[item["id"]].get("sharing") or {}).get("access") != "public"
+    )
+    try:
+        token, password = read_credentials(
+            opts.token, opts.token_stdin, opts.username, opts.password_stdin
+        )
+        if not private:
+            return None
+        if token is None and password is None:
+            raise UsageError(
+                f"{private} item(s) to import are not public: pass --token, "
+                "ARCGIS_TOKEN, --token-stdin or --username"
+            )
+        root = portal_root(
+            plan["portal"]["url"],
+            opts.allow_insecure_http,
+            label="the plan's portal.url",
+        )
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    redact.add(token)
+    redact.add(password)
+    return PortalClient(
+        root, opener=build_opener(), redact=redact, token=token
+    ), password
+
+
+def _check_hosts(hosts: list[str]) -> None:
+    for host in hosts:
+        if not host.strip() or any(c in host for c in "/:@"):
+            raise UsageError(
+                f"--trust-service-host takes a bare host name, not {host!r}"
+            )
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -557,6 +664,7 @@ def _run(
     instance: str,
 ) -> int:
     try:
+        _check_hosts(opts.trusted_hosts)
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
@@ -567,6 +675,10 @@ def _run(
             persist=not opts.dry_run,
         )
         to_run = select_items(plan, state, opts.only, opts.no_retry)
+        rows, portal_info = _inventory_rows(plan, opts.plan_path, to_run)
+        portal = (
+            None if opts.dry_run else _portal_client(opts, plan, to_run, rows, redact)
+        )
     except (_plan.PlanError, StateError, UsageError) as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
@@ -594,8 +706,26 @@ def _run(
         return _report(
             fmt, opts, state, to_run, owners, RunSummary(unavailable=unavailable)
         )
+    auth = None
+    if portal is not None:
+        client, password = portal
+        try:
+            if password is not None and opts.username:
+                client.generate_token(opts.username, password)
+        except PortalError as exc:
+            fmt.error(str(exc))
+            return EXIT_AUTH if exc.kind == "auth" else EXIT_GENERIC
+        auth = PortalAuth(client, renewable=password is not None)
+    ctx = MigrationContext(
+        geolens=geolens,
+        inventory=rows,
+        portal=auth,
+        save=state.save,
+        portal_info=portal_info,
+        trusted_hosts=frozenset(h.strip().lower() for h in opts.trusted_hosts),
+        allow_insecure_http=opts.allow_insecure_http,
+    )
     try:
-        ctx = MigrationContext(geolens=geolens, save=state.save)
         summary = run_items(ctx, plan, state, to_run, owners.by_item)
     except KeyboardInterrupt:
         fmt.error(

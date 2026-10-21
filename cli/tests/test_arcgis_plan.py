@@ -11,9 +11,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
-from geolens_cli import arcgis_inventory as inventory
 from geolens_cli import arcgis_plan as plan_mod
-from geolens_cli import arcgis_report
 from geolens_cli.main import app
 
 from .arcgis_fake import (
@@ -30,48 +28,17 @@ from .arcgis_fake import (
     D5,
     HYDRANTS,
     ORG_ID,
-    PORTAL,
     USER,
-    FakePortal,
+    inventory_report,
     item_data_path,
-    portal_routes,
 )
 
 STRANGER = "9c" * 16
 
 
-def _inventory_report(
-    overrides: dict[str, Any] | None = None, **run_kwargs: Any
-) -> dict[str, Any]:
-    portal = FakePortal(portal_routes(overrides))
-    client = inventory.PortalClient(
-        PORTAL,
-        opener=portal,
-        redact=inventory.Redactor(),
-        token="t",
-        sleep=lambda seconds: None,
-    )
-    inv = inventory.run_inventory(
-        client,
-        auth_mode="token",
-        scope="org",
-        max_items=100,
-        concurrency=1,
-        **run_kwargs,
-    )
-    return arcgis_report.build_report(
-        inv,
-        tool_version="test",
-        generated_at="2026-10-01T00:00:00Z",
-        max_items=100,
-        retirements=inventory.RETIREMENTS,
-        classes=inventory.CLASSES,
-    )
-
-
 def _plan(overrides: dict[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
     return plan_mod.build_plan(
-        _inventory_report(overrides), inventory_path="inv.json", **kwargs
+        inventory_report(overrides), inventory_path="inv.json", **kwargs
     )
 
 
@@ -233,7 +200,7 @@ def test_inventory_v1_is_refused_with_the_command_to_rerun(tmp_path):
 def inventory_file(tmp_path):
     path = tmp_path / "inv" / "arcgis-inventory.json"
     path.parent.mkdir()
-    path.write_text(json.dumps(_inventory_report()))
+    path.write_text(json.dumps(inventory_report()))
     return path
 
 
@@ -302,7 +269,7 @@ def test_cli_rejects_a_v1_inventory(runner, tmp_path):
 
 
 def test_a_partial_inventory_is_flagged_in_the_plan(runner, tmp_path):
-    report = _inventory_report()
+    report = inventory_report()
     report["complete"] = False
     path = tmp_path / "arcgis-inventory.json"
     path.write_text(json.dumps(report))
@@ -313,7 +280,7 @@ def test_a_partial_inventory_is_flagged_in_the_plan(runner, tmp_path):
 
 
 def test_a_malformed_inventory_is_a_usage_error(runner, tmp_path):
-    report = _inventory_report()
+    report = inventory_report()
     del report["items"][0]["folder"]
     path = tmp_path / "arcgis-inventory.json"
     path.write_text(json.dumps(report))
@@ -341,7 +308,7 @@ def test_an_unreadable_existing_plan_is_an_error_not_a_traceback(
     ids=["generated_at", "tags"],
 )
 def test_an_inventory_off_its_schema_is_a_usage_error(runner, tmp_path, mutate):
-    report = _inventory_report()
+    report = inventory_report()
     mutate(report)
     path = tmp_path / "arcgis-inventory.json"
     path.write_text(json.dumps(report))
@@ -361,7 +328,7 @@ def test_a_web_map_whose_data_could_not_be_read_is_export_only():
     assert entry["action"] == "export_only"
     assert "dependencies could not be read" in entry["reason"]
     assert "import_map by hand" in entry["reason"]
-    errors = plan_mod.summary(plan, _inventory_report(_unreadable_web_map()))[
+    errors = plan_mod.summary(plan, inventory_report(_unreadable_web_map()))[
         "dependency_read_errors"
     ]
     assert B1 in errors
@@ -370,7 +337,7 @@ def test_a_web_map_whose_data_could_not_be_read_is_export_only():
 
 def test_cli_warns_about_unread_dependencies(runner, tmp_path):
     path = tmp_path / "arcgis-inventory.json"
-    path.write_text(json.dumps(_inventory_report(_unreadable_web_map())))
+    path.write_text(json.dumps(inventory_report(_unreadable_web_map())))
     result = _plan_cli(runner, str(path))
     assert result.exit_code == 0, result.output
     assert "could not read" in result.output + result.stderr
@@ -378,7 +345,7 @@ def test_cli_warns_about_unread_dependencies(runner, tmp_path):
 
 
 def test_a_web_map_whose_dependencies_were_not_fetched_is_export_only():
-    report = _inventory_report()
+    report = inventory_report()
     row = next(r for r in report["items"] if r["id"] == B1)
     row["dependencies_status"] = "not_fetched"
     plan = plan_mod.build_plan(report, inventory_path="inv.json")
@@ -387,7 +354,7 @@ def test_a_web_map_whose_dependencies_were_not_fetched_is_export_only():
 
 
 def test_unread_group_sharing_is_null_in_the_plan_and_warned_about(runner, tmp_path):
-    report = _inventory_report(read_groups=False)
+    report = inventory_report(read_groups=False)
     plan = plan_mod.build_plan(report, inventory_path="inv.json")
     _validator().validate(plan)
     assert all(i["target"]["groups"] is None for i in plan["items"])

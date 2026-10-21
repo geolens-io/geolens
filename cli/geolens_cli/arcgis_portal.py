@@ -14,11 +14,14 @@ redacted when it is built.
 from __future__ import annotations
 
 import email.utils
+import getpass
 import http.client
 import json
+import os
 import re
 import socket
 import ssl
+import sys
 import threading
 import time
 import urllib.error
@@ -447,6 +450,11 @@ class PortalClient:
                 return False
             return True
 
+    def renew_token(self) -> bool:
+        """Mint a replacement for the current token from the held sign-in;
+        False when there is none or the sign-in fails."""
+        return self._renew_token(self.token)
+
     def switch_to_form_token(self) -> bool:
         """Send the token as a POST form field from now on; False if it
         already was, or there is no token."""
@@ -765,3 +773,67 @@ def sanitize_url(url: Any) -> str | None:
     # netloc rather than hostname keeps template placeholders like
     # {subDomain} intact; only the userinfo is dropped.
     return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}{parts.path}"
+
+
+def portal_root(
+    url: str, allow_insecure_http: bool, *, label: str = "--portal-url"
+) -> str:
+    """The portal's root URL (no ``/sharing/rest`` or ``/home``); ``ValueError``
+    names *label* when *url* is not an https URL without credentials."""
+    try:
+        parts = urlsplit(url.strip())
+        host = parts.hostname
+    except ValueError:
+        host = None
+        parts = None
+    if parts is None or not host:
+        raise ValueError(f"{label} must be an absolute URL")
+    if parts.scheme != "https" and not (parts.scheme == "http" and allow_insecure_http):
+        raise ValueError(
+            f"{label} must use https (http only with --allow-insecure-http)"
+        )
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError(
+            f"{label} must not carry credentials, a query string or a fragment"
+        )
+    path = parts.path.rstrip("/")
+    for suffix in ("/sharing/rest", "/home"):
+        if path.lower().endswith(suffix):
+            path = path[: -len(suffix)]
+    return f"{parts.scheme}://{parts.netloc}{path}"
+
+
+def read_credentials(
+    token: str | None, token_stdin: bool, username: str | None, password_stdin: bool
+) -> tuple[str | None, str | None]:
+    """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
+    prompt; both None for an anonymous run. ``ValueError`` on a bad mix."""
+    token = token or None
+    if token_stdin and token:
+        raise ValueError("pass the token once: --token/ARCGIS_TOKEN or --token-stdin")
+    if username and (token or token_stdin):
+        raise ValueError("use either a token or --username, not both")
+    if password_stdin and not username:
+        raise ValueError("--password-stdin needs --username")
+    if token_stdin:
+        token = sys.stdin.readline().strip()
+        if not token:
+            raise ValueError("--token-stdin read an empty line")
+    if token is not None:
+        if not TOKEN_CHARS.fullmatch(token):
+            raise ValueError(
+                "the ArcGIS token holds whitespace or non-ASCII characters, "
+                "which no ArcGIS token has"
+            )
+        return token, None
+    if not username:
+        return None, None
+    if password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+    else:
+        password = os.environ.get("ARCGIS_PASSWORD") or getpass.getpass(
+            "ArcGIS password: "
+        )
+    if not password:
+        raise ValueError("an empty password was given")
+    return None, password

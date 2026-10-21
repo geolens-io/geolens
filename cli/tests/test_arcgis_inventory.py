@@ -2373,7 +2373,7 @@ def test_enterprise_foreign_hosts_are_not_called_internal(url, expected):
         "kind": "enterprise",
         "org_id": None,
     }
-    assert inventory._external_by_url(url, portal) is expected
+    assert inventory.external_by_url(url, portal) is expected
 
 
 def test_credentials_in_object_keys_are_scrubbed():

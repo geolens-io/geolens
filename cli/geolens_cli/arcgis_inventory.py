@@ -9,8 +9,6 @@ one run and are never written anywhere.
 
 from __future__ import annotations
 
-import getpass
-import os
 import re
 import sys
 import threading
@@ -35,11 +33,12 @@ from ._sdk_helpers import (
     EXIT_USAGE,
 )
 from .arcgis_portal import (
-    TOKEN_CHARS,
     PortalClient,
     PortalError,
     Redactor,
     build_opener,
+    portal_root,
+    read_credentials,
     redact_json,
     sanitize_url,
 )
@@ -1306,7 +1305,7 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
             inv.abort = inv.abort or out.auth
 
 
-def _external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
+def external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
     """Whether a service URL lies outside the organization's own services."""
     if not url:
         return None
@@ -1315,13 +1314,14 @@ def _external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
     if host == (urlsplit(portal["url"]).hostname or "").lower():
         return False
     if portal["kind"] == "online":
-        path = parts.path.lower()
-        org = (portal["org_id"] or "").lower()
+        org = portal["org_id"] or ""
         if not org or not _ARCGIS_ONLINE_HOSTED.fullmatch(host):
             return True if org else None
-        return not (
-            path.startswith(f"/{org}/arcgis/rest/services/")
-            or path.startswith(f"/tiles/{org}/arcgis/rest/services/")
+        # Organization ids are case-sensitive; the rest of the path isn't.
+        return not any(
+            parts.path.startswith(prefix)
+            and parts.path[len(prefix) :].lower().startswith("arcgis/rest/services/")
+            for prefix in (f"/{org}/", f"/tiles/{org}/")
         )
     # A federated server sits on any host and publishes in any folder, and the
     # inventory doesn't know the federation, so a host other than the portal's
@@ -1379,7 +1379,7 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
         if org and own_org:
             dep["external"] = org != own_org
         else:
-            dep["external"] = _external_by_url(dep["to_url"], inv.portal)
+            dep["external"] = external_by_url(dep["to_url"], inv.portal)
 
 
 def _redact_dependencies(inv: Inventory, redact: Redactor) -> None:
@@ -1531,57 +1531,22 @@ _EXIT_BY_KIND = {
 
 def _portal_root(url: str, allow_insecure_http: bool) -> str:
     try:
-        parts = urlsplit(url.strip())
-        host = parts.hostname
-    except ValueError:
-        host = None
-        parts = None
-    if parts is None or not host:
-        raise _UsageError("--portal-url must be an absolute URL")
-    if parts.scheme != "https" and not (parts.scheme == "http" and allow_insecure_http):
-        raise _UsageError(
-            "--portal-url must use https (http only with --allow-insecure-http)"
-        )
-    if parts.username or parts.password or parts.query or parts.fragment:
-        raise _UsageError(
-            "--portal-url must not carry credentials, a query string or a fragment"
-        )
-    path = parts.path.rstrip("/")
-    for suffix in ("/sharing/rest", "/home"):
-        if path.lower().endswith(suffix):
-            path = path[: -len(suffix)]
-    return f"{parts.scheme}://{parts.netloc}{path}"
+        return portal_root(url, allow_insecure_http)
+    except ValueError as exc:
+        raise _UsageError(str(exc)) from None
 
 
 def _resolve_credentials(opts: InventoryOptions) -> tuple[str, str | None, str | None]:
     """(auth mode, token, password)."""
-    token = opts.token or None
-    if opts.token_stdin and token:
-        raise _UsageError("pass the token once: --token/ARCGIS_TOKEN or --token-stdin")
-    if opts.username and (token or opts.token_stdin):
-        raise _UsageError("use either a token or --username, not both")
-    if opts.password_stdin and not opts.username:
-        raise _UsageError("--password-stdin needs --username")
-    if opts.token_stdin:
-        token = sys.stdin.readline().strip()
-        if not token:
-            raise _UsageError("--token-stdin read an empty line")
+    try:
+        token, password = read_credentials(
+            opts.token, opts.token_stdin, opts.username, opts.password_stdin
+        )
+    except ValueError as exc:
+        raise _UsageError(str(exc)) from None
     if token is not None:
-        if not TOKEN_CHARS.fullmatch(token):
-            raise _UsageError(
-                "the ArcGIS token holds whitespace or non-ASCII characters, "
-                "which no ArcGIS token has"
-            )
         return "token", token, None
     if opts.username:
-        if opts.password_stdin:
-            password = sys.stdin.readline().rstrip("\r\n")
-        else:
-            password = os.environ.get("ARCGIS_PASSWORD") or getpass.getpass(
-                "ArcGIS password: "
-            )
-        if not password:
-            raise _UsageError("an empty password was given")
         return "generateToken", None, password
     if opts.scope == "user":
         raise _UsageError(
