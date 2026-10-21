@@ -66,7 +66,7 @@ function createMockMap() {
 }
 
 function makeVectorToken(overrides: Partial<VectorTileToken> = {}): VectorTileToken {
-  return { kind: 'vector', sig: 'abc', exp: 9999999999, scope: 'test', expires_in: 3600, ...overrides };
+  return { kind: 'vector', sig: 'abc', exp: 9999999999, scope: 'test', expires_in: 3600, tile_url_template: '', ...overrides };
 }
 
 function makeLayer(overrides: Partial<SyncLayerInput> = {}): SyncLayerInput {

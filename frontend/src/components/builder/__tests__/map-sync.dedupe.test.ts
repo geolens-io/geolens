@@ -59,7 +59,7 @@ function makeVectorToken(
     sig: 'abc',
     exp: 9999999999,
     scope: 'test',
-    expires_in: 3600,
+    expires_in: 3600, tile_url_template: '',
     ...overrides,
   };
 }

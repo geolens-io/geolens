@@ -48,6 +48,7 @@ function batchResponse(expOffsetSeconds = 900) {
         exp: Math.floor(Date.now() / 1000) + expOffsetSeconds,
         scope: 'dataset-1',
         expires_in: TTL_SECONDS,
+        tile_url_template: '',
       },
     },
   };

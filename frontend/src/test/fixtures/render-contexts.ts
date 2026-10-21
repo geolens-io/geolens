@@ -25,7 +25,7 @@ export function fixtureToken(layer: MapLayerResponse): TileToken {
       format: 'png',
     } satisfies RasterTileToken;
   }
-  return { kind: 'vector', sig, exp: 2000000000, scope, expires_in: 900 } satisfies VectorTileToken;
+  return { kind: 'vector', sig, exp: 2000000000, scope, expires_in: 900, tile_url_template: '' } satisfies VectorTileToken;
 }
 
 /** A token for every shared fixture's dataset. */

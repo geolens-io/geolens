@@ -134,7 +134,7 @@ vi.mock('@vis.gl/react-maplibre', async () => {
 const DATASET_ID = 'ds-uuid-755';
 
 function vectorToken(expSeconds: number): VectorTileToken {
-  return { kind: 'vector', sig: 'sig-755', exp: expSeconds, scope: 'parcels', expires_in: 900 };
+  return { kind: 'vector', sig: 'sig-755', exp: expSeconds, scope: 'parcels', expires_in: 900, tile_url_template: '' };
 }
 
 function makeVectorLayer(): MapLayerResponse {

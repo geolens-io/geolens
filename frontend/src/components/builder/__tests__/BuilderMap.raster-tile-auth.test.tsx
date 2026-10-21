@@ -234,7 +234,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     tileTokenState.tokens = [
       {
-        data: { kind: 'vector', sig: 'sig-890', exp: Math.floor(Date.now() / 1000) + 900, scope: 'elevation', expires_in: 900 },
+        data: { kind: 'vector', sig: 'sig-890', exp: Math.floor(Date.now() / 1000) + 900, scope: 'elevation', expires_in: 900, tile_url_template: '' },
         isLoading: false,
         isError: false,
       },

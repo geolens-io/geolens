@@ -88,7 +88,7 @@ const MIRRORS: MirrorShape[] = [
   {
     schema: 'VectorTileToken',
     source: 'tiles.ts VectorTileToken',
-    required: ['kind', 'sig', 'exp', 'scope', 'expires_in'],
+    required: ['kind', 'sig', 'exp', 'scope', 'expires_in', 'tile_url_template'],
     optional: [],
   },
   {

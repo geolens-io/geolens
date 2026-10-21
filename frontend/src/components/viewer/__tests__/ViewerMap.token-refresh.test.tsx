@@ -149,7 +149,7 @@ vi.mock('@/components/map/MapCoordReadout', () => ({ MapCoordReadout: () => null
 vi.mock('@/lib/builder/basemap-style-mutation', () => ({ applySublayerOverrides: vi.fn() }));
 
 function makeVectorToken(sig: string): TileToken {
-  return { kind: 'vector', sig, exp: 9999999999, scope: 'test', expires_in: 3600 };
+  return { kind: 'vector', sig, exp: 9999999999, scope: 'test', expires_in: 3600, tile_url_template: '' };
 }
 
 // Non-cluster vector layer: dedupes onto viewer-source-data-parcels.

@@ -115,7 +115,7 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
 
 describe('useMapLayers vector source', () => {
   function vectorToken(sig: string): VectorTileToken {
-    return { kind: 'vector', sig, exp: 2000000000, scope: 'scope-1', expires_in: 900 };
+    return { kind: 'vector', sig, exp: 2000000000, scope: 'scope-1', expires_in: 900, tile_url_template: '' };
   }
 
   it('requests tiles from z0 and overzooms z14 tiles past z14', () => {

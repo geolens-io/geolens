@@ -6,6 +6,7 @@ export type VectorTileToken = {
   exp: number;
   scope: string;
   expires_in: number;
+  tile_url_template: string;
 };
 
 /** An exact mirror of the API's RasterTileToken. Every field is required,

@@ -141,7 +141,7 @@ describe('useTileAuthRecovery', () => {
 // `setTiles` reload would be dropped by the paused TileManager.
 
 function vectorToken(expSeconds: number): TileToken {
-  return { kind: 'vector', sig: 's', exp: expSeconds, scope: 'x', expires_in: 900 };
+  return { kind: 'vector', sig: 's', exp: expSeconds, scope: 'x', expires_in: 900, tile_url_template: '' };
 }
 
 const rasterToken: TileToken = {

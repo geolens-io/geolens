@@ -69,7 +69,7 @@ describe('useTileToken', () => {
 });
 
 describe('useTileTokens', () => {
-  const vec = (sig: string) => ({ kind: 'vector', sig, exp: 1, scope: 's', expires_in: 300 }) as const;
+  const vec = (sig: string) => ({ kind: 'vector', sig, exp: 1, scope: 's', expires_in: 300, tile_url_template: '' }) as const;
 
   it('keeps existing tokens usable while a changed id set loads', async () => {
     const { getTileTokensBatch } = await import('@/api/tiles');
