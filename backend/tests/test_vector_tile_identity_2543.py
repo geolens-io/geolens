@@ -57,7 +57,14 @@ async def people(client: AsyncClient, admin_auth_header: dict):
 
 
 @pytest.fixture
-def mint_key(client: AsyncClient, admin_auth_header: dict):
+async def mint_key(client: AsyncClient, admin_auth_header: dict, test_db_session):
+    """Mint keys through the API and remove them afterwards.
+
+    An active read_only key left in the database makes the 0032 downgrade refuse,
+    which fails any later migration test in the same database.
+    """
+    minted: list[str] = []
+
     async def mint(user_id: uuid.UUID, scope: str = "full") -> tuple[str, str]:
         resp = await client.post(
             "/admin/api-keys/",
@@ -66,9 +73,16 @@ def mint_key(client: AsyncClient, admin_auth_header: dict):
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
+        minted.append(body["id"])
         return body["key"], body["id"]
 
-    return mint
+    yield mint
+    await test_db_session.rollback()
+    await test_db_session.execute(
+        text("DELETE FROM catalog.api_keys WHERE id = ANY(CAST(:ids AS uuid[]))"),
+        {"ids": minted},
+    )
+    await test_db_session.commit()
 
 
 @pytest.fixture
