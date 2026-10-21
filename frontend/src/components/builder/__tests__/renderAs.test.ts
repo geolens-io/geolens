@@ -222,6 +222,18 @@ describe('renderAs view model', () => {
     expect(JSON.stringify(getRenderAsOptions(layer({ is_3d: true })))).not.toContain('is_3d');
   });
 
+  it('reapplying 3D to a legacy layer keeps its _height_column as the builder height column', () => {
+    const legacy = layer({
+      dataset_geometry_type: 'POLYGON',
+      paint: { 'fill-color': '#336699', _height_column: 'height_m' },
+    });
+
+    const mutation = buildRenderAsPatch(legacy, 'extrusion-3d');
+
+    expect(mutation?.patch.style_config?.builder?.heightColumn).toBe('height_m');
+    expect(mutation?.patch.paint).not.toHaveProperty('_height_column');
+  });
+
   it('leaving 3D drops the legacy _height_column paint key so the layer is no longer 3D', () => {
     const legacy = layer({
       dataset_geometry_type: 'POLYGON',
