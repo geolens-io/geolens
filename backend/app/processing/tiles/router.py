@@ -1587,7 +1587,9 @@ def _build_tile_token_for_dataset(
             dataset.tile_cache_version,
             dataset.publication_version,
             {"sig": sig, "exp": exp, "scope": scope},
-        ),
+        )
+        if dataset.geometry_type is not None
+        else None,
     )
 
 

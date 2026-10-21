@@ -914,3 +914,25 @@ async def test_the_single_feature_route_refuses_another_crs_too(
     url = f"/collections/{public_dataset.id}/items/{feature_id}"
     assert (await client.get(url, params={"crs": "EPSG:3857"})).status_code == 400
     assert (await client.get(url, params={"crs": "[OGC:CRS84]"})).status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_a_geometry_less_dataset_gets_a_token_without_a_tile_template(
+    client: AsyncClient, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    try:
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET geometry_type = NULL WHERE id = :id"),
+            {"id": dataset.id},
+        )
+        await test_db_session.commit()
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["tile_url_template"] is None
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)

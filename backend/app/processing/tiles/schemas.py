@@ -10,9 +10,10 @@ class VectorTileToken(BaseModel):
     exp: int
     scope: str
     expires_in: int
-    tile_url_template: str = Field(
+    tile_url_template: str | None = Field(
         description="Signed vector tile URL template, relative to the API root, "
-        "with `{z}`, `{x}` and `{y}` left for the client to fill in."
+        "with `{z}`, `{x}` and `{y}` left for the client to fill in. Null for "
+        "a dataset with no geometry, which has no tiles to request."
     )
 
 

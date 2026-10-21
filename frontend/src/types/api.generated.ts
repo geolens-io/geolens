@@ -15240,9 +15240,9 @@ export interface components {
             expires_in: number;
             /**
              * Tile Url Template
-             * @description Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.
+             * @description Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in. Null for a dataset with no geometry, which has no tiles to request.
              */
-            tile_url_template: string;
+            tile_url_template: string | null;
         };
         /** VerifyEmailRequest */
         VerifyEmailRequest: {

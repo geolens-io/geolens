@@ -21148,9 +21148,16 @@
             "type": "integer"
           },
           "tile_url_template": {
-            "description": "Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.",
-            "title": "Tile Url Template",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in. Null for a dataset with no geometry, which has no tiles to request.",
+            "title": "Tile Url Template"
           }
         },
         "required": [

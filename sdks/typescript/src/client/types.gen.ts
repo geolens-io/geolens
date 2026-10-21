@@ -12432,9 +12432,9 @@ export type VectorTileToken = {
     /**
      * Tile Url Template
      *
-     * Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in.
+     * Signed vector tile URL template, relative to the API root, with `{z}`, `{x}` and `{y}` left for the client to fill in. Null for a dataset with no geometry, which has no tiles to request.
      */
-    tile_url_template: string;
+    tile_url_template: string | null;
 };
 
 /**
