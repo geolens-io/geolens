@@ -208,7 +208,6 @@ async def test_me_permissions_delegates_each_capability_to_extension():
     """Identity-specific overlay grants are reflected in the permission summary."""
     import app.platform.extensions as ext_mod
     from app.modules.auth.router import me_permissions
-    from app.modules.auth.service import AuthService
 
     observed = []
 
@@ -230,7 +229,10 @@ async def test_me_permissions_delegates_each_capability_to_extension():
     user = SimpleNamespace(id=uuid4())
     matrix = {"admin": {"manage_tenants": False}}
     with (
-        patch.object(AuthService, "get_user_roles", AsyncMock(return_value={"admin"})),
+        patch(
+            "app.modules.auth.permissions.get_user_roles",
+            AsyncMock(return_value={"admin"}),
+        ),
         patch(
             "app.modules.auth.permissions.get_effective_permissions",
             AsyncMock(return_value=matrix),
