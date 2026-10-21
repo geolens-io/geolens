@@ -15,6 +15,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from app.processing.ai.chat_constants import (
     TOOL_RESULT_PROTOCOL,
+    ramp_prompt_lines,
     sanitize_column_info,
     sanitize_dataset_value,
     sanitize_sample_values,
@@ -103,9 +104,7 @@ When a dataset has a column that is well-suited for thematic visualization, use 
   Use an "interpolate" expression: ["interpolate", ["linear"], ["get", "column_name"], min, "#startColor", max, "#endColor"]
 
 Available color ramps (use these hex values):
-- YlOrRd: #ffffcc, #fed976, #fd8d3c, #e31a1c, #800026
-- Viridis: #440154, #3f4a8a, #26838f, #6cce5a, #fee825
-- Blues: #f7fbff, #c6dbef, #6baed6, #2171b5, #08306b
+__RAMP_LIST__
 
 Apply data-driven styling ONLY if:
 - The user explicitly asks for a thematic, choropleth, or "color by X" map, OR
@@ -169,7 +168,7 @@ If no matching datasets exist after trying multiple search strategies, output an
 - If you are unsure which dataset best matches, explain your reasoning in the explanation field.
 - If no datasets match, suggest alternative search terms the user could try in the error message.
 
-"""
+""".replace("__RAMP_LIST__", ramp_prompt_lines(("YlOrRd", "Viridis", "Blues")))
 
 _DEFAULT_BASEMAP_INSTRUCTION = (
     "Choose from: positron (light, default), dark_matter (dark), voyager (colorful)."

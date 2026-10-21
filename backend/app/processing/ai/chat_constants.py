@@ -290,6 +290,10 @@ def _sample_stops(stops: tuple[str, ...], t: float) -> str:
     )
 
 
+def ramp_prompt_lines(names: tuple[str, ...]) -> str:
+    return "\n".join(f"- {n}: {', '.join(_get_ramp_colors(n, 5))}" for n in names)
+
+
 def is_known_ramp(ramp: str) -> bool:
     return ramp.lower() in _STOPS_BY_LOWER_NAME
 

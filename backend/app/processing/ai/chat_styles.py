@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.csv_safety import numeric_column_names
 from app.processing.ai.chat_constants import _get_ramp_colors
 from app.processing.ai.chat_style_guards import (
-    annotate_data_driven_result,
+    finish_data_driven_result,
     outline_only_error,
 )
 from app.processing.ai.schemas import ChatMapLayer
@@ -39,7 +39,6 @@ def _get_color_property(
     return "circle-color"
 
 
-@annotate_data_driven_result
 async def _build_data_driven_style(
     tool_input: dict,
     session: AsyncSession,
@@ -97,7 +96,7 @@ async def _build_data_driven_style(
     allowed_tables = {layer.dataset_table_name for layer in layers}
 
     if mode == "categorical":
-        return await _build_categorical_style(
+        result = await _build_categorical_style(
             session,
             table_name,
             column,
@@ -107,18 +106,20 @@ async def _build_data_driven_style(
             allowed_tables=allowed_tables,
             port=port,
         )
-    return await _build_graduated_style(
-        session,
-        table_name,
-        column,
-        ramp,
-        method,
-        class_count,
-        color_prop,
-        layer_id,
-        allowed_tables=allowed_tables,
-        port=port,
-    )
+    else:
+        result = await _build_graduated_style(
+            session,
+            table_name,
+            column,
+            ramp,
+            method,
+            class_count,
+            color_prop,
+            layer_id,
+            allowed_tables=allowed_tables,
+            port=port,
+        )
+    return finish_data_driven_result(result, layers)
 
 
 async def _build_categorical_style(

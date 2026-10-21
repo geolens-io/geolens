@@ -1,13 +1,18 @@
 """Checks that keep Ask AI from reporting styles the builder cannot show."""
 
-import functools
-
 from app.processing.ai.chat_constants import is_known_ramp
 from app.processing.ai.schemas import ChatMapLayer, validate_paint_with_feedback
 
 
+_OUTLINE_COLOR_KEYS = ("_outline-color", "fill-outline-color")
+
+
+def _builder(layer: ChatMapLayer) -> dict:
+    return (layer.style_config or {}).get("builder") or {}
+
+
 def polygon_fill_disabled(layer: ChatMapLayer) -> bool:
-    builder = (layer.style_config or {}).get("builder") or {}
+    builder = _builder(layer)
     flag = builder.get("fillDisabled", (layer.paint or {}).get("_fill-disabled"))
     return flag is True or flag == "true"
 
@@ -21,26 +26,20 @@ def outline_only_error(layer: ChatMapLayer, color_prop: str) -> str | None:
     return None
 
 
-def annotate_data_driven_result(build):
-    """Decorate the data-driven style builder: add what the model must tell the user,
-    and record the paint on the layer for later edits in the turn."""
+def finish_data_driven_result(result: dict, layers: list[ChatMapLayer]) -> dict:
+    """Add what the model must tell the user about a built style.
 
-    @functools.wraps(build)
-    async def wrapper(tool_input, session, layers, **kwargs):
-        result = await build(tool_input, session, layers, **kwargs)
-        if "error" in result:
-            return result
-        paint = result.get("paint") or {}
-        target = next((lyr for lyr in layers if lyr.id == result.get("layer_id")), None)
-        if target is not None:
-            target.paint = {**(target.paint or {}), **paint}
-        ramp = tool_input.get("ramp") or (
-            "Set2" if tool_input.get("mode") == "categorical" else "YlOrRd"
-        )
-        notes = _data_driven_notes(ramp, "fill-color" in paint)
-        return {**result, "notes": notes} if notes else result
-
-    return wrapper
+    The paint is also recorded on the layer: later edits in the same turn
+    are checked against it, before the client has applied anything.
+    """
+    if "error" in result:
+        return result
+    paint = result.get("paint") or {}
+    target = next((lyr for lyr in layers if lyr.id == result.get("layer_id")), None)
+    if target is not None:
+        target.paint = {**(target.paint or {}), **paint}
+    notes = _data_driven_notes(result["style_config"]["ramp"], "fill-color" in paint)
+    return {**result, "notes": notes} if notes else result
 
 
 def _data_driven_notes(ramp: str, on_fill: bool) -> list[str]:
@@ -58,6 +57,11 @@ def _data_driven_notes(ramp: str, on_fill: bool) -> list[str]:
     return notes
 
 
+def _drop(paint: dict, warnings: list[str], key: str, reason: str) -> None:
+    del paint[key]
+    warnings.append(f"Removed '{key}': {reason}")
+
+
 def validate_paint_keeping_fill(
     paint: dict, layer: ChatMapLayer, render_mode: str | None
 ) -> tuple[dict, list[str]]:
@@ -68,33 +72,30 @@ def validate_paint_keeping_fill(
     kept = dict(validated or {})
     for key in _OUTLINE_COLOR_KEYS:
         if isinstance(kept.get(key), list):
-            del kept[key]
-            warnings.append(
-                f"Removed '{key}': outlines take one colour, not a column's colours."
+            _drop(
+                kept, warnings, key, "outlines take one colour, not a column's colours."
             )
     if "fill-opacity" in kept and _is_extrusion(layer):
-        del kept["fill-opacity"]
-        warnings.append(
-            "Removed 'fill-opacity': a 3D layer draws with its extrusion opacity. "
-            "Use set_opacity to change it."
+        _drop(
+            kept,
+            warnings,
+            "fill-opacity",
+            "a 3D layer draws with its extrusion opacity. Use set_opacity to change it.",
         )
-    hidden = _data_driven_fill_hidden(kept, layer)
-    if hidden:
-        del kept["fill-opacity"]
-        warnings.append(
-            "Removed 'fill-opacity': 0 would hide the colours this layer's fill gets "
-            "from a column. For outlines only, use set_render_as stroke instead."
+    if _data_driven_fill_hidden(kept, layer):
+        _drop(
+            kept,
+            warnings,
+            "fill-opacity",
+            "0 would hide the colours this layer's fill gets from a column. "
+            "For outlines only, use set_render_as stroke instead.",
         )
     return kept, warnings
 
 
-_OUTLINE_COLOR_KEYS = ("_outline-color", "fill-outline-color")
-
-
 def _is_extrusion(layer: ChatMapLayer) -> bool:
-    builder = (layer.style_config or {}).get("builder") or {}
     return bool(
-        builder.get("heightColumn") or (layer.paint or {}).get("_height_column")
+        _builder(layer).get("heightColumn") or (layer.paint or {}).get("_height_column")
     )
 
 
