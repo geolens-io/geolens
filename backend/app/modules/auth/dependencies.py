@@ -132,10 +132,17 @@ def _route_template(request: Request) -> str:
     Never falls back to ``request.url.path``: concrete paths can contain UUIDs,
     tokens, or other tenant-controlled identifiers, and this value is both
     logged and compared against an exemption list.
+
+    A route from a nested router carries only its own path on
+    ``scope["route"]``; the route context FastAPI matched has the full one.
     """
     scope = getattr(request, "scope", None)
-    route = scope.get("route") if isinstance(scope, dict) else None
-    route_template = getattr(route, "path", None)
+    if not isinstance(scope, dict):
+        return "<unmatched-route>"
+    context = (scope.get("fastapi") or {}).get("effective_route_context")
+    route_template = getattr(context, "path", None)
+    if route_template is None:
+        route_template = getattr(scope.get("route"), "path", None)
     if not isinstance(route_template, str) or not route_template.startswith("/"):
         return "<unmatched-route>"
     return route_template
