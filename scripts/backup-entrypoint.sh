@@ -260,8 +260,17 @@ run_backup() {
             cycle_failed=1
         fi
     fi
+    # Persisted without ids so that later empty cycles keep the same dump, and
+    # the first cycle with catalog records takes over.
     if [ -z "$good_ts" ] && [ -n "$prior_ts" ]; then
-        log "No dump is marked yet; retention also keeps ${prior_ts} until a cycle can mark one"
+        if printf '%s\n' "$prior_ts" > "${LAST_GOOD_FILE}.tmp" \
+            && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
+            log "No dump was marked yet; marking ${prior_ts}, the newest set from before this cycle"
+        else
+            rm -f "${LAST_GOOD_FILE}.tmp"
+            log "ERROR: could not mark ${prior_ts} as the dump retention keeps — this cycle will be reported as failed"
+            cycle_failed=1
+        fi
         good_ts="$prior_ts"
     fi
 
