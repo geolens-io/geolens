@@ -169,6 +169,10 @@ def long_request_timeout(
 #:   (backend/app/platform/sandbox/executor.py). The count queries degrade to
 #:   ``None`` rather than failing, so a valid preview can take ~30s, right at
 #:   ``DEFAULT_HTTP_TIMEOUT_SECONDS``.
+#: - ``service_probe`` / ``service_preview`` (``arcgis migrate``): the ArcGIS
+#:   probe reads the service document for up to 30 s and then enriches feature
+#:   counts under its own 30 s deadline; the preview reads the layer's metadata
+#:   and sample rows, or runs ogrinfo, before it responds.
 #:
 #: Not registered: commit and refresh trigger return 202 and queue; the CLI
 #: calls no ``/services`` connector, file-download or backfill endpoint; VRT/COG
@@ -194,6 +198,14 @@ LONG_RUNNING_SDK_FUNCTIONS: dict[str, tuple[str, str]] = {
     "analysis_preview": (
         "geolens.api.datasets_analysis."
         "analysis_preview_endpoint_datasets_dataset_id_analysis_preview_post",
+        "sync_detailed",
+    ),
+    "service_probe": (
+        "geolens.api.datasets.probe_service_url_services_probe_post",
+        "sync_detailed",
+    ),
+    "service_preview": (
+        "geolens.api.datasets.preview_service_layer_services_preview_post",
         "sync_detailed",
     ),
 }

@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
-from ._sdk_helpers import PollDeadlineExceeded, poll_until
+from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
 from .arcgis_migrate_session import (
     GeoLensError,
@@ -235,7 +235,8 @@ def _import_layer(
         else None,
     )
     try:
-        previewed = _send(ctx, row, probe.url, preview.sync_detailed, body=request)
+        with long_request_timeout(ctx.geolens.client):
+            previewed = _send(ctx, row, probe.url, preview.sync_detailed, body=request)
     except GeoLensError as exc:
         existing = _existing_dataset(exc)
         if existing is None:
@@ -277,13 +278,14 @@ def import_layers(
 
     row = _row(ctx, item)
     try:
-        probe = _send(
-            ctx,
-            row,
-            row["url"],
-            probe_api.sync_detailed,
-            body=ProbeRequest(url=row["url"]),
-        )
+        with long_request_timeout(ctx.geolens.client):
+            probe = _send(
+                ctx,
+                row,
+                row["url"],
+                probe_api.sync_detailed,
+                body=ProbeRequest(url=row["url"]),
+            )
     except GeoLensError as exc:
         raise ItemFailed(f"probe failed, {exc}") from None
     layers = list(probe.layers)
