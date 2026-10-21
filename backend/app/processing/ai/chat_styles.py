@@ -35,6 +35,12 @@ def _get_color_property(
     return "circle-color"
 
 
+def _polygon_fill_disabled(layer: ChatMapLayer) -> bool:
+    builder = (layer.style_config or {}).get("builder") or {}
+    flag = builder.get("fillDisabled", (layer.paint or {}).get("_fill-disabled"))
+    return flag is True or flag == "true"
+
+
 async def _build_data_driven_style(
     tool_input: dict,
     session: AsyncSession,
@@ -73,6 +79,15 @@ async def _build_data_driven_style(
             "colour them. Switch the layer to point first to colour it by a column."
         }
 
+    color_prop = _get_color_property(
+        target_layer.geometry_type, layer_type=target_layer.layer_type
+    )
+    if color_prop == "fill-color" and _polygon_fill_disabled(target_layer):
+        return {
+            "error": "This polygon layer is outline only, so a fill colour would "
+            "not show. Switch it to fill or fill-stroke with set_render_as first."
+        }
+
     table_name = target_layer.dataset_table_name
 
     if target_layer.column_info:
@@ -81,10 +96,6 @@ async def _build_data_driven_style(
             return {
                 "error": f"Column '{column}' not found in layer. Available columns: {', '.join(sorted(col_names)[:10])}"
             }
-
-    color_prop = _get_color_property(
-        target_layer.geometry_type, layer_type=target_layer.layer_type
-    )
 
     # Defense in depth: queries stay within the validated layer set.
     allowed_tables = {layer.dataset_table_name for layer in layers}
@@ -326,6 +337,11 @@ def apply_render_as(tool_input: dict, layers: list[ChatMapLayer]) -> dict:
                 "error": f"'{height_column}' is not a numeric column on this layer."
             }
     style = dict(target.style_config or {})
+    if family == "polygon":
+        builder = dict(style.get("builder") or {})
+        builder["fillDisabled"] = render_as == "stroke"
+        builder["strokeDisabled"] = render_as == "fill"
+        style["builder"] = builder
     if render_as in _RENDER_AS_STORED_AS_RENDER_MODE:
         style["render_mode"] = render_as
     else:

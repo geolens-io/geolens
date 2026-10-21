@@ -233,15 +233,6 @@ function validateChatPaint(
     for (const key of CHAT_PRESERVED_FILL_OUTLINE_KEYS) {
       if (rawPaint[key] != null) filtered[key] = rawPaint[key];
     }
-    // Keep fill-extrusion-* on the fill branch: the extrusion companion layer
-    // reads them from layer.paint and the backend keeps them for polygons.
-    // filterPaintForLayerType still excludes them from the MapLibre fill layer
-    // at apply time.
-    for (const [key, value] of Object.entries(rawPaint)) {
-      if (key.startsWith('fill-extrusion-') && value != null) {
-        filtered[key] = value;
-      }
-    }
   }
   return clampPaintBounds(filtered);
 }

@@ -186,3 +186,66 @@ async def test_extrusion_by_a_text_column_is_replaced_with_a_numeric_one():
 def test_view_only_callers_cannot_switch_render_type():
     assert "set_render_as" in {t["name"] for t in select_chat_tools(can_edit=True)}
     assert "set_render_as" not in {t["name"] for t in select_chat_tools(can_edit=False)}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["categorical", "graduated"])
+async def test_data_driven_fill_colour_on_an_outline_only_polygon_is_refused(mode):
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"fillDisabled": True, "strokeDisabled": False}},
+        )
+    ]
+    style_input = {"layer_id": "layer-1", "mode": mode, "column": "height_m"}
+
+    result = await _run("set_data_driven_style", style_input, layers)
+
+    assert "outline only" in result["error"]
+    assert _collect_chat_action("set_data_driven_style", style_input, result) is None
+
+
+@pytest.mark.anyio
+async def test_switching_to_outline_only_in_a_turn_blocks_a_fill_colour_after_it():
+    layers = [_layer(geometry_type="Polygon")]
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "stroke"}, layers)
+
+    style_input = {"layer_id": "layer-1", "mode": "graduated", "column": "height_m"}
+    result = await _run("set_data_driven_style", style_input, layers)
+
+    assert "outline only" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_switching_from_outline_only_to_fill_lifts_the_block():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"fillDisabled": True, "strokeDisabled": False}},
+        )
+    ]
+    await _run("set_render_as", {"layer_id": "layer-1", "render_as": "fill"}, layers)
+
+    builder = layers[0].style_config["builder"]
+    assert builder["fillDisabled"] is False
+    assert builder["strokeDisabled"] is True
+
+
+@pytest.mark.anyio
+async def test_extrusion_paint_the_3d_layer_never_reads_is_dropped_with_a_hint():
+    layers = [
+        _layer(
+            geometry_type="Polygon",
+            style_config={"builder": {"heightColumn": "height_m"}},
+        )
+    ]
+    style_input = {
+        "layer_id": "layer-1",
+        "paint": {"fill-extrusion-opacity": 0.5, "fill-color": "#dc2626"},
+    }
+
+    result = await _run("set_style", style_input, layers)
+
+    assert result["paint"] == {"fill-color": "#dc2626"}
+    assert "fill-color" in result["warnings"][0]
+    assert "style editor" in result["warnings"][0]

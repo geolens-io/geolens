@@ -58,16 +58,6 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
         "heatmap-color",
         "heatmap-opacity",
     },
-    "fill-extrusion": {
-        "fill-extrusion-color",
-        "fill-extrusion-opacity",
-        "fill-extrusion-height",
-        "fill-extrusion-base",
-        "fill-extrusion-vertical-gradient",
-        "fill-extrusion-translate",
-        "fill-extrusion-translate-anchor",
-        "fill-extrusion-pattern",
-    },
 }
 
 _COLOR_PROPS = {
@@ -78,7 +68,6 @@ _COLOR_PROPS = {
     "circle-color",
     "circle-stroke-color",
     "heatmap-color",
-    "fill-extrusion-color",
 }
 
 
@@ -111,9 +100,6 @@ _PAINT_BOUNDS: dict[str, tuple[float, float]] = {
     "heatmap-weight": (0.0, 10.0),
     "heatmap-intensity": (0.0, 10.0),
     "heatmap-opacity": (0.0, 1.0),
-    "fill-extrusion-opacity": (0.0, 1.0),
-    "fill-extrusion-height": (0.0, 10000.0),
-    "fill-extrusion-base": (0.0, 10000.0),
 }
 
 
@@ -182,10 +168,7 @@ def _valid_paint_props_for_geometry(
     layer_type = _paint_layer_type_for_geometry(geometry_type)
     if not layer_type:
         return None, set()
-    valid_props = _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
-    if layer_type == "fill":
-        valid_props = valid_props | _VALID_PAINT_PROPS["fill-extrusion"]
-    return layer_type, valid_props
+    return layer_type, _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
 
 
 def validate_paint_for_geometry(
@@ -200,6 +183,18 @@ def validate_paint_for_geometry(
     for msg in warnings:
         logger.warning("paint_validation", message=msg, geometry_type=geometry_type)
     return cleaned
+
+
+def _removed_property_warning(key: str, layer_type: str) -> str:
+    message = f"Removed '{key}': not valid for {layer_type} layers"
+    if key.startswith("fill-extrusion-"):
+        # The 3D companion takes its colour from fill-color; height and opacity
+        # live in the builder config, which paint edits cannot reach.
+        message += (
+            ". A 3D polygon layer is coloured with fill-color; its height and"
+            " opacity are set in the style editor"
+        )
+    return message
 
 
 def validate_paint_with_feedback(
@@ -226,7 +221,7 @@ def validate_paint_with_feedback(
     warnings: list[str] = []
     for key, value in paint.items():
         if key not in valid_props:
-            warnings.append(f"Removed '{key}': not valid for {layer_type} layers")
+            warnings.append(_removed_property_warning(key, layer_type))
             continue
         if key in _COLOR_PROPS and not _is_valid_color(value):
             warnings.append(f"Removed '{key}': invalid color value")
@@ -267,7 +262,7 @@ def validate_paint_property_names_with_feedback(
             warnings.append("Removed non-string paint clear entry")
             continue
         if prop not in valid_props:
-            warnings.append(f"Removed '{prop}': not valid for {layer_type} layers")
+            warnings.append(_removed_property_warning(prop, layer_type))
             continue
         if prop not in cleaned:
             cleaned.append(prop)

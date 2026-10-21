@@ -745,6 +745,37 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('drops fill-extrusion paint the 3D layer never reads and keeps the fill colour', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_style',
+              layer_id: 'layer-1',
+              paint: { 'fill-extrusion-opacity': 0.5, 'fill-color': '#ff0000' },
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-opacity': 0.45 } })],
+    });
+    await typeAndSend(user, 'make the buildings red and see-through');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-opacity': 0.45,
+        'fill-color': '#ff0000',
+      });
+    });
+  });
+
   it('clears explicit set_style paint properties after patching', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
