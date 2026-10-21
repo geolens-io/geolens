@@ -297,3 +297,28 @@ async def test_the_route_keys_filtered_tiles_apart_from_unfiltered(
     plain, filtered = cache.keys
     assert ":f" not in plain.rsplit(":cluster:", 1)[1]
     assert filtered.endswith(f":f{validated_digest(flt)}")
+
+
+@pytest.mark.parametrize(
+    ("flt", "expected"),
+    [
+        (_cmp(">=", "seen", "2004-01-01"), "2"),
+        (_cmp("<", "ts", "2003-06-01"), "3"),
+        (_cmp("<", "ts", "2003-06-01T00:00:00Z"), "3"),
+        (
+            {"op": "in", "args": [{"property": "seen"}, ["2001-01-01", "2005-01-01"]]},
+            "2",
+        ),
+        (
+            {
+                "op": "between",
+                "args": [{"property": "seen"}, "2002-01-01", "2004-01-01"],
+            },
+            "3",
+        ),
+    ],
+)
+async def test_plain_string_dates_are_typed_by_the_server(
+    client, cluster_table, flt, expected
+):
+    assert await _cluster_count(client, cluster_table, flt) == expected

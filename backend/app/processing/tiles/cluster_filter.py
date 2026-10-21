@@ -55,6 +55,40 @@ def validated_digest(raw: str | None) -> str | None:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+_COMPARISONS = {"=", "<>", "<", ">", "<=", ">="}
+
+
+def _typed_literal(value: Any, pg_type: str) -> Any:
+    if not isinstance(value, str):
+        return value
+    if pg_type == "date":
+        return {"date": value[:10]}
+    return {"timestamp": value if "T" in value else f"{value[:10]}T00:00:00Z"}
+
+
+def _type_temporal_literals(node: Any, types: dict[str, str]) -> Any:
+    """Wrap plain string literals compared with date/timestamp columns, as CQL2 requires.
+
+    A client that does not know the column types sends dates as plain strings.
+    """
+    if isinstance(node, list):
+        return [_type_temporal_literals(child, types) for child in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: _type_temporal_literals(v, types) for k, v in node.items()}
+    args = out.get("args")
+    if not isinstance(args, list) or not args or not isinstance(args[0], dict):
+        return out
+    pg_type = types.get(args[0].get("property"), "")
+    if not (pg_type == "date" or pg_type.startswith("timestamp")):
+        return out
+    if out.get("op") in _COMPARISONS | {"between"}:
+        out["args"] = [args[0]] + [_typed_literal(a, pg_type) for a in args[1:]]
+    elif out.get("op") == "in" and len(args) == 2 and isinstance(args[1], list):
+        out["args"] = [args[0], [_typed_literal(a, pg_type) for a in args[1]]]
+    return out
+
+
 async def compile_filter(
     session: AsyncSession,
     table_name: str,
@@ -75,13 +109,13 @@ async def compile_filter(
         feature_queryable_columns,
     )
 
-    ast_root = _parse(raw)
     queryables = feature_queryable_columns(
         await get_catalog_port().get_column_info(session, table_name), None
     )
     if tile_columns is not None:
         queryables = {k: v for k, v in queryables.items() if k in set(tile_columns)}
-    where_sql, binds = compile_feature_cql2_ast(ast_root, queryables)
+    typed = _type_temporal_literals(json.loads(raw), queryables)
+    where_sql, binds = compile_feature_cql2_ast(_parse(json.dumps(typed)), queryables)
     position = {
         bind.key: FIRST_FILTER_PARAM + index for index, bind in enumerate(binds)
     }
