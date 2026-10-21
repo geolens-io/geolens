@@ -214,7 +214,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         """Serve a header-key request; any origin may read what its key unlocked.
 
         A response gets the wildcard only when the auth layer looked the key up,
-        so a made-up key opens no route that never reads one.
+        so a made-up key opens no route that never reads one. A public route
+        that never reads it gets the public answer it would give without the key.
         """
         if self._is_preflight(request):
             response = Response(status_code=status.HTTP_200_OK)
@@ -232,6 +233,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         if header_api_key_evaluated(request.scope):
             self._set_header_key_cors_headers(response)
+            return response
+        allow_methods = self._anonymous_public_methods(request, ignore_header_key=True)
+        if allow_methods is not None and (
+            self._public_asset_methods(request) is None
+            or response.status_code in _ASSET_WILDCARD_STATUSES
+        ):
+            self._set_public_cors_headers(response, request, allow_methods)
         return response
 
     async def _is_origin_allowed(self, origin: str) -> bool:
@@ -313,14 +321,14 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         Under ``/auth/`` only ``/auth/me`` takes a keyed preflight: the rest are
         sign-in, registration and session routes, which no key script calls.
         """
+        if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
+            return False
         if cls._is_preflight(request):
             path = cls._request_path(request)
             if path.startswith("/auth/") and path.rstrip("/") != "/auth/me":
                 return False
             requested = cls._requested_headers(request)
             return "x-api-key" in requested and requested <= _HEADER_KEY_ALLOWED_LOWER
-        if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
-            return False
         return bool(request.headers.get("x-api-key")) and not (
             request.headers.get("authorization") or request.headers.get("x-embed-token")
         )
@@ -352,7 +360,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         return None
 
     @classmethod
-    def _anonymous_public_methods(cls, request: Request) -> str | None:
+    def _anonymous_public_methods(
+        cls, request: Request, *, ignore_header_key: bool = False
+    ) -> str | None:
         """Return the ``Allow-Methods`` value for an anonymous wildcard answer.
 
         ``None`` means the request doesn't qualify, falling through to
@@ -363,6 +373,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
+        ``ignore_header_key`` lets an X-Api-Key through, for a request whose
+        route never read it.
         """
         request_path = cls._request_path(request)
         standards_path = standards_api_path(request_path)
@@ -392,7 +404,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             return None
 
         # The anonymous wildcard never covers a credential, preflights included.
-        if any(request.headers.get(header) for header in _CREDENTIAL_HEADERS):
+        if any(
+            request.headers.get(header)
+            for header in _CREDENTIAL_HEADERS
+            if not (ignore_header_key and header == "x-api-key")
+        ):
             return None
         if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
             return None

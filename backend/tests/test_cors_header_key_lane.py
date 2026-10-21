@@ -311,3 +311,34 @@ def test_a_cookie_without_a_key_still_reaches_the_app(monkeypatch):
     )
     assert resp.json() == {"cookies": {"geolens_refresh": "secret"}}
     assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_a_keyed_request_to_a_public_route_keeps_the_public_answer(
+    client, allow_one_origin
+):
+    """STAC and OGC clients send their key everywhere, landing page included."""
+    resp = await client.get(
+        "/conformance",
+        headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "not-a-real-key"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in resp.headers
+    assert "PUT" not in resp.headers["access-control-allow-methods"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("param", ["api_key", "embed_token"])
+async def test_a_keyed_preflight_with_a_query_credential_gets_no_wildcard(
+    client, allow_one_origin, param
+):
+    resp = await client.options(
+        f"/maps/?{param}=x",
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-api-key",
+        },
+    )
+    assert "access-control-allow-origin" not in resp.headers
