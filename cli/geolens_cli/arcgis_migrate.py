@@ -569,7 +569,14 @@ def _run(
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
     if opts.dry_run:
-        return _report(fmt, opts, state, to_run, owners, RunSummary())
+        unavailable = [
+            item["id"]
+            for item in to_run
+            if item["action"] != _plan.SKIP and item["action"] not in HANDLERS
+        ]
+        return _report(
+            fmt, opts, state, to_run, owners, RunSummary(unavailable=unavailable)
+        )
     try:
         ctx = MigrationContext(geolens=geolens, save=state.save)
         summary = run_items(ctx, plan, state, to_run, owners.by_item)

@@ -762,3 +762,12 @@ def test_an_empty_target_owner_does_not_fall_back_to_owner_map(
     assert result.exit_code == 2
     assert "has no GeoLens owner" in result.output
     assert handled == []
+
+
+def test_a_dry_run_names_actions_this_version_cannot_run(runner, tmp_path, geolens):
+    plan = _plan([_item(L1, "import_file"), _item(S1, "skip")])
+
+    result, payload = _run(runner, tmp_path, plan, "--dry-run")
+
+    assert result.exit_code == 1
+    assert payload["not_available"] == [L1]
