@@ -201,32 +201,6 @@ async def _mercator_envelope_degenerates(
         return True
 
 
-async def _clip_candidates_are_polar_only(
-    session: AsyncSession, table_name: str, schema: str, src_srid: int, envelope: str
-) -> bool:
-    """True when the clip will trim geometry and all of it is valid lon/lat data.
-
-    Valid data reaches past the Mercator box only at the poles (Antarctica at
-    -90°). A geometry beyond longitude ±180° or latitude ±90° in EPSG:4326
-    points at swapped axes or a wrong CRS instead. A transform that raises
-    counts as out of range, since the coordinates are unusable then.
-    """
-    geom = "geom" if src_srid == 4326 else "ST_Transform(geom, 4326)"
-    probe = text(
-        f"SELECT count(*) > 0 AND NOT COALESCE(bool_or("
-        f"  ST_XMin({geom}) < -180 OR ST_XMax({geom}) > 180 "
-        f"  OR ST_YMin({geom}) < -90 OR ST_YMax({geom}) > 90), false) "
-        f"FROM {_qtable(table_name, schema=schema)} "
-        f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
-        f"  AND NOT ST_CoveredBy(geom, {envelope})"
-    )
-    try:
-        async with session.begin_nested():
-            return bool((await session.execute(probe)).scalar_one())
-    except DBAPIError:
-        return False
-
-
 async def clip_to_mercator_bounds(
     session: AsyncSession, table_name: str, schema: str = "data"
 ) -> "MercatorClipCounts | None":
@@ -331,28 +305,37 @@ async def clip_to_mercator_bounds(
                 "measure values. Trim the data to that limit, then import again."
             )
 
-    polar_only = await _clip_candidates_are_polar_only(
-        session, table_name, schema, src_srid, envelope
-    )
-
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
     if force_dims is not None:
         clipped = f"{force_dims}({clipped})"
 
     # Count what the clip destroyed in the same statement that destroys it.
-    # Rows that were already empty are excluded from the WHERE so they cannot
-    # inflate the counts.
+    # Rows that were already empty are excluded so they cannot inflate the
+    # counts. `oob` is read from the geometry before the update: coordinates past
+    # longitude ±180° or latitude ±90° are not polar data. Other CRSs are not
+    # classified, so they never claim polar-only.
+    out_of_range = (
+        "ST_XMin(geom) < -180 OR ST_XMax(geom) > 180 "
+        "OR ST_YMin(geom) < -90 OR ST_YMax(geom) > 90"
+        if src_srid == 4326
+        else "true"
+    )
+    tref = _qtable(table_name, schema=schema)
     counts = (
         await session.execute(
             text(
-                f"WITH clip AS ("
-                f"  UPDATE {_qtable(table_name, schema=schema)} SET geom = {clipped} "
+                f"WITH cand AS ("
+                f"  SELECT ctid AS row_id, ({out_of_range}) AS oob FROM {tref} "
                 f"  WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
-                f"    AND NOT ST_CoveredBy(geom, {envelope}) "
-                f"  RETURNING geom AS new_geom"
+                f"    AND NOT ST_CoveredBy(geom, {envelope})"
+                f"), clip AS ("
+                f"  UPDATE {tref} AS t SET geom = {clipped} FROM cand "
+                f"  WHERE t.ctid = cand.row_id "
+                f"  RETURNING t.geom AS new_geom, cand.oob"
                 f") SELECT "
                 f"count(*) FILTER (WHERE new_geom IS NULL OR ST_IsEmpty(new_geom)), "
-                f"count(*) FILTER (WHERE new_geom IS NOT NULL AND NOT ST_IsEmpty(new_geom)) "
+                f"count(*) FILTER (WHERE new_geom IS NOT NULL AND NOT ST_IsEmpty(new_geom)), "
+                f"count(*) > 0 AND NOT COALESCE(bool_or(oob), false) "
                 f"FROM clip"
             )
         )
@@ -375,6 +358,6 @@ async def clip_to_mercator_bounds(
         "dropped_features": dropped_features,
         "clipped_features": clipped_features,
     }
-    if polar_only:
+    if counts is not None and counts[2]:
         counts_out["polar_only"] = True
     return counts_out

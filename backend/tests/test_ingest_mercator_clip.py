@@ -726,7 +726,6 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
             "shifted_longitudes": False,
             "dropped_features": 1,
             "clipped_features": 0,
-            "polar_only": True,
         }
 
     async def test_geographic_3d_crs_polar_clip_is_unchanged(self, test_db_session):
@@ -741,7 +740,6 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
             "shifted_longitudes": False,
             "dropped_features": 1,
             "clipped_features": 0,
-            "polar_only": True,
         }
 
     async def test_shift_still_runs_before_a_skipped_clip(
@@ -944,6 +942,13 @@ class TestPolarOnlyClassification(_FixtureTable):
         self, test_db_session
     ):
         await _seed_points(test_db_session, [(0.0, -89.95), (400.0, 10.0)])
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None and "polar_only" not in counts
+
+    async def test_a_non_4326_source_never_claims_polar_only(self, test_db_session):
+        await _seed_points(test_db_session, [(10.0, -89.95)], srid=4979)
 
         counts = await clip_to_mercator_bounds(test_db_session, TABLE)
 
