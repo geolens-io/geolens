@@ -111,3 +111,22 @@ async def test_unresolvable_credentials_are_refused_not_anonymous(
 ):
     resp = await client.get("/capabilities/", headers={"X-Api-Key": "not-a-real-key"})
     assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_rate_limits_come_from_the_stored_configuration(
+    client: AsyncClient, monkeypatch
+):
+    """The sync cache the limiter reads is empty on a fresh worker."""
+    from app.modules.settings import router_capabilities
+
+    async def _global(_db):
+        return 17
+
+    async def _login(_db):
+        return 3
+
+    monkeypatch.setattr(router_capabilities.GLOBAL_RATE_LIMIT, "get", _global)
+    monkeypatch.setattr(router_capabilities.LOGIN_RATE_LIMIT, "get", _login)
+    limits = (await client.get("/capabilities/")).json()["rate_limits"]
+    assert limits == {"global_per_second": 17, "login_per_minute": 3}

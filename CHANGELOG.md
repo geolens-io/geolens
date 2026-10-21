@@ -23,15 +23,15 @@ and releases use semantic versioning.
   request, with the held refresh run for a replacement under review. Ids that
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
+- `GET /capabilities/` describes the server for desktop and script clients:
+  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
+  upload limits and the caller's permissions and API key scope when the request
+  carries credentials.
 
 ## [1.26.0] - 2026-10-18
 
 ### Added
 
-- `GET /capabilities/` describes the server for desktop and script clients:
-  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
-  upload limits and the caller's permissions and API key scope when the request
-  carries credentials.
 - API keys can be created with an expiry from the web app. Both the key
   settings page and the admin user page now offer Never, 30 days, 90 days and
   1 year (the default stays Never), and each key in the list shows when it

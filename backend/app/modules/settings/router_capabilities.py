@@ -12,9 +12,9 @@ from app.core.dependencies import get_db
 from app.core.edition import get_edition
 from app.core.identity import Identity
 from app.core.persistent_config import (
+    GLOBAL_RATE_LIMIT,
+    LOGIN_RATE_LIMIT,
     PASSWORD_LOGIN_ENABLED,
-    get_cached_global_rate_limit,
-    get_cached_login_rate_limit,
 )
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.oauth.sign_in_methods import list_sign_in_methods
@@ -178,8 +178,8 @@ async def get_capabilities(
         flags=await get_feature_flags(db),
         status_order=list(get_workflow_extension().status_order()),
         rate_limits=CapabilitiesRateLimits(
-            global_per_second=get_cached_global_rate_limit(),
-            login_per_minute=get_cached_login_rate_limit(),
+            global_per_second=await GLOBAL_RATE_LIMIT.get(db),
+            login_per_minute=await LOGIN_RATE_LIMIT.get(db),
         ),
         me=await _me(db, user, limits) if user is not None and limits else None,
     )
