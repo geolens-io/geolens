@@ -836,6 +836,8 @@ async def retry_job(
             detail="Job not found",
         )
 
+    if job.created_by != user.id:
+        refuse_publish_key(db, "A publish key can retry only its owner's jobs")
     # Owners always retain access. Cross-user retries additionally require the
     # effective manage_users capability through PermissionExtension.
     if job.created_by != user.id and not await _can_access_another_users_job(

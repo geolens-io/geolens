@@ -847,10 +847,10 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
 
 
 @pytest.mark.anyio
-async def test_a_publish_key_cancels_only_its_owners_jobs(
+async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
     client: AsyncClient, admin_auth_header, owner, test_db_session
 ):
-    """An admin's publish key can't stop another user's job, though the admin could."""
+    """An admin's publish key can't stop or rerun another user's job; the admin could."""
     from app.platform.jobs.models import IngestJob
 
     _, owner_id = owner
@@ -867,6 +867,10 @@ async def test_a_publish_key_cancels_only_its_owners_jobs(
         resp = await client.post(f"/jobs/{job.id}/cancel", headers=publish)
         assert _refused_with(resp, "A publish key can cancel only its owner's jobs"), (
             resp.text
+        )
+        retry = await client.post(f"/jobs/{job.id}/retry", headers=publish)
+        assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
+            retry.text
         )
         await test_db_session.refresh(job)
         assert job.status == "pending"
