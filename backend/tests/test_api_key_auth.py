@@ -38,7 +38,7 @@ async def test_create_api_key(client: AsyncClient):
     assert "key" in data
     assert "id" in data
     assert data["name"] == "Test Key"
-    assert len(data["key"]) > 20  # token_urlsafe(32) produces ~43 chars
+    assert len(data["key"]) == 47  # glk_ plus token_urlsafe(32)
     assert data["fingerprint"] == f"{data['key'][:12]}…{data['key'][-4:]}"
 
 
