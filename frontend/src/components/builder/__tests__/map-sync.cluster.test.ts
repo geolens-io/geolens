@@ -313,6 +313,19 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  it('hands the clustered source an expression filter when the layer filter is a legacy one', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({ filter: ['==', '$type', 'Point'] as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      'source-cluster-1',
+      expect.objectContaining({ filter: ['==', ['geometry-type'], 'Point'] }),
+    );
+  });
+
   it('keeps a bounded cluster source when its tile token rotates', () => {
     vi.mocked(buildSignedTileUrl).mockImplementation(
       (table: string, token: { sig: string } | null) => `/tiles/${table}/{z}/{x}/{y}.pbf?sig=${token?.sig ?? ''}`,

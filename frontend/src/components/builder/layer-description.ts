@@ -20,6 +20,7 @@ import { resolveHeightColumn } from './layer-adapters/fill-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
+import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { filterSpec, getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerSpec } from './layer-adapters/types';
@@ -247,6 +248,17 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
+/** A GeoJSON source reads only expression filters, so legacy forms such as `['==', '$type', 'Point']` are converted. */
+function expressionFilter(filter: FilterSpecification | null): FilterSpecification | null {
+  if (!filter) return null;
+  try {
+    return convertFilter(filter as Parameters<typeof convertFilter>[0]) as FilterSpecification;
+  } catch {
+    // An unconvertible filter must not blank the layer; the layer filter still applies to loose points.
+    return null;
+  }
+}
+
 function nonBlank(value: string | null | undefined) {
   return value ? value : undefined;
 }
@@ -305,7 +317,7 @@ function vectorSource(
       data,
       cluster: true,
       ...clusterOptions(layer),
-      ...filterSpec(described.filter),
+      ...filterSpec(expressionFilter(described.filter)),
       ...(attribution ? { attribution } : {}),
     };
   }
