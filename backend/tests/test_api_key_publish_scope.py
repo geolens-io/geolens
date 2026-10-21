@@ -993,6 +993,20 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
         assert _refused_with(
             resp, "A publish key can't refresh a raster or STAC dataset"
         ), resp.text
+        # A restore couldn't bring the STAC binding back after a replacement.
+        refusal = "A publish key can't replace a dataset bound to a remote origin"
+        upload = await client.post(
+            f"/datasets/{stac.id}/reupload",
+            files={"file": ("new.geojson", b'{"type":"FeatureCollection"}')},
+            headers=publish,
+        )
+        assert _refused_with(upload, refusal), upload.text
+        commit = await client.post(
+            f"/datasets/{stac.id}/reupload/{uuid.uuid4()}/commit",
+            json={},
+            headers=publish,
+        )
+        assert _refused_with(commit, refusal), commit.text
     finally:
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}

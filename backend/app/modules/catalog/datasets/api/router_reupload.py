@@ -283,11 +283,17 @@ async def _bind_presigned_reupload(
     return bool(bound.rowcount)
 
 
-def _refuse_publish_key_raster_replace(db: AsyncSession, dataset) -> None:
+def _refuse_publish_key_irreversible_replace(db: AsyncSession, dataset) -> None:
     # A raster replace deletes the old COG once it commits and keeps no
-    # previous version.
+    # previous version, and a restore can bring back only an upload's or a
+    # drawn layer's source binding, not a service's, STAC item's or table's.
     if dataset.record.record_type == "raster_dataset":
         refuse_publish_key(db, "A publish key can't replace a raster dataset")
+    origin = classify_origin(dataset.source_format, dataset.record.record_type)
+    if origin not in ("upload", "created"):
+        refuse_publish_key(
+            db, "A publish key can't replace a dataset bound to a remote origin"
+        )
 
 
 def _assert_compatible_record_type(
@@ -414,7 +420,7 @@ async def reupload_dataset(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
-    _refuse_publish_key_raster_replace(db, dataset)
+    _refuse_publish_key_irreversible_replace(db, dataset)
     _assert_compatible_record_type(dataset, file.filename)
 
     try:
@@ -1123,7 +1129,7 @@ async def reupload_commit(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
-    _refuse_publish_key_raster_replace(db, dataset)
+    _refuse_publish_key_irreversible_replace(db, dataset)
     _assert_compatible_record_type(dataset, None)
 
     job = await _get_bound_reupload_job_or_404(
