@@ -31,7 +31,10 @@ _HTML_ELEMENTS = frozenset(
     "em font h1 h2 h3 h4 h5 h6 hr i img ins li ol p pre s small span strike "
     "strong style sub sup script table tbody td tfoot th thead tr u ul".split()
 )
-_BLOCK_TAGS = frozenset({"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5"})
+_BLOCK_TAGS = frozenset(
+    "blockquote br caption dd div dl dt h1 h2 h3 h4 h5 h6 hr li ol p pre table "
+    "tr ul".split()
+)
 
 
 class _Text(HTMLParser):
