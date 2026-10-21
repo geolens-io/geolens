@@ -461,6 +461,10 @@ describe('categoricalFallbackOf', () => {
     expect(categoricalFallbackOf(guarded)).toBe('#fedcba');
   });
 
+  it('reads the final arm of a general case expression', () => {
+    expect(categoricalFallbackOf(['case', ['>', ['get', 'n'], 3], '#ff0000', '#cccccc'])).toBe('#cccccc');
+  });
+
   it('returns null for a paint that is not a categorical expression', () => {
     expect(categoricalFallbackOf('#3b82f6')).toBeNull();
     expect(categoricalFallbackOf(undefined)).toBeNull();
