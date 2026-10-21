@@ -117,18 +117,18 @@ _VARY_HEADERS = ("Origin", "Authorization", "X-Api-Key", "X-Embed-Token")
 def _merge_vary(response: Response, *names: str) -> None:
     """Declare that this response was derived from the request headers ``names``.
 
-    The answer depends on origin, so a cache keyed without
-    ``Origin`` could replay one origin's CORS headers to another (the
-    shipped nginx config runs ``proxy_cache off``, so this is for an
-    operator fronting the API with their own CDN). Merged, not assigned,
-    since ``standard_response_headers``/``GZipMiddleware`` already set
-    ``Vary``; overwriting would trade one variance for another.
+    The CORS answer depends on the origin and on which credential headers
+    came, so a cache keyed on the URL alone could replay one variant to
+    another request (the shipped nginx config runs ``proxy_cache off``, so
+    this is for an operator fronting the API with their own CDN). Merged, not
+    assigned, since ``standard_response_headers``/``GZipMiddleware`` already
+    set ``Vary``; overwriting would trade one variance for another.
 
-    Applied to every response, not just the two carrying a policy: a
-    rejected-origin or no-``Origin`` response shares a URL with a
-    permitted-origin response, so without ``Vary: Origin`` a CDN could
-    cache the header-less variant and replay it to a permitted browser
-    origin, which then blocks it — fails closed, but still broken.
+    Applied to every response, not just the ones carrying a policy: a
+    response with no CORS headers shares a URL with one that has them, so
+    without ``Vary`` a CDN could cache the header-less variant and replay it
+    to a permitted browser origin, which then blocks it. That fails closed,
+    but is still broken.
     """
     tokens: list[str] = []
     for line in response.headers.getlist("Vary"):
@@ -157,9 +157,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await self._dispatch(request, call_next)
-        # One call at the one exit: every representation this middleware returns is
-        # origin-dependent, and two of the four policy-writer branches return without
-        # calling it.
+        # One call at the one exit, since several branches return early and every
+        # answer depends on the origin and the credential headers.
         _merge_vary(response, *_VARY_HEADERS)
         return response
 

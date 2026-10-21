@@ -32,6 +32,18 @@ and releases use semantic versioning.
   request, with the held refresh run for a replacement under review. Ids that
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
+- A request that sends an API key in the `X-Api-Key` header can be read from
+  any origin, so a browser app, a desktop app's web view or a notebook can call
+  your instance with a pasted key and no `CORS_ALLOWED_ORIGINS` entry. Such a
+  response carries `Access-Control-Allow-Origin: *` without
+  `Access-Control-Allow-Credentials`, and only on routes that check the key; an
+  invalid key's `401` is readable too. Cookies sent with the request are
+  ignored. Under `/api/auth/`, only `/api/auth/me` accepts a keyed preflight. A
+  request that also carries `Authorization`, an embed token, or `?api_key=` or
+  `?embed_token=` in the URL keeps the old rule. Every API response now lists
+  `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
+  `Origin`. This changes the CORS contract: a keyed request from an origin
+  outside the allowlist used to get no CORS headers at all.
 - Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
   the public app URL that opens from another machine, and `viewer_url`, the map's page in
   the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.

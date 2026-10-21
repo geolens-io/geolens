@@ -342,3 +342,72 @@ async def test_a_keyed_preflight_with_a_query_credential_gets_no_wildcard(
         },
     )
     assert "access-control-allow-origin" not in resp.headers
+
+
+# The functions that look up a request's key; a dependency calling one reads it.
+_KEY_READERS = (
+    "_resolve_api_key(",
+    "_resolve_optional_identity(",
+    "get_optional_user(",
+    "get_current_user(",
+)
+
+
+def _routes_reading_no_key() -> list[tuple[str, str]]:
+    """(method, path) for every route whose dependencies never look up a key."""
+    import inspect
+
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    def reads_a_key(dependant) -> bool:
+        for sub in dependant.dependencies:
+            try:
+                source = inspect.getsource(sub.call)
+            except (OSError, TypeError):
+                source = ""
+            if any(call in source for call in _KEY_READERS):
+                return True
+            if reads_a_key(sub):
+                return True
+        return False
+
+    return sorted(
+        {
+            (method, ctx.path)
+            for ctx in iter_route_contexts(app.routes)
+            if isinstance(ctx.route, APIRoute) and not reads_a_key(ctx.route.dependant)
+            for method in ctx.route.methods
+        }
+    )
+
+
+def test_every_unsafe_route_that_reads_no_key_is_under_auth():
+    """The keyed-preflight refusal under /auth/ is what keeps these blind."""
+    unsafe = [
+        (method, path)
+        for method, path in _routes_reading_no_key()
+        if method not in {"GET", "HEAD", "OPTIONS"}
+    ]
+    assert unsafe, "the walk should find the sign-in routes"
+    assert not [p for p in unsafe if not p[1].startswith("/auth/")], unsafe
+
+
+@pytest.mark.anyio
+async def test_no_route_that_reads_no_key_gives_a_junk_key_the_key_answer(
+    client, allow_one_origin
+):
+    """Such a route answers a keyed request at most with its public answer."""
+    paths = [
+        path
+        for method, path in _routes_reading_no_key()
+        if method == "GET" and "{" not in path
+    ]
+    assert "/settings/branding/" in paths
+    for path in paths:
+        resp = await client.get(
+            path, headers={"Origin": _FOREIGN_ORIGIN, "X-Api-Key": "not-a-real-key"}
+        )
+        if "access-control-allow-origin" in resp.headers:
+            assert "PUT" not in resp.headers["access-control-allow-methods"], path
