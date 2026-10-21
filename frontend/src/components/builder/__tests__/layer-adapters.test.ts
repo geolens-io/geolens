@@ -476,6 +476,29 @@ describe('lineAdapter', () => {
     }
   });
 
+  it('arrows follow a data-driven line colour unless an arrow colour is set', () => {
+    const lineColor = ['match', ['get', 'kind'], 'road', '#ff0000', '#00ff00'];
+    const base = {
+      layerId: 'layer-l-arrow-expr',
+      sourceId: 'source-l-arrow-expr',
+      sourceLayer: 'data.routes',
+      dataset_geometry_type: 'LINESTRING' as const,
+      paint: { 'line-color': lineColor, 'line-width': 3 },
+    };
+    const iconColor = (input: ReturnType<typeof makeInput>) => {
+      const arrow = lineAdapter.describe!(input).specs.find((spec) => spec.layer.id === 'layer-l-arrow-expr-arrow');
+      return (arrow?.layer.paint as Record<string, unknown>)['icon-color'];
+    };
+
+    expect(iconColor(makeInput({ ...base, id: 'l-arrow-expr', style_config: { render_mode: 'arrow' } })))
+      .toEqual(lineColor);
+    expect(iconColor(makeInput({
+      ...base,
+      id: 'l-arrow-expr',
+      style_config: { render_mode: 'arrow', builder: { arrowColor: '#fb923c' } },
+    }))).toBe('#fb923c');
+  });
+
   it('syncPaint updates arrow companion appearance, opacity, visibility, and filter', () => {
     const input = makeInput({
       id: 'l-arrow-sync',

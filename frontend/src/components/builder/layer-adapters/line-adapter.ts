@@ -86,8 +86,9 @@ const ARROW_IMAGE: ImageSpec = {
 
 function arrowConfig(input: AdapterLayerInput) {
   const builder = getBuilderStyleConfig(input);
-  const lineColor = typeof input.paint['line-color'] === 'string'
-    ? input.paint['line-color']
+  const storedLineColor = input.paint['line-color'];
+  const lineColor = typeof storedLineColor === 'string' || Array.isArray(storedLineColor)
+    ? storedLineColor
     : MAP_COLORS.default.fill;
   return {
     color: typeof builder.arrowColor === 'string' ? builder.arrowColor : lineColor,
