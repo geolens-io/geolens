@@ -599,19 +599,73 @@ class TestMapLayerDatasetVisibilityLeak:
         assert glyphs.endswith("/fonts/{fontstack}/{range}.pbf"), glyphs
         assert "openfreemap" not in glyphs
 
+    @pytest.fixture
+    def pin_public_urls(self, monkeypatch):
+        """Set the configured public app URL, ignoring any persisted override."""
+        from app.core import public_urls
+        from app.core.config import settings
+
+        async def _no_persisted_overrides(_db):
+            return {}
+
+        monkeypatch.setattr(
+            public_urls, "_load_public_url_overrides", _no_persisted_overrides
+        )
+
+        def _pin(app_url: str | None) -> None:
+            monkeypatch.setattr(settings, "public_app_url", app_url)
+            monkeypatch.setattr(settings, "public_api_url", None)
+            monkeypatch.setattr(settings, "public_base_url", None)
+            public_urls.invalidate_public_url_cache()
+
+        public_urls.invalidate_public_url_cache()
+        yield _pin
+        public_urls.invalidate_public_url_cache()
+
     async def test_style_json_tile_and_sprite_urls_are_absolute(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        pin_public_urls,
     ):
         """A client outside the app (QGIS, a MapLibre page) can load the style."""
+        pin_public_urls("https://gis.example.org")
         map_id, ds = await self._public_map_with_layer(
             client, admin_auth_header, test_db_session, dataset_visibility="public"
         )
         style = (await client.get(f"/maps/{map_id}/style.json")).json()
         tile = style["sources"][f"geolens-{ds.id}"]["tiles"][0]
-        assert tile.startswith(("http://", "https://")), tile
-        assert f"/api/tiles/data.{ds.table_name}/" in tile
-        assert style["sprite"][0]["url"].startswith(("http://", "https://"))
-        assert style["sprite"][0]["url"].endswith("/api/maps/sprites/geolens")
+        assert tile.startswith(
+            f"https://gis.example.org/api/tiles/data.{ds.table_name}/"
+        )
+        assert style["sprite"][0]["url"] == (
+            "https://gis.example.org/api/maps/sprites/geolens"
+        )
+        assert (
+            style["glyphs"] == "https://gis.example.org/fonts/{fontstack}/{range}.pbf"
+        )
+
+    async def test_style_json_urls_follow_the_request_without_a_public_url(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        pin_public_urls,
+    ):
+        """With no public URL configured, the URLs are absolute on the request's
+        own origin; the API path depends on how the deployment is mounted."""
+        pin_public_urls(None)
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="public"
+        )
+        style = (await client.get(f"/maps/{map_id}/style.json")).json()
+        tile = style["sources"][f"geolens-{ds.id}"]["tiles"][0]
+        assert tile.startswith("http://test/")
+        assert f"/tiles/data.{ds.table_name}/" in tile
+        sprite = style["sprite"][0]["url"]
+        assert sprite.startswith("http://test/")
+        assert sprite.endswith("/maps/sprites/geolens")
 
     async def test_style_json_fails_closed_without_multi_tenant_context(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
