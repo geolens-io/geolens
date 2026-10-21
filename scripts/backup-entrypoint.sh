@@ -41,6 +41,11 @@ WEEKLY_DIR="${BACKUP_DIR}/weekly"
 # if the compose file changes it.
 STAGING_DIR="${STAGING_DIR:-/staging}"
 
+# Timestamp of the newest dump taken while the database had catalog records.
+# Retention always keeps that dump, so cycles over a database restarted on an
+# empty volume cannot rotate the last real backup out.
+LAST_GOOD_FILE="${BACKUP_DIR}/.last-good-dump"
+
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 POSTGRES_HOST="${POSTGRES_HOST:-db}"
 BACKUP_RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
@@ -152,6 +157,7 @@ run_backup() {
         dump_ok=0
     else
         log "Backup verified: ${filename} fully readable"
+        record_good_dump "$timestamp"
     fi
 
     # Weekly copy on Sundays. Skipped when verification above already
@@ -232,8 +238,10 @@ run_backup() {
     # Retention runs regardless of S3 outcome (dumps set the window; their
     # companions follow) — local backups must be pruned even when the offsite
     # upload failed, or backup_data fills up during an S3 outage.
-    prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY" day
-    prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY" week
+    local good_ts
+    good_ts="$(last_good_ts)"
+    prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY" day "$good_ts"
+    prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY" week "$good_ts"
     # Must run after prune_old_backups — it prunes by what that just left.
     prune_orphaned_companions "$DAILY_DIR"
     prune_orphaned_companions "$WEEKLY_DIR"
@@ -243,8 +251,8 @@ run_backup() {
     # same reason local pruning does — a transient S3 hiccup on THIS cycle's
     # upload must not stop last cycle's objects from being pruned.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day || cycle_failed=1
-        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week || cycle_failed=1
+        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day "$good_ts" || cycle_failed=1
+        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week "$good_ts" || cycle_failed=1
     fi
 
     # Surface the S3 failure now that retention has run, so the cycle is still
@@ -266,6 +274,37 @@ run_backup() {
     fi
 
     log "Backup cycle complete"
+}
+
+last_good_ts() {
+    local ts=""
+    read -r ts 2>/dev/null < "$LAST_GOOD_FILE" || true
+    if [[ "$ts" =~ ^[0-9]{8}_[0-9]{6}$ ]]; then
+        printf '%s' "$ts"
+    fi
+}
+
+# Moves the marker only on positive evidence of catalog records. A missing
+# catalog schema fails the query like an unreachable database does, and either
+# way the marker stays on the older dump.
+record_good_dump() {
+    local timestamp="$1" has_records good
+    has_records="$(psql -X -At -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        -d "$POSTGRES_DB" -c "SELECT EXISTS (SELECT 1 FROM catalog.records)")" || has_records=""
+    if [ "$has_records" = "t" ]; then
+        # Through a .tmp name: a torn marker reads back as no marker at all.
+        if printf '%s\n' "$timestamp" > "${LAST_GOOD_FILE}.tmp" \
+            && mv "${LAST_GOOD_FILE}.tmp" "$LAST_GOOD_FILE"; then
+            return 0
+        fi
+        rm -f "${LAST_GOOD_FILE}.tmp"
+        log "WARNING: could not record ${timestamp} as the last dump with catalog records"
+        return 0
+    fi
+    good="$(last_good_ts)"
+    if [ -n "$good" ]; then
+        log "WARNING: found no catalog records in ${POSTGRES_DB}; retention keeps ${good}, the last dump that had them"
+    fi
 }
 
 # Weekly entries are hard links to the daily files: a weekly set costs no extra
@@ -638,6 +677,7 @@ prune_s3_prefix() {
     local prefix="$1"
     local keep="$2"
     local period="$3"
+    local good="${4:-}"
 
     if [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY_ID:-}" ] || [ -z "${S3_SECRET_ACCESS_KEY:-}" ]; then
         log "ERROR: BACKUP_S3_ENABLED=true but S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set — cannot prune offsite retention"
@@ -780,7 +820,7 @@ prune_s3_prefix() {
     local to_remove=0
     if [ "$count" -gt 0 ]; then
         RK_TS=("${dump_ts[@]}")
-        mark_retained "$period" "$keep" "$protect"
+        mark_retained "$period" "$keep" "$protect" "$good"
         local _i
         for ((_i = 0; _i < count; _i++)); do
             if [ "${RK_KEEP[$_i]}" -eq 0 ]; then
@@ -979,9 +1019,11 @@ backup_period_key() {
 # that hold a backup count, so neither a stopped service nor a wrong clock
 # ages out history that nothing newer has replaced. `protect` is the newest
 # complete set, kept by the caller outside RK_TS: it stands for its own
-# period, so only a newer entry in that period is kept beside it.
+# period, so only a newer entry in that period is kept beside it. `good` is the
+# last dump taken while the database had catalog records; it is always kept
+# but still takes its period's slot, so it costs nothing when it is the newest.
 mark_retained() {
-    local period="$1" keep="$2" protect="${3:-}"
+    local period="$1" keep="$2" protect="${3:-}" good="${4:-}"
     local protect_key=""
     if [ -n "$protect" ]; then
         backup_period_key "$period" "$protect"
@@ -991,6 +1033,9 @@ mark_retained() {
     local _i last="" seen=0
     for ((_i = ${#RK_TS[@]} - 1; _i >= 0; _i--)); do
         RK_KEEP[_i]=0
+        if [ "${RK_TS[$_i]}" = "$good" ]; then
+            RK_KEEP[_i]=1
+        fi
         backup_period_key "$period" "${RK_TS[$_i]}"
         if [ "$PERIOD_KEY" = "$protect_key" ] && [ "${RK_TS[$_i]}" \< "$protect" ]; then
             continue
@@ -1009,6 +1054,7 @@ prune_old_backups() {
     local dir="$1"
     local keep="$2"
     local period="$3"
+    local good="${4:-}"
 
     dump_listing_arrays "$dir"
     [ "${#DL_TS[@]}" -gt 0 ] || return 0
@@ -1036,7 +1082,7 @@ prune_old_backups() {
     [ "${#cand_ts[@]}" -gt 0 ] || return 0
 
     RK_TS=("${cand_ts[@]}")
-    mark_retained "$period" "$keep" "$protect"
+    mark_retained "$period" "$keep" "$protect" "$good"
     local to_remove=0
     for ((_i = 0; _i < ${#cand_ts[@]}; _i++)); do
         if [ "${RK_KEEP[$_i]}" -eq 0 ]; then

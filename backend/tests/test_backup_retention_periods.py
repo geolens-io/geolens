@@ -44,12 +44,15 @@ def _extract_function(name: str) -> str:
     return match.group(0)
 
 
-def _prune(directory: Path, keep: int, period: str) -> subprocess.CompletedProcess:
+def _prune(
+    directory: Path, keep: int, period: str, good: str = ""
+) -> subprocess.CompletedProcess:
     harness = "\n".join(
         ["set -euo pipefail", *(_extract_function(n) for n in _RETENTION_FUNCTIONS)]
     )
     harness += (
-        f'\nprune_old_backups "$1" "{keep}" {period}\nprune_orphaned_companions "$1"\n'
+        f'\nprune_old_backups "$1" "{keep}" {period} "{good}"\n'
+        'prune_orphaned_companions "$1"\n'
     )
     result = subprocess.run(
         ["bash", "-c", harness, "_", str(directory)],
@@ -163,6 +166,42 @@ class TestDailyRetention:
         assert "geolens_20260201_020000.dump" not in remaining
         assert len([n for n in remaining if n.endswith(".dump")]) == 8
 
+    def test_last_dump_with_records_survives_newer_runs_on_its_day(
+        self, tmp_path: Path
+    ):
+        daily = tmp_path / "daily"
+        good_set = [
+            "geolens_20261019_020001.dump",
+            "globals-20261019_020001.sql",
+            "staging-20261019_020001.tar.gz",
+        ]
+        _seed(daily, good_set)
+        _seed(daily, ["geolens_20261019_102717.dump", "globals-20261019_102717.sql"])
+        _prune(daily, keep=1, period="day", good="20261019_020001")
+        assert _names(daily) == {
+            *good_set,
+            "geolens_20261019_102717.dump",
+            "globals-20261019_102717.sql",
+        }
+
+    def test_last_dump_with_records_takes_its_own_slot(self, tmp_path: Path):
+        daily = tmp_path / "daily"
+        _seed(
+            daily,
+            [
+                "geolens_20261009_020000.dump",
+                "globals-20261009_020000.sql",
+                "geolens_20261010_020000.dump",
+                "geolens_20261011_020000.dump",
+            ],
+        )
+        _prune(daily, keep=1, period="day", good="20261011_020000")
+        assert _names(daily) == {
+            "geolens_20261009_020000.dump",
+            "globals-20261009_020000.sql",
+            "geolens_20261011_020000.dump",
+        }
+
     def test_files_retention_did_not_write_are_left_alone(self, tmp_path: Path):
         daily = tmp_path / "daily"
         foreign = ["notes.txt", "manual.dump", "before-upgrade.sql", "geolens.dump.bak"]
@@ -251,6 +290,12 @@ esac
 exit 0
 """
 
+# Answers the catalog-records check with $PSQL_STUB_OUT, or fails when unset.
+_PSQL_STUB = """#!/bin/sh
+[ -n "$PSQL_STUB_OUT" ] || exit 2
+echo "$PSQL_STUB_OUT"
+"""
+
 _REFUSING_LN_STUB = "#!/bin/sh\necho 'ln: Operation not permitted' >&2\nexit 1\n"
 
 
@@ -260,6 +305,7 @@ def _cycle(
     s3_enabled: bool = False,
     cp_exit: int = 0,
     refuse_links: bool = False,
+    psql_out: str = "t",
 ) -> tuple[subprocess.CompletedProcess, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -269,6 +315,7 @@ def _cycle(
         "pg_dumpall": _PG_DUMPALL_STUB,
         "date": _SUNDAY_DATE_STUB,
         "aws": _AWS_STUB,
+        "psql": _PSQL_STUB,
     }
     if refuse_links:
         stubs["ln"] = _REFUSING_LN_STUB
@@ -304,6 +351,7 @@ def _cycle(
             "S3_ACCESS_KEY_ID": "test-key",
             "S3_SECRET_ACCESS_KEY": "test-secret",
             "AWS_STUB_CP_EXIT": str(cp_exit),
+            "PSQL_STUB_OUT": psql_out,
         },
     )
     return result, backup_dir
@@ -359,6 +407,42 @@ class TestOffsiteMarker:
         assert result.returncode == 0, result.stdout + result.stderr
         assert (backup_dir / ".last-success").is_file()
         assert not (backup_dir / ".last-offsite-success").exists()
+
+
+def _seed_earlier_good_set(backup_dir: Path) -> tuple[str, set[str]]:
+    ts = time.strftime("%Y%m%d") + "_000000"
+    names = {f"geolens_{ts}.dump", f"globals-{ts}.sql", f"staging-{ts}.tar.gz"}
+    _seed(backup_dir / "daily", sorted(names))
+    (backup_dir / ".last-good-dump").write_text(f"{ts}\n")
+    return ts, names
+
+
+class TestLastDumpWithRecords:
+    def test_a_cycle_over_an_empty_database_keeps_the_days_good_set(
+        self, tmp_path: Path
+    ):
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
+        result, backup_dir = _cycle(tmp_path, psql_out="f")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert good_set <= _names(backup_dir / "daily")
+        assert (backup_dir / ".last-good-dump").read_text().strip() == good_ts
+        assert "no catalog records" in result.stdout
+
+    def test_a_failed_records_check_keeps_the_days_good_set(self, tmp_path: Path):
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
+        result, backup_dir = _cycle(tmp_path, psql_out="")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert good_set <= _names(backup_dir / "daily")
+        assert (backup_dir / ".last-good-dump").read_text().strip() == good_ts
+
+    def test_a_cycle_over_a_database_with_records_takes_over(self, tmp_path: Path):
+        good_ts, good_set = _seed_earlier_good_set(tmp_path / "backups")
+        result, backup_dir = _cycle(tmp_path)
+        assert result.returncode == 0, result.stdout + result.stderr
+        new_ts = (backup_dir / ".last-good-dump").read_text().strip()
+        assert re.fullmatch(r"\d{8}_\d{6}", new_ts) and new_ts != good_ts
+        assert f"geolens_{new_ts}.dump" in _names(backup_dir / "daily")
+        assert not good_set & _names(backup_dir / "daily")
 
 
 def _healthcheck_command(compose_file: str) -> str:

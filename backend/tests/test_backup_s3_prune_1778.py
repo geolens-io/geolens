@@ -210,6 +210,7 @@ def _run(
     rm_fail_pattern: str = "",
     with_credentials: bool = True,
     ls_names: list[str] | None = None,
+    good: str = "",
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -243,7 +244,7 @@ def _run(
         'log() { echo "$@" >&2; }\n'
         f"{creds}"
         f"{_extract_prune_s3_prefix()}\n"
-        f'prune_s3_prefix "daily" "{keep}" day\n'
+        f'prune_s3_prefix "daily" "{keep}" day "{good}"\n'
     )
     result = subprocess.run(
         ["bash", "-c", harness],
@@ -444,6 +445,22 @@ class TestPruneS3Prefix:
         assert (
             "s3://test-bucket/backups/daily/globals-20260803_020000.sql" not in deleted
         )
+
+    def test_keeps_the_last_dump_with_records_and_its_companions(self, tmp_path: Path):
+        listing = "\n".join(
+            [
+                "geolens_20261019_020001.dump",
+                "globals-20261019_020001.sql",
+                "staging-20261019_020001.tar.gz",
+                "geolens_20261019_102717.dump",
+                "globals-20261019_102717.sql",
+            ]
+        )
+        result, deleted = _run(
+            tmp_path, keep="1", ls_listing=listing, good="20261019_020001"
+        )
+        assert result.returncode == 0, result.stderr
+        assert deleted == []
 
     def test_empty_prefix_does_not_abort_under_set_e(self, tmp_path: Path):
         """The prefix has zero objects (fresh install, or weekly/ before the
