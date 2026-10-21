@@ -50,6 +50,9 @@ describe('selectNodes', () => {
     const nodes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`${i}-0-0-0`, node(10, 1000, large)]));
     expect(MAX_LARGE_NODES).toBe(8);
     expect(selectNodes(map(nodes), POINT_BUDGET, 34, null)).toHaveLength(8);
+    // Large nodes past the cap are skipped; smaller nodes after them still load.
+    const withSmall = { ...nodes, '9-0-0-0': node(10, 1000, 100) };
+    expect(selectNodes(map(withSmall), POINT_BUDGET, 34, null).map(([key]) => key)).toContain('9-0-0-0');
   });
 
   it('accepts a node whose compressed chunk is between 16 and 64 MiB', () => {

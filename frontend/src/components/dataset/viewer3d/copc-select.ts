@@ -47,7 +47,9 @@ export function selectNodes(
     // partway on its read budget with a half-drawn cloud.
     if (points + node.pointCount > pointBudget) break;
     if (selected.length >= MAX_SELECTED_NODES || bytes + node.pointDataLength > MAX_SELECTED_BYTES) break;
-    if (node.pointDataLength > CHEAP_RANGE_BYTES && ++large > MAX_LARGE_NODES) break;
+    const isLarge = node.pointDataLength > CHEAP_RANGE_BYTES;
+    if (isLarge && large >= MAX_LARGE_NODES) continue;
+    if (isLarge) large += 1;
     selected.push([key, node]);
     points += node.pointCount;
     bytes += node.pointDataLength;
