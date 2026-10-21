@@ -84,6 +84,18 @@ def _type_temporal_literals(node: Any, types: dict[str, str]) -> Any:
         return node
     out = {k: _type_temporal_literals(v, types) for k, v in node.items()}
     args = out.get("args")
+    if (
+        out.get("op") in _COMPARISONS
+        and isinstance(args, list)
+        and len(args) == 2
+        and not (isinstance(args[0], dict) and "property" in args[0])
+        and isinstance(args[1], dict)
+        and "property" in args[1]
+    ):
+        out["args"] = _type_temporal_literals({**out, "args": args[::-1]}, types)[
+            "args"
+        ][::-1]
+        return out
     if not isinstance(args, list) or not args or not isinstance(args[0], dict):
         return out
     pg_type = types.get(args[0].get("property"), "")
@@ -91,6 +103,7 @@ def _type_temporal_literals(node: Any, types: dict[str, str]) -> Any:
         return out
     if out.get("op") in _COMPARISONS | {"between"}:
         out["args"] = [args[0]] + [_typed_literal(a, pg_type) for a in args[1:]]
+
     elif out.get("op") == "in" and len(args) == 2 and isinstance(args[1], list):
         out["args"] = [args[0], [_typed_literal(a, pg_type) for a in args[1]]]
     return out
