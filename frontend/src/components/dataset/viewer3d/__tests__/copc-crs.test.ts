@@ -27,6 +27,21 @@ describe('parseCopcCrs', () => {
     expect(crs?.zToMeters).toBeCloseTo(0.3048006, 6);
   });
 
+  it('reads the long-form WKT2 keywords the catalog accepts', () => {
+    const long = UTM2.replace('PROJCRS[', 'PROJECTEDCRS[');
+    const compound = `COMPOUNDCRS["x",${long},VERTICALCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up,LENGTHUNIT["foot",0.3048]]]]`;
+    const crs = parseCopcCrs(compound);
+    expect(crs?.horizontalWkt).toBe(UTM2);
+    expect(crs?.zToMeters).toBeCloseTo(0.3048, 6);
+  });
+
+  it('does not take the angular unit of a geographic CRS as a vertical scale', () => {
+    const geographic = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]';
+    expect(parseCopcCrs(geographic)).toEqual({ horizontalWkt: geographic, zToMeters: 1 });
+    const geographic2 = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[ellipsoidal,2],AXIS["lat",north],AXIS["lon",east],ANGLEUNIT["degree",0.0174532925199433]]';
+    expect(parseCopcCrs(geographic2)?.zToMeters).toBe(1);
+  });
+
   it('reads a plain WKT2 projected CRS', () => {
     expect(parseCopcCrs(UTM2)).toEqual({ horizontalWkt: UTM2, zToMeters: 1 });
   });

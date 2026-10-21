@@ -3,6 +3,7 @@ import proj4 from 'proj4';
 // The worker build of laz-perf; the default (web) build refuses to start in a worker.
 import { createLazPerf } from 'laz-perf/lib/worker/index.js';
 import lazPerfWasmUrl from 'laz-perf/lib/worker/laz-perf.wasm?url';
+import { colorShiftFor } from './copc-color';
 import { checkDecodeLimits } from './copc-decode-limits';
 import { MAX_NODE_POINTS } from './copc-limits';
 
@@ -81,6 +82,12 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     const toLngLat = proj4(horizontalWkt, 'EPSG:4326');
     const zMin = copc.header.min[2];
     const zRange = Math.max(copc.header.max[2] - zMin, Number.EPSILON);
+    // LAS colour is 16-bit, but some writers store 8-bit values in the fields.
+    let colorMax = 0;
+    if (r && g && b) {
+      for (let i = 0; i < count; i++) colorMax = Math.max(colorMax, r(i), g(i), b(i));
+    }
+    const colorShift = colorShiftFor(colorMax);
     const positions = new Float32Array(count * 3);
     const colors = new Uint8Array(count * 4);
     for (let i = 0; i < count; i++) {
@@ -89,9 +96,9 @@ scope.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       positions[i * 3 + 1] = lat - origin[1];
       positions[i * 3 + 2] = (z(i) - zMin) * zToMeters;
       if (r && g && b && (r(i) || g(i) || b(i))) {
-        colors[i * 4] = r(i) >> 8;
-        colors[i * 4 + 1] = g(i) >> 8;
-        colors[i * 4 + 2] = b(i) >> 8;
+        colors[i * 4] = r(i) >> colorShift;
+        colors[i * 4 + 1] = g(i) >> colorShift;
+        colors[i * 4 + 2] = b(i) >> colorShift;
       } else {
         colors.set(CLASS_COLORS[cls(i)] ?? elevationColor((z(i) - zMin) / zRange), i * 4);
       }
