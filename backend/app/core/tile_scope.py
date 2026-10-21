@@ -73,10 +73,12 @@ def vector_tile_template(
     ``signature`` is the ``sig``, ``exp`` and ``scope`` a private dataset's
     tiles are requested with.
     """
-    params = {
-        **(signature or {}),
-        **tile_template_params(tile_cache_version, publication_version),
-    }
+    # The vector tile route reads the content version as ``_v``, not the
+    # raster cache's ``v``, to learn that its metadata snapshot is stale.
+    versions = tile_template_params(tile_cache_version, publication_version)
+    if "v" in versions:
+        versions["_v"] = versions.pop("v")
+    params = {**(signature or {}), **versions}
     return f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf?{urlencode(params)}"
 
 

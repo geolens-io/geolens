@@ -314,7 +314,7 @@ async def test_vector_collection_links_its_vector_tile_template(
     assert (
         f"/tiles/data.{public_dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf" in link["href"]
     )
-    assert f"v={public_dataset.tile_cache_version}" in link["href"]
+    assert f"_v={public_dataset.tile_cache_version}" in link["href"]
 
     # The template is the real tile route: filled in, it serves the dataset.
     from urllib.parse import urlsplit
