@@ -54,6 +54,8 @@ import { reportTileTokenRemint } from '@/lib/report';
 // main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
 
+const EMPTY_FEATURES = { type: 'FeatureCollection' as const, features: [] };
+
 const Dataset3DOverlay = lazy(() => import('@/components/dataset/viewer3d/Dataset3DOverlay'));
 
 /** System columns excluded from the attribute form */
@@ -1147,6 +1149,11 @@ export const DatasetMap = memo(function DatasetMap({
           <Suspense fallback={null}>
             <Dataset3DOverlay datasetId={datasetId} tilesetUrl={tilesetUrl} fitToTileset={!hasBbox} />
           </Suspense>
+        )}
+
+        {/* An extentless tileset has no outline to hang the required credit line on. */}
+        {!bboxGeojson && tilesetUrl && bboxAttribution && (
+          <Source id="bbox-source" type="geojson" data={EMPTY_FEATURES} attribution={bboxAttribution} />
         )}
 
         {/* Bbox overlay for spatial context */}

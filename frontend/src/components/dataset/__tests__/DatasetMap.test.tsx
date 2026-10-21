@@ -2348,6 +2348,24 @@ describe('DatasetMap record types', () => {
     expect(mapSpy.bboxSourceAttribution).toBe('Autzen Stadium LiDAR (CC BY 4.0)');
   });
 
+  it('carries the dataset attribution for an extentless tileset the viewer draws', () => {
+    mapSpy.bboxSourceAttribution = undefined;
+    render(
+      <DatasetMap
+        bbox={null}
+        tableName={null}
+        geometryType={null}
+        datasetId="dataset-1"
+        recordType="tiles3d_dataset"
+        tilesetUrl="/api/datasets/dataset-1/tiles3d/tileset.json"
+        attribution="3DBAG (CC BY 4.0)"
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: /dataset map/i })).toBeInTheDocument();
+    expect(mapSpy.bboxSourceAttribution).toBe('3DBAG (CC BY 4.0)');
+  });
+
   it('does not duplicate the attribution on a vector dataset\'s bbox source (its own vector source already carries it)', () => {
     render(
       <DatasetMap
