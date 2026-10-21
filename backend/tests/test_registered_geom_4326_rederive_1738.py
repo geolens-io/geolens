@@ -709,6 +709,53 @@ async def test_the_whole_repair_transaction_is_bounded(
         await _drop(test_db_session, table_name)
 
 
+async def test_a_longer_armed_transaction_timeout_is_replaced(
+    test_db_session, monkeypatch
+) -> None:
+    """A role or database transaction_timeout arms its timer when the
+    transaction begins; the repair's shorter bound must still apply."""
+    if not await _server_has_transaction_timeout(test_db_session):
+        pytest.skip("transaction_timeout needs PostgreSQL 17 or later")
+    from app.core import db as core_db
+
+    real_async_session = core_db.async_session
+
+    @asynccontextmanager
+    async def _session_with_a_long_timeout():
+        async with real_async_session() as session:
+            await session.execute(text("SET transaction_timeout = '10min'"))
+            await session.commit()
+            yield session
+
+    async def _slow_rederive(session, *args, **kwargs):
+        for _ in range(4):
+            await session.execute(text("SELECT pg_sleep(0.15)"))
+        raise AssertionError("the repair's transaction deadline should have fired")
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_txarm_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        monkeypatch.setattr(core_db, "async_session", _session_with_a_long_timeout)
+        monkeypatch.setattr(
+            tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
+        )
+        monkeypatch.setattr(
+            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 300
+        )
+        with patch(
+            "app.processing.ingest.metadata.rederive_geom_4326",
+            new=_slow_rederive,
+        ):
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+        assert report.code == tasks_postgis_refresh._REPAIR_TIMED_OUT
+    finally:
+        await _drop(test_db_session, table_name)
+
+
 async def test_a_lock_wait_cannot_outlast_the_transaction_bound(
     test_db_session,
 ) -> None:
