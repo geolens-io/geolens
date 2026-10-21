@@ -41,6 +41,7 @@ from .arcgis_migrate_state import (
     ItemState,
     MigrationState,
     StateError,
+    release_locks,
 )
 from .arcgis_portal import Redactor
 
@@ -543,6 +544,8 @@ def run_cli(
     ) as exc:  # broad: last guard so a traceback can't print a credential
         fmt.error(redact(f"unexpected error: {type(exc).__name__}: {exc}"))
         return EXIT_GENERIC
+    finally:
+        release_locks()
 
 
 def _run(

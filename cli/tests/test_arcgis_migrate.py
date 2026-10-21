@@ -10,7 +10,10 @@ from typing import Any
 
 import pytest
 
+import typer
+
 from geolens_cli import arcgis_migrate as migrate
+from geolens_cli.arcgis_migrate_state import release_locks
 from geolens_cli.main import app
 
 from .conftest import GEOLENS_INSTANCE
@@ -795,3 +798,38 @@ def test_an_owner_without_the_grant_is_kept_with_a_warning(
     assert [s.json() for s in geolens.seen if s.method == "PATCH"] == [
         {"owner_id": VIC}
     ]
+
+
+def test_a_second_run_on_the_same_state_file_is_refused(tmp_path):
+    from geolens_cli.arcgis_migrate_state import MigrationState, StateError
+    from geolens_cli.arcgis_portal import Redactor
+
+    path = tmp_path / "arcgis-migration-state.json"
+    first = MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
+    with pytest.raises(StateError, match="another `geolens arcgis migrate` run"):
+        MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
+    MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor(), persist=False)
+    release_locks()
+    MigrationState.load(path, PORTAL, GEOLENS_INSTANCE, Redactor())
+    release_locks()
+    assert first.path == path
+
+
+def test_the_lock_is_released_when_a_run_stops_on_an_error(
+    runner, tmp_path, geolens, monkeypatch
+):
+    def handler(ctx, item, entry):
+        raise typer.Exit(4)
+
+    _install(monkeypatch, handler)
+    _run(runner, tmp_path, _plan([_item(L1)]))
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]), "--dry-run")
+    assert "another `geolens arcgis migrate` run" not in result.output
+    from geolens_cli.arcgis_migrate_state import MigrationState
+    from geolens_cli.arcgis_portal import Redactor
+
+    MigrationState.load(
+        tmp_path / "arcgis-migration-state.json", PORTAL, GEOLENS_INSTANCE, Redactor()
+    )
+    release_locks()

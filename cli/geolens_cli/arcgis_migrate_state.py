@@ -32,6 +32,15 @@ FINISHED = frozenset({DONE, EXISTS})
 MAX_ERROR_CHARS = 2000
 
 
+_HELD_LOCKS: list[Any] = []
+
+
+def release_locks() -> None:
+    """Release every state file lock this process took."""
+    while _HELD_LOCKS:
+        _HELD_LOCKS.pop().close()
+
+
 class StateError(Exception):
     """The state file can't be read, or belongs to another portal."""
 
@@ -95,9 +104,13 @@ class MigrationState:
 
         Refuses a file written for another portal or another GeoLens
         instance: its item ids would be matched against the wrong
-        organization, or its GeoLens ids against the wrong catalog.
+        organization, or its GeoLens ids against the wrong catalog. With
+        *persist*, holds an exclusive lock on ``<path>.lock`` until
+        ``release_locks``, so two runs can't import the same items at once.
         """
         state = cls(path, portal_url, instance, redact, persist=persist)
+        if persist:
+            state._lock()
         try:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -133,6 +146,23 @@ class MigrationState:
             )
         state.items = items
         return state
+
+    def _lock(self) -> None:
+        try:
+            import fcntl
+        except ImportError:  # Windows has no flock; runs aren't serialized there.
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(f"{self.path}.lock", "a")
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            raise StateError(
+                f"another `geolens arcgis migrate` run is using {self.path}; "
+                "wait for it to finish"
+            ) from None
+        _HELD_LOCKS.append(handle)
 
     def status(self, item_id: str) -> str:
         entry = self.items.get(item_id)
