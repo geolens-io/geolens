@@ -18,9 +18,10 @@ access at cutover. Mapping it to internal shares it with everyone instead.
 ## Decision
 
 A group is a named set of users, created and filled by admins. Datasets and
-maps can be shared with one or more groups. Sharing makes them `restricted`,
-visible to their owner, admins and the members of those groups. Sharing
-grants name groups, and roles stay permission tiers. Maps gain `restricted`.
+maps can be shared with one or more groups. A private item shared with groups
+becomes `restricted`, visible to its owner, admins and the members of those
+groups; an internal or public item keeps its wider audience. Sharing grants
+name groups, and roles stay permission tiers. Maps gain `restricted`.
 
 - Owners share with groups they belong to; admins share with any group.
 - Only the owner and admins see which groups an item is shared with. Group
