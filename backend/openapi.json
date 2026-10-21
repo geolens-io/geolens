@@ -17645,6 +17645,30 @@
             "description": "Full shareable URL \u2014 only returned on create",
             "title": "Share Url"
           },
+          "share_url_absolute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "share_url on the public app URL; create only",
+            "title": "Share Url Absolute"
+          },
+          "viewer_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map page on the public app URL",
+            "title": "Viewer Url"
+          },
           "expires_at": {
             "anyOf": [
               {

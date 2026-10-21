@@ -1285,6 +1285,12 @@ class ShareTokenResponse(BaseModel):
     share_url: str | None = Field(
         default=None, description="Full shareable URL — only returned on create"
     )
+    share_url_absolute: str | None = Field(
+        default=None, description="share_url on the public app URL; create only"
+    )
+    viewer_url: str | None = Field(
+        default=None, description="The map page on the public app URL"
+    )
     expires_at: datetime | None = None
     is_active: bool = True
 

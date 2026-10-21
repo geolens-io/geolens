@@ -27,6 +27,9 @@ and releases use semantic versioning.
   request, with the held refresh run for a replacement under review. Ids that
   don't exist and jobs you may not read both come back as `not_found`. API
   keys limited to read-only can call it.
+- Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
+  the public app URL that opens from another machine, and `viewer_url`, the map's page in
+  the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.
 - `GET /capabilities/` describes the server for desktop and script clients:
   version, sign-in methods, basemaps, workflow statuses and rate limits, plus
   upload limits and the caller's permissions and API key scope when the request

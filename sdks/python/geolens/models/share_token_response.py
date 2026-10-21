@@ -22,12 +22,16 @@ class ShareTokenResponse:
     Attributes:
         token (str): Raw token on create, hint on retrieve
         share_url (None | str | Unset): Full shareable URL — only returned on create
+        share_url_absolute (None | str | Unset): share_url on the public app URL; create only
+        viewer_url (None | str | Unset): The map page on the public app URL
         expires_at (datetime.datetime | None | Unset):
         is_active (bool | Unset):  Default: True.
     """
 
     token: str
     share_url: None | str | Unset = UNSET
+    share_url_absolute: None | str | Unset = UNSET
+    viewer_url: None | str | Unset = UNSET
     expires_at: datetime.datetime | None | Unset = UNSET
     is_active: bool | Unset = True
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -40,6 +44,18 @@ class ShareTokenResponse:
             share_url = UNSET
         else:
             share_url = self.share_url
+
+        share_url_absolute: None | str | Unset
+        if isinstance(self.share_url_absolute, Unset):
+            share_url_absolute = UNSET
+        else:
+            share_url_absolute = self.share_url_absolute
+
+        viewer_url: None | str | Unset
+        if isinstance(self.viewer_url, Unset):
+            viewer_url = UNSET
+        else:
+            viewer_url = self.viewer_url
 
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
@@ -60,6 +76,10 @@ class ShareTokenResponse:
         )
         if share_url is not UNSET:
             field_dict["share_url"] = share_url
+        if share_url_absolute is not UNSET:
+            field_dict["share_url_absolute"] = share_url_absolute
+        if viewer_url is not UNSET:
+            field_dict["viewer_url"] = viewer_url
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
         if is_active is not UNSET:
@@ -80,6 +100,26 @@ class ShareTokenResponse:
             return cast(None | str | Unset, data)
 
         share_url = _parse_share_url(d.pop("share_url", UNSET))
+
+        def _parse_share_url_absolute(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        share_url_absolute = _parse_share_url_absolute(
+            d.pop("share_url_absolute", UNSET)
+        )
+
+        def _parse_viewer_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        viewer_url = _parse_viewer_url(d.pop("viewer_url", UNSET))
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -103,6 +143,8 @@ class ShareTokenResponse:
         share_token_response = cls(
             token=token,
             share_url=share_url,
+            share_url_absolute=share_url_absolute,
+            viewer_url=viewer_url,
             expires_at=expires_at,
             is_active=is_active,
         )

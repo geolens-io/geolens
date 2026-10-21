@@ -1972,6 +1972,31 @@ class TestShareToken:
         assert "share_url" in data
         assert data["is_active"] is True
 
+    async def test_share_response_carries_absolute_links(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Create returns the relative share_url unchanged plus absolute links."""
+        map_id = (await _create_map(client, admin_auth_header))["id"]
+        await client.put(
+            f"/maps/{map_id}", json={"visibility": "public"}, headers=admin_auth_header
+        )
+
+        created = (
+            await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        ).json()
+        assert created["share_url"] == f"/m/{created['token']}"
+        assert created["share_url_absolute"].startswith("http")
+        assert created["share_url_absolute"].endswith(created["share_url"])
+        assert created["viewer_url"].startswith("http")
+        assert created["viewer_url"].endswith(f"/maps/{map_id}")
+
+        # The raw token is only ever returned on create.
+        fetched = (
+            await client.get(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        ).json()
+        assert fetched["share_url_absolute"] is None
+        assert fetched["viewer_url"] == created["viewer_url"]
+
     async def test_share_expiration_allowed(
         self,
         client: AsyncClient,

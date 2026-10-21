@@ -13567,6 +13567,16 @@ export interface components {
              * @description Full shareable URL — only returned on create
              */
             share_url?: string | null;
+            /**
+             * Share Url Absolute
+             * @description share_url on the public app URL; create only
+             */
+            share_url_absolute?: string | null;
+            /**
+             * Viewer Url
+             * @description The map page on the public app URL
+             */
+            viewer_url?: string | null;
             /** Expires At */
             expires_at?: string | null;
             /**

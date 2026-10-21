@@ -10284,6 +10284,18 @@ export type ShareTokenResponse = {
      */
     share_url?: string | null;
     /**
+     * Share Url Absolute
+     *
+     * share_url on the public app URL; create only
+     */
+    share_url_absolute?: string | null;
+    /**
+     * Viewer Url
+     *
+     * The map page on the public app URL
+     */
+    viewer_url?: string | null;
+    /**
      * Expires At
      */
     expires_at?: string | null;
