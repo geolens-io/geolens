@@ -28,6 +28,10 @@ and releases use semantic versioning.
 
 ### Added
 
+- `GET /capabilities/` describes the server for desktop and script clients:
+  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
+  upload limits and the caller's permissions and API key scope when the request
+  carries credentials.
 - API keys can be created with an expiry from the web app. Both the key
   settings page and the admin user page now offer Never, 30 days, 90 days and
   1 year (the default stays Never), and each key in the list shows when it

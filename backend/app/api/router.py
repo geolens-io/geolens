@@ -71,6 +71,9 @@ from app.modules.catalog.sources.stac_asset_size_router import (
     router as stac_asset_size_router,
 )
 from app.modules.catalog.sources.stac_router import router as stac_import_router
+from app.modules.settings.router_capabilities import (
+    router as capabilities_router,
+)
 from app.modules.settings.router import (
     public_router as settings_public_router,
     router as settings_router,
@@ -137,6 +140,7 @@ api_router.include_router(stac_asset_size_router)
 api_router.include_router(layers_router)
 api_router.include_router(settings_router)
 api_router.include_router(settings_public_router)
+api_router.include_router(capabilities_router)
 api_router.include_router(oauth_router)
 api_router.include_router(config_ops_router)
 api_router.include_router(embed_tokens_router)

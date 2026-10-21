@@ -104,6 +104,17 @@ async def get_user_quota_usage(
     )
 
 
+async def remaining_dataset_quota(db: AsyncSession, user_id: uuid.UUID) -> int | None:
+    """Datasets the user can still create, or None when no count cap is set.
+
+    Advisory: lets a client cap a batch at what the user can actually create.
+    """
+    usage = await get_user_quota_usage(db, user_id)
+    if usage.count_cap <= 0:
+        return None
+    return max(0, usage.count_cap - usage.dataset_count)
+
+
 async def get_user_quota_usage_bulk(
     db: AsyncSession,
     user_ids: list[uuid.UUID],

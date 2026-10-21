@@ -10,7 +10,6 @@ from app.core.config import validate_privacy_url_shape
 from app.core.dependencies import get_db
 from app.core.edition import get_edition
 from app.core.persistent_config import (
-    BASEMAPS,
     BRANDING_SHOW_BADGE,
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
@@ -20,6 +19,7 @@ from app.core.persistent_config import (
     RESTRICT_PUBLIC_VISIBILITY,
     get_cached_basemap_proxy_rate_limit,
 )
+from app.modules.settings.basemaps import list_public_basemaps
 from app.platform.ratelimit import limiter
 from app.modules.settings.schemas import (
     BasemapPublicResponse,
@@ -139,17 +139,7 @@ async def get_basemaps(
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
     """
     del request
-    stored = await BASEMAPS.get(db)
-    result: list[BasemapPublicResponse] = []
-    for entry in stored:
-        url = entry.get("url", "")
-        key_value = entry.get("api_key")
-        if "{api_key}" in url:
-            if not key_value:
-                continue
-            entry = {**entry, "url": url.replace("{api_key}", key_value)}
-        result.append(BasemapPublicResponse(**entry))
-    return result
+    return await list_public_basemaps(db)
 
 
 @router.get(

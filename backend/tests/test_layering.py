@@ -1272,7 +1272,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
     "backend/app/modules/admin/router_operations.py": 330,
-    "backend/app/modules/settings/router_public.py": 174,
+    "backend/app/modules/settings/router_public.py": 164,
 }
 
 
@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1686,
+    "backend/app/processing/ingest/router.py": 1659,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,

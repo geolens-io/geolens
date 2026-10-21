@@ -108,6 +108,7 @@ from app.processing.ingest.service import (
     save_upload_file,
     validate_file_extension,
 )
+from app.processing.ingest.upload_limits import build_upload_config
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
     admit_presigned_pointcloud,
@@ -147,11 +148,10 @@ from app.platform.jobs.defer_guard import (
 )
 from app.platform.jobs import ledger
 from app.core.persistent_config import (
-    UPLOAD_ALLOWED_EXTENSIONS,
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
 )
-from app.modules.quota.service import check_upload_quota, get_user_quota_usage
+from app.modules.quota.service import check_upload_quota, remaining_dataset_quota
 from app.modules.quota.service import DatasetQuotaExceededError
 from app.processing.raster.validation import validate_sources_async
 from app.platform.service_auth import (
@@ -213,15 +213,6 @@ def _reject_standalone_vrt(filename: str) -> None:
         )
 
 
-def _without_standalone_vrt(extensions: str) -> str:
-    """Keep legacy persistent config from advertising a disabled file type."""
-    return ",".join(
-        extension.strip()
-        for extension in extensions.split(",")
-        if extension.strip() and extension.strip().lower() != ".vrt"
-    )
-
-
 async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
     """Load allowed upload extensions with a DB-failure fallback.
 
@@ -276,25 +267,7 @@ async def get_upload_config(
     db: AsyncSession = Depends(get_db),
 ) -> UploadConfigResponse:
     """Return upload configuration including presigned upload availability."""
-    max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
-    allowed_exts = _without_standalone_vrt(await UPLOAD_ALLOWED_EXTENSIONS.get(db))
-
-    # Advisory remaining-quota hint so the client can cap a batch at what the
-    # user can actually create. None when no count cap is set (unlimited).
-    usage = await get_user_quota_usage(db, user.id)
-    remaining = (
-        max(0, usage.count_cap - usage.dataset_count) if usage.count_cap > 0 else None
-    )
-
-    return UploadConfigResponse(
-        presigned_uploads=settings.storage_provider == "s3",
-        presigned_threshold_bytes=settings.presigned_multipart_threshold_mb
-        * 1024
-        * 1024,
-        max_file_size_bytes=max_size_mb * 1024 * 1024,
-        allowed_extensions=allowed_exts,
-        remaining_dataset_quota=remaining,
-    )
+    return await build_upload_config(db, await remaining_dataset_quota(db, user.id))
 
 
 @router.post(

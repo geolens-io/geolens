@@ -115,6 +115,14 @@ from .bulk_register_response import BulkRegisterResponse
 from .bulk_register_result import BulkRegisterResult
 from .bulk_revoke_request import BulkRevokeRequest
 from .bulk_revoke_response import BulkRevokeResponse
+from .capabilities_auth import CapabilitiesAuth
+from .capabilities_basemap import CapabilitiesBasemap
+from .capabilities_key import CapabilitiesKey
+from .capabilities_me import CapabilitiesMe
+from .capabilities_rate_limits import CapabilitiesRateLimits
+from .capabilities_response import CapabilitiesResponse
+from .capabilities_server import CapabilitiesServer
+from .capabilities_upload import CapabilitiesUpload
 from .catalog_stats_response import CatalogStatsResponse
 from .catalog_stats_response_datasets_by_geometry_type import (
     CatalogStatsResponseDatasetsByGeometryType,
@@ -1046,6 +1054,14 @@ __all__ = (
     "BulkRegisterResult",
     "BulkRevokeRequest",
     "BulkRevokeResponse",
+    "CapabilitiesAuth",
+    "CapabilitiesBasemap",
+    "CapabilitiesKey",
+    "CapabilitiesMe",
+    "CapabilitiesRateLimits",
+    "CapabilitiesResponse",
+    "CapabilitiesServer",
+    "CapabilitiesUpload",
     "CatalogStatsResponse",
     "CatalogStatsResponseDatasetsByGeometryType",
     "CatalogStatsResponseDatasetsByVisibility",

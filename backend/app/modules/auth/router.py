@@ -1154,29 +1154,9 @@ async def me_permissions(
     db: AsyncSession = Depends(get_db),
 ) -> PermissionsResponse:
     """Return the effective permissions for the currently authenticated user."""
-    from app.modules.auth.permissions import ALL_CAPABILITIES, get_effective_permissions
-    from app.platform.extensions import get_permission_extension
+    from app.modules.auth.permissions import get_user_effective_permissions
 
-    service = AuthService(db)
-    user_roles = await service.get_user_roles(current_user.id)
-    matrix = await get_effective_permissions(db)
-    permission_ext = get_permission_extension()
-
-    # Resolve every capability through the governance seam. In particular,
-    # enterprise overlays may deny a matrix grant or add an out-of-band fleet
-    # grant, and the UI must see the same effective decision as protected API
-    # endpoints. Keep these checks sequential: AsyncSession is not safe for
-    # concurrent use by overlay implementations that consult the database.
-    effective: dict[str, bool] = {}
-    for cap in ALL_CAPABILITIES:
-        effective[cap] = await permission_ext.check_permission(
-            db,
-            current_user,
-            cap,
-            user_roles=user_roles,
-            permission_matrix=matrix,
-        )
-
+    effective = await get_user_effective_permissions(db, current_user)
     return PermissionsResponse(permissions=effective)
 
 

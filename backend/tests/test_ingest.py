@@ -70,9 +70,9 @@ def mock_file_save(tmp_path: Path):
 
 class TestUpload:
     def test_upload_config_never_advertises_standalone_vrt(self):
-        from app.processing.ingest.router import _without_standalone_vrt
+        from app.processing.ingest.upload_limits import without_standalone_vrt
 
-        assert _without_standalone_vrt(".geojson, .VRT,.tif") == ".geojson,.tif"
+        assert without_standalone_vrt(".geojson, .VRT,.tif") == ".geojson,.tif"
 
     async def test_upload_requires_auth(self, client: AsyncClient):
         """POST /ingest/upload without token returns 401."""

@@ -2941,6 +2941,266 @@
         "title": "BulkRevokeResponse",
         "type": "object"
       },
+      "CapabilitiesAuth": {
+        "properties": {
+          "password_login_enabled": {
+            "description": "Whether username and password sign-in is on.",
+            "title": "Password Login Enabled",
+            "type": "boolean"
+          },
+          "methods": {
+            "description": "Sign-in methods on offer: `password` plus each enabled provider type.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "password_login_enabled",
+          "methods"
+        ],
+        "title": "CapabilitiesAuth",
+        "type": "object"
+      },
+      "CapabilitiesBasemap": {
+        "properties": {
+          "id": {
+            "description": "Basemap identifier to use in a map document.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CapabilitiesBasemap",
+        "type": "object"
+      },
+      "CapabilitiesKey": {
+        "properties": {
+          "scope": {
+            "description": "Scope of the API key making the request.",
+            "title": "Scope",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the key stops working, or null if it does not expire.",
+            "title": "Expires At"
+          }
+        },
+        "required": [
+          "scope",
+          "expires_at"
+        ],
+        "title": "CapabilitiesKey",
+        "type": "object"
+      },
+      "CapabilitiesMe": {
+        "properties": {
+          "username": {
+            "description": "Signed-in account.",
+            "title": "Username",
+            "type": "string"
+          },
+          "permissions": {
+            "description": "Capabilities the account holds.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapabilitiesKey"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the request authenticated with an API key."
+          },
+          "remaining_dataset_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Datasets the account can still create, or null when uncapped.",
+            "title": "Remaining Dataset Quota"
+          }
+        },
+        "required": [
+          "username",
+          "permissions",
+          "key",
+          "remaining_dataset_quota"
+        ],
+        "title": "CapabilitiesMe",
+        "type": "object"
+      },
+      "CapabilitiesRateLimits": {
+        "properties": {
+          "global_per_second": {
+            "description": "Requests per second per client IP.",
+            "title": "Global Per Second",
+            "type": "integer"
+          },
+          "login_per_minute": {
+            "description": "Login attempts per minute.",
+            "title": "Login Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "global_per_second",
+          "login_per_minute"
+        ],
+        "title": "CapabilitiesRateLimits",
+        "type": "object"
+      },
+      "CapabilitiesResponse": {
+        "properties": {
+          "server": {
+            "$ref": "#/components/schemas/CapabilitiesServer"
+          },
+          "publish_contract": {
+            "description": "Version of the publish contract the server speaks.",
+            "title": "Publish Contract",
+            "type": "integer"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/CapabilitiesAuth"
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapabilitiesUpload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Upload limits. Present only with credentials."
+          },
+          "basemaps": {
+            "description": "Enabled basemaps whose provider key, if any, is configured.",
+            "items": {
+              "$ref": "#/components/schemas/CapabilitiesBasemap"
+            },
+            "title": "Basemaps",
+            "type": "array"
+          },
+          "flags": {
+            "$ref": "#/components/schemas/FeatureFlagsResponse"
+          },
+          "status_order": {
+            "description": "Dataset workflow statuses, from first to last.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Status Order",
+            "type": "array"
+          },
+          "rate_limits": {
+            "$ref": "#/components/schemas/CapabilitiesRateLimits"
+          },
+          "me": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapabilitiesMe"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's account. Present only with credentials."
+          }
+        },
+        "required": [
+          "server",
+          "publish_contract",
+          "auth",
+          "upload",
+          "basemaps",
+          "flags",
+          "status_order",
+          "rate_limits",
+          "me"
+        ],
+        "title": "CapabilitiesResponse",
+        "type": "object"
+      },
+      "CapabilitiesServer": {
+        "properties": {
+          "version": {
+            "description": "Running GeoLens version.",
+            "title": "Version",
+            "type": "string"
+          },
+          "edition": {
+            "description": "Edition the server runs.",
+            "title": "Edition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "edition"
+        ],
+        "title": "CapabilitiesServer",
+        "type": "object"
+      },
+      "CapabilitiesUpload": {
+        "properties": {
+          "max_file_size_bytes": {
+            "description": "Largest accepted upload, in bytes.",
+            "title": "Max File Size Bytes",
+            "type": "integer"
+          },
+          "allowed_extensions": {
+            "description": "Extensions a publish manifest can carry, a subset of the upload allowlist.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Extensions",
+            "type": "array"
+          },
+          "presigned": {
+            "description": "Whether direct-to-S3 uploads are enabled.",
+            "title": "Presigned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "max_file_size_bytes",
+          "allowed_extensions",
+          "presigned"
+        ],
+        "title": "CapabilitiesUpload",
+        "type": "object"
+      },
       "CatalogStatsResponse": {
         "properties": {
           "total_datasets": {
@@ -30025,6 +30285,89 @@
         "summary": "Verify Email",
         "tags": [
           "Auth"
+        ]
+      }
+    },
+    "/capabilities/": {
+      "get": {
+        "description": "Describe what this server offers, for a client's first call.\n\nAnonymous callers get the server, sign-in, basemap, workflow and rate-limit\nfacts. A caller with credentials also gets `upload` and `me`.",
+        "operationId": "get_capabilities_capabilities__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Capabilities",
+        "tags": [
+          "Admin"
         ]
       }
     },

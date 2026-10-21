@@ -32,17 +32,16 @@ from app.modules.auth.oauth.encryption import decrypt_secret
 from app.modules.auth.oauth.schemas import OAuthProviderPublic, SsoExchangeRequest
 from app.modules.auth.oauth.service import (
     _resolve_github_identity,
-    get_enabled_providers,
     get_provider_by_slug,
     is_azure_multitenant,
     validate_provider_server_endpoints,
     verify_azure_multitenant_issuer,
 )
+from app.modules.auth.oauth.sign_in_methods import get_public_providers
 from app.modules.auth.oauth.sign_in_redirect import sso_sign_in_redirect
 from app.modules.auth.schemas import TokenResponse
 from app.modules.auth.service import SIGN_IN_NONCE_PATTERN, AuthService
 from app.core.dependencies import get_client_ip, get_db
-from app.core.edition import is_enterprise
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -690,11 +689,6 @@ async def list_public_providers(
     db: AsyncSession = Depends(get_db),
 ) -> list[OAuthProviderPublic]:
     """Return the list of enabled OAuth providers for the login page."""
-    providers = await get_enabled_providers(db)
-    # The SAML sign-in route ships with the Enterprise runtime only.
-    saml_available = is_enterprise()
     return [
-        OAuthProviderPublic.model_validate(p)
-        for p in providers
-        if p.provider_type != "saml" or saml_available
+        OAuthProviderPublic.model_validate(p) for p in await get_public_providers(db)
     ]

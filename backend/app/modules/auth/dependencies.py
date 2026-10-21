@@ -376,6 +376,7 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             id=api_key_obj.id,
             scope=api_key_obj.scope,
             dataset_id=api_key_obj.dataset_id,
+            expires_at=api_key_obj.expires_at,
         ),
     )
     return user

@@ -1252,6 +1252,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capabilities/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Capabilities
+         * @description Describe what this server offers, for a client's first call.
+         *
+         *     Anonymous callers get the server, sign-in, basemap, workflow and rate-limit
+         *     facts. A caller with credentials also gets `upload` and `me`.
+         */
+        get: operations["get_capabilities_capabilities__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/collections/": {
         parameters: {
             query?: never;
@@ -7266,6 +7289,135 @@ export interface components {
         BulkRevokeResponse: {
             /** Revoked Count */
             revoked_count: number;
+        };
+        /** CapabilitiesAuth */
+        CapabilitiesAuth: {
+            /**
+             * Password Login Enabled
+             * @description Whether username and password sign-in is on.
+             */
+            password_login_enabled: boolean;
+            /**
+             * Methods
+             * @description Sign-in methods on offer: `password` plus each enabled provider type.
+             */
+            methods: string[];
+        };
+        /** CapabilitiesBasemap */
+        CapabilitiesBasemap: {
+            /**
+             * Id
+             * @description Basemap identifier to use in a map document.
+             */
+            id: string;
+            /**
+             * Name
+             * @description Display name.
+             */
+            name: string;
+        };
+        /** CapabilitiesKey */
+        CapabilitiesKey: {
+            /**
+             * Scope
+             * @description Scope of the API key making the request.
+             */
+            scope: string;
+            /**
+             * Expires At
+             * @description When the key stops working, or null if it does not expire.
+             */
+            expires_at: string | null;
+        };
+        /** CapabilitiesMe */
+        CapabilitiesMe: {
+            /**
+             * Username
+             * @description Signed-in account.
+             */
+            username: string;
+            /**
+             * Permissions
+             * @description Capabilities the account holds.
+             */
+            permissions: string[];
+            /** @description Present only when the request authenticated with an API key. */
+            key: components["schemas"]["CapabilitiesKey"] | null;
+            /**
+             * Remaining Dataset Quota
+             * @description Datasets the account can still create, or null when uncapped.
+             */
+            remaining_dataset_quota: number | null;
+        };
+        /** CapabilitiesRateLimits */
+        CapabilitiesRateLimits: {
+            /**
+             * Global Per Second
+             * @description Requests per second per client IP.
+             */
+            global_per_second: number;
+            /**
+             * Login Per Minute
+             * @description Login attempts per minute.
+             */
+            login_per_minute: number;
+        };
+        /** CapabilitiesResponse */
+        CapabilitiesResponse: {
+            server: components["schemas"]["CapabilitiesServer"];
+            /**
+             * Publish Contract
+             * @description Version of the publish contract the server speaks.
+             */
+            publish_contract: number;
+            auth: components["schemas"]["CapabilitiesAuth"];
+            /** @description Upload limits. Present only with credentials. */
+            upload: components["schemas"]["CapabilitiesUpload"] | null;
+            /**
+             * Basemaps
+             * @description Enabled basemaps whose provider key, if any, is configured.
+             */
+            basemaps: components["schemas"]["CapabilitiesBasemap"][];
+            flags: components["schemas"]["FeatureFlagsResponse"];
+            /**
+             * Status Order
+             * @description Dataset workflow statuses, from first to last.
+             */
+            status_order: string[];
+            rate_limits: components["schemas"]["CapabilitiesRateLimits"];
+            /** @description The caller's account. Present only with credentials. */
+            me: components["schemas"]["CapabilitiesMe"] | null;
+        };
+        /** CapabilitiesServer */
+        CapabilitiesServer: {
+            /**
+             * Version
+             * @description Running GeoLens version.
+             */
+            version: string;
+            /**
+             * Edition
+             * @description Edition the server runs.
+             */
+            edition: string;
+        };
+        /** CapabilitiesUpload */
+        CapabilitiesUpload: {
+            /**
+             * Max File Size Bytes
+             * @description Largest accepted upload, in bytes.
+             */
+            max_file_size_bytes: number;
+            /**
+             * Allowed Extensions
+             * @description Extensions a publish manifest can carry, a subset of the upload allowlist.
+             */
+            allowed_extensions: string[];
+            /**
+             * Presigned
+             * @description Whether direct-to-S3 uploads are enabled.
+             */
+            presigned: boolean;
         };
         /** CatalogStatsResponse */
         CatalogStatsResponse: {
@@ -21106,6 +21258,64 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_capabilities_capabilities__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilitiesResponse"];
+                };
+            };
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

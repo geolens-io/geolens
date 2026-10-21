@@ -1803,6 +1803,184 @@ export type BulkRevokeResponse = {
 };
 
 /**
+ * CapabilitiesAuth
+ */
+export type CapabilitiesAuth = {
+    /**
+     * Password Login Enabled
+     *
+     * Whether username and password sign-in is on.
+     */
+    password_login_enabled: boolean;
+    /**
+     * Methods
+     *
+     * Sign-in methods on offer: `password` plus each enabled provider type.
+     */
+    methods: Array<string>;
+};
+
+/**
+ * CapabilitiesBasemap
+ */
+export type CapabilitiesBasemap = {
+    /**
+     * Id
+     *
+     * Basemap identifier to use in a map document.
+     */
+    id: string;
+    /**
+     * Name
+     *
+     * Display name.
+     */
+    name: string;
+};
+
+/**
+ * CapabilitiesKey
+ */
+export type CapabilitiesKey = {
+    /**
+     * Scope
+     *
+     * Scope of the API key making the request.
+     */
+    scope: string;
+    /**
+     * Expires At
+     *
+     * When the key stops working, or null if it does not expire.
+     */
+    expires_at: string | null;
+};
+
+/**
+ * CapabilitiesMe
+ */
+export type CapabilitiesMe = {
+    /**
+     * Username
+     *
+     * Signed-in account.
+     */
+    username: string;
+    /**
+     * Permissions
+     *
+     * Capabilities the account holds.
+     */
+    permissions: Array<string>;
+    /**
+     * Present only when the request authenticated with an API key.
+     */
+    key: CapabilitiesKey | null;
+    /**
+     * Remaining Dataset Quota
+     *
+     * Datasets the account can still create, or null when uncapped.
+     */
+    remaining_dataset_quota: number | null;
+};
+
+/**
+ * CapabilitiesRateLimits
+ */
+export type CapabilitiesRateLimits = {
+    /**
+     * Global Per Second
+     *
+     * Requests per second per client IP.
+     */
+    global_per_second: number;
+    /**
+     * Login Per Minute
+     *
+     * Login attempts per minute.
+     */
+    login_per_minute: number;
+};
+
+/**
+ * CapabilitiesResponse
+ */
+export type CapabilitiesResponse = {
+    server: CapabilitiesServer;
+    /**
+     * Publish Contract
+     *
+     * Version of the publish contract the server speaks.
+     */
+    publish_contract: number;
+    auth: CapabilitiesAuth;
+    /**
+     * Upload limits. Present only with credentials.
+     */
+    upload: CapabilitiesUpload | null;
+    /**
+     * Basemaps
+     *
+     * Enabled basemaps whose provider key, if any, is configured.
+     */
+    basemaps: Array<CapabilitiesBasemap>;
+    flags: FeatureFlagsResponse;
+    /**
+     * Status Order
+     *
+     * Dataset workflow statuses, from first to last.
+     */
+    status_order: Array<string>;
+    rate_limits: CapabilitiesRateLimits;
+    /**
+     * The caller's account. Present only with credentials.
+     */
+    me: CapabilitiesMe | null;
+};
+
+/**
+ * CapabilitiesServer
+ */
+export type CapabilitiesServer = {
+    /**
+     * Version
+     *
+     * Running GeoLens version.
+     */
+    version: string;
+    /**
+     * Edition
+     *
+     * Edition the server runs.
+     */
+    edition: string;
+};
+
+/**
+ * CapabilitiesUpload
+ */
+export type CapabilitiesUpload = {
+    /**
+     * Max File Size Bytes
+     *
+     * Largest accepted upload, in bytes.
+     */
+    max_file_size_bytes: number;
+    /**
+     * Allowed Extensions
+     *
+     * Extensions a publish manifest can carry, a subset of the upload allowlist.
+     */
+    allowed_extensions: Array<string>;
+    /**
+     * Presigned
+     *
+     * Whether direct-to-S3 uploads are enabled.
+     */
+    presigned: boolean;
+};
+
+/**
  * CatalogStatsResponse
  */
 export type CatalogStatsResponse = {
@@ -16089,6 +16267,43 @@ export type VerifyEmailAuthVerifyEmailPostResponses = {
 };
 
 export type VerifyEmailAuthVerifyEmailPostResponse = VerifyEmailAuthVerifyEmailPostResponses[keyof VerifyEmailAuthVerifyEmailPostResponses];
+
+export type GetCapabilitiesCapabilitiesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/capabilities/';
+};
+
+export type GetCapabilitiesCapabilitiesGetErrors = {
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset.
+     */
+    401: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetCapabilitiesCapabilitiesGetError = GetCapabilitiesCapabilitiesGetErrors[keyof GetCapabilitiesCapabilitiesGetErrors];
+
+export type GetCapabilitiesCapabilitiesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CapabilitiesResponse;
+};
+
+export type GetCapabilitiesCapabilitiesGetResponse = GetCapabilitiesCapabilitiesGetResponses[keyof GetCapabilitiesCapabilitiesGetResponses];
 
 export type ListCollectionsEndpointCatalogCollectionsGetData = {
     body?: never;

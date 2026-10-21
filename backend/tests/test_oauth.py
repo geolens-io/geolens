@@ -1877,7 +1877,7 @@ class TestOAuthProvidersEndpoint:
         )
         await test_db_session.commit()
         monkeypatch.setattr(
-            "app.modules.auth.oauth.router.is_enterprise", lambda: enterprise
+            "app.modules.auth.oauth.sign_in_methods.is_enterprise", lambda: enterprise
         )
 
         resp = await client.get("/auth/oauth/providers/")

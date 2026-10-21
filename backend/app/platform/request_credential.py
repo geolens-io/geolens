@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +66,7 @@ class ApiKeyCredential:
     id: uuid.UUID
     scope: str
     dataset_id: uuid.UUID | None
+    expires_at: datetime | None = None
 
 
 def record_api_key(session: AsyncSession, credential: ApiKeyCredential) -> None:

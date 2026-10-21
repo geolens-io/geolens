@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.models import Role, User, UserRole
+from app.platform.extensions import get_permission_extension
 from app.core.permissions import (
     ALL_CAPABILITIES,
     CREATE_LAYERS,
@@ -41,6 +42,7 @@ __all__ = [
     "UPLOAD",
     "USE_AI_CHAT",
     "get_effective_permissions",
+    "get_user_effective_permissions",
     "get_user_roles",
     "user_has_capability",
     "validate_permission_matrix",
@@ -203,3 +205,25 @@ async def get_effective_permissions(db: AsyncSession) -> dict[str, dict[str, boo
         caps[MANAGE_TENANTS] = False
 
     return result
+
+
+async def get_user_effective_permissions(
+    db: AsyncSession, user: Identity
+) -> dict[str, bool]:
+    """Overlays can deny a matrix grant or add one, so callers must not read the
+    matrix directly. The checks stay sequential: AsyncSession is not safe for
+    concurrent use by overlay implementations that consult the database.
+    """
+    user_roles = await get_user_roles(db, user)
+    matrix = await get_effective_permissions(db)
+    permission_ext = get_permission_extension()
+    return {
+        cap: await permission_ext.check_permission(
+            db,
+            user,
+            cap,
+            user_roles=user_roles,
+            permission_matrix=matrix,
+        )
+        for cap in ALL_CAPABILITIES
+    }
