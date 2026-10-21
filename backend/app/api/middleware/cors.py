@@ -91,6 +91,21 @@ _HEADER_KEY_ALLOWED_LOWER = frozenset(
     h.lower() for h in _HEADER_KEY_ALLOWED_HEADER_NAMES
 )
 
+# The /auth/ routes that read a key. The others are sign-in, registration and
+# session routes that never do, so a keyed preflight there would only open them
+# to blind cross-origin writes.
+_KEYED_AUTH_PATHS = frozenset(
+    {
+        "/auth/api-keys",
+        "/auth/change-password",
+        "/auth/logout",
+        "/auth/me",
+        "/auth/me/permissions",
+        "/auth/me/usage",
+    }
+)
+_KEYED_AUTH_PREFIXES = ("/auth/api-keys/", "/auth/download-token/")
+
 _ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
 
@@ -326,16 +341,16 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     @classmethod
     def _is_header_key_request(cls, request: Request) -> bool:
-        """Whether this request is on the header-key lane, preflight included.
-
-        Under ``/auth/`` only ``/auth/me`` takes a keyed preflight: the rest are
-        sign-in, registration and session routes, which no key script calls.
-        """
+        """Whether this request is on the header-key lane, preflight included."""
         if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
             return False
         if cls._is_preflight(request):
-            path = cls._request_path(request)
-            if path.startswith("/auth/") and path.rstrip("/") != "/auth/me":
+            path = cls._request_path(request).rstrip("/")
+            if (
+                path.startswith("/auth/")
+                and path not in _KEYED_AUTH_PATHS
+                and not path.startswith(_KEYED_AUTH_PREFIXES)
+            ):
                 return False
             requested = cls._requested_headers(request)
             return "x-api-key" in requested and requested <= _HEADER_KEY_ALLOWED_LOWER

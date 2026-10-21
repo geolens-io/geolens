@@ -10,6 +10,7 @@ query-string credentials keep the old rule: no wildcard outside
 ``CORS_ALLOWED_ORIGINS``.
 """
 
+import re
 import uuid
 
 import pytest
@@ -191,12 +192,15 @@ async def test_a_header_key_with_a_query_credential_gets_no_wildcard(
     [
         ("/auth/me/", True),
         ("/auth/me", True),
+        ("/auth/me/permissions/", True),
+        ("/auth/download-token/1", True),
         ("/auth/login", False),
         ("/auth/register/", False),
         ("/auth/oauth/exchange/", False),
+        ("/auth/logout/session/", False),
     ],
 )
-async def test_auth_routes_take_a_keyed_preflight_only_for_me(
+async def test_auth_routes_take_a_keyed_preflight_only_where_a_key_is_read(
     client, allow_one_origin, path, allowed
 ):
     resp = await client.options(
@@ -380,8 +384,8 @@ _KEY_READERS = (
 )
 
 
-def _routes_reading_no_key() -> list[tuple[str, str]]:
-    """(method, path) for every route whose dependencies never look up a key."""
+def _key_reading_by_route() -> dict[tuple[str, str], bool]:
+    """Whether each (method, path) route's dependencies look up a key."""
     import inspect
 
     from fastapi.routing import APIRoute, iter_route_contexts
@@ -400,14 +404,40 @@ def _routes_reading_no_key() -> list[tuple[str, str]]:
                 return True
         return False
 
+    return {
+        (method, ctx.path): reads_a_key(ctx.route.dependant)
+        for ctx in iter_route_contexts(app.routes)
+        if isinstance(ctx.route, APIRoute)
+        for method in ctx.route.methods
+    }
+
+
+def _routes_reading_no_key() -> list[tuple[str, str]]:
+    """(method, path) for every route whose dependencies never look up a key."""
     return sorted(
-        {
-            (method, ctx.path)
-            for ctx in iter_route_contexts(app.routes)
-            if isinstance(ctx.route, APIRoute) and not reads_a_key(ctx.route.dependant)
-            for method in ctx.route.methods
-        }
+        route for route, reads in _key_reading_by_route().items() if not reads
     )
+
+
+@pytest.mark.anyio
+async def test_an_auth_path_takes_a_keyed_preflight_exactly_when_its_routes_read_a_key(
+    client, allow_one_origin
+):
+    every_method_reads: dict[str, bool] = {}
+    for (_method, path), reads in _key_reading_by_route().items():
+        if path.startswith("/auth/"):
+            every_method_reads[path] = every_method_reads.get(path, True) and reads
+    assert any(every_method_reads.values()) and not all(every_method_reads.values())
+    for path, reads in every_method_reads.items():
+        resp = await client.options(
+            re.sub(r"\{[^}]+\}", "1", path),
+            headers={
+                "Origin": _FOREIGN_ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-api-key, content-type",
+            },
+        )
+        assert ("access-control-allow-origin" in resp.headers) is reads, path
 
 
 def test_every_unsafe_route_that_reads_no_key_is_under_auth():
