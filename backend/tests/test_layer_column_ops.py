@@ -457,3 +457,65 @@ async def test_timestamp_writes_preserve_offsets_and_reject_ambiguous_local_time
     persisted = await client.get(feature_url, headers=admin_auth_header)
     assert persisted.json()["properties"]["value"] == "2026-09-12T14:30:00+00:00"
     assert persisted.json()["properties"]["name"] is None
+
+
+@pytest.mark.anyio
+async def test_column_edits_keep_the_source_names_of_imported_columns(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    import uuid
+
+    from sqlalchemy import update
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    dataset_id = await _create_layer(client, admin_auth_header, title="Source Names")
+    await test_db_session.execute(
+        update(Dataset)
+        .where(Dataset.id == uuid.UUID(dataset_id))
+        .values(
+            column_info=[
+                {"name": "name", "type": "text", "source_name": "Name"},
+                {"name": "value", "type": "text", "source_name": "VALUE 1"},
+            ]
+        )
+    )
+    await test_db_session.commit()
+
+    async def source_names() -> dict[str, str | None]:
+        body = (
+            await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        ).json()
+        return {c["name"]: c["source_name"] for c in body["column_info"]}
+
+    added = await client.post(
+        f"/layers/{dataset_id}/columns/",
+        json={"column": {"name": "extra", "type": "text"}},
+        headers=admin_auth_header,
+    )
+    assert added.status_code in (200, 201), added.text
+    assert await source_names() == {
+        "name": "Name",
+        "value": "VALUE 1",
+        "extra": None,
+    }
+
+    renamed = await client.patch(
+        f"/layers/{dataset_id}/columns/value/name",
+        json={"new_name": "amount"},
+        headers=admin_auth_header,
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert (await source_names())["amount"] == "VALUE 1"
+
+    retyped = await client.patch(
+        f"/layers/{dataset_id}/columns/amount/type",
+        json={"new_type": "integer"},
+        headers=admin_auth_header,
+    )
+    assert retyped.status_code == 200, retyped.text
+    dropped = await client.delete(
+        f"/layers/{dataset_id}/columns/extra", headers=admin_auth_header
+    )
+    assert dropped.status_code == 200, dropped.text
+    assert await source_names() == {"name": "Name", "amount": "VALUE 1"}

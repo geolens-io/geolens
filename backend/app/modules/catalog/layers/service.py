@@ -37,6 +37,21 @@ def _qcol(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _keep_source_names(
+    dataset: Dataset, column_info: list[dict], renamed: dict[str, str] | None = None
+) -> list[dict]:
+    """``column_info`` re-read from the database, with each column's source name.
+
+    The re-read knows only the stored columns; ``renamed`` maps an old column
+    name to its new one so a renamed column keeps the name it was imported as.
+    """
+    source_names = {
+        (renamed or {}).get(c["name"], c["name"]): c.get("source_name")
+        for c in dataset.column_info or []
+    }
+    return [{**c, "source_name": source_names.get(c["name"])} for c in column_info]
+
+
 async def _compute_quality_detail(
     session: AsyncSession, dataset: Dataset, column_info: list[dict]
 ) -> object:
@@ -224,6 +239,7 @@ async def add_column(
     await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    column_info = _keep_source_names(dataset, column_info)
     # Scan, then lock, then assign — the scan needs neither
     # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
@@ -328,6 +344,7 @@ async def rename_column(
     await refuse_retention_column_change(session, dataset, column_name, new_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    column_info = _keep_source_names(dataset, column_info, {column_name: new_name})
     # Lock follows the ALTER — the reupload swap takes its
     # data-table ACCESS EXCLUSIVE before its catalog rows.
     await lock_catalog_rows_for_write(session, dataset)
@@ -406,6 +423,7 @@ async def alter_column_type(
     await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    column_info = _keep_source_names(dataset, column_info)
     # Scan, then lock, then assign — the scan needs neither
     # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
@@ -463,6 +481,7 @@ async def drop_column(
     await refuse_retention_column_change(session, dataset, column_name)
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    column_info = _keep_source_names(dataset, column_info)
     # Scan, then lock, then assign — the scan needs neither
     # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
