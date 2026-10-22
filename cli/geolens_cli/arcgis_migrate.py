@@ -761,7 +761,6 @@ def _run(
         trusted_hosts=frozenset(h.strip().lower() for h in opts.trusted_hosts),
         collection_from=plan["defaults"]["collection_from"],
         collections=state.collections,
-        items=state.items,
     )
     try:
         summary = run_items(ctx, plan, state, to_run, owners.by_item)

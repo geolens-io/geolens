@@ -86,21 +86,6 @@ def _add(ctx: MigrationContext, collection_id: str, dataset_ids: list[str]) -> N
         )
 
 
-def _refile(
-    ctx: MigrationContext, entry: ItemState, stale: str, collection_id: str
-) -> None:
-    """Add the datasets of *entry* and of every item that was filed into the
-    deleted collection *stale* to its replacement."""
-    members = list(entry.dataset_ids)
-    for other in ctx.items.values():
-        if stale in other.collection_ids:
-            members.extend(other.dataset_ids)
-            other.collection_ids = [
-                collection_id if c == stale else c for c in other.collection_ids
-            ]
-    _add(ctx, collection_id, list(dict.fromkeys(members)))
-
-
 def file_into_collections(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
@@ -134,15 +119,15 @@ def file_into_collections(
             except GeoLensError as exc:
                 if exc.status != 404:
                     raise
-                # The pinned collection was deleted since the last run: make it
-                # again and refile every item that was in it.
-                stale = collection_id
+                # The pinned collection was deleted since the last run.
                 ctx.collections.pop(name, None)
+                if collection_id in entry.collection_ids:
+                    entry.collection_ids.remove(collection_id)
                 collection_id = _collection_id(ctx, name)
                 if collection_id is None:
                     ctx.collections_denied = True
                     return [DENIED]
-                _refile(ctx, entry, stale, collection_id)
+                _add(ctx, collection_id, entry.dataset_ids)
             if collection_id not in entry.collection_ids:
                 entry.collection_ids.append(collection_id)
     except GeoLensError as exc:

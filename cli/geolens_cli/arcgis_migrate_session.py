@@ -184,7 +184,5 @@ class MigrationContext:
     collection_from: str = "folder"
     collections: dict[str, str] = field(default_factory=dict)
     collections_denied: bool = False
-    # Every item's state, for refiling after a collection was deleted.
-    items: dict[str, Any] = field(default_factory=dict)
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
