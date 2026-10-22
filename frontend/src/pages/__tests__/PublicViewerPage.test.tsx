@@ -213,6 +213,23 @@ describe('PublicViewerPage', () => {
     expect(JSON.stringify(viewerMapMock.props)).not.toContain('account-key');
   });
 
+  it.each([
+    [false, true],
+    [true, false],
+  ])('sets dataset links for has_non_public_layers=%s to %s', async (hasNonPublic, allowed) => {
+    mockedUseSharedMap.mockReturnValue({
+      data: { ...SHARED_MAP, has_non_public_layers: hasNonPublic },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    renderPage();
+
+    await screen.findByTestId('viewer-map');
+
+    expect(viewerMapMock.props?.datasetLinksAllowed).toBe(allowed);
+  });
+
   it('forwards persisted basemap appearance into the viewer map', async () => {
     renderPage();
 

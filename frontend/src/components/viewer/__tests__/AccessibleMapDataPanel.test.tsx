@@ -169,4 +169,60 @@ describe('AccessibleMapDataPanel', () => {
       vi.useRealTimers();
     }
   });
+
+  describe('when the feature list is capped', () => {
+    const RASTER: SharedLayerResponse = {
+      ...LAYER,
+      id: 'layer-2',
+      dataset_id: 'dataset-2',
+      dataset_name: 'Imagery',
+      display_name: null,
+      layer_type: 'raster_geolens',
+    };
+    const HIDDEN: SharedLayerResponse = {
+      ...LAYER,
+      id: 'layer-3',
+      dataset_id: 'dataset-3',
+      dataset_name: 'Parcels',
+      display_name: 'Hidden parcels',
+    };
+    const CAPPED: AccessibleMapFeatureResult = { ...RESULT, total: 250, truncated: true };
+
+    function renderCapped(datasetLinksAllowed?: boolean, featureResult = CAPPED) {
+      render(
+        <AccessibleMapDataPanel
+          layers={[LAYER, RASTER, HIDDEN]}
+          visibleLayers={new Set(['layer-1', 'layer-2'])}
+          featureResult={featureResult}
+          open
+          onOpenChange={vi.fn()}
+          onRefresh={vi.fn()}
+          datasetLinksAllowed={datasetLinksAllowed}
+        />,
+      );
+    }
+
+    it('tells the visitor to zoom in, with no dataset links unless they are allowed', () => {
+      renderCapped();
+
+      expect(screen.getByText(/zoom in or pan the map/i)).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('links each visible vector layer to its dataset data tab when allowed', () => {
+      renderCapped(true);
+
+      const link = screen.getByRole('link', { name: 'View all data for Public roads' });
+      expect(link).toHaveAttribute('href', '/datasets/dataset-1#data');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(screen.getAllByRole('link')).toHaveLength(1);
+    });
+
+    it('shows no hint or links while every visible feature is listed', () => {
+      renderCapped(true, RESULT);
+
+      expect(screen.queryByText(/zoom in or pan the map/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+  });
 });

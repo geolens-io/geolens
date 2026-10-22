@@ -93,6 +93,8 @@ interface ViewerMapProps {
   terrainConfig?: MapTerrainConfig | null;
   /** Receives what the map draws each layer as, by layer key, once any bounded cluster GeoJSON has settled. */
   onDrawnChange?: (drawn: ReadonlyMap<string, DrawnLayer>) => void;
+  /** True when every layer's dataset is public; lets the data panel link to dataset pages. */
+  datasetLinksAllowed?: boolean;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -143,6 +145,7 @@ export const ViewerMap = memo(function ViewerMap({
   showBasemapLabels = true,
   terrainConfig = null,
   onDrawnChange,
+  datasetLinksAllowed = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -1112,6 +1115,7 @@ export const ViewerMap = memo(function ViewerMap({
         onOpenChange={setDataPanelOpen}
         onRefresh={refreshAccessibleFeatures}
         disabled={!mapReady}
+        datasetLinksAllowed={datasetLinksAllowed}
       />
       {/* Loading veil over the pre-terrain flat-DEM frame — fades
           out once the saved-camera 3D view is ready to show (or immediately

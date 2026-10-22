@@ -196,7 +196,9 @@
       "booleanFalse": "False",
       "resultSummary_one": "{{count}} visible feature",
       "resultSummary_other": "{{count}} visible features",
-      "resultSummaryTruncated": "Showing {{shown}} of {{total}} visible features"
+      "resultSummaryTruncated": "Showing {{shown}} of {{total}} visible features",
+      "truncatedHint": "Zoom in or pan the map to list the rest of the features.",
+      "openDatasetData": "View all data for {{name}}"
     },
     "heatmapLow": "Low",
     "heatmapHigh": "High",

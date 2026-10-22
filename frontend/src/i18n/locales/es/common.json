@@ -467,7 +467,9 @@
       "booleanFalse": "Falso",
       "resultSummary_one": "{{count}} elemento visible",
       "resultSummary_other": "{{count}} elementos visibles",
-      "resultSummaryTruncated": "Se muestran {{shown}} de {{total}} elementos visibles"
+      "resultSummaryTruncated": "Se muestran {{shown}} de {{total}} elementos visibles",
+      "truncatedHint": "Acerca el zoom o desplaza el mapa para ver el resto de los elementos.",
+      "openDatasetData": "Ver todos los datos de {{name}}"
     },
     "heatmapLow": "Bajo",
     "heatmapHigh": "Alto",

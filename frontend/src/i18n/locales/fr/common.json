@@ -467,7 +467,9 @@
       "booleanFalse": "Faux",
       "resultSummary_one": "{{count}} entité visible",
       "resultSummary_other": "{{count}} entités visibles",
-      "resultSummaryTruncated": "Affichage de {{shown}} entités visibles sur {{total}}"
+      "resultSummaryTruncated": "Affichage de {{shown}} entités visibles sur {{total}}",
+      "truncatedHint": "Zoomez ou déplacez la carte pour afficher le reste des entités.",
+      "openDatasetData": "Voir toutes les données de {{name}}"
     },
     "heatmapLow": "Faible",
     "heatmapHigh": "Élevé",

@@ -196,7 +196,9 @@
       "booleanFalse": "假",
       "resultSummary_one": "{{count}} 个可见要素",
       "resultSummary_other": "{{count}} 个可见要素",
-      "resultSummaryTruncated": "正在显示 {{total}} 个可见要素中的 {{shown}} 个"
+      "resultSummaryTruncated": "正在显示 {{total}} 个可见要素中的 {{shown}} 个",
+      "truncatedHint": "放大或平移地图以列出其余要素。",
+      "openDatasetData": "查看 {{name}} 的全部数据"
     },
     "heatmapLow": "低",
     "heatmapHigh": "高",

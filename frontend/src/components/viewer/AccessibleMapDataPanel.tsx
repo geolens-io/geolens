@@ -24,6 +24,8 @@ interface AccessibleMapDataPanelProps {
   onOpenChange: (open: boolean) => void;
   onRefresh: () => void;
   disabled?: boolean;
+  /** True only when every layer's dataset is public, so linking to dataset pages cannot expose a private id. */
+  datasetLinksAllowed?: boolean;
 }
 
 const SUMMARY_ANNOUNCE_DELAY_MS = 1000;
@@ -54,9 +56,18 @@ export function AccessibleMapDataPanel({
   onOpenChange,
   onRefresh,
   disabled = false,
+  datasetLinksAllowed = false,
 }: AccessibleMapDataPanelProps) {
   const { t, i18n } = useTranslation('common');
   const layerEntries = createViewerLayerEntries(layers);
+  // The data tab lists vector rows only, and a dataset used by two layers needs one link.
+  const dataLinks = featureResult.truncated && datasetLinksAllowed
+    ? [...new Map(
+        layerEntries
+          .filter(({ layer, key }) => visibleLayers.has(key) && layer.layer_type !== 'raster_geolens')
+          .map(({ layer }) => [layer.dataset_id, layer.display_name || layer.dataset_name] as const),
+      )]
+    : [];
   const resultSummary = featureResult.truncated
     ? t('viewer.data.resultSummaryTruncated', {
         shown: featureResult.features.length,
@@ -143,6 +154,28 @@ export function AccessibleMapDataPanel({
               {/* The map refreshes this on every idle; the delay debounces the announcement. */}
               <LiveAnnouncement text={resultSummary} delayMs={SUMMARY_ANNOUNCE_DELAY_MS} />
             </div>
+
+            {featureResult.truncated && (
+              <div className="mt-3 rounded-md border bg-muted/40 p-3 text-sm">
+                <p>{t('viewer.data.truncatedHint')}</p>
+                {dataLinks.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {dataLinks.map(([datasetId, name]) => (
+                      <li key={datasetId}>
+                        <a
+                          href={`/datasets/${encodeURIComponent(datasetId)}#data`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline"
+                        >
+                          {t('viewer.data.openDatasetData', { name })}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {featureResult.features.length === 0 ? (
               <p className="mt-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">

@@ -169,6 +169,7 @@ function PublicViewer() {
             visibleLayers={visibleLayers}
             embedToken={embedToken}
             onDrawnChange={setDrawnLayers}
+            datasetLinksAllowed={!data.has_non_public_layers}
           />
         </Suspense>
       </MapErrorBoundary>

@@ -467,7 +467,9 @@
       "booleanFalse": "Falsch",
       "resultSummary_one": "{{count}} sichtbares Objekt",
       "resultSummary_other": "{{count}} sichtbare Objekte",
-      "resultSummaryTruncated": "{{shown}} von {{total}} sichtbaren Objekten werden angezeigt"
+      "resultSummaryTruncated": "{{shown}} von {{total}} sichtbaren Objekten werden angezeigt",
+      "truncatedHint": "Zoomen oder verschieben Sie die Karte, um die übrigen Objekte aufzulisten.",
+      "openDatasetData": "Alle Daten von {{name}} anzeigen"
     },
     "heatmapLow": "Niedrig",
     "heatmapHigh": "Hoch",
