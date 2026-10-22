@@ -101,7 +101,8 @@ def _follow_ups(
                 add(
                     item["id"],
                     "export_partial",
-                    "over the export size cap; see the folder",
+                    "some files were left out (over the size cap, or JSON that can't be "
+                    "redacted); see the export errors",
                 )
             for error in entry.export["errors"]:
                 add(item["id"], "export_error", error)

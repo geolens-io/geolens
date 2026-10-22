@@ -307,7 +307,8 @@ def test_failed_items_are_retried_unless_no_retry(runner, tmp_path, geolens, han
     _write_state(tmp_path, {L1: {"status": "failed", "error": "boom"}})
 
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]), "--no-retry")
-    assert result.exit_code == 0 and handled == []
+    # The failure is still in the state, so the run is not a success.
+    assert result.exit_code == 1 and handled == []
 
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
     assert result.exit_code == 0 and handled == [L1]

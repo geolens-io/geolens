@@ -352,3 +352,80 @@ def test_a_failed_export_is_marked_incomplete(tmp_path):
         (f["item"], f["kind"]) for f in report["follow_ups"]
     }
     assert "incomplete: the export failed" in text
+
+
+def test_a_failed_item_left_out_of_the_run_still_gives_exit_1(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+    state_path = tmp_path / "arcgis-migration-state.json"
+    first = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+    assert first.exit_code == 1  # the probe has no route: A2 fails
+    assert json.loads(state_path.read_text())["items"][A2]["status"] == "failed"
+
+    result = runner.invoke(
+        app, ["arcgis", "migrate", str(plan_file), "--only", A2, "--no-retry"]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_a_completed_run_reports_a_changed_owner(runner, tmp_path, geolens):
+    plan_file = _write_plan(tmp_path)
+    state_path = tmp_path / "arcgis-migration-state.json"
+    plan = json.loads(plan_file.read_text())
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "portal_url": plan["portal"]["url"],
+                "geolens_instance": layers.GEOLENS_INSTANCE,
+                "items": {
+                    A1: {
+                        "status": "done",
+                        "owner_id": "00000000-0000-0000-0000-0000000000b1",
+                    }
+                },
+            }
+        )
+    )
+
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert (A1, "owner_changed") in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }, result.output
+
+
+def test_a_report_that_cannot_be_written_does_not_replace_the_exit_code(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+
+    def interrupted(ctx, item, entry):
+        raise KeyboardInterrupt
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", interrupted)
+    monkeypatch.setattr(migrate, "write_run_report", full_disk)
+
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 130
+
+
+def test_the_partial_export_follow_up_names_no_single_cause(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    export = {"path": "p", "bytes": 1, "partial": True, "errors": []}
+    _set(state, C3, "done", export=export)
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    text = next(
+        f["text"] for f in report["follow_ups"] if f["kind"] == "export_partial"
+    )
+    assert "redact" in text and "size cap" in text

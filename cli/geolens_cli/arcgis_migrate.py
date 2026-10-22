@@ -548,14 +548,27 @@ def _report(
         for item in to_run
     ]
     counts = Counter(entry.status for entry in state.items.values())
-    failed = [r["id"] for r in rows if r["status"] == FAILED]
+    # Every failed item of the plan counts, also one this run left out
+    # (--no-retry, --only), so the exit code agrees with the report.
+    failed = [
+        item["id"] for item in plan["items"] if state.status(item["id"]) == FAILED
+    ]
     report_files: tuple[Path, Path] | None = None
     if not opts.dry_run:
-        report_files = write_run_report(
-            state.path.parent,
-            build_run_report(plan, state, runnable=HANDLERS, stopped=summary.stopped),
-            redact,
-        )
+        try:
+            report_files = write_run_report(
+                state.path.parent,
+                build_run_report(
+                    plan,
+                    state,
+                    runnable=HANDLERS,
+                    owner_changes=owners.changed,
+                    stopped=summary.stopped,
+                ),
+                redact,
+            )
+        except OSError as exc:
+            fmt.warn(f"couldn't write the report: {exc.strerror or exc}")
     payload = {
         "plan": str(opts.plan_path),
         "state": None if opts.dry_run else str(state.path),
@@ -869,5 +882,9 @@ def _run(
         raise
     finally:
         if stopped is not None:
-            _write_partial_report(plan, state, redact, stopped, owners.changed)
+            try:
+                _write_partial_report(plan, state, redact, stopped, owners.changed)
+            except OSError as exc:
+                # Not allowed to replace the exit outcome this run is leaving by.
+                fmt.warn(f"couldn't write the report: {exc.strerror or exc}")
     return _report(fmt, opts, plan, state, to_run, owners, summary, redact)
