@@ -156,6 +156,7 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
                       className="mt-1"
                       disabled={restoreBlocked}
                       onClick={() => setRestoreTarget(version.version_number)}
+                      aria-label={t('versionHistory.restoreVersion', { number: version.version_number })}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       {t('versionHistory.restore')}
