@@ -45,6 +45,7 @@ EXTENSIONS = {
     "Shapefile": ".zip",
     "File Geodatabase": ".zip",
 }
+FILE_TYPES = frozenset(EXTENSIONS)
 # The backend's default upload_max_size_mb, used when the setting is unreadable.
 DEFAULT_LIMIT_MB = 500
 # The single-layer upload job, until it yields its dataset.
@@ -203,17 +204,34 @@ def _fan_out(
         raise ItemFailed(f"{base}: commit failed, {exc}") from None
     failures = []
     for layer in result.results:
-        if layer.dataset_id and layer.status == "queued":
-            entry.layer_datasets[layer.layer_name] = str(layer.dataset_id)
+        if layer.new_job_id and layer.status == "queued":
+            entry.layer_jobs[layer.layer_name] = str(layer.new_job_id)
         else:
             failures.append(f"{layer.layer_name}: {layer.error or layer.status}")
-    entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
     ctx.save()
+    failures.extend(_wait_for_layers(ctx, entry, base))
     if not entry.layer_datasets:
         raise ItemFailed(f"{base}: {'; '.join(failures)}")
     for name, dataset in entry.layer_datasets.items():
         _apply_target(ctx, dataset, _commit_body(titles[name], visibility))
     return [f"layer not imported, {failure}" for failure in failures]
+
+
+def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> list[str]:
+    """Wait for the fan-out jobs an earlier call queued and pin their datasets;
+    the failures, one per layer whose job ended without a dataset."""
+    failures = []
+    for name in [n for n in entry.layer_jobs if n != JOB_KEY]:
+        try:
+            entry.layer_datasets[name] = _wait_for_dataset(
+                ctx, UUID(entry.layer_jobs[name]), _title(base, name)
+            )
+        except _JobEnded as exc:
+            failures.append(str(exc))
+        del entry.layer_jobs[name]
+        entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+        ctx.save()
+    return failures
 
 
 def _upload_fresh(
@@ -266,6 +284,8 @@ def import_file(
         raise ItemFailed("the item is not in the inventory the plan was built from")
     base = item["target"]["title"] or item["title"]
     visibility = item["target"]["visibility"]
+    # Layers of a fan-out an earlier run queued but did not wait for.
+    _wait_for_layers(ctx, entry, base)
     if entry.layer_datasets:
         many = len(entry.layer_datasets) > 1
         for name, dataset in entry.layer_datasets.items():

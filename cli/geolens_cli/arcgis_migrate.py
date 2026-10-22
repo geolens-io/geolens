@@ -36,7 +36,7 @@ from ._sdk_helpers import (
 )
 from .arcgis_item_metadata import apply_item_metadata
 from .arcgis_migrate_collections import file_into_collections
-from .arcgis_migrate_files import import_file
+from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
     GeoLens,
@@ -658,7 +658,13 @@ def _portal_client(
     None when no item to import needs one; a ``UsageError`` when one does and
     no credential was given.
     """
-    wanted = [i for i in to_run if i["action"] in _PORTAL_ACTIONS and i["id"] in rows]
+    wanted = [
+        i
+        for i in to_run
+        if i["action"] in _PORTAL_ACTIONS
+        and i["id"] in rows
+        and (i["action"] != _plan.IMPORT_FILE or i["type"] in FILE_TYPES)
+    ]
     private = sum(
         1
         for item in wanted

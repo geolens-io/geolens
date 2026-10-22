@@ -655,9 +655,8 @@ class PortalClient:
                 if first:
                     first = False
                     if _ENVELOPE_START.match(chunk):
-                        self._raise_envelope(
-                            path, chunk + response.read(MAX_RESPONSE_BYTES)
-                        )
+                        chunk += response.read(MAX_RESPONSE_BYTES)
+                        self._raise_envelope(path, chunk)
                 total += len(chunk)
                 if max_bytes is not None and total > max_bytes:
                     raise self._error(

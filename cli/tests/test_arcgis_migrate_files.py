@@ -89,12 +89,17 @@ class FakeFiles:
         for layer in seen.json()["layers"]:
             name = layer["layer_name"]
             self.helper._serve_dataset(dataset_id(name))
+            child = _uuid("0e", name)
+            # The dataset appears when the queued job runs, as on the server.
+            self.fake.routes[f"GET /jobs/{child}"] = (
+                lambda s, c=child, n=name: self.helper.job(c, n, None)
+            )
             results.append(
                 {
                     "layer_name": name,
                     "status": "queued",
-                    "new_job_id": _uuid("0e", name),
-                    "dataset_id": dataset_id(name),
+                    "new_job_id": child,
+                    "dataset_id": None,
                 }
             )
         return (202, {"fan_out_id": job, "results": results})
@@ -448,7 +453,7 @@ def test_a_layer_geolens_cannot_queue_is_noted_and_the_rest_import(
 
     def partial(job, seen):
         status, body = fan_out(job, seen)
-        body["results"][1].update(status="failed", dataset_id=None, error="bad layer")
+        body["results"][1].update(status="failed", new_job_id=None, error="bad layer")
         return status, body
 
     files.fan_out = partial
@@ -460,3 +465,55 @@ def test_a_layer_geolens_cannot_queue_is_noted_and_the_rest_import(
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == [dataset_id("Roads")]
     assert "Parcels: bad layer" in entry["notes"][-1]
+
+
+def test_a_private_feature_collection_needs_no_portal_credential(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens)
+    plan_file = _plan(tmp_path, public=False)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["type"] = "Feature Collection"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][D3]["status"] == "skipped"
+
+
+def test_a_geojson_that_starts_like_an_error_envelope_is_saved_whole(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    body = (
+        b'{"error": "kept", "type": "FeatureCollection", "features": []}' + b" " * 70000
+    )
+    portal.routes[item_data_path(D3)] = body
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert body in files.uploads[0]
+
+
+def test_a_fan_out_interrupted_while_waiting_does_not_upload_again(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    child = _uuid("0e", "Parcels")
+    _migrate(runner, plan_file, "--only", D3)
+    state = _state(plan_file)
+    entry = state["items"][D3]
+    entry.update(status="failed", layer_datasets={}, layer_jobs={"Parcels": child})
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 1
+    assert _state(plan_file)["items"][D3]["dataset_ids"] == [dataset_id("Parcels")]
