@@ -140,12 +140,18 @@ class MigrateOptions:
 def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """*items* with every item after the plan items it ``depends_on``.
 
-    Ties keep plan order. A dependency missing from the plan doesn't hold an
-    item back; a cycle is a ``UsageError``.
+    Ties keep plan order. A dependency missing from the plan, or marked
+    removed and so never run, doesn't hold an item back; a cycle is a
+    ``UsageError``.
     """
     index = {item["id"]: n for n, item in enumerate(items)}
+    removed = {item["id"] for item in items if item.get("removed")}
     waiting_on = {
-        item["id"]: {d for d in item["depends_on"] if d in index and d != item["id"]}
+        item["id"]: {
+            d
+            for d in item["depends_on"]
+            if d in index and d != item["id"] and d not in removed
+        }
         for item in items
     }
     dependents: dict[str, list[str]] = {}

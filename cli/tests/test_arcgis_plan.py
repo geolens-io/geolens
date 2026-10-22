@@ -909,3 +909,33 @@ def test_owners_to_map_counts_only_owners_plan_items_use():
     _items(plan)[A2]["owner"] = "needs_one"
     plan["owner_map"]["needs_one"] = ""
     assert plan_mod.summary(plan, inventory_report())["owners_to_map"] == 1
+
+
+def _relationships_failed() -> dict:
+    failed = {f"content/items/{A1}/relatedItems": (500, {"error": {"code": 500}})}
+    report = inventory_report(failed)
+    assert _row(report, A1)["dependencies_status"] == "error"
+    return report
+
+
+def _layer_unlisted() -> dict:
+    report = _without(inventory_report(), A1)
+    report["truncated"] = True
+    return report
+
+
+@pytest.mark.parametrize(
+    "inventory", [_relationships_failed, _layer_unlisted], ids=["failed", "unlisted"]
+)
+def test_a_layer_not_read_keeps_its_source_file_superseded(inventory):
+    source = _related({("Service2Data", "forward"): [{"id": D3, "type": "CSV"}]})
+    plan = _plan({f"content/items/{A1}/relatedItems": source})
+    assert _items(plan)[D3]["superseded_by"] == A1
+
+    merged, changes = _merge(plan, inventory())
+
+    entry = _items(merged)[D3]
+    assert entry["action"] == "export_only"
+    assert entry["superseded_by"] == A1
+    assert entry["defaults"]["superseded_by"] == A1
+    assert changes["conflicts"] == []

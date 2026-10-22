@@ -251,6 +251,19 @@ def _unread_paths(row: Mapping[str, Any]) -> set[tuple[str, ...]]:
     return paths
 
 
+def _unread_supersession(
+    item: Mapping[str, Any], rows: Mapping[str, Mapping[str, Any]]
+) -> set[tuple[str, ...]]:
+    """Defaults a source file can't take from this inventory because the
+    relationships of the hosted layer it was published into weren't read,
+    which also drops the edge that makes it ``superseded_by`` that layer."""
+    layer = (item.get("defaults") or {}).get("superseded_by")
+    row = rows.get(layer) if layer else None
+    if layer and (row is None or _unread_dependencies(row)):
+        return {("action",), ("superseded_by",)}
+    return set()
+
+
 def _merge_item(
     current: Mapping[str, Any],
     fresh: Mapping[str, Any],
@@ -390,7 +403,10 @@ def merge_plan(
                 changes["restored"].append(mine["id"])
             items.append(
                 _merge_item(
-                    mine, item, _unread_paths(rows[item["id"]]), changes["conflicts"]
+                    mine,
+                    item,
+                    _unread_paths(rows[item["id"]]) | _unread_supersession(mine, rows),
+                    changes["conflicts"],
                 )
             )
             continue

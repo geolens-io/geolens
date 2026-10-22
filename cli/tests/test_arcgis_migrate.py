@@ -813,6 +813,18 @@ def test_only_does_not_reach_through_a_removed_dependency(
     assert handled == [L1]
 
 
+def test_a_cycle_through_a_removed_item_does_not_block_the_run(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = _v2([_item(L1, depends_on=[L2]), _item(L2, removed=True, depends_on=[L1])])
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+
+
 def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
     result, payload = _run(
         runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"
