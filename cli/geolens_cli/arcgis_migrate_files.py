@@ -201,7 +201,11 @@ def _fan_out(
     titles = {name: _title(base, name) for name in layers}
     # Recorded before the request goes out: if its answer is lost, a rerun
     # knows this job was fanned out and does not upload the file again.
-    entry.fan_out = {"job": str(job_id), "layers": layers}
+    entry.fan_out = {
+        "job": str(job_id),
+        "layers": layers,
+        "titles": [titles[name] for name in layers],
+    }
     ctx.save()
     request = FanOutCommitRequest(
         layers=[FanOutLayerRequest(layer_name=n, title=titles[n]) for n in layers]
@@ -271,7 +275,9 @@ def _resume_fan_out(
         entry.fan_out = None
         ctx.save()
         return None
-    titles = ", ".join(repr(_title(base, name)) for name in layers)
+    # The titles as sent, not rebuilt from a plan that may have been edited.
+    sent = entry.fan_out.get("titles") or [_title(base, name) for name in layers]
+    titles = ", ".join(repr(title) for title in sent)
     raise ItemFailed(
         f"{base}: the layers were sent to GeoLens but the answer was lost, so "
         f"their datasets can't be linked (the upload job is {status}). Look for "

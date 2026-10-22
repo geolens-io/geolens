@@ -1307,3 +1307,26 @@ def test_an_unknown_child_outcome_survives_the_last_known_failure(
     assert result.exit_code == 1
     assert _state(plan_file)["items"][D3]["fan_out"]["unknown"] is True
     assert len(files.uploads) == 1
+
+
+def test_the_lost_answer_message_names_the_titles_that_were_sent(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    _lose_the_fan_out_answer(files, accepted=True)
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["target"]["title"] = "Renamed in the plan"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    error = _state(plan_file)["items"][D3]["error"]
+    assert (
+        "'Inspections - Roads'" in error
+        and "'Renamed in the plan - Roads'" not in error
+    )
