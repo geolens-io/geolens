@@ -1331,7 +1331,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         # empty value keeps libpq from sending PGOPTIONS, which a pooler refuses.
         if not self.db_use_external_pooler:
             caller_options += f" -c search_path={self.procrastinate_search_path}"
-        parts.append(f"options='{caller_options.strip()}'")
+        parts.append(f"options={libpq_value(caller_options.strip())}")
         return " ".join(parts)
 
     @property

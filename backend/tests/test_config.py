@@ -403,6 +403,17 @@ class TestProcrastinateConninfo:
         s = _make_settings(database_url_override=override, db_use_external_pooler=True)
         assert conninfo_to_dict(s.procrastinate_conninfo)["options"] == ""
 
+    @pytest.mark.parametrize("pooler", [False, True], ids=["direct", "pooler"])
+    def test_caller_options_with_quote_and_backslash_round_trip(self, pooler):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql://u:p@host/db?options=-c%20application_name%3Dit%27s%5Cx"
+            ),
+            db_use_external_pooler=pooler,
+        )
+        options = conninfo_to_dict(s.procrastinate_conninfo)["options"]
+        assert options.startswith("-c application_name=it's\\x")
+
     def test_external_pooler_keeps_caller_options(self):
         s = _make_settings(
             database_url_override=(
