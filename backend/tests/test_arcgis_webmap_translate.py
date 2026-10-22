@@ -2005,3 +2005,64 @@ class TestEmptyFieldsElement:
 
     def test_a_missing_list_falls_back_to_the_popups(self) -> None:
         assert self._config({"type": "fields"})["visible_fields"] == ["Z"]
+
+
+class TestLegendLabels:
+    def _breaks(self, labels: list[str], **extra) -> dict:
+        return {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": [
+                {"classMaxValue": (n + 1) * 10, "label": label, "symbol": _fill()}
+                for n, label in enumerate(labels)
+            ],
+            **extra,
+        }
+
+    def _kinds(self, renderer: dict) -> set[str]:
+        return _kinds(_translate(_with_renderer(renderer)))
+
+    def test_authored_class_break_labels_are_reported(self) -> None:
+        assert "class_label" in self._kinds(self._breaks(["Low risk", "High risk"]))
+
+    @pytest.mark.parametrize(
+        "labels", [["0 - 10", "10 - 20"], ["< 10", "10 - 20"], ["", ""]]
+    )
+    def test_range_labels_are_not(self, labels: list[str]) -> None:
+        assert "class_label" not in self._kinds(self._breaks(labels))
+
+    def test_a_default_label_is_reported_only_with_a_default_symbol(self) -> None:
+        with_symbol = self._breaks(
+            ["0 - 10", "10 - 20"], defaultSymbol=_fill(), defaultLabel="Other"
+        )
+        without = self._breaks(["0 - 10", "10 - 20"], defaultLabel="Other")
+        assert "class_label" in self._kinds(with_symbol)
+        assert "class_label" not in self._kinds(without)
+
+    def test_a_unique_value_default_label_is_reported(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "defaultSymbol": _fill(),
+            "defaultLabel": "Everything else",
+            "uniqueValueInfos": [{"value": "a", "label": "A", "symbol": _fill()}],
+        }
+        assert "class_label" in self._kinds(renderer)
+
+    def test_unique_value_labels_are_carried_not_reported(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [{"value": "a", "label": "Alpha", "symbol": _fill()}],
+        }
+        result = _translate(_with_renderer(renderer))
+        assert result.layers[0].style_config["categories"][0]["label"] == "Alpha"
+        assert "class_label" not in _kinds(result)
+
+    def test_a_simple_renderer_label_is_reported(self) -> None:
+        assert "class_label" in self._kinds(
+            {"type": "simple", "symbol": _fill(), "label": "Parks"}
+        )
+        assert "class_label" not in self._kinds(
+            {"type": "simple", "symbol": _fill(), "label": " "}
+        )

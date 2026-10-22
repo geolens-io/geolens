@@ -240,6 +240,16 @@ def _css_color(sym: _Symbol | None) -> str:
     return f"rgba({red},{green},{blue},{sym.opacity})"
 
 
+def _report_labels(
+    path: str, loss: LossReport, authored: int = 0, default_label: Any = None
+) -> None:
+    """Legend labels the saved style has no field for; the legend names classes by range."""
+    if isinstance(default_label, str) and default_label.strip():
+        authored += 1
+    if authored:
+        loss.add(path, "class_label", f"{authored} authored legend labels not carried")
+
+
 def _report_class_differences(
     base: _Symbol, symbols: list[_Symbol | None], path: str, loss: LossReport
 ) -> None:
@@ -282,6 +292,8 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
         return _simple(base, hint)
 
     fallback = _css_color(default_sym) if default_sym else HIDDEN_COLOR
+    if default_sym:
+        _report_labels(path, loss, default_label=r.get("defaultLabel"))
     _report_class_differences(
         base, [sym for _, sym in classes] + [default_sym], path, loss
     )
@@ -401,6 +413,13 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         else None
     )
     fallback = _css_color(default) if default else HIDDEN_COLOR
+    authored = sum(
+        1
+        for info, _ in classes
+        if isinstance(info.get("label"), str)
+        and any(c.isalpha() for c in info["label"])
+    )
+    _report_labels(path, loss, authored, r.get("defaultLabel") if default else None)
     _report_class_differences(
         base, [sym for _, _, sym in usable] + [default], path, loss
     )
@@ -483,6 +502,7 @@ def translate_renderer(
         loss.add(path, "visual_variable", "rotation")
 
     if kind == "simple":
+        _report_labels(path, loss, default_label=r.get("label"))
         return _simple(_symbol(r.get("symbol"), f"{path}.symbol", loss), hint)
     if kind == "uniqueValue":
         return _categorical(r, path, loss, hint)
