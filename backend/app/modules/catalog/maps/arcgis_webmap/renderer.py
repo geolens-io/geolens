@@ -28,6 +28,8 @@ from app.modules.catalog.maps.arcgis_webmap.loss import LossReport
 from app.modules.catalog.maps.style_json import DEFAULT_FILL_COLOR
 
 NULL_COLOR = "#cccccc"
+# ArcGIS leaves features no class or default symbol covers undrawn.
+HIDDEN_COLOR = "rgba(0,0,0,0)"
 MAX_CLASSES = 250
 _HEATMAP_RAMP = "YlOrRd"
 
@@ -276,7 +278,7 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
         loss.add(path, "unsupported_renderer", "uniqueValue without a field or symbols")
         return _simple(base, hint)
 
-    fallback = _css_color(default_sym) if default_sym else NULL_COLOR
+    fallback = _css_color(default_sym) if default_sym else HIDDEN_COLOR
     _report_class_differences(
         base, [sym for _, sym in classes] + [default_sym], path, loss
     )
@@ -385,7 +387,10 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
     paint_colors = [_css_color(s) for _, _, s in usable]
     breaks = [m for m, _, _ in usable[:-1]]
     expression = _graduated_expression(
-        field_name, breaks, paint_colors, _css_color(default) if default else NULL_COLOR
+        field_name,
+        breaks,
+        paint_colors,
+        _css_color(default) if default else HIDDEN_COLOR,
     )
     loss.add(
         path,

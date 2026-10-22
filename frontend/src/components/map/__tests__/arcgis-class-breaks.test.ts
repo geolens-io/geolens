@@ -53,4 +53,42 @@ describe('an imported ArcGIS class-breaks layer', () => {
     expect(classes?.[0].items.map((item) => item.color)).toEqual(['rgba(0,255,0,0.502)', '#ffff00', '#ff0000']);
     expect(classes?.[0].breaks).toEqual(BREAKS);
   });
+
+  it('keeps a categorical layer categorical when unlisted values are hidden', () => {
+    const paint = {
+      'fill-color': [
+        'case',
+        ['==', ['get', 'K'], null],
+        'rgba(0,0,0,0)',
+        ['match', ['to-string', ['get', 'K']], 'a', '#ff0000', 'b', '#0000ff', 'rgba(0,0,0,0)'],
+      ],
+      'fill-opacity': 1,
+    };
+    const config = {
+      mode: 'categorical' as const,
+      column: 'K',
+      categories: [
+        { value: 'a', label: 'A', color: '#ff0000' },
+        { value: 'b', label: 'B', color: '#0000ff' },
+      ],
+    };
+    expect(colorClassificationIsOrphaned(config, paint, 'MULTIPOLYGON')).toBe(false);
+    const classes = legendFacts(savedLayer({ paint, style_config: config }))?.classes;
+    expect(classes?.[0]).toMatchObject({ mode: 'categorical' });
+    expect(classes?.[0].items.map((item) => item.color)).toEqual(['#ff0000', '#0000ff']);
+  });
+
+  it('lists a graduated layer whose nulls are hidden', () => {
+    const paint = {
+      'fill-color': [
+        'case',
+        ['==', ['get', 'POP'], null],
+        'rgba(0,0,0,0)',
+        ['step', ['get', 'POP'], '#00ff00', 10, '#ffff00', 100, '#ff0000'],
+      ],
+      'fill-opacity': 1,
+    };
+    const classes = legendFacts(savedLayer({ paint, style_config: STYLE_CONFIG }))?.classes;
+    expect(classes?.[0].items.map((item) => item.color)).toEqual(COLORS);
+  });
 });

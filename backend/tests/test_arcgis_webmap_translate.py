@@ -357,7 +357,7 @@ class TestClassBreaksRenderer:
         assert layer.paint["fill-color"] == [
             "case",
             ["==", ["get", "POP"], None],
-            "#cccccc",
+            "rgba(0,0,0,0)",
             ["step", ["get", "POP"], "#00ff00", 10.0, "#ffff00", 100.0, "#ff0000"],
         ]
         assert _kinds(result) == {"class_boundary", "class_range"}
@@ -1633,3 +1633,46 @@ class TestRound3:
             i.kind == "unsupported_property" and i.detail == "zzUnknown"
             for i in result.loss.items
         )
+
+
+class TestUnclassifiedFeatures:
+    """ArcGIS leaves features no class or default symbol covers undrawn."""
+
+    def _unique(self, **extra) -> dict:
+        return {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [{"value": "a", "symbol": _fill([255, 0, 0, 255])}],
+            **extra,
+        }
+
+    def _breaks(self, **extra) -> dict:
+        return {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _fill([255, 0, 0, 255])},
+                {"classMaxValue": 2, "symbol": _fill([0, 0, 255, 255])},
+            ],
+            **extra,
+        }
+
+    def _color(self, renderer: dict):
+        return _translate(_with_renderer(renderer)).layers[0].paint["fill-color"]
+
+    def test_unique_value_without_a_default_hides_the_rest(self) -> None:
+        expression = self._color(self._unique())
+        assert expression[2] == "rgba(0,0,0,0)"
+        assert expression[3][-1] == "rgba(0,0,0,0)"
+
+    def test_unique_value_with_a_default_paints_the_rest(self) -> None:
+        expression = self._color(self._unique(defaultSymbol=_fill([1, 2, 3, 255])))
+        assert expression[2] == "#010203"
+        assert expression[3][-1] == "#010203"
+
+    def test_class_breaks_without_a_default_hide_nulls(self) -> None:
+        assert self._color(self._breaks())[2] == "rgba(0,0,0,0)"
+
+    def test_class_breaks_with_a_default_paint_nulls(self) -> None:
+        expression = self._color(self._breaks(defaultSymbol=_fill([1, 2, 3, 255])))
+        assert expression[2] == "#010203"
