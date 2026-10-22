@@ -604,3 +604,25 @@ async def test_delete_group_returns_the_exact_count_and_at_most_id_limit_ids(
     assert len(ids) == 2
     assert {str(user_id) for user_id in ids} <= set(members)
     assert await _member_rows(test_db_session, group["id"]) == 0
+
+
+@pytest.mark.anyio
+async def test_add_does_not_block_a_sign_in_updating_the_user(
+    client: AsyncClient, admin_auth_header: dict, test_db_session: AsyncSession
+):
+    """The user lock is FOR KEY SHARE, so non-key user updates go through."""
+    group = await _create_group(client, admin_auth_header)
+    _, user_id = await _create_test_user(client, admin_auth_header, "viewer")
+    factory = async_sessionmaker(test_db_session.bind, expire_on_commit=False)
+
+    async with factory() as adder, factory() as signer:
+        await group_service.add_members(
+            adder, uuid.UUID(group["id"]), [uuid.UUID(user_id)]
+        )
+        await signer.execute(text("SET LOCAL lock_timeout = '2s'"))
+        await signer.execute(
+            text("UPDATE catalog.users SET last_login_at = now() WHERE id = :id"),
+            {"id": uuid.UUID(user_id)},
+        )
+        await signer.commit()
+        await adder.commit()

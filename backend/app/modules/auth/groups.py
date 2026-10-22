@@ -147,7 +147,7 @@ async def add_members(
             await db.execute(
                 select(User.id)
                 .where(User.id.in_(wanted))
-                .with_for_update(key_share=True)
+                .with_for_update(read=True, key_share=True)
             )
         )
         .scalars()
