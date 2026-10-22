@@ -86,7 +86,8 @@ async def kept_tables_to_drop(
     """
     from app.core.persistent_config import PREVIOUS_VERSIONS_KEPT
 
-    limit = await PREVIOUS_VERSIONS_KEPT.get(session)
+    # Uncached: a stale lower limit would drop versions an admin just chose to keep.
+    limit = await PREVIOUS_VERSIONS_KEPT.get_uncached(session)
     retained = [
         table
         for number, table in await kept_versions(session, dataset.id)

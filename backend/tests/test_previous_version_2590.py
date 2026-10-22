@@ -1671,7 +1671,7 @@ async def test_restoring_an_empty_unconstrained_table_keeps_its_dimensionality(
 def _keeping(limit: int):
     """Patch the instance's kept-version setting to ``limit``."""
     return patch(
-        "app.core.persistent_config.PREVIOUS_VERSIONS_KEPT.get",
+        "app.core.persistent_config.PREVIOUS_VERSIONS_KEPT.get_uncached",
         AsyncMock(return_value=limit),
     )
 
@@ -2105,4 +2105,47 @@ async def test_the_detail_never_names_a_kept_table(
         )
         assert kept not in versions.text
     finally:
+        await _cleanup(session, dataset)
+
+
+async def test_a_raised_limit_holds_at_the_very_next_replacement(
+    test_db_session,
+) -> None:
+    """The swap reads the saved limit, so a lower value still cached elsewhere drops nothing."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _replace(session, dataset, admin_id, ["london"])
+        await session.execute(
+            text(
+                "INSERT INTO catalog.app_settings (key, value) "
+                "VALUES ('previous_versions_kept', '{\"v\": 3}') "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            )
+        )
+        await session.commit()
+        with patch(
+            "app.core.persistent_config.PREVIOUS_VERSIONS_KEPT.get",
+            AsyncMock(return_value=1),
+        ):
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _kept(session, dataset.id) == {
+            3: table(3),
+            2: table(2),
+            1: table(1),
+        }
+    finally:
+        await session.rollback()
+        await session.execute(
+            text(
+                "DELETE FROM catalog.app_settings WHERE key = 'previous_versions_kept'"
+            )
+        )
+        await session.commit()
         await _cleanup(session, dataset)
