@@ -280,6 +280,7 @@ def test_a_collection_deleted_since_the_last_run_is_created_again(
         _problem(404, "Collection not found"),
     )
     collections.names.clear()
+    collections.members.clear()
     state = _state(plan_file)
     state["items"][A2] = {"status": "pending"}
     (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
@@ -290,4 +291,7 @@ def test_a_collection_deleted_since_the_last_run_is_created_again(
     [new] = collections.names
     assert new != old
     assert _state(plan_file)["collections"] == {"Transportation": new}
-    assert _state(plan_file)["items"][A2]["collection_ids"] == [new]
+    state = _state(plan_file)
+    assert state["items"][A2]["collection_ids"] == [new]
+    assert state["items"][A1]["collection_ids"] == [new]
+    assert collections.members[new] == {dataset_id("Roads"), dataset_id("Parcels")}
