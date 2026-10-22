@@ -141,13 +141,16 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """*items* with every item after the plan items it ``depends_on``.
 
     Ties keep plan order. A dependency missing from the plan, or marked
-    removed and so never run, doesn't hold an item back; a cycle is a
-    ``UsageError``.
+    removed and so never run, doesn't hold an item back. An unlisted item is
+    left pending, so its own stale dependencies order nothing, while items
+    that depend on it still wait for it. A cycle is a ``UsageError``.
     """
     index = {item["id"]: n for n, item in enumerate(items)}
     removed = {item["id"] for item in items if item.get("removed")}
     waiting_on = {
-        item["id"]: {
+        item["id"]: set()
+        if item.get("unlisted")
+        else {
             d
             for d in item["depends_on"]
             if d in index and d != item["id"] and d not in removed
@@ -196,7 +199,7 @@ def _wanted(
         if item_id in wanted:
             continue
         wanted.add(item_id)
-        if by_id[item_id].get("removed"):
+        if by_id[item_id].get("removed") or by_id[item_id].get("unlisted"):
             continue
         for dep in by_id[item_id]["depends_on"]:
             if dep in by_id and state.status(dep) not in FINISHED:

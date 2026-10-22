@@ -998,3 +998,120 @@ def test_a_source_file_without_a_layer_follows_a_new_claim():
 
     assert _items(merged)[D3]["action"] == EXPORT
     assert _items(merged)[D3]["superseded_by"] == NEW_LAYER
+
+
+FOLDER_ID = "f7" * 16
+
+
+def _set_folder(title: str | None):
+    def mutate(report: dict) -> None:
+        _row(report, A3)["folder"] = {"id": FOLDER_ID, "title": title}
+
+    return mutate
+
+
+def _set_groups(groups: list[dict] | None):
+    def mutate(report: dict) -> None:
+        _row(report, A3)["groups"] = groups
+
+    return mutate
+
+
+def _web_map_dependencies(status: str):
+    def mutate(report: dict) -> None:
+        _row(report, B1)["dependencies_status"] = status
+        report["dependencies"] = [
+            d for d in report["dependencies"] if d["from_id"] != B1
+        ]
+
+    return mutate
+
+
+def _layer_relationships(status: str):
+    def mutate(report: dict) -> None:
+        _row(report, A1)["dependencies_status"] = status
+        report["dependencies"] = [
+            d for d in report["dependencies"] if d["from_id"] != A1
+        ]
+
+    return mutate
+
+
+def _set_row(item_id: str, **values: Any):
+    def mutate(report: dict) -> None:
+        _row(report, item_id).update(values)
+
+    return mutate
+
+
+def _set_access(access: str):
+    def mutate(report: dict) -> None:
+        _row(report, A3)["sharing"]["access"] = access
+
+    return mutate
+
+
+GIS_TEAM = [{"id": "g1", "title": "GIS team", "access": "org"}]
+
+
+def _value(item: dict, path: tuple[str, ...]) -> Any:
+    for key in path:
+        item = item.get(key)
+    return item
+
+
+# Every item value the plan derives from the inventory, with the read it comes
+# from failing ("unread": the plan keeps its value) or answering something new
+# ("read": an unedited value follows). target.owner has no inventory default.
+@pytest.mark.parametrize(
+    ("item_id", "path", "mutate", "expected"),
+    [
+        (A3, ("target", "collections"), _set_folder(None), ["Projects"]),
+        (A3, ("target", "collections"), _set_folder("Roads"), ["Roads"]),
+        (A3, ("target", "groups"), _set_groups(None), ["g1"]),
+        (A3, ("target", "groups"), _set_groups([]), []),
+        (B1, ("action",), _web_map_dependencies("error"), "import_map"),
+        (B1, ("depends_on",), _web_map_dependencies("not_fetched"), "KEEP"),
+        (B1, ("depends_on",), _web_map_dependencies("parsed"), []),
+        (D3, ("action",), _layer_relationships("error"), "export_only"),
+        (D3, ("superseded_by",), _layer_relationships("error"), A1),
+        (D3, ("action",), _layer_relationships("parsed"), "import_file"),
+        (D3, ("superseded_by",), _layer_relationships("parsed"), None),
+        (A3, ("target", "visibility"), _set_access("public"), "public"),
+        (A3, ("target", "title"), _set_row(A3, title="Roads"), "Roads"),
+        (A3, ("target", "tags"), _set_row(A3, tags=["roads"]), ["roads"]),
+    ],
+    ids=[
+        "collections_folder_title_unread",
+        "collections_folder_renamed",
+        "groups_unread",
+        "groups_read",
+        "web_map_action_dependencies_unread",
+        "depends_on_dependencies_not_fetched",
+        "depends_on_dependencies_read",
+        "file_action_layer_unread",
+        "superseded_by_layer_unread",
+        "file_action_layer_read",
+        "superseded_by_layer_read",
+        "visibility_always_read",
+        "title_always_read",
+        "tags_always_read",
+    ],
+)
+def test_each_derived_value_follows_only_a_successful_read(
+    item_id, path, mutate, expected
+):
+    base = inventory_report({f"content/items/{A1}/relatedItems": _CLAIMS_D3})
+    _set_folder("Projects")(base)
+    _set_groups(GIS_TEAM)(base)
+    plan = plan_mod.build_plan(base, inventory_path="inv.json")
+    before = _value(_items(plan)[item_id], path)
+    report = json.loads(json.dumps(base))
+    mutate(report)
+
+    merged, _ = _merge(plan, report)
+
+    after = _value(_items(merged)[item_id], path)
+    assert after == (before if expected == "KEEP" else expected)
+    if expected == "KEEP":
+        assert before

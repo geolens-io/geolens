@@ -242,6 +242,9 @@ def _put(item: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
 def _unread_paths(row: Mapping[str, Any]) -> set[tuple[str, ...]]:
     """Defaults this inventory row can't give, because the portal wasn't read."""
     paths = set()
+    folder = row["folder"]
+    if folder is not None and folder["title"] is None:
+        paths.add(("target", "collections"))
     if row["groups"] is None:
         paths.add(("target", "groups"))
     if _unread_dependencies(row):

@@ -134,6 +134,7 @@ def _follow_ups(
             state.status(item["id"]) != PENDING
             or item["action"] == _plan.SKIP
             or item.get("removed")
+            or item.get("unlisted")
         ):
             continue
         if item["action"] not in runnable:
@@ -156,6 +157,7 @@ def _follow_ups(
             item["action"] == _plan.SKIP
             or state.status(item["id"]) == SKIPPED
             or item.get("removed")
+            or item.get("unlisted")
         ):
             continue
         for dep in item["depends_on"]:

@@ -825,6 +825,66 @@ def test_a_cycle_through_a_removed_item_does_not_block_the_run(
     assert handled == [L1]
 
 
+def test_an_unlisted_items_stale_dependencies_form_no_cycle(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(M1))
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, unlisted=True, depends_on=[L1]),
+            _item(M1),
+        ]
+    )
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert handled == [M1]
+    assert payload["unlisted"] == [L2]
+    assert payload["waiting"] == [{"item": L1, "waiting_on": [L2]}]
+    assert result.exit_code == 1
+
+
+def test_only_does_not_reach_through_an_unlisted_dependency(
+    runner, tmp_path, geolens, handled
+):
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, unlisted=True, depends_on=[M1]),
+            _item(M1),
+        ]
+    )
+
+    result, payload = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert handled == []
+    assert payload["unlisted"] == [L2]
+    assert payload["waiting"] == [{"item": L1, "waiting_on": [L2]}]
+    assert result.exit_code == 1
+
+
+def test_an_unlisted_item_gets_only_its_unlisted_follow_up(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    missing = "ff" * 16
+    plan = _v2(
+        [
+            _item(L1, "import_map", unlisted=True, depends_on=[L2, missing]),
+            _item(L2, unlisted=True),
+        ]
+    )
+
+    _run(runner, tmp_path, plan)
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert {(f["item"], f["kind"]) for f in report["follow_ups"]} == {
+        (L1, "unlisted"),
+        (L2, "unlisted"),
+    }
+
+
 def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
     result, payload = _run(
         runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"
