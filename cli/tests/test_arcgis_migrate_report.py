@@ -1,0 +1,197 @@
+"""The run report of `geolens arcgis migrate`."""
+
+from __future__ import annotations
+
+import json
+import secrets
+import stat
+from pathlib import Path
+
+import pytest
+
+from geolens_cli import arcgis_migrate_report as report_mod
+from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
+from geolens_cli.arcgis_portal import Redactor
+from geolens_cli.main import app
+
+from . import test_arcgis_migrate_layers as layers
+from .arcgis_fake import A1, A2, A3, B1, C3, D3
+from .test_arcgis_migrate_layers import _write_plan, dataset_id
+
+geolens = layers.geolens
+quick = layers.quick
+
+
+def _plan(tmp_path: Path) -> dict:
+    return json.loads(_write_plan(tmp_path).read_text())
+
+
+def _state(tmp_path: Path, redact: Redactor | None = None) -> MigrationState:
+    return MigrationState(
+        tmp_path / "arcgis-migration-state.json",
+        "https://examplecounty.maps.arcgis.com",
+        "https://geolens.example.org/api",
+        redact or Redactor(),
+        persist=False,
+    )
+
+
+def _set(state: MigrationState, item: str, status: str, **fields) -> ItemState:
+    entry = state.item(item)
+    entry.status = status
+    for name, value in fields.items():
+        setattr(entry, name, value)
+    return entry
+
+
+def test_every_status_and_plan_item_appears_in_both_files(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    _set(state, A1, "done", dataset_ids=[dataset_id("Parcels")])
+    _set(state, A2, "exists", dataset_ids=[dataset_id("Owners")])
+    _set(state, A3, "failed", error="probe failed, HTTP 500")
+    _set(state, D3, "skipped", notes=["skipped: the file is over the limit"])
+    _set(state, B1, "running")
+
+    report = report_mod.build_run_report(
+        plan, state, generated_at="2026-10-01T00:00:00Z"
+    )
+    json_path, md_path = report_mod.write_run_report(tmp_path, report, Redactor())
+
+    assert {"done", "exists", "failed", "skipped", "running", "pending"} <= set(
+        report["counts"]
+    )
+    assert [row["id"] for row in report["items"]] == [i["id"] for i in plan["items"]]
+    text = md_path.read_text()
+    assert "probe failed, HTTP 500" in text and dataset_id("Parcels") in text
+    assert json.loads(json_path.read_text())["counts"] == report["counts"]
+    for path in (json_path, md_path):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_a_credential_in_an_error_is_redacted_in_both_files(tmp_path):
+    token = secrets.token_urlsafe(16)
+    redact = Redactor()
+    redact.add(token)
+    plan = _plan(tmp_path)
+    state = _state(tmp_path, redact)
+    # Written past the state's own cleaning, as a regression would.
+    _set(state, A1, "failed", error=f"bad request for token {token}")
+    _set(state, A2, "done", notes=[f"see https://x.example/?token={token}"])
+
+    report = report_mod.build_run_report(plan, state)
+    json_path, md_path = report_mod.write_run_report(tmp_path, report, redact)
+
+    for path in (json_path, md_path):
+        assert token not in path.read_text()
+    assert "[REDACTED]" in md_path.read_text()
+
+
+def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1"]
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    _set(state, A1, "done", dataset_ids=["ds-1"])
+    _set(state, A2, "done", notes=["Roads: Raster layer, not imported"])
+    _set(
+        state,
+        A3,
+        "failed",
+        error="Inspections: GeoLens refused the upload, Storage quota exceeded",
+    )
+    _set(
+        state,
+        C3,
+        "done",
+        export={
+            "path": "export/dashboard/x",
+            "bytes": 1,
+            "partial": True,
+            "errors": ["data: boom"],
+        },
+    )
+
+    report = report_mod.build_run_report(
+        plan,
+        state,
+        unavailable=[B1],
+        waiting=[{"item": C3, "waiting_on": [B1]}],
+    )
+
+    kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
+    assert (A2, "group_sharing") in kinds
+    assert (A2, "skipped_layer") in kinds
+    assert (D3, "superseded") in kinds
+    assert (A3, "quota") in kinds
+    assert (C3, "export_partial") in kinds and (C3, "export_error") in kinds
+    assert (B1, "not_available") in kinds and (C3, "unresolved_dependency") in kinds
+    superseded = next(f for f in report["follow_ups"] if f["kind"] == "superseded")
+    assert "ds-1" in superseded["text"]
+
+
+def test_unsupported_items_are_grouped_by_type_with_one_replacement_note(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    export = {"path": "export/dashboard/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, C3, "done", export=export)
+
+    text = report_mod.render_run_markdown(report_mod.build_run_report(plan, state))
+
+    assert text.count("Maps carry over") == 1
+    assert "### Dashboard" in text and "`export/dashboard/x`" in text
+
+
+def _run(runner, plan_file: Path, *flags: str):
+    return runner.invoke(
+        app, [*flags, "arcgis", "migrate", str(plan_file), "--only", A2]
+    )
+
+
+@pytest.fixture
+def failing_plan(tmp_path, geolens):
+    return _write_plan(tmp_path)
+
+
+def test_a_run_writes_the_report_next_to_the_state_and_exits_1_on_a_failure(
+    runner, failing_plan, geolens
+):
+    result = runner.invoke(
+        app, ["--json", "arcgis", "migrate", str(failing_plan), "--only", A2]
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert [Path(p).name for p in payload["report"]] == [
+        "arcgis-migration-report.json",
+        "arcgis-migration-report.md",
+    ]
+    report = json.loads(
+        (failing_plan.parent / "arcgis-migration-report.json").read_text()
+    )
+    assert len(report["items"]) == len(json.loads(failing_plan.read_text())["items"])
+    assert report["counts"]["failed"] == 1
+
+
+def test_a_dry_run_writes_no_report(runner, failing_plan, geolens):
+    result = runner.invoke(
+        app, ["--json", "arcgis", "migrate", str(failing_plan), "--dry-run"]
+    )
+
+    assert result.exit_code in (0, 1)
+    assert not (failing_plan.parent / "arcgis-migration-report.md").exists()
+
+
+@pytest.mark.parametrize(
+    "flags", [(), ("--quiet",), ("--json",), ("--json", "--quiet")]
+)
+def test_a_failed_item_is_reported_in_every_output_mode(
+    runner, failing_plan, geolens, flags
+):
+    result = _run(runner, failing_plan, *flags)
+
+    assert result.exit_code == 1
+    assert A2 in result.output and "probe failed" in result.output
