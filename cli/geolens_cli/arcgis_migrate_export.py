@@ -414,14 +414,25 @@ def export_item(
 
 
 def _recover_leftovers(folder: Path) -> None:
-    """Undo what a run that was killed mid-swap left beside *folder*."""
-    for stale in folder.parent.glob(f".{folder.name}.new-*"):
+    """Undo what a run that was killed mid-swap left beside *folder*.
+
+    A ``.old-*`` folder may be the only copy of a bundle, so it is put back when
+    *folder* is missing and otherwise left alone; only ``.new-*`` builds and
+    ``.trash-*`` folders (a bundle already replaced) are deleted.
+    """
+    parent = folder.parent
+    for stale in [
+        *parent.glob(f".{folder.name}.new-*"),
+        *parent.glob(f".{folder.name}.trash-*"),
+    ]:
         shutil.rmtree(stale, ignore_errors=True)
-    for old in folder.parent.glob(f".{folder.name}.old-*"):
-        if folder.exists():
-            shutil.rmtree(old, ignore_errors=True)
-        else:
-            old.rename(folder)
+    if not folder.exists():
+        for old in parent.glob(f".{folder.name}.old-*"):
+            try:
+                old.rename(folder)
+            except OSError:
+                continue
+            break
 
 
 def _swap_in(build: Path, folder: Path) -> None:
@@ -431,13 +442,25 @@ def _swap_in(build: Path, folder: Path) -> None:
         folder.rename(old)
     try:
         build.rename(folder)
-    except OSError:
+    except OSError as swap_error:
+        if old is None:
+            raise
         # Put the kept bundle back before the error leaves.
-        if old is not None:
+        try:
             old.rename(folder)
+        except OSError as restore_error:
+            raise OSError(
+                swap_error.errno,
+                f"{swap_error.strerror or swap_error}; the earlier bundle is "
+                f"kept at {old} and could not be moved back "
+                f"({restore_error.strerror or restore_error}); move it to "
+                f"{folder} by hand",
+            ) from swap_error
         raise
     if old is not None:
-        shutil.rmtree(old, ignore_errors=True)
+        trash = old.with_name(old.name.replace(".old-", ".trash-", 1))
+        old.rename(trash)
+        shutil.rmtree(trash, ignore_errors=True)
 
 
 def _export_into(

@@ -904,3 +904,50 @@ def test_fallback_item_links_start_from_the_portal_root(
     assert result.exit_code == 0, result.output
     text = (_export(plan_file, "storymap", C2) / "story.md").read_text()
     assert "/home/home/" not in text and "/home/item.html?id=" in text
+
+
+def test_a_swap_whose_restore_also_fails_keeps_both_errors_and_the_backup(
+    tmp_path, monkeypatch
+):
+    from geolens_cli.arcgis_migrate_export import _swap_in
+
+    folder = tmp_path / "item"
+    folder.mkdir()
+    (folder / "item.json").write_text("old")
+    build = tmp_path / ".item.new-1"
+    build.mkdir()
+    real = Path.rename
+    state = {"moved": False}
+
+    def failing(self, target):
+        if self == folder and not state["moved"]:
+            state["moved"] = True
+            return real(self, target)
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "rename", failing)
+
+    with pytest.raises(OSError) as raised:
+        _swap_in(build, folder)
+
+    message = str(raised.value)
+    assert "Permission denied" in message and "could not be moved back" in message
+    backup = next(p for p in tmp_path.iterdir() if ".old-" in p.name)
+    assert str(backup) in message and (backup / "item.json").read_text() == "old"
+
+
+def test_recovery_never_deletes_the_only_copy_of_a_bundle(tmp_path):
+    from geolens_cli.arcgis_migrate_export import _recover_leftovers
+
+    folder = tmp_path / C3
+    folder.mkdir()
+    backup = tmp_path / f".{C3}.old-1"
+    backup.mkdir()
+    (backup / "item.json").write_text("only copy")
+    trash = tmp_path / f".{C3}.trash-1"
+    trash.mkdir()
+
+    _recover_leftovers(folder)
+
+    assert (backup / "item.json").read_text() == "only copy"
+    assert not trash.exists()
