@@ -65,6 +65,16 @@ describe('restore previous version', () => {
     expect(screen.queryByRole('button', { name: /^Restore version \d$/ })).not.toBeInTheDocument();
   });
 
+  it('offers restore on a kept version older than the history page', async () => {
+    vi.mocked(getDatasetVersions).mockResolvedValue({
+      versions: [version(3), version(2)],
+      total: 60,
+    });
+    render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
+    expect(await screen.findByRole('button', { name: 'Restore version 1' })).toBeInTheDocument();
+    expect(screen.getByText('Kept for restore (1 KB)')).toBeInTheDocument();
+  });
+
   it('counts a single feature in the singular', async () => {
     vi.mocked(getDatasetVersions).mockResolvedValue({
       versions: [{ ...version(1), feature_count: 1 }],

@@ -34,7 +34,7 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
     [dataset.previous_versions],
   );
 
-  const { versions, originalUnrecorded } = useMemo(() => {
+  const { versions, originalUnrecorded, keptOnly } = useMemo(() => {
     const fetched = data?.versions ?? [];
     const hasVersion1 = fetched.some((v) => v.version_number === 1);
     // Version 1 is synthesized only when the whole history is loaded, so a
@@ -62,9 +62,32 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
             },
           ];
 
+    // A kept version can be older than the page of history fetched here, and it
+    // stays restorable, so it gets a row of its own.
+    const listed = new Set(allVersions.map((v) => v.version_number));
+    const keptOnly = new Set<number>();
+    for (const keptVersion of dataset.previous_versions ?? []) {
+      if (listed.has(keptVersion.version_number)) continue;
+      keptOnly.add(keptVersion.version_number);
+      allVersions.push({
+        id: `kept-${keptVersion.version_number}`,
+        dataset_id: datasetId,
+        version_number: keptVersion.version_number,
+        source_filename: null,
+        source_format: null,
+        feature_count: keptVersion.feature_count ?? null,
+        srid: null,
+        geometry_type: null,
+        file_hash: null,
+        uploaded_by: null,
+        uploaded_at: keptVersion.retained_at ?? '',
+      });
+    }
+
     return {
       versions: allVersions.sort((a, b) => b.version_number - a.version_number),
       originalUnrecorded: !hasVersion1 && wholeHistory && unrecorded,
+      keptOnly,
     };
   }, [data, datasetId, dataset]);
 
@@ -130,10 +153,12 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
                       </Badge>
                     )}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDate(version.uploaded_at)} &middot;{' '}
-                    {version.source_filename ?? t('versionHistory.unknownFile')}
-                  </p>
+                  {!keptOnly.has(version.version_number) && (
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(version.uploaded_at)} &middot;{' '}
+                      {version.source_filename ?? t('versionHistory.unknownFile')}
+                    </p>
+                  )}
                   {metaParts.length > 0 && (
                     <p className="text-xs text-muted-foreground">
                       {metaParts.join(' \u00B7 ')}
