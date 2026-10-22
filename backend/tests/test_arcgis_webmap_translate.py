@@ -1817,3 +1817,100 @@ class TestSingleClassBreak:
         )
         expression = self._expression(renderer)
         assert _eval(expression, {"N": None}) == "rgba(0,0,0,0)"
+
+
+def _viewpoint(**extra) -> dict:
+    return _webmap(
+        initialState={
+            "viewpoint": {
+                "targetGeometry": {
+                    "xmin": -8300000,
+                    "ymin": 4900000,
+                    "xmax": -8200000,
+                    "ymax": 5000000,
+                    "spatialReference": {"wkid": 102100},
+                },
+                **extra,
+            }
+        }
+    )
+
+
+class TestViewpointRotation:
+    @pytest.mark.parametrize(
+        ("rotation", "bearing"),
+        [(30, -30), (270, 90), (-90, 90), (180, 180), (350, 10)],
+    )
+    def test_rotation_becomes_the_opposite_bearing(
+        self, rotation: float, bearing: float
+    ) -> None:
+        assert _translate(_viewpoint(rotation=rotation)).bearing == bearing
+
+    def test_no_rotation_leaves_the_bearing_alone(self) -> None:
+        assert _translate(_viewpoint()).bearing is None
+        assert _translate(_viewpoint(rotation=0)).bearing is None
+
+
+class TestDefaultSymbolDifferences:
+    def _renderer(self, default_size: float, classes: int) -> dict:
+        infos = [
+            {"classMaxValue": (n + 1) * 10, "symbol": _point(size=6)}
+            for n in range(classes)
+        ]
+        return {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": infos,
+            "defaultSymbol": _point(size=default_size),
+        }
+
+    @pytest.mark.parametrize("classes", [1, 2])
+    def test_a_default_symbol_of_another_size_is_reported(self, classes: int) -> None:
+        result = _translate(_with_renderer(self._renderer(20, classes)))
+        assert any(
+            i.kind == "symbol_style" and "differ" in i.detail for i in result.loss.items
+        )
+
+    @pytest.mark.parametrize("classes", [1, 2])
+    def test_a_matching_default_symbol_is_not(self, classes: int) -> None:
+        result = _translate(_with_renderer(self._renderer(6, classes)))
+        assert not any(i.kind == "symbol_style" for i in result.loss.items)
+
+
+class TestWebMapAllowlist:
+    @pytest.mark.parametrize(
+        "where",
+        ["root", "initialState", "viewpoint", "baseMap", "baseMapLayer"],
+    )
+    def test_unknown_keys_are_reported_by_name(self, where: str) -> None:
+        webmap = _viewpoint(rotation=0)
+        webmap["baseMap"] = {"baseMapLayers": [{"url": "https://esri/base"}]}
+        target = {
+            "root": webmap,
+            "initialState": webmap["initialState"],
+            "viewpoint": webmap["initialState"]["viewpoint"],
+            "baseMap": webmap["baseMap"],
+            "baseMapLayer": webmap["baseMap"]["baseMapLayers"][0],
+        }[where]
+        target["zzUnknown"] = "secret-value"
+        result = _translate(webmap)
+        items = [i for i in result.loss.items if i.kind == "unsupported_property"]
+        assert [i.detail for i in items] == ["zzUnknown"]
+        assert "secret-value" not in json.dumps(result.loss.as_dict())
+
+    def test_an_opaque_visible_basemap_is_not_a_loss(self) -> None:
+        assert "basemap" not in _kinds(_translate(_webmap()))
+
+    def test_basemap_opacity_is_reported(self) -> None:
+        webmap = _webmap(
+            baseMap={"baseMapLayers": [{"url": "https://esri/base", "opacity": 0.5}]}
+        )
+        assert "basemap" in _kinds(_translate(webmap))
+
+    def test_a_projection_other_than_web_mercator_is_reported(self) -> None:
+        assert "spatial_reference" in _kinds(
+            _translate(_webmap(spatialReference={"wkid": 2263}))
+        )
+        assert "spatial_reference" not in _kinds(
+            _translate(_webmap(spatialReference={"latestWkid": 3857, "wkid": 102100}))
+        )

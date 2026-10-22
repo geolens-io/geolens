@@ -61,6 +61,12 @@ def color_to_hex(color: Any) -> tuple[str, float] | None:
     return f"#{rgb}", round(opacity, 3)
 
 
+def is_web_mercator(spatial_reference: Any) -> bool:
+    ref = spatial_reference if isinstance(spatial_reference, dict) else {}
+    wkid = ref.get("latestWkid", ref.get("wkid"))
+    return isinstance(wkid, int) and wkid in _WEB_MERCATOR_WKIDS
+
+
 def _to_meters(x: float, y: float, wkid: Any) -> tuple[float, float] | None:
     if wkid in _WEB_MERCATOR_WKIDS:
         return x, y

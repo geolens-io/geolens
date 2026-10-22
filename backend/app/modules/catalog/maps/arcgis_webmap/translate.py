@@ -19,15 +19,21 @@ from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
 )
 from app.modules.catalog.maps.arcgis_webmap.keys import (
     DRAWING_INFO_KEYS,
+    BASEMAP_KEYS,
+    BASEMAP_LAYER_KEYS,
     GROUP_KEYS,
+    INITIAL_STATE_KEYS,
     LAYER_DEFINITION_KEYS,
     LAYER_KEYS,
+    VIEWPOINT_KEYS,
+    WEBMAP_KEYS,
     report_unknown_keys,
 )
 from app.modules.catalog.maps.arcgis_webmap.labels import label_config, popup_config
 from app.modules.catalog.maps.arcgis_webmap.layout import (
     describe,
     extent_to_view,
+    is_web_mercator,
     num,
     scale_to_zoom,
 )
@@ -59,6 +65,7 @@ class Translation:
     center_lng: float | None = None
     center_lat: float | None = None
     zoom: float | None = None
+    bearing: float | None = None
 
 
 @dataclass(frozen=True)
@@ -302,7 +309,10 @@ def _basemap(
     available: Sequence[str],
     loss: LossReport,
 ) -> str | None:
-    layers = _l(_d(webmap.get("baseMap")).get("baseMapLayers"))
+    base_map = _d(webmap.get("baseMap"))
+    layers = _l(base_map.get("baseMapLayers"))
+    report_unknown_keys([base_map], BASEMAP_KEYS, "baseMap", loss)
+    report_unknown_keys(layers, BASEMAP_LAYER_KEYS, "baseMap.baseMapLayers[]", loss)
     if len(layers) > 1:
         loss.add(
             "baseMap.baseMapLayers",
@@ -313,6 +323,9 @@ def _basemap(
     key = first.get("url") or first.get("styleUrl")
     target = basemap_map.get(key) if isinstance(key, str) else None
     if target is not None and target in available:
+        opacity = num(first.get("opacity"))
+        if first.get("visibility") is False or (opacity is not None and opacity < 1):
+            loss.add("baseMap.baseMapLayers[0]", "basemap", "opacity or visibility")
         return target
     loss.add(
         "baseMap.baseMapLayers[0]",
@@ -323,6 +336,9 @@ def _basemap(
 
 
 def _extras(webmap: dict, loss: LossReport) -> None:
+    reference = webmap.get("spatialReference")
+    if reference and not is_web_mercator(reference):
+        loss.add("spatialReference", "spatial_reference", "drawn in Web Mercator")
     for item in _l(webmap.get("tables")):
         loss.add("tables", "table_in_map", _text(_d(item).get("title"), 120))
     if webmap.get("bookmarks"):
@@ -334,9 +350,14 @@ def _extras(webmap: dict, loss: LossReport) -> None:
 
 
 def _viewpoint(webmap: dict, result: Translation) -> None:
-    viewpoint = _d(_d(webmap.get("initialState")).get("viewpoint"))
+    state = _d(webmap.get("initialState"))
+    report_unknown_keys([state], INITIAL_STATE_KEYS, "initialState", result.loss)
+    viewpoint = _d(state.get("viewpoint"))
     if not viewpoint:
         return
+    report_unknown_keys(
+        [viewpoint], VIEWPOINT_KEYS, "initialState.viewpoint", result.loss
+    )
     try:
         view = extent_to_view(_d(viewpoint.get("targetGeometry")))
     except (ArithmeticError, TypeError, ValueError):
@@ -345,6 +366,12 @@ def _viewpoint(webmap: dict, result: Translation) -> None:
         result.loss.add("initialState.viewpoint", "viewpoint", "extent not usable")
         return
     result.center_lng, result.center_lat, result.zoom = view
+    rotation = num(viewpoint.get("rotation"))
+    if rotation:
+        # ArcGIS rotates due north clockwise from the top; a MapLibre bearing is
+        # the compass direction at the top, so the two have opposite signs.
+        bearing = (-rotation) % 360
+        result.bearing = round(bearing - 360 if bearing > 180 else bearing, 2)
 
 
 def _add_layer(
@@ -419,6 +446,7 @@ def translate_webmap(
             _add_layer(result, layer, path, dataset_id, group)
 
     result.basemap_style = _basemap(webmap, basemap_map, available_basemaps, loss)
+    report_unknown_keys([webmap], WEBMAP_KEYS, "webmap", loss)
     _viewpoint(webmap, result)
     _extras(webmap, loss)
     return result

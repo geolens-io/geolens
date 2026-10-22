@@ -398,9 +398,11 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         else None
     )
     fallback = _css_color(default) if default else HIDDEN_COLOR
+    _report_class_differences(
+        base, [sym for _, _, sym in usable] + [default], path, loss
+    )
     if len(usable) < 2:
         return _single_class(field_name, usable[0], base, fallback)
-    _report_class_differences(base, [sym for _, _, sym in usable], path, loss)
     colors = [_class_color(s) for _, _, s in usable]
     paint_colors = [_css_color(s) for _, _, s in usable]
     breaks = [m for m, _, _ in usable[:-1]]

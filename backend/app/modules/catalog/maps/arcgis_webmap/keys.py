@@ -187,6 +187,30 @@ POPUP_INFO_KEYS = _set(
 POPUP_FIELDS_ELEMENT_KEYS = _set("type", "fieldInfos")
 
 
+WEBMAP_KEYS = _set(
+    "operationalLayers",
+    "baseMap",
+    "initialState",
+    "tables",
+    "bookmarks",
+    "timeSlider",
+    "widgets",
+    "spatialReference",
+    # Authoring metadata and app-level settings that don't change the map's content.
+    "version",
+    "authoringApp",
+    "authoringAppVersion",
+    "applicationProperties",
+)
+INITIAL_STATE_KEYS = _set("viewpoint")
+# The extent decides the view, so the scale it implies is not read separately.
+VIEWPOINT_KEYS = _set("targetGeometry", "rotation", "scale")
+BASEMAP_KEYS = _set("baseMapLayers", "title")
+BASEMAP_LAYER_KEYS = _BOOKKEEPING | _set(
+    "styleUrl", "opacity", "visibility", "isReference"
+)
+
+
 def report_unknown_keys(
     objects: Iterable[object], known: frozenset[str], path: str, loss: LossReport
 ) -> None:

@@ -518,3 +518,27 @@ class TestHugeNumbers:
         resp = await client.post(URL, json=_body(webmap, {"a": ds.id}), headers=headers)
         assert resp.status_code == 201, resp.text
         assert len(resp.json()["map"]["layers"]) == 1
+
+
+class TestViewpoint:
+    async def test_rotation_is_stored_as_the_bearing(
+        self, client: AsyncClient, editor
+    ) -> None:
+        headers, _ = editor
+        webmap = {
+            "initialState": {
+                "viewpoint": {
+                    "rotation": 90,
+                    "targetGeometry": {
+                        "xmin": -8300000,
+                        "ymin": 4900000,
+                        "xmax": -8200000,
+                        "ymax": 5000000,
+                        "spatialReference": {"wkid": 102100},
+                    },
+                }
+            }
+        }
+        resp = await client.post(URL, json=_body(webmap), headers=headers)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["map"]["bearing"] == -90
