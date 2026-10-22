@@ -958,3 +958,39 @@ def test_a_malformed_redirect_target_fails_only_the_item(
     assert "redirect" in _state(plan_file)["items"][D3]["error"]
     assert not files.uploads
     _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_redirect_target_with_a_space_is_refused_without_naming_its_query(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(
+        f"https://www.arcgis.com{STORAGE_PATH}?k=PLAINQUERYSECRET x"
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert not files.uploads
+    assert not portal.requests_to(STORAGE_PATH)
+    _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_connection_error_on_the_storage_hop_does_not_name_its_url(
+    runner, tmp_path, geolens, portal
+):
+    import http.client
+
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = http.client.InvalidURL(
+        f"URL can't contain control characters: {_storage()!r}"
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert not files.uploads
+    _assert_no_query_anywhere(plan_file, result)

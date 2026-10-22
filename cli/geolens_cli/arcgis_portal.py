@@ -621,7 +621,11 @@ class PortalClient:
             if isinstance(
                 exc, urllib.error.URLError | OSError | http.client.HTTPException
             ):
-                reason = getattr(exc, "reason", None) or exc
+                # The redirected hop's URL carries a credential, which an
+                # exception's text may repeat.
+                reason = (
+                    (getattr(exc, "reason", None) or exc) if may_redirect else "failed"
+                )
                 raise self._error(
                     f"network error on {path}: {reason}", kind="network", retryable=True
                 ) from None
@@ -661,7 +665,13 @@ class PortalClient:
             host == "arcgis.com"
             or (host.endswith(".arcgis.com") and len(host) > len(".arcgis.com"))
         )
-        allowed = parts.scheme == "https" and not parts.username and (own or storage)
+        clean = all(" " < c < "\x7f" for c in target)
+        allowed = (
+            clean
+            and parts.scheme == "https"
+            and not parts.username
+            and (own or storage)
+        )
         return target, host, allowed
 
     def _follow_download(
