@@ -41,6 +41,7 @@ REQUEST_DEADLINE = 30.0
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 # A data file can be large; the whole transfer, not one read, gets this long.
 DOWNLOAD_DEADLINE = 3600.0
+_ENVELOPE_PROBE_BYTES = 64
 _ENVELOPE_START = re.compile(rb'\s*\{\s*"error"\s*:')
 GET_ATTEMPTS = 3
 MAX_RETRY_AFTER = 60.0
@@ -650,13 +651,20 @@ class PortalClient:
                         retryable=True,
                     )
                 chunk = response.read1(64 * 1024)
-                if not chunk:
-                    break
                 if first:
                     first = False
+                    # A short first read can't tell an error envelope from
+                    # data, so read until the prefix is long enough to.
+                    while chunk and len(chunk) < _ENVELOPE_PROBE_BYTES:
+                        more = response.read1(64 * 1024)
+                        if not more:
+                            break
+                        chunk += more
                     if _ENVELOPE_START.match(chunk):
                         chunk += response.read(MAX_RESPONSE_BYTES)
                         self._raise_envelope(path, chunk)
+                if not chunk:
+                    break
                 total += len(chunk)
                 if max_bytes is not None and total > max_bytes:
                     raise self._error(

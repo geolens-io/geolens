@@ -12,6 +12,7 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 
+from . import arcgis_fake
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import D3, PORTAL, FakePortal, item_data_path, portal_routes
 from .test_arcgis_migrate_layers import (
@@ -667,3 +668,22 @@ def test_a_failed_target_update_on_resume_does_not_lose_the_dataset(
 
     assert result.exit_code == 0, result.output
     assert len(files.uploads) == 1
+
+
+def test_an_error_envelope_arriving_in_small_reads_is_still_detected(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    files = FakeFiles(geolens)
+    monkeypatch.setattr(
+        arcgis_fake._Response, "read1", lambda self, size=-1: self._buffer.read1(3)
+    )
+    portal.routes[item_data_path(D3)] = {
+        "error": {"code": 403, "message": "You do not have permission"}
+    }
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "permission" in _state(plan_file)["items"][D3]["error"]
+    assert not files.uploads
