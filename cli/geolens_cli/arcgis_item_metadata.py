@@ -97,7 +97,7 @@ class _Text(HTMLParser):
         if href.lower().startswith("javascript:"):
             return
         label = " ".join("".join(self.parts[start:]).split())
-        shown = href.removeprefix("mailto:")
+        shown = re.sub(r"^mailto:", "", href, flags=re.IGNORECASE)
         if not label:
             self.parts.append(href)
         elif label not in (href, shown):

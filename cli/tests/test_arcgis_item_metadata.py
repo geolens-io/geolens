@@ -155,6 +155,7 @@ def test_markup_names_with_punctuation_never_reach_an_attribution():
             "https://example.org/t",
         ),
         ('<a href="mailto:gis@example.org">gis@example.org</a>', "gis@example.org"),
+        ('<a href="MAILTO:gis@example.org">gis@example.org</a>', "gis@example.org"),
         ('<a href="#top">top</a>', "top"),
         ('<a href="javascript:void(0)">terms</a>', "terms"),
         ("<a>terms</a>", "terms"),
