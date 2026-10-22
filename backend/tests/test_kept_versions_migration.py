@@ -1,4 +1,4 @@
-"""Migration 0087 moves the one kept version onto its version row and back, and refuses to drop any."""
+"""Migration 0088 moves the one kept version onto its version row and back, and refuses to drop any."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ pytestmark = [
     ),
 ]
 
-_BEFORE = "0086_dataset_append_api_keys"
+_BEFORE = "0087_publish_api_keys"
 
 
 async def _seed(session, *, versions: list[int]):

@@ -37,7 +37,7 @@ This module is the one place that knows about refuse-to-coerce downgrades:
 - ``0077_dataset_previous_version``: refuses while any refresh run has
   ``origin_kind = 'restore'``. Normalized automatically, since ordinary
   restore tests leave such runs behind.
-- ``0087_dataset_kept_versions``: refuses while any dataset keeps more than
+- ``0088_dataset_kept_versions``: refuses while any dataset keeps more than
   one previous version. Normalized automatically by forgetting all but each
   dataset's newest, since ordinary replacement tests keep several.
 
@@ -173,7 +173,7 @@ $$;
 """
 
 
-# Several kept versions are fixture noise in a test database; 0087's downgrade
+# Several kept versions are fixture noise in a test database; 0088's downgrade
 # refuses them because the earlier schema keeps one.
 _KEPT_VERSION_NORMALIZATION = """
 DO $$
@@ -226,7 +226,7 @@ def normalize_restore_runs() -> None:
 
 
 def normalize_kept_versions() -> None:
-    """Forget all but each dataset's newest kept version so downgrades can cross 0087."""
+    """Forget all but each dataset's newest kept version so downgrades can cross 0088."""
     _execute_normalization(_KEPT_VERSION_NORMALIZATION)
 
 

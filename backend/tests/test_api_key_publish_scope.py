@@ -180,6 +180,10 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/jobs/cleanup/stale/"): "admin maintenance",
     ("PUT", "/datasets/{dataset_id}/retention"): "schedules data for deletion",
     ("PUT", "/datasets/{dataset_id}/retention/"): "schedules data for deletion",
+    (
+        "POST",
+        "/datasets/{dataset_id}/previous-versions/{version_number}/restore",
+    ): "restores an older kept version; a publish key restores only the newest",
 }
 
 # Shared with the dataset-key tests: an editor owning two private point
@@ -986,6 +990,31 @@ async def test_every_data_replacing_route_refuses_a_remote_origin_dataset(
                 kwargs = {"json": {}}
             resp = await client.request(method, url, headers=publish, **kwargs)
             assert _scope_refused(resp), (template, resp.text)
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_restore_or_delete_a_kept_version_by_number(
+    client: AsyncClient, owner, test_db_session
+):
+    """A publish key restores only the newest kept version, through the older route."""
+    from tests.factories import create_dataset
+
+    headers, owner_id = owner
+    dataset = await create_dataset(
+        test_db_session, created_by=owner_id, source_format="geojson"
+    )
+    record_id = dataset.record_id
+    try:
+        publish = await _mint(client, headers, "publish")
+        base = f"/datasets/{dataset.id}/previous-versions/1"
+        for method, url in (("POST", f"{base}/restore"), ("DELETE", base)):
+            resp = await client.request(method, url, headers=publish)
+            assert _scope_refused(resp), (url, resp.text)
     finally:
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
