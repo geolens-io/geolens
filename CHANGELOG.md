@@ -102,6 +102,10 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
+  process, which exited at the limit and took its container down. As in
+  `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`
+  of 2 or more.
 - Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
   em dashes and accented names as garbled characters.
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a
