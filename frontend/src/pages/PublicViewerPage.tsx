@@ -7,6 +7,7 @@ const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
 import { LayerLegend } from '@/components/viewer/LayerLegend';
+import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import { legendFacts, type DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
@@ -57,27 +58,27 @@ function PublicViewer() {
   const { data, isLoading, isError, error } = useSharedMap(token, embedToken);
   useDocumentTitle(data?.name || t('common:pageTitle.sharedMap'));
 
+  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
+
   // An embed keeps colour classes readable without a host opt-in: it opens
-  // the legend by default when a shown layer is styled by class.
+  // the legend by default when a shown layer is styled by class. It waits for
+  // what the map drew, since a failed cluster fetch falls back to plain points.
   const layers = data?.layers;
-  const embedNeedsLegend = useMemo(
-    () =>
-      isEmbed &&
-      (layers?.some((layer) => {
-        if (!layer.visible || layer.show_in_legend === false) return false;
-        const facts = legendFacts(layer);
-        const classes = [...(facts?.classes ?? []), ...(facts?.cluster?.steps ? [facts.cluster.steps.classes] : [])];
-        return classes.some((c) => c.target === 'color');
-      }) ?? false),
-    [isEmbed, layers],
-  );
+  const embedNeedsLegend = useMemo(() => {
+    if (!isEmbed || !drawnLayers?.size) return false;
+    return createViewerLayerEntries(layers).some(({ layer, key }) => {
+      if (!layer.visible || layer.show_in_legend === false) return false;
+      const facts = legendFacts(layer, drawnLayers.get(key));
+      const classes = [...(facts?.classes ?? []), ...(facts?.cluster?.steps ? [facts.cluster.steps.classes] : [])];
+      return classes.some((c) => c.target === 'color');
+    });
+  }, [isEmbed, layers, drawnLayers]);
   const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed || embedNeedsLegend;
 
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
     useViewerLayers(data?.layers, { showLegend: effectiveShowLegend, mapKey: token });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
-  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
   // Every branch except embeds shows the site banner, expired and invalid
