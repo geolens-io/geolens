@@ -269,11 +269,12 @@ def _add_keywords(
         listing.sync_detailed, record_id=UUID(str(record_id)), limit=500
     )
     # Only a plain theme keyword conflicts with the one created below; the
-    # same text under another type or vocabulary is a different keyword.
+    # same text under another type or vocabulary is a different keyword. An
+    # inherited row is a stored row too, so it conflicts.
     present = {
         k.keyword
         for k in listed.keywords
-        if not k.inherited and k.keyword_type == "theme" and not k.vocabulary_uri
+        if k.keyword_type == "theme" and not k.vocabulary_uri
     }
     kept = [word for word in keywords if word in written and word not in present]
     for keyword in keywords:

@@ -1329,3 +1329,35 @@ def test_an_edit_that_matches_the_source_keeps_the_old_baseline(
     assert result.exit_code == 0, result.output
     baseline = _state(plan_file)["items"][A2]["metadata_baseline"][parcels]
     assert baseline["license"] == "Older license"
+
+
+def test_a_keyword_the_record_holds_as_inherited_is_present_not_removed(
+    runner, tmp_path, geolens
+):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    parcels = dataset_id("Parcels")
+    preview = service.preview
+
+    def preview_with_an_inherited_keyword(seen):
+        reply = preview(seen)
+        service.other_keywords[parcels] = [
+            {
+                "id": _uuid("4f", "parcels"),
+                "record_id": parcels,
+                "keyword": "parcels",
+                "vocabulary_uri": None,
+                "keyword_type": "theme",
+                "inherited": True,
+            }
+        ]
+        return reply
+
+    geolens.routes[PREVIEW] = preview_with_an_inherited_keyword
+    _migrate(runner, plan_file, "--only", A2)
+    assert service.keywords[parcels] == ["cadastre"]
+
+    result, _ = _rerun_as_pending(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["notes"] == []
