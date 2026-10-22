@@ -93,9 +93,62 @@ def _outline(symbol: dict, path: str, loss: LossReport) -> dict:
     color = color_to_hex(outline.get("color"))
     if color:
         builder["outline_color"] = color[0]
+        if color[1] < 1:
+            loss.add(f"{path}.outline", "symbol_style", "outline transparency")
     if num(outline.get("width")) is not None:
         builder["outline_width"] = points_to_px(outline.get("width"))
     return builder
+
+
+def _marker(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
+    style = symbol.get("style")
+    if style not in (None, "esriSMSCircle"):
+        loss.add(path, "symbol_style", f"marker style {describe(style)}")
+    result.paint["circle-radius"] = max(
+        1.0, round(points_to_px(symbol.get("size"), 6) / 2, 2)
+    )
+    if any(num(symbol.get(key)) for key in ("angle", "xoffset", "yoffset")):
+        loss.add(path, "symbol_style", "marker angle or offset")
+    outline = _d(symbol.get("outline"))
+    outline_style = outline.get("style")
+    stroke = color_to_hex(outline.get("color"))
+    if stroke:
+        result.paint["circle-stroke-color"] = stroke[0]
+        result.paint["circle-stroke-opacity"] = stroke[1]
+    if outline_style == "esriSLSNull":
+        result.paint["circle-stroke-width"] = 0
+        return
+    if isinstance(outline_style, str) and outline_style != "esriSLSSolid":
+        loss.add(
+            f"{path}.outline",
+            "symbol_style",
+            f"outline style {describe(outline_style)}",
+        )
+    result.paint["circle-stroke-width"] = points_to_px(outline.get("width"))
+
+
+def _line(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
+    style = symbol.get("style")
+    if style == "esriSLSNull":
+        result.opacity = 0.0
+    elif isinstance(style, str) and style in _DASHES:
+        result.paint["line-dasharray"] = _DASHES[style]
+    elif style not in (None, "esriSLSSolid"):
+        loss.add(path, "symbol_style", f"line style {describe(style)}")
+    if symbol.get("marker"):
+        loss.add(path, "symbol_style", "line end markers")
+    result.paint["line-width"] = points_to_px(symbol.get("width"), 1)
+
+
+def _fill(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
+    style = symbol.get("style")
+    if symbol.get("type") == "esriPFS":
+        loss.add(path, "symbol_style", "picture fill")
+    elif style == "esriSFSNull":
+        result.builder["fill_disabled"] = True
+    elif style not in (None, "esriSFSSolid"):
+        loss.add(path, "symbol_style", f"fill style {describe(style)}")
+    result.builder.update(_outline(symbol, path, loss))
 
 
 def _symbol(raw: Any, path: str, loss: LossReport) -> _Symbol | None:
@@ -107,47 +160,23 @@ def _symbol(raw: Any, path: str, loss: LossReport) -> _Symbol | None:
         return None
     parsed = color_to_hex(symbol.get("color"))
     result = _Symbol(kind, parsed[0] if parsed else None, parsed[1] if parsed else 1.0)
-    style = symbol.get("style")
-
     if symbol_type == "esriSMS":
-        if style not in (None, "esriSMSCircle"):
-            loss.add(path, "symbol_style", f"marker style {describe(style)}")
-        result.paint["circle-radius"] = max(
-            1.0, round(points_to_px(symbol.get("size"), 6) / 2, 2)
-        )
-        outline = _d(symbol.get("outline"))
-        stroke = color_to_hex(outline.get("color"))
-        if stroke:
-            result.paint["circle-stroke-color"] = stroke[0]
-            result.paint["circle-stroke-opacity"] = stroke[1]
-        result.paint["circle-stroke-width"] = points_to_px(outline.get("width"))
+        _marker(symbol, result, path, loss)
     elif symbol_type == "esriPMS":
         result.picture = True
         loss.add(path, "picture_marker", "drawn with the built-in marker icon")
         result.paint["circle-radius"] = 5
     elif symbol_type == "esriSLS":
-        if style == "esriSLSNull":
-            result.opacity = 0.0
-        elif isinstance(style, str) and style in _DASHES:
-            result.paint["line-dasharray"] = _DASHES[style]
-        elif style not in (None, "esriSLSSolid"):
-            loss.add(path, "symbol_style", f"line style {describe(style)}")
-        result.paint["line-width"] = points_to_px(symbol.get("width"), 1)
+        _line(symbol, result, path, loss)
     else:
-        if symbol_type == "esriPFS":
-            loss.add(path, "symbol_style", "picture fill")
-        elif style == "esriSFSNull":
-            result.builder["fill_disabled"] = True
-        elif style not in (None, "esriSFSSolid"):
-            loss.add(path, "symbol_style", f"fill style {describe(style)}")
-        result.builder.update(_outline(symbol, path, loss))
+        _fill(symbol, result, path, loss)
     return result
 
 
-def _paint(sym: _Symbol, color: Any) -> dict:
+def _paint(sym: _Symbol, color: Any, opacity: float | None = None) -> dict:
     paint = dict(sym.paint)
     paint[_COLOR_PROP[sym.kind]] = color
-    paint[_OPACITY_PROP[sym.kind]] = sym.opacity
+    paint[_OPACITY_PROP[sym.kind]] = sym.opacity if opacity is None else opacity
     return paint
 
 
@@ -185,6 +214,33 @@ def _class_color(sym: _Symbol | None) -> str:
     return (sym.color if sym and sym.color else None) or NULL_COLOR
 
 
+def _css_color(sym: _Symbol | None) -> str:
+    """A class colour for the paint, carrying the symbol's alpha as rgba."""
+    color = _class_color(sym)
+    if sym is None or not sym.color or sym.opacity >= 1:
+        return color
+    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({red},{green},{blue},{sym.opacity})"
+
+
+def _report_class_differences(
+    base: _Symbol, symbols: list[_Symbol | None], path: str, loss: LossReport
+) -> None:
+    """Classes share the base symbol's size, width, dash and outline; say so."""
+    shape = (base.kind, base.paint, base.builder, base.picture)
+    differing = sum(
+        1
+        for sym in symbols
+        if sym is not None and (sym.kind, sym.paint, sym.builder, sym.picture) != shape
+    )
+    if differing:
+        loss.add(
+            path,
+            "symbol_style",
+            f"{differing} classes differ from the base symbol in size, width, dash or outline",
+        )
+
+
 def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field1")
     infos = _l(r.get("uniqueValueInfos"))
@@ -206,7 +262,10 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
         loss.add(path, "unsupported_renderer", "uniqueValue without a field or symbols")
         return _simple(base, hint)
 
-    fallback = _class_color(default_sym) if default_sym else NULL_COLOR
+    fallback = _css_color(default_sym) if default_sym else NULL_COLOR
+    _report_class_differences(
+        base, [sym for _, sym in classes] + [default_sym], path, loss
+    )
     categories: list[dict] = []
     seen: set[str] = set()
     for info, sym in classes:
@@ -222,6 +281,7 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
                 "value": key,
                 "label": label if isinstance(label, str) and label else key,
                 "color": _class_color(sym),
+                "paint_color": _css_color(sym),
             }
         )
     if dropped:
@@ -229,7 +289,9 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
     if not categories:
         return _simple(base, hint)
 
-    pairs = [item for c in categories for item in (c["value"], c["color"])]
+    pairs = [item for c in categories for item in (c["value"], c["paint_color"])]
+    for category in categories:
+        del category["paint_color"]
     expression = [
         "case",
         ["==", ["get", field_name], None],
@@ -240,7 +302,7 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
         base,
         {"mode": "categorical", "column": field_name, "categories": categories},
     )
-    return Styled(_paint(base, expression), config, base.kind)
+    return Styled(_paint(base, expression, 1.0), config, base.kind)
 
 
 def _has_gap(usable: list) -> bool:
@@ -284,15 +346,35 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
     if not isinstance(field_name, str) or not field_name or base is None:
         loss.add(path, "unsupported_renderer", "classBreaks without a field or symbols")
         return _simple(next((s for _, _, s in ranked if s), None), hint)
-    if skipped or len(usable) != len(ranked):
-        dropped = skipped + len(ranked) - len(usable)
+    distinct = [
+        item
+        for index, item in enumerate(usable)
+        if index == 0 or item[0] != usable[index - 1][0]
+    ]
+    if skipped or len(distinct) != len(ranked):
+        dropped = skipped + len(ranked) - len(distinct)
         loss.add(path, "renderer_class_dropped", f"{dropped} classes")
+    usable = distinct
     if len(usable) < 2:
         return _simple(base, hint)
 
+    default = (
+        _symbol(r["defaultSymbol"], f"{path}.defaultSymbol", loss)
+        if r.get("defaultSymbol")
+        else None
+    )
+    _report_class_differences(base, [sym for _, _, sym in usable], path, loss)
     colors = [_class_color(s) for _, _, s in usable]
+    paint_colors = [_css_color(s) for _, _, s in usable]
     breaks = [m for m, _, _ in usable[:-1]]
-    expression = _graduated_expression(field_name, breaks, colors, NULL_COLOR)
+    expression = _graduated_expression(
+        field_name, breaks, paint_colors, _css_color(default) if default else NULL_COLOR
+    )
+    loss.add(
+        path,
+        "class_range",
+        "values outside the class ranges take the first or last class colour",
+    )
     # A step starts each class at its break, so a value equal to a class maximum
     # takes the next class, and gaps between classes take the following colour.
     loss.add(
@@ -313,12 +395,14 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
             "colors": colors,
         },
     )
-    return Styled(_paint(base, expression), config, base.kind)
+    return Styled(_paint(base, expression, 1.0), config, base.kind)
 
 
 def _heatmap(r: dict, path: str, loss: LossReport) -> Styled:
     if r.get("colorStops"):
         loss.add(path, "heatmap_ramp", "colour stops replaced by the default ramp")
+    if r.get("minPixelIntensity") or r.get("maxPixelIntensity"):
+        loss.add(path, "heatmap_ramp", "pixel intensity range not carried")
     radius = num(r.get("blurRadius"))
     paint: dict = {
         "heatmap-radius": max(1.0, points_to_px(radius)) if radius else 30,
@@ -348,6 +432,8 @@ def translate_renderer(
 
     if _l(r.get("visualVariables")):
         loss.add(path, "visual_variable", str(len(r["visualVariables"])))
+    if r.get("rotationType") or r.get("rotationExpression"):
+        loss.add(path, "visual_variable", "rotation")
 
     if kind == "simple":
         return _simple(_symbol(r.get("symbol"), f"{path}.symbol", loss), hint)

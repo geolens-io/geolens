@@ -360,7 +360,7 @@ class TestClassBreaksRenderer:
             "#cccccc",
             ["step", ["get", "POP"], "#00ff00", 10.0, "#ffff00", 100.0, "#ff0000"],
         ]
-        assert _kinds(result) == {"class_boundary"}
+        assert _kinds(result) == {"class_boundary", "class_range"}
 
     def test_gaps_between_classes_are_reported(self) -> None:
         renderer = {
@@ -382,6 +382,7 @@ class TestClassBreaksRenderer:
         assert _kinds(_translate(_with_renderer(renderer))) == {
             "class_boundary",
             "class_gap",
+            "class_range",
         }
 
     def test_contiguous_classes_report_no_gap(self) -> None:
@@ -1167,3 +1168,199 @@ class TestTokenizerCost:
         ]
         assert definition_expression_to_filter("A = 'open") is None
         assert definition_expression_to_filter("A = 1e") is None
+
+
+def _alpha_fill(color: list[int]) -> dict:
+    return {**_fill(color), "outline": _fill()["outline"]}
+
+
+class TestPerClassSymbols:
+    def test_a_transparent_category_keeps_its_alpha(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [
+                {"value": "a", "symbol": _alpha_fill([255, 0, 0, 255])},
+                {"value": "b", "symbol": _alpha_fill([0, 0, 255, 0])},
+            ],
+        }
+        layer = _translate(_with_renderer(renderer)).layers[0]
+        match = layer.paint["fill-color"][3]
+        assert match[2:6] == ["a", "#ff0000", "b", "rgba(0,0,255,0.0)"]
+        assert layer.paint["fill-opacity"] == 1.0
+        assert [c["color"] for c in layer.style_config["categories"]] == [
+            "#ff0000",
+            "#0000ff",
+        ]
+
+    def test_class_break_colours_carry_alpha(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _alpha_fill([255, 0, 0, 128])},
+                {"classMaxValue": 2, "symbol": _alpha_fill([0, 255, 0, 255])},
+            ],
+        }
+        layer = _translate(_with_renderer(renderer)).layers[0]
+        step = layer.paint["fill-color"][3]
+        assert step[2] == "rgba(255,0,0,0.502)"
+        assert step[4] == "#00ff00"
+
+    def test_classes_with_other_sizes_are_reported(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [
+                {"value": "a", "symbol": _point(size=6)},
+                {"value": "b", "symbol": _point(size=20)},
+            ],
+        }
+        result = _translate(_with_renderer(renderer))
+        assert _kinds(result) == {"symbol_style"}
+        assert "1 classes differ" in result.loss.items[0].detail
+
+    def test_identical_shapes_report_nothing(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [
+                {"value": "a", "symbol": _point(color=_red())},
+                {"value": "b", "symbol": _point(color=[0, 0, 255, 255])},
+            ],
+        }
+        assert not _translate(_with_renderer(renderer)).loss.items
+
+
+class TestClassBreakRange:
+    def _renderer(self, **extra) -> dict:
+        return {
+            "type": "classBreaks",
+            "field": "N",
+            "minValue": 0,
+            "classBreakInfos": [
+                {"classMaxValue": 10, "symbol": _fill([255, 0, 0, 255])},
+                {"classMaxValue": 20, "symbol": _fill([0, 0, 255, 255])},
+            ],
+            **extra,
+        }
+
+    def test_range_limits_are_reported(self) -> None:
+        assert "class_range" in _kinds(_translate(_with_renderer(self._renderer())))
+
+    def test_the_default_symbol_colours_unclassified_features(self) -> None:
+        renderer = self._renderer(defaultSymbol=_fill([1, 2, 3, 255]))
+        layer = _translate(_with_renderer(renderer)).layers[0]
+        assert layer.paint["fill-color"][2] == "#010203"
+
+    def test_duplicate_maxima_keep_stops_strictly_ascending(self) -> None:
+        renderer = self._renderer()
+        renderer["classBreakInfos"].insert(
+            1, {"classMaxValue": 10, "symbol": _fill([9, 9, 9, 255])}
+        )
+        result = _translate(_with_renderer(renderer))
+        step = result.layers[0].paint["fill-color"][3]
+        stops = step[3::2]
+        assert stops == sorted(set(stops)) and len(stops) == 1
+        assert "renderer_class_dropped" in _kinds(result)
+
+    def test_all_duplicate_maxima_fall_back_to_one_paint(self) -> None:
+        renderer = self._renderer()
+        renderer["classBreakInfos"][1]["classMaxValue"] = 10
+        result = _translate(_with_renderer(renderer))
+        assert result.layers[0].paint["fill-color"] == "#ff0000"
+        assert "renderer_class_dropped" in _kinds(result)
+
+
+class TestNothingDroppedSilently:
+    def _kinds_for(self, symbol: dict) -> set[str]:
+        return _kinds(_translate(_with_renderer({"type": "simple", "symbol": symbol})))
+
+    def test_marker_angle_and_offset(self) -> None:
+        assert self._kinds_for({**_point(), "angle": 45}) == {"symbol_style"}
+        assert self._kinds_for({**_point(), "xoffset": 3}) == {"symbol_style"}
+
+    def test_marker_outline_style(self) -> None:
+        symbol = _point()
+        symbol["outline"] = {**symbol["outline"], "style": "esriSLSDash"}
+        assert self._kinds_for(symbol) == {"symbol_style"}
+
+    def test_a_marker_without_an_outline_has_no_stroke(self) -> None:
+        symbol = _point()
+        symbol["outline"] = {**symbol["outline"], "style": "esriSLSNull"}
+        result = _translate(_with_renderer({"type": "simple", "symbol": symbol}))
+        assert result.layers[0].paint["circle-stroke-width"] == 0
+        assert not result.loss.items
+
+    def test_line_end_markers(self) -> None:
+        assert self._kinds_for({**_line(), "marker": {"style": "arrow"}}) == {
+            "symbol_style"
+        }
+
+    def test_fill_outline_transparency(self) -> None:
+        symbol = _fill()
+        symbol["outline"] = {**symbol["outline"], "color": [0, 0, 0, 100]}
+        assert self._kinds_for(symbol) == {"symbol_style"}
+
+    def test_rotation(self) -> None:
+        renderer = {"type": "simple", "symbol": _point(), "rotationType": "geographic"}
+        assert _kinds(_translate(_with_renderer(renderer))) == {"visual_variable"}
+
+    def test_heatmap_intensity_range(self) -> None:
+        renderer = {"type": "heatmap", "field": "W", "maxPixelIntensity": 50}
+        assert _kinds(_translate(_with_renderer(renderer))) == {"heatmap_ramp"}
+
+
+class TestLabelAndPopupSweep:
+    def _label(self, **info) -> set[str]:
+        symbol = {"type": "esriTS", "color": [0, 0, 0, 255], "font": {"size": 10}}
+        symbol.update(info.pop("symbol", {}))
+        webmap = _webmap(
+            {
+                "showLabels": True,
+                "layerDefinition": {
+                    "drawingInfo": {
+                        "labelingInfo": [
+                            {
+                                "labelExpressionInfo": {"expression": "$feature.N"},
+                                "symbol": symbol,
+                                **info,
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+        return _kinds(_translate(webmap)) - {"renderer_missing"}
+
+    def test_unmapped_placement(self) -> None:
+        assert self._label(labelPlacement="esriServerLinePlacementAboveStart") == {
+            "label_placement"
+        }
+
+    def test_default_polygon_placement_is_not_a_loss(self) -> None:
+        assert not self._label(
+            labelPlacement="esriServerPolygonPlacementAlwaysHorizontal"
+        )
+
+    def test_label_offset_and_angle(self) -> None:
+        assert self._label(symbol={"xoffset": 4}) == {"label_placement"}
+
+    def test_label_background_and_weight(self) -> None:
+        assert self._label(symbol={"backgroundColor": [1, 1, 1, 255]}) == {
+            "label_style"
+        }
+        weight = {"font": {"size": 10, "weight": "bold"}}
+        assert self._label(symbol=weight) == {"label_style"}
+
+    def test_a_formatted_popup_placeholder_is_not_copied(self) -> None:
+        webmap = _webmap({"popupInfo": {"title": "{POP:NumberFormat(places:0)}"}})
+        layer = _translate(webmap).layers[0]
+        assert layer.popup_config.expression is None
+        assert "popup_expression" in _kinds(_translate(webmap))
+
+    def test_overlong_popup_field_names_are_counted(self) -> None:
+        popup = {"fieldInfos": [{"fieldName": "F" * 200, "visible": True}]}
+        result = _translate(_webmap({"popupInfo": popup}))
+        assert result.layers[0].popup_config.visible_fields == []
+        assert "popup_field_cap" in _kinds(result)

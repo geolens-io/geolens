@@ -37,6 +37,7 @@ _LINE_PLACEMENTS = {
     "esriServerLinePlacementCenterAlong": "line-center",
 }
 _MAX_POPUP_FIELDS = 100
+_DEFAULT_PLACEMENT = "esriServerPolygonPlacementAlwaysHorizontal"
 
 
 def _d(value: Any) -> dict:
@@ -88,6 +89,19 @@ def _label_style(first: dict, path: str, loss: LossReport) -> dict:
         config["textAnchor"] = _ANCHORS[placement]
     elif isinstance(placement, str) and placement in _LINE_PLACEMENTS:
         config["placement"] = _LINE_PLACEMENTS[placement]
+    elif placement is not None and placement != _DEFAULT_PLACEMENT:
+        loss.add(path, "label_placement", describe(placement))
+    if any(num(symbol.get(key)) for key in ("xoffset", "yoffset", "angle")):
+        loss.add(path, "label_placement", "offset or angle")
+    styled = (
+        symbol.get("backgroundColor"),
+        symbol.get("borderLineColor"),
+        font.get("weight") not in (None, "normal"),
+        font.get("style") not in (None, "normal"),
+        font.get("decoration") not in (None, "none"),
+    )
+    if any(styled):
+        loss.add(path, "label_style", "background, border, weight, style or decoration")
     if font.get("family"):
         loss.add(path, "label_font", describe(font["family"]))
     return config
@@ -115,6 +129,13 @@ def label_config(
     return {"column": column, **_label_style(first, f"{base}[0]", loss)}
 
 
+def _has_formatted_field(title: str) -> bool:
+    """Whether a ``{FIELD:format}`` placeholder appears, which GeoLens can't format."""
+    return any(
+        ":" in part.split("}", 1)[0] for part in title.split("{")[1:] if "}" in part
+    )
+
+
 def _popup_fields(info: dict, base: str, loss: LossReport) -> list[str] | None:
     fields = info.get("fieldInfos")
     if not isinstance(fields, list) or not fields:
@@ -130,7 +151,10 @@ def _popup_fields(info: dict, base: str, loss: LossReport) -> list[str] | None:
         if "/" in name:
             computed += 1
             continue
-        if len(name) > 128 or name in seen:
+        if len(name) > 128:
+            overflow += 1
+            continue
+        if name in seen:
             continue
         seen.add(name)
         if len(visible) >= _MAX_POPUP_FIELDS:
@@ -161,7 +185,7 @@ def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
 
     title = info.get("title")
     if isinstance(title, str) and title:
-        if "expression/" in title or len(title) > 500:
+        if "expression/" in title or len(title) > 500 or _has_formatted_field(title):
             loss.add(base, "popup_expression", "title is not a plain field template")
         else:
             config["expression"] = title

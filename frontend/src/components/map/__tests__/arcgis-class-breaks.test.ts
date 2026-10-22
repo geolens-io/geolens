@@ -38,4 +38,19 @@ describe('an imported ArcGIS class-breaks layer', () => {
   it('is the expression the builder writes, so a colour edit keeps the same shape', () => {
     expect(PAINT['fill-color']).toEqual(buildGraduatedExpression('POP', BREAKS, COLORS));
   });
+
+  it('lists classes whose colours carry alpha and a default-symbol fallback', () => {
+    const paint = {
+      'fill-color': [
+        'case',
+        ['==', ['get', 'POP'], null],
+        '#010203',
+        ['step', ['get', 'POP'], 'rgba(0,255,0,0.502)', 10, '#ffff00', 100, '#ff0000'],
+      ],
+      'fill-opacity': 1,
+    };
+    const classes = legendFacts(savedLayer({ paint, style_config: STYLE_CONFIG }))?.classes;
+    expect(classes?.[0].items.map((item) => item.color)).toEqual(['rgba(0,255,0,0.502)', '#ffff00', '#ff0000']);
+    expect(classes?.[0].breaks).toEqual(BREAKS);
+  });
 });
