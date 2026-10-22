@@ -292,13 +292,14 @@ def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> int:
     """Wait for the fan-out jobs an earlier call queued and pin their datasets.
     A job that ended without a dataset becomes a note on the item.
 
-    Returns how many jobs GeoLens no longer had, whose outcome is unknown. When
-    jobs were waited for, all of them are known to have failed and no dataset
-    exists, the fan-out record is cleared so a rerun imports afresh.
+    Returns how many jobs GeoLens no longer had, whose outcome is unknown, and
+    remembers that in the fan-out record. When the last job ends and every
+    outcome is known to be a failure with no dataset, the record is cleared in
+    the same save that drops that job's pin, so a rerun imports afresh.
     """
-    waited = unknown = 0
-    for name in [n for n in entry.layer_jobs if n.startswith(LAYER_PREFIX)]:
-        waited += 1
+    unknown = 0
+    names = [n for n in entry.layer_jobs if n.startswith(LAYER_PREFIX)]
+    for position, name in enumerate(names):
         try:
             entry.layer_datasets[name] = _wait_for_dataset(
                 ctx, UUID(entry.layer_jobs[name]), _title(base, _layer_name(name))
@@ -311,14 +312,19 @@ def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> int:
             # GeoLens no longer has the job: note the layer and go on, so the
             # siblings are not held up by it on every rerun.
             unknown += 1
+            if entry.fan_out is not None:
+                entry.fan_out["unknown"] = True
             entry.notes.append(
                 f"layer not imported, {_layer_name(name)}: its import job is gone"
             )
         del entry.layer_jobs[name]
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
-        ctx.save()
-    if waited and not unknown and not entry.layer_datasets:
-        entry.fan_out = None
+        if (
+            position == len(names) - 1
+            and not entry.layer_datasets
+            and not (entry.fan_out or {}).get("unknown")
+        ):
+            entry.fan_out = None
         ctx.save()
     return unknown
 

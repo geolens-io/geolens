@@ -1251,3 +1251,59 @@ def test_children_that_all_failed_on_a_later_run_clear_the_fan_out_record(
     assert len(files.uploads) == 2
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == [dataset_id("Roads"), dataset_id("Parcels")]
+
+
+def test_the_fan_out_record_is_cleared_in_the_save_that_drops_the_last_failed_child(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    from geolens_cli.arcgis_migrate_state import MigrationState
+
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    roads = _uuid("0e", "Roads")
+    state = _state(plan_file)
+    state["items"][D3].update(
+        status="failed",
+        layer_datasets={},
+        dataset_ids=[],
+        layer_jobs={"layer:Roads": roads},
+        notes=[],
+    )
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state_path.write_text(json.dumps(state))
+    geolens.routes[f"GET /jobs/{roads}"] = files.helper.job(roads, "Roads", "boom")
+    real_save = MigrationState.save
+    snapshots = []
+
+    def save_then_stop(self):
+        real_save(self)
+        snapshots.append(json.loads(state_path.read_text())["items"][D3])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(MigrationState, "save", save_then_stop)
+
+    _migrate(runner, plan_file, "--only", D3)
+
+    [first, *_] = snapshots
+    assert first["layer_jobs"] == {} and first["fan_out"] is None
+
+
+def test_an_unknown_child_outcome_survives_the_last_known_failure(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    roads, parcels = _uuid("0e", "Roads"), _uuid("0e", "Parcels")
+    _seed_child_jobs(plan_file, Roads=roads, Parcels=parcels)
+    geolens.routes[f"GET /jobs/{roads}"] = (404, _problem(404, "Job not found"))
+    geolens.routes[f"GET /jobs/{parcels}"] = files.helper.job(
+        parcels, "Parcels", "boom"
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][D3]["fan_out"]["unknown"] is True
+    assert len(files.uploads) == 1
