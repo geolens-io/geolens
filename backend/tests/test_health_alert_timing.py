@@ -434,10 +434,29 @@ def _redis_with_open_circuit() -> RedisCacheProvider:
     return cache
 
 
+def _redis_whose_cooldown_ends_after_the_claim() -> RedisCacheProvider:
+    """The claim goes to the fallback, then the cooldown runs out before
+    anything reaches Redis again."""
+    cache = _redis_with_open_circuit()
+
+    class _CooldownEndsAfterWrite(InMemoryCacheProvider):
+        async def set_if_absent(self, key, value, ttl=300, *, security=False):
+            stored = await super().set_if_absent(key, value, ttl, security=security)
+            cache._circuit_open_until = time.monotonic()
+            return stored
+
+    cache._fallback = _CooldownEndsAfterWrite()
+    return cache
+
+
 @pytest.mark.parametrize(
     "cache",
-    [InMemoryCacheProvider, _redis_with_open_circuit],
-    ids=["in-memory", "redis-circuit-open"],
+    [
+        InMemoryCacheProvider,
+        _redis_with_open_circuit,
+        _redis_whose_cooldown_ends_after_the_claim,
+    ],
+    ids=["in-memory", "redis-circuit-open", "redis-cooldown-ends-after-claim"],
 )
 async def test_a_claim_held_in_process_memory_gets_no_early_retry(
     monkeypatch, sent, cache

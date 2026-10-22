@@ -102,9 +102,10 @@ class RedisCacheProvider:
 
     @property
     def shared(self) -> bool:
-        """Whether calls now reach Redis, which every process sees, rather than
-        this process's own fallback."""
-        return not self._is_circuit_open()
+        """Whether calls reach Redis, which every process sees, rather than this
+        process's own fallback. Once the circuit opens it stays False until a
+        call reaches Redis again; an expired cooldown alone doesn't flip it."""
+        return self._failure_count < self._max_failures
 
     def _is_circuit_open(self) -> bool:
         if self._failure_count < self._max_failures:
