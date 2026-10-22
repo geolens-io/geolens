@@ -798,3 +798,23 @@ def test_a_resource_over_the_remaining_budget_does_not_stop_the_smaller_ones(
     assert not (folder / "big.bin").exists()
     assert (folder / "small.bin").read_bytes() == b"ok"
     assert _state(plan_file)["items"][C3]["export"]["partial"] is True
+
+
+@pytest.mark.parametrize("step", ["_private_dirs", "_recover_leftovers", "_swap_in"])
+def test_a_local_error_in_setup_or_the_swap_fails_only_that_item(
+    runner, tmp_path, geolens, install, monkeypatch, step
+):
+    install()
+
+    def broken(*args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(f"geolens_cli.arcgis_migrate_export.{step}", broken)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][C3]
+    assert entry["status"] == "failed" and "Permission denied" in entry["error"]
+    assert not [p for p in _export(plan_file).rglob(f".{C3}.new-*") if p.exists()]

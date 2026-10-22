@@ -382,21 +382,24 @@ def export_item(
     if not _ITEM_ID.fullmatch(item["id"]):
         raise ItemFailed("the item id is not an ArcGIS item id")
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
-    _private_dirs(folder.parent)
-    _recover_leftovers(folder)
-    # Each attempt is built beside the item's folder and swapped in only when
-    # it ends, so a failed retry leaves the earlier bundle as it was and a
-    # file an earlier attempt saved and this one doesn't is not kept.
-    build = Path(tempfile.mkdtemp(dir=folder.parent, prefix=f".{folder.name}.new-"))
+    build: Path | None = None
     try:
-        notes = _export_into(ctx, item, entry, row, client, folder, build)
+        _private_dirs(folder.parent)
+        _recover_leftovers(folder)
+        # Each attempt is built beside the item's folder and swapped in only
+        # when it ends, so a failed retry leaves the earlier bundle as it was
+        # and a file an earlier attempt saved and this one doesn't is not kept.
+        build = Path(tempfile.mkdtemp(dir=folder.parent, prefix=f".{folder.name}.new-"))
+        return _export_into(ctx, item, entry, row, client, folder, build)
     except OSError as exc:
+        # Setup, the build and the swap alike: a local error fails this item
+        # only.
         raise ItemFailed(
             f"writing the export failed: {exc.strerror or type(exc).__name__}"
         ) from None
     finally:
-        shutil.rmtree(build, ignore_errors=True)
-    return notes
+        if build is not None:
+            shutil.rmtree(build, ignore_errors=True)
 
 
 def _recover_leftovers(folder: Path) -> None:
