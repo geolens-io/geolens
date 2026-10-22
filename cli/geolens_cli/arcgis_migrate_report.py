@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Container, Mapping
+from collections.abc import Container, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,6 +35,7 @@ def _follow_ups(
     plan: Mapping[str, Any],
     state: MigrationState,
     runnable: Container[str],
+    owner_changes: Sequence[Mapping[str, str]],
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -55,6 +56,12 @@ def _follow_ups(
                 add(item["id"], "skipped_layer", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
+            elif note.startswith("not filed into collections"):
+                add(
+                    item["id"],
+                    "collections",
+                    note + "; file its datasets into the target collections by hand",
+                )
         made = entry is not None and (entry.dataset_ids or entry.map_id)
         groups = item["target"].get("groups")
         if made and groups is None:
@@ -92,6 +99,13 @@ def _follow_ups(
                 )
             for error in entry.export["errors"]:
                 add(item["id"], "export_error", error)
+    for change in owner_changes:
+        add(
+            change["item"],
+            "owner_changed",
+            f"migrated before its owner changed to {change['owner']}; "
+            "it was not imported again, so transfer it by hand",
+        )
     for item in plan["items"]:
         if state.status(item["id"]) != PENDING or item["action"] == _plan.SKIP:
             continue
@@ -146,6 +160,7 @@ def build_run_report(
     state: MigrationState,
     *,
     runnable: Container[str] = (),
+    owner_changes: Sequence[Mapping[str, str]] = (),
     stopped: str | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -177,7 +192,7 @@ def build_run_report(
         "stopped": stopped,
         "items": rows,
         "unsupported": _export_section(plan, state),
-        "follow_ups": _follow_ups(plan, state, runnable),
+        "follow_ups": _follow_ups(plan, state, runnable, owner_changes),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}
         ),

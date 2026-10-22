@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import heapq
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -748,13 +748,23 @@ def _check_hosts(hosts: list[str]) -> None:
 
 
 def _write_partial_report(
-    plan: Mapping[str, Any], state: MigrationState, redact: Redactor, stopped: str
+    plan: Mapping[str, Any],
+    state: MigrationState,
+    redact: Redactor,
+    stopped: str,
+    owner_changes: Sequence[Mapping[str, str]] = (),
 ) -> None:
     """The report of a run that ended early, so it is not left stale."""
     state.save()
     write_run_report(
         state.path.parent,
-        build_run_report(plan, state, runnable=HANDLERS, stopped=stopped),
+        build_run_report(
+            plan,
+            state,
+            runnable=HANDLERS,
+            owner_changes=owner_changes,
+            stopped=stopped,
+        ),
         redact,
     )
 
@@ -859,5 +869,5 @@ def _run(
         raise
     finally:
         if stopped is not None:
-            _write_partial_report(plan, state, redact, stopped)
+            _write_partial_report(plan, state, redact, stopped, owners.changed)
     return _report(fmt, opts, plan, state, to_run, owners, summary, redact)

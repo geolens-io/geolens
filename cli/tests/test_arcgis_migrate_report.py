@@ -312,3 +312,27 @@ def test_an_unexpected_error_still_writes_the_report(
     report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
     assert report["stopped"] == "stopped by an unexpected error"
     assert report["counts"]["running"] == 1
+
+
+def test_a_changed_owner_and_a_collection_skip_are_follow_ups(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    _set(
+        state,
+        A1,
+        "done",
+        dataset_ids=["ds-1"],
+        notes=["not filed into collections: the operator can't manage collections"],
+    )
+
+    report = report_mod.build_run_report(
+        plan,
+        state,
+        runnable={"import_layers"},
+        owner_changes=[{"item": A2, "owner": "newowner"}],
+    )
+
+    by_kind = {f["kind"]: f for f in report["follow_ups"]}
+    assert by_kind["collections"]["item"] == A1
+    assert by_kind["owner_changed"]["item"] == A2
+    assert "newowner" in by_kind["owner_changed"]["text"]
