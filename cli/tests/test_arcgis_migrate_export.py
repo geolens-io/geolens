@@ -306,7 +306,7 @@ def test_resource_names_that_could_leave_the_folder_on_any_platform_are_refused(
 
 
 @pytest.mark.parametrize(
-    "name", ["logo.png", "deep/a.bin", "notes/info.json", "a b#c?.png"]
+    "name", ["logo.png", "deep/a.bin", "notes/info.json", "a b#c.png"]
 )
 def test_ordinary_resource_names_are_accepted(name):
     from geolens_cli.arcgis_migrate_export import _safe_relative
@@ -633,3 +633,124 @@ def test_a_retried_export_drops_files_the_new_attempt_does_not_make(
     folder = _export(plan_file, "dashboard", C3)
     total = sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
     assert _state(plan_file)["items"][C3]["export"]["bytes"] == total
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CON",
+        "con.txt",
+        "NUL",
+        "Com1",
+        "lpt9.log",
+        "a/aux/b",
+        "trailing.",
+        "trailing ",
+        "dir./file",
+        "a<b",
+        "a|b",
+        'a"b',
+        "a*b",
+        "a?b.png",
+    ],
+)
+def test_names_windows_cannot_store_are_refused(name):
+    from geolens_cli.arcgis_migrate_export import _safe_relative
+
+    assert _safe_relative(name) is None
+
+
+@pytest.mark.parametrize("name", ["console.png", "communal.txt", "a.b.c", "x/y z.png"])
+def test_names_that_only_resemble_reserved_ones_are_accepted(name):
+    from geolens_cli.arcgis_migrate_export import _safe_relative
+
+    assert _safe_relative(name) is not None
+
+
+def test_a_resource_name_carrying_a_credential_never_reaches_a_file_or_a_note(
+    runner, tmp_path, geolens, install
+):
+    token = secrets.token_urlsafe(16)
+    names = [f"a.png?token={token}", f"logo-{token}.png", "b.png?apiKey=SECRETKEYVALUE"]
+    install(
+        {
+            f"content/items/{C3}/resources": _resources(*names),
+            **{f"content/items/{C3}/resources/{n}": b"PNG" for n in names},
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    for needle in (token, "SECRETKEYVALUE"):
+        for path in _export(plan_file).rglob("*"):
+            assert needle not in path.name, path
+            if path.is_file():
+                assert needle.encode() not in path.read_bytes(), path
+        state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+        assert needle not in state and needle not in result.output
+    errors = _state(plan_file)["items"][C3]["export"]["errors"]
+    assert len([e for e in errors if "unsafe name" in e]) == 3
+
+
+def _tree(folder: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(folder)): p.read_bytes()
+        for p in sorted(folder.rglob("*"))
+        if p.is_file()
+    }
+
+
+def test_a_failed_retry_leaves_the_earlier_bundle_untouched(
+    runner, tmp_path, geolens, install
+):
+    portal = install(
+        {
+            f"content/items/{C3}/resources": _resources("logo.png"),
+            f"content/items/{C3}/resources/logo.png": b"PNG",
+        }
+    )
+    plan_file = _plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    assert "resources/logo.png" in before
+
+    state = _state(plan_file)
+    state["items"][C3]["status"] = "failed"
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+    portal.routes[f"content/items/{C3}/resources"] = _resources()
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    assert _tree(folder) == before
+    assert not [p for p in folder.parent.iterdir() if p.name.startswith(".")]
+
+    portal.routes[f"content/items/{C3}/data"] = {"title": "new"}
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+    assert result.exit_code == 0, result.output
+    assert "resources/logo.png" not in _tree(folder)
+
+
+def test_a_swap_a_killed_run_left_half_done_is_recovered(
+    runner, tmp_path, geolens, install
+):
+    install()
+    plan_file = _plan(tmp_path)
+    parent = _export(plan_file, "dashboard")
+    parent.mkdir(parents=True)
+    old = parent / f".{C3}.old-1"
+    old.mkdir()
+    (old / "item.json").write_text("{}")
+    leftover = parent / f".{C3}.new-x"
+    leftover.mkdir()
+    (leftover / "junk").write_text("x")
+    from geolens_cli.arcgis_migrate_export import _recover_leftovers
+
+    _recover_leftovers(parent / C3)
+
+    assert (parent / C3 / "item.json").read_text() == "{}"
+    assert not leftover.exists() and not old.exists()

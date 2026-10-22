@@ -13,6 +13,7 @@ passes through the redactor. The only host contacted is the plan's portal.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -280,17 +281,29 @@ def _resource_names(export: _Export, item_id: str) -> list[str]:
     return names
 
 
+_WINDOWS_RESERVED = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{n}" for n in range(1, 10)}
+    | {f"lpt{n}" for n in range(1, 10)}
+)
+_WINDOWS_BAD_CHARS = frozenset('<>:"|?*\\')
+
+
 def _safe_relative(name: str) -> PurePosixPath | None:
-    """*name* as a path below ``resources/``, or None when it could leave it
-    on any platform: backslashes, drive letters, absolute or UNC forms,
-    ``.``/``..``/empty segments and control characters are all refused."""
+    """*name* as a path below ``resources/``, or None when it could leave it or
+    can't be a file name on some platform: backslashes, drive letters, absolute
+    or UNC forms, ``.``/``..``/empty segments, control characters, the
+    characters ``<>:"|?*``, a trailing dot or space, and Windows device names
+    (``CON``, ``NUL``, ``COM1`` ... with or without an extension)."""
     parts = name.split("/")
     if (
         not name
-        or "\\" in name
-        or ":" in name
-        or any(ord(c) < 32 for c in name)
+        or any(ord(c) < 32 or c in _WINDOWS_BAD_CHARS for c in name)
         or any(part in ("", ".", "..") for part in parts)
+        or any(part[-1] in (".", " ") for part in parts)
+        or any(
+            part.split(".")[0].strip().lower() in _WINDOWS_RESERVED for part in parts
+        )
     ):
         return None
     return PurePosixPath(name)
@@ -299,10 +312,13 @@ def _safe_relative(name: str) -> PurePosixPath | None:
 def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> None:
     base = (export.folder / "resources").resolve()
     for name in _resource_names(export, item_id):
+        shown = redact_json(name, ctx.redact)
         relative = _safe_relative(name)
+        # A name that carries a credential would become a file name, an index
+        # entry and a note, so it is refused like an unsafe one.
         dest = export.folder / "resources" / relative if relative else None
-        if dest is None or not dest.resolve().is_relative_to(base):
-            export.errors.append(f"resource {name!r}: unsafe name, not saved")
+        if shown != name or dest is None or not dest.resolve().is_relative_to(base):
+            export.errors.append(f"resource {shown!r}: unsafe name, not saved")
             continue
         what = f"resource {name}"
         staged = export.download(
@@ -366,12 +382,51 @@ def export_item(
     if not _ITEM_ID.fullmatch(item["id"]):
         raise ItemFailed("the item id is not an ArcGIS item id")
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
-    # The folder is rebuilt, so a file an earlier attempt saved and this one
-    # doesn't (or can't, under a lower cap) is not left behind.
-    shutil.rmtree(folder, ignore_errors=True)
-    _private_dirs(folder)
+    _private_dirs(folder.parent)
+    _recover_leftovers(folder)
+    # Each attempt is built beside the item's folder and swapped in only when
+    # it ends, so a failed retry leaves the earlier bundle as it was and a
+    # file an earlier attempt saved and this one doesn't is not kept.
+    build = Path(tempfile.mkdtemp(dir=folder.parent, prefix=f".{folder.name}.new-"))
+    try:
+        notes = _export_into(ctx, item, entry, row, client, folder, build)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+    return notes
+
+
+def _recover_leftovers(folder: Path) -> None:
+    """Undo what a run that was killed mid-swap left beside *folder*."""
+    for stale in folder.parent.glob(f".{folder.name}.new-*"):
+        shutil.rmtree(stale, ignore_errors=True)
+    for old in folder.parent.glob(f".{folder.name}.old-*"):
+        if folder.exists():
+            shutil.rmtree(old, ignore_errors=True)
+        else:
+            old.rename(folder)
+
+
+def _swap_in(build: Path, folder: Path) -> None:
+    old = None
+    if folder.exists():
+        old = folder.with_name(f".{folder.name}.old-{os.getpid()}")
+        folder.rename(old)
+    build.rename(folder)
+    if old is not None:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def _export_into(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    row: Mapping[str, Any],
+    client: PortalClient,
+    folder: Path,
+    build: Path,
+) -> ItemResult:
     with tempfile.TemporaryDirectory(prefix="geolens-arcgis-export-") as stage:
-        export = _Export(client, folder, ctx.export_cap, Path(stage))
+        export = _Export(client, build, ctx.export_cap, Path(stage))
         try:
             full = client.get_json(f"content/items/{item['id']}")
         except PortalError as exc:
@@ -379,13 +434,15 @@ def export_item(
             raise ItemFailed(f"reading the item failed, {exc}") from None
         meta = _redacted_text(ctx, {"inventory": row, "item": full})
         if export.charge(len(meta)):
-            _report.write_private(folder / "item.json", meta)
+            _report.write_private(build / "item.json", meta)
         else:
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
         data = _save_data(ctx, export, item)
         _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data)
+    if not (export.failures and folder.exists()):
+        _swap_in(build, folder)
     relative = folder.relative_to(ctx.export_dir.parent)
     entry.export = {
         "path": relative.as_posix(),
