@@ -293,7 +293,9 @@ def import_file(
         for name, dataset in entry.layer_datasets.items():
             title = _title(base, name if many else None)
             _apply_target(ctx, dataset, _commit_body(title, visibility))
-        return ItemResult()
+        # Notes from the run that imported the layers, such as a layer that
+        # failed to queue, must survive this resume.
+        return ItemResult(notes=list(entry.notes))
 
     recorded = entry.layer_jobs.get(JOB_KEY)
     if recorded:

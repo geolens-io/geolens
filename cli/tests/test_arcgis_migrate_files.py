@@ -545,3 +545,28 @@ def test_a_file_with_more_layers_than_one_fan_out_takes_is_skipped(
     entry = _state(plan_file)["items"][D3]
     assert entry["status"] == "skipped" and "51 layers" in entry["notes"][0]
     assert not files.fan_outs
+
+
+def test_a_resumed_partial_fan_out_keeps_its_layer_notes(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    fan_out = files.fan_out
+
+    def partial(job, seen):
+        status, body = fan_out(job, seen)
+        body["results"][1].update(status="failed", new_job_id=None, error="bad layer")
+        return status, body
+
+    files.fan_out = partial
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    state = _state(plan_file)
+    state["items"][D3]["status"] = "failed"
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 1
+    assert "Parcels: bad layer" in _state(plan_file)["items"][D3]["notes"][-1]
