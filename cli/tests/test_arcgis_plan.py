@@ -861,3 +861,26 @@ def test_a_plan_without_an_org_id_merges_on_the_portal_url_alone():
     report["scope"]["org_id"] = "AnotherOrg000"
     merged, _ = _merge(_as_v1(_plan()), report)
     assert merged["inventory"]["scope"]["org_id"] == "AnotherOrg000"
+
+
+def test_fresh_defaults_use_the_plans_fallback_visibility(runner, inventory_file):
+    path = inventory_file.parent / "arcgis-migration-plan.json"
+    report = inventory_report()
+    _row(report, A1)["sharing"]["access"] = "shared"
+    inventory_file.write_text(json.dumps(report))
+    _plan_cli(runner, str(inventory_file))
+    plan = json.loads(path.read_text())
+    assert _items(plan)[A1]["target"]["visibility"] == "private"
+    plan["defaults"]["visibility"] = "internal"
+    path.write_text(json.dumps(plan))
+    new_id = "f1" * 16
+    report["items"].append({**_row(report, A1), "id": new_id, "title": "Trails"})
+    inventory_file.write_text(json.dumps(report))
+
+    result = _plan_cli(runner, str(inventory_file))
+
+    assert result.exit_code == 0, result.output
+    merged = _items(json.loads(path.read_text()))
+    for item_id in (A1, new_id):
+        assert merged[item_id]["target"]["visibility"] == "internal"
+        assert merged[item_id]["defaults"]["target"]["visibility"] == "internal"

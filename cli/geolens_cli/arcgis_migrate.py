@@ -346,7 +346,8 @@ def resolve_owners(
     warnings: list[str] = []
     for item in to_run:
         permission = TRANSFER_PERMISSION.get(item["action"])
-        if permission is None:
+        # An unlisted item is left pending without an import, so it needs no owner.
+        if permission is None or item.get("unlisted"):
             continue
         name = _target_name(item, plan)
         user = directory.find(name) if name else None

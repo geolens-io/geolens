@@ -82,12 +82,12 @@ def _default_action(row: Mapping[str, Any]) -> str:
     return EXPORT_ONLY
 
 
-def _visibility(access: str) -> str:
-    return _ACCESS_VISIBILITY.get(access, DEFAULTS["visibility"])
+def _visibility(access: str, fallback: str) -> str:
+    return _ACCESS_VISIBILITY.get(access, fallback)
 
 
 def _group_defaults(
-    items: list[Mapping[str, Any]],
+    items: list[Mapping[str, Any]], fallback: str
 ) -> dict[str, dict[str, str]]:
     groups: dict[str, dict[str, str]] = {}
     for row in items:
@@ -96,7 +96,7 @@ def _group_defaults(
                 group["id"],
                 {
                     "collection": group["title"] or group["id"],
-                    "visibility": _visibility(group["access"] or ""),
+                    "visibility": _visibility(group["access"] or "", fallback),
                 },
             )
     return dict(sorted(groups.items()))
@@ -118,15 +118,19 @@ def build_plan(
     *,
     inventory_path: str,
     owner_map: Mapping[str, str] | None = None,
+    defaults: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """The default plan for *inventory*; *owner_map* fills the owner mapping."""
+    """The default plan for *inventory*; *owner_map* fills the owner mapping
+    and *defaults*, a plan's ``defaults``, replaces ``DEFAULTS``."""
+    plan_defaults = dict(defaults or DEFAULTS)
+    fallback = plan_defaults["visibility"]
     items = inventory["items"]
     by_id = {row["id"]: row for row in items}
     edges: dict[str, list[Mapping[str, Any]]] = {}
     for dep in inventory["dependencies"]:
         edges.setdefault(dep["from_id"], []).append(dep)
 
-    group_map = _group_defaults(items)
+    group_map = _group_defaults(items, fallback)
     owners = sorted({row["owner"] for row in items if row["owner"]})
     mapping = {owner: (owner_map or {}).get(owner, "") for owner in owners}
     basemaps = sorted(
@@ -182,7 +186,7 @@ def build_plan(
             "reason": reason,
             "target": {
                 "owner": None,
-                "visibility": _visibility(row["sharing"]["access"]),
+                "visibility": _visibility(row["sharing"]["access"], fallback),
                 "collections": _collections(row),
                 "groups": _group_ids(row),
                 "title": row["title"],
@@ -213,7 +217,7 @@ def build_plan(
             "auth": dict(inventory["auth"]),
         },
         "portal": {"url": portal["url"]},
-        "defaults": dict(DEFAULTS),
+        "defaults": plan_defaults,
         "owner_map": mapping,
         "group_map": group_map,
         "basemap_map": {url: "" for url in basemaps},
@@ -580,15 +584,23 @@ def run_cli(
             recorded = os.path.relpath(inventory_path.resolve(), out_dir.resolve())
         except ValueError:  # a different drive has no relative path
             recorded = str(inventory_path.resolve())
-        plan = build_plan(inventory, inventory_path=recorded, owner_map=owners)
     except PlanError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
     path = out_dir / PLAN_FILENAME
     changes = None
-    if not force and path.exists():
+    if force or not path.exists():
+        plan = build_plan(inventory, inventory_path=recorded, owner_map=owners)
+    else:
         try:
-            plan, changes = merge_plan(load_plan(path), plan, inventory)
+            current = load_plan(path)
+            fresh = build_plan(
+                inventory,
+                inventory_path=recorded,
+                owner_map=owners,
+                defaults=current["defaults"],
+            )
+            plan, changes = merge_plan(current, fresh, inventory)
         except PlanError as exc:
             fmt.error(
                 f"can't merge this inventory into the existing plan: {exc}. Pass "

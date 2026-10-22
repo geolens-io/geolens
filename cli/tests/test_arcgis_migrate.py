@@ -784,6 +784,17 @@ def test_a_removed_item_gets_no_run_or_owner_follow_ups(
     assert result.exit_code == 1  # L2 is left pending
 
 
+def test_an_unlisted_items_owner_is_not_checked(runner, tmp_path, geolens, handled):
+    _allow_transfers(geolens, _created_id(L2))
+    plan = _v2([_item(L1, unlisted=True, owner="agol_nobody"), _item(L2)])
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1, result.output
+    assert handled == [L2]
+    assert payload["unlisted"] == [L1]
+
+
 def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
     result, payload = _run(
         runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"
