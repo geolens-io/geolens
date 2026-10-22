@@ -263,3 +263,35 @@ def test_a_failed_request_exit_still_writes_the_report(
     assert result.exit_code == 4
     report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
     assert report["stopped"] == "stopped by a failed request"
+
+
+def test_group_sharing_that_was_never_read_is_a_follow_up(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == A1:
+            item["target"]["groups"] = None
+        if item["id"] == A2:
+            item["target"]["groups"] = []
+    state = _state(tmp_path)
+    _set(state, A1, "done", dataset_ids=["ds-1"])
+    _set(state, A2, "done", dataset_ids=["ds-2"])
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
+    assert (A1, "group_unknown") in kinds
+    assert (A2, "group_unknown") not in kinds and (A2, "group_sharing") not in kinds
+
+
+def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    _set(state, A1, "failed", error="probe failed")
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    text = next(f["text"] for f in report["follow_ups"] if f["kind"] == "superseded")
+    assert text.endswith("GeoLens dataset: not migrated")

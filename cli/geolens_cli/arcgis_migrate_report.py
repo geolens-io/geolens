@@ -56,18 +56,28 @@ def _follow_ups(
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
         made = entry is not None and (entry.dataset_ids or entry.map_id)
-        if item["target"].get("groups") and made:
+        groups = item["target"].get("groups")
+        if made and groups is None:
+            add(
+                item["id"],
+                "group_unknown",
+                "its ArcGIS group sharing wasn't read; check who it should be "
+                "shared with and set its audience by hand",
+            )
+        elif made and groups:
             add(
                 item["id"],
                 "group_sharing",
                 "shared with ArcGIS groups "
-                + ", ".join(item["target"]["groups"])
+                + ", ".join(groups)
                 + "; GeoLens groups are not migrated yet, so set its audience by hand",
             )
         layer = item.get("superseded_by")
         if layer:
             layer_entry = state.items.get(layer)
-            ids = ", ".join(layer_entry.dataset_ids) if layer_entry else "not migrated"
+            ids = (
+                ", ".join(layer_entry.dataset_ids) if layer_entry else ""
+            ) or "not migrated"
             add(
                 item["id"],
                 "superseded",
