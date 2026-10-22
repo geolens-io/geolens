@@ -91,16 +91,22 @@ async def rename_group(
 
 
 async def delete_group(
-    db: AsyncSession, group_id: uuid.UUID
-) -> tuple[str, list[uuid.UUID]]:
-    """Delete a group and its memberships; return its name and former members."""
+    db: AsyncSession, group_id: uuid.UUID, *, id_limit: int
+) -> tuple[str, int, list[uuid.UUID]]:
+    """Delete a group and its memberships.
+
+    Returns its name, its exact member count, and at most ``id_limit`` of its
+    former members' ids.
+    """
     group = await get_group(db, group_id, for_update=True)
+    count = (await member_counts(db, [group_id]))[group_id]
     member_ids = (
         (
             await db.execute(
                 select(GroupMember.user_id)
                 .where(GroupMember.group_id == group_id)
                 .order_by(GroupMember.user_id)
+                .limit(id_limit)
             )
         )
         .scalars()
@@ -109,7 +115,7 @@ async def delete_group(
     name = group.name
     await db.delete(group)
     await db.flush()
-    return name, list(member_ids)
+    return name, count, list(member_ids)
 
 
 async def list_members(

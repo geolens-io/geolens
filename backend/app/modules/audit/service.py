@@ -384,13 +384,13 @@ async def resolve_resource_names(
     """Batch-resolve display names for one page of audit rows.
 
     Returns ``{(resource_type, resource_id): name}`` for the resource types
-    with a canonical display name (dataset, map, collection, user). Deleted
+    with a canonical display name (dataset, map, collection, user, group). Deleted
     resources and other types are absent; callers fall back to None.
 
     Cross-module imports are function-scoped (test_layering allowlist: SQL
     InstrumentedAttribute use only).
     """
-    from app.modules.auth.models import User
+    from app.modules.auth.models import Group, User
     from app.modules.catalog.collections.models import Collection
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.sharing import get_map_names
@@ -406,6 +406,7 @@ async def resolve_resource_names(
         ),
         "collection": select(Collection.id, Collection.name),
         "user": select(User.id, User.username),
+        "group": select(Group.id, Group.name),
     }
     names: dict[tuple[str, uuid.UUID], str] = {}
     for resource_type, query in lookups.items():

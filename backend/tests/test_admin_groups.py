@@ -464,7 +464,7 @@ async def test_add_waits_for_a_group_delete_then_finds_no_group(
     factory = async_sessionmaker(test_db_session.bind, expire_on_commit=False)
 
     async with factory() as deleter, factory() as adder:
-        await group_service.delete_group(deleter, group_id)
+        await group_service.delete_group(deleter, group_id, id_limit=1)
         adding = asyncio.create_task(
             group_service.add_members(adder, group_id, [member])
         )
@@ -562,3 +562,45 @@ async def test_a_write_answers_from_its_own_commit(
         assert resp.json()["name"] == new_name
     else:
         assert resp.json()["member_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_audit_log_names_the_group(client: AsyncClient, admin_auth_header: dict):
+    group = await _create_group(client, admin_auth_header)
+
+    resp = await client.get(
+        "/admin/audit-logs/",
+        params={"resource_id": group["id"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    entries = resp.json()["logs"]
+    assert [e["action"] for e in entries] == ["group.create"]
+    assert entries[0]["resource_name"] == group["name"]
+
+
+@pytest.mark.anyio
+async def test_delete_group_returns_the_exact_count_and_at_most_id_limit_ids(
+    client: AsyncClient, admin_auth_header: dict, test_db_session: AsyncSession
+):
+    group = await _create_group(client, admin_auth_header)
+    members = [
+        (await _create_test_user(client, admin_auth_header, "viewer"))[1]
+        for _ in range(3)
+    ]
+    await client.post(
+        _MEMBERS.format(group["id"]),
+        json={"user_ids": members},
+        headers=admin_auth_header,
+    )
+
+    name, count, ids = await group_service.delete_group(
+        test_db_session, uuid.UUID(group["id"]), id_limit=2
+    )
+    await test_db_session.commit()
+
+    assert name == group["name"]
+    assert count == 3
+    assert len(ids) == 2
+    assert {str(user_id) for user_id in ids} <= set(members)
+    assert await _member_rows(test_db_session, group["id"]) == 0

@@ -204,7 +204,9 @@ async def delete_group(
 ) -> Response:
     """Delete a sharing group and all its memberships (admin only)."""
     try:
-        name, member_ids = await group_service.delete_group(db, group_id)
+        name, member_count, member_ids = await group_service.delete_group(
+            db, group_id, id_limit=AUDIT_MEMBER_ID_CAP
+        )
     except LookupError as exc:
         raise _not_found(exc)
     await audit_emit(
@@ -216,11 +218,9 @@ async def delete_group(
             resource_id=group_id,
             details={
                 "name": name,
-                "member_count": len(member_ids),
-                "member_ids": [
-                    str(user_id) for user_id in member_ids[:AUDIT_MEMBER_ID_CAP]
-                ],
-                "member_ids_truncated": len(member_ids) > AUDIT_MEMBER_ID_CAP,
+                "member_count": member_count,
+                "member_ids": [str(user_id) for user_id in member_ids],
+                "member_ids_truncated": member_count > len(member_ids),
             },
             ip_address=get_client_ip(request),
         ),
