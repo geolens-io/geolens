@@ -97,7 +97,7 @@ export function RestoreVersionDialog({
         {restore.error && (
           <p className="text-sm text-destructive">
             {refusalCode(restore.error)
-              ? t(`restoreDialog.refusal.${refusalCode(restore.error)}`)
+              ? t(`restoreDialog.refusal.${refusalCode(restore.error)}`, { number: versionNumber })
               : restore.error instanceof Error
                 ? restore.error.message
                 : t('restoreDialog.failed')}

@@ -16,7 +16,10 @@ const dataset = {
   id: 'ds-1',
   title: 'Roads',
   current_version: 3,
-  previous_version: { version_number: 2 },
+  previous_versions: [
+    { version_number: 2, size_bytes: 2048, retained_at: '2026-02-01T00:00:00Z', feature_count: 10 },
+    { version_number: 1, size_bytes: 1024, retained_at: '2026-01-15T00:00:00Z', feature_count: 10 },
+  ],
   created_by: 'user-1',
   created_at: '2026-01-01T00:00:00Z',
 } as DatasetResponse;
@@ -47,10 +50,12 @@ beforeEach(() => {
 });
 
 describe('restore previous version', () => {
-  it('offers the action only on the kept version, and only with write access', async () => {
+  it('offers the action on each kept version, and only with write access', async () => {
     const { unmount } = render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
     await screen.findByText('Version 2');
-    expect(screen.getAllByRole('button', { name: 'Restore' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Restore' })).toHaveLength(2);
+    expect(screen.getByText('Kept for restore (2 KB)')).toBeInTheDocument();
+    expect(screen.getByText('Kept for restore (1 KB)')).toBeInTheDocument();
     unmount();
 
     render(<VersionHistory datasetId='ds-1' dataset={dataset} />);
@@ -62,7 +67,7 @@ describe('restore previous version', () => {
     render(
       <VersionHistory
         datasetId='ds-1'
-        dataset={{ ...dataset, previous_version: null }}
+        dataset={{ ...dataset, previous_versions: [] }}
         canEdit
       />,
     );
@@ -75,7 +80,7 @@ describe('restore previous version', () => {
     vi.mocked(restorePreviousVersion).mockResolvedValue({ job_id: 'j', run_id: 'r' });
     render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
 
-    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.click((await screen.findAllByRole('button', { name: 'Restore' }))[0]);
     const confirm = screen.getByRole('button', { name: 'Restore version' });
     expect(confirm).toBeDisabled();
     expect(screen.getByText(/Feature edits made since version 2/)).toBeInTheDocument();
@@ -92,12 +97,26 @@ describe('restore previous version', () => {
     );
   });
 
+  it('restores an older kept version by its number', async () => {
+    const user = userEvent.setup();
+    vi.mocked(restorePreviousVersion).mockResolvedValue({ job_id: 'j', run_id: 'r' });
+    render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
+
+    const [, oldest] = await screen.findAllByRole('button', { name: 'Restore' });
+    await user.click(oldest);
+    expect(screen.getByText('Restore version 1?')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox'), 'Roads');
+    await user.click(screen.getByRole('button', { name: 'Restore version' }));
+
+    await waitFor(() => expect(restorePreviousVersion).toHaveBeenCalledWith('ds-1', 1));
+  });
+
   it('keeps the dialog open and shows the refusal', async () => {
     const user = userEvent.setup();
     vi.mocked(restorePreviousVersion).mockRejectedValue(new Error('Another run is active'));
     render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
 
-    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.click((await screen.findAllByRole('button', { name: 'Restore' }))[0]);
     await user.type(screen.getByRole('textbox'), 'Roads');
     await user.click(screen.getByRole('button', { name: 'Restore version' }));
 
@@ -117,7 +136,7 @@ describe('restore previous version', () => {
       />,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.click((await screen.findAllByRole('button', { name: 'Restore' }))[0]);
     await user.type(screen.getByRole('textbox'), 'Roads');
     await user.click(screen.getByRole('button', { name: 'Restore version' }));
 
@@ -130,7 +149,7 @@ describe('restore previous version', () => {
       targetDatasetId: 'ds-1',
     });
     const { unmount } = render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
-    expect(await screen.findByRole('button', { name: 'Restore' })).toBeDisabled();
+    expect((await screen.findAllByRole('button', { name: 'Restore' }))[0]).toBeDisabled();
     unmount();
 
     useDrawingStore.setState({ selectedFeature: null, targetDatasetId: null });
@@ -142,7 +161,7 @@ describe('restore previous version', () => {
         watch={{ latestRun: undefined, isBusy: true, trackDispatchedRun: vi.fn() }}
       />,
     );
-    expect(await screen.findByRole('button', { name: 'Restore' })).toBeDisabled();
+    expect((await screen.findAllByRole('button', { name: 'Restore' }))[0]).toBeDisabled();
   });
 
   it('explains a coded refusal in plain words', async () => {
@@ -152,7 +171,7 @@ describe('restore previous version', () => {
     );
     render(<VersionHistory datasetId='ds-1' dataset={dataset} canEdit />);
 
-    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.click((await screen.findAllByRole('button', { name: 'Restore' }))[0]);
     await user.type(screen.getByRole('textbox'), 'Roads');
     await user.click(screen.getByRole('button', { name: 'Restore version' }));
 

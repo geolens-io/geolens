@@ -301,7 +301,7 @@ export function useRestorePreviousVersion() {
     mutationFn: ({ datasetId, versionNumber }: { datasetId: string; versionNumber: number }) =>
       restorePreviousVersion(datasetId, versionNumber),
     // The restore is queued like a refresh: its run appears in history at once,
-    // and the detail's previous version and the version list change when it settles.
+    // and the detail's kept versions and the version list change when it settles.
     onSettled: (_data, _error, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });

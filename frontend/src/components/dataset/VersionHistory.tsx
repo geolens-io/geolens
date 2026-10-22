@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useDatasetVersions, type DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDate } from '@/lib/format';
+import { formatBytes, formatDate } from '@/lib/format';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { GitBranch, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,10 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
   const restoreBlocked = hasSelectedFeature || Boolean(watch?.isBusy);
   const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
   const { data, isLoading, isError } = useDatasetVersions(datasetId);
+  const kept = useMemo(
+    () => new Map((dataset.previous_versions ?? []).map((v) => [v.version_number, v])),
+    [dataset.previous_versions],
+  );
 
   const { versions, originalUnrecorded } = useMemo(() => {
     const fetched = data?.versions ?? [];
@@ -102,10 +106,8 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
                 metaParts.push(t('versionHistory.srid', { value: version.srid }));
               }
 
-              const canRestore =
-                canEdit &&
-                !isCurrent &&
-                dataset.previous_version?.version_number === version.version_number;
+              const keptCopy = kept.get(version.version_number);
+              const canRestore = canEdit && keptCopy !== undefined;
 
               return (
                 <div
@@ -135,6 +137,11 @@ export function VersionHistory({ datasetId, dataset, canEdit = false, watch }: V
                   {metaParts.length > 0 && (
                     <p className="text-xs text-muted-foreground">
                       {metaParts.join(' \u00B7 ')}
+                    </p>
+                  )}
+                  {keptCopy && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('versionHistory.kept', { size: formatBytes(keptCopy.size_bytes) })}
                     </p>
                   )}
                   {originalUnrecorded && version.version_number === 1 && (

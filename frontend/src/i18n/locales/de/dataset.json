@@ -247,13 +247,14 @@
     "detailsUnrecorded": "Die Details dieser Version wurden nicht erfasst.",
     "features": "{{count}} Features",
     "srid": "SRID {{value}}",
+    "kept": "Zum Wiederherstellen aufbewahrt ({{size}})",
     "restore": "Wiederherstellen",
     "restoreBusyHint": "Eine Aktualisierung, ein Ersetzen oder eine Wiederherstellung läuft bereits. Siehe Aktualisierungsverlauf.",
     "restoreSelectionHint": "Heben Sie die Auswahl des Objekts auf der Karte auf, um wiederherzustellen."
   },
   "restoreDialog": {
     "title": "Version {{number}} wiederherstellen?",
-    "description": "Version {{number}} wird wieder zu den aktuellen Daten. Die ersetzten Daten bleiben erhalten, die Wiederherstellung lässt sich daher bis zum nächsten Ersetzen rückgängig machen.",
+    "description": "Version {{number}} wird wieder zu den aktuellen Daten. Die ersetzten Daten werden als vorherige Version aufbewahrt, sodass Sie sie später wiederherstellen können.",
     "consequenceEdits": "Objektänderungen seit Version {{number}} werden verworfen.",
     "consequenceMosaics": "Mosaike, die diesen Datensatz verwenden, lesen weiter das aktuelle Mitglied, bis sie neu erstellt werden.",
     "confirmPrompt": "Geben Sie zur Bestätigung den Namen des Datensatzes ein:",
@@ -264,7 +265,7 @@
     "refusal": {
       "dataset_busy": "Für diesen Datensatz läuft bereits eine andere Aktualisierung, ein Ersetzen oder eine Wiederherstellung. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut.",
       "previous_version_changed": "Die gespeicherte vorherige Version hat sich geändert, während dieser Dialog geöffnet war. Schließen Sie ihn und prüfen Sie den Verlauf erneut.",
-      "no_previous_version": "Dieser Datensatz hat keine vorherige Version mehr, die sich wiederherstellen ließe.",
+      "no_previous_version": "Dieser Datensatz bewahrt Version {{number}} nicht mehr auf.",
       "restore_not_applicable": "Dieser Datensatz hat keine Objekttabelle, daher gibt es nichts wiederherzustellen."
     }
   },

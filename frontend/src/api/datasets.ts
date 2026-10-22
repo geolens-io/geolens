@@ -376,12 +376,12 @@ export async function refreshDataset(
 
 export async function restorePreviousVersion(
   datasetId: string,
-  expectedVersionNumber: number,
+  versionNumber: number,
 ): Promise<RestorePreviousVersionResponse> {
-  return apiFetch<RestorePreviousVersionResponse>(`/datasets/${encodeURIComponent(datasetId)}/previous-version/restore`, {
-    method: 'POST',
-    body: JSON.stringify({ expected_version_number: expectedVersionNumber }),
-  });
+  return apiFetch<RestorePreviousVersionResponse>(
+    `/datasets/${encodeURIComponent(datasetId)}/previous-versions/${versionNumber}/restore`,
+    { method: 'POST' },
+  );
 }
 
 export async function getDatasetRefreshRuns(
