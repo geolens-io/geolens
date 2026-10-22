@@ -91,9 +91,14 @@ async def recheck_admitted_writer(
     # A flush here would write ahead of the caller's lock order.
     with db.no_autoflush:
         row = (await db.execute(statement)).one_or_none()
+    judged = row
+    if row is not None and is_publish_key(db):
+        # A publish key acts only on its owner's own objects, as the guard
+        # judged it; the admitted capabilities below keep the real roles.
+        judged = _Committed(row, roles=[r for r in row.roles if r != "admin"])
     # Not the caller object: its loaded roles predate any change since the guard.
-    admitted.user = _committed_identity(admitted.user_id, row)
-    await enforce(admitted.user, row)
+    admitted.user = _committed_identity(admitted.user_id, judged)
+    await enforce(admitted.user, judged)
     await _recheck_capabilities(db, admitted, set(row.roles))
     if not await public_visibility_still_allowed(
         db, admitted_public_visibility(db, admitted.user_id), set(row.roles)
@@ -284,7 +289,7 @@ async def refuse_publish_key_widening(
     ) > _VISIBILITY_ORDER.index(now.visibility):
         raise api_key_scope_refusal("A publish key can't widen a dataset's visibility")
     if (
-        now.visibility == "public"
+        (visibility or now.visibility) == "public"
         and record_status == "published"
         and now.record_status != "published"
     ):

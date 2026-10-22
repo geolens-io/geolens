@@ -1613,3 +1613,71 @@ def test_only_a_public_intent_publishes_a_manifest_record():
 
     assert _COMMUNITY_INTENT_VISIBILITY["published"] == "public"
     assert _UNMAPPED_INTENT_VISIBILITY != "public"
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_narrows_and_publishes_in_one_update(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """Publishing is judged on the visibility the same update asks for."""
+    headers, _ = owner
+    dataset = datasets[0]
+    publish = await _mint(client, headers, "publish")
+    await _set_record(
+        test_db_session, dataset.record_id, visibility="public", record_status="draft"
+    )
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"visibility": "internal", "record_status": "published"},
+        headers=publish,
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _record_values(test_db_session, dataset.record_id) == (
+        "internal",
+        "published",
+    )
+
+
+@pytest.mark.anyio
+async def test_the_locked_recheck_judges_an_admins_publish_key_without_admin(
+    client: AsyncClient, admin_auth_header, owner, test_db_session, monkeypatch
+):
+    """A transfer committed while the write waited for its lock is honoured."""
+    from app.modules.catalog import authorization
+    from tests.factories import create_dataset, get_user_id
+
+    _, editor_id = owner
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(
+        test_db_session, created_by=admin_id, visibility="internal"
+    )
+    record_id = dataset.record_id
+    lock = authorization.lock_catalog_rows
+
+    async def transferred_while_waiting(session, **kwargs):
+        await session.execute(
+            text("UPDATE catalog.records SET created_by = :owner WHERE id = :id"),
+            {"owner": editor_id, "id": record_id},
+        )
+        await lock(session, **kwargs)
+
+    try:
+        publish = await _mint(client, admin_auth_header, "publish")
+        full = await _mint(client, admin_auth_header, "full")
+        monkeypatch.setattr(
+            authorization, "lock_catalog_rows", transferred_while_waiting
+        )
+        refused = await client.patch(
+            f"/datasets/{dataset.id}", json={"title": "Taken"}, headers=publish
+        )
+        assert refused.status_code in (403, 404), refused.text
+        allowed = await client.patch(
+            f"/datasets/{dataset.id}", json={"title": "Admin edit"}, headers=full
+        )
+        assert allowed.status_code == 200, allowed.text
+    finally:
+        monkeypatch.undo()
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
