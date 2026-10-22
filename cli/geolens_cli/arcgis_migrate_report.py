@@ -150,7 +150,7 @@ def build_run_report(
                 "dataset_ids": list(entry.dataset_ids) if entry else [],
                 "map_id": entry.map_id if entry else None,
                 "owner_id": entry.owner_id if entry else None,
-                "reason": (entry.error if entry and entry.error else None),
+                "reason": (entry.error or None) if entry else None,
                 "notes": list(entry.notes) if entry else [],
                 "loss_report": entry.loss_report_path if entry else None,
             }
@@ -183,7 +183,7 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
     if report["stopped"]:
         lines += [f"**The run stopped:** {esc(report['stopped'])}", ""]
     lines += ["## Counts", ""]
-    lines += _report._table(
+    lines += _report.md_table(
         ["Status", "Items"], ([esc(s), str(n)] for s, n in report["counts"].items())
     )
     lines += ["", "## Manual follow-ups", ""]
@@ -195,7 +195,7 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
     else:
         lines.append("None.")
     lines += ["", "## Items", ""]
-    lines += _report._table(
+    lines += _report.md_table(
         ["Item", "Title", "Type", "Action", "Status", "GeoLens", "Reason"],
         (
             [

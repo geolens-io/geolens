@@ -126,7 +126,7 @@ def _item_link(report: Mapping[str, Any], item_id: str) -> str:
     return f"[{md_escape(item_id)}]({target})"
 
 
-def _table(header: list[str], rows: Iterable[list[str]]) -> list[str]:
+def md_table(header: list[str], rows: Iterable[list[str]]) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return lines
@@ -191,7 +191,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         lines[-1] = ""
 
     lines += ["## Summary", ""]
-    lines += _table(
+    lines += md_table(
         ["Class", "Items"],
         [
             [_CLASS_HEADINGS.get(name, name), str(count)]
@@ -206,7 +206,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         if not rows:
             continue
         lines += [f"## {heading}", ""]
-        lines += _table(
+        lines += md_table(
             ["Item", "Title", "Type", "Owner", "Sharing", "Size", "Reason"],
             [
                 [
@@ -230,7 +230,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     )
     if folders:
         lines += ["## Folders", ""]
-        lines += _table(
+        lines += md_table(
             ["Folder", "Id", "Items"],
             [
                 [md_escape(title or "(title unknown)"), md_escape(fid), str(count)]
@@ -247,7 +247,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         entry[1] += 1
     if owners:
         lines += ["## Owners", ""]
-        lines += _table(
+        lines += md_table(
             ["Owner", "Name", "Email", "Items"],
             [
                 [
@@ -263,7 +263,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
 
     if report["dependencies"]:
         lines += ["## Dependencies", ""]
-        lines += _table(
+        lines += md_table(
             ["From", "To", "Role", "Layer type", "Hosted", "In inventory", "External"],
             [
                 [
@@ -282,7 +282,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
 
     if report["errors"]:
         lines += ["## Errors", ""]
-        lines += _table(
+        lines += md_table(
             ["Item", "Phase", "Status", "Message"],
             [
                 [
