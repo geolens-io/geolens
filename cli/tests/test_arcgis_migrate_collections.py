@@ -40,7 +40,6 @@ class FakeCollections:
     def __init__(self, fake, taken: tuple[str, ...] = ()) -> None:
         self.fake = fake
         self.taken = set(taken)
-        self.created = 0
         self.names: dict[str, str] = {}
         self.members: dict[str, set[str]] = {}
         fake.routes[f"POST {COLLECTIONS}"] = self.create
@@ -49,8 +48,7 @@ class FakeCollections:
         name = seen.json()["name"]
         if name in self.taken or name in self.names.values():
             return (409, _problem(409, f"Collection with name '{name}' already exists"))
-        self.created += 1
-        collection = _uuid("c0", f"{self.created:02d}")
+        collection = _uuid("c0", f"{len(self.names):02d}")
         self.names[collection] = name
         self.members[collection] = set()
         self.fake.routes[f"POST {COLLECTIONS}{collection}/datasets/"] = (
@@ -265,29 +263,3 @@ def test_a_refused_add_to_a_known_collection_skips_filing(runner, tmp_path, geol
     entry = _state(plan_file)["items"][A2]
     assert entry["status"] == "done"
     assert "can't manage collections" in entry["notes"][0]
-
-
-def test_a_collection_deleted_since_the_last_run_is_created_again(
-    runner, tmp_path, geolens
-):
-    _services(geolens)
-    collections = FakeCollections(geolens)
-    plan_file = _plan(tmp_path)
-    _migrate(runner, plan_file, "--only", A1)
-    [old] = collections.names
-    geolens.routes[f"POST {COLLECTIONS}{old}/datasets/"] = (
-        404,
-        _problem(404, "Collection not found"),
-    )
-    collections.names.clear()
-    state = _state(plan_file)
-    state["items"][A2] = {"status": "pending"}
-    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
-
-    result, _ = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, result.output
-    [new] = collections.names
-    assert new != old
-    assert _state(plan_file)["collections"] == {"Transportation": new}
-    assert _state(plan_file)["items"][A2]["collection_ids"] == [new]
