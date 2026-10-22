@@ -87,17 +87,23 @@ def _filename(item: Mapping[str, Any], extension: str) -> str:
     return stem + extension
 
 
-def _download(ctx: MigrationContext, item_id: str, dest: Path, limit: int) -> int | str:
-    """Fetch the item's data into *dest*: its size, or the reason it was
-    skipped. ``ItemFailed`` / ``StopRun`` when the portal refuses."""
+class _Skipped(Exception):
+    """The item is left for the operator; the message is the reason."""
+
+
+def _download(ctx: MigrationContext, item_id: str, dest: Path, limit: int) -> None:
+    """Fetch the item's data into *dest*. ``_Skipped`` when it is over *limit*;
+    ``ItemFailed`` / ``StopRun`` when the portal refuses."""
     client = ctx.portal.client if ctx.portal is not None else None
     if client is None:
         raise ItemFailed("the run has no connection to the ArcGIS portal")
     try:
-        return client.download(f"content/items/{item_id}/data", dest, limit)
+        client.download(f"content/items/{item_id}/data", dest, limit)
     except PortalError as exc:
         if exc.kind == "too_large":
-            return f"larger than the instance's upload limit of {_megabytes(limit)}"
+            raise _Skipped(
+                f"the file is over the instance's upload limit of {_megabytes(limit)}"
+            ) from None
         if exc.http_status in _TOKEN_STATUSES:
             raise StopRun(
                 f"the portal refused the ArcGIS token ({exc}); it may have "
@@ -211,18 +217,13 @@ def _fan_out(
 
 
 def _upload_fresh(
-    ctx: MigrationContext,
-    item: Mapping[str, Any],
-    extension: str,
-    limit: int,
-) -> tuple[UUID | None, str | None]:
-    """Download and upload the item's file: the job id, or why it was skipped."""
+    ctx: MigrationContext, item: Mapping[str, Any], extension: str, limit: int
+) -> UUID:
+    """Download and upload the item's file, returning the upload job."""
     with tempfile.TemporaryDirectory(prefix="geolens-arcgis-") as tmp:
         path = Path(tmp) / _filename(item, extension)
-        outcome = _download(ctx, item["id"], path, limit)
-        if isinstance(outcome, str):
-            return None, outcome
-        return _upload(ctx, path, item["title"]), None
+        _download(ctx, item["id"], path, limit)
+        return _upload(ctx, path, item["title"])
 
 
 def _finish_recorded(
@@ -265,7 +266,6 @@ def import_file(
         raise ItemFailed("the item is not in the inventory the plan was built from")
     base = item["target"]["title"] or item["title"]
     visibility = item["target"]["visibility"]
-    limit = _limit(ctx)
     if entry.layer_datasets:
         many = len(entry.layer_datasets) > 1
         for name, dataset in entry.layer_datasets.items():
@@ -273,16 +273,6 @@ def import_file(
             _apply_target(ctx, dataset, _commit_body(title, visibility))
         return ItemResult()
 
-    size = row.get("size_bytes")
-    if isinstance(size, int) and size > limit:
-        return ItemResult(
-            status=SKIPPED,
-            notes=[
-                f"skipped: the file is {_megabytes(size)}, over the instance's "
-                f"upload limit of {_megabytes(limit)}"
-            ],
-        )
-    notes: list[str] = []
     recorded = entry.layer_jobs.get(JOB_KEY)
     if recorded:
         dataset = _finish_recorded(ctx, UUID(recorded), base, visibility)
@@ -290,30 +280,45 @@ def import_file(
         ctx.save()
         if dataset is not None:
             _apply_target(ctx, dataset, _commit_body(base, visibility))
-            entry.layer_datasets[JOB_KEY] = dataset
-            entry.dataset_ids = [dataset]
-            return ItemResult()
+            return _pinned(entry, dataset)
 
-    job_id, skipped = _upload_fresh(ctx, item, extension, limit)
-    if job_id is None:
+    limit = _limit(ctx)
+    size = row.get("size_bytes")
+    try:
+        if isinstance(size, int) and size > limit:
+            raise _Skipped(
+                f"the file is {_megabytes(size)}, over the instance's upload "
+                f"limit of {_megabytes(limit)}"
+            )
+        job_id = _upload_fresh(ctx, item, extension, limit)
+    except _Skipped as skipped:
         return ItemResult(status=SKIPPED, notes=[f"skipped: {skipped}"])
     entry.job_ids.append(str(job_id))
-    entry.layer_jobs[JOB_KEY] = str(job_id)
-    ctx.save()
     preview = _preview(ctx, job_id, base)
     layers = _layer_names(preview)
     if len(layers) > 1:
-        _fan_out(ctx, job_id, layers, base, visibility, entry)
-        del entry.layer_jobs[JOB_KEY]
+        failed = _fan_out(ctx, job_id, layers, base, visibility, entry)
         return ItemResult(
-            notes=[f"the file holds {len(layers)} layers; one dataset each"]
+            notes=[f"the file holds {len(layers)} layers, one dataset each", *failed]
         )
+    # Recorded before the commit is sent: if its answer is lost, a rerun
+    # finds this job rather than uploading the file a second time.
+    entry.layer_jobs[JOB_KEY] = str(job_id)
+    ctx.save()
     columns = _geometry_columns(preview)
+    notes = []
     if item["type"] == "CSV" and not columns and preview.geometry_type is None:
         notes.append("no geometry column found; imported as a table")
     _commit(ctx, job_id, base, visibility, columns)
     dataset = _wait_for_dataset(ctx, job_id, base)
     del entry.layer_jobs[JOB_KEY]
+    return _pinned(entry, dataset, notes)
+
+
+def _pinned(
+    entry: ItemState, dataset: str, notes: list[str] | None = None
+) -> ItemResult:
+    """Record the item's one dataset, so a rerun never imports the file again."""
     entry.layer_datasets[JOB_KEY] = dataset
     entry.dataset_ids = [dataset]
-    return ItemResult(notes=notes)
+    return ItemResult(notes=notes or [])

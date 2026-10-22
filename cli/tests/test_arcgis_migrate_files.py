@@ -391,3 +391,61 @@ def test_a_password_token_is_renewed_when_the_download_is_rejected(
     assert result.exit_code == 0, result.output
     assert len(portal.requests_to("generateToken")) == 2
     assert len(portal.requests_to(item_data_path(D3))) == 2
+
+
+def test_a_redirect_from_the_portal_fails_the_item(runner, tmp_path, geolens, portal):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = (302, b"", {"Location": "https://evil.example"})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "redirect" in _state(plan_file)["items"][D3]["error"]
+    assert not files.uploads
+    assert {urlsplit(s.url).hostname for s in portal.seen} == {
+        urlsplit(PORTAL).hostname
+    }
+
+
+def test_the_temporary_directory_is_removed_after_a_failed_upload(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    files = FakeFiles(geolens)
+    files.upload_refusal = (413, _problem(413, "Storage quota exceeded"))
+    seen: list[Path] = []
+    real = migrate_files_upload()
+
+    def spy(ctx, path, title):
+        seen.append(path)
+        return real(ctx, path, title)
+
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_files._upload", spy)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert seen and not seen[0].parent.exists()
+
+
+def test_a_layer_geolens_cannot_queue_is_noted_and_the_rest_import(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    fan_out = files.fan_out
+
+    def partial(job, seen):
+        status, body = fan_out(job, seen)
+        body["results"][1].update(status="failed", dataset_id=None, error="bad layer")
+        return status, body
+
+    files.fan_out = partial
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == [dataset_id("Roads")]
+    assert "Parcels: bad layer" in entry["notes"][-1]
