@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from ._sdk_helpers import long_request_timeout
+from ._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS, long_request_timeout
 from . import publish as _publish
 from .arcgis_migrate_layers import (
     _ALREADY_COMMITTED,
@@ -57,9 +57,13 @@ JOB_KEY = "file"
 # with JOB_KEY whatever its name.
 # Upload-job states in which a fan-out is known to have queued no child.
 _CHILDLESS = frozenset({"cancelled", "failed"})
-# Seconds after sending a fan-out before a failed or cancelled upload job counts
-# as having queued nothing: longer than the server's grace for a stale dispatch.
-FAN_OUT_SETTLE = 600.0
+# How long after sending a fan-out a failed or cancelled upload job may still
+# be read as having queued nothing: the request's own timeout (the same
+# constant the request is sent with), then the server's grace before its sweep
+# fails a stale dispatch, then a margin.
+_SERVER_SWEEP_GRACE = 300.0
+_SETTLE_MARGIN = 60.0
+FAN_OUT_SETTLE = EXTENDED_REQUEST_TIMEOUT_SECONDS + _SERVER_SWEEP_GRACE + _SETTLE_MARGIN
 LAYER_PREFIX = "layer:"
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _TOKEN_STATUSES = (498, 499)

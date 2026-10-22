@@ -1354,3 +1354,35 @@ def test_a_fan_out_still_inside_its_grace_is_not_uploaded_again(
     assert "may still be queuing" in _state(plan_file)["items"][D3]["error"]
     assert len(files.uploads) == 1
     assert _state(plan_file)["items"][D3]["fan_out"] is not None
+
+
+def test_the_fan_out_grace_outlasts_the_request_timeout_and_the_servers_sweep():
+    from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+    from geolens_cli.arcgis_migrate_files import FAN_OUT_SETTLE
+
+    assert FAN_OUT_SETTLE > EXTENDED_REQUEST_TIMEOUT_SECONDS + 300
+
+
+@pytest.mark.parametrize(("offset", "uploads"), [(-1, 1), (1, 2)])
+def test_a_failed_parent_counts_as_childless_only_after_the_grace(
+    runner, tmp_path, geolens, portal, monkeypatch, offset, uploads
+):
+    from geolens_cli.arcgis_migrate_files import FAN_OUT_SETTLE
+
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    real = files.fan_out
+    _lose_the_fan_out_answer(files, accepted=False)
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    sent_at = _state(plan_file)["items"][D3]["fan_out"]["sent_at"]
+    [parent] = [
+        s.url.rsplit("/", 1)[-1] for s in geolens.seen if "/commit-fan-out/" in s.url
+    ][:1]
+    files.job_status[parent] = "failed"
+    files.fan_out = real
+    now = sent_at + FAN_OUT_SETTLE + offset
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_files._wall_clock", lambda: now)
+
+    _migrate(runner, plan_file, "--only", D3)
+
+    assert len(files.uploads) == uploads
