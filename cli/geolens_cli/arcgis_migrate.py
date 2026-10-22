@@ -670,9 +670,13 @@ def _portal_client(
         for item in wanted
         if (rows[item["id"]].get("sharing") or {}).get("access") != "public"
     )
-    if not private:
-        # A public data file is still downloaded from the portal, anonymously.
-        if any(i["action"] == _plan.IMPORT_FILE for i in wanted):
+    files = any(i["action"] == _plan.IMPORT_FILE for i in wanted)
+    supplied = bool(opts.token or opts.token_stdin or opts.username)
+    if not private and not (files and supplied):
+        # A public data file is still downloaded from the portal, anonymously
+        # unless the operator gave a credential (a portal can require one for
+        # public sharing).
+        if files:
             try:
                 root = portal_root(
                     plan["portal"]["url"],

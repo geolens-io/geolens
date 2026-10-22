@@ -46,6 +46,8 @@ EXTENSIONS = {
     "File Geodatabase": ".zip",
 }
 FILE_TYPES = frozenset(EXTENSIONS)
+# The most layers one fan-out commit accepts.
+MAX_FAN_OUT_LAYERS = 50
 # The backend's default upload_max_size_mb, used when the setting is unreadable.
 DEFAULT_LIMIT_MB = 500
 # The single-layer upload job, until it yields its dataset.
@@ -316,6 +318,15 @@ def import_file(
     entry.job_ids.append(str(job_id))
     preview = _preview(ctx, job_id, base)
     layers = _layer_names(preview)
+    if len(layers) > MAX_FAN_OUT_LAYERS:
+        return ItemResult(
+            status=SKIPPED,
+            notes=[
+                f"skipped: the file holds {len(layers)} layers and GeoLens imports "
+                f"at most {MAX_FAN_OUT_LAYERS} from one file; split the file and "
+                "import the parts"
+            ],
+        )
     if len(layers) > 1:
         failed = _fan_out(ctx, job_id, layers, base, visibility, entry)
         return ItemResult(

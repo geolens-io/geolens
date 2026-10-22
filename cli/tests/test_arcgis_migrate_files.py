@@ -517,3 +517,31 @@ def test_a_fan_out_interrupted_while_waiting_does_not_upload_again(
     assert result.exit_code == 0, result.output
     assert len(files.uploads) == 1
     assert _state(plan_file)["items"][D3]["dataset_ids"] == [dataset_id("Parcels")]
+
+
+def test_a_public_file_is_downloaded_with_a_supplied_token(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens)
+    token = secrets.token_urlsafe(16)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [request] = portal.requests_to(item_data_path(D3))
+    assert request.headers["x-esri-authorization"] == f"Bearer {token}"
+
+
+def test_a_file_with_more_layers_than_one_fan_out_takes_is_skipped(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=[f"L{n}" for n in range(51)])
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "skipped" and "51 layers" in entry["notes"][0]
+    assert not files.fan_outs
