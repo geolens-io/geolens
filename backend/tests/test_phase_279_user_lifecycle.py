@@ -76,6 +76,9 @@ def test_user_fk_delete_behavior_locked():
         # Single-use sign-in trust links name the account they remember a
         # browser for; one for a deleted account must stop working.
         "login_trust_tokens.user_id",
+        # A sharing-group membership names the user; a deleted user leaves
+        # their groups.
+        "group_members.user_id",
     }
 
     bad_fks: list[str] = []
