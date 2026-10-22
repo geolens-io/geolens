@@ -153,7 +153,9 @@ def _preview(ctx: MigrationContext, job_id: UUID, title: str) -> Any:
         with long_request_timeout(ctx.geolens.client):
             return ctx.geolens.call(preview.sync_detailed, job_id=job_id)
     except GeoLensError as exc:
-        if exc.status == 404:
+        # A pending job the server's stale-job sweep cancelled or failed
+        # answers 400 "already processed", as unusable as one it purged (404).
+        if exc.status == 404 or (exc.status == 400 and _ALREADY_COMMITTED in str(exc)):
             raise _JobGone(f"{title}: the upload job {job_id} is gone") from None
         raise ItemFailed(f"{title}: preview failed, {exc}") from None
 

@@ -1503,3 +1503,44 @@ def test_a_pending_upload_the_server_dropped_is_uploaded_afresh(
     previews = [s.url for s in geolens.seen if "/ingest/preview/" in s.url]
     assert previews[0].endswith(f"/ingest/preview/{gone}") and len(previews) == 2
     assert len(files.uploads) == 1
+
+
+@pytest.mark.parametrize("ended", ["cancelled", "failed"])
+def test_a_pending_upload_the_sweep_ended_is_uploaded_afresh(
+    runner, tmp_path, geolens, portal, ended
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    stale = _uuid("0f", "97")
+    geolens.routes[f"POST /ingest/preview/{stale}"] = (
+        400,
+        _problem(400, f"Job already processed (status='{ended}')"),
+    )
+    _write_state(plan_file, pending_upload=stale)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    previews = [s.url for s in geolens.seen if "/ingest/preview/" in s.url]
+    assert previews[0].endswith(f"/ingest/preview/{stale}") and len(previews) == 2
+    assert len(files.uploads) == 1
+    assert _state(plan_file)["items"][D3]["pending_upload"] is None
+
+
+def test_a_preview_error_that_is_not_about_the_job_state_still_fails_the_item(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    broken = _uuid("0f", "96")
+    geolens.routes[f"POST /ingest/preview/{broken}"] = (
+        400,
+        _problem(400, "Unsupported file type"),
+    )
+    _write_state(plan_file, pending_upload=broken)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert not files.uploads
+    assert _state(plan_file)["items"][D3]["pending_upload"] == broken
