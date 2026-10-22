@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.modules.catalog.maps.arcgis_webmap.keys import (
+    LABEL_CLASS_KEYS,
+    LABEL_SYMBOL_KEYS,
+    POPUP_FIELDS_ELEMENT_KEYS,
+    POPUP_INFO_KEYS,
+    report_unknown_keys,
+)
 from app.modules.catalog.maps.arcgis_webmap.layout import (
     describe,
     num,
@@ -69,12 +76,17 @@ def _label_style(first: dict, path: str, loss: LossReport) -> dict:
     size = num(font.get("size"))
     if size and size > 0:
         config["fontSize"] = min(512.0, points_to_px(size))
+    report_unknown_keys([symbol], LABEL_SYMBOL_KEYS, f"{path}.symbol", loss)
     text = color_to_hex(symbol.get("color"))
     if text:
         config["textColor"] = text[0]
+        if text[1] < 1:
+            config["textOpacity"] = text[1]
     halo = color_to_hex(symbol.get("haloColor"))
     halo_size = num(symbol.get("haloSize"))
     if halo and halo_size and halo_size > 0:
+        if halo[1] < 1:
+            loss.add(path, "label_style", "halo transparency")
         config["haloColor"] = halo[0]
         config["haloWidth"] = min(20.0, points_to_px(halo_size))
     # A label's minScale is its zoomed-out limit, like a layer's.
@@ -118,6 +130,7 @@ def label_config(
         loss.add(base, "labels_hidden", "labels are off in the web map")
         return None
     first = _d(infos[0])
+    report_unknown_keys([first], LABEL_CLASS_KEYS, f"{base}[0]", loss)
     if len(infos) > 1:
         loss.add(base, "label_class", f"{len(infos) - 1} extra classes")
     if first.get("where"):
@@ -136,9 +149,8 @@ def _has_formatted_field(title: str) -> bool:
     )
 
 
-def _popup_fields(info: dict, base: str, loss: LossReport) -> list[str] | None:
-    fields = info.get("fieldInfos")
-    if not isinstance(fields, list) or not fields:
+def _popup_fields(fields: list, base: str, loss: LossReport) -> list[str] | None:
+    if not fields:
         return None
     visible: list[str] = []
     seen: set[str] = set()
@@ -174,6 +186,48 @@ def _popup_fields(info: dict, base: str, loss: LossReport) -> list[str] | None:
     return visible
 
 
+_ELEMENT_LOSSES = {
+    "text": "popup_html",
+    "media": "popup_media",
+    "attachments": "popup_attachments",
+    "expression": "popup_expression",
+}
+
+
+def _element_fields(info: dict, base: str, loss: LossReport) -> list:
+    """Field infos shown by the popup: those of each ``fields`` element, else the popup's own.
+
+    Other element types (text, media, attachments, expression) are reported.
+    """
+    top = _l(info.get("fieldInfos"))
+    elements = _l(info.get("popupElements"))
+    if not elements:
+        return top
+    collected: list = []
+    for index, raw in enumerate(elements):
+        element = _d(raw)
+        kind = element.get("type")
+        if kind == "fields":
+            report_unknown_keys(
+                [element],
+                POPUP_FIELDS_ELEMENT_KEYS,
+                f"{base}.popupElements[{index}]",
+                loss,
+            )
+            own = [
+                {"visible": True, **_d(item)} for item in _l(element.get("fieldInfos"))
+            ]
+            collected.extend(own or top)
+        else:
+            code = _ELEMENT_LOSSES.get(kind) if isinstance(kind, str) else None
+            loss.add(
+                f"{base}.popupElements[{index}]",
+                code or "popup_element",
+                describe(kind),
+            )
+    return collected
+
+
 def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
     if layer.get("disablePopup") is True:
         return {"enabled": False}
@@ -181,6 +235,7 @@ def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
     if not isinstance(info, dict):
         return None
     base = f"{path}.popupInfo"
+    report_unknown_keys([info], POPUP_INFO_KEYS, base, loss)
     config: dict = {"enabled": True}
 
     title = info.get("title")
@@ -189,9 +244,11 @@ def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
             loss.add(base, "popup_expression", "title is not a plain field template")
         else:
             config["expression"] = title
-    visible = _popup_fields(info, base, loss)
+    visible = _popup_fields(_element_fields(info, base, loss), base, loss)
     if visible is not None:
         config["visible_fields"] = visible
+    elif info.get("popupElements"):
+        config["visible_fields"] = []
 
     if info.get("mediaInfos"):
         loss.add(base, "popup_media", f"{len(_l(info['mediaInfos']))} items")
@@ -199,4 +256,7 @@ def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
         loss.add(base, "popup_html", "custom description")
     if info.get("showAttachments"):
         loss.add(base, "popup_attachments")
+    related = _d(info.get("relatedRecordsInfo"))
+    if related and related.get("showRelatedRecords") is not False:
+        loss.add(base, "popup_related_records")
     return config

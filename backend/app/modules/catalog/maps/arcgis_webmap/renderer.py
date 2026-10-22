@@ -10,6 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.modules.catalog.maps.arcgis_webmap.keys import (
+    CLASS_BREAK_INFO_KEYS,
+    OUTLINE_KEYS,
+    RENDERER_KEYS,
+    SYMBOL_KEYS,
+    UNIQUE_VALUE_INFO_KEYS,
+    report_unknown_keys,
+)
 from app.modules.catalog.maps.arcgis_webmap.layout import (
     describe,
     color_to_hex,
@@ -83,6 +91,7 @@ def geometry_kind(geometry_type: Any) -> str | None:
 
 def _outline(symbol: dict, path: str, loss: LossReport) -> dict:
     outline = _d(symbol.get("outline"))
+    report_unknown_keys([outline], OUTLINE_KEYS, f"{path}.outline", loss)
     builder: dict = {}
     style = outline.get("style")
     if style == "esriSLSNull":
@@ -110,6 +119,7 @@ def _marker(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
     if any(num(symbol.get(key)) for key in ("angle", "xoffset", "yoffset")):
         loss.add(path, "symbol_style", "marker angle or offset")
     outline = _d(symbol.get("outline"))
+    report_unknown_keys([outline], OUTLINE_KEYS, f"{path}.outline", loss)
     outline_style = outline.get("style")
     stroke = color_to_hex(outline.get("color"))
     if stroke:
@@ -158,6 +168,7 @@ def _symbol(raw: Any, path: str, loss: LossReport) -> _Symbol | None:
     if kind is None:
         loss.add(path, "symbol_style", f"symbol type {describe(symbol_type)}")
         return None
+    report_unknown_keys([symbol], SYMBOL_KEYS[symbol_type], path, loss)
     parsed = color_to_hex(symbol.get("color"))
     result = _Symbol(kind, parsed[0] if parsed else None, parsed[1] if parsed else 1.0)
     if symbol_type == "esriSMS":
@@ -199,10 +210,11 @@ def _simple(sym: _Symbol | None, hint: str | None) -> Styled:
 
 
 def _classes(
-    infos: list, path: str, loss: LossReport
+    infos: list, path: str, loss: LossReport, known: frozenset[str]
 ) -> tuple[list[tuple[dict, _Symbol | None]], int]:
     """Parsed classes, and how many entries past ``MAX_CLASSES`` were never parsed."""
     skipped = max(0, len(infos) - MAX_CLASSES)
+    report_unknown_keys(infos[:MAX_CLASSES], known, f"{path}[]", loss)
     out = []
     for index, info in enumerate(infos[:MAX_CLASSES]):
         info = _d(info)
@@ -244,7 +256,9 @@ def _report_class_differences(
 def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field1")
     infos = _l(r.get("uniqueValueInfos"))
-    classes, dropped = _classes(infos, f"{path}.uniqueValueInfos", loss)
+    classes, dropped = _classes(
+        infos, f"{path}.uniqueValueInfos", loss, UNIQUE_VALUE_INFO_KEYS
+    )
     default_sym = (
         _symbol(r.get("defaultSymbol"), f"{path}.defaultSymbol", loss)
         if r.get("defaultSymbol")
@@ -325,7 +339,10 @@ def _graduated_expression(
 def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field")
     classes, skipped = _classes(
-        _l(r.get("classBreakInfos")), f"{path}.classBreakInfos", loss
+        _l(r.get("classBreakInfos")),
+        f"{path}.classBreakInfos",
+        loss,
+        CLASS_BREAK_INFO_KEYS,
     )
     ranked = sorted(
         (
@@ -432,6 +449,8 @@ def translate_renderer(
 
     if _l(r.get("visualVariables")):
         loss.add(path, "visual_variable", str(len(r["visualVariables"])))
+    if isinstance(kind, str) and kind in RENDERER_KEYS:
+        report_unknown_keys([r], RENDERER_KEYS[kind], path, loss)
     if r.get("rotationType") or r.get("rotationExpression"):
         loss.add(path, "visual_variable", "rotation")
 

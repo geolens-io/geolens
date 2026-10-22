@@ -1412,3 +1412,224 @@ class TestLayerSettingsSweep:
             "layerDefinition": {"drawingInfo": {"transparency": 40}},
         }
         assert _translate(_webmap(layer)).layers[0].opacity == 0.3
+
+
+def _unknown_in(path: list, webmap: dict) -> dict:
+    node = webmap
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]]["zzUnknown"] = "secret-value"
+    return webmap
+
+
+def _full_webmap() -> dict:
+    symbol = {**_point(), "outline": {"type": "esriSLS", "color": _red(), "width": 1}}
+    return {
+        "operationalLayers": [
+            {
+                "id": "L1",
+                "layerType": "ArcGISFeatureLayer",
+                "title": "T",
+                "showLabels": True,
+                "popupInfo": {
+                    "title": "{A}",
+                    "popupElements": [
+                        {"type": "fields", "fieldInfos": [{"fieldName": "A"}]}
+                    ],
+                },
+                "layerDefinition": {
+                    "drawingInfo": {
+                        "renderer": {"type": "simple", "symbol": symbol},
+                        "labelingInfo": [
+                            {
+                                "labelExpressionInfo": {"expression": "$feature.A"},
+                                "symbol": {"type": "esriTS", "color": [0, 0, 0, 255]},
+                            }
+                        ],
+                    }
+                },
+            }
+        ]
+    }
+
+
+_LAYER = ["operationalLayers", 0]
+_DRAW = [*_LAYER, "layerDefinition", "drawingInfo"]
+
+
+class TestUnsupportedProperty:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            [*_LAYER],
+            [*_LAYER, "layerDefinition"],
+            [*_DRAW],
+            [*_DRAW, "renderer"],
+            [*_DRAW, "renderer", "symbol"],
+            [*_DRAW, "renderer", "symbol", "outline"],
+            [*_DRAW, "labelingInfo", 0],
+            [*_DRAW, "labelingInfo", 0, "symbol"],
+            [*_LAYER, "popupInfo"],
+            [*_LAYER, "popupInfo", "popupElements", 0],
+        ],
+    )
+    def test_an_unknown_key_is_reported_by_name_only(self, path: list) -> None:
+        webmap = _unknown_in(path, _full_webmap())
+        result = _translate(webmap)
+        items = [i for i in result.loss.items if i.kind == "unsupported_property"]
+        assert len(items) == 1, result.loss.items
+        assert items[0].detail == "zzUnknown"
+        assert "secret-value" not in json.dumps(result.loss.as_dict())
+
+    @pytest.mark.parametrize(
+        "symbol",
+        [
+            {**_point()},
+            {**_line()},
+            {**_fill()},
+            {"type": "esriPMS", "url": "x", "width": 1, "height": 1},
+            {"type": "esriPFS", "url": "x", "width": 1, "height": 1},
+        ],
+    )
+    def test_every_symbol_type_reports_unknown_keys(self, symbol: dict) -> None:
+        symbol["zzUnknown"] = 1
+        result = _translate(_with_renderer({"type": "simple", "symbol": symbol}))
+        assert any(
+            i.kind == "unsupported_property" and i.detail == "zzUnknown"
+            for i in result.loss.items
+        )
+
+    @pytest.mark.parametrize(
+        "renderer",
+        [
+            {
+                "type": "uniqueValue",
+                "field1": "A",
+                "uniqueValueInfos": [{"value": "x", "symbol": _fill()}],
+            },
+            {
+                "type": "classBreaks",
+                "field": "A",
+                "classBreakInfos": [{"classMaxValue": 1, "symbol": _fill()}],
+            },
+            {"type": "heatmap", "field": "A"},
+        ],
+    )
+    def test_every_renderer_type_reports_unknown_keys(self, renderer: dict) -> None:
+        renderer = {**renderer, "zzUnknown": 1}
+        result = _translate(_with_renderer(renderer))
+        assert any(
+            i.kind == "unsupported_property" and i.detail == "zzUnknown"
+            for i in result.loss.items
+        )
+
+    def test_unknown_class_keys_are_reported_once_for_all_classes(self) -> None:
+        infos = [{"value": str(n), "symbol": _fill(), "zzUnknown": 1} for n in range(5)]
+        renderer = {"type": "uniqueValue", "field1": "A", "uniqueValueInfos": infos}
+        result = _translate(_with_renderer(renderer))
+        assert result.loss.summary.get("unsupported_property") == 1
+
+    def test_a_group_reports_unknown_keys(self) -> None:
+        webmap = {
+            "operationalLayers": [
+                {"id": "G", "layerType": "GroupLayer", "zzUnknown": 1, "layers": []}
+            ]
+        }
+        assert "unsupported_property" in _kinds(_translate(webmap))
+
+    def test_the_hosted_layer_fixture_needs_no_generic_report(self) -> None:
+        webmap = json.loads((FIXTURES / "hosted_feature_layers.json").read_text())
+        matches = {layer["id"]: uuid.uuid4() for layer in webmap["operationalLayers"]}
+        result = _translate(webmap, matches)
+        assert "unsupported_property" not in _kinds(result), [
+            i for i in result.loss.items if i.kind == "unsupported_property"
+        ]
+
+
+class TestRound3:
+    def test_an_enabled_display_filter_is_reported(self) -> None:
+        layer = {
+            "layerDefinition": {"displayFilterInfo": {"filters": [{"where": "A=1"}]}}
+        }
+        assert "display_filter" in _kinds(_translate(_webmap(layer)))
+
+    @pytest.mark.parametrize(
+        "layer",
+        [
+            {
+                "layerDefinition": {
+                    "displayFilterInfo": {"enabled": False, "filters": [{}]}
+                }
+            },
+            {
+                "disableDisplayFilter": True,
+                "layerDefinition": {"displayFilterInfo": {"filters": [{}]}},
+            },
+        ],
+    )
+    def test_a_disabled_display_filter_is_not(self, layer: dict) -> None:
+        assert "display_filter" not in _kinds(_translate(_webmap(layer)))
+
+    def test_label_text_alpha_becomes_text_opacity(self) -> None:
+        webmap = _full_webmap()
+        symbol = webmap["operationalLayers"][0]["layerDefinition"]["drawingInfo"][
+            "labelingInfo"
+        ][0]["symbol"]
+        symbol.update(
+            {"color": [0, 0, 0, 128], "haloColor": [255, 255, 255, 100], "haloSize": 1}
+        )
+        result = _translate(webmap)
+        config = result.layers[0].label_config
+        assert config["textOpacity"] == 0.502
+        assert "label_style" in _kinds(result)
+
+    def _popup(self, elements: list, **info) -> tuple[set[str], dict]:
+        popup = {"popupElements": elements, **info}
+        result = _translate(_webmap({"popupInfo": popup}))
+        return _kinds(result) - {"renderer_missing"}, result.layers[
+            0
+        ].popup_config.model_dump()
+
+    @pytest.mark.parametrize(
+        ("kind", "code"),
+        [
+            ("text", "popup_html"),
+            ("media", "popup_media"),
+            ("attachments", "popup_attachments"),
+            ("expression", "popup_expression"),
+            ("arcade", "popup_element"),
+        ],
+    )
+    def test_unsupported_popup_elements_are_reported(
+        self, kind: str, code: str
+    ) -> None:
+        kinds, config = self._popup([{"type": kind}])
+        assert kinds == {code}
+        assert config["visible_fields"] == []
+
+    def test_a_fields_element_supplies_the_field_list(self) -> None:
+        elements = [
+            {"type": "fields", "fieldInfos": [{"fieldName": "B"}, {"fieldName": "A"}]},
+            {"type": "text"},
+        ]
+        kinds, config = self._popup(
+            elements, fieldInfos=[{"fieldName": "Z", "visible": True}]
+        )
+        assert config["visible_fields"] == ["B", "A"]
+        assert kinds == {"popup_html"}
+
+    def test_a_fields_element_without_its_own_list_uses_the_popups(self) -> None:
+        _, config = self._popup(
+            [{"type": "fields"}],
+            fieldInfos=[{"fieldName": "Z", "visible": True}, {"fieldName": "Y"}],
+        )
+        assert config["visible_fields"] == ["Z"]
+
+    def test_a_fill_outline_reports_unknown_keys(self) -> None:
+        symbol = _fill()
+        symbol["outline"]["zzUnknown"] = 1
+        result = _translate(_with_renderer({"type": "simple", "symbol": symbol}))
+        assert any(
+            i.kind == "unsupported_property" and i.detail == "zzUnknown"
+            for i in result.loss.items
+        )

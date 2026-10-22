@@ -17,6 +17,12 @@ from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
     definition_expression_to_filter,
     is_match_all,
 )
+from app.modules.catalog.maps.arcgis_webmap.keys import (
+    DRAWING_INFO_KEYS,
+    LAYER_DEFINITION_KEYS,
+    LAYER_KEYS,
+    report_unknown_keys,
+)
 from app.modules.catalog.maps.arcgis_webmap.labels import label_config, popup_config
 from app.modules.catalog.maps.arcgis_webmap.layout import (
     describe,
@@ -91,6 +97,7 @@ def _flatten(
             out.append((layer, here, group))
             continue
         _layer_extras(layer, here, loss)
+        report_unknown_keys([layer], LAYER_KEYS, here, loss)
         if group is not None:
             loss.add(here, "nested_group", _text(layer.get("title"), 80))
         if depth >= _MAX_GROUP_DEPTH:
@@ -123,6 +130,12 @@ def _layer_extras(layer: dict, path: str, loss: LossReport) -> None:
         )
     if layer.get("timeInfo") or definition.get("timeInfo"):
         loss.add(path, "time", "time-aware layer shown without a time filter")
+    display_filter = _d(definition.get("displayFilterInfo"))
+    disabled = layer.get("disableDisplayFilter") or definition.get(
+        "disableDisplayFilter"
+    )
+    if display_filter and display_filter.get("enabled") is not False and not disabled:
+        loss.add(path, "display_filter", "scale-dependent display filter not applied")
     if (num(layer.get("refreshInterval")) or 0) > 0:
         loss.add(path, "refresh_interval", describe(layer.get("refreshInterval")))
     if layer.get("customParameters"):
@@ -168,6 +181,13 @@ def _layer_input(
 ) -> dict:
     definition = _d(layer.get("layerDefinition"))
     drawing = _d(definition.get("drawingInfo"))
+    report_unknown_keys([layer], LAYER_KEYS, path, loss)
+    report_unknown_keys(
+        [definition], LAYER_DEFINITION_KEYS, f"{path}.layerDefinition", loss
+    )
+    report_unknown_keys(
+        [drawing], DRAWING_INFO_KEYS, f"{path}.layerDefinition.drawingInfo", loss
+    )
     styled = translate_renderer(
         drawing.get("renderer"),
         f"{path}.layerDefinition.drawingInfo.renderer",
