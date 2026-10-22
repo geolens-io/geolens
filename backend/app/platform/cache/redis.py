@@ -100,6 +100,12 @@ class RedisCacheProvider:
         )
         self._replay_lock = asyncio.Lock()
 
+    @property
+    def shared(self) -> bool:
+        """Whether calls now reach Redis, which every process sees, rather than
+        this process's own fallback."""
+        return not self._is_circuit_open()
+
     def _is_circuit_open(self) -> bool:
         if self._failure_count < self._max_failures:
             return False

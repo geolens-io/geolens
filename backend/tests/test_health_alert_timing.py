@@ -41,6 +41,13 @@ PARTLY_DELIVERED = NotificationResult(
     attempted=1, delivered=1, failed_channels=frozenset({"webhook"})
 )
 
+
+class _SharedMemoryCache(InMemoryCacheProvider):
+    """One store that every simulated replica reads, standing in for Redis."""
+
+    shared = True
+
+
 _PROCESS_STATE = {
     (health_svc, "_last_health_alert_at"): None,
     (health_svc, "_last_health_status"): "healthy",
@@ -57,7 +64,7 @@ def _fresh_process(monkeypatch):
     from app.platform.ratelimit import limiter
 
     monkeypatch.setattr(limiter, "enabled", False)
-    monkeypatch.setattr(provider, "_cache_provider", InMemoryCacheProvider())
+    monkeypatch.setattr(provider, "_cache_provider", _SharedMemoryCache())
     monkeypatch.setattr("app.core.config.settings.notify_on_health_alert", True)
     for (module, name), value in _PROCESS_STATE.items():
         monkeypatch.setattr(module, name, value)
@@ -118,7 +125,7 @@ async def test_a_claim_that_commits_after_its_timeout_is_released_on_recovery(
     """``SET NX`` stored the key but its reply never came back in time."""
     calls, _ = sent
 
-    class _CommitsThenStalls(InMemoryCacheProvider):
+    class _CommitsThenStalls(_SharedMemoryCache):
         async def set_if_absent(self, key, value, ttl=300, *, security=False):
             await super().set_if_absent(key, value, ttl, security=security)
             await asyncio.Event().wait()
@@ -142,7 +149,7 @@ async def test_a_newer_degraded_result_waits_for_the_recovery_ahead_of_it(
     calls, _ = sent
     entered, proceed = asyncio.Event(), asyncio.Event()
 
-    class _SlowFirstClaim(InMemoryCacheProvider):
+    class _SlowFirstClaim(_SharedMemoryCache):
         async def set_if_absent(self, key, value, ttl=300, *, security=False):
             if not entered.is_set():
                 entered.set()
@@ -340,7 +347,7 @@ async def test_a_written_back_claim_delays_the_next_incident_by_one_backoff(
     monkeypatch.setattr(health_svc, "HEALTH_ALERT_RETRY_SECS", 0.05)
     other: dict = {}
 
-    class _RecoveryBetweenReadAndWrite(InMemoryCacheProvider):
+    class _RecoveryBetweenReadAndWrite(_SharedMemoryCache):
         armed = False
 
         async def get(self, key, *, security=False):
@@ -389,12 +396,12 @@ async def test_with_the_cache_down_a_partly_failed_alert_waits_out_the_cooldown(
     assert len(calls) == 1
 
 
-class _ClaimRaises(InMemoryCacheProvider):
+class _ClaimRaises(_SharedMemoryCache):
     async def set_if_absent(self, key, value, ttl=300, *, security=False):
         raise ConnectionError("cache unreachable")
 
 
-class _ClaimWriteFails(InMemoryCacheProvider):
+class _ClaimWriteFails(_SharedMemoryCache):
     """The write is refused and no key is stored, as when Redis drops it."""
 
     async def set_if_absent(self, key, value, ttl=300, *, security=False):
@@ -407,6 +414,36 @@ async def test_an_alert_sent_without_holding_the_key_waits_out_the_cooldown(
 ):
     """Without the key no other replica is held back, so an early retry here
     would repeat on every replica."""
+    calls, answers = sent
+    monkeypatch.setattr(provider, "_cache_provider", cache())
+    monkeypatch.setattr(health_svc, "HEALTH_ALERT_RETRY_SECS", 0.05)
+    _checks(monkeypatch, DEGRADED, DEGRADED)
+    answers.append(PARTLY_DELIVERED)
+
+    await _poll()
+    await asyncio.sleep(0.1)
+    await _poll()
+
+    assert len(calls) == 1
+
+
+def _redis_with_open_circuit() -> RedisCacheProvider:
+    cache = _fake_redis_cache()
+    cache._failure_count = cache._max_failures
+    cache._circuit_open_until = time.monotonic() + 30
+    return cache
+
+
+@pytest.mark.parametrize(
+    "cache",
+    [InMemoryCacheProvider, _redis_with_open_circuit],
+    ids=["in-memory", "redis-circuit-open"],
+)
+async def test_a_claim_held_in_process_memory_gets_no_early_retry(
+    monkeypatch, sent, cache
+):
+    """Each API worker has its own memory, so every worker would win the key
+    and resend after each backoff."""
     calls, answers = sent
     monkeypatch.setattr(provider, "_cache_provider", cache())
     monkeypatch.setattr(health_svc, "HEALTH_ALERT_RETRY_SECS", 0.05)

@@ -184,8 +184,9 @@ _alert_claim_lock = asyncio.Lock()
 class HealthAlertClaim(NamedTuple):
     """A claim to send the alert under.
 
-    ``shared`` is true when the claim holds the cache key, so another replica
-    can take over a failed send; otherwise only the local cooldown throttles.
+    ``shared`` is true when the claim holds a key every process sees (Redis
+    with its circuit closed), so another process can take over a failed send;
+    otherwise only the local cooldown throttles.
     """
 
     token: str
@@ -217,7 +218,8 @@ async def claim_health_alert(failing: list[str]) -> HealthAlertClaim | None:
             if await cache.set_if_absent(
                 _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
             ):
-                return HealthAlertClaim(token, shared=True)
+                # A key in this process's own memory holds no other process back.
+                return HealthAlertClaim(token, shared=getattr(cache, "shared", False))
             # Remember the incident another replica claimed, so whichever
             # replica sees recovery can release it.
             _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
