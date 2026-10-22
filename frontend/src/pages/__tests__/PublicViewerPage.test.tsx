@@ -193,6 +193,62 @@ describe('PublicViewerPage', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
+  describe('embed legend default', () => {
+    const categorical = {
+      ...SHARED_MAP.layers[0],
+      geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['match', ['get', 'kind'], 'school', '#f472b6', '#cccccc'],
+      },
+      style_config: {
+        mode: 'categorical' as const,
+        column: 'kind',
+        categories: [{ value: 'school', label: 'School', color: '#f472b6' }],
+      },
+    };
+
+    function mapWith(layer: SharedMapResponse['layers'][number]) {
+      mockedUseSharedMap.mockReturnValue({
+        data: { ...SHARED_MAP, layers: [layer] },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as ReturnType<typeof useSharedMap>);
+    }
+
+    it('shows the legend in an embed when a visible layer is styled by category', () => {
+      mapWith(categorical);
+      renderPage('/m/share-token?embed=true');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+      expect(mockedUseViewerLayers).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ showLegend: true }),
+      );
+    });
+
+    it('keeps the embed legend hidden for a single-colour layer', () => {
+      renderPage('/m/share-token?embed=true');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden when the category layer is hidden', () => {
+      mapWith({ ...categorical, visible: false });
+      renderPage('/m/share-token?embed=true');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('lets legend=false hide the embed legend', () => {
+      mapWith(categorical);
+      renderPage('/m/share-token?embed=true&legend=false');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+  });
+
   it('hands the legend what the viewer map reports drawing', async () => {
     renderPage();
     await screen.findByTestId('viewer-map');

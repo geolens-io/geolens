@@ -91,6 +91,10 @@ export function useViewerLayers(
   useEffect(() => {
     if (!showLegend) return;
 
+    // The map loads after the first render, so an embed can turn the legend on
+    // once it knows the layers; open it by width unless the visitor already chose.
+    if (!userHasToggled.current) setIsLegendOpenRaw(window.innerWidth >= 500);
+
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const handleResize = () => {
       if (timeoutId) clearTimeout(timeoutId);
