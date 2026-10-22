@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -110,6 +111,16 @@ def _limit_settings(megabytes: int) -> dict:
         "label": "Upload limit",
     }
     return {"env_only": False, "tabs": {"uploads": [setting]}}
+
+
+@pytest.fixture(autouse=True)
+def private_tempdir(tmp_path, monkeypatch):
+    """Downloads go to a directory of this test, which must be empty at the end."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    yield scratch
+    assert list(scratch.iterdir()) == []
 
 
 @pytest.fixture
