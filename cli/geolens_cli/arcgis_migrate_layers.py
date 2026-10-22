@@ -149,6 +149,31 @@ def _layer_label(layer: Any) -> str:
     return title if isinstance(title, str) and title else str(layer.name)
 
 
+def _titles(base: str, layers: list[Any]) -> list[str]:
+    """The dataset title for each of a service's layers, in order.
+
+    Layers that would share a title get their layer id added, checked
+    against the final titles: a layer already named like another layer's
+    tagged title is tagged too, so every layer ends up told apart (layer
+    ids are unique within a service).
+    """
+    labels = [_layer_label(layer) if len(layers) > 1 else None for layer in layers]
+    titles = [_title(base, label) for label in labels]
+    tagged = [False] * len(layers)
+    while True:
+        shared = {title for title in titles if titles.count(title) > 1}
+        if not shared:
+            return titles
+        moved = False
+        for i, (layer, label) in enumerate(zip(layers, labels)):
+            if titles[i] in shared and not tagged[i]:
+                titles[i] = _title(base, label, _layer_id(layer))
+                tagged[i] = True
+                moved = True
+        if not moved:
+            return titles
+
+
 def _importable(layer: Any) -> str | None:
     """Why *layer* is not imported, or None."""
     kind = getattr(layer, "source_layer_type", None)
@@ -400,14 +425,9 @@ def import_layers(
         return ItemResult(notes=[*notes, "the service has no layer to import"])
 
     base = item["target"]["title"] or item["title"]
-    labels = [_layer_label(layer) if len(wanted) > 1 else None for layer in wanted]
-    titles = [_title(base, label) for label in labels]
+    titles = _titles(base, wanted)
     found = 0
-    for layer, label, title in zip(wanted, labels, titles):
-        if titles.count(title) > 1:
-            # Another layer of this service takes the same title; the layer
-            # id is what tells the two datasets apart.
-            title = _title(base, label, _layer_id(layer))
+    for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.

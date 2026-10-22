@@ -322,6 +322,22 @@ def test_two_layers_with_the_same_name_get_their_layer_ids_in_the_title(
     ]
 
 
+def test_a_layer_named_like_a_tagged_title_is_tagged_too(runner, plan_file, geolens):
+    service = FakeImport(
+        geolens,
+        [_layer(0, "Parcels"), _layer(3, "Parcels"), _layer(5, "Parcels (0)")],
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [c["title"] for c in service.bodies("POST /ingest/commit/")] == [
+        "Parcels (public view) - Parcels (0)",
+        "Parcels (public view) - Parcels (3)",
+        "Parcels (public view) - Parcels (0) (5)",
+    ]
+
+
 def test_a_public_item_sends_no_credential(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     token = secrets.token_urlsafe(16)
