@@ -6,8 +6,10 @@ that ship **inside the backend and worker container images** and whose license
 obligations attach on distribution. It is not a full dependency inventory: every
 other package in the image, and every published GeoLens artifact (the `geolens`
 CLI, the Python and TypeScript SDKs, the MCP server, and the frontend bundle),
-is permissively licensed and needs no notice beyond the ones its own package
-carries.
+is permissively licensed. Those packages carry their own notices, except in the
+frontend bundle, where minification strips them; its build writes them to
+`third-party-licenses.txt`, which the frontend image serves at
+`/third-party-licenses.txt`.
 
 The license texts referenced below sit next to this file, and the whole
 directory lands at `/app/licenses/` in the image.

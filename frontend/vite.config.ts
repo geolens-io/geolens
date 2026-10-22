@@ -96,8 +96,31 @@ const fontsCors: Plugin = {
   },
 }
 
+const licenseFile = 'third-party-licenses.txt'
+
+// build.license lists only packages that JavaScript imports. The fonts,
+// Tailwind and its animations arrive through index.css, so their notices are
+// appended here in the same format.
+const cssPackageLicenses: Plugin = {
+  name: 'geolens-css-package-licenses',
+  apply: 'build',
+  writeBundle({ dir }) {
+    const css = fs.readFileSync(path.resolve(__dirname, 'src/index.css'), 'utf-8')
+    const names = new Set(
+      [...css.matchAll(/@import\s+['"]((?:@[^/'"]+\/)?[^./'"][^/'"]*)/g)].map((m) => m[1]),
+    )
+    const sections = [...names].map((name) => {
+      const root = path.resolve(__dirname, 'node_modules', name)
+      const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'))
+      const text = fs.readFileSync(path.join(root, 'LICENSE'), 'utf-8').trim()
+      return `## ${name} - ${pkg.version} (${pkg.license})\n\n${text}\n`
+    })
+    fs.appendFileSync(path.join(dir ?? 'dist', licenseFile), `\n${sections.join('\n')}`)
+  },
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), fontsCors],
+  plugins: [react(), tailwindcss(), fontsCors, cssPackageLicenses],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
@@ -196,6 +219,8 @@ export default defineConfig({
     // warning above the current GIS engine chunk so build output only warns when
     // that explicit budget grows materially.
     chunkSizeWarningLimit: 1300,
+    // Minification strips the license headers that MIT and BSD notices require.
+    license: { fileName: licenseFile },
     rollupOptions: {
       output: {
         manualChunks,

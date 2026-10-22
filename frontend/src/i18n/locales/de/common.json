@@ -405,7 +405,8 @@
     "docs": "Dokumentation",
     "github": "GitHub",
     "api": "API",
-    "license": "Apache 2.0"
+    "license": "Apache 2.0",
+    "thirdPartyLicenses": "Drittanbieter-Lizenzen"
   },
   "viewer": {
     "loading": "Karte wird geladen...",

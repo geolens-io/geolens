@@ -714,7 +714,8 @@
     "docs": "文档",
     "github": "GitHub",
     "api": "API",
-    "license": "Apache 2.0"
+    "license": "Apache 2.0",
+    "thirdPartyLicenses": "第三方许可证"
   },
   "notFound": {
     "title": "页面未找到",

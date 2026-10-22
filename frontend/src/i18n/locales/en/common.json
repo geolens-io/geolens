@@ -714,7 +714,8 @@
     "docs": "Docs",
     "github": "GitHub",
     "api": "API",
-    "license": "Apache 2.0"
+    "license": "Apache 2.0",
+    "thirdPartyLicenses": "Third-party licenses"
   },
   "notFound": {
     "title": "Page not found",

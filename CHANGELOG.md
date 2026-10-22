@@ -62,9 +62,13 @@ and releases use semantic versioning.
   name in the file it was imported from (for example `POP 2020` for the stored
   `pop 2020`). It is `null` for datasets imported before this release and for
   columns that could not be matched. Re-uploading a file fills it in.
+- The web app serves the license notices for the code it bundles at
+  `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
 
 ### Fixed
 
+- Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
+  em dashes and accented names as garbled characters.
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a
   single feature, now answer 400 for anything but CRS84 (its `http://` and `https://`
   URIs or `[OGC:CRS84]`). They were ignored before, so `crs=EPSG:3857` returned

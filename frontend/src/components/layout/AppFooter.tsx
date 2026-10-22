@@ -31,6 +31,7 @@ export function AppFooter({
     { href: GEOLENS_DISCUSSIONS_URL, label: t('footer.community') },
     { href: GEOLENS_API_DOCS_URL, label: t('footer.api') },
     { href: GEOLENS_LICENSE_URL, label: t('footer.license') },
+    { href: '/third-party-licenses.txt', label: t('footer.thirdPartyLicenses') },
   ];
 
   return (
