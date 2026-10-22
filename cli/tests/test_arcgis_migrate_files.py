@@ -832,3 +832,129 @@ def test_a_layer_named_like_the_single_file_marker_is_still_imported(
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == [dataset_id("file"), dataset_id("Parcels")]
     assert entry["layer_jobs"] == {}
+
+
+def _truncated(body: bytes, declared: int) -> tuple:
+    return (200, body, {"Content-Length": str(declared)})
+
+
+def test_a_download_that_ends_early_is_retried_and_never_imported(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _truncated(CSV[:10], len(CSV))
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "ended after 10 of" in _state(plan_file)["items"][D3]["error"]
+    assert len(portal.requests_to(item_data_path(D3))) == 3
+    assert not files.uploads
+
+
+def test_a_download_cut_short_once_succeeds_on_the_retry(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = [
+        _truncated(CSV[:10], len(CSV)),
+        _truncated(CSV, len(CSV)),
+    ]
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert CSV in files.uploads[0]
+
+
+def test_a_redirected_download_that_ends_early_is_never_imported(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = _truncated(CSV[:10], len(CSV))
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert not files.uploads
+    _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_resumed_csv_commit_still_carries_its_coordinate_columns(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    preview = files.preview
+    files.preview = lambda job: {
+        **preview(job),
+        "geometry_type": None,
+        "detected_geometry_columns": {"x_column": "lon", "y_column": "lat"},
+    }
+    commit = files.commit
+    lost = {"on": True}
+
+    def flaky(job, seen):
+        if lost["on"]:
+            return (500, _problem(500, "gateway lost before the commit landed"))
+        return commit(job, seen)
+
+    files.commit = flaky
+    plan_file = _plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][D3]["file_columns"] == {
+        "x_column": "lon",
+        "y_column": "lat",
+    }
+
+    lost["on"] = False
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 1
+    [body] = files.commits.values()
+    assert body["x_column"] == "lon" and body["y_column"] == "lat"
+
+
+def test_a_same_host_redirect_to_the_portals_own_port_is_followed(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    plan["portal"]["url"] = "https://portal.example.org:7443/portal"
+    plan_file.write_text(json.dumps(plan))
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    report["portal"]["url"] = plan["portal"]["url"]
+    inventory.write_text(json.dumps(report))
+    portal.routes[item_data_path(D3)] = _redirect(
+        f"https://portal.example.org:7443{STORAGE_PATH}?{SIGNED}"
+    )
+    portal.routes[STORAGE_PATH] = CSV
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    "location", ["https://[::1/x?" + SIGNED, "https://www.arcgis.com:notaport/x"]
+)
+def test_a_malformed_redirect_target_fails_only_the_item(
+    runner, tmp_path, geolens, portal, location
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(location)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "redirect" in _state(plan_file)["items"][D3]["error"]
+    assert not files.uploads
+    _assert_no_query_anywhere(plan_file, result)

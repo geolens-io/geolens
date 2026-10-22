@@ -75,6 +75,8 @@ class ItemState:
     layer_datasets: dict[str, str] = field(default_factory=dict)
     # Layer -> its committed ingest job, until the job yields the dataset.
     layer_jobs: dict[str, str] = field(default_factory=dict)
+    # The coordinate columns a CSV's pending upload job is committed with.
+    file_columns: dict[str, str] = field(default_factory=dict)
     # The service the pins above belong to; None in a file written before it
     # was recorded, which a rerun adopts rather than distrusts.
     service_url: str | None = None

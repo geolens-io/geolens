@@ -260,12 +260,16 @@ def _upload_fresh(
 
 
 def _finish_recorded(
-    ctx: MigrationContext, job_id: UUID, title: str, visibility: str
+    ctx: MigrationContext,
+    job_id: UUID,
+    title: str,
+    visibility: str,
+    columns: Mapping[str, str],
 ) -> str | None:
     """The dataset of a job an earlier run uploaded, or None when the file must
     be uploaded again."""
     try:
-        _commit(ctx, job_id, title, visibility, {})
+        _commit(ctx, job_id, title, visibility, columns)
         return _wait_for_dataset(ctx, job_id, title)
     except (_JobEnded, _JobGone):
         return None
@@ -312,7 +316,9 @@ def import_file(
 
     recorded = entry.layer_jobs.get(JOB_KEY)
     if recorded:
-        dataset = _finish_recorded(ctx, UUID(recorded), base, visibility)
+        dataset = _finish_recorded(
+            ctx, UUID(recorded), base, visibility, entry.file_columns
+        )
         del entry.layer_jobs[JOB_KEY]
         if dataset is not None:
             # Pinned and saved before the target is applied: a failure there
@@ -353,9 +359,10 @@ def import_file(
         )
     # Recorded before the commit is sent: if its answer is lost, a rerun
     # finds this job rather than uploading the file a second time.
-    entry.layer_jobs[JOB_KEY] = str(job_id)
-    ctx.save()
     columns = _geometry_columns(preview)
+    entry.layer_jobs[JOB_KEY] = str(job_id)
+    entry.file_columns = columns
+    ctx.save()
     notes = []
     if item["type"] == "CSV" and not columns and preview.geometry_type is None:
         notes.append("no geometry column found; imported as a table")

@@ -641,6 +641,29 @@ class PortalClient:
             )
         return size
 
+    def _redirect_target(
+        self, base: str, location: str | None
+    ) -> tuple[str, str, bool]:
+        """The absolute redirect target, its host, and whether a download may
+        follow it: https to the portal's own origin or to ArcGIS storage on
+        the default port, with no userinfo. A malformed target is refused."""
+        try:
+            target = urljoin(base, location) if location else ""
+            parts = urlsplit(target)
+            host = (parts.hostname or "").lower()
+            port = parts.port
+            portal = urlsplit(self.root)
+            portal_host, portal_port = (portal.hostname or "").lower(), portal.port
+        except ValueError:
+            return "", "", False
+        own = host == portal_host and port in (None, 443, portal_port)
+        storage = port in (None, 443) and (
+            host == "arcgis.com"
+            or (host.endswith(".arcgis.com") and len(host) > len(".arcgis.com"))
+        )
+        allowed = parts.scheme == "https" and not parts.username and (own or storage)
+        return target, host, allowed
+
     def _follow_download(
         self,
         base: str,
@@ -656,19 +679,7 @@ class PortalClient:
         path are ever named in a message or logged.
         """
         status, location = redirect
-        target = urljoin(base, location) if location else ""
-        parts = urlsplit(target)
-        host = (parts.hostname or "").lower()
-        portal_host = (urlsplit(self.root).hostname or "").lower()
-        allowed = (
-            parts.scheme == "https"
-            and not parts.username
-            and parts.port in (None, 443)
-            and (
-                host in (portal_host, "arcgis.com")
-                or (host.endswith(".arcgis.com") and len(host) > len(".arcgis.com"))
-            )
-        )
+        target, host, allowed = self._redirect_target(base, location)
         if not allowed:
             where = host or "an unreadable address"
             raise self._error(
@@ -679,6 +690,7 @@ class PortalClient:
                 kind="redirect",
                 http_status=status,
             )
+        parts = urlsplit(target)
         shown = f"{host}{parts.path}"
         self._wait_turn()
         if self._on_request:
@@ -729,6 +741,12 @@ class PortalClient:
                         f"{path} is over {max_bytes} bytes", kind="too_large"
                     )
                 out.write(chunk)
+        if length and length.isdigit() and total != int(length):
+            raise self._error(
+                f"{path} ended after {total} of {int(length)} bytes",
+                kind="network",
+                retryable=True,
+            )
         return total
 
     def _raise_envelope(self, path: str, raw: bytes) -> None:
