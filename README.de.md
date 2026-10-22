@@ -359,7 +359,7 @@ Python 3.10+ und `httpx` und lädt öffentliche Daten aus etwa einem Dutzend Que
 ## Mitwirken
 
 Fehlerberichte, Korrekturen, Übersetzungen und Dokumentation sind willkommen.
-[CONTRIBUTING](.github/CONTRIBUTING.md) behandelt Einrichtung, Tests und das DCO-Sign-off, und
+[CONTRIBUTING](.github/CONTRIBUTING.md) behandelt Einrichtung und Tests, und
 [ARCHITECTURE](.github/ARCHITECTURE.md) zeigt den Code. Auch die Repositories für das
 [QGIS-Plugin](https://github.com/geolens-io/qgis-geolens-plugin),
 [Beispiele](https://github.com/geolens-io/geolens-examples) und

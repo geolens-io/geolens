@@ -358,7 +358,7 @@ Python 3.10+ y `httpx`, y descarga datos públicos de una docena de fuentes;
 ## Cómo contribuir
 
 Se agradecen los informes de errores, las correcciones, las traducciones y la documentación.
-[CONTRIBUTING](.github/CONTRIBUTING.md) cubre la configuración, las pruebas y la firma DCO, y
+[CONTRIBUTING](.github/CONTRIBUTING.md) cubre la configuración y las pruebas, y
 [ARCHITECTURE](.github/ARCHITECTURE.md) describe el código. Los repositorios del
 [complemento de QGIS](https://github.com/geolens-io/qgis-geolens-plugin), de los
 [ejemplos](https://github.com/geolens-io/geolens-examples) y de los

@@ -361,8 +361,8 @@ donne les tailles et les options.
 ## Contribuer
 
 Les rapports de bogues, correctifs, traductions et contributions à la documentation sont les
-bienvenus. [CONTRIBUTING](.github/CONTRIBUTING.md) couvre la configuration, les tests et la
-signature DCO, et [ARCHITECTURE](.github/ARCHITECTURE.md) cartographie le code. Les dépôts de
+bienvenus. [CONTRIBUTING](.github/CONTRIBUTING.md) couvre la configuration et les tests,
+et [ARCHITECTURE](.github/ARCHITECTURE.md) cartographie le code. Les dépôts de
 l’[extension QGIS](https://github.com/geolens-io/qgis-geolens-plugin), des
 [exemples](https://github.com/geolens-io/geolens-examples) et des
 [déploiements](https://github.com/geolens-io/geolens-deployments) acceptent aussi les tickets et les

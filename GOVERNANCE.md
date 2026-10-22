@@ -11,7 +11,8 @@ GeoLens follows a **BDFL (Benevolent Dictator For Life)** model. [@ishiland](htt
 is the sole maintainer and the final decision-maker on the project's direction,
 architecture, and releases. Copyright in the project is held by Carto Concepts,
 LLC and the GeoLens contributors, who retain copyright in their contributions
-under the project's [DCO](.github/CONTRIBUTING.md) (Apache-2.0 inbound=outbound);
+and license them under Apache-2.0 (inbound=outbound, see
+[CONTRIBUTING](.github/CONTRIBUTING.md));
 the code is licensed under Apache-2.0 (see [LICENSE](LICENSE)).
 
 See [MAINTAINERS.md](MAINTAINERS.md) for the current maintainer list and areas.
