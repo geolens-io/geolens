@@ -264,7 +264,13 @@ def _add_keywords(
     listed = ctx.geolens.call(
         listing.sync_detailed, record_id=UUID(str(record_id)), limit=500
     )
-    present = {k.keyword for k in listed.keywords if not k.inherited}
+    # Only a plain theme keyword conflicts with the one created below; the
+    # same text under another type or vocabulary is a different keyword.
+    present = {
+        k.keyword
+        for k in listed.keywords
+        if not k.inherited and k.keyword_type == "theme" and not k.vocabulary_uri
+    }
     kept = [word for word in keywords if word in written and word not in present]
     for keyword in keywords:
         if keyword in present or keyword in kept:

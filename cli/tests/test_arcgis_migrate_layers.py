@@ -54,6 +54,7 @@ class FakeImport:
         self.summaries: dict[str, str] = {}
         self.keywords: dict[str, list[str]] = {}
         self.fields: dict[str, dict[str, str]] = {}
+        self.other_keywords: dict[str, list[dict]] = {}
         fake.routes[PROBE] = self.probe
         fake.routes[PREVIEW] = self.preview
 
@@ -146,7 +147,8 @@ class FakeImport:
                     "inherited": False,
                 }
                 for word in self.keywords.get(dataset, [])
-            ],
+            ]
+            + self.other_keywords.get(dataset, []),
             "total": len(self.keywords.get(dataset, [])),
         }
 
@@ -1275,3 +1277,33 @@ def test_a_mixed_case_tag_is_not_reported_as_removed_on_rerun(
 
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][A2]["notes"] == []
+
+
+def test_the_same_text_under_another_keyword_type_does_not_count_as_present(
+    runner, tmp_path, geolens
+):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    parcels = dataset_id("Parcels")
+    preview = service.preview
+
+    def preview_with_a_place_keyword(seen):
+        reply = preview(seen)
+        service.other_keywords[parcels] = [
+            {
+                "id": _uuid("4f", "parcels"),
+                "record_id": parcels,
+                "keyword": "parcels",
+                "vocabulary_uri": None,
+                "keyword_type": "place",
+                "inherited": False,
+            }
+        ]
+        return reply
+
+    geolens.routes[PREVIEW] = preview_with_a_place_keyword
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.keywords[parcels] == ["parcels", "cadastre"]
