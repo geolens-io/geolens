@@ -7,10 +7,10 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from app.platform.jobs.heartbeat import previous_version_table
 from tests.alembic_helpers import (
     enterprise_migrations_present,
     fresh_query,
+    normalize_kept_versions,
     run_alembic,
 )
 from tests.factories import create_dataset, get_user_id
@@ -24,6 +24,25 @@ pytestmark = [
 ]
 
 _OTHER_SCHEMA = f"archive_{uuid.uuid4().hex[:8]}"
+
+
+def previous_version_table(base_table: str, dataset_id: uuid.UUID) -> str:
+    """The one name 0077 kept a dataset's previous version under."""
+    suffix = f"_previous_{dataset_id.hex}"
+    return f"{base_table[: 63 - len(suffix)]}{suffix}"
+
+
+async def _keep_version_one(session, *dataset_ids, names) -> None:
+    """Record each dataset as keeping version 1 under its 0077 name, as 0087 copies it."""
+    for dataset_id, name in zip(dataset_ids, names):
+        await session.execute(
+            text(
+                "INSERT INTO catalog.dataset_versions "
+                "(dataset_id, version_number, kept_table, kept_at) "
+                "VALUES (:id, 1, :name, now())"
+            ),
+            {"id": dataset_id, "name": name},
+        )
 
 
 async def _exists(schema: str, table: str) -> bool:
@@ -52,12 +71,12 @@ async def test_the_downgrade_drops_only_recorded_previous_versions(
     parted_previous = previous_version_table(parted[1], parted[0])
     claimed_previous = previous_version_table(claimed_table, claimed_id)
     await create_dataset(session, created_by=admin_id, table_name=claimed_previous)
-    await session.execute(
-        text(
-            "UPDATE catalog.datasets SET previous_version_number = 1 "
-            "WHERE id IN (:kept, :claimed, :parted)"
-        ),
-        {"kept": kept_id, "claimed": claimed_id, "parted": parted[0]},
+    await _keep_version_one(
+        session,
+        kept_id,
+        claimed_id,
+        parted[0],
+        names=(kept_previous, claimed_previous, parted_previous),
     )
     await session.execute(text(f'CREATE SCHEMA "{_OTHER_SCHEMA}"'))
     for schema, table in (
@@ -118,12 +137,11 @@ async def test_a_same_named_dataset_in_another_tenant_does_not_keep_a_previous_v
         (await create_dataset(session, created_by=admin_id, table_name=name)).id
         for name in (shared_previous, tenanted_previous)
     ]
-    await session.execute(
-        text(
-            "UPDATE catalog.datasets SET previous_version_number = 1 "
-            "WHERE id IN (:shared, :tenanted)"
-        ),
-        {"shared": shared[0], "tenanted": tenanted[0]},
+    await _keep_version_one(
+        session,
+        shared[0],
+        tenanted[0],
+        names=(shared_previous, tenanted_previous),
     )
     await session.execute(
         text("UPDATE catalog.datasets SET tenant_id = :t WHERE id IN (:a, :b)"),
@@ -177,6 +195,7 @@ async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -
     )
     run_id = run.id
     await session.commit()
+    normalize_kept_versions()
     try:
         down = run_alembic("downgrade", "0076_feature_create_keys", normalize=False)
         assert down.returncode != 0
@@ -188,7 +207,7 @@ async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -
         assert "restore" in definition[0][0]
         assert await fresh_query(
             "SELECT 1 FROM information_schema.columns WHERE table_schema = 'catalog' "
-            "AND table_name = 'datasets' AND column_name = 'previous_version_number'"
+            "AND table_name = 'dataset_versions' AND column_name = 'kept_table'"
         )
     finally:
         await session.rollback()
@@ -207,6 +226,7 @@ async def test_a_downgrade_refused_further_down_keeps_the_restore_check(
     """When an older revision refuses the downgrade, 0077's wider check is still in place."""
     from tests.alembic_helpers import (
         normalize_api_key_state,
+        normalize_kept_versions,
         normalize_restore_runs,
         normalize_seam_extents,
     )
@@ -215,6 +235,7 @@ async def test_a_downgrade_refused_further_down_keeps_the_restore_check(
     await _seed_expiring_key(test_db_session, epoch_bump=True)
     normalize_seam_extents()
     normalize_restore_runs()
+    normalize_kept_versions()
     try:
         down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
         assert down.returncode != 0, "precondition: 0029 refuses the downgrade"

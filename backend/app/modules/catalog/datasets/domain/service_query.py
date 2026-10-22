@@ -218,7 +218,7 @@ async def get_dataset_detail(
     )
     from app.modules.catalog.datasets.domain.schemas import StacAsset
     from app.modules.catalog.datasets.domain.service_previous_version import (
-        previous_version_summary,
+        previous_version_summaries,
     )
 
     if dataset is None:
@@ -314,7 +314,8 @@ async def get_dataset_detail(
             db, dataset.table_name
         )
     if response is not None and capabilities(record_type).feature_table:
-        response.previous_version = await previous_version_summary(db, dataset)
+        response.previous_versions = await previous_version_summaries(db, dataset)
+        response.previous_version = next(iter(response.previous_versions), None)
     return response
 
 

@@ -1999,9 +1999,15 @@ export type CatalogStatsResponse = {
     /**
      * Total Storage Bytes
      *
-     * Total storage used by dataset tables plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable.
+     * Total storage used by dataset tables, including the tables that keep previous versions, plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable.
      */
     total_storage_bytes: number | null;
+    /**
+     * Previous Versions Bytes
+     *
+     * Recorded size of the tables that keep datasets' previous versions, in bytes; part of total_storage_bytes.
+     */
+    previous_versions_bytes?: number;
     /**
      * Datasets By Geometry Type
      *
@@ -4229,9 +4235,15 @@ export type DatasetResponse = {
      */
     metadata_warnings?: Array<string> | null;
     /**
-     * The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none.
+     * Deprecated: the first entry of previous_versions. Set on the detail endpoint only; null elsewhere and when there is none.
      */
     previous_version?: PreviousVersionResponse | null;
+    /**
+     * Previous Versions
+     *
+     * The kept previous versions, newest first, each of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a dataset keeps. Set on the detail endpoint only; null elsewhere.
+     */
+    previous_versions?: Array<PreviousVersionResponse> | null;
 };
 
 /**
@@ -8713,7 +8725,7 @@ export type PreviewResponse = {
 /**
  * PreviousVersionResponse
  *
- * The data a replacement or restore replaced, kept until the next one.
+ * Data a replacement or restore replaced, kept so a restore can publish it again.
  */
 export type PreviousVersionResponse = {
     /**
@@ -9457,7 +9469,7 @@ export type RestorePreviousVersionRequest = {
     /**
      * Expected Version Number
      *
-     * The previous version the caller confirmed restoring
+     * The newest kept version, which the caller confirmed restoring
      */
     expected_version_number: number;
 };
@@ -21370,7 +21382,7 @@ export type DeletePreviousVersionDatasetsDatasetIdPreviousVersionDeleteData = {
         /**
          * Expected Version Number
          *
-         * The previous version the caller confirmed deleting
+         * The newest kept version, which the caller confirmed deleting
          */
         expected_version_number: number;
     };
@@ -21488,6 +21500,138 @@ export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostRes
 };
 
 export type RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponse = RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponses[keyof RestorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePostResponses];
+
+export type DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Version Number
+         */
+        version_number: number;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/previous-versions/{version_number}';
+};
+
+export type DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteError = DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteErrors[keyof DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteErrors];
+
+export type DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteResponse = DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteResponses[keyof DeleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDeleteResponses];
+
+export type RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Version Number
+         */
+        version_number: number;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/previous-versions/{version_number}/restore';
+};
+
+export type RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostError = RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostErrors[keyof RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostErrors];
+
+export type RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostResponses = {
+    /**
+     * Successful Response
+     */
+    202: RestorePreviousVersionResponse;
+};
+
+export type RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostResponse = RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostResponses[keyof RestoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRestorePostResponses];
 
 export type GetQuicklookDatasetsDatasetIdQuicklookGetData = {
     body?: never;

@@ -48,14 +48,22 @@ def is_attempt_scoped_staging_table(table_name: str) -> bool:
 
 
 # POSIX syntax, like the staging pattern, so discovery's `~` and Python agree.
-PREVIOUS_VERSION_NAME_PATTERN = r"_previous_[0-9a-f]{32}$"
+# The version number is optional: a version kept before datasets kept several
+# has none.
+PREVIOUS_VERSION_NAME_PATTERN = r"_previous_([0-9]+_)?[0-9a-f]{32}$"
 
 _PREVIOUS_VERSION_NAME_RE = re.compile(PREVIOUS_VERSION_NAME_PATTERN)
 
 
-def previous_version_table(base_table: str, dataset_id: uuid.UUID) -> str:
-    """Return the name of the table holding a dataset's previous data."""
-    suffix = f"_previous_{dataset_id.hex}"
+def previous_version_table(
+    base_table: str, dataset_id: uuid.UUID, version_number: int
+) -> str:
+    """Return the name of the table that keeps one previous version of a dataset.
+
+    The number precedes the id so the 58 characters a primary key's name
+    keeps (``rename_pkey_to_match_table``) differ between versions.
+    """
+    suffix = f"_previous_{version_number}_{dataset_id.hex}"
     return f"{base_table[: 63 - len(suffix)]}{suffix}"
 
 

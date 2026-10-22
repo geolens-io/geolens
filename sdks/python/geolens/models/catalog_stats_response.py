@@ -31,13 +31,15 @@ class CatalogStatsResponse:
     Attributes:
         total_datasets (int): Total number of datasets in the catalog.
         recent_additions (int): Number of datasets added in the last 30 days.
-        total_storage_bytes (int | None): Total storage used by dataset tables plus the recorded sizes of stored data
-            files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted.
-            Null if calculation is unavailable.
+        total_storage_bytes (int | None): Total storage used by dataset tables, including the tables that keep previous
+            versions, plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook
+            images carry no recorded size and are not counted. Null if calculation is unavailable.
         datasets_by_geometry_type (CatalogStatsResponseDatasetsByGeometryType): Histogram of datasets keyed by geometry
             type (Point, MultiPolygon, etc.).
         datasets_by_visibility (CatalogStatsResponseDatasetsByVisibility): Histogram of datasets keyed by visibility
             level (private, internal, restricted, public).
+        previous_versions_bytes (int | Unset): Recorded size of the tables that keep datasets' previous versions, in
+            bytes; part of total_storage_bytes. Default: 0.
         users_by_status (CatalogStatsResponseUsersByStatus | Unset): Histogram of users keyed by status (active,
             deactivated, pending).
         total_users (int | Unset): Total number of users in the system. Default: 0.
@@ -48,6 +50,7 @@ class CatalogStatsResponse:
     total_storage_bytes: int | None
     datasets_by_geometry_type: CatalogStatsResponseDatasetsByGeometryType
     datasets_by_visibility: CatalogStatsResponseDatasetsByVisibility
+    previous_versions_bytes: int | Unset = 0
     users_by_status: CatalogStatsResponseUsersByStatus | Unset = UNSET
     total_users: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -63,6 +66,8 @@ class CatalogStatsResponse:
         datasets_by_geometry_type = self.datasets_by_geometry_type.to_dict()
 
         datasets_by_visibility = self.datasets_by_visibility.to_dict()
+
+        previous_versions_bytes = self.previous_versions_bytes
 
         users_by_status: dict[str, Any] | Unset = UNSET
         if not isinstance(self.users_by_status, Unset):
@@ -81,6 +86,8 @@ class CatalogStatsResponse:
                 "datasets_by_visibility": datasets_by_visibility,
             }
         )
+        if previous_versions_bytes is not UNSET:
+            field_dict["previous_versions_bytes"] = previous_versions_bytes
         if users_by_status is not UNSET:
             field_dict["users_by_status"] = users_by_status
         if total_users is not UNSET:
@@ -122,6 +129,8 @@ class CatalogStatsResponse:
             d.pop("datasets_by_visibility")
         )
 
+        previous_versions_bytes = d.pop("previous_versions_bytes", UNSET)
+
         _users_by_status = d.pop("users_by_status", UNSET)
         users_by_status: CatalogStatsResponseUsersByStatus | Unset
         if isinstance(_users_by_status, Unset):
@@ -139,6 +148,7 @@ class CatalogStatsResponse:
             total_storage_bytes=total_storage_bytes,
             datasets_by_geometry_type=datasets_by_geometry_type,
             datasets_by_visibility=datasets_by_visibility,
+            previous_versions_bytes=previous_versions_bytes,
             users_by_status=users_by_status,
             total_users=total_users,
         )

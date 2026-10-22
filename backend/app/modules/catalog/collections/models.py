@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -129,4 +130,15 @@ class DatasetVersion(Base):
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    # The table, in the dataset's data schema, that keeps this version's data
+    # after a replacement or restore replaced it. NULL: it is not kept.
+    kept_table: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kept_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    kept_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # The kept data's own last_refreshed_at, which a restore reinstates.
+    kept_refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

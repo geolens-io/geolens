@@ -14,7 +14,7 @@ T = TypeVar("T", bound="RestorePreviousVersionRequest")
 class RestorePreviousVersionRequest:
     """
     Attributes:
-        expected_version_number (int): The previous version the caller confirmed restoring
+        expected_version_number (int): The newest kept version, which the caller confirmed restoring
     """
 
     expected_version_number: int

@@ -585,6 +585,10 @@ def validate_max_datasets_per_user(v: Any) -> int:
     return _validate_bounded_int(v, "max_datasets_per_user", 0, 10_000_000)
 
 
+def validate_previous_versions_kept(v: Any) -> int:
+    return _validate_bounded_int(v, "previous_versions_kept", 1, 50)
+
+
 def validate_max_ai_tokens_per_user_per_day(v: Any) -> int:
     # 0 = unlimited; reject negatives, which would otherwise persist as
     # "overridden" yet behave as unlimited via the cap>0 guard in
@@ -691,6 +695,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "tile_cache_ttl": validate_tile_cache_ttl,
     "max_storage_bytes_per_user": validate_max_storage_bytes_per_user,
     "max_datasets_per_user": validate_max_datasets_per_user,
+    "previous_versions_kept": validate_previous_versions_kept,
     "max_ai_tokens_per_user_per_day": validate_max_ai_tokens_per_user_per_day,
     "allowed_email_domains": validate_allowed_email_domains,
     "registration_default_role": validate_role_name,

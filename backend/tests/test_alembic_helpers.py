@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    normalize_kept_versions,
     normalize_seam_extents,
     run_alembic,
 )
@@ -128,6 +129,7 @@ async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_sessio
     # otherwise a seam extent left by a sibling test in this worker would fire
     # the wrong guard and the assertions below would test nothing.
     normalize_seam_extents()
+    normalize_kept_versions()
 
     try:
         down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
@@ -199,6 +201,7 @@ async def test_clean_database_still_downgrades_past_0029(test_db_session):
     )
     await test_db_session.commit()
     normalize_seam_extents()  # see the note in the refusal test above
+    normalize_kept_versions()
 
     try:
         down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)

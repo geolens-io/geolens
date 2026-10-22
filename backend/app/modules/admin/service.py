@@ -975,9 +975,19 @@ class AdminService:
         )
         recent_additions = result.scalar_one()
 
+        # The join scopes dataset_versions, which has no RLS of its own.
+        previous_versions_bytes = await db.scalar(
+            text(
+                "SELECT COALESCE(SUM(v.kept_bytes), 0)::bigint "
+                "FROM catalog.dataset_versions v "
+                "JOIN catalog.datasets d ON d.id = v.dataset_id"
+            )
+        )
         total_storage_bytes: int | None = None
         try:
-            total_storage_bytes = await _get_total_storage_bytes(db, Dataset)
+            total_storage_bytes = previous_versions_bytes + (
+                await _get_total_storage_bytes(db, Dataset)
+            )
         except Exception:  # broad: pg_total_relation_size can fail on missing data.* tables; degrade to None
             logger.warning("Failed to compute storage usage", exc_info=True)
             total_storage_bytes = None
@@ -1007,6 +1017,7 @@ class AdminService:
             total_datasets=total_datasets,
             recent_additions=recent_additions,
             total_storage_bytes=total_storage_bytes,
+            previous_versions_bytes=previous_versions_bytes,
             datasets_by_geometry_type=datasets_by_geometry_type,
             datasets_by_visibility=datasets_by_visibility,
             users_by_status=users_by_status,

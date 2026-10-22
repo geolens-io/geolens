@@ -2653,13 +2653,12 @@ export interface paths {
         post?: never;
         /**
          * Delete Previous Version
-         * @description Delete the dataset's previous version, so it can no longer be restored.
+         * @deprecated
+         * @description Delete the dataset's newest kept version, so it can no longer be restored.
          *
-         *     Refuses with 404 ``no_previous_version`` when there is none, 409
-         *     ``previous_version_changed`` when it is not ``expected_version_number``,
-         *     409 ``previous_version_in_use`` while a view or foreign key elsewhere
-         *     reads its table, and 409 ``dataset_busy`` while a refresh, replacement or
-         *     restore is active.
+         *     Deprecated: use ``DELETE /previous-versions/{version_number}``. Behaves
+         *     like it, and also refuses with 409 ``previous_version_changed`` when
+         *     ``expected_version_number`` is not the newest kept version.
          */
         delete: operations["delete_previous_version_datasets__dataset_id__previous_version_delete"];
         options?: never;
@@ -2678,22 +2677,71 @@ export interface paths {
         put?: never;
         /**
          * Restore Previous Version
-         * @description Publish the dataset's previous version as its live data again.
+         * @deprecated
+         * @description Publish the dataset's newest kept version as its live data again.
          *
-         *     The previous version is the data the last replacement or restore
-         *     replaced. The restore runs as a job and a refresh run with origin kind
-         *     ``restore``, and publishes a new version that names the restored one in
-         *     ``restored_from_version``. The data it replaces, including any feature
-         *     edits made since, becomes the previous version in turn. Scheduled
-         *     refreshes of the dataset are held afterwards.
-         *
-         *     Refuses with 422 ``restore_not_applicable`` for a dataset without a
-         *     feature table, 404 ``no_previous_version`` when there is none, 409
-         *     ``previous_version_changed`` when it is not ``expected_version_number``,
-         *     and 409 ``dataset_busy`` while another refresh, replacement or restore is
-         *     active.
+         *     Deprecated: use ``POST /previous-versions/{version_number}/restore``.
+         *     Behaves like it, and also refuses with 409 ``previous_version_changed``
+         *     when ``expected_version_number`` is not the newest kept version.
          */
         post: operations["restore_previous_version_datasets__dataset_id__previous_version_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/previous-versions/{version_number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Kept Version
+         * @description Delete one of the dataset's kept previous versions, so it can no longer be restored.
+         *
+         *     Refuses with 404 ``no_previous_version`` when the dataset does not keep
+         *     ``version_number``, 409 ``previous_version_in_use`` while a view or
+         *     foreign key elsewhere reads its table, and 409 ``dataset_busy`` while a
+         *     refresh, replacement or restore is active.
+         */
+        delete: operations["delete_kept_version_datasets__dataset_id__previous_versions__version_number__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/previous-versions/{version_number}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Kept Version
+         * @description Publish one of the dataset's kept previous versions as its live data again.
+         *
+         *     The dataset detail lists the kept versions in ``previous_versions``. The
+         *     restore runs as a job and a refresh run with origin kind ``restore``, and
+         *     publishes a new version that names the restored one in
+         *     ``restored_from_version``. The data it replaces, including any feature
+         *     edits made since, becomes a kept version in turn. Scheduled refreshes of
+         *     the dataset are held afterwards.
+         *
+         *     Refuses with 422 ``restore_not_applicable`` for a dataset without a
+         *     feature table, 404 ``no_previous_version`` when the dataset does not keep
+         *     ``version_number``, and 409 ``dataset_busy`` while another refresh,
+         *     replacement or restore is active.
+         */
+        post: operations["restore_kept_version_datasets__dataset_id__previous_versions__version_number__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7436,9 +7484,15 @@ export interface components {
             recent_additions: number;
             /**
              * Total Storage Bytes
-             * @description Total storage used by dataset tables plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable.
+             * @description Total storage used by dataset tables, including the tables that keep previous versions, plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable.
              */
             total_storage_bytes: number | null;
+            /**
+             * Previous Versions Bytes
+             * @description Recorded size of the tables that keep datasets' previous versions, in bytes; part of total_storage_bytes.
+             * @default 0
+             */
+            previous_versions_bytes: number;
             /**
              * Datasets By Geometry Type
              * @description Histogram of datasets keyed by geometry type (Point, MultiPolygon, etc.).
@@ -9066,8 +9120,13 @@ export interface components {
              * @description Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.
              */
             metadata_warnings?: string[] | null;
-            /** @description The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none. */
+            /** @description Deprecated: the first entry of previous_versions. Set on the detail endpoint only; null elsewhere and when there is none. */
             previous_version?: components["schemas"]["PreviousVersionResponse"] | null;
+            /**
+             * Previous Versions
+             * @description The kept previous versions, newest first, each of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a dataset keeps. Set on the detail endpoint only; null elsewhere.
+             */
+            previous_versions?: components["schemas"]["PreviousVersionResponse"][] | null;
         };
         /**
          * DatasetRetention
@@ -12408,7 +12467,7 @@ export interface components {
         };
         /**
          * PreviousVersionResponse
-         * @description The data a replacement or restore replaced, kept until the next one.
+         * @description Data a replacement or restore replaced, kept so a restore can publish it again.
          */
         PreviousVersionResponse: {
             /**
@@ -12950,7 +13009,7 @@ export interface components {
         RestorePreviousVersionRequest: {
             /**
              * Expected Version Number
-             * @description The previous version the caller confirmed restoring
+             * @description The newest kept version, which the caller confirmed restoring
              */
             expected_version_number: number;
         };
@@ -28752,7 +28811,7 @@ export interface operations {
     delete_previous_version_datasets__dataset_id__previous_version_delete: {
         parameters: {
             query: {
-                /** @description The previous version the caller confirmed deleting */
+                /** @description The newest kept version, which the caller confirmed deleting */
                 expected_version_number: number;
             };
             header?: never;
@@ -28869,6 +28928,216 @@ export interface operations {
                 "application/json": components["schemas"]["RestorePreviousVersionRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreviousVersionResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    delete_kept_version_datasets__dataset_id__previous_versions__version_number__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                version_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    restore_kept_version_datasets__dataset_id__previous_versions__version_number__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                version_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             202: {

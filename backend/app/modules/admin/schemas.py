@@ -295,7 +295,11 @@ class CatalogStatsResponse(BaseModel):
         description="Number of datasets added in the last 30 days."
     )
     total_storage_bytes: int | None = Field(
-        description="Total storage used by dataset tables plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable."
+        description="Total storage used by dataset tables, including the tables that keep previous versions, plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable."
+    )
+    previous_versions_bytes: int = Field(
+        default=0,
+        description="Recorded size of the tables that keep datasets' previous versions, in bytes; part of total_storage_bytes.",
     )
     datasets_by_geometry_type: dict[str, int] = Field(
         description="Histogram of datasets keyed by geometry type (Point, MultiPolygon, etc.)."

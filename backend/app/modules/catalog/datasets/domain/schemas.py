@@ -322,7 +322,7 @@ class DerivedFromResponse(BaseModel):
 
 
 class PreviousVersionResponse(BaseModel):
-    """The data a replacement or restore replaced, kept until the next one."""
+    """Data a replacement or restore replaced, kept so a restore can publish it again."""
 
     version_number: int = Field(description="The version whose data is kept")
     retained_at: datetime | None = None
@@ -336,7 +336,7 @@ class PreviousVersionResponse(BaseModel):
 
 class RestorePreviousVersionRequest(BaseModel):
     expected_version_number: int = Field(
-        description="The previous version the caller confirmed restoring"
+        description="The newest kept version, which the caller confirmed restoring"
     )
 
 
@@ -649,9 +649,17 @@ class DatasetResponse(BaseModel):
     previous_version: PreviousVersionResponse | None = Field(
         default=None,
         description=(
-            "The data the last replacement or restore replaced, which "
-            "POST /previous-version/restore publishes again. Set on the "
+            "Deprecated: the first entry of previous_versions. Set on the "
             "detail endpoint only; null elsewhere and when there is none."
+        ),
+    )
+    previous_versions: list[PreviousVersionResponse] | None = Field(
+        default=None,
+        description=(
+            "The kept previous versions, newest first, each of which "
+            "POST /previous-versions/{version_number}/restore publishes "
+            "again. An administrator sets how many a dataset keeps. Set on "
+            "the detail endpoint only; null elsewhere."
         ),
     )
 

@@ -81,6 +81,22 @@ and releases use semantic versioning.
   columns that could not be matched. Re-uploading a file fills it in.
 - The web app serves the license notices for the code it bundles at
   `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
+- A dataset now keeps its last three previous versions instead of one. An
+  administrator sets the number under Settings, Storage
+  (`previous_versions_kept`, 1 to 50). Lowering it drops the oldest versions at
+  each dataset's next replacement or restore. The dataset detail lists them in
+  `previous_versions`, newest first. `POST
+  /datasets/{id}/previous-versions/{version_number}/restore` restores any of
+  them, and `DELETE /datasets/{id}/previous-versions/{version_number}` deletes
+  one. The admin stats report their size in `previous_versions_bytes`, and
+  `total_storage_bytes` now counts them.
+
+### Deprecated
+
+- `POST /datasets/{id}/previous-version/restore`, `DELETE
+  /datasets/{id}/previous-version` and the dataset detail's `previous_version`
+  field act on the newest kept version only. They keep working through the next
+  minor release; use the `previous-versions` routes and field instead.
 
 ### Fixed
 

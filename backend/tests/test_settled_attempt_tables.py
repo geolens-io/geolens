@@ -129,7 +129,7 @@ async def test_live_and_previous_version_tables_stay(test_db_session) -> None:
     )
     live = await _table(test_db_session, claimed)
     previous = await _table(
-        test_db_session, previous_version_table(_base(), dataset.id)
+        test_db_session, previous_version_table(_base(), dataset.id, 1)
     )
 
     await reap_settled_attempt_tables()

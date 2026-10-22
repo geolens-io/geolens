@@ -1576,7 +1576,7 @@ async def _install_reupload_table(
 ) -> None:
     """Rename the staging table over the dataset's live table, in the caller's transaction.
 
-    The replaced table is kept as the dataset's previous version. The caller
+    The replaced table is kept as one of the dataset's previous versions. The caller
     takes the catalog rows next, then calls :func:`_write_reupload_catalog`.
     """
     await install_candidate_table(
@@ -1590,29 +1590,28 @@ async def install_candidate_table(
     dataset,
     candidate: str,
     measurement: "Measurement",
-    holding: str | None = None,
+    restoring: int | None = None,
 ) -> None:
-    """Make ``candidate`` the dataset's live table and keep the live one as its previous version.
+    """Make ``candidate`` the dataset's live table and keep the live one as a previous version.
 
-    Any older previous version is dropped. When ``candidate`` is the previous
-    version itself, the live table waits under ``holding`` until it can take
-    that name. The renames run on their own lock budget in the caller's
-    transaction, which keeps its ``lock_timeout`` afterwards.
+    ``restoring`` is the kept version ``candidate`` holds when the swap
+    publishes it again. Past ``PREVIOUS_VERSIONS_KEPT`` kept versions, the
+    oldest are dropped. The renames run on their own lock budget in the
+    caller's transaction, which keeps its ``lock_timeout`` afterwards.
     """
     from sqlalchemy import text
 
     from app.platform.jobs.heartbeat import previous_version_table
     from app.processing.ingest.metadata import _qtable
     from app.processing.ingest.previous_version import (
+        kept_tables_to_drop,
         refuse_dependent_relations,
-        require_own_previous_version_name,
+        require_free_previous_version_name,
+        require_unclaimed_previous_version_name,
     )
 
     table_name = dataset.table_name
-    previous = previous_version_table(table_name, dataset.id)
-    keep = previous if candidate != previous else holding
-    if keep is None:
-        raise ValueError("Restoring the previous version needs a holding name")
+    keep = previous_version_table(table_name, dataset.id, dataset.current_version)
 
     # Tenant schema for this ingest: same schema for every table renamed
     # (the RENAMEs must stay intra-schema so they are atomic DDL).
@@ -1621,9 +1620,8 @@ async def install_candidate_table(
     def _q(name: str) -> str:
         return _qtable(name, schema=_tenant_schema)
 
-    await require_own_previous_version_name(
-        session, dataset, previous, schema=_tenant_schema
-    )
+    if restoring is not None:
+        await require_unclaimed_previous_version_name(session, dataset, candidate)
 
     # Resolve live_exists once — independent of lock contention; this
     # SELECT does not need the AccessExclusiveLock we're about to acquire.
@@ -1643,6 +1641,19 @@ async def install_candidate_table(
         ),
         {"schema": _tenant_schema, "tn": table_name},
     )
+    # A partitioned table's partitions would keep their own names under the
+    # renamed parent, where discovery lists them and registration accepts
+    # them, so a replacement drops it rather than keeping it.
+    keeps_live = live_exists and not (live_partitioned and restoring is None)
+    if keeps_live:
+        await require_free_previous_version_name(
+            session, dataset, keep, schema=_tenant_schema
+        )
+
+    dropped = await kept_tables_to_drop(
+        session, dataset, keeping=keeps_live, restoring=restoring
+    )
+    locked = (table_name, *([candidate] if restoring is not None else []), *dropped)
 
     # The swap DDL runs in SAVEPOINTs with a single retry on lock_timeout.
     # Autovacuum can hold AccessExclusiveLock long enough to collide with the
@@ -1658,32 +1669,20 @@ async def install_candidate_table(
         renamed as the table is, since the next rename needs the name it held.
         """
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
-        await refuse_dependent_relations(
-            session, (table_name, previous), schema=_tenant_schema
-        )
-        if candidate != previous:
-            # Without a live table there is nothing to keep, and an older
-            # previous version left in place would be stamped as this one's.
-            await session.execute(text(f"DROP TABLE IF EXISTS {_q(previous)}"))
-        if live_exists:
+        await refuse_dependent_relations(session, locked, schema=_tenant_schema)
+        for table in dropped:
+            await session.execute(text(f"DROP TABLE IF EXISTS {_q(table)}"))
+        if keeps_live:
             await session.execute(
                 text(f'ALTER TABLE {_q(table_name)} RENAME TO "{keep}"')
             )
             await rename_pkey_to_match_table(session, keep)
+        elif live_exists:
+            await session.execute(text(f"DROP TABLE {_q(table_name)}"))
         await session.execute(
             text(f'ALTER TABLE {_q(candidate)} RENAME TO "{table_name}"')
         )
         await rename_pkey_to_match_table(session, table_name)
-        if live_exists and keep != previous:
-            await session.execute(
-                text(f'ALTER TABLE {_q(keep)} RENAME TO "{previous}"')
-            )
-            await rename_pkey_to_match_table(session, previous)
-        if live_partitioned and candidate != previous:
-            # Its partitions would keep their own names under the renamed
-            # parent, where discovery lists them and registration accepts
-            # them, so a partitioned table is not kept.
-            await session.execute(text(f"DROP TABLE {_q(previous)}"))
 
     # A `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget below
     # outlives its savepoint and would clamp every later wait in this
@@ -1780,7 +1779,7 @@ async def _write_reupload_catalog(
     from app.processing.ingest.catalog_projection import project
     from app.processing.ingest.previous_version import (
         record_live_version,
-        stamp_previous_version,
+        stamp_kept_versions,
     )
 
     DatasetVersion = get_processing_port().get_dataset_version_orm_class()
@@ -1789,7 +1788,7 @@ async def _write_reupload_catalog(
 
     await record_live_version(session, dataset)
     schema_diff = await project(session, dataset, measurement)
-    await stamp_previous_version(session, dataset, dataset.current_version)
+    await stamp_kept_versions(session, dataset, dataset.current_version)
 
     dataset.source_format = source_format
     dataset.source_filename = source_filename

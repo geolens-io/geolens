@@ -18,7 +18,7 @@ T = TypeVar("T", bound="PreviousVersionResponse")
 
 @_attrs_define
 class PreviousVersionResponse:
-    """The data a replacement or restore replaced, kept until the next one.
+    """Data a replacement or restore replaced, kept so a restore can publish it again.
 
     Attributes:
         version_number (int): The version whose data is kept

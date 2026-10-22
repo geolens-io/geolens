@@ -1026,6 +1026,15 @@ MAX_DATASETS_PER_USER = PersistentConfig[int](
     label="Max Datasets per User (0=unlimited)",
 )
 
+# Lowering it frees no storage until each dataset's next replacement or restore.
+PREVIOUS_VERSIONS_KEPT = PersistentConfig[int](
+    key="previous_versions_kept",
+    type_=int,
+    env_default=3,
+    tab="storage",
+    label="Previous Versions Kept per Dataset",
+)
+
 
 async def _load_registry_values(db: AsyncSession) -> dict[str, Any]:
     """Every registered key's override or env_default, model defaults unresolved."""

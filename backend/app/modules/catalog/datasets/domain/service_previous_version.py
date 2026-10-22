@@ -1,8 +1,8 @@
-"""A dataset's previous version: its summary, a restore's admission, and its drop.
+"""A dataset's kept previous versions: their summary, a restore's admission, and their drop.
 
-The previous version is the table the last replacement or restore replaced,
-kept under ``previous_version_table``. The worker publishes a restore; this
-module admits it and drops the table on request.
+A previous version is a table a replacement or restore replaced, kept under
+the name ``dataset_versions.kept_table`` records. The worker publishes a
+restore; this module admits it and drops the tables on request.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import EDIT_METADATA
@@ -20,10 +20,7 @@ from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 from app.modules.catalog.datasets.domain.schemas import PreviousVersionResponse
 from app.platform.jobs import ledger
 from app.platform.relations import dependent_relations, relation_present
-from app.platform.jobs.heartbeat import (
-    previous_version_name_claimed,
-    previous_version_table,
-)
+from app.platform.jobs.heartbeat import previous_version_name_claimed
 from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
     EXPECTED_PREVIOUS_VERSION_KEY,
@@ -56,6 +53,11 @@ _NOT_APPLICABLE = (
     "Only datasets with a feature table keep a previous version.",
 )
 _NONE = (404, "no_previous_version", "This dataset has no previous version.")
+_NOT_KEPT = (
+    404,
+    "no_previous_version",
+    "This dataset does not keep that version. Reload the dataset and try again.",
+)
 _CHANGED = (
     409,
     "previous_version_changed",
@@ -70,48 +72,83 @@ _BUSY = (
 )
 
 
-async def previous_version_summary(
+async def previous_version_summaries(
     db: AsyncSession, dataset: Any
-) -> PreviousVersionResponse | None:
-    """The dataset's previous version, with the feature count its version recorded."""
+) -> list[PreviousVersionResponse]:
+    """The dataset's kept versions, newest first, with the feature count each version recorded."""
     from app.modules.catalog.collections.models import DatasetVersion
 
-    number = dataset.previous_version_number
-    if number is None:
-        return None
-    feature_count = await db.scalar(
-        select(DatasetVersion.feature_count).where(
-            DatasetVersion.dataset_id == dataset.id,
-            DatasetVersion.version_number == number,
+    rows = await db.execute(
+        select(
+            DatasetVersion.version_number,
+            DatasetVersion.kept_at,
+            DatasetVersion.kept_bytes,
+            DatasetVersion.feature_count,
         )
+        .where(
+            DatasetVersion.dataset_id == dataset.id,
+            DatasetVersion.kept_table.is_not(None),
+        )
+        .order_by(DatasetVersion.version_number.desc())
     )
-    return PreviousVersionResponse(
-        version_number=number,
-        retained_at=dataset.previous_version_retained_at,
-        size_bytes=dataset.previous_version_bytes,
-        feature_count=feature_count,
-    )
+    return [
+        PreviousVersionResponse(
+            version_number=row.version_number,
+            retained_at=row.kept_at,
+            size_bytes=row.kept_bytes,
+            feature_count=row.feature_count,
+        )
+        for row in rows
+    ]
 
 
-def _require_version(dataset: Any, expected: int) -> None:
-    if dataset.previous_version_number is None:
-        raise PreviousVersionRefused(*_NONE)
-    if dataset.previous_version_number != expected:
-        raise PreviousVersionRefused(*_CHANGED)
+async def _kept_tables(db: AsyncSession, dataset_id: uuid.UUID) -> dict[int, str]:
+    """The dataset's kept versions and their tables, newest first."""
+    from app.modules.catalog.collections.models import DatasetVersion
+
+    rows = await db.execute(
+        select(DatasetVersion.version_number, DatasetVersion.kept_table)
+        .where(
+            DatasetVersion.dataset_id == dataset_id,
+            DatasetVersion.kept_table.is_not(None),
+        )
+        .order_by(DatasetVersion.version_number.desc())
+    )
+    return dict(rows.tuples().all())
+
+
+async def _require_version(
+    db: AsyncSession, dataset: Any, version: int, *, newest: bool
+) -> str:
+    """The table keeping ``version``; refuses unless it is kept, and with ``newest``, the newest kept one."""
+    kept = await _kept_tables(db, dataset.id)
+    if newest:
+        if not kept:
+            raise PreviousVersionRefused(*_NONE)
+        if next(iter(kept)) != version:
+            raise PreviousVersionRefused(*_CHANGED)
+    elif version not in kept:
+        raise PreviousVersionRefused(*_NOT_KEPT)
+    return kept[version]
 
 
 async def admit_restore(
-    db: AsyncSession, dataset: Any, *, user_id: uuid.UUID, expected: int
+    db: AsyncSession,
+    dataset: Any,
+    *,
+    user_id: uuid.UUID,
+    expected: int,
+    newest: bool = False,
 ) -> tuple[IngestJob, DatasetRefreshRun]:
-    """Create the restore's job and run in the caller's transaction; never commits.
+    """Create the restore of kept version ``expected`` in the caller's transaction; never commits.
 
     Raises ``PreviousVersionRefused`` before writing when the dataset has no
-    feature table or no previous version, or it is not ``expected``, and after
-    a rollback when another run is active.
+    feature table or does not keep ``expected`` (with ``newest``, as its
+    newest kept version), and after a rollback when another run is active.
     """
     if not capabilities(dataset.record.record_type).feature_table:
         raise PreviousVersionRefused(*_NOT_APPLICABLE)
-    _require_version(dataset, expected)
+    await _require_version(db, dataset, expected, newest=newest)
     job = ledger.create(
         db,
         created_by=user_id,
@@ -155,67 +192,83 @@ async def _refuse_while_running(db: AsyncSession, dataset_id: uuid.UUID) -> None
         raise PreviousVersionRefused(*_BUSY)
 
 
-async def drop_recorded_previous_version(
-    db: AsyncSession, dataset: Any, *, schema: str
+async def _drop_kept_table(
+    db: AsyncSession, dataset: Any, name: str, *, schema: str
 ) -> None:
-    """Drop the previous-version table this dataset recorded; never commits.
+    """Drop one kept table; never commits.
 
-    Call holding the dataset's job rows. The name is predictable, so a table
-    under it that another dataset uses, or that this dataset never recorded,
-    is left in place.
+    A table under the name that another dataset uses as its own is left in
+    place.
     """
-    # Read again under the job rows: a replacement that committed while the
-    # caller waited for them recorded a previous version its loaded row lacks.
-    await db.refresh(dataset, ["previous_version_number"])
-    name = previous_version_table(dataset.table_name, dataset.id)
     if await previous_version_name_claimed(db, name):
         logger.warning("previous_version_drop_skipped", dataset_id=str(dataset.id))
-    elif dataset.previous_version_number is not None:
-        previous = _safe_table_ref(name, schema=schema)
-        if await relation_present(db, schema, name):
-            await db.execute(text(f"LOCK TABLE {previous} IN ACCESS EXCLUSIVE MODE"))
-            if dependents := await dependent_relations(db, schema, name):
-                raise PreviousVersionRefused(
-                    409,
-                    "previous_version_in_use",
-                    f"{', '.join(dependents)} "
-                    f"{'depends' if len(dependents) == 1 else 'depend'} on this "
-                    "dataset's previous version. Drop or redefine them, then "
-                    "try again.",
-                )
-        await db.execute(text(f"DROP TABLE IF EXISTS {previous}"))
+        return
+    kept = _safe_table_ref(name, schema=schema)
+    if await relation_present(db, schema, name):
+        await db.execute(text(f"LOCK TABLE {kept} IN ACCESS EXCLUSIVE MODE"))
+        if dependents := await dependent_relations(db, schema, name):
+            raise PreviousVersionRefused(
+                409,
+                "previous_version_in_use",
+                f"{', '.join(dependents)} "
+                f"{'depends' if len(dependents) == 1 else 'depend'} on this "
+                "dataset's previous version. Drop or redefine them, then "
+                "try again.",
+            )
+    await db.execute(text(f"DROP TABLE IF EXISTS {kept}"))
+
+
+async def drop_kept_versions(db: AsyncSession, dataset: Any, *, schema: str) -> None:
+    """Drop every table this dataset keeps a previous version in; never commits.
+
+    Call holding the dataset's job rows. Read under them: a replacement that
+    committed while the caller waited for them kept a version the caller has
+    not seen.
+    """
+    for name in (await _kept_tables(db, dataset.id)).values():
+        await _drop_kept_table(db, dataset, name, schema=schema)
 
 
 async def drop_previous_version(
-    db: AsyncSession, dataset: Any, *, user_id: uuid.UUID, expected: int
+    db: AsyncSession,
+    dataset: Any,
+    *,
+    user_id: uuid.UUID,
+    expected: int,
+    newest: bool = False,
 ) -> None:
-    """Drop the dataset's previous version in the caller's transaction; never commits.
+    """Drop kept version ``expected`` in the caller's transaction; never commits.
 
-    Takes the job rows, the table and then the catalog rows, the order a
-    publishing worker and a dataset delete take them. Refuses while any run
-    is active, since a restore reads the table before it holds its job row.
+    With ``newest``, it must be the newest kept version. Takes the job rows,
+    the table and then the catalog rows, the order a publishing worker and a
+    dataset delete take them. Refuses while any run is active, since a
+    restore reads the table before it holds its job row.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
     from app.modules.audit.service import AuditEvent, audit_emit
+    from app.modules.catalog.collections.models import DatasetVersion
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
     from app.platform.catalog_locks import lock_ingest_jobs
 
     await lock_ingest_jobs(db, job_cls=IngestJob, dataset_id=dataset.id)
     await _refuse_while_running(db, dataset.id)
-    await db.refresh(dataset, ["previous_version_number"])
-    _require_version(dataset, expected)
-    await drop_recorded_previous_version(
-        db, dataset, schema=tenant_data_schema(current_tenant_var.get())
+    name = await _require_version(db, dataset, expected, newest=newest)
+    await _drop_kept_table(
+        db, dataset, name, schema=tenant_data_schema(current_tenant_var.get())
     )
     await lock_catalog_rows_for_write(db, dataset)
     # A run admitted before the row lock committed is visible now.
     await _refuse_while_running(db, dataset.id)
-    await db.refresh(dataset, ["previous_version_number"])
-    _require_version(dataset, expected)
-    dataset.previous_version_number = None
-    dataset.previous_version_retained_at = None
-    dataset.previous_version_bytes = None
+    await _require_version(db, dataset, expected, newest=newest)
+    await db.execute(
+        update(DatasetVersion)
+        .where(
+            DatasetVersion.dataset_id == dataset.id,
+            DatasetVersion.version_number == expected,
+        )
+        .values(kept_table=None, kept_at=None, kept_bytes=None, kept_refreshed_at=None)
+    )
     await audit_emit(
         db,
         AuditEvent(

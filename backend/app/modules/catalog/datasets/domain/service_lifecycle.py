@@ -25,7 +25,7 @@ from app.core.pointcloud import pointcloud_prefix
 from app.core.tiles3d import tileset_prefix
 from app.platform.dataset_origin import geolens_owns_table
 from app.modules.catalog.datasets.domain.service_previous_version import (
-    drop_recorded_previous_version,
+    drop_kept_versions,
 )
 from app.platform.storage.reap import delete_prefix
 
@@ -288,7 +288,7 @@ async def delete_dataset(
         # linearization isn't reversible. Re-registering reapplies all three
         # idempotently.
         # Always a GeoLens copy, so it goes in both arms.
-        await drop_recorded_previous_version(session, dataset, schema=data_schema)
+        await drop_kept_versions(session, dataset, schema=data_schema)
         # Ahead of the reap, behind the DROP. See the raster branch.
         await lock_catalog_rows_for_write(session, dataset)
 

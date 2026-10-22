@@ -368,7 +368,7 @@ class TestReuploadSwapRetry:
         # call inside ``_swap_with_timeout`` raises ``LockNotAvailableError``.
         original_execute = self.session.execute
         raised = {"once": False}
-        kept = previous_version_table(self.live, dataset.id)
+        kept = previous_version_table(self.live, dataset.id, 1)
 
         async def _flaky_execute(stmt, *args, **kwargs):
             # Only intercept the live-table rename on the first pass: the

@@ -229,16 +229,48 @@ async def _names(session, table: str) -> list[str]:
 
 
 async def _dataset_row(session, dataset_id):
+    """The dataset's version fields, with its newest kept version's."""
     return (
         await session.execute(
             text(
-                "SELECT current_version, tile_cache_version, previous_version_number, "
-                "previous_version_bytes, previous_version_retained_at, "
-                "scheduled_refresh_hold FROM catalog.datasets WHERE id = :id"
+                "SELECT d.current_version, d.tile_cache_version, "
+                "k.version_number AS previous_version_number, "
+                "k.kept_bytes AS previous_version_bytes, "
+                "k.kept_at AS previous_version_retained_at, "
+                "d.scheduled_refresh_hold FROM catalog.datasets d "
+                "LEFT JOIN LATERAL (SELECT v.version_number, v.kept_bytes, v.kept_at "
+                "FROM catalog.dataset_versions v WHERE v.dataset_id = d.id "
+                "AND v.kept_table IS NOT NULL ORDER BY v.version_number DESC "
+                "LIMIT 1) k ON true WHERE d.id = :id"
             ),
             {"id": dataset_id},
         )
     ).one()
+
+
+async def _kept(session, dataset_id) -> dict[int, str]:
+    """The dataset's kept versions and the tables they are kept in."""
+    rows = await session.execute(
+        text(
+            "SELECT version_number, kept_table FROM catalog.dataset_versions "
+            "WHERE dataset_id = :id AND kept_table IS NOT NULL"
+        ),
+        {"id": dataset_id},
+    )
+    return dict(rows.all())
+
+
+async def _mark_kept(session, dataset_id, number: int, table: str) -> None:
+    """Record ``table`` as keeping version ``number``, as a swap does."""
+    await session.execute(
+        text(
+            "INSERT INTO catalog.dataset_versions "
+            "(dataset_id, version_number, kept_table, kept_at) "
+            "VALUES (:id, :n, :t, now()) ON CONFLICT (dataset_id, version_number) "
+            "DO UPDATE SET kept_table = EXCLUDED.kept_table, kept_at = now()"
+        ),
+        {"id": dataset_id, "n": number, "t": table},
+    )
 
 
 async def _relation_exists(session, table: str) -> bool:
@@ -255,10 +287,16 @@ async def _relation_exists(session, table: str) -> bool:
 
 async def _cleanup(session, dataset) -> None:
     await session.rollback()
-    for table in (
-        dataset.table_name,
-        previous_version_table(dataset.table_name, dataset.id),
-    ):
+    kept = await session.scalars(
+        text(
+            "SELECT c.relname FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'data' AND c.relkind IN ('r', 'p') "
+            "AND c.relname ~ ('_previous_([0-9]+_)?' || :hex || '$')"
+        ),
+        {"hex": dataset.id.hex},
+    )
+    for table in (dataset.table_name, *kept):
         await session.execute(text(f'DROP TABLE IF EXISTS "data"."{table}"'))
     await session.commit()
 
@@ -266,10 +304,22 @@ async def _cleanup(session, dataset) -> None:
 def test_the_producer_and_the_recognizer_agree() -> None:
     """Whatever name the producer makes, the recognizer knows, within 63 characters."""
     for base in ("parcels", "a", "x" * 80):
-        name = previous_version_table(base, uuid.uuid4())
-        assert is_previous_version_table(name), name
-        assert len(name) <= 63
+        for number in (1, 12345):
+            name = previous_version_table(base, uuid.uuid4(), number)
+            assert is_previous_version_table(name), name
+            assert len(name) <= 63
+    # The name a dataset kept its one previous version under before it could keep several.
+    assert is_previous_version_table(f"parcels_previous_{uuid.uuid4().hex}")
     assert not is_previous_version_table("parcels_previous")
+
+
+def test_kept_versions_get_distinct_key_names() -> None:
+    """Two versions of one dataset differ within the 58 characters a key name keeps."""
+    dataset_id = uuid.uuid4()
+    first, second = (
+        previous_version_table("x" * 80, dataset_id, number)[:58] for number in (1, 2)
+    )
+    assert first != second
 
 
 async def test_a_replacement_keeps_the_replaced_table(
@@ -284,7 +334,7 @@ async def test_a_replacement_keeps_the_replaced_table(
 
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     try:
         await _replace(session, dataset, admin_id, ["paris", "london"])
 
@@ -330,7 +380,7 @@ async def test_a_restore_publishes_the_previous_version(
 
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 2)
     try:
         await _replace(session, dataset, admin_id, ["paris", "london"])
         tiles_before = (await _dataset_row(session, dataset.id)).tile_cache_version
@@ -347,6 +397,7 @@ async def test_a_restore_publishes_the_previous_version(
 
         assert await _names(session, dataset.table_name) == ["New York"]
         assert await _names(session, previous) == ["London", "Paris"]
+        assert await _kept(session, dataset.id) == {2: previous}
         row = await _dataset_row(session, dataset.id)
         assert row.current_version == 3
         assert row.previous_version_number == 2
@@ -414,7 +465,7 @@ async def test_three_cycles_keep_the_index_and_key_names(
     session = test_db_session
     admin_id, dataset = await _seed(session)
     table = dataset.table_name
-    previous = previous_version_table(table, dataset.id)
+    previous = previous_version_table(table, dataset.id, 3)
     try:
         await _replace(session, dataset, admin_id, ["paris"])
         await _replace(session, dataset, admin_id, ["london"])
@@ -422,6 +473,9 @@ async def test_three_cycles_keep_the_index_and_key_names(
 
         assert await _names(session, table) == ["Paris"]
         assert await _names(session, previous) == ["London"]
+        original = previous_version_table(table, dataset.id, 1)
+        assert await _kept(session, dataset.id) == {3: previous, 1: original}
+        assert await _names(session, original) == ["New York"]
         keys = dict(
             (
                 await session.execute(
@@ -453,7 +507,7 @@ async def test_dropping_the_previous_version(
     """A stale version or an active run refuses the drop; otherwise the table goes."""
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     url = f"/api/datasets/{dataset.id}/previous-version"
     try:
         await _replace(session, dataset, admin_id, ["paris"])
@@ -506,7 +560,7 @@ async def test_deleting_the_dataset_drops_its_previous_version(
     """No previous-version relation outlives its dataset."""
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     try:
         await _replace(session, dataset, admin_id, ["paris"])
         assert await _relation_exists(session, previous)
@@ -536,9 +590,11 @@ async def test_a_non_writer_can_neither_restore_nor_drop(
     """An editor who does not own the dataset is refused, and nothing is admitted."""
     session = test_db_session
     _, dataset = await _seed(session, visibility=visibility)
-    await session.execute(
-        text("UPDATE catalog.datasets SET previous_version_number = 1 WHERE id = :id"),
-        {"id": dataset.id},
+    await _mark_kept(
+        session,
+        dataset.id,
+        1,
+        previous_version_table(dataset.table_name, dataset.id, 1),
     )
     await session.commit()
     try:
@@ -805,7 +861,7 @@ async def test_a_held_dataset_refuses_an_admitted_scheduled_run_at_execution(
 async def _squat(session, victim) -> SimpleNamespace:
     """Another dataset whose own table has the victim's previous-version name."""
     admin_id = await get_user_id(session, "admin")
-    name = previous_version_table(victim.table_name, victim.id)
+    name = previous_version_table(victim.table_name, victim.id, 1)
     squatter = await create_dataset(
         session, created_by=admin_id, name="Squatter", table_name=name
     )
@@ -920,7 +976,7 @@ async def test_a_delete_waiting_on_a_first_replacement_drops_what_it_kept(
     assert db_module.engine.url.database.startswith("geolens_test")
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     job = IngestJob(
         dataset_id=dataset.id,
         status="running",
@@ -943,12 +999,7 @@ async def test_a_delete_waiting_on_a_first_replacement_drops_what_it_kept(
             {"id": job_id},
         )
         await publication.execute(text(f'CREATE TABLE "data"."{previous}" (gid int)'))
-        await publication.execute(
-            text(
-                "UPDATE catalog.datasets SET previous_version_number = 1 WHERE id = :id"
-            ),
-            {"id": dataset.id},
-        )
+        await _mark_kept(publication, dataset.id, 1, previous)
 
         deleting = asyncio.create_task(
             client.request(
@@ -1003,7 +1054,7 @@ async def test_a_view_over_the_live_table_refuses_the_replacement(
     session = test_db_session
     admin_id, dataset = await _seed(session)
     view = await _view_over(session, dataset.table_name)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     try:
         with pytest.raises(DependentRelationsBlockSwap, match=view):
             await _replace(session, dataset, admin_id, ["paris"])
@@ -1049,7 +1100,7 @@ async def test_a_view_over_the_previous_version_refuses_its_drop(
     """Dropping the previous version answers 409 naming the view that reads it, and keeps the table."""
     session = test_db_session
     admin_id, dataset = await _seed(session)
-    previous = previous_version_table(dataset.table_name, dataset.id)
+    previous = previous_version_table(dataset.table_name, dataset.id, 1)
     view = None
     try:
         await _replace(session, dataset, admin_id, ["paris"])
@@ -1131,7 +1182,7 @@ async def test_a_replacement_does_not_keep_a_partitioned_table(test_db_session) 
 
         assert await _names(session, dataset.table_name) == ["Paris"]
         assert not await _relation_exists(
-            session, previous_version_table(dataset.table_name, dataset.id)
+            session, previous_version_table(dataset.table_name, dataset.id, 1)
         )
         assert not await _relation_exists(session, child)
         assert (await _dataset_row(session, dataset.id)).previous_version_number is None
@@ -1613,3 +1664,283 @@ async def test_restoring_an_empty_unconstrained_table_keeps_its_dimensionality(
         assert (row.is_3d, row.n_dims) == (False, 2)
     finally:
         await _cleanup(session, dataset)
+
+
+def _keeping(limit: int):
+    """Patch the instance's kept-version setting to ``limit``."""
+    return patch(
+        "app.core.persistent_config.PREVIOUS_VERSIONS_KEPT.get",
+        AsyncMock(return_value=limit),
+    )
+
+
+async def test_replacements_keep_three_versions_by_default_and_drop_the_oldest(
+    test_db_session,
+) -> None:
+    """Each replacement keeps the replaced data; past three kept versions the oldest table goes."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        for cities in (["paris"], ["london"], ["new_york", "paris"]):
+            await _replace(session, dataset, admin_id, cities)
+        assert await _kept(session, dataset.id) == {
+            3: table(3),
+            2: table(2),
+            1: table(1),
+        }
+        assert await _names(session, table(1)) == ["New York"]
+
+        await _replace(session, dataset, admin_id, ["london"])
+
+        assert await _kept(session, dataset.id) == {
+            4: table(4),
+            3: table(3),
+            2: table(2),
+        }
+        assert not await _relation_exists(session, table(1))
+        assert await _names(session, table(4)) == ["New York", "Paris"]
+        assert await _names(session, table(3)) == ["London"]
+        assert await _names(session, table(2)) == ["Paris"]
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_lowering_the_setting_drops_versions_on_the_next_replacement_only(
+    test_db_session,
+) -> None:
+    """Kept versions past a lowered setting stay until the dataset's next replacement drops them."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _replace(session, dataset, admin_id, ["london"])
+        with _keeping(1):
+            assert await _kept(session, dataset.id) == {2: table(2), 1: table(1)}
+            await _replace(session, dataset, admin_id, ["paris"])
+
+        assert await _kept(session, dataset.id) == {3: table(3)}
+        assert not await _relation_exists(session, table(1))
+        assert not await _relation_exists(session, table(2))
+        assert await _names(session, table(3)) == ["London"]
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def _restore_version(client, headers, dataset, number: int, **patches):
+    """Admit a restore of kept version ``number`` through the API, then run its task."""
+    from app.processing.ingest.tasks import restore_previous_version
+
+    deferred = AsyncMock()
+    with patch(
+        "app.modules.catalog.datasets.api.router_previous_version."
+        "defer_async_with_tenant",
+        deferred,
+    ):
+        response = await client.post(
+            f"/api/datasets/{dataset.id}/previous-versions/{number}/restore",
+            headers=headers,
+        )
+    if response.status_code != 202:
+        return response
+    with contextlib.ExitStack() as stack:
+        for target, replacement in patches.items():
+            stack.enter_context(patch(target, new=replacement))
+        await restore_previous_version(**deferred.await_args.kwargs)
+    return response
+
+
+async def test_restoring_an_older_version_keeps_the_data_it_replaces(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Restoring the first version publishes it and keeps the replaced data; the other kept version stays."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _replace(session, dataset, admin_id, ["london"])
+
+        restored = await _restore_version(client, admin_auth_header, dataset, 1)
+        assert restored.status_code == 202, restored.text
+
+        assert await _names(session, dataset.table_name) == ["New York"]
+        assert await _kept(session, dataset.id) == {3: table(3), 2: table(2)}
+        assert await _names(session, table(3)) == ["London"]
+        assert await _names(session, table(2)) == ["Paris"]
+        assert not await _relation_exists(session, table(1))
+        row = await _dataset_row(session, dataset.id)
+        assert row.current_version == 4
+        source = await session.scalar(
+            text(
+                "SELECT restored_from_version FROM catalog.dataset_versions "
+                "WHERE dataset_id = :id AND version_number = 4"
+            ),
+            {"id": dataset.id},
+        )
+        assert source == 1
+        await session.commit()
+
+        again = await _restore_version(client, admin_auth_header, dataset, 3)
+        assert again.status_code == 202, again.text
+        assert await _names(session, dataset.table_name) == ["London"]
+        assert await _kept(session, dataset.id) == {4: table(4), 2: table(2)}
+        assert await _names(session, table(4)) == ["New York"]
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_kept_versions_by_number_refuse_what_is_not_kept(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Restore and delete answer 404 for a version the dataset does not keep; the old routes act on the newest only."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    base = f"/api/datasets/{dataset.id}"
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        await _replace(session, dataset, admin_id, ["london"])
+
+        for number in (3, 7):
+            missing = await _restore_version(client, admin_auth_header, dataset, number)
+            assert missing.status_code == 404, missing.text
+            assert missing.json()["detail"]["code"] == "no_previous_version"
+            gone = await client.delete(
+                f"{base}/previous-versions/{number}", headers=admin_auth_header
+            )
+            assert gone.status_code == 404, gone.text
+
+        older = await client.post(
+            f"{base}/previous-version/restore",
+            json={"expected_version_number": 1},
+            headers=admin_auth_header,
+        )
+        assert older.status_code == 409, older.text
+        assert older.json()["detail"]["code"] == "previous_version_changed"
+        older_drop = await client.delete(
+            f"{base}/previous-version",
+            params={"expected_version_number": 1},
+            headers=admin_auth_header,
+        )
+        assert older_drop.status_code == 409, older_drop.text
+        assert set(await _kept(session, dataset.id)) == {2, 1}
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_deleting_one_kept_version_leaves_the_others(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Deleting a kept version by number drops its table only, and the detail stops listing it."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        for cities in (["paris"], ["london"], ["paris", "london"]):
+            await _replace(session, dataset, admin_id, cities)
+
+        detail = (
+            await client.get(f"/api/datasets/{dataset.id}", headers=admin_auth_header)
+        ).json()
+        listed = detail["previous_versions"]
+        assert [v["version_number"] for v in listed] == [3, 2, 1]
+        assert [v["feature_count"] for v in listed] == [1, 1, 1]
+        assert all(v["size_bytes"] > 0 and v["retained_at"] for v in listed)
+        assert detail["previous_version"] == listed[0]
+
+        dropped = await client.delete(
+            f"/api/datasets/{dataset.id}/previous-versions/2",
+            headers=admin_auth_header,
+        )
+        assert dropped.status_code == 204, dropped.text
+        assert await _kept(session, dataset.id) == {3: table(3), 1: table(1)}
+        assert not await _relation_exists(session, table(2))
+        assert await _names(session, table(1)) == ["New York"]
+
+        detail = (
+            await client.get(f"/api/datasets/{dataset.id}", headers=admin_auth_header)
+        ).json()
+        assert [v["version_number"] for v in detail["previous_versions"]] == [3, 1]
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_deleting_the_dataset_drops_every_kept_version(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """No kept table outlives its dataset."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        for cities in (["paris"], ["london"], ["paris"]):
+            await _replace(session, dataset, admin_id, cities)
+        tables = list((await _kept(session, dataset.id)).values())
+        assert len(tables) == 3
+
+        deleted = await client.request(
+            "DELETE",
+            f"/api/datasets/{dataset.id}",
+            json={"confirm_title": "Test Dataset"},
+            headers=admin_auth_header,
+        )
+        assert deleted.status_code == 204, deleted.text
+        for kept in tables:
+            assert not await _relation_exists(session, kept)
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_admin_storage_counts_kept_versions(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """The admin stats report the kept versions' size, and the total includes it."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    size = text(
+        "SELECT pg_total_relation_size(to_regclass(format('data.%I', CAST(:t AS text))))"
+    )
+    try:
+        before = (await client.get("/admin/stats/", headers=admin_auth_header)).json()
+        live_before = await session.scalar(size, {"t": dataset.table_name})
+        await session.commit()
+        await _replace(session, dataset, admin_id, ["paris"])
+        kept_bytes = (await _dataset_row(session, dataset.id)).previous_version_bytes
+        live_after = await session.scalar(size, {"t": dataset.table_name})
+        after = (await client.get("/admin/stats/", headers=admin_auth_header)).json()
+
+        assert kept_bytes > 0
+        assert (
+            after["previous_versions_bytes"] - before["previous_versions_bytes"]
+            == kept_bytes
+        )
+        assert after["total_storage_bytes"] - before["total_storage_bytes"] == (
+            kept_bytes + live_after - live_before
+        )
+    finally:
+        await _cleanup(session, dataset)
+
+
+@pytest.mark.parametrize("value", [0, 51, 1.5])
+async def test_the_setting_keeps_at_least_one_version(
+    client: AsyncClient, admin_auth_header, value
+) -> None:
+    """The kept-version setting refuses values that would keep none or an unbounded number."""
+    response = await client.put(
+        "/settings/",
+        json={"settings": {"previous_versions_kept": value}},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 422, response.text

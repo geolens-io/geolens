@@ -1325,9 +1325,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # Shared ingest finalization carries verification, manifest record fields, bounded
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
-    # replacement share, and the swap that keeps the replaced table and records
-    # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1865,
+    # replacement share, and the swap that keeps the replaced table as a previous
+    # version and drops the oldest past the instance's limit.
+    "backend/app/processing/ingest/tasks_common.py": 1864,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
@@ -1351,7 +1351,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/config.py": 1442,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1194,
+    "backend/app/core/persistent_config.py": 1203,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 909,
@@ -1376,8 +1376,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1130,
-    # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1014,
+    # Admin mutations share locking and audit outcomes; the catalog stats measure
+    # live and kept-version storage.
+    "backend/app/modules/admin/service.py": 1025,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1559,
@@ -1385,7 +1386,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 695,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1868,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1876,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,

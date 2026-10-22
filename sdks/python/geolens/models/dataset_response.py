@@ -136,9 +136,11 @@ class DatasetResponse:
         metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
             visibility or status change exposing keywords inherited from an analysis source the new audience cannot open.
             Only ever set on the PATCH response; the change has already applied.
-        previous_version (None | PreviousVersionResponse | Unset): The data the last replacement or restore replaced,
-            which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when
-            there is none.
+        previous_version (None | PreviousVersionResponse | Unset): Deprecated: the first entry of previous_versions. Set
+            on the detail endpoint only; null elsewhere and when there is none.
+        previous_versions (list[PreviousVersionResponse] | None | Unset): The kept previous versions, newest first, each
+            of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a
+            dataset keeps. Set on the detail endpoint only; null elsewhere.
     """
 
     id: UUID
@@ -207,6 +209,7 @@ class DatasetResponse:
     language: None | str | Unset = UNSET
     metadata_warnings: list[str] | None | Unset = UNSET
     previous_version: None | PreviousVersionResponse | Unset = UNSET
+    previous_versions: list[PreviousVersionResponse] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -610,6 +613,20 @@ class DatasetResponse:
         else:
             previous_version = self.previous_version
 
+        previous_versions: list[dict[str, Any]] | None | Unset
+        if isinstance(self.previous_versions, Unset):
+            previous_versions = UNSET
+        elif isinstance(self.previous_versions, list):
+            previous_versions = []
+            for previous_versions_type_0_item_data in self.previous_versions:
+                previous_versions_type_0_item = (
+                    previous_versions_type_0_item_data.to_dict()
+                )
+                previous_versions.append(previous_versions_type_0_item)
+
+        else:
+            previous_versions = self.previous_versions
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -736,6 +753,8 @@ class DatasetResponse:
             field_dict["metadata_warnings"] = metadata_warnings
         if previous_version is not UNSET:
             field_dict["previous_version"] = previous_version
+        if previous_versions is not UNSET:
+            field_dict["previous_versions"] = previous_versions
 
         return field_dict
 
@@ -1463,6 +1482,32 @@ class DatasetResponse:
 
         previous_version = _parse_previous_version(d.pop("previous_version", UNSET))
 
+        def _parse_previous_versions(
+            data: object,
+        ) -> list[PreviousVersionResponse] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                previous_versions_type_0 = []
+                _previous_versions_type_0 = data
+                for previous_versions_type_0_item_data in _previous_versions_type_0:
+                    previous_versions_type_0_item = PreviousVersionResponse.from_dict(
+                        previous_versions_type_0_item_data
+                    )
+
+                    previous_versions_type_0.append(previous_versions_type_0_item)
+
+                return previous_versions_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[PreviousVersionResponse] | None | Unset, data)
+
+        previous_versions = _parse_previous_versions(d.pop("previous_versions", UNSET))
+
         dataset_response = cls(
             id=id,
             record_id=record_id,
@@ -1530,6 +1575,7 @@ class DatasetResponse:
             language=language,
             metadata_warnings=metadata_warnings,
             previous_version=previous_version,
+            previous_versions=previous_versions,
         )
 
         dataset_response.additional_properties = d

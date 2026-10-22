@@ -1,10 +1,10 @@
-"""Procrastinate task: publish a dataset's previous version again.
+"""Procrastinate task: publish one of a dataset's previous versions again.
 
-The previous version is the table a replacement kept. Restoring it is a
+A previous version is a table a replacement kept. Restoring it is a
 replacement whose candidate is that table, so it runs through the settlement
 seam like any other: the job row, the catalog rows, the run, the follow-ups
 and the tile version are the publish path's own. The data it replaces becomes
-the previous version in turn.
+a kept version in turn.
 """
 
 from __future__ import annotations
@@ -20,10 +20,6 @@ from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
-from app.platform.jobs.heartbeat import (
-    attempt_scoped_staging_table,
-    previous_version_table,
-)
 from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -35,7 +31,7 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.previous_version import (
     record_live_version,
-    stamp_previous_version,
+    stamp_kept_versions,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -79,7 +75,7 @@ def _reinstate_source(dataset, source) -> None:
 
 
 class RestoreRefused(Exception):
-    """The previous version the restore was admitted for is not there to publish."""
+    """The kept version the restore was admitted for is not there to publish."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -87,7 +83,7 @@ class RestoreRefused(Exception):
 
 
 class _RestorePreviousVersion:
-    """The dataset's previous-version table, renamed over its live table."""
+    """One of the dataset's kept tables, renamed over its live table."""
 
     task = "restore_previous_version"
     staging = False
@@ -99,10 +95,6 @@ class _RestorePreviousVersion:
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.expected = (job.user_metadata or {}).get(EXPECTED_PREVIOUS_VERSION_KEY)
-        self.previous = previous_version_table(dataset.table_name, dataset.id)
-        # The live table waits under this name inside the publishing
-        # transaction only, so a crash leaves nothing behind.
-        self.holding = attempt_scoped_staging_table(dataset.table_name, job.attempt_id)
 
     async def fetch(self) -> None:
         return None
@@ -155,7 +147,7 @@ class _RestorePreviousVersion:
             dataset=dataset,
             candidate=self.previous,
             measurement=self.measurement,
-            holding=self.holding,
+            restoring=self.expected,
         )
 
     async def write(self, session, dataset) -> Published:
@@ -164,30 +156,23 @@ class _RestorePreviousVersion:
 
         DatasetVersion = get_processing_port().get_dataset_version_orm_class()
         actor_id = uuid.UUID(self.user_id)
-        await session.refresh(
-            dataset,
-            [
-                "current_version",
-                "previous_version_number",
-                "previous_version_refreshed_at",
-                "last_refreshed_at",
-            ],
-        )
+        await session.refresh(dataset, ["current_version", "last_refreshed_at"])
         replaced = dataset.current_version
-        restored = dataset.previous_version_number
-        restored_refreshed_at = dataset.previous_version_refreshed_at
+        restored = self.expected
         source = await session.scalar(
             select(DatasetVersion).where(
                 DatasetVersion.dataset_id == dataset.id,
                 DatasetVersion.version_number == restored,
             )
         )
+        # Read before the stamp forgets the restored version as kept.
+        restored_refreshed_at = None if source is None else source.kept_refreshed_at
 
         await record_live_version(session, dataset)
         schema_diff = await catalog_projection.project(
             session, dataset, self.measurement
         )
-        await stamp_previous_version(session, dataset, replaced)
+        await stamp_kept_versions(session, dataset, replaced)
         dataset.current_version = replaced + 1
         dataset.scheduled_refresh_hold = RESTORED_HOLD
         dataset.record.updated_by = actor_id
@@ -252,26 +237,30 @@ class _RestorePreviousVersion:
         return None
 
     async def _require_previous(self, session, dataset) -> None:
-        """Refuse unless the previous version is still the one admitted."""
+        """Refuse unless the dataset still keeps the version admitted, in a table."""
         from sqlalchemy import text
 
         from app.platform.extensions import get_processing_port
         from app.processing.ingest.metadata import _qtable
 
-        Dataset = get_processing_port().get_dataset_orm_class()
-        number = await session.scalar(
-            select(Dataset.previous_version_number).where(Dataset.id == dataset.id)
+        DatasetVersion = get_processing_port().get_dataset_version_orm_class()
+        kept = await session.scalar(
+            select(DatasetVersion.kept_table).where(
+                DatasetVersion.dataset_id == dataset.id,
+                DatasetVersion.version_number == self.expected,
+            )
         )
-        present = await session.scalar(
-            text("SELECT to_regclass(:previous) IS NOT NULL"),
-            {"previous": _qtable(self.previous, schema=_current_tenant_schema())},
+        present = kept is not None and await session.scalar(
+            text("SELECT to_regclass(:kept) IS NOT NULL"),
+            {"kept": _qtable(kept, schema=_current_tenant_schema())},
         )
-        if number is None or number != self.expected or not present:
+        if not present:
             raise RestoreRefused(
                 _CHANGED,
                 "The dataset's previous version changed or was deleted before "
                 "it could be restored. Check its version history and try again.",
             )
+        self.previous = kept
 
 
 @task_app.task(queue="ingest", retry=0)
@@ -283,7 +272,7 @@ async def restore_previous_version(
     attempt_id: str | None = None,
     **kwargs: Any,
 ) -> None:
-    """Background task: publish the dataset's previous version as its live data."""
+    """Background task: publish one of the dataset's kept versions as its live data."""
     _bind_task_log_context(
         task_name="restore_previous_version", job_id=job_id, dataset_id=dataset_id
     )

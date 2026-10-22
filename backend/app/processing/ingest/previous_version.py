@@ -1,4 +1,4 @@
-"""The checks and catalog stamp around a dataset's previous-version table.
+"""The checks and catalog stamp around a dataset's kept previous versions.
 
 The swap in ``tasks_common.install_candidate_table`` calls the checks before
 it renames anything; the replacement and restore writes call the stamp.
@@ -6,11 +6,10 @@ it renames anything; the replacement and restore writes call the stamp.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.relations import dependent_relations, relation_present
@@ -60,32 +59,83 @@ async def refuse_dependent_relations(
         raise DependentRelationsBlockSwap(sorted(set(blocking)))
 
 
-async def require_own_previous_version_name(
-    session: AsyncSession, dataset: Any, previous: str, *, schema: str
-) -> None:
-    """Refuse unless ``previous`` is free or holds the previous version this dataset recorded.
-
-    The name is predictable, so a table found under it is dropped or renamed
-    only when the catalog says it is this dataset's own.
-    """
-    from app.platform.extensions import get_processing_port
-
-    Dataset = get_processing_port().get_dataset_orm_class()
-    recorded = await session.scalar(
-        select(Dataset.previous_version_number).where(Dataset.id == dataset.id)
+async def kept_versions(
+    session: AsyncSession, dataset_id: Any
+) -> list[tuple[int, str]]:
+    """The dataset's kept versions as ``(version number, table)``, newest first."""
+    rows = await session.execute(
+        text(
+            "SELECT version_number, kept_table FROM catalog.dataset_versions "
+            "WHERE dataset_id = :dataset_id AND kept_table IS NOT NULL "
+            "ORDER BY version_number DESC"
+        ),
+        {"dataset_id": dataset_id},
     )
-    present = await relation_present(session, schema, previous)
-    if await previous_version_name_claimed(session, previous) or (
-        present and recorded is None
+    return [(number, table) for number, table in rows.all()]
+
+
+async def kept_tables_to_drop(
+    session: AsyncSession, dataset: Any, *, keeping: bool, restoring: int | None
+) -> list[str]:
+    """The kept tables a swap drops, oldest first past ``PREVIOUS_VERSIONS_KEPT``.
+
+    ``keeping`` says whether the swap keeps the live table, which counts as
+    the newest; ``restoring`` is the kept version it publishes, which no
+    longer counts. A table a catalog dataset uses as its own is never
+    dropped; the stamp forgets it as a kept version.
+    """
+    from app.core.persistent_config import PREVIOUS_VERSIONS_KEPT
+
+    limit = await PREVIOUS_VERSIONS_KEPT.get(session)
+    retained = [
+        table
+        for number, table in await kept_versions(session, dataset.id)
+        if number != restoring
+    ]
+    past = retained[max(limit - int(keeping), 0) :]
+    claimed = set(
+        await session.scalars(
+            text(
+                "SELECT table_name FROM catalog.datasets "
+                "WHERE table_name = ANY(CAST(:names AS text[]))"
+            ),
+            {"names": past},
+        )
+    )
+    return [table for table in past if table not in claimed]
+
+
+def _name_taken(dataset: Any) -> PreviousVersionNameTaken:
+    structlog.get_logger().warning(
+        "previous_version_name_taken", dataset_id=str(dataset.id)
+    )
+    return PreviousVersionNameTaken(
+        "Another table already uses the name this dataset keeps its "
+        "previous version under, so the data was not replaced. Ask an "
+        "administrator to rename that table."
+    )
+
+
+async def require_free_previous_version_name(
+    session: AsyncSession, dataset: Any, name: str, *, schema: str
+) -> None:
+    """Refuse unless no relation and no catalog dataset uses ``name``.
+
+    The name is predictable, and the swap is about to keep the live table
+    under it.
+    """
+    if await previous_version_name_claimed(session, name) or await relation_present(
+        session, schema, name
     ):
-        structlog.get_logger().warning(
-            "previous_version_name_taken", dataset_id=str(dataset.id)
-        )
-        raise PreviousVersionNameTaken(
-            "Another table already uses the name this dataset keeps its "
-            "previous version under, so the data was not replaced. Ask an "
-            "administrator to rename that table."
-        )
+        raise _name_taken(dataset)
+
+
+async def require_unclaimed_previous_version_name(
+    session: AsyncSession, dataset: Any, name: str
+) -> None:
+    """Refuse when a catalog dataset uses ``name``, a kept table the swap would publish."""
+    if await previous_version_name_claimed(session, name):
+        raise _name_taken(dataset)
 
 
 # The live version's row, written from the dataset when a first import left
@@ -129,24 +179,55 @@ async def record_live_version(session: AsyncSession, dataset: Any) -> None:
     await session.execute(_RECORD_LIVE_VERSION, {"dataset_id": dataset.id})
 
 
-async def stamp_previous_version(
+async def stamp_kept_versions(
     session: AsyncSession, dataset: Any, version_number: int
 ) -> None:
-    """Record that the previous-version table holds ``version_number``, or that none exists.
+    """Record the table the swap kept ``version_number`` in, and forget kept tables that are gone.
 
-    Call after the swap, in its transaction, holding the catalog rows, and
-    before ``last_refreshed_at`` is moved on: it records the replaced data's.
+    A kept version is forgotten once its table is gone, which a swap does by
+    dropping it or publishing it, or once a catalog dataset uses its name.
+    Call after the swap and ``record_live_version``, in their transaction,
+    holding the catalog rows, and before ``last_refreshed_at`` is moved on: it
+    records the replaced data's.
     """
-    previous = _qtable(
-        previous_version_table(dataset.table_name, dataset.id),
-        schema=_current_tenant_schema(),
-    )
+    schema = _current_tenant_schema()
+    name = previous_version_table(dataset.table_name, dataset.id, version_number)
     size = await session.scalar(
-        text("SELECT pg_total_relation_size(to_regclass(:previous))"),
-        {"previous": previous},
+        text("SELECT pg_total_relation_size(to_regclass(:kept))"),
+        {"kept": _qtable(name, schema=schema)},
     )
-    kept = size is not None
-    dataset.previous_version_number = version_number if kept else None
-    dataset.previous_version_retained_at = datetime.now(timezone.utc) if kept else None
-    dataset.previous_version_bytes = size
-    dataset.previous_version_refreshed_at = dataset.last_refreshed_at if kept else None
+    if size is not None:
+        await session.execute(
+            text(
+                "UPDATE catalog.dataset_versions SET kept_table = :name, "
+                "kept_at = now(), kept_bytes = :size, kept_refreshed_at = :refreshed "
+                "WHERE dataset_id = :dataset_id AND version_number = :number"
+            ),
+            {
+                "name": name,
+                "size": size,
+                "refreshed": dataset.last_refreshed_at,
+                "dataset_id": dataset.id,
+                "number": version_number,
+            },
+        )
+    await session.execute(_FORGET_MISSING, {"dataset_id": dataset.id, "schema": schema})
+
+
+_FORGET_MISSING = text(
+    """
+    UPDATE catalog.dataset_versions v SET kept_table = NULL, kept_at = NULL,
+        kept_bytes = NULL, kept_refreshed_at = NULL
+    WHERE v.dataset_id = :dataset_id AND v.kept_table IS NOT NULL
+      AND (
+        NOT EXISTS (
+            SELECT 1 FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = :schema AND c.relname = v.kept_table
+        )
+        OR EXISTS (
+            SELECT 1 FROM catalog.datasets o WHERE o.table_name = v.kept_table
+        )
+      )
+    """
+)

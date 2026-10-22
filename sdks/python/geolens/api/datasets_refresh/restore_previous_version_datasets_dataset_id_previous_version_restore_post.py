@@ -114,20 +114,11 @@ def sync_detailed(
 ) -> Response[ProblemDetail | RestorePreviousVersionResponse]:
     """Restore Previous Version
 
-     Publish the dataset's previous version as its live data again.
+     Publish the dataset's newest kept version as its live data again.
 
-    The previous version is the data the last replacement or restore
-    replaced. The restore runs as a job and a refresh run with origin kind
-    ``restore``, and publishes a new version that names the restored one in
-    ``restored_from_version``. The data it replaces, including any feature
-    edits made since, becomes the previous version in turn. Scheduled
-    refreshes of the dataset are held afterwards.
-
-    Refuses with 422 ``restore_not_applicable`` for a dataset without a
-    feature table, 404 ``no_previous_version`` when there is none, 409
-    ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while another refresh, replacement or restore is
-    active.
+    Deprecated: use ``POST /previous-versions/{version_number}/restore``.
+    Behaves like it, and also refuses with 409 ``previous_version_changed``
+    when ``expected_version_number`` is not the newest kept version.
 
     Args:
         dataset_id (UUID):
@@ -161,20 +152,11 @@ def sync(
 ) -> ProblemDetail | RestorePreviousVersionResponse | None:
     """Restore Previous Version
 
-     Publish the dataset's previous version as its live data again.
+     Publish the dataset's newest kept version as its live data again.
 
-    The previous version is the data the last replacement or restore
-    replaced. The restore runs as a job and a refresh run with origin kind
-    ``restore``, and publishes a new version that names the restored one in
-    ``restored_from_version``. The data it replaces, including any feature
-    edits made since, becomes the previous version in turn. Scheduled
-    refreshes of the dataset are held afterwards.
-
-    Refuses with 422 ``restore_not_applicable`` for a dataset without a
-    feature table, 404 ``no_previous_version`` when there is none, 409
-    ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while another refresh, replacement or restore is
-    active.
+    Deprecated: use ``POST /previous-versions/{version_number}/restore``.
+    Behaves like it, and also refuses with 409 ``previous_version_changed``
+    when ``expected_version_number`` is not the newest kept version.
 
     Args:
         dataset_id (UUID):
@@ -203,20 +185,11 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | RestorePreviousVersionResponse]:
     """Restore Previous Version
 
-     Publish the dataset's previous version as its live data again.
+     Publish the dataset's newest kept version as its live data again.
 
-    The previous version is the data the last replacement or restore
-    replaced. The restore runs as a job and a refresh run with origin kind
-    ``restore``, and publishes a new version that names the restored one in
-    ``restored_from_version``. The data it replaces, including any feature
-    edits made since, becomes the previous version in turn. Scheduled
-    refreshes of the dataset are held afterwards.
-
-    Refuses with 422 ``restore_not_applicable`` for a dataset without a
-    feature table, 404 ``no_previous_version`` when there is none, 409
-    ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while another refresh, replacement or restore is
-    active.
+    Deprecated: use ``POST /previous-versions/{version_number}/restore``.
+    Behaves like it, and also refuses with 409 ``previous_version_changed``
+    when ``expected_version_number`` is not the newest kept version.
 
     Args:
         dataset_id (UUID):
@@ -248,20 +221,11 @@ async def asyncio(
 ) -> ProblemDetail | RestorePreviousVersionResponse | None:
     """Restore Previous Version
 
-     Publish the dataset's previous version as its live data again.
+     Publish the dataset's newest kept version as its live data again.
 
-    The previous version is the data the last replacement or restore
-    replaced. The restore runs as a job and a refresh run with origin kind
-    ``restore``, and publishes a new version that names the restored one in
-    ``restored_from_version``. The data it replaces, including any feature
-    edits made since, becomes the previous version in turn. Scheduled
-    refreshes of the dataset are held afterwards.
-
-    Refuses with 422 ``restore_not_applicable`` for a dataset without a
-    feature table, 404 ``no_previous_version`` when there is none, 409
-    ``previous_version_changed`` when it is not ``expected_version_number``,
-    and 409 ``dataset_busy`` while another refresh, replacement or restore is
-    active.
+    Deprecated: use ``POST /previous-versions/{version_number}/restore``.
+    Behaves like it, and also refuses with 409 ``previous_version_changed``
+    when ``expected_version_number`` is not the newest kept version.
 
     Args:
         dataset_id (UUID):
