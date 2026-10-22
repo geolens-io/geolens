@@ -53,7 +53,17 @@ GeoLens needs `REDIS_URL` set to take a token for a private service import; with
 
 Progress is saved in `arcgis-migration-state.json` (mode 0600) after every item. Run the same command again to resume: finished items are skipped, failed ones are retried (`--no-retry` leaves them alone), and layers already imported are never imported twice. `--only <item id>` runs one item plus the unfinished items it depends on. Only one run can use a state file at a time.
 
-Each run writes `arcgis-migration-report.md` and `.json` next to the state file. They cover every item of the plan, the manual follow-ups (failed items, skipped files and layers, group-only sharing, partial exports, items waiting on others) and the unsupported items with where each was saved. The exit code is 0 when nothing failed and 1 otherwise; 2 means the plan, state file or owner mapping couldn't be used.
+A run that gets as far as the item loop writes `arcgis-migration-report.md` and `.json` next to the state file, also when it is interrupted or stops on a failed request. `--dry-run` writes none, and neither does a run refused before it starts (an unusable plan, state file or owner mapping, or a failed GeoLens check). The report covers every item of the plan: the manual follow-ups (failed items, skipped files and layers, group-only sharing, partial exports, items that can't run yet or wait on others) and the unsupported items with where each was saved.
+
+Exit codes:
+
+- 0: nothing failed.
+- 1: an item failed, an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
+- 2: the plan, state file, owner mapping or credentials couldn't be used, or a redirect was refused.
+- 3: GeoLens or ArcGIS authentication failed.
+- 4: the portal couldn't be reached.
+- 5: a server error.
+- 130: interrupted; run the same command to resume.
 
 For a large migration, run the GeoLens worker with `WORKER_CONCURRENCY=2` or more, since each layer import is a background job.
 
