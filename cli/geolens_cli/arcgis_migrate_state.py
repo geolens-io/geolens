@@ -93,7 +93,13 @@ class ItemState:
     notes: list[str] = field(default_factory=list)
     error: str | None = None
     loss_report_path: str | None = None
+    # Hash of the summary a file written before the baseline wrote; read only
+    # when a dataset has no baseline.
     metadata_hash: str | None = None
+    # Dataset -> the item metadata this command last wrote there (summary,
+    # attribution, license, source_organization, keywords), so a rerun can tell
+    # a field it wrote from one someone edited in GeoLens.
+    metadata_baseline: dict[str, dict[str, Any]] = field(default_factory=dict)
     started_at: str | None = None
     finished_at: str | None = None
 
