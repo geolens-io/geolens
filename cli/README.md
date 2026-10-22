@@ -22,7 +22,7 @@ The CLI wraps the [`geolens`](https://pypi.org/project/geolens/) Python SDK pack
 
 ## Migrate from ArcGIS
 
-Three commands move an ArcGIS Online or Enterprise organization into GeoLens. They are written for an ArcGIS organization administrator, because a portal search only returns items shared with the caller and a non-admin never sees other people's private items. On the GeoLens side the session must be an admin (`geolens login` as one), since the run reads the user list and hands ownership to the people the plan names.
+Three commands move an ArcGIS Online organization or a self-hosted ArcGIS portal into GeoLens. They are written for an ArcGIS organization administrator, because a portal search only returns items shared with the caller and a non-admin never sees other people's private items. On the GeoLens side the session must be an admin (`geolens login` as one), since the run reads the user list and hands ownership to the people the plan names.
 
 ```bash
 geolens arcgis inventory --portal-url https://yourorg.maps.arcgis.com --scope org -o ./run
