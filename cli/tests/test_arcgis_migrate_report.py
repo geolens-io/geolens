@@ -336,3 +336,19 @@ def test_a_changed_owner_and_a_collection_skip_are_follow_ups(tmp_path):
     assert by_kind["collections"]["item"] == A1
     assert by_kind["owner_changed"]["item"] == A2
     assert "newowner" in by_kind["owner_changed"]["text"]
+
+
+def test_a_failed_export_is_marked_incomplete(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    export = {"path": "export/dashboard/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, C3, "failed", error="export incomplete, rerun to retry", export=export)
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+    text = report_mod.render_run_markdown(report)
+
+    assert report["unsupported"][0]["incomplete"] is True
+    assert (C3, "export_incomplete") in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }
+    assert "incomplete: the export failed" in text

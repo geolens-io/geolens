@@ -91,6 +91,12 @@ def _follow_ups(
                 f"a data file saved as a hosted layer; GeoLens dataset: {ids}",
             )
         if entry is not None and entry.export:
+            if status == FAILED:
+                add(
+                    item["id"],
+                    "export_incomplete",
+                    "the export failed before it finished; rerun to retry",
+                )
             if entry.export["partial"]:
                 add(
                     item["id"],
@@ -148,6 +154,8 @@ def _export_section(
                     "path": entry.export["path"],
                     "bytes": entry.export["bytes"],
                     "partial": entry.export["partial"],
+                    # A failed export holds what was fetched, not all of it.
+                    "incomplete": entry.status == FAILED,
                     "errors": entry.export["errors"],
                     "replacement": replacement_note(item["type"]),
                 }
@@ -247,6 +255,8 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
             lines += [f"### {esc(item_type)}", "", esc(rows[0]["replacement"]), ""]
             for row in rows:
                 flag = " (partial)" if row["partial"] else ""
+                if row["incomplete"]:
+                    flag += " (incomplete: the export failed, rerun to retry)"
                 lines.append(f"- {esc(row['title'])}: `{row['path']}`{flag}")
             lines.append("")
     if report["loss_reports"]:
