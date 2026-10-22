@@ -179,5 +179,10 @@ class MigrationContext:
     # service hosts are the organization's own.
     portal_info: Mapping[str, Any] | None = None
     trusted_hosts: frozenset[str] = frozenset()
+    # The plan's defaults.collection_from, and the state's collection ids,
+    # which the collections step fills in place.
+    collection_from: str = "folder"
+    collections: dict[str, str] = field(default_factory=dict)
+    collections_denied: bool = False
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic

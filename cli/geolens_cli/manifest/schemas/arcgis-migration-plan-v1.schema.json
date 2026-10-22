@@ -48,7 +48,7 @@
           "description": "Used for an item whose ArcGIS sharing level has no GeoLens equivalent.",
           "enum": ["private", "internal", "public"]
         },
-        "collection_from": {"enum": ["folder", "none"]}
+        "collection_from": {"enum": ["folder", "group", "none"]}
       }
     },
     "owner_map": {

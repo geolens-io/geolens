@@ -78,6 +78,7 @@ class ItemState:
     # The service the pins above belong to; None in a file written before it
     # was recorded, which a rerun adopts rather than distrusts.
     service_url: str | None = None
+    collection_ids: list[str] = field(default_factory=list)
     owner_id: str | None = None
     notes: list[str] = field(default_factory=list)
     error: str | None = None
@@ -110,6 +111,9 @@ class MigrationState:
         self.portal_url = portal_url
         self.instance = instance
         self.items: dict[str, ItemState] = {}
+        # Collection name the plan asked for -> the collection this run made
+        # for it, which may carry the portal's name as a prefix.
+        self.collections: dict[str, str] = {}
         self._redact = redact
         self._persist = persist
 
@@ -155,6 +159,9 @@ class MigrationState:
                 str(item_id): ItemState.from_dict(entry)
                 for item_id, entry in data["items"].items()
             }
+            collections = {
+                str(k): str(v) for k, v in data.get("collections", {}).items()
+            }
             recorded_portal = data["portal_url"]
             recorded_instance = data["geolens_instance"]
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -173,6 +180,7 @@ class MigrationState:
                 f"not {instance}; pass --state with another path"
             )
         state.items = items
+        state.collections = collections
         return state
 
     def _lock(self) -> None:
@@ -224,6 +232,7 @@ class MigrationState:
             "schema_version": STATE_VERSION,
             "portal_url": self.portal_url,
             "geolens_instance": self.instance,
+            "collections": self.collections,
             "items": {k: vars(v) for k, v in self.items.items()},
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
