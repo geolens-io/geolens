@@ -570,3 +570,41 @@ def test_a_resumed_partial_fan_out_keeps_its_layer_notes(
     assert result.exit_code == 0, result.output
     assert len(files.uploads) == 1
     assert "Parcels: bad layer" in _state(plan_file)["items"][D3]["notes"][-1]
+
+
+def test_a_retry_keeps_the_layer_title_and_note_after_a_failed_target_update(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    fan_out = files.fan_out
+    roads = f"PATCH /datasets/{dataset_id('Roads')}"
+    failing = {"on": True}
+
+    def partial(job, seen):
+        status, body = fan_out(job, seen)
+        body["results"][1].update(status="failed", new_job_id=None, error="bad layer")
+        served = geolens.routes[roads]
+        geolens.routes[roads] = lambda s: (
+            (500, _problem(500, "database unavailable")) if failing["on"] else served(s)
+        )
+        return status, body
+
+    files.fan_out = partial
+    plan_file = _plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 1
+
+    failing["on"] = False
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert "Parcels: bad layer" in entry["notes"][-1]
+    titles = [
+        s.json()["title"]
+        for s in geolens.seen
+        if s.method == "PATCH"
+        and s.url.endswith(dataset_id("Roads"))
+        and "title" in s.json()
+    ]
+    assert titles[-1] == "Inspections - Roads"

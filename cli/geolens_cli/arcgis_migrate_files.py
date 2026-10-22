@@ -214,9 +214,14 @@ def _fan_out(
     failures.extend(_wait_for_layers(ctx, entry, base))
     if not entry.layer_datasets:
         raise ItemFailed(f"{base}: {'; '.join(failures)}")
+    notes = [f"layer not imported, {failure}" for failure in failures]
+    # Saved before the targets are applied, so a failure there keeps them for
+    # the rerun.
+    entry.notes = notes
+    ctx.save()
     for name, dataset in entry.layer_datasets.items():
         _apply_target(ctx, dataset, _commit_body(titles[name], visibility))
-    return [f"layer not imported, {failure}" for failure in failures]
+    return notes
 
 
 def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> list[str]:
@@ -289,7 +294,7 @@ def import_file(
     # Layers of a fan-out an earlier run queued but did not wait for.
     _wait_for_layers(ctx, entry, base)
     if entry.layer_datasets:
-        many = len(entry.layer_datasets) > 1
+        many = JOB_KEY not in entry.layer_datasets
         for name, dataset in entry.layer_datasets.items():
             title = _title(base, name if many else None)
             _apply_target(ctx, dataset, _commit_body(title, visibility))
