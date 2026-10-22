@@ -1451,6 +1451,8 @@ def test_a_resumed_file_whose_job_is_gone_stops_for_a_credential_when_the_portal
     assert result.exit_code == 1
     assert "fresh token" in payload["stopped"]
     assert not files.uploads
+    # The pending job was tried first (the resume branch), then found gone.
+    assert [s for s in geolens.seen if s.url.endswith(f"/ingest/preview/{gone}")]
 
 
 def test_a_failed_preview_is_retried_on_the_same_upload(
@@ -1496,4 +1498,8 @@ def test_a_pending_upload_the_server_dropped_is_uploaded_afresh(
     result, _ = _migrate(runner, plan_file, "--only", D3)
 
     assert result.exit_code == 0, result.output
+    # The dropped job is previewed first (404), and only then is the file
+    # uploaded afresh.
+    previews = [s.url for s in geolens.seen if "/ingest/preview/" in s.url]
+    assert previews[0].endswith(f"/ingest/preview/{gone}") and len(previews) == 2
     assert len(files.uploads) == 1
