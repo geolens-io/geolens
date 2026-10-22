@@ -1327,11 +1327,11 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 f"password={libpq_value(self.postgres_password.get_secret_value())}",
             ]
             parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
-        # Last, so it wins; behind a pooler the queue connector sets it instead.
+        # Last, so it wins. Behind a pooler the queue connector sets it, and an
+        # empty value keeps libpq from sending PGOPTIONS, which a pooler refuses.
         if not self.db_use_external_pooler:
             caller_options += f" -c search_path={self.procrastinate_search_path}"
-        if options := caller_options.strip():
-            parts.append(f"options='{options}'")
+        parts.append(f"options='{caller_options.strip()}'")
         return " ".join(parts)
 
     @property

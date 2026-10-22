@@ -3,6 +3,7 @@
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 
 from app.core import config as config_module
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, Settings
@@ -397,12 +398,10 @@ class TestProcrastinateConninfo:
         "override", [None, "postgresql://u:p@pooler:6432/db"], ids=["composed", "url"]
     )
     def test_external_pooler_sends_no_startup_options(self, override):
-        # PgBouncer refuses any options startup parameter, so the job queue
-        # could not open a single connection behind it.
+        # PgBouncer refuses the options startup parameter. The value is set but
+        # empty, so libpq doesn't fill it from PGOPTIONS either.
         s = _make_settings(database_url_override=override, db_use_external_pooler=True)
-        conninfo = s.procrastinate_conninfo
-        assert "options=" not in conninfo
-        assert "search_path" not in conninfo
+        assert conninfo_to_dict(s.procrastinate_conninfo)["options"] == ""
 
     def test_external_pooler_keeps_caller_options(self):
         s = _make_settings(
