@@ -387,7 +387,7 @@
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
     "scopePublish": "Publicar",
-    "scopePublishDescription": "Añade tus propios datos y mapas, edita los detalles de tus conjuntos de datos y reemplaza conjuntos de datos subidos, conservando una versión anterior. No puede hacer nada público ni ampliar quién ve un conjunto de datos, actualizar un mapa existente, reemplazar conjuntos de datos ráster ni vinculados a un servicio, elemento STAC o tabla, escribir entidades ni eliminar nada.",
+    "scopePublishDescription": "Añade tus propios datos y mapas, edita los detalles de tus conjuntos de datos y reemplaza conjuntos de datos subidos, conservando una versión anterior. No puede hacer nada público ni ampliar la visibilidad de un conjunto de datos, actualizar un mapa existente, reemplazar conjuntos de datos ráster ni vinculados a un servicio, elemento STAC o tabla, escribir entidades ni eliminar nada.",
     "scopeDatasetWrite": "Un conjunto de datos",
     "scopeDatasetAppend": "Un conjunto de datos, solo añadir",
     "expiry": "Caduca",
