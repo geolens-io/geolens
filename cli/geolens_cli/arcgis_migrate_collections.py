@@ -31,6 +31,7 @@ MAX_NAME = 255
 # The most datasets one add-datasets request accepts.
 ADD_BATCH = 100
 FALLBACK_PREFIX = "ArcGIS"
+DENIED = "not filed into collections: the operator can't manage collections"
 
 
 def _create(ctx: MigrationContext, name: str) -> str:
@@ -106,19 +107,20 @@ def file_into_collections(
     if ctx.collection_from != FOLDER or not names or not entry.dataset_ids:
         return []
     if ctx.collections_denied:
-        return ["not filed into collections: the operator can't manage collections"]
+        return [DENIED]
     try:
         for name in names:
             collection_id = _collection_id(ctx, name)
             if collection_id is None:
                 ctx.collections_denied = True
-                return [
-                    "not filed into collections: the operator can't manage collections"
-                ]
+                return [DENIED]
             _add(ctx, collection_id, entry.dataset_ids)
             if collection_id not in entry.collection_ids:
                 entry.collection_ids.append(collection_id)
     except GeoLensError as exc:
+        if exc.status == 403:
+            ctx.collections_denied = True
+            return [DENIED]
         raise ItemFailed(f"filing into a collection failed, {exc}") from None
     ctx.save()
     return []

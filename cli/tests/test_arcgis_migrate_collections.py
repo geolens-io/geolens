@@ -241,3 +241,25 @@ def test_a_service_with_many_layers_is_filed_in_batches(runner, tmp_path, geolen
     ]
     assert sizes == [100, 30]
     assert len(collections.membership()["Transportation"]) == 130
+
+
+def test_a_refused_add_to_a_known_collection_skips_filing(runner, tmp_path, geolens):
+    _services(geolens)
+    collections = FakeCollections(geolens)
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", A1)
+    [collection] = collections.names
+    geolens.routes[f"POST {COLLECTIONS}{collection}/datasets/"] = (
+        403,
+        _problem(403, "Permission denied"),
+    )
+    state = _state(plan_file)
+    state["items"][A2] = {"status": "pending"}
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done"
+    assert "can't manage collections" in entry["notes"][0]
