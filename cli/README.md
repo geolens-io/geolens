@@ -59,10 +59,10 @@ A run that gets as far as the item loop writes `arcgis-migration-report.md` and 
 
 Exit codes:
 
-- 0: no item of the plan is failed, and nothing was left waiting or unable to run.
+- 0: no item of the plan is failed, and no item the run selected was left waiting or unable to run. Skipped items (a file over the upload limit or with too many layers) and pending items the run did not select, such as `import_map` items that can't run yet, don't change it, so read the report's counts and follow-ups before treating the migration as complete.
 - 1: an item of the plan is failed (including one this run left out with `--only` or `--no-retry`, and a network or server error once items are running), an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
 - 2: the plan, state file, owner mapping or credentials couldn't be used, or the portal URL redirected before any item ran. A redirect refused once items are running fails that item (exit 1).
-- 3: GeoLens or ArcGIS authentication failed.
+- 3: GeoLens or ArcGIS authentication failed before any item ran (the GeoLens checks, or an ArcGIS password sign-in). An authentication failure once items are running fails that item (exit 1).
 - 4: the portal couldn't be reached while signing in, before any item ran.
 - 5: a server error from the GeoLens checks, before any item ran.
 - 130: interrupted; run the same command to resume.
