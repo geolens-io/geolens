@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 from urllib.parse import quote
 
 if TYPE_CHECKING:
@@ -299,17 +300,37 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def write_private(path: Path, text: str) -> None:
-    """Atomic write at mode 0600: the report lists private items."""
+def _write_atomic(path: Path, fill: Callable[[BinaryIO], None]) -> None:
+    """Fill a new 0600 file beside *path*, flush it to disk, then rename it
+    over *path*. A failure leaves nothing at *path* from this call and no
+    temporary file; an existing file of any mode is replaced, not reused."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.chmod(tmp, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            os.chmod(tmp, 0o600)
+            fill(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def write_private(path: Path, data: str | bytes) -> None:
+    """Atomic write at mode 0600: a report or export lists private items."""
+    raw = data.encode("utf-8") if isinstance(data, str) else data
+    _write_atomic(path, lambda handle: handle.write(raw))
+
+
+def copy_private(path: Path, source: Path) -> None:
+    """Atomically put a copy of the file *source* at *path*, mode 0600."""
+
+    def fill(handle: BinaryIO) -> None:
+        with source.open("rb") as src:
+            shutil.copyfileobj(src, handle)
+
+    _write_atomic(path, fill)
 
 
 def write_report_files(

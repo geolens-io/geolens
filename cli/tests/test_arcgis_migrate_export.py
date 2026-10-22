@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
+from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import C1, C2, C3, D1, FakePortal, portal_routes
@@ -394,3 +395,107 @@ def test_a_story_over_the_cap_is_not_saved(
     assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
     entry = _state(plan_file)["items"][C2]
     assert entry["export"]["partial"] is True and entry["export"]["story"] is False
+
+
+def _with_preexisting(plan_file: Path, *parts: str) -> Path:
+    path = _export(plan_file, *parts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("old")
+    path.chmod(0o644)
+    return path
+
+
+def test_files_that_already_exist_end_up_private(runner, tmp_path, geolens, install):
+    install(
+        {
+            f"content/items/{C3}/resources": _resources("logo.png"),
+            f"content/items/{C3}/resources/logo.png": b"PNG",
+        }
+    )
+    plan_file = _plan(tmp_path)
+    folder = ("dashboard", C3)
+    old = [
+        _with_preexisting(plan_file, *folder, "item.json"),
+        _with_preexisting(plan_file, *folder, "data.json"),
+        _with_preexisting(plan_file, *folder, "resources", "logo.png"),
+        _with_preexisting(plan_file, "INDEX.md"),
+    ]
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    for path in old:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600, path
+        assert path.read_text() != "old" or path.read_bytes() != b"old"
+
+
+def test_a_crash_between_download_and_redaction_leaves_no_file(
+    runner, tmp_path, geolens, install, monkeypatch
+):
+    install(
+        {
+            f"content/items/{C3}/data": {"apiKey": "SECRETKEYVALUE", "ok": 1},
+            f"content/items/{C3}/resources": _resources("notes.json"),
+            f"content/items/{C3}/resources/notes.json": {"apiKey": "SECRETKEYVALUE"},
+        }
+    )
+    calls = {"n": 0}
+    real = redact_json
+
+    def crash_on_data(value, redactor):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("crash")
+        return real(value, redactor)
+
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_export.redact_json", crash_on_data)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    for path in _export(plan_file).rglob("*"):
+        if path.is_file():
+            assert b"SECRETKEYVALUE" not in path.read_bytes(), path
+        assert not path.name.startswith("."), f"temporary file left: {path}"
+    assert not (_export(plan_file, "dashboard", C3) / "data.json").exists()
+
+
+def test_the_download_stage_is_removed_after_a_crash(
+    runner, tmp_path, geolens, install, monkeypatch
+):
+    import tempfile
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    install({f"content/items/{C3}/data": {"ok": 1}})
+    monkeypatch.setattr(
+        "geolens_cli.arcgis_migrate_export.redact_json",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash")),
+    )
+    plan_file = _plan(tmp_path)
+
+    _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert list(scratch.iterdir()) == []
+
+
+def test_the_export_module_writes_files_only_through_the_private_writers():
+    import ast
+
+    from geolens_cli import arcgis_migrate_export as module
+
+    tree = ast.parse(Path(module.__file__).read_text())
+    forbidden = {"write_text", "write_bytes", "copy", "copyfile", "copy2", "move"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        assert name not in forbidden, f"line {node.lineno}: {name}"
+        if name in ("open", "fdopen"):
+            mode = next(
+                (a.value for a in node.args[1:2] if isinstance(a, ast.Constant)), "r"
+            )
+            assert not set(str(mode)) & set("wax+"), f"line {node.lineno}: open {mode}"

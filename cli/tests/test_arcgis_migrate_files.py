@@ -1039,3 +1039,22 @@ def test_retries_share_one_download_deadline(
     assert result.exit_code == 1
     assert len(seen) == 3 and len(set(seen)) == 1
     assert not files.uploads
+
+
+def test_a_download_over_an_existing_world_readable_file_ends_private(tmp_path):
+    import stat
+
+    from geolens_cli.arcgis_portal import PortalClient, Redactor
+
+    portal_fake = FakePortal({"content/items/x/data": CSV})
+    client = PortalClient(
+        PORTAL, opener=portal_fake, redact=Redactor(), sleep=lambda seconds: None
+    )
+    dest = tmp_path / "data.csv"
+    dest.write_text("old")
+    dest.chmod(0o644)
+
+    client.download("content/items/x/data", dest, None)
+
+    assert dest.read_bytes() == CSV
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600

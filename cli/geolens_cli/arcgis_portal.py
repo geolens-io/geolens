@@ -729,6 +729,7 @@ class PortalClient:
         # Mode 0600: a downloaded file is the organization's data.
         try:
             fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.chmod(dest, 0o600)
             out = os.fdopen(fd, "wb")
         except OSError as exc:
             raise self._local_error(exc) from None
