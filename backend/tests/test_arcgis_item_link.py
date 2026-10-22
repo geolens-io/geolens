@@ -523,6 +523,41 @@ class TestFileCommit:
         assert seen["item_id"] == _ITEM
         assert seen["portal_url"] == "https://portal.example.org/portal"
 
+    async def test_a_retry_without_the_link_clears_the_one_a_failed_dispatch_left(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        job = await self._pending(test_db_session)
+        job.user_metadata = {"file_type": "vector", "all_layers": ["a"]}
+        await test_db_session.commit()
+        outcomes = iter(["failed", "queued"])
+        seen: list[dict] = []
+
+        async def spawn(parent, layer, db):
+            seen.append(dict(parent.user_metadata))
+            status = next(outcomes)
+            return FanOutLayerResult(
+                layer_name="a",
+                status=status,
+                error="boom" if status == "failed" else None,
+            )
+
+        body = {"layers": [{"layer_name": "a"}]}
+        with patch("app.processing.ingest.router.create_fan_out_jobs", spawn):
+            first = await client.post(
+                f"/ingest/commit-fan-out/{job.id}",
+                json={**body, "item_id": _ITEM, "portal_url": "https://p.example.org"},
+                headers=admin_auth_header,
+            )
+            retry = await client.post(
+                f"/ingest/commit-fan-out/{job.id}", json=body, headers=admin_auth_header
+            )
+        assert first.status_code == retry.status_code == 202
+        assert seen[0]["item_id"] == _ITEM
+        assert "item_id" not in seen[1] and "portal_url" not in seen[1]
+        stored = await _job(test_db_session, str(job.id))
+        assert "item_id" not in stored.user_metadata
+        assert "portal_url" not in stored.user_metadata
+
 
 class TestProvenanceProjection:
     async def _dataset(self, session, owner_id):

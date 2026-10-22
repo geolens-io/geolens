@@ -147,6 +147,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs import ledger
+from app.platform.dataset_origin import PORTAL_LINK_KEYS
 from app.platform.portal_link import (
     PortalLink,
     resolve_portal_link,
@@ -1132,9 +1133,16 @@ async def commit_fan_out(
         db, user, (job.user_metadata or {}).get("visibility")
     )
 
+    # A retry after an all-failed dispatch replaces the link a first attempt
+    # left on the restored parent rather than adding to it.
     link = resolve_portal_link(request.item_id, request.portal_url)
-    if link.fields:
-        job.user_metadata = {**(job.user_metadata or {}), **link.fields}
+    kept = {
+        key: value
+        for key, value in (job.user_metadata or {}).items()
+        if key not in PORTAL_LINK_KEYS
+    }
+    if {**kept, **link.fields} != (job.user_metadata or {}):
+        job.user_metadata = {**kept, **link.fields}
 
     known_layer_names = known_layer_names_for(job)
 
