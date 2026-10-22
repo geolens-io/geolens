@@ -243,36 +243,71 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
     return Styled(_paint(base, expression), config, base.kind)
 
 
+def _has_gap(usable: list) -> bool:
+    return any(
+        low is not None and low > previous
+        for (previous, _, _), (_, low, _) in zip(usable, usable[1:])
+    )
+
+
+def _graduated_expression(
+    field_name: str, usable: list, colors: list[str], fallback: str
+) -> list:
+    """Inclusive per-class bounds; ArcGIS ranges include both ends and may leave gaps."""
+    value = ["get", field_name]
+    branches: list = []
+    previous: float | None = None
+    for (high, low, _), color in zip(usable, colors):
+        test: list = ["<=", value, high]
+        if low is not None and (previous is None or low > previous):
+            test = ["all", [">=", value, low], test]
+        branches.extend([test, color])
+        previous = high
+    return ["case", ["==", value, None], fallback, *branches, fallback]
+
+
 def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field")
     classes, skipped = _classes(
         _l(r.get("classBreakInfos")), f"{path}.classBreakInfos", loss
     )
     ranked = sorted(
-        ((num(i.get("classMaxValue")), s) for i, s in classes),
-        key=lambda pair: (pair[0] is None, pair[0] or 0.0),
+        (
+            (num(i.get("classMaxValue")), num(i.get("classMinValue")), s)
+            for i, s in classes
+        ),
+        key=lambda item: (item[0] is None, item[0] or 0.0),
     )
-    usable = [(m, s) for m, s in ranked if m is not None]
-    base = next((s for _, s in usable if s), None)
+    if ranked and ranked[0][1] is None:
+        first = ranked[0]
+        ranked[0] = (first[0], num(r.get("minValue")), first[2])
+    usable = [item for item in ranked if item[0] is not None]
+    base = next((s for _, _, s in usable if s), None)
 
     if r.get("normalizationType"):
         loss.add(path, "normalization", describe(r.get("normalizationType")))
-        return _simple(next((s for _, s in ranked if s), None), hint)
+        return _simple(next((s for _, _, s in ranked if s), None), hint)
     if not isinstance(field_name, str) or not field_name or base is None:
         loss.add(path, "unsupported_renderer", "classBreaks without a field or symbols")
-        return _simple(next((s for _, s in ranked if s), None), hint)
+        return _simple(next((s for _, _, s in ranked if s), None), hint)
     if skipped or len(usable) != len(ranked):
         dropped = skipped + len(ranked) - len(usable)
         loss.add(path, "renderer_class_dropped", f"{dropped} classes")
     if len(usable) < 2:
         return _simple(base, hint)
 
-    breaks = [m for m, _ in usable[:-1]]
-    colors = [_class_color(s) for _, s in usable]
-    step: list = ["step", ["get", field_name], colors[0]]
-    for stop, color in zip(breaks, colors[1:]):
-        step.extend([stop, color])
-    expression = ["case", ["==", ["get", field_name], None], NULL_COLOR, step]
+    colors = [_class_color(s) for _, _, s in usable]
+    breaks = [m for m, _, _ in usable[:-1]]
+    default = (
+        _symbol(r["defaultSymbol"], f"{path}.defaultSymbol", loss)
+        if r.get("defaultSymbol")
+        else None
+    )
+    expression = _graduated_expression(
+        field_name, usable, colors, _class_color(default) if default else NULL_COLOR
+    )
+    if _has_gap(usable):
+        loss.add(path, "class_gap", "values between classes use the default colour")
     config = _style_config(
         base,
         {

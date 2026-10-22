@@ -295,6 +295,29 @@ class TestUniqueValueRenderer:
         assert "visual_variable" in _kinds(_translate(_with_renderer(renderer)))
 
 
+def _eval(expression, props: dict):
+    """Evaluate the small MapLibre subset the translator emits for class breaks."""
+    if not isinstance(expression, list):
+        return expression
+    op, *args = expression
+    if op == "get":
+        return props.get(args[0])
+    if op == "case":
+        pairs, fallback = args[:-1], args[-1]
+        for test, value in zip(pairs[::2], pairs[1::2]):
+            if _eval(test, props):
+                return value
+        return fallback
+    if op == "all":
+        return all(_eval(a, props) for a in args)
+    left, right = (_eval(a, props) for a in args)
+    if op == "==":
+        return left == right
+    if left is None:
+        return False
+    return {"<=": left <= right, ">=": left >= right}[op]
+
+
 class TestClassBreaksRenderer:
     def _renderer(self, **extra) -> dict:
         return {
@@ -309,23 +332,54 @@ class TestClassBreaksRenderer:
             **extra,
         }
 
-    def test_becomes_a_step(self) -> None:
+    def test_becomes_inclusive_per_class_bounds(self) -> None:
         result = _translate(_with_renderer(self._renderer()))
         layer = result.layers[0]
         assert layer.style_config["mode"] == "graduated"
         assert layer.style_config["breaks"] == [10.0, 100.0]
         assert layer.style_config["colors"] == ["#00ff00", "#ffff00", "#ff0000"]
-        step = layer.paint["fill-color"][3]
-        assert step == [
-            "step",
-            ["get", "POP"],
-            "#00ff00",
-            10.0,
-            "#ffff00",
-            100.0,
-            "#ff0000",
-        ]
+        expression = layer.paint["fill-color"]
+        assert "step" not in json.dumps(expression)
+        colors = {
+            v: _eval(expression, {"POP": v}) for v in (0, 5, 10, 11, 100, 101, 1000)
+        }
+        assert colors == {
+            0: "#00ff00",
+            5: "#00ff00",
+            10: "#00ff00",
+            11: "#ffff00",
+            100: "#ffff00",
+            101: "#ff0000",
+            1000: "#ff0000",
+        }
+        assert _eval(expression, {"POP": None}) == "#cccccc"
         assert not result.loss.items
+
+    def test_values_in_a_gap_between_classes_get_the_default_colour(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "POP",
+            "classBreakInfos": [
+                {
+                    "classMinValue": 0,
+                    "classMaxValue": 10,
+                    "symbol": _fill([255, 0, 0, 255]),
+                },
+                {
+                    "classMinValue": 20,
+                    "classMaxValue": 30,
+                    "symbol": _fill([0, 0, 255, 255]),
+                },
+            ],
+        }
+        result = _translate(_with_renderer(renderer))
+        expression = result.layers[0].paint["fill-color"]
+        assert _eval(expression, {"POP": 10}) == "#ff0000"
+        assert _eval(expression, {"POP": 15}) == "#cccccc"
+        assert _eval(expression, {"POP": 20}) == "#0000ff"
+        assert _eval(expression, {"POP": 30}) == "#0000ff"
+        assert _eval(expression, {"POP": 31}) == "#cccccc"
+        assert _kinds(result) == {"class_gap"}
 
     def test_normalization_is_reported_and_not_applied_to_the_raw_field(self) -> None:
         result = _translate(
