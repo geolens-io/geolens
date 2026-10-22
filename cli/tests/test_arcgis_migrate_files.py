@@ -43,6 +43,7 @@ class FakeFiles:
         self.commits: dict[str, dict] = {}
         self.fan_outs: list[dict] = []
         self.fanned: set[str] = set()
+        self.job_status: dict[str, str] = {}
         self.upload_refusal: tuple | None = None
         self.helper = layers.FakeImport(fake, [])
         fake.routes[UPLOAD] = self.upload
@@ -113,7 +114,9 @@ class FakeFiles:
         if self.layer_names:
             # The upload job of a multi-layer file is only ever fanned out.
             reply.update(
-                status="fanned_out" if job in self.fanned else "pending",
+                status=self.job_status.get(
+                    job, "fanned_out" if job in self.fanned else "pending"
+                ),
                 dataset_id=None,
             )
         return reply
@@ -1172,3 +1175,27 @@ def test_a_fan_out_whose_layers_all_failed_is_uploaded_afresh_on_rerun(
 
     assert result.exit_code == 0, result.output
     assert len(files.uploads) == 2
+
+
+@pytest.mark.parametrize("ended", ["cancelled", "failed"])
+def test_a_fan_out_whose_upload_job_ended_without_children_is_uploaded_afresh(
+    runner, tmp_path, geolens, portal, ended
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    real = files.fan_out
+    _lose_the_fan_out_answer(files, accepted=False)
+    plan_file = _plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 1
+    [parent] = [
+        s.url.rsplit("/", 1)[-1] for s in geolens.seen if "/commit-fan-out/" in s.url
+    ][:1]
+    files.job_status[parent] = ended
+    files.fan_out = real
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 2
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == [dataset_id("Roads"), dataset_id("Parcels")]

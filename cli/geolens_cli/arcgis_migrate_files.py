@@ -54,6 +54,8 @@ DEFAULT_LIMIT_MB = 500
 JOB_KEY = "file"
 # State keys of a fan-out's layers carry this prefix, so a layer can't collide
 # with JOB_KEY whatever its name.
+# Upload-job states in which a fan-out is known to have queued no child.
+_CHILDLESS = frozenset({"cancelled", "failed"})
 LAYER_PREFIX = "layer:"
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _TOKEN_STATUSES = (498, 499)
@@ -235,14 +237,15 @@ def _fan_out(
 
 def _resume_fan_out(
     ctx: MigrationContext, entry: ItemState, base: str, visibility: str
-) -> ItemResult:
+) -> ItemResult | None:
     """Carry on a fan-out an earlier run sent but never saw the answer to.
 
     GeoLens refuses a second fan-out of a job it already fanned out, and the
     child jobs can only be learned from the answer. A job still pending was
     never accepted and is sent again; any other state means the layers were
     queued, so the item fails, without uploading the file again, naming the
-    datasets to look for.
+    datasets to look for. A job that ended cancelled or failed queued none, so
+    the item is imported afresh (None).
     """
     from geolens.api.admin import get_job_status_jobs_job_id_get as get_job
 
@@ -259,6 +262,12 @@ def _resume_fan_out(
         return ItemResult(
             notes=[f"the file holds {len(layers)} layers, one dataset each", *failed]
         )
+    if status in _CHILDLESS:
+        # The job ended without queuing a child (cancelled, expired, or the
+        # dispatch was interrupted), so no dataset exists: import afresh.
+        entry.fan_out = None
+        ctx.save()
+        return None
     titles = ", ".join(repr(_title(base, name)) for name in layers)
     raise ItemFailed(
         f"{base}: the layers were sent to GeoLens but the answer was lost, so "
@@ -365,7 +374,9 @@ def import_file(
         return ItemResult(notes=list(entry.notes))
 
     if entry.fan_out:
-        return _resume_fan_out(ctx, entry, base, visibility)
+        resumed = _resume_fan_out(ctx, entry, base, visibility)
+        if resumed is not None:
+            return resumed
 
     recorded = entry.layer_jobs.get(JOB_KEY)
     if recorded:
