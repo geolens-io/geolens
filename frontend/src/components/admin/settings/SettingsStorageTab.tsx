@@ -214,7 +214,7 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
               value={storageQuantity}
               onChange={(e) => updateStorageQuantity(e.target.value)}
               aria-invalid={quantityBytes === null}
-              aria-describedby={quantityBytes === null ? 'max-storage-error' : 'max-storage-help'}
+              aria-describedby={quantityBytes === null ? 'max-storage-error max-storage-help' : 'max-storage-help'}
               disabled={envOnly}
               className="w-40"
             />

@@ -253,7 +253,7 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitR
           <Label htmlFor="audit-retention-days">{t('settings.general.auditRetentionDays')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'audit_retention_days')?.source ?? 'default'} settingKey="audit_retention_days" onReset={onReset} />
         </div>
-        <p className="text-sm text-muted-foreground">{t('settings.general.auditRetentionDaysDescription')}</p>
+        <p id="audit-retention-help" className="text-sm text-muted-foreground">{t('settings.general.auditRetentionDaysDescription')}</p>
         <Input
           id="audit-retention-days"
           type="number"
@@ -265,7 +265,7 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitR
           onChange={(e) => setters.audit_retention_days(e.target.value)}
           disabled={envOnly}
           aria-invalid={retentionInvalid}
-          aria-describedby={retentionInvalid ? 'audit-retention-error' : retentionShort ? 'audit-retention-warning' : undefined}
+          aria-describedby={`${retentionInvalid ? 'audit-retention-error ' : retentionShort ? 'audit-retention-warning ' : ''}audit-retention-help`}
           className="w-40"
         />
         {retentionInvalid && (

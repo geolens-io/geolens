@@ -15,7 +15,11 @@ function renderGeneral(retention: number | null) {
 describe('audit retention field', () => {
   it('starts empty when records are kept forever', () => {
     renderGeneral(null);
-    expect(screen.getByLabelText('Audit log retention (days)')).toHaveValue(null);
+    const field = screen.getByLabelText('Audit log retention (days)');
+    expect(field).toHaveValue(null);
+    expect(field).toHaveAccessibleDescription(
+      expect.stringMatching(/^Audit records older than this many days are deleted automatically\./),
+    );
   });
 
   it('saves a whole number of days', async () => {
@@ -61,6 +65,9 @@ describe('audit retention field', () => {
     await user.type(field, '89');
 
     expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription(
+      expect.stringMatching(/^Enter a whole number of days .* Audit records older than this many days/),
+    );
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 

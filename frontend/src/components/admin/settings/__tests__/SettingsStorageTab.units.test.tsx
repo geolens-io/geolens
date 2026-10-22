@@ -68,6 +68,9 @@ describe('storage quota units', () => {
     await user.type(quantity, '0.0000000001');
 
     expect(quantity).toHaveAttribute('aria-invalid', 'true');
+    expect(quantity).toHaveAccessibleDescription(
+      expect.stringMatching(/^Enter a quantity that equals a whole number of bytes\. 0 means unlimited\./),
+    );
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 });
