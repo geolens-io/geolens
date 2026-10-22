@@ -907,7 +907,9 @@ def _run(
         unavailable = [
             item["id"]
             for item in to_run
-            if item["action"] != _plan.SKIP and item["action"] not in HANDLERS
+            if item["action"] != _plan.SKIP
+            and not item.get("unlisted")
+            and item["action"] not in HANDLERS
         ]
         unlisted = [
             item["id"]

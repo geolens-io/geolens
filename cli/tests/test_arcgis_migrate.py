@@ -885,6 +885,27 @@ def test_an_unlisted_item_gets_only_its_unlisted_follow_up(
     }
 
 
+def test_a_dry_run_classifies_items_as_the_run_does(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    plan = _v2(
+        [
+            _item(L1, "import_map", unlisted=True),
+            _item(L2, "import_map"),
+            _item(M1, "skip", unlisted=True),
+            _item(S1, removed=True),
+        ]
+    )
+
+    _, dry = _run(runner, tmp_path, plan, "--dry-run")
+    _, run = _run(runner, tmp_path, plan)
+
+    for payload in (dry, run):
+        assert payload["unlisted"] == [L1]
+        assert payload["not_available"] == [L2]
+
+
 def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
     result, payload = _run(
         runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"
