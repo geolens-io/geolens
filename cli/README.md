@@ -59,7 +59,7 @@ A run that gets as far as the item loop writes `arcgis-migration-report.md` and 
 
 Exit codes:
 
-- 0: nothing failed.
+- 0: nothing failed among the items this run selected. A failed item left out by `--only` or `--no-retry` is not counted, so read the counts in the report before treating the migration as complete.
 - 1: an item failed (including a network or server error once items are running), an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
 - 2: the plan, state file, owner mapping or credentials couldn't be used, or a redirect was refused.
 - 3: GeoLens or ArcGIS authentication failed.
