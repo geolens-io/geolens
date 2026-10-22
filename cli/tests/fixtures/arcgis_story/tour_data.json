@@ -1,0 +1,31 @@
+{
+  "root": "n-root",
+  "nodes": {
+    "n-root": {"type": "story", "children": ["n-cover", "n-tour", "n-tourmap", "n-credits"]},
+    "n-cover": {"type": "storycover", "data": {"title": "Blue Ways", "summary": "Paddle trails.", "byline": ""}},
+    "n-tour": {"type": "tour", "data": {"type": "guided-tour", "map": "n-tourmap", "places": [
+      {"id": "n-p1", "featureId": "f1", "title": "n-t1", "media": "n-car", "contents": ["n-c1"]},
+      {"id": "n-p2", "featureId": "f2", "title": "n-t2", "media": "n-img3", "contents": ["n-c2", "n-gal"]}
+    ]}},
+    "n-tourmap": {"type": "tour-map", "data": {"geometries": {
+      "f1": {"id": "f1", "type": "POINT_NUMBERED_TOUR", "nodes": [{"long": -77.43146, "lat": 34.74273}]},
+      "f2": {"id": "f2", "type": "POINT_NUMBERED_TOUR", "nodes": [{"long": -77.4, "lat": 34.7}]}
+    }}},
+    "n-t1": {"type": "text", "data": {"type": "h3", "text": "Downtown Blue Way"}},
+    "n-c1": {"type": "text", "data": {"type": "paragraph", "text": "Three city <strong>parks</strong>."}},
+    "n-car": {"type": "carousel", "children": ["n-img1", "n-img2"]},
+    "n-img1": {"type": "image", "data": {"image": "r-1"}},
+    "n-img2": {"type": "image", "data": {"image": "r-2", "caption": "Marina"}},
+    "n-t2": {"type": "text", "data": {"type": "h3", "text": "River Blue Way"}},
+    "n-img3": {"type": "image", "data": {"image": "r-3"}},
+    "n-c2": {"type": "text", "data": {"type": "paragraph", "text": "A longer route."}},
+    "n-gal": {"type": "gallery", "data": {"items": ["n-g1"]}},
+    "n-g1": {"type": "text", "data": {"type": "paragraph", "text": "Inside an unknown node."}},
+    "n-credits": {"type": "credits", "children": []}
+  },
+  "resources": {
+    "r-1": {"type": "image", "data": {"resourceId": "one.png"}},
+    "r-2": {"type": "image", "data": {"resourceId": "two.png"}},
+    "r-3": {"type": "image", "data": {"resourceId": "three.jpg"}}
+  }
+}

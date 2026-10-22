@@ -726,8 +726,10 @@ class PortalClient:
                 raise self._error(f"{path} is {int(length)} bytes", kind="too_large")
         total = 0
         first = True
+        # Mode 0600: a downloaded file is the organization's data.
         try:
-            out = dest.open("wb")
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            out = os.fdopen(fd, "wb")
         except OSError as exc:
             raise self._local_error(exc) from None
         with out:

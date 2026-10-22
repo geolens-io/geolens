@@ -108,6 +108,13 @@ def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
 
 
+def _private_dirs(path: Path) -> None:
+    """Create *path* and any missing parent at mode 0700."""
+    for directory in reversed([path, *path.parents]):
+        if not directory.exists():
+            directory.mkdir(mode=0o700)
+
+
 def _slug(item_type: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", item_type.lower()).strip("-") or "item"
 
@@ -134,7 +141,7 @@ class _Export:
     def fetch(self, path: str, dest: Path, what: str) -> bool:
         """Download *path* into *dest* within the budget; False when it was
         left out (over budget, or the portal refused)."""
-        dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _private_dirs(dest.parent)
         try:
             size = self.client.download(path, dest, self.remaining)
         except PortalError as exc:
@@ -151,7 +158,7 @@ class _Export:
 
 
 def _write_json(ctx: MigrationContext, path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _private_dirs(path.parent)
     safe = redact_json(value, ctx.redact)
     _report.write_private(path, json.dumps(safe, indent=2, ensure_ascii=False) + "\n")
 
@@ -270,7 +277,7 @@ def export_item(
     if not _ITEM_ID.fullmatch(item["id"]):
         raise ItemFailed("the item id is not an ArcGIS item id")
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _private_dirs(folder)
     export = _Export(client, folder, ctx.export_cap)
     try:
         full = client.get_json(f"content/items/{item['id']}")

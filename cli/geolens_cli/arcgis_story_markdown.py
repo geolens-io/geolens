@@ -23,9 +23,17 @@ MapLink = Callable[[str], str]
 _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 # Nodes that only group their children.
 _CONTAINERS = frozenset(
-    {"story", "immersive", "immersive-slide", "immersive-narrative-panel", "credits"}
+    {
+        "story",
+        "immersive",
+        "immersive-slide",
+        "immersive-narrative-panel",
+        "credits",
+        "carousel",
+    }
 )
-_SILENT = frozenset({"navigation", "story-theme"})
+# A tour-map is read through the tour that owns it.
+_SILENT = frozenset({"navigation", "story-theme", "tour-map"})
 _MAX_DEPTH = 32
 _BREAK = "\x00"
 
@@ -111,11 +119,13 @@ class _Story:
         self.map_link = map_link
         self.resource_dir = resource_dir
         self.blocks: list[str] = []
+        self.seen: set[str] = set()
 
     def walk(self, node_id: str, depth: int = 0) -> None:
         node = self.nodes.get(node_id)
-        if not isinstance(node, Mapping) or depth > _MAX_DEPTH:
+        if not isinstance(node, Mapping) or depth > _MAX_DEPTH or node_id in self.seen:
             return
+        self.seen.add(node_id)
         kind = str(node.get("type"))
         data = node.get("data") if isinstance(node.get("data"), Mapping) else {}
         if kind == "storycover":
@@ -138,10 +148,54 @@ class _Story:
             self._add("---")
         elif kind == "attribution":
             self._add(inline_markdown(data.get("attribution") or data.get("content")))
+        elif kind == "tour":
+            self._tour(data, depth)
         else:
-            self._add(f"<!-- unsupported node type: {html.escape(kind)} -->")
+            # Read the nodes an unknown node refers to, so its text and images
+            # are never dropped; only a node with nothing in it is a comment.
+            found = self._referenced(data)
+            for ref in found:
+                self.walk(ref, depth + 1)
+            if not found and not node.get("children"):
+                self._add(f"<!-- unsupported node type: {html.escape(kind)} -->")
         for child in node.get("children") or []:
             self.walk(str(child), depth + 1)
+
+    def _referenced(self, value: Any, depth: int = 0) -> list[str]:
+        """Node ids named in *value*, in order."""
+        if depth > _MAX_DEPTH:
+            return []
+        if isinstance(value, str):
+            return [value] if value in self.nodes else []
+        if isinstance(value, Mapping):
+            value = list(value.values())
+        if isinstance(value, list):
+            return [r for v in value for r in self._referenced(v, depth + 1)]
+        return []
+
+    def _tour(self, data: Mapping[str, Any], depth: int) -> None:
+        """A guided tour: each place's title, where it is, its media, then its
+        text. The tour node has no children; the places hold the content."""
+        tour_map = self.nodes.get(str(data.get("map")))
+        shapes = {}
+        if isinstance(tour_map, Mapping) and isinstance(tour_map.get("data"), Mapping):
+            shapes = tour_map["data"].get("geometries") or {}
+        for place in data.get("places") or []:
+            if not isinstance(place, Mapping):
+                continue
+            self.walk(str(place.get("title")), depth + 1)
+            self._location(shapes.get(str(place.get("featureId"))))
+            self.walk(str(place.get("media")), depth + 1)
+            for content in place.get("contents") or []:
+                self.walk(str(content), depth + 1)
+
+    def _location(self, shape: Any) -> None:
+        nodes = shape.get("nodes") if isinstance(shape, Mapping) else None
+        point = nodes[0] if isinstance(nodes, list) and nodes else None
+        if isinstance(point, Mapping):
+            lat, long = point.get("lat"), point.get("long")
+            if isinstance(lat, int | float) and isinstance(long, int | float):
+                self._add(f"*Location: {lat:.5f}, {long:.5f}*")
 
     def _add(self, block: str) -> None:
         if block:

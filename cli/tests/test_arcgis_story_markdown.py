@@ -79,3 +79,44 @@ def test_a_classic_page_without_a_story_renders_nothing():
         story.render_classic({"values": {"title": "x"}}, title="t", map_link=_link)
         is None
     )
+
+
+def _tour() -> dict:
+    return json.loads((FIXTURES / "tour_data.json").read_text())
+
+
+def test_a_guided_tour_renders_each_place_in_order():
+    text = story.render_storymap(_tour(), title="t", map_link=_link)
+
+    assert text == (
+        "# Blue Ways\n\nPaddle trails.\n\n"
+        "### Downtown Blue Way\n\n*Location: 34.74273, -77.43146*\n\n"
+        "![](resources/one.png)\n\n![Marina](resources/two.png)\n\n"
+        "Three city **parks**.\n\n"
+        "### River Blue Way\n\n*Location: 34.70000, -77.40000*\n\n"
+        "![](resources/three.jpg)\n\nA longer route.\n\n"
+        "Inside an unknown node.\n"
+    )
+
+
+def test_every_text_and_image_of_a_story_reaches_the_markdown():
+    data = _tour()
+
+    text = story.render_storymap(data, title="t", map_link=_link)
+
+    for node in data["nodes"].values():
+        if node["type"] == "text":
+            assert story.inline_markdown(node["data"]["text"]) in text
+    for resource in data["resources"].values():
+        assert f"resources/{resource['data']['resourceId']}" in text
+
+
+def test_an_unknown_node_with_nothing_in_it_is_a_comment():
+    data = {
+        "root": "a",
+        "nodes": {"a": {"type": "story", "children": ["b"]}, "b": {"type": "widget"}},
+    }
+
+    assert "<!-- unsupported node type: widget -->" in story.render_storymap(
+        data, title="t", map_link=_link
+    )

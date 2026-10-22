@@ -94,21 +94,31 @@ def test_a_dashboard_is_saved_with_its_data_and_resources(
     }
 
 
-def test_exported_files_are_private_and_hold_no_credential(
+def test_every_exported_file_and_folder_is_private_and_holds_no_credential(
     runner, tmp_path, geolens, install
 ):
     token = secrets.token_urlsafe(16)
-    install({f"content/items/{C3}/data": {"title": "x", "note": f"token={token}"}})
-    plan_file = _plan(tmp_path)
+    install(
+        {
+            f"content/items/{C3}/data": {"title": "x", "note": f"token={token}"},
+            f"content/items/{C3}/resources": _resources("logo.png", "deep/a.bin"),
+            f"content/items/{C3}/resources/logo.png": b"PNG",
+            f"content/items/{C3}/resources/deep/a.bin": b"BIN",
+        }
+    )
+    plan_file = _plan(tmp_path, rows={C3: {"type": "Form"}})
 
     result, _ = _migrate(runner, plan_file, "--only", C3, "--token", token)
 
     assert result.exit_code == 0, result.output
-    files = [p for p in _export(plan_file).rglob("*") if p.is_file()]
-    assert files
+    entries = list(_export(plan_file).rglob("*"))
+    files = [p for p in entries if p.is_file()]
+    assert {p.name for p in files} >= {"logo.png", "a.bin", "item.json", "INDEX.md"}
+    for path in entries:
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == (0o600 if path.is_file() else 0o700), path
     for path in files:
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
-        assert token not in path.read_text()
+        assert token.encode() not in path.read_bytes()
 
 
 def test_a_service_item_saves_only_its_json(runner, tmp_path, geolens, install):
