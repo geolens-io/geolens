@@ -80,6 +80,9 @@ class ItemState:
     # A multi-layer file's fan-out, recorded before it is sent: the parent
     # upload job and the layers asked for.
     fan_out: dict[str, Any] | None = None
+    # A file's upload job from the upload until its preview has chosen how it
+    # is committed, so a rerun after a failed preview does not upload again.
+    pending_upload: str | None = None
     # The service the pins above belong to; None in a file written before it
     # was recorded, which a rerun adopts rather than distrusts.
     service_url: str | None = None

@@ -112,7 +112,11 @@ def _download(ctx: MigrationContext, item_id: str, dest: Path, limit: int) -> No
     ``ItemFailed`` / ``StopRun`` when the portal refuses."""
     client = ctx.portal.client if ctx.portal is not None else None
     if client is None:
-        raise ItemFailed("the run has no connection to the ArcGIS portal")
+        raise ItemFailed(
+            "the file has to be downloaded again and the run has no ArcGIS "
+            "portal connection; rerun with --token, ARCGIS_TOKEN, --token-stdin "
+            "or --username"
+        )
     try:
         client.download(f"content/items/{item_id}/data", dest, limit)
     except PortalError as exc:
@@ -149,6 +153,8 @@ def _preview(ctx: MigrationContext, job_id: UUID, title: str) -> Any:
         with long_request_timeout(ctx.geolens.client):
             return ctx.geolens.call(preview.sync_detailed, job_id=job_id)
     except GeoLensError as exc:
+        if exc.status == 404:
+            raise _JobGone(f"{title}: the upload job {job_id} is gone") from None
         raise ItemFailed(f"{title}: preview failed, {exc}") from None
 
 
@@ -215,6 +221,7 @@ def _fan_out(
         "titles": [titles[name] for name in layers],
         "sent_at": _wall_clock(),
     }
+    entry.pending_upload = None
     ctx.save()
     request = FanOutCommitRequest(
         layers=[FanOutLayerRequest(layer_name=n, title=titles[n]) for n in layers]
@@ -444,19 +451,35 @@ def import_file(
 
     limit = _limit(ctx)
     size = row.get("size_bytes")
-    try:
-        if isinstance(size, int) and size > limit:
-            raise _Skipped(
-                f"the file is {_megabytes(size)}, over the instance's upload "
-                f"limit of {_megabytes(limit)}"
-            )
-        job_id = _upload_fresh(ctx, item, extension, limit)
-    except _Skipped as skipped:
-        return ItemResult(status=SKIPPED, notes=[f"skipped: {skipped}"])
-    entry.job_ids.append(str(job_id))
-    preview = _preview(ctx, job_id, base)
+    job_id: UUID | None = None
+    preview: Any = None
+    if entry.pending_upload:
+        # An earlier run uploaded the file and stopped before its preview ended.
+        job_id = UUID(entry.pending_upload)
+        try:
+            preview = _preview(ctx, job_id, base)
+        except _JobGone:
+            entry.pending_upload = None
+            ctx.save()
+            job_id = None
+    if job_id is None:
+        try:
+            if isinstance(size, int) and size > limit:
+                raise _Skipped(
+                    f"the file is {_megabytes(size)}, over the instance's upload "
+                    f"limit of {_megabytes(limit)}"
+                )
+            job_id = _upload_fresh(ctx, item, extension, limit)
+        except _Skipped as skipped:
+            return ItemResult(status=SKIPPED, notes=[f"skipped: {skipped}"])
+        entry.job_ids.append(str(job_id))
+        entry.pending_upload = str(job_id)
+        ctx.save()
+        preview = _preview(ctx, job_id, base)
     layers = _layer_names(preview)
     if len(layers) > MAX_FAN_OUT_LAYERS:
+        entry.pending_upload = None
+        ctx.save()
         return ItemResult(
             status=SKIPPED,
             notes=[
@@ -475,6 +498,7 @@ def import_file(
     columns = _geometry_columns(preview)
     entry.layer_jobs[JOB_KEY] = str(job_id)
     entry.file_columns = columns
+    entry.pending_upload = None
     ctx.save()
     notes = []
     if item["type"] == "CSV" and not columns and preview.geometry_type is None:

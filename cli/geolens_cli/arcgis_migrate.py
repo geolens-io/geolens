@@ -696,11 +696,24 @@ def _inventory_rows(
     return {row["id"]: row for row in inventory["items"]}, inventory["portal"]
 
 
+def _resumes_without_download(entry: ItemState | None) -> bool:
+    """Whether a data file's state already holds what its import continues
+    from (a pending upload, a committed job, a fan-out or a dataset), so the
+    rerun does not download it from the portal."""
+    return entry is not None and bool(
+        entry.layer_datasets
+        or entry.layer_jobs
+        or entry.fan_out
+        or entry.pending_upload
+    )
+
+
 def _portal_client(
     opts: MigrateOptions,
     plan: Mapping[str, Any],
     to_run: list[Mapping[str, Any]],
     rows: Mapping[str, Mapping[str, Any]],
+    state: MigrationState,
     redact: Redactor,
 ) -> tuple[PortalClient, str | None] | None:
     """A client for the plan's portal holding the run's token or password.
@@ -715,10 +728,16 @@ def _portal_client(
         and i["id"] in rows
         and (i["action"] != _plan.IMPORT_FILE or i["type"] in FILE_TYPES)
     ]
+    # A private file that resumes without a download needs no credential; if
+    # its job turns out to be gone, the item says to rerun with one.
     private = sum(
         1
         for item in wanted
         if (rows[item["id"]].get("sharing") or {}).get("access") != "public"
+        and not (
+            item["action"] == _plan.IMPORT_FILE
+            and _resumes_without_download(state.items.get(item["id"]))
+        )
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
     supplied = bool(opts.token or opts.token_stdin or opts.username)
@@ -820,7 +839,9 @@ def _run(
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         rows, portal_info = _inventory_rows(plan, opts.plan_path, to_run)
         portal = (
-            None if opts.dry_run else _portal_client(opts, plan, to_run, rows, redact)
+            None
+            if opts.dry_run
+            else _portal_client(opts, plan, to_run, rows, state, redact)
         )
     except (_plan.PlanError, StateError, UsageError) as exc:
         fmt.error(str(exc))
