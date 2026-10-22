@@ -32,26 +32,9 @@ DEFAULT_CAP_MB = 200
 JSON_LIMIT = 32 * 1024 * 1024
 _ITEM_ID = re.compile(r"[0-9a-fA-F]{32}")
 _TOKEN_STATUSES = (498, 499)
-# Services and similar items have no data file of their own.
-ITEM_JSON_ONLY = frozenset(
-    {
-        "Geocoding Service",
-        "Geometry Service",
-        "Geoprocessing Service",
-        "Network Analysis Service",
-        "Workflow Manager Service",
-        "Image Service",
-        "Vector Tile Service",
-        "Scene Service",
-        "3DTilesService",
-        "WMS",
-        "WMTS",
-        "WCS",
-        "WFS",
-        "KML",
-        "OGCFeatureServer",
-    }
-)
+_NOT_JSON = object()
+# A portal answers these for an item that has no data of its own.
+_NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
 _STORY = "Web Mapping Application"
 _NO_EQUIVALENT = "No equivalent in GeoLens."
@@ -137,6 +120,8 @@ class _Export:
         self.remaining = cap
         self.partial = False
         self.errors: list[str] = []
+        # The errors a rerun may fix; they fail the item.
+        self.failures: list[str] = []
         self.bytes = 0
         self._staged = 0
 
@@ -146,7 +131,15 @@ class _Export:
                 f"the portal refused the ArcGIS token ({exc}); it may have "
                 "expired. Rerun with a fresh token to resume."
             ) from None
-        self.errors.append(f"{what}: {exc}")
+        # The status or kind, not the error text, which repeats the request
+        # path and with it a resource name.
+        message = (
+            f"{what}: {'HTTP ' + str(exc.http_status) if exc.http_status else exc.kind}"
+        )
+        self.errors.append(message)
+        if exc.retryable or exc.kind in ("network", "server", "local"):
+            # Worth another try: the item is left failed, not done.
+            self.failures.append(message)
 
     def download(self, path: str, what: str) -> Path | None:
         """Download *path* into the stage within the budget; None when it was
@@ -160,20 +153,21 @@ class _Export:
             if exc.kind == "too_large":
                 self.partial = True
                 self.errors.append(f"{what}: over the export size cap, not saved")
+            elif what == "data" and exc.http_status in _NO_DATA:
+                pass  # the item has no data of its own
             else:
                 self.note_error(what, exc)
             return None
         return staged
 
     def charge(self, size: int) -> bool:
-        """Count *size* bytes written against the cap; False when that
-        overran it."""
+        """Count *size* bytes about to be written against the cap; False,
+        counting nothing, when they don't fit."""
+        if size > self.remaining:
+            return False
         self.bytes += size
         self.remaining -= size
-        if self.remaining >= 0:
-            return True
-        self.remaining = 0
-        return False
+        return True
 
     def place(
         self,
@@ -194,13 +188,13 @@ class _Export:
         """
         try:
             size = staged.stat().st_size
-            value = None
+            value: Any = _NOT_JSON
             if size <= JSON_LIMIT:
                 try:
                     value = json.loads(staged.read_bytes())
                 except (ValueError, RecursionError):
-                    value = None
-            if isinstance(value, dict | list):
+                    value = _NOT_JSON
+            if value is not _NOT_JSON:
                 text = _redacted_text(ctx, value)
                 if not self.charge(len(text)):
                     self.partial = True
@@ -232,17 +226,21 @@ def _redacted_text(ctx: MigrationContext, value: Any) -> bytes:
     return (json.dumps(safe, indent=2, ensure_ascii=False) + "\n").encode()
 
 
-def _write_json(ctx: MigrationContext, path: Path, value: Any) -> int:
-    """Write *value* redacted and return the size of the file."""
-    _private_dirs(path.parent)
-    text = _redacted_text(ctx, value)
-    _report.write_private(path, text)
-    return len(text)
+_JSON_SNIFF_BYTES = 4096
+_SNIFF_ENCODINGS = ("utf-8-sig", "utf-16", "utf-32", "utf-16-le", "utf-16-be")
 
 
 def _looks_like_json(path: Path) -> bool:
+    """Whether the file starts like a JSON object or array, under any encoding
+    JSON may use and after any BOM and whitespace. A file that is nothing but
+    whitespace in its first bytes counts, since it can't be ruled out."""
     with path.open("rb") as handle:
-        return handle.read(64).lstrip()[:1] in (b"{", b"[")
+        head = handle.read(_JSON_SNIFF_BYTES)
+    for encoding in _SNIFF_ENCODINGS:
+        text = head.decode(encoding, errors="ignore").lstrip("\ufeff \t\r\n")
+        if text[:1] in ("{", "["):
+            return True
+    return not head.strip(b"\x00 \t\r\n\xef\xbb\xbf\xff\xfe") and bool(head)
 
 
 def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) -> Any:
@@ -346,7 +344,7 @@ def _story(
         text = render_classic(data, title=item["title"], map_link=link)
     if text is None:
         return False
-    text = ctx.redact(text)
+    text = redact_json(text, ctx.redact)
     if not export.charge(len(text.encode())):
         export.partial = True
         export.errors.append("story.md: over the export size cap, not saved")
@@ -375,13 +373,13 @@ def export_item(
         except PortalError as exc:
             export.note_error("item", exc)
             raise ItemFailed(f"reading the item failed, {exc}") from None
-        if not export.charge(
-            _write_json(ctx, folder / "item.json", {"inventory": row, "item": full})
-        ):
+        meta = _redacted_text(ctx, {"inventory": row, "item": full})
+        if export.charge(len(meta)):
+            _report.write_private(folder / "item.json", meta)
+        else:
             export.partial = True
-        data = None
-        if item["type"] not in ITEM_JSON_ONLY:
-            data = _save_data(ctx, export, item)
+            export.errors.append("item.json: over the export size cap, not saved")
+        data = _save_data(ctx, export, item)
         _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data)
     relative = folder.relative_to(ctx.export_dir.parent)
@@ -389,13 +387,19 @@ def export_item(
         "path": relative.as_posix(),
         "bytes": export.bytes,
         "partial": export.partial,
-        "errors": export.errors,
+        "errors": [redact_json(e, ctx.redact) for e in export.errors],
         "story": story,
     }
     notes = [f"exported to {relative.as_posix()}"]
     if export.partial:
         notes.append("partial: some files were left out; see the export notes")
-    notes.extend(f"export: {e}" for e in export.errors)
+    notes.extend(f"export: {e}" for e in entry.export["errors"])
+    if export.failures:
+        # Left failed, so a rerun fetches what a transient error cost.
+        raise ItemFailed(
+            "export incomplete, rerun to retry: "
+            + "; ".join(redact_json(f, ctx.redact) for f in export.failures)
+        )
     return ItemResult(notes=notes)
 
 
@@ -440,5 +444,6 @@ def write_index(
         rows += 1
     if rows:
         _report.write_private(
-            ctx.export_dir / "INDEX.md", ctx.redact("\n".join(lines) + "\n")
+            ctx.export_dir / "INDEX.md",
+            redact_json("\n".join(lines) + "\n", ctx.redact),
         )

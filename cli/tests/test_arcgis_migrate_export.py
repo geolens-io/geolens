@@ -122,8 +122,15 @@ def test_every_exported_file_and_folder_is_private_and_holds_no_credential(
         assert token.encode() not in path.read_bytes()
 
 
-def test_a_service_item_saves_only_its_json(runner, tmp_path, geolens, install):
-    portal = install()
+def test_an_item_without_data_saves_only_its_json_and_no_error(
+    runner, tmp_path, geolens, install
+):
+    portal = install(
+        {
+            f"content/items/{D1}/data": (400, {"error": {"code": 400}}),
+            f"content/items/{D1}/resources": _resources(),
+        }
+    )
     plan_file = _plan(tmp_path)
 
     result, _ = _migrate(runner, plan_file, "--only", D1, "--token", TOKEN)
@@ -131,7 +138,19 @@ def test_a_service_item_saves_only_its_json(runner, tmp_path, geolens, install):
     assert result.exit_code == 0, result.output
     folder = _export(plan_file, "image-service", D1)
     assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
-    assert not portal.requests_to(f"content/items/{D1}/data")
+    assert portal.requests_to(f"content/items/{D1}/data")
+    assert _state(plan_file)["items"][D1]["export"]["errors"] == []
+
+
+def test_a_service_type_that_stores_data_is_saved(runner, tmp_path, geolens, install):
+    install({f"content/items/{D1}/data": b"<kml>uploaded</kml>"})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D1, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "image-service", D1)
+    assert (folder / "data.bin").read_bytes() == b"<kml>uploaded</kml>"
 
 
 def test_a_storymap_gets_story_text_images_and_map_links(
@@ -499,3 +518,100 @@ def test_the_export_module_writes_files_only_through_the_private_writers():
                 (a.value for a in node.args[1:2] if isinstance(a, ast.Constant)), "r"
             )
             assert not set(str(mode)) & set("wax+"), f"line {node.lineno}: open {mode}"
+
+
+_SECRET_JSON = '{"apiKey": "SECRETKEYVALUE", "pad": "' + "x" * 200 + '"}'
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"\xef\xbb\xbf" + _SECRET_JSON.encode(),
+        b" " * 5000 + _SECRET_JSON.encode(),
+        _SECRET_JSON.encode("utf-16"),
+        _SECRET_JSON.encode("utf-16-le"),
+        _SECRET_JSON.encode("utf-32"),
+        b"\n\t " * 40 + _SECRET_JSON.encode(),
+    ],
+    ids=["utf8-bom", "long-whitespace", "utf16-bom", "utf16-le", "utf32", "mixed"],
+)
+def test_json_in_any_encoding_is_not_copied_raw(
+    runner, tmp_path, geolens, install, monkeypatch, body
+):
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_export.JSON_LIMIT", 100)
+    install(
+        {
+            f"content/items/{C3}/resources": _resources("blob"),
+            f"content/items/{C3}/resources/blob": body,
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "dashboard", C3) / "resources" / "blob").exists()
+    assert _state(plan_file)["items"][C3]["export"]["partial"] is True
+
+
+def test_story_index_and_errors_are_fully_scrubbed(runner, tmp_path, geolens, install):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    data["nodes"]["n-intro"]["data"]["text"] = (
+        'See <a href="https://x.example/api?apiKey=SECRETKEYVALUE">the api</a>.'
+    )
+    install(
+        {
+            f"content/items/{C2}/data": data,
+            f"content/items/{C2}/resources": _resources("a?apiKey=SECRETKEYVALUE.png"),
+        }
+    )
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    for path in _export(plan_file).rglob("*"):
+        if path.is_file():
+            assert b"SECRETKEYVALUE" not in path.read_bytes(), path
+    state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert "SECRETKEYVALUE" not in state
+
+
+def test_a_transient_failure_leaves_the_item_failed_and_a_rerun_completes_it(
+    runner, tmp_path, geolens, install
+):
+    portal = install({f"content/items/{C3}/data": (503, {"error": {"code": 503}})})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][C3]
+    assert entry["status"] == "failed" and "rerun to retry" in entry["error"]
+
+    portal.routes[f"content/items/{C3}/data"] = {"title": "x"}
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][C3]["status"] == "done"
+    assert (_export(plan_file, "dashboard", C3) / "data.json").exists()
+
+
+def test_item_json_over_the_cap_is_not_written(runner, tmp_path, geolens, install):
+    install(
+        {
+            f"content/items/{C3}": {
+                **json.loads(json.dumps(portal_routes()[f"content/items/{C3}"])),
+                "description": "x" * (2 * 1024 * 1024),
+            }
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", C3, "--token", TOKEN, "--export-cap-mb", "1"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "dashboard", C3) / "item.json").exists()
+    export = _state(plan_file)["items"][C3]["export"]
+    assert export["partial"] is True and export["bytes"] <= 1024 * 1024
