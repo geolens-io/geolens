@@ -30,6 +30,32 @@ class TestResolvePortalLink:
         assert link.losses == []
 
     @pytest.mark.parametrize(
+        ("given", "stored"),
+        [
+            ("https://myorg.maps.arcgis.com/sharing/rest", _PORTAL),
+            ("https://myorg.maps.arcgis.com/sharing/rest/", _PORTAL),
+            ("https://myorg.maps.arcgis.com/SHARING", _PORTAL),
+            (
+                "https://gis.example.org/portal/sharing/rest?f=json",
+                "https://gis.example.org/portal",
+            ),
+            (
+                "https://gis.example.org/portal/sharing",
+                "https://gis.example.org/portal",
+            ),
+            (
+                "https://gis.example.org/portal/sharingx",
+                "https://gis.example.org/portal/sharingx",
+            ),
+        ],
+    )
+    def test_the_rest_endpoint_is_stored_as_the_portal_base(
+        self, given: str, stored: str
+    ) -> None:
+        link = resolve_portal_link(_ITEM, given)
+        assert link.fields["portal_url"] == stored
+
+    @pytest.mark.parametrize(
         "portal_url",
         [
             "http://myorg.maps.arcgis.com",

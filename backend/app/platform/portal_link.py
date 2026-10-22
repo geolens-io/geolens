@@ -29,6 +29,10 @@ _HOST = re.compile(r"[a-z0-9.-]+")
 # browser's read differently (a browser turns `\` into `/`).
 _UNSAFE_URL_CHARS = re.compile(r"[\s\x00-\x1f\x7f\\]")
 
+# A portal address is often given as its REST endpoint; the item page lives
+# under the portal base, so the API suffix is not part of what is stored.
+_PORTAL_API_SUFFIX = re.compile(r"/sharing(/rest)?/*$", re.IGNORECASE)
+
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 
 # Second-level labels that sit under a two-letter country code (co.uk, com.au),
@@ -96,7 +100,8 @@ def same_registrable_domain(first_url: str, second_url: str) -> bool:
 def _check_portal_url(
     value: str, service_url: str | None
 ) -> tuple[str | None, str | None]:
-    """``(url, None)`` with query and fragment removed, or ``(None, loss)``."""
+    """``(url, None)`` as the portal base (no query, fragment or
+    ``/sharing/rest`` suffix), or ``(None, loss)``."""
     if len(value) > PORTAL_URL_MAX_LENGTH:
         return None, LOSS_PORTAL_URL_INVALID
     value = value.strip()
@@ -125,7 +130,7 @@ def _check_portal_url(
     netloc = f"[{host}]" if ":" in host else host
     if port is not None:
         netloc = f"{netloc}:{port}"
-    return f"https://{netloc}{parts.path.rstrip('/')}", None
+    return f"https://{netloc}{_PORTAL_API_SUFFIX.sub('', parts.path).rstrip('/')}", None
 
 
 def resolve_portal_link(
