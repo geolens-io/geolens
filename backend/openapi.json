@@ -10138,6 +10138,18 @@
             "title": "Importable",
             "type": "boolean"
           },
+          "has_attachments": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.",
+            "title": "Has Attachments"
+          },
           "layer_id": {
             "anyOf": [
               {

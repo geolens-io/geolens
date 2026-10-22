@@ -10458,6 +10458,11 @@ export interface components {
              */
             importable: boolean;
             /**
+             * Has Attachments
+             * @description Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.
+             */
+            has_attachments?: boolean | null;
+            /**
              * Layer Id
              * @description Numeric or string layer ID used by ArcGIS services.
              */

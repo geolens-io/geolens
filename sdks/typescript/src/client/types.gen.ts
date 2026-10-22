@@ -6001,6 +6001,12 @@ export type LayerInfo = {
      */
     importable?: boolean;
     /**
+     * Has Attachments
+     *
+     * Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.
+     */
+    has_attachments?: boolean | null;
+    /**
      * Layer Id
      *
      * Numeric or string layer ID used by ArcGIS services.

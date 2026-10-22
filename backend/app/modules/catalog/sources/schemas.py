@@ -185,6 +185,13 @@ class LayerInfo(BaseModel):
             "'unsupported_layer_type'."
         ),
     )
+    has_attachments: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the ArcGIS layer reports file attachments. Null when the "
+            "service does not say, and for other service types."
+        ),
+    )
     layer_id: int | str | None = Field(
         default=None, description="Numeric or string layer ID used by ArcGIS services."
     )

@@ -9,6 +9,7 @@ runs ogrinfo lazily for the one layer the user selects. ArcGIS layers are
 enriched, because that takes fast HTTP returnCountOnly queries, not ogrinfo.
 """
 
+import asyncio
 from urllib.parse import urlparse
 
 import httpx
@@ -30,6 +31,10 @@ from app.modules.catalog.sources.adapters.arcgis import (
     enrich_arcgis_feature_counts,
     normalize_arcgis_url,
     probe_arcgis_service,
+)
+from app.modules.catalog.sources.adapters.arcgis_attachments import (
+    apply_attachment_flags,
+    fetch_arcgis_attachment_flags,
 )
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
@@ -102,6 +107,20 @@ def _build_probe_response(result: dict, layers: list[dict], url: str) -> ProbeRe
     )
 
 
+async def _enrich_arcgis_layers(
+    base_url: str, result: dict, client: httpx.AsyncClient, token: str | None
+) -> list[dict]:
+    """Feature counts and attachment flags, read concurrently."""
+    version = result.get("version")
+    counted, flags = await asyncio.gather(
+        enrich_arcgis_feature_counts(
+            base_url, result["layers"], client, token=token, current_version=version
+        ),
+        fetch_arcgis_attachment_flags(base_url, client, token, current_version=version),
+    )
+    return apply_attachment_flags(counted, flags)
+
+
 def _build_arcgis_response(
     arcgis_result: dict,
     enriched_layers: list[dict],
@@ -120,6 +139,7 @@ def _build_arcgis_response(
             source_layer_type=layer.get("arcgis_type"),
             parent_layer_id=layer.get("parent_layer_id"),
             importable=layer.get("importable", True),
+            has_attachments=layer.get("has_attachments"),
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers
@@ -227,13 +247,7 @@ async def detect_service_type(
             # The currentVersion came back with the service document, so count
             # queries know the token transport without rediscovering it from a
             # 499.
-            enriched = await enrich_arcgis_feature_counts(
-                base_url,
-                result["layers"],
-                client,
-                token=token,
-                current_version=result.get("version"),
-            )
+            enriched = await _enrich_arcgis_layers(base_url, result, client, token)
             return _build_arcgis_response(
                 result, enriched, base_url, selected_layer_id=layer_id
             )
@@ -258,13 +272,7 @@ async def detect_service_type(
     arcgis_result = await _arcgis_probe(base_url)
     if arcgis_result is not None:
         _arcgis_carries(credential)
-        enriched = await enrich_arcgis_feature_counts(
-            base_url,
-            arcgis_result["layers"],
-            client,
-            token=token,
-            current_version=arcgis_result.get("version"),
-        )
+        enriched = await _enrich_arcgis_layers(base_url, arcgis_result, client, token)
         return _build_arcgis_response(
             arcgis_result, enriched, base_url, selected_layer_id=layer_id
         )
