@@ -121,6 +121,12 @@ def file_into_collections(
         if exc.status == 403:
             ctx.collections_denied = True
             return [DENIED]
-        raise ItemFailed(f"filing into a collection failed, {exc}") from None
+        hint = (
+            "; if the collection was deleted, remove it from `collections` in "
+            "the state file and rerun"
+            if exc.status == 404
+            else ""
+        )
+        raise ItemFailed(f"filing into a collection failed, {exc}{hint}") from None
     ctx.save()
     return []
