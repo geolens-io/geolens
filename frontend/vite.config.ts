@@ -96,31 +96,60 @@ const fontsCors: Plugin = {
   },
 }
 
-const licenseFile = 'third-party-licenses.txt'
+const licenseJson = 'third-party-licenses.json'
 
-// build.license lists only packages that JavaScript imports. The fonts,
-// Tailwind and its animations arrive through index.css, so their notices are
-// appended here in the same format.
-const cssPackageLicenses: Plugin = {
-  name: 'geolens-css-package-licenses',
+interface LicenseEntry {
+  name: string
+  version: string
+  identifier: string
+  text?: string
+}
+
+function shippedLicenseText(name: string): string {
+  const root = path.resolve(__dirname, 'node_modules', name)
+  const file = fs.existsSync(root) && fs.readdirSync(root).find((f) => /^licen[cs]e/i.test(f))
+  const source = file ? path.join(root, file) : path.resolve(__dirname, 'licenses', `${name}.txt`)
+  return fs.existsSync(source) ? fs.readFileSync(source, 'utf-8').trim() : ''
+}
+
+// build.license lists only packages that JavaScript imports, and leaves the
+// text empty when a package names its license file differently or ships none.
+// This writes the served notices from its JSON, adds the packages index.css
+// imports (fonts, Tailwind) and fills the gaps from the package or licenses/.
+const thirdPartyLicenses: Plugin = {
+  name: 'geolens-third-party-licenses',
   apply: 'build',
-  writeBundle({ dir }) {
+  writeBundle({ dir = 'dist' }) {
+    const jsonPath = path.join(dir, licenseJson)
+    const entries: LicenseEntry[] = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+    fs.rmSync(jsonPath)
     const css = fs.readFileSync(path.resolve(__dirname, 'src/index.css'), 'utf-8')
-    const names = new Set(
-      [...css.matchAll(/@import\s+['"]((?:@[^/'"]+\/)?[^./'"][^/'"]*)/g)].map((m) => m[1]),
-    )
-    const sections = [...names].map((name) => {
-      const root = path.resolve(__dirname, 'node_modules', name)
-      const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'))
-      const text = fs.readFileSync(path.join(root, 'LICENSE'), 'utf-8').trim()
-      return `## ${name} - ${pkg.version} (${pkg.license})\n\n${text}\n`
+    for (const [, name] of css.matchAll(/@import\s+['"]((?:@[^/'"]+\/)?[^./'"][^/'"]*)/g)) {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, 'node_modules', name, 'package.json'), 'utf-8'),
+      )
+      if (!entries.some((e) => e.name === name)) {
+        entries.push({ name, version: pkg.version, identifier: pkg.license })
+      }
+    }
+    const missing: string[] = []
+    const sections = entries.map(({ name, version, identifier, text }) => {
+      const body = text?.trim() || shippedLicenseText(name)
+      if (!body) missing.push(name)
+      return `## ${name} - ${version} (${identifier})\n\n${body}\n`
     })
-    fs.appendFileSync(path.join(dir ?? 'dist', licenseFile), `\n${sections.join('\n')}`)
+    if (missing.length) {
+      throw new Error(`No license text for ${missing.join(', ')}; add frontend/licenses/<name>.txt`)
+    }
+    fs.writeFileSync(
+      path.join(dir, 'third-party-licenses.txt'),
+      `# Licenses\n\nThe app bundles dependencies which contain the following licenses:\n\n${sections.join('\n')}`,
+    )
   },
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), fontsCors, cssPackageLicenses],
+  plugins: [react(), tailwindcss(), fontsCors, thirdPartyLicenses],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
@@ -220,7 +249,7 @@ export default defineConfig({
     // that explicit budget grows materially.
     chunkSizeWarningLimit: 1300,
     // Minification strips the license headers that MIT and BSD notices require.
-    license: { fileName: licenseFile },
+    license: { fileName: licenseJson },
     rollupOptions: {
       output: {
         manualChunks,
