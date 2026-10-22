@@ -362,6 +362,12 @@ def import_layers(
     from geolens.models.probe_request import ProbeRequest
 
     row = _row(ctx, item)
+    if entry.service_url not in (None, row["url"]):
+        # A layer id from the old service could match one of the new service's.
+        entry.layer_datasets.clear()
+        entry.layer_jobs.clear()
+        entry.dataset_ids.clear()
+    entry.service_url = row["url"]
     try:
         with long_request_timeout(ctx.geolens.client):
             probe = _send(
