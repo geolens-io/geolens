@@ -2,12 +2,14 @@
 """Turn an ArcGIS inventory into an editable migration plan.
 
 Hand-maintained. The plan file's shape is pinned by
-``manifest/schemas/arcgis-migration-plan-v1.schema.json``. Nothing here
-contacts a portal or GeoLens: it reads one inventory JSON and writes one plan.
+``manifest/schemas/arcgis-migration-plan-v2.schema.json``; v1 plans are still
+read. Nothing here contacts a portal or GeoLens: it reads one inventory JSON,
+and the plan already in the output directory, and writes one plan.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from collections import Counter
@@ -22,10 +24,15 @@ from jsonschema.exceptions import best_match
 from . import arcgis_report as _report
 from . import output as _output
 from ._sdk_helpers import EXIT_GENERIC, EXIT_OK, EXIT_USAGE
+from .arcgis_portal import portal_root
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 PLAN_FILENAME = "arcgis-migration-plan.json"
-_PLAN_SCHEMA_RESOURCE = "arcgis-migration-plan-v1.schema.json"
+CONFLICT_LINES = 10
+_PLAN_SCHEMAS = {
+    "1": "arcgis-migration-plan-v1.schema.json",
+    "2": "arcgis-migration-plan-v2.schema.json",
+}
 _INVENTORY_VERSION = "2"
 
 IMPORT_LAYERS = "import_layers"
@@ -39,6 +46,20 @@ DEFAULTS = {"visibility": "private", "collection_from": "folder"}
 _ACCESS_VISIBILITY = {"private": "private", "org": "internal", "public": "public"}
 # Roles whose target must exist before the item that names it.
 _ORDERING_ROLES_EXCLUDED = frozenset({"published_from"})
+# Item values an operator may edit, as paths into the item and its defaults.
+_EDITABLE = (
+    ("action",),
+    ("depends_on",),
+    ("superseded_by",),
+    ("target", "owner"),
+    ("target", "visibility"),
+    ("target", "collections"),
+    ("target", "groups"),
+    ("target", "title"),
+    ("target", "tags"),
+)
+# Item values that describe the portal item; a merge takes the inventory's.
+_PORTAL_FACTS = ("type", "title", "owner", "reason")
 
 
 class PlanError(Exception):
@@ -173,6 +194,12 @@ def build_plan(
         if layer and action == IMPORT_FILE:
             entry["action"] = EXPORT_ONLY
             entry["superseded_by"] = layer
+        entry["defaults"] = {
+            "action": entry["action"],
+            "target": copy.deepcopy(entry["target"]),
+            "depends_on": list(depends_on),
+            "superseded_by": entry.get("superseded_by"),
+        }
         rows.append(entry)
 
     portal = inventory["portal"]
@@ -182,6 +209,8 @@ def build_plan(
             "path": inventory_path,
             "generated_at": inventory["generated_at"],
             "complete": bool(inventory["complete"] and not inventory["truncated"]),
+            "scope": dict(inventory["scope"]),
+            "auth": dict(inventory["auth"]),
         },
         "portal": {"url": portal["url"]},
         "defaults": dict(DEFAULTS),
@@ -190,6 +219,203 @@ def build_plan(
         "basemap_map": {url: "" for url in basemaps},
         "items": rows,
     }
+
+
+def _get(item: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = item
+    for key in path:
+        value = value.get(key)
+    return value
+
+
+def _put(item: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    *parents, last = path
+    for key in parents:
+        item = item[key]
+    item[last] = copy.deepcopy(value)
+
+
+def _unread_paths(row: Mapping[str, Any]) -> set[tuple[str, ...]]:
+    """Defaults this inventory row can't give, because the portal wasn't read."""
+    paths = set()
+    if row["groups"] is None:
+        paths.add(("target", "groups"))
+    if _unread_dependencies(row):
+        paths.add(("depends_on",))
+        if row["type"] == "Web Map":
+            paths.add(("action",))
+    return paths
+
+
+def _merge_item(
+    current: Mapping[str, Any],
+    fresh: Mapping[str, Any],
+    unread: set[tuple[str, ...]],
+    conflicts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """*current* brought up to *fresh*'s defaults, keeping every edited value.
+
+    A value counts as edited when it differs from the default recorded with
+    it; an item without recorded defaults (from a v1 plan) counts as all
+    edited and gets none.
+    An edited value's recorded default doesn't move, so the value stays an
+    edit when the portal's default later passes through it.
+    """
+    merged = copy.deepcopy(dict(current))
+    merged.pop("removed", None)
+    merged.pop("unlisted", None)
+    for key in _PORTAL_FACTS:
+        merged[key] = fresh[key]
+    old = current.get("defaults")
+    recorded = copy.deepcopy(fresh["defaults"])
+    for path in _EDITABLE:
+        value, new = _get(current, path), _get(fresh["defaults"], path)
+        was = _get(old, path) if old is not None else None
+        if old is not None and value == was and path not in unread:
+            _put(merged, path, new)
+            continue
+        if old is not None:
+            _put(recorded, path, was)
+        if path in unread:
+            continue
+        if value != new and (old is None or new != was):
+            conflicts.append(
+                {
+                    "item": current["id"],
+                    "field": ".".join(path),
+                    "plan": value,
+                    "inventory": new,
+                }
+            )
+    if merged.get("superseded_by") is None:
+        merged.pop("superseded_by", None)
+    # Without recorded defaults nothing shows which values were edited, so
+    # they stay edits on every merge.
+    if old is not None:
+        merged["defaults"] = recorded
+    return merged
+
+
+def _same_portal(a: str, b: str) -> bool:
+    try:
+        return portal_root(a, True) == portal_root(b, True)
+    except ValueError:
+        return a.rstrip("/") == b.rstrip("/")
+
+
+def other_organization(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any]
+) -> str | None:
+    """The org id of *inventory* when it names another ArcGIS organization
+    than *plan* records; None when they match or either is unknown, since
+    every ArcGIS Online organization shares one portal URL."""
+    ours = (plan["inventory"].get("scope") or {}).get("org_id")
+    theirs = inventory["scope"]["org_id"]
+    return theirs if ours and theirs and ours != theirs else None
+
+
+def shows_removals(inventory: Mapping[str, Any]) -> bool:
+    """Whether an inventory not listing an item shows the item is gone.
+
+    Only a complete, org-scope inventory read signed in can. A user-scope
+    inventory misses items moved to another owner, and an anonymous one
+    misses everything not public. The inventory doesn't record whether the
+    reader is an org admin, so a non-admin reader counts too.
+    """
+    return bool(
+        inventory["complete"]
+        and inventory["scope"]["mode"] == "org"
+        and inventory["auth"]["mode"] != "anonymous"
+    )
+
+
+def merge_plan(
+    current: Mapping[str, Any],
+    fresh: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+    """*fresh*, the default plan of *inventory*, merged into the *current* plan.
+
+    Edited values stay; a value still equal to its recorded default takes the
+    new default. Items keep the plan's order, and items new to the portal are
+    appended with defaults. An item missing from an inventory that
+    ``shows_removals`` is kept and marked ``removed``, so the state file's
+    record of what it migrated still has a plan item. Any other inventory
+    removes nothing: an item it doesn't list is marked ``unlisted`` until a
+    merge lists it again. Returns the plan and what the merge changed.
+    """
+    if not _same_portal(current["portal"]["url"], fresh["portal"]["url"]):
+        raise PlanError(
+            f"the plan is for {current['portal']['url']}, not {fresh['portal']['url']}"
+        )
+    other = other_organization(current, inventory)
+    if other is not None:
+        raise PlanError(
+            f"the plan is for ArcGIS organization "
+            f"{current['inventory']['scope']['org_id']}, not {other}"
+        )
+    rows = {row["id"]: row for row in inventory["items"]}
+    listed = {item["id"]: item for item in fresh["items"]}
+    complete = shows_removals(fresh["inventory"])
+    changes: dict[str, list[Any]] = {
+        "added": [],
+        "removed": [],
+        "restored": [],
+        "unlisted": [],
+        "conflicts": [],
+        "owner_conflicts": [],
+    }
+    items: list[dict[str, Any]] = []
+    for mine in current["items"]:
+        item = listed.get(mine["id"])
+        if item is not None:
+            if mine.get("removed"):
+                changes["restored"].append(mine["id"])
+            items.append(
+                _merge_item(
+                    mine, item, _unread_paths(rows[item["id"]]), changes["conflicts"]
+                )
+            )
+            continue
+        kept = copy.deepcopy(dict(mine))
+        if complete:
+            kept.pop("unlisted", None)
+            if not kept.get("removed"):
+                kept["removed"] = True
+                changes["removed"].append(mine["id"])
+        elif not kept.get("removed"):
+            kept["unlisted"] = True
+            changes["unlisted"].append(mine["id"])
+        items.append(kept)
+    known = {item["id"] for item in current["items"]}
+    for item in fresh["items"]:
+        if item["id"] not in known:
+            changes["added"].append(item["id"])
+            items.append(item)
+
+    owner_map = dict(fresh["owner_map"])
+    for owner, name in current["owner_map"].items():
+        given = owner_map.get(owner, "")
+        if name and given and given != name:
+            changes["owner_conflicts"].append(
+                {"owner": owner, "plan": name, "owner_map": given}
+            )
+        if name or owner not in owner_map:
+            owner_map[owner] = name
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "inventory": dict(fresh["inventory"]),
+        "portal": dict(fresh["portal"]),
+        "defaults": dict(current["defaults"]),
+        "owner_map": dict(sorted(owner_map.items())),
+        "group_map": dict(
+            sorted({**fresh["group_map"], **current["group_map"]}.items())
+        ),
+        "basemap_map": dict(
+            sorted({**fresh["basemap_map"], **current["basemap_map"]}.items())
+        ),
+        "items": items,
+    }, changes
 
 
 def _load_json(path: Path, what: str) -> Any:
@@ -230,9 +456,15 @@ def load_inventory(path: Path) -> dict[str, Any]:
 
 
 def load_plan(path: Path) -> dict[str, Any]:
-    """A plan file, validated against the plan schema; ``PlanError`` otherwise."""
+    """A v1 or v2 plan file, validated against its schema; ``PlanError``
+    otherwise."""
     data = _load_json(path, "plan")
-    schema_path = files("geolens_cli.manifest.schemas").joinpath(_PLAN_SCHEMA_RESOURCE)
+    version = data.get("schema_version") if isinstance(data, dict) else None
+    resource = _PLAN_SCHEMAS.get(
+        version if isinstance(version, str) else SCHEMA_VERSION,
+        _PLAN_SCHEMAS[SCHEMA_VERSION],
+    )
+    schema_path = files("geolens_cli.manifest.schemas").joinpath(resource)
     error = _schema_error(data, json.loads(schema_path.read_text(encoding="utf-8")))
     if error is not None:
         raise PlanError(f"{path} is not a valid migration plan at {error}")
@@ -257,7 +489,8 @@ def load_owner_map(path: Path) -> dict[str, str]:
 
 
 def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, Any]:
-    by_action = Counter(item["action"] for item in plan["items"])
+    present = [item for item in plan["items"] if not item.get("removed")]
+    by_action = Counter(item["action"] for item in present)
     ids = {item["id"] for item in plan["items"]}
     unresolved = sorted(
         {
@@ -269,7 +502,8 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
     )
     external = sum(1 for d in inventory["dependencies"] if d["external"] is True)
     return {
-        "items": len(plan["items"]),
+        "items": len(present),
+        "removed": len(plan["items"]) - len(present),
         "by_action": {a: by_action.get(a, 0) for a in ACTIONS},
         "owners_to_map": sum(1 for v in plan["owner_map"].values() if not v),
         "groups": len(plan["group_map"]),
@@ -292,6 +526,44 @@ def _render(plan: Mapping[str, Any]) -> str:
     return json.dumps(plan, indent=2) + "\n"
 
 
+def _report_merge(
+    fmt: _output.Formatter, path: Path, changes: Mapping[str, list[Any]]
+) -> None:
+    fmt.success(
+        f"Merged the inventory into {path}: {len(changes['added'])} new item(s), "
+        f"{len(changes['removed'])} gone from the portal, "
+        f"{len(changes['restored'])} back on the portal"
+    )
+    if changes["removed"]:
+        fmt.warn(
+            "marked removed, never run again; what they migrated stays in GeoLens: "
+            + ", ".join(changes["removed"][:5])
+        )
+    if changes["unlisted"]:
+        fmt.warn(
+            f"{len(changes['unlisted'])} plan item(s) are missing from this inventory "
+            "and were marked unlisted, not removed, since only a complete --scope "
+            "org inventory read signed in marks items removed: "
+            + ", ".join(changes["unlisted"][:5])
+        )
+    conflicts = changes["conflicts"]
+    for c in conflicts[:CONFLICT_LINES]:
+        fmt.warn(
+            f"{c['item']} {c['field']}: kept the plan's {json.dumps(c['plan'])}; "
+            f"the inventory now gives {json.dumps(c['inventory'])}"
+        )
+    if len(conflicts) > CONFLICT_LINES:
+        fmt.warn(
+            f"{len(conflicts) - CONFLICT_LINES} more value(s) kept against the "
+            "inventory; --json lists them all under merge.conflicts"
+        )
+    for c in changes["owner_conflicts"]:
+        fmt.warn(
+            f"owner_map {c['owner']}: kept the plan's {c['plan']}, "
+            f"not {c['owner_map']} from --owner-map"
+        )
+
+
 def run_cli(
     fmt: _output.Formatter,
     *,
@@ -312,6 +584,17 @@ def run_cli(
     except PlanError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
+    path = out_dir / PLAN_FILENAME
+    changes = None
+    if not force and path.exists():
+        try:
+            plan, changes = merge_plan(load_plan(path), plan, inventory)
+        except PlanError as exc:
+            fmt.error(
+                f"can't merge this inventory into the existing plan: {exc}. Pass "
+                "--force to replace it, or choose another --output-dir."
+            )
+            return EXIT_GENERIC
     if owners:
         unknown = sorted(set(owners) - set(plan["owner_map"]))
         if unknown:
@@ -338,24 +621,19 @@ def run_cli(
             "the inventory is partial or truncated, so the plan misses items; "
             "rerun the inventory before migrating"
         )
-    text = _render(plan)
-    path = out_dir / PLAN_FILENAME
     try:
-        if path.exists() and path.read_text(encoding="utf-8") != text and not force:
-            fmt.error(
-                f"{path} already exists and differs from this plan, so it may hold "
-                "your edits. Pass --force to replace it, or choose another --output-dir."
-            )
-            return EXIT_GENERIC
         out_dir.mkdir(parents=True, exist_ok=True)
-        _report.write_private(path, text)
+        _report.write_private(path, _render(plan))
     except (OSError, ValueError) as exc:
         fmt.error(f"can't write {path}: {getattr(exc, 'strerror', None) or exc}")
         return EXIT_GENERIC
     if fmt.json_mode:
-        fmt.json({"plan": str(path), **stats})
+        fmt.json({"plan": str(path), **stats, "merge": changes})
         return EXIT_OK
-    fmt.success(f"Wrote {path}")
+    if changes is None:
+        fmt.success(f"Wrote {path}")
+    else:
+        _report_merge(fmt, path, changes)
     actions = ", ".join(f"{a}: {n}" for a, n in stats["by_action"].items())
     fmt.info(f"{stats['items']} item(s): {actions}")
     fmt.info(

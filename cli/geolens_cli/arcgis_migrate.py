@@ -177,6 +177,12 @@ def _wanted(
     unknown = sorted(set(only) - set(by_id))
     if unknown:
         raise UsageError(f"--only names items not in the plan: {', '.join(unknown)}")
+    removed = sorted(i for i in only if by_id[i].get("removed"))
+    if removed:
+        raise UsageError(
+            "--only names items marked removed in the plan, which never run: "
+            + ", ".join(removed)
+        )
     wanted: set[str] = set()
     stack = list(only)
     while stack:
@@ -191,7 +197,7 @@ def _wanted(
 
 
 def _needs_run(item: Mapping[str, Any], status: str, no_retry: bool) -> bool:
-    if status in FINISHED:
+    if status in FINISHED or item.get("removed"):
         return False
     if status == FAILED and no_retry:
         return False
@@ -385,7 +391,12 @@ def _changed_owners(
     changed = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
-        if item["id"] in running or entry is None or entry.status not in FINISHED:
+        if (
+            item["id"] in running
+            or item.get("removed")
+            or entry is None
+            or entry.status not in FINISHED
+        ):
             continue
         try:
             user = directory.find(_target_name(item, plan))
@@ -436,6 +447,7 @@ def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
 @dataclass
 class RunSummary:
     unavailable: list[str] = field(default_factory=list)
+    unlisted: list[str] = field(default_factory=list)
     waiting: list[dict[str, Any]] = field(default_factory=list)
     stopped: str | None = None
 
@@ -443,11 +455,13 @@ class RunSummary:
 def _unmet(
     item: Mapping[str, Any], by_id: Mapping[str, Any], state: MigrationState
 ) -> list[str]:
+    # A removed dependency never runs, so like a missing one it holds nothing back.
     return [
         dep
         for dep in item["depends_on"]
         if dep in by_id
         and dep != item["id"]
+        and not by_id[dep].get("removed")
         and state.status(dep) not in (*FINISHED, SKIPPED)
     ]
 
@@ -500,6 +514,9 @@ def run_items(
     for item in to_run:
         if item["action"] == _plan.SKIP:
             state.finish(item["id"], SKIPPED, save=False)
+            continue
+        if item.get("unlisted"):
+            summary.unlisted.append(item["id"])
             continue
         handler = HANDLERS.get(item["action"])
         if handler is None:
@@ -583,6 +600,7 @@ def _report(
         "owner_roles_checked": owners.roles_checked,
         "owner_warnings": owners.warnings,
         "not_available": summary.unavailable,
+        "unlisted": summary.unlisted,
         "waiting": summary.waiting,
         "stopped": summary.stopped,
         "report": [str(p) for p in report_files] if report_files else None,
@@ -624,6 +642,12 @@ def _report(
                 f"{len(summary.unavailable)} item(s) use an action this version "
                 "can't run yet and were left pending."
             )
+        if summary.unlisted:
+            fmt.warn(
+                f"{len(summary.unlisted)} item(s) are missing from the inventory the "
+                "plan was last merged from and were left pending; merge a complete "
+                "inventory to run them: " + ", ".join(summary.unlisted[:5])
+            )
         for wait in summary.waiting:
             fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
         if summary.stopped:
@@ -636,7 +660,7 @@ def _report(
                 fmt.error(
                     f"{len(failed)} item(s) failed; see {report_files[1] if report_files else state.path}"
                 )
-    left = summary.unavailable or summary.waiting or summary.stopped
+    left = summary.unavailable or summary.unlisted or summary.waiting or summary.stopped
     return EXIT_GENERIC if failed or left or report_failed else EXIT_OK
 
 
@@ -668,10 +692,10 @@ def _inventory_rows(
     """Inventory rows by item id and the inventory's portal record, read only
     when an item imports a service.
 
-    Refuses an inventory from another portal than the plan's (the plan's
-    portal receives the password, and the inventory's decides where the token
-    may go), and an inventory rewritten since the plan was built, whose URLs
-    and sharing the operator hasn't reviewed.
+    Refuses an inventory from another portal or ArcGIS organization than the
+    plan's (the plan's portal receives the password, and the inventory's
+    decides where the token may go), and an inventory rewritten since the plan
+    was built, whose URLs and sharing the operator hasn't reviewed.
     """
     if not any(item["action"] in _PORTAL_ACTIONS for item in to_run):
         return {}, None
@@ -686,6 +710,12 @@ def _inventory_rows(
         raise UsageError(
             "the plan's portal.url doesn't match the portal of the inventory it "
             f"names ({inventory['portal']['url']}); rebuild the plan from that inventory"
+        )
+    other = _plan.other_organization(plan, inventory)
+    if other is not None:
+        raise UsageError(
+            f"the inventory the plan names is of ArcGIS organization {other}, "
+            "not the plan's; rebuild the plan from that inventory"
         )
     if inventory["generated_at"] != plan["inventory"]["generated_at"]:
         raise UsageError(
@@ -867,6 +897,11 @@ def _run(
             for item in to_run
             if item["action"] != _plan.SKIP and item["action"] not in HANDLERS
         ]
+        unlisted = [
+            item["id"]
+            for item in to_run
+            if item["action"] != _plan.SKIP and item.get("unlisted")
+        ]
         return _report(
             fmt,
             opts,
@@ -874,7 +909,7 @@ def _run(
             state,
             to_run,
             owners,
-            RunSummary(unavailable=unavailable),
+            RunSummary(unavailable=unavailable, unlisted=unlisted),
             redact,
         )
     auth = None

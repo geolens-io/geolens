@@ -64,6 +64,21 @@ def _follow_ups(
                     note + "; file its datasets into the target collections by hand",
                 )
         made = entry is not None and (entry.dataset_ids or entry.map_id)
+        if item.get("removed"):
+            add(
+                item["id"],
+                "removed",
+                "gone from the portal; what it migrated stays in GeoLens"
+                if made
+                else "gone from the portal before it was migrated",
+            )
+        elif item.get("unlisted") and status not in _SETTLED:
+            add(
+                item["id"],
+                "unlisted",
+                "missing from the inventory the plan was last merged from; merge a "
+                "complete inventory to run it",
+            )
         groups = item["target"].get("groups")
         if made and groups is None:
             add(
@@ -115,7 +130,11 @@ def _follow_ups(
             "it was not imported again, so transfer it by hand",
         )
     for item in plan["items"]:
-        if state.status(item["id"]) != PENDING or item["action"] == _plan.SKIP:
+        if (
+            state.status(item["id"]) != PENDING
+            or item["action"] == _plan.SKIP
+            or item.get("removed")
+        ):
             continue
         if item["action"] not in runnable:
             add(
@@ -126,12 +145,18 @@ def _follow_ups(
         unmet = [
             dep
             for dep in item["depends_on"]
-            if dep in items and state.status(dep) not in _SETTLED
+            if dep in items
+            and not items[dep].get("removed")
+            and state.status(dep) not in _SETTLED
         ]
         if unmet:
             add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
     for item in plan["items"]:
-        if item["action"] == _plan.SKIP or state.status(item["id"]) == SKIPPED:
+        if (
+            item["action"] == _plan.SKIP
+            or state.status(item["id"]) == SKIPPED
+            or item.get("removed")
+        ):
             continue
         for dep in item["depends_on"]:
             if dep not in items:
@@ -139,6 +164,12 @@ def _follow_ups(
                     item["id"],
                     "unresolved_dependency",
                     f"depends on {dep}, not in the plan",
+                )
+            elif items[dep].get("removed") and state.status(dep) not in _SETTLED:
+                add(
+                    item["id"],
+                    "unresolved_dependency",
+                    f"depends on {dep}, gone from the portal before it was migrated",
                 )
     return out
 
