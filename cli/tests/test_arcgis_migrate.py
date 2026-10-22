@@ -384,7 +384,7 @@ def test_dry_run_writes_no_state_and_changes_nothing(
 
 
 def test_an_action_without_a_handler_is_left_pending(runner, tmp_path, geolens):
-    plan = _plan([_item(L1, "import_file"), _item(M1, "import_map", depends_on=[L1])])
+    plan = _plan([_item(L1, "import_map"), _item(M1, "import_map", depends_on=[L1])])
 
     result, payload = _run(runner, tmp_path, plan)
 
@@ -785,7 +785,7 @@ def test_an_empty_target_owner_does_not_fall_back_to_owner_map(
 
 
 def test_a_dry_run_names_actions_this_version_cannot_run(runner, tmp_path, geolens):
-    plan = _plan([_item(L1, "import_file"), _item(S1, "skip")])
+    plan = _plan([_item(L1, "import_map"), _item(S1, "skip")])
 
     result, payload = _run(runner, tmp_path, plan, "--dry-run")
 

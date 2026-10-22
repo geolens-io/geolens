@@ -152,6 +152,10 @@ class PortalAuth:
         self._clock = clock
         self._minted_at = clock() if renewable else None
 
+    @property
+    def client(self) -> PortalClient:
+        return self._client
+
     def service_auth(self) -> Any:
         from geolens.models.service_auth_request import ServiceAuthRequest
 
@@ -184,5 +188,7 @@ class MigrationContext:
     collection_from: str = "folder"
     collections: dict[str, str] = field(default_factory=dict)
     collections_denied: bool = False
+    # The instance's upload_max_size_mb in bytes, read once from its settings.
+    upload_limit: int | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic

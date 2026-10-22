@@ -36,6 +36,7 @@ from ._sdk_helpers import (
 )
 from .arcgis_item_metadata import apply_item_metadata
 from .arcgis_migrate_collections import file_into_collections
+from .arcgis_migrate_files import import_file
 from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
     GeoLens,
@@ -87,6 +88,8 @@ _PORTAL_EXIT = {
     "redirect": EXIT_USAGE,
 }
 EXIT_INTERRUPTED = 130
+# Actions that read the inventory and, for a non-public item, the portal.
+_PORTAL_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
 
 
 class UsageError(Exception):
@@ -96,7 +99,10 @@ class UsageError(Exception):
 Handler = Callable[[MigrationContext, Mapping[str, Any], ItemState], ItemResult]
 # Action -> handler. An action without one is reported as not available in
 # this version and left pending, so a later version can run it.
-HANDLERS: dict[str, Handler] = {_plan.IMPORT_LAYERS: import_layers}
+HANDLERS: dict[str, Handler] = {
+    _plan.IMPORT_LAYERS: import_layers,
+    _plan.IMPORT_FILE: import_file,
+}
 
 
 @dataclass(frozen=True)
@@ -617,7 +623,7 @@ def _inventory_rows(
     may go), and an inventory rewritten since the plan was built, whose URLs
     and sharing the operator hasn't reviewed.
     """
-    if not any(item["action"] == _plan.IMPORT_LAYERS for item in to_run):
+    if not any(item["action"] in _PORTAL_ACTIONS for item in to_run):
         return {}, None
     inventory = _plan.load_inventory(plan_path.parent / plan["inventory"]["path"])
     try:
@@ -652,14 +658,24 @@ def _portal_client(
     None when no item to import needs one; a ``UsageError`` when one does and
     no credential was given.
     """
+    wanted = [i for i in to_run if i["action"] in _PORTAL_ACTIONS and i["id"] in rows]
     private = sum(
         1
-        for item in to_run
-        if item["action"] == _plan.IMPORT_LAYERS
-        and item["id"] in rows
-        and (rows[item["id"]].get("sharing") or {}).get("access") != "public"
+        for item in wanted
+        if (rows[item["id"]].get("sharing") or {}).get("access") != "public"
     )
     if not private:
+        # A public data file is still downloaded from the portal, anonymously.
+        if any(i["action"] == _plan.IMPORT_FILE for i in wanted):
+            try:
+                root = portal_root(
+                    plan["portal"]["url"],
+                    opts.allow_insecure_http,
+                    label="the plan's portal.url",
+                )
+            except ValueError as exc:
+                raise UsageError(str(exc)) from None
+            return PortalClient(root, opener=build_opener(), redact=redact), None
         return None
     try:
         token, password = read_credentials(
