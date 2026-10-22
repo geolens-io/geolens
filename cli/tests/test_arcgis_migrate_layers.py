@@ -308,6 +308,20 @@ def test_a_two_layer_service_becomes_two_datasets(runner, plan_file, geolens):
     assert payload["items"][0]["status"] == "done"
 
 
+def test_two_layers_with_the_same_name_get_their_layer_ids_in_the_title(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(3, "Parcels")])
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [c["title"] for c in service.bodies("POST /ingest/commit/")] == [
+        "Parcels (public view) - Parcels (0)",
+        "Parcels (public view) - Parcels (3)",
+    ]
+
+
 def test_a_public_item_sends_no_credential(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     token = secrets.token_urlsafe(16)

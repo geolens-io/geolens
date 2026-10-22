@@ -123,18 +123,25 @@ def _send(
     raise AssertionError("unreachable")
 
 
-def _title(base: str, layer: str | None) -> str:
+def _title(base: str, layer: str | None, layer_id: str | None = None) -> str:
     """The dataset title: the item's, then `` - <layer>`` for a service with
-    several layers, within GeoLens's title limit."""
+    several layers, within GeoLens's title limit. A layer whose title another
+    layer of the same service also takes carries `` (<layer id>)`` as well,
+    so the catalog can tell the two datasets apart."""
     if layer is None:
         return base[:MAX_TITLE]
-    suffix = f" - {layer}"[: MAX_TITLE // 2]
+    tag = f" ({layer_id})" if layer_id is not None else ""
+    suffix = f" - {layer}"[: MAX_TITLE // 2 - len(tag)] + tag
     return base[: MAX_TITLE - len(suffix)] + suffix
 
 
-def _layer_key(layer: Any) -> str:
+def _layer_id(layer: Any) -> str | None:
     layer_id = getattr(layer, "layer_id", None)
-    return str(layer_id) if isinstance(layer_id, int | str) else str(layer.name)
+    return str(layer_id) if isinstance(layer_id, int | str) else None
+
+
+def _layer_key(layer: Any) -> str:
+    return _layer_id(layer) or str(layer.name)
 
 
 def _layer_label(layer: Any) -> str:
@@ -393,9 +400,14 @@ def import_layers(
         return ItemResult(notes=[*notes, "the service has no layer to import"])
 
     base = item["target"]["title"] or item["title"]
+    labels = [_layer_label(layer) if len(wanted) > 1 else None for layer in wanted]
+    titles = [_title(base, label) for label in labels]
     found = 0
-    for layer in wanted:
-        title = _title(base, _layer_label(layer) if len(wanted) > 1 else None)
+    for layer, label, title in zip(wanted, labels, titles):
+        if titles.count(title) > 1:
+            # Another layer of this service takes the same title; the layer
+            # id is what tells the two datasets apart.
+            title = _title(base, label, _layer_id(layer))
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
