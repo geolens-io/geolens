@@ -1260,3 +1260,18 @@ def test_a_rerun_still_writes_fields_nobody_edited(runner, tmp_path, geolens):
     assert result.exit_code == 0, result.output
     assert service.keywords[parcels] == ["parcels", "cadastre", "added by a person"]
     assert _state(plan_file)["items"][A2]["notes"] == []
+
+
+def test_a_mixed_case_tag_is_not_reported_as_removed_on_rerun(
+    runner, tmp_path, geolens
+):
+    rows = {A2: {**ITEM_TEXT, "tags": ["Roads", "roads"]}}
+    plan_file = _write_plan(tmp_path, rows=rows)
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    _migrate(runner, plan_file, "--only", A2)
+    assert service.keywords[dataset_id("Parcels")] == ["roads"]
+
+    result, _ = _rerun_as_pending(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["notes"] == []

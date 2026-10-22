@@ -146,7 +146,7 @@ def item_metadata(
     }
     fields = {name: value for name, value in fields.items() if value}
     keywords = [
-        unicodedata.normalize("NFC", t.strip())[:MAX_KEYWORD]
+        unicodedata.normalize("NFC", t.strip().lower())[:MAX_KEYWORD]
         for t in target.get("tags") or []
         if t.strip()
     ]
