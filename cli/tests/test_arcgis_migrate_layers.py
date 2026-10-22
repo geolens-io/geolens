@@ -1307,3 +1307,25 @@ def test_the_same_text_under_another_keyword_type_does_not_count_as_present(
 
     assert result.exit_code == 0, result.output
     assert service.keywords[parcels] == ["parcels", "cadastre"]
+
+
+def test_an_edit_that_matches_the_source_keeps_the_old_baseline(
+    runner, tmp_path, geolens
+):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    _migrate(runner, plan_file, "--only", A2)
+    parcels = dataset_id("Parcels")
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_path.read_text())
+    # The migration once wrote another license; a person has since set the
+    # value the source now holds.
+    state["items"][A2]["metadata_baseline"][parcels]["license"] = "Older license"
+    state_path.write_text(json.dumps(state))
+    assert service.fields[parcels]["license"] == "CC BY 4.0"
+
+    result, _ = _rerun_as_pending(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"][parcels]
+    assert baseline["license"] == "Older license"

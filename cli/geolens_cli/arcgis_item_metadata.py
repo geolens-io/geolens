@@ -199,7 +199,11 @@ def apply_item_metadata(
             for name, value in fields.items():
                 existing = _current(current, name)
                 if existing == value:
-                    baseline[name] = value
+                    # An edit that happens to match the source isn't ours: keep
+                    # the old baseline so a later change to the source still
+                    # finds the field edited.
+                    if base is None or base.get(name, existing) == existing:
+                        baseline[name] = value
                 elif _writable(name, existing, base, entry):
                     meta[name] = value
                     baseline[name] = value
