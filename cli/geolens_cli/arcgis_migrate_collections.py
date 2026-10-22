@@ -114,7 +114,20 @@ def file_into_collections(
             if collection_id is None:
                 ctx.collections_denied = True
                 return [DENIED]
-            _add(ctx, collection_id, entry.dataset_ids)
+            try:
+                _add(ctx, collection_id, entry.dataset_ids)
+            except GeoLensError as exc:
+                if exc.status != 404:
+                    raise
+                # The pinned collection was deleted since the last run.
+                ctx.collections.pop(name, None)
+                if collection_id in entry.collection_ids:
+                    entry.collection_ids.remove(collection_id)
+                collection_id = _collection_id(ctx, name)
+                if collection_id is None:
+                    ctx.collections_denied = True
+                    return [DENIED]
+                _add(ctx, collection_id, entry.dataset_ids)
             if collection_id not in entry.collection_ids:
                 entry.collection_ids.append(collection_id)
     except GeoLensError as exc:
