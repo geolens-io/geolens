@@ -390,6 +390,7 @@ class PortalClient:
         self._clock = clock
         self._on_request = on_request
         self._form_token = False
+        self._download_end = 0.0
         self._referer: str | None = None
         self._sign_in: tuple[str, str] | None = None
         self._lock = threading.Lock()
@@ -541,6 +542,9 @@ class PortalClient:
         limit. Redirects are refused and a token is handled as in ``get_json``;
         a 200 carrying an error envelope raises as it does there.
         """
+        # The whole transfer, retries and a token renewal included, shares one
+        # deadline.
+        self._download_end = self._clock() + DOWNLOAD_DEADLINE
         token = self.token
         try:
             return self._download_sent(path, dest, max_bytes)
@@ -594,11 +598,11 @@ class PortalClient:
         *,
         may_redirect: bool = True,
     ) -> int:
-        deadline = self._clock() + DOWNLOAD_DEADLINE
+        deadline = self._download_end
         redirect: tuple[int, str | None] | None = None
         watchdog = _Watchdog()
         request.watchdog = watchdog
-        timer = threading.Timer(DOWNLOAD_DEADLINE, watchdog.fire)
+        timer = threading.Timer(max(0.0, deadline - self._clock()), watchdog.fire)
         timer.daemon = True
         timer.start()
         try:
@@ -722,7 +726,11 @@ class PortalClient:
                 raise self._error(f"{path} is {int(length)} bytes", kind="too_large")
         total = 0
         first = True
-        with dest.open("wb") as out:
+        try:
+            out = dest.open("wb")
+        except OSError as exc:
+            raise self._local_error(exc) from None
+        with out:
             while True:
                 if self._clock() > deadline:
                     raise self._error(
@@ -750,7 +758,10 @@ class PortalClient:
                     raise self._error(
                         f"{path} is over {max_bytes} bytes", kind="too_large"
                     )
-                out.write(chunk)
+                try:
+                    out.write(chunk)
+                except OSError as exc:
+                    raise self._local_error(exc) from None
         if length and length.isdigit() and total != int(length):
             raise self._error(
                 f"{path} ended after {total} of {int(length)} bytes",
@@ -758,6 +769,14 @@ class PortalClient:
                 retryable=True,
             )
         return total
+
+    def _local_error(self, exc: OSError) -> PortalError:
+        """A failure writing the download to disk: not a network problem, so
+        it is never retried."""
+        return self._error(
+            f"can't write the download: {exc.strerror or type(exc).__name__}",
+            kind="local",
+        )
 
     def _raise_envelope(self, path: str, raw: bytes) -> None:
         """Raise the error a 200 body carries; a body that only looks like one

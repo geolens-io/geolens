@@ -802,7 +802,7 @@ def test_a_failure_on_the_storage_hop_does_not_leak_its_query(
 
     assert result.exit_code == 1
     error = _state(plan_file)["items"][D3]["error"]
-    assert "www.arcgis.com" in error and STORAGE_PATH in error
+    assert error.endswith(f"from www.arcgis.com{STORAGE_PATH}")
     _assert_no_query_anywhere(plan_file, result)
 
 
@@ -994,3 +994,47 @@ def test_a_connection_error_on_the_storage_hop_does_not_name_its_url(
     assert result.exit_code == 1
     assert not files.uploads
     _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_disk_error_is_reported_once_and_not_retried(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    files = FakeFiles(geolens)
+    real_open = Path.open
+
+    def failing(self, mode="r", *args, **kwargs):
+        if self.name.endswith(".csv") and "w" in mode:
+            raise OSError(28, "No space left on device")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failing)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "No space left" in _state(plan_file)["items"][D3]["error"]
+    assert len(portal.requests_to(item_data_path(D3))) == 1
+    assert not files.uploads
+
+
+def test_retries_share_one_download_deadline(
+    runner, tmp_path, geolens, portal, monkeypatch
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _truncated(CSV[:10], len(CSV))
+    seen = []
+    real = migrate.PortalClient._download_once
+
+    def spy(self, request, path, dest, max_bytes, **kwargs):
+        seen.append(self._download_end)
+        return real(self, request, path, dest, max_bytes, **kwargs)
+
+    monkeypatch.setattr(migrate.PortalClient, "_download_once", spy)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert len(seen) == 3 and len(set(seen)) == 1
+    assert not files.uploads
