@@ -252,14 +252,18 @@ def _unread_paths(row: Mapping[str, Any]) -> set[tuple[str, ...]]:
 
 
 def _unread_supersession(
-    item: Mapping[str, Any], rows: Mapping[str, Mapping[str, Any]]
+    current: Mapping[str, Any],
+    fresh: Mapping[str, Any],
+    rows: Mapping[str, Mapping[str, Any]],
 ) -> set[tuple[str, ...]]:
-    """Defaults a source file can't take from this inventory because the
-    relationships of the hosted layer it was published into weren't read,
-    which also drops the edge that makes it ``superseded_by`` that layer."""
-    layer = (item.get("defaults") or {}).get("superseded_by")
-    row = rows.get(layer) if layer else None
-    if layer and (row is None or _unread_dependencies(row)):
+    """Defaults a source file can't take from this inventory: no layer claims
+    it now, but the layer it was recorded as published into wasn't read or
+    isn't listed, so the missing ``published_from`` edge proves nothing."""
+    layer = (current.get("defaults") or {}).get("superseded_by")
+    if not layer or fresh["defaults"]["superseded_by"] is not None:
+        return set()
+    row = rows.get(layer)
+    if row is None or _unread_dependencies(row):
         return {("action",), ("superseded_by",)}
     return set()
 
@@ -405,7 +409,8 @@ def merge_plan(
                 _merge_item(
                     mine,
                     item,
-                    _unread_paths(rows[item["id"]]) | _unread_supersession(mine, rows),
+                    _unread_paths(rows[item["id"]])
+                    | _unread_supersession(mine, item, rows),
                     changes["conflicts"],
                 )
             )

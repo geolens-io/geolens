@@ -911,31 +911,90 @@ def test_owners_to_map_counts_only_owners_plan_items_use():
     assert plan_mod.summary(plan, inventory_report())["owners_to_map"] == 1
 
 
-def _relationships_failed() -> dict:
-    failed = {f"content/items/{A1}/relatedItems": (500, {"error": {"code": 500}})}
-    report = inventory_report(failed)
-    assert _row(report, A1)["dependencies_status"] == "error"
+_CLAIMS_D3 = _related({("Service2Data", "forward"): [{"id": D3, "type": "CSV"}]})
+_READ_FAILS = (500, {"error": {"code": 500}})
+
+
+NEW_LAYER = "a6" * 16
+
+
+def _supersession_inventory(old: str, new: str) -> dict:
+    """An inventory where the old layer (A1) claims D3, is read without
+    claiming it, is unread or isn't listed, and where another hosted layer
+    claims D3, claims nothing, or is unread."""
+    report = inventory_report({f"content/items/{A1}/relatedItems": _CLAIMS_D3})
+    claim = next(
+        d
+        for d in report["dependencies"]
+        if d["from_id"] == A1 and d["role"] == "published_from"
+    )
+    layer = {**json.loads(json.dumps(_row(report, A1))), "id": NEW_LAYER}
+    layer["title"] = "Parcels, republished"
+    report["items"].append(layer)
+    if new == "claims":
+        report["dependencies"].append({**claim, "from_id": NEW_LAYER})
+    elif new == "unread":
+        layer["dependencies_status"] = "error"
+    if old != "claims":
+        report["dependencies"].remove(claim)
+    if old == "unread":
+        _row(report, A1)["dependencies_status"] = "error"
+    elif old == "missing":
+        report = _without(report, A1)
+        report["truncated"] = True
     return report
 
 
-def _layer_unlisted() -> dict:
-    report = _without(inventory_report(), A1)
-    report["truncated"] = True
-    return report
+EXPORT, IMPORT = "export_only", "import_file"
 
 
+# (old layer A1, other layer A2, D3's action and superseded_by when unedited)
 @pytest.mark.parametrize(
-    "inventory", [_relationships_failed, _layer_unlisted], ids=["failed", "unlisted"]
+    ("old", "new", "expected"),
+    [
+        ("claims", "none", (EXPORT, A1)),
+        ("claims", "unread", (EXPORT, A1)),
+        ("read", "none", (IMPORT, None)),
+        ("read", "claims", (EXPORT, NEW_LAYER)),
+        ("read", "unread", (IMPORT, None)),
+        ("unread", "none", (EXPORT, A1)),
+        ("unread", "claims", (EXPORT, NEW_LAYER)),
+        ("unread", "unread", (EXPORT, A1)),
+        ("missing", "none", (EXPORT, A1)),
+        ("missing", "claims", (EXPORT, NEW_LAYER)),
+        ("missing", "unread", (EXPORT, A1)),
+    ],
 )
-def test_a_layer_not_read_keeps_its_source_file_superseded(inventory):
-    source = _related({("Service2Data", "forward"): [{"id": D3, "type": "CSV"}]})
-    plan = _plan({f"content/items/{A1}/relatedItems": source})
-    assert _items(plan)[D3]["superseded_by"] == A1
+@pytest.mark.parametrize("edit", ["none", "skip", "import_file"])
+def test_a_source_files_supersession_across_layer_reads(old, new, expected, edit):
+    plan = _plan({f"content/items/{A1}/relatedItems": _CLAIMS_D3})
+    assert (_items(plan)[D3]["action"], _items(plan)[D3]["superseded_by"]) == (
+        EXPORT,
+        A1,
+    )
+    if edit == "skip":
+        _items(plan)[D3]["action"] = "skip"
+    elif edit == "import_file":
+        _items(plan)[D3]["action"] = IMPORT
+        del _items(plan)[D3]["superseded_by"]
 
-    merged, changes = _merge(plan, inventory())
+    merged, _ = _merge(plan, _supersession_inventory(old, new))
 
     entry = _items(merged)[D3]
-    assert entry["action"] == "export_only"
-    assert entry["superseded_by"] == A1
-    assert entry["defaults"]["superseded_by"] == A1
-    assert changes["conflicts"] == []
+    action, layer = expected
+    if edit == "skip":
+        action = "skip"
+    elif edit == "import_file":
+        action, layer = IMPORT, None
+    assert (entry["action"], entry.get("superseded_by")) == (action, layer)
+    _validator().validate(merged)
+
+
+def test_a_source_file_without_a_layer_follows_a_new_claim():
+    plan = _plan()
+    assert _items(plan)[D3]["action"] == IMPORT
+
+    merged, _ = _merge(plan, _supersession_inventory("read", "claims"))
+
+    assert _items(merged)[D3]["action"] == EXPORT
+    assert _items(merged)[D3]["superseded_by"] == NEW_LAYER
