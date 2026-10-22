@@ -204,41 +204,38 @@ def _fan_out(
             )
     except GeoLensError as exc:
         raise ItemFailed(f"{base}: commit failed, {exc}") from None
-    failures = []
+    # Every layer that is not imported is recorded in the item's notes as soon
+    # as it is known, so no later failure or resume loses it.
+    entry.notes = []
     for layer in result.results:
         if layer.new_job_id and layer.status == "queued":
             entry.layer_jobs[layer.layer_name] = str(layer.new_job_id)
         else:
-            failures.append(f"{layer.layer_name}: {layer.error or layer.status}")
+            entry.notes.append(
+                f"layer not imported, {layer.layer_name}: {layer.error or layer.status}"
+            )
     ctx.save()
-    failures.extend(_wait_for_layers(ctx, entry, base))
+    _wait_for_layers(ctx, entry, base)
     if not entry.layer_datasets:
-        raise ItemFailed(f"{base}: {'; '.join(failures)}")
-    notes = [f"layer not imported, {failure}" for failure in failures]
-    # Saved before the targets are applied, so a failure there keeps them for
-    # the rerun.
-    entry.notes = notes
-    ctx.save()
+        raise ItemFailed(f"{base}: {'; '.join(entry.notes)}")
     for name, dataset in entry.layer_datasets.items():
         _apply_target(ctx, dataset, _commit_body(titles[name], visibility))
-    return notes
+    return list(entry.notes)
 
 
-def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> list[str]:
-    """Wait for the fan-out jobs an earlier call queued and pin their datasets;
-    the failures, one per layer whose job ended without a dataset."""
-    failures = []
+def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> None:
+    """Wait for the fan-out jobs an earlier call queued and pin their datasets.
+    A job that ended without a dataset becomes a note on the item."""
     for name in [n for n in entry.layer_jobs if n != JOB_KEY]:
         try:
             entry.layer_datasets[name] = _wait_for_dataset(
                 ctx, UUID(entry.layer_jobs[name]), _title(base, name)
             )
         except _JobEnded as exc:
-            failures.append(str(exc))
+            entry.notes.append(f"layer not imported, {exc}")
         del entry.layer_jobs[name]
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
-    return failures
 
 
 def _upload_fresh(

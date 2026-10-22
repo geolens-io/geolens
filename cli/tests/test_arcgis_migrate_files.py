@@ -608,3 +608,32 @@ def test_a_retry_keeps_the_layer_title_and_note_after_a_failed_target_update(
         and "title" in s.json()
     ]
     assert titles[-1] == "Inspections - Roads"
+
+
+def test_a_child_job_that_fails_while_resuming_is_noted(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    state = _state(plan_file)
+    entry = state["items"][D3]
+    parcels = _uuid("0e", "Parcels")
+    roads = _uuid("0e", "Roads")
+    entry.update(
+        status="failed",
+        layer_datasets={},
+        layer_jobs={"Roads": roads, "Parcels": parcels},
+        notes=[],
+    )
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    geolens.routes[f"GET /jobs/{parcels}"] = files.helper.job(
+        parcels, "Parcels", "boom"
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == [dataset_id("Roads")]
+    assert "boom" in entry["notes"][-1]
