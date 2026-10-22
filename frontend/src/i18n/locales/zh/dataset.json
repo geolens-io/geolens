@@ -790,6 +790,8 @@
       "vrt": "合成",
       "unknown": "未记录"
     },
+    "openInArcgis": "在 ArcGIS 中打开",
+    "opensInNewTab": "在新标签页中打开",
     "pointer": {
       "filename": "源文件名",
       "fingerprint": "文件指纹",

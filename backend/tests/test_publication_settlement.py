@@ -235,6 +235,62 @@ async def test_manual_service_reupload_publishes_without_a_refresh_run(
         assert (await session.get(Dataset, dataset.id)).current_version == 2
 
 
+async def _link_dataset(dataset, job, link: dict) -> None:
+    """Make the candidate an ArcGIS service dataset that holds a portal link."""
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        row.source_format = "arcgis_featureserver"
+        row.origin_ref = {
+            **row.origin_ref,
+            **link,
+            "service_type": "arcgis_featureserver",
+            "layer_id": "0",
+        }
+        stored = await session.get(IngestJob, job.id)
+        stored.user_metadata = {
+            **stored.user_metadata,
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+        }
+        stored.source_layer = "0"
+        await session.commit()
+
+
+async def test_a_refresh_keeps_the_portal_item_link(test_db_session):
+    """The swap restamps the origin, and the link to the portal item survives it."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    link = {"item_id": "0" * 32, "portal_url": "https://portal.example.test/portal"}
+    await _link_dataset(dataset, job, link)
+
+    await _reupload(dataset, job, admin_id, expected=1)
+
+    assert (await _run(job.id)).status == "succeeded"
+    async with db_module.async_session() as session:
+        ref = (await session.get(Dataset, dataset.id)).origin_ref
+    assert {key: ref.get(key) for key in link} == link
+
+
+async def test_a_replace_that_moves_the_host_drops_the_link_and_the_job_says_so(
+    test_db_session,
+):
+    """A portal link that no longer matches the new service host is not carried over."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=False, run=False)
+    await _link_dataset(
+        dataset,
+        job,
+        {"item_id": "1" * 32, "portal_url": "https://org.maps.arcgis.com"},
+    )
+
+    await _reupload(dataset, job, admin_id)
+
+    async with db_module.async_session() as session:
+        ref = (await session.get(Dataset, dataset.id)).origin_ref
+    assert "item_id" not in ref and "portal_url" not in ref
+    assert (await _job(job.id)).user_metadata["origin_link_loss"] == [
+        "portal_url_domain_mismatch"
+    ]
+
+
 async def test_rejected_refresh_settles_without_swapping_live_data(
     test_db_session, quiet
 ):

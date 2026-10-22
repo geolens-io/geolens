@@ -12,7 +12,7 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
 from app.core.url_redaction import scrub_secret_from_exception
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.dataset_origin import portal_link_fields, service_layer_identity
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -654,7 +654,10 @@ async def ingest_file(
                     attempt_id=attempt_uuid,
                     # No file_hash: only the re-upload path computes it, and the
                     # allowlist omits absent keys.
-                    origin_ref={"filename": source_filename},
+                    origin_ref={
+                        "filename": source_filename,
+                        **portal_link_fields(um),
+                    },
                     archive_from=file_path,
                     source_columns=source_columns_for(info, layer_name),
                 )
@@ -1062,6 +1065,7 @@ async def ingest_service(
                         # requires authentication; refresh probes without a
                         # token before refusing.
                         "auth_required": True if token else None,
+                        **portal_link_fields(um),
                     },
                 )
             )

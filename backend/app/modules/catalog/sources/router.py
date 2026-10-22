@@ -103,6 +103,10 @@ from app.platform.security import (
     validate_url_for_ssrf,
 )
 from app.platform.dataset_origin import service_layer_identity
+from app.platform.portal_link import (
+    PortalLink,
+    resolve_portal_link,
+)
 from app.standards.ogc.errors import (
     ERROR_RESPONSES_WRITE,
     PROBLEM_RESPONSE,
@@ -806,6 +810,7 @@ async def _create_preview_job(
             "layer_id": effective_layer_id,
             "object_id_field": request.object_id_field,
             **{k: preview_data.get(k) for k in ("geometry_type", "field_labels")},
+            **_portal_link(request).fields,
         },
     )
     await db.flush()
@@ -834,6 +839,12 @@ async def _create_preview_job(
     return job
 
 
+def _portal_link(request: ServicePreviewRequest) -> PortalLink:
+    if not request.service_type.startswith("ArcGIS"):
+        return PortalLink.unsupported(request.item_id, request.portal_url)
+    return resolve_portal_link(request.item_id, request.portal_url, request.url)
+
+
 def _build_preview_response(
     request: ServicePreviewRequest, preview_data: dict, job: IngestJob
 ) -> ServicePreviewResponse:
@@ -848,6 +859,7 @@ def _build_preview_response(
         layer_name=request.layer_name
         if request.service_type.startswith("ArcGIS")
         else preview_data["layer_name"],
+        origin_link_loss=_portal_link(request).losses,
     )
 
 

@@ -1758,6 +1758,8 @@ class TestServiceImportAuthRequiredMarker:
                 "service_type": "ArcGIS FeatureServer",
                 "layer_id": "0",
                 "geometry_type": None,
+                "item_id": "a" * 32,
+                "portal_url": "https://org.maps.arcgis.com",
             },
         )
         test_db_session.add(job)
@@ -1872,6 +1874,8 @@ class TestServiceImportAuthRequiredMarker:
                     assert "auth_required" not in origin_ref
                 else:
                     assert origin_ref["auth_required"] is True
+                assert origin_ref["item_id"] == "a" * 32
+                assert origin_ref["portal_url"] == "https://org.maps.arcgis.com"
                 # A boolean, never the credential, anywhere on the row.
                 assert "service-token" not in str(origin_ref)
                 assert "service-token" not in str(dataset.origin_uri)

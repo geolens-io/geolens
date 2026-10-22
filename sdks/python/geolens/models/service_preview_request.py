@@ -31,6 +31,12 @@ class ServicePreviewRequest:
         object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
             the token field.
+        item_id (None | str | Unset): ArcGIS portal item ID the layer was published from, at most 64 characters (longer
+            is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in
+            origin_link_loss. Dropped for a non-ArcGIS service type.
+        portal_url (None | str | Unset): ArcGIS portal address for the item link, at most 2048 characters (longer is
+            refused with 422). Stored only when it is https and shares a registrable domain with the service URL, otherwise
+            dropped and reported in origin_link_loss.
     """
 
     url: str
@@ -41,6 +47,8 @@ class ServicePreviewRequest:
     token: None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    item_id: None | str | Unset = UNSET
+    portal_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +92,18 @@ class ServicePreviewRequest:
         else:
             auth = self.auth
 
+        item_id: None | str | Unset
+        if isinstance(self.item_id, Unset):
+            item_id = UNSET
+        else:
+            item_id = self.item_id
+
+        portal_url: None | str | Unset
+        if isinstance(self.portal_url, Unset):
+            portal_url = UNSET
+        else:
+            portal_url = self.portal_url
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -103,6 +123,10 @@ class ServicePreviewRequest:
             field_dict["object_id_field"] = object_id_field
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if item_id is not UNSET:
+            field_dict["item_id"] = item_id
+        if portal_url is not UNSET:
+            field_dict["portal_url"] = portal_url
 
         return field_dict
 
@@ -170,6 +194,24 @@ class ServicePreviewRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        def _parse_item_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        item_id = _parse_item_id(d.pop("item_id", UNSET))
+
+        def _parse_portal_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        portal_url = _parse_portal_url(d.pop("portal_url", UNSET))
+
         service_preview_request = cls(
             url=url,
             service_type=service_type,
@@ -179,6 +221,8 @@ class ServicePreviewRequest:
             token=token,
             object_id_field=object_id_field,
             auth=auth,
+            item_id=item_id,
+            portal_url=portal_url,
         )
 
         service_preview_request.additional_properties = d

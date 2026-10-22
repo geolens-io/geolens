@@ -29,6 +29,12 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.platform.portal_link import (
+    LOSS_LINK_UNSUPPORTED,
+    LOSS_PORTAL_URL_DOMAIN_MISMATCH,
+    resolve_portal_link,
+    same_registrable_domain,
+)
 
 # Formats whose rows were pulled from a remote OGC/Esri service. Mirrors
 # SERVICE_FORMATS in frontend/src/components/dataset/OriginBadge.tsx.
@@ -95,7 +101,14 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # probe before refusing), not a verdict. `True` or absent, never `False`,
     # like `managed` on the postgis kind. A later token-less success clears
     # it. Never the token itself.
-    "service": frozenset({"service_type", "url", "layer_id", "auth_required"}),
+    #
+    # `item_id`/`portal_url` name the portal item the data was built from
+    # (see `resolve_portal_link`, the only validated source). The `upload`
+    # kind carries them too, and `set_dataset_origin` keeps them across every
+    # restamp of either kind.
+    "service": frozenset(
+        {"service_type", "url", "layer_id", "auth_required", "item_id", "portal_url"}
+    ),
     # `asset_href` (additive to ADR-002's stac shape) is the COG the tiler
     # reads; `item_href` is the STAC item document. They are not
     # interchangeable, so the health probe wants both. `item_href` is absent
@@ -122,7 +135,7 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
             "auth_required",
         }
     ),
-    "upload": frozenset({"filename", "file_hash"}),
+    "upload": frozenset({"filename", "file_hash", "item_id", "portal_url"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
     #
     # `managed` is the one bit separating the two callers of
@@ -137,6 +150,60 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # A dataset drawn in the app came from nowhere; it carries no payload.
     "created": frozenset(),
 }
+
+
+PORTAL_LINK_KEYS: tuple[str, ...] = ("item_id", "portal_url")
+_PORTAL_LINK_KINDS = frozenset({"service", "upload"})
+
+
+def portal_link_fields(mapping: Any) -> dict[str, str]:
+    """The portal link keys a mapping holds as strings (job metadata or a ref)."""
+    if not isinstance(mapping, dict):
+        return {}
+    return {
+        key: mapping[key]
+        for key in PORTAL_LINK_KEYS
+        if isinstance(mapping.get(key), str)
+    }
+
+
+def carried_portal_link(origin_ref: Any) -> dict[str, str]:
+    """The portal link a stored ref holds, for a restamp to keep.
+
+    Only a service or upload ref counts: a STAC ref's ``item_id`` is the
+    catalog's item, not a portal item.
+    """
+    if (
+        not isinstance(origin_ref, dict)
+        or origin_ref.get("kind") not in _PORTAL_LINK_KINDS
+    ):
+        return {}
+    return portal_link_fields(origin_ref)
+
+
+def _carry_losses(
+    old_ref: Any, carried: dict[str, str], kind: str, ref_fields: dict[str, Any]
+) -> list[str]:
+    """Why a carried link no longer fits the origin being stamped.
+
+    A link is ArcGIS-only, and a service's portal shares its host's
+    registrable domain, so a rebind to another host (or another vendor's
+    service) no longer names the same item.
+    """
+    if not carried or kind != "service":
+        return []
+    service_type = ref_fields.get("service_type")
+    if isinstance(service_type, str) and not service_type.startswith("arcgis"):
+        return [LOSS_LINK_UNSUPPORTED]
+    new_url = ref_fields.get("url")
+    if not new_url:
+        return []
+    if "portal_url" in carried:
+        return resolve_portal_link(None, carried["portal_url"], new_url).losses
+    old_url = old_ref.get("url") if old_ref.get("kind") == "service" else None
+    if old_url and not same_registrable_domain(old_url, new_url):
+        return [LOSS_PORTAL_URL_DOMAIN_MISMATCH]
+    return []
 
 
 def classify_origin(
@@ -307,12 +374,16 @@ def build_origin_ref(kind: str, **fields: Any) -> dict[str, Any] | None:
 
 def set_dataset_origin(
     dataset: Any, kind: str, *, uri: str | None = None, **ref_fields: Any
-) -> None:
+) -> list[str]:
     """Write the system-managed origin pointer onto a Dataset ORM instance.
 
     The only supported way to populate ``origin_uri``/``origin_ref``. Neither
     column appears in ``_DATASET_FIELD_MAP``, so nothing reaches them through
     the metadata PATCH; ingest and refresh paths come through here.
+
+    Returns the loss codes of a portal link dropped instead of carried
+    forward: a service restamp whose host no longer shares the link's domain
+    loses ``item_id`` and ``portal_url`` together.
     """
     if kind not in ORIGIN_KINDS:
         raise ValueError(
@@ -328,7 +399,17 @@ def set_dataset_origin(
     dataset.source_health_detail = None
     dataset.last_checked_at = None
     dataset.origin_uri = uri
+    losses: list[str] = []
+    if kind in _PORTAL_LINK_KINDS and all(
+        ref_fields.get(k) is None for k in PORTAL_LINK_KEYS
+    ):
+        carried = carried_portal_link(dataset.origin_ref)
+        losses = _carry_losses(dataset.origin_ref, carried, kind, ref_fields)
+        if losses:
+            carried = {}
+        ref_fields |= carried
     dataset.origin_ref = build_origin_ref(kind, **ref_fields)
+    return losses
 
 
 def project_unknown(value: str | None) -> str:

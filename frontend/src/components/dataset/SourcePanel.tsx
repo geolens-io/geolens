@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { getServiceTypeLabel } from '@/i18n/labels';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCancelRefreshJob,
@@ -148,6 +148,18 @@ function safeHttpPointer(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+const ARCGIS_ITEM_ID = /^[0-9a-f]{32}$/;
+
+/** The portal's page for the item this dataset was built from, or null. */
+function arcgisItemUrl(dataset: DatasetResponse, origin: DatasetOrigin | null): string | null {
+  if (origin !== 'service' && origin !== 'upload') return null;
+  const ref = trustedRef(dataset, origin);
+  const itemId = refString(ref, 'item_id');
+  const portal = safeHttpPointer(refString(ref, 'portal_url'));
+  if (!itemId || !ARCGIS_ITEM_ID.test(itemId) || !portal?.startsWith('https://')) return null;
+  return `${portal.replace(/\/$/, '')}/home/item.html?id=${itemId}`;
 }
 
 function matchesCurrentServiceBinding(
@@ -775,6 +787,7 @@ export function SourcePanel({
   const isVrt = dataset.record_type === 'vrt_dataset';
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const pointers = pointerFields(dataset, origin);
+  const itemUrl = arcgisItemUrl(dataset, origin);
   const health = dataset.source_health ?? 'unknown';
   const freshness = dataset.source_freshness ?? 'unknown';
   const drift = dataset.schema_drift_status ?? 'unknown';
@@ -830,6 +843,20 @@ export function SourcePanel({
                 </div>
               ))}
             </dl>
+          )}
+
+          {itemUrl && (
+            <a
+              href={itemUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
+            >
+              {t('sourcePanel.openInArcgis')}
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+              {' '}
+              <span className="sr-only">{t('sourcePanel.opensInNewTab')}</span>
+            </a>
           )}
 
           <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

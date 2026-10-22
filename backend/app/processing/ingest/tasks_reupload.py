@@ -1494,6 +1494,7 @@ class _ServiceReupload:
                 "layer_id": self.source_binding["layer_id"],
                 "auth_required": True if self.token else None,
             },
+            job_id=self.job_uuid,
         )
         return Published(
             dataset_version_id=version.id,

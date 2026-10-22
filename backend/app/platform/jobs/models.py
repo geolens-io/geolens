@@ -176,6 +176,8 @@ PUBLIC_METADATA_KEYS = frozenset(
         "nodata_override",
         "resampling",
         "strict_cog",
+        "item_id",
+        "portal_url",
         # The request that created the job.
         "analysis",
         "dataset_id",
@@ -204,6 +206,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "manifest_bbox",
         # The outcome.
         "warnings",
+        "origin_link_loss",
         "rows_failed",
         "temporal_parse_errors",
         "collision_warning",

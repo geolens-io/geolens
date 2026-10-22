@@ -828,6 +828,8 @@
       "vrt": "Composite",
       "unknown": "Non enregistré"
     },
+    "openInArcgis": "Ouvrir dans ArcGIS",
+    "opensInNewTab": "s'ouvre dans un nouvel onglet",
     "pointer": {
       "filename": "Nom du fichier source",
       "fingerprint": "Empreinte du fichier",
