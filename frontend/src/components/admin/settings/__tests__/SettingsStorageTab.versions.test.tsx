@@ -2,16 +2,31 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SettingsStorageTab } from '../SettingsStorageTab';
 import { getCatalogStats } from '@/api/admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { SettingItem } from '@/api/settings';
 import type { CatalogStatsResponse } from '@/types/api';
 
 vi.mock('@/api/admin', () => ({ getCatalogStats: vi.fn() }));
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: vi.fn() }));
 
 const settings: SettingItem[] = [
   { key: 'previous_versions_kept', value: 3, source: 'default', label: 'Kept' },
 ];
 
+function allow(capabilities: string[]) {
+  vi.mocked(usePermissions).mockReturnValue({
+    permissions: null,
+    can: (capability: string) => capabilities.includes(capability),
+    isLoading: false,
+  } as ReturnType<typeof usePermissions>);
+}
+
 describe('previous versions kept', () => {
+  beforeEach(() => {
+    vi.mocked(getCatalogStats).mockReset();
+    allow(['manage_users', 'manage_settings']);
+  });
+
   it('shows the kept count and the storage kept versions use, and saves a new count', async () => {
     vi.mocked(getCatalogStats).mockResolvedValue({
       previous_versions_bytes: 5 * 1024 * 1024,
@@ -31,5 +46,16 @@ describe('previous versions kept', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(onSave).toHaveBeenCalledWith({ previous_versions_kept: 5 });
+  });
+
+  it('asks for storage only when the operator may read the admin stats', async () => {
+    allow(['manage_settings']);
+    render(
+      <SettingsStorageTab settings={settings} envOnly={false} onSave={vi.fn()} onReset={vi.fn()} isSaving={false} />,
+    );
+
+    expect(screen.getByLabelText('Previous versions kept per dataset')).toHaveValue(3);
+    expect(getCatalogStats).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Kept versions currently use/)).not.toBeInTheDocument();
   });
 });

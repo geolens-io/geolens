@@ -7,6 +7,7 @@ import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
 import { useCatalogStats } from '@/hooks/use-admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatBytes } from '@/lib/format';
 import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import type { SettingItem } from '@/api/settings';
@@ -63,7 +64,9 @@ function storageBytes(quantity: string, unit: StorageUnit): number | null {
 export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
-  const { data: stats } = useCatalogStats();
+  // The stats route needs manage_users, which a settings-only operator may lack.
+  const { can } = usePermissions();
+  const { data: stats } = useCatalogStats({ enabled: can('manage_users') });
   const storedBytes = values.max_storage_bytes_per_user as number;
   const [storageUnit, setStorageUnit] = useState<StorageUnit>(() => storedBytes && storedBytes % GIB !== 0 ? 'bytes' : 'gib');
   const [storageQuantity, setStorageQuantity] = useState(() => displayStorage(storedBytes, storageUnit));

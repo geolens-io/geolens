@@ -33,11 +33,12 @@ import { cancelJob, getJobStatus, retryJob } from '@/api/ingest';
 import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
-export function useCatalogStats() {
+export function useCatalogStats(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.stats,
     queryFn: getCatalogStats,
     staleTime: 30_000,
+    enabled: options?.enabled,
   });
 }
 
