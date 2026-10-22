@@ -158,7 +158,7 @@ def _popup_fields(fields: list, base: str, loss: LossReport) -> list[str] | None
     for item in fields:
         item = _d(item)
         name = item.get("fieldName")
-        if item.get("visible") is not True or not isinstance(name, str) or not name:
+        if item.get("visible") is False or not isinstance(name, str) or not name:
             continue
         if "/" in name:
             computed += 1
@@ -214,10 +214,7 @@ def _element_fields(info: dict, base: str, loss: LossReport) -> list:
                 f"{base}.popupElements[{index}]",
                 loss,
             )
-            own = [
-                {"visible": True, **_d(item)} for item in _l(element.get("fieldInfos"))
-            ]
-            collected.extend(own or top)
+            collected.extend(_l(element.get("fieldInfos")) or top)
         else:
             code = _ELEMENT_LOSSES.get(kind) if isinstance(kind, str) else None
             loss.add(

@@ -338,6 +338,24 @@ def _graduated_expression(
     return ["case", ["==", ["get", field_name], None], fallback, step]
 
 
+def _single_class(field_name: str, only: tuple, base: _Symbol, fallback: str) -> Styled:
+    """One class: its colour inside its range, the default (or nothing) elsewhere."""
+    high, low, symbol = only
+    value = ["get", field_name]
+    inside: list = ["<=", value, high]
+    if low is not None:
+        inside = ["all", [">=", value, low], inside]
+    expression = [
+        "case",
+        ["==", value, None],
+        fallback,
+        inside,
+        _css_color(symbol),
+        fallback,
+    ]
+    return Styled(_paint(base, expression, 1.0), _style_config(base), base.kind)
+
+
 def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field")
     classes, skipped = _classes(
@@ -374,14 +392,14 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         dropped = skipped + len(ranked) - len(distinct)
         loss.add(path, "renderer_class_dropped", f"{dropped} classes")
     usable = distinct
-    if len(usable) < 2:
-        return _simple(base, hint)
-
     default = (
         _symbol(r["defaultSymbol"], f"{path}.defaultSymbol", loss)
         if r.get("defaultSymbol")
         else None
     )
+    fallback = _css_color(default) if default else HIDDEN_COLOR
+    if len(usable) < 2:
+        return _single_class(field_name, usable[0], base, fallback)
     _report_class_differences(base, [sym for _, _, sym in usable], path, loss)
     colors = [_class_color(s) for _, _, s in usable]
     paint_colors = [_css_color(s) for _, _, s in usable]

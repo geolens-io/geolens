@@ -1268,7 +1268,9 @@ class TestClassBreakRange:
         renderer = self._renderer()
         renderer["classBreakInfos"][1]["classMaxValue"] = 10
         result = _translate(_with_renderer(renderer))
-        assert result.layers[0].paint["fill-color"] == "#ff0000"
+        expression = result.layers[0].paint["fill-color"]
+        assert _eval(expression, {"N": 5}) == "#ff0000"
+        assert _eval(expression, {"N": None}) == "rgba(0,0,0,0)"
         assert "renderer_class_dropped" in _kinds(result)
 
 
@@ -1623,7 +1625,7 @@ class TestRound3:
             [{"type": "fields"}],
             fieldInfos=[{"fieldName": "Z", "visible": True}, {"fieldName": "Y"}],
         )
-        assert config["visible_fields"] == ["Z"]
+        assert config["visible_fields"] == ["Z", "Y"]
 
     def test_a_fill_outline_reports_unknown_keys(self) -> None:
         symbol = _fill()
@@ -1754,3 +1756,64 @@ class TestGroupScaleLimits:
             i.detail for i in result.loss.items if i.kind == "unsupported_property"
         ]
         assert details == [key]
+
+
+class TestFieldVisibilityDefault:
+    def _fields(self, infos: list) -> list:
+        result = _translate(_webmap({"popupInfo": {"fieldInfos": infos}}))
+        return result.layers[0].popup_config.visible_fields
+
+    def test_a_field_without_visible_is_shown(self) -> None:
+        assert self._fields(
+            [{"fieldName": "A"}, {"fieldName": "B", "visible": True}]
+        ) == [
+            "A",
+            "B",
+        ]
+
+    def test_only_an_explicit_false_hides_a_field(self) -> None:
+        infos = [{"fieldName": "A", "visible": False}, {"fieldName": "B"}]
+        assert self._fields(infos) == ["B"]
+
+
+class TestSingleClassBreak:
+    def _renderer(self, **extra) -> dict:
+        return {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": [
+                {
+                    "classMinValue": 0,
+                    "classMaxValue": 10,
+                    "symbol": _fill([255, 0, 0, 255]),
+                }
+            ],
+            **extra,
+        }
+
+    def _expression(self, renderer: dict):
+        return _translate(_with_renderer(renderer)).layers[0].paint["fill-color"]
+
+    def test_values_outside_the_class_are_hidden_without_a_default(self) -> None:
+        expression = self._expression(self._renderer())
+        assert _eval(expression, {"N": 5}) == "#ff0000"
+        assert _eval(expression, {"N": 10}) == "#ff0000"
+        assert _eval(expression, {"N": 11}) == "rgba(0,0,0,0)"
+        assert _eval(expression, {"N": -1}) == "rgba(0,0,0,0)"
+        assert _eval(expression, {"N": None}) == "rgba(0,0,0,0)"
+
+    def test_the_default_symbol_colours_the_rest(self) -> None:
+        expression = self._expression(
+            self._renderer(defaultSymbol=_fill([1, 2, 3, 255]))
+        )
+        assert _eval(expression, {"N": 11}) == "#010203"
+        assert _eval(expression, {"N": None}) == "#010203"
+        assert _eval(expression, {"N": 5}) == "#ff0000"
+
+    def test_a_class_left_over_after_deduplication_keeps_the_guard(self) -> None:
+        renderer = self._renderer()
+        renderer["classBreakInfos"].append(
+            {"classMaxValue": 10, "symbol": _fill([9, 9, 9, 255])}
+        )
+        expression = self._expression(renderer)
+        assert _eval(expression, {"N": None}) == "rgba(0,0,0,0)"

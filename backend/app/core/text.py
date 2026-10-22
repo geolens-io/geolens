@@ -22,14 +22,17 @@ def escape_ilike(value: str) -> str:
 
 
 def normalize_nfc(v: str | None) -> str | None:
-    """Normalize a string to Unicode NFC form.
+    """Normalize a string to Unicode NFC form; a non-string passes through.
+
+    A before-validator sees the raw payload, so a number or list must reach the
+    field's own string validation (a 422) rather than raise here.
 
     Use as a Pydantic ``field_validator`` on user-facing text fields to
     prevent invisible duplicates caused by different byte representations
     of the same visual characters (e.g. ``e`` + combining accent vs.
     precomposed ``é``).
     """
-    if v is None:
+    if not isinstance(v, str):
         return v
     return unicodedata.normalize("NFC", v)
 
