@@ -214,7 +214,8 @@ def _element_fields(info: dict, base: str, loss: LossReport) -> list:
                 f"{base}.popupElements[{index}]",
                 loss,
             )
-            collected.extend(_l(element.get("fieldInfos")) or top)
+            own = element.get("fieldInfos")
+            collected.extend(own if isinstance(own, list) else top)
         else:
             code = _ELEMENT_LOSSES.get(kind) if isinstance(kind, str) else None
             loss.add(

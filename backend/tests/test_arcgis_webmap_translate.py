@@ -1186,7 +1186,7 @@ class TestPerClassSymbols:
         }
         layer = _translate(_with_renderer(renderer)).layers[0]
         match = layer.paint["fill-color"][3]
-        assert match[2:6] == ["a", "#ff0000", "b", "rgba(0,0,255,0.0)"]
+        assert match[2:6] == ["a", "#ff0000", "b", "rgba(0,0,0,0)"]
         assert layer.paint["fill-opacity"] == 1.0
         assert [c["color"] for c in layer.style_config["categories"]] == [
             "#ff0000",
@@ -1914,3 +1914,94 @@ class TestWebMapAllowlist:
         assert "spatial_reference" not in _kinds(
             _translate(_webmap(spatialReference={"latestWkid": 3857, "wkid": 102100}))
         )
+
+
+class TestNullStyles:
+    def _null_fill(self, color=None) -> dict:
+        symbol = {**_fill(color or [10, 20, 30, 255]), "style": "esriSFSNull"}
+        return symbol
+
+    def test_a_null_fill_draws_no_fill(self) -> None:
+        result = _translate(
+            _with_renderer({"type": "simple", "symbol": self._null_fill()})
+        )
+        layer = result.layers[0]
+        assert layer.paint["fill-opacity"] == 0.0
+        assert layer.style_config["builder"]["fill_disabled"] is True
+
+    def test_a_unique_value_class_with_a_null_fill_is_transparent(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [
+                {"value": "a", "symbol": _fill([255, 0, 0, 255])},
+                {"value": "b", "symbol": self._null_fill()},
+                {
+                    "value": "c",
+                    "symbol": self._null_fill()["color"]
+                    and {**self._null_fill(), "color": None},
+                },
+            ],
+        }
+        match = _translate(_with_renderer(renderer)).layers[0].paint["fill-color"][3]
+        assert match[2:8] == [
+            "a",
+            "#ff0000",
+            "b",
+            "rgba(0,0,0,0)",
+            "c",
+            "rgba(0,0,0,0)",
+        ]
+
+    def test_a_class_break_with_a_null_fill_is_transparent(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "N",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": self._null_fill()},
+                {"classMaxValue": 2, "symbol": _fill([0, 0, 255, 255])},
+            ],
+        }
+        step = _translate(_with_renderer(renderer)).layers[0].paint["fill-color"][3]
+        assert step[2] == "rgba(0,0,0,0)"
+        assert step[4] == "#0000ff"
+
+    def test_a_null_line_class_is_transparent(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "uniqueValueInfos": [
+                {"value": "a", "symbol": {**_line("esriSLSNull"), "color": None}},
+                {"value": "b", "symbol": _line()},
+            ],
+        }
+        match = _translate(_with_renderer(renderer)).layers[0].paint["line-color"][3]
+        assert match[2:6] == ["a", "rgba(0,0,0,0)", "b", "#ff0000"]
+
+    def test_a_null_default_symbol_hides_the_rest(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "K",
+            "defaultSymbol": self._null_fill(),
+            "uniqueValueInfos": [{"value": "a", "symbol": _fill([255, 0, 0, 255])}],
+        }
+        expression = _translate(_with_renderer(renderer)).layers[0].paint["fill-color"]
+        assert expression[2] == "rgba(0,0,0,0)"
+
+
+class TestEmptyFieldsElement:
+    def _config(self, element: dict) -> dict:
+        popup = {
+            "popupElements": [element],
+            "fieldInfos": [{"fieldName": "Z", "visible": True}],
+        }
+        layer = _translate(_webmap({"popupInfo": popup})).layers[0]
+        return layer.popup_config.model_dump()
+
+    def test_an_explicitly_empty_list_shows_no_fields(self) -> None:
+        assert (
+            self._config({"type": "fields", "fieldInfos": []})["visible_fields"] == []
+        )
+
+    def test_a_missing_list_falls_back_to_the_popups(self) -> None:
+        assert self._config({"type": "fields"})["visible_fields"] == ["Z"]

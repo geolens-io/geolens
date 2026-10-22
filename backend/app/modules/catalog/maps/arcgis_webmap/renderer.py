@@ -158,6 +158,7 @@ def _fill(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
         loss.add(path, "symbol_style", "picture fill")
     elif style == "esriSFSNull":
         result.builder["fill_disabled"] = True
+        result.opacity = 0.0
     elif style not in (None, "esriSFSSolid"):
         loss.add(path, "symbol_style", f"fill style {describe(style)}")
     result.builder.update(_outline(symbol, path, loss))
@@ -230,6 +231,8 @@ def _class_color(sym: _Symbol | None) -> str:
 
 def _css_color(sym: _Symbol | None) -> str:
     """A class colour for the paint, carrying the symbol's alpha as rgba."""
+    if sym is not None and sym.opacity == 0:
+        return HIDDEN_COLOR
     color = _class_color(sym)
     if sym is None or not sym.color or sym.opacity >= 1:
         return color
