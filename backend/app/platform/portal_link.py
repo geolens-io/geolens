@@ -86,12 +86,18 @@ def _ascii_host(host: str) -> str | None:
     return host if _HOST.fullmatch(host) else None
 
 
+def _url_ascii_host(url: str) -> str | None:
+    """The URL's host in the form the comparison uses, None when it has none."""
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return None
+    return _ascii_host(host) if host else None
+
+
 def same_registrable_domain(first_url: str, second_url: str) -> bool:
     """Whether two URLs' hosts share a registrable domain."""
-    try:
-        first, second = urlsplit(first_url).hostname, urlsplit(second_url).hostname
-    except ValueError:
-        return False
+    first, second = _url_ascii_host(first_url), _url_ascii_host(second_url)
     return bool(first and second) and registrable_domain(first) == registrable_domain(
         second
     )
@@ -119,10 +125,7 @@ def _check_portal_url(
     if host is None:
         return None, LOSS_PORTAL_URL_INVALID
     if service_url is not None:
-        try:
-            service_host = urlsplit(service_url).hostname
-        except ValueError:
-            service_host = None
+        service_host = _url_ascii_host(service_url)
         if not service_host or registrable_domain(host) != registrable_domain(
             service_host
         ):

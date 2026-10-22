@@ -15,7 +15,11 @@ from app.platform.dataset_origin import (
 )
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.schemas import FanOutLayerResult
-from app.platform.portal_link import registrable_domain, resolve_portal_link
+from app.platform.portal_link import (
+    registrable_domain,
+    resolve_portal_link,
+    same_registrable_domain,
+)
 from tests.factories import create_dataset, get_user_id
 
 _ITEM = "0123456789abcdef0123456789abcdef"
@@ -92,6 +96,35 @@ class TestResolvePortalLink:
         link = resolve_portal_link(_ITEM, portal_url, _SERVICE)
         assert "portal_url" not in link.fields
         assert link.losses == ["portal_url_invalid"]
+
+    def test_a_unicode_service_host_matches_a_unicode_portal_on_its_domain(
+        self,
+    ) -> None:
+        link = resolve_portal_link(
+            None, "https://münich.example/portal", "https://gis.münich.example/s"
+        )
+        assert link.fields == {"portal_url": "https://xn--mnich-kva.example/portal"}
+        assert link.losses == []
+
+    def test_a_unicode_service_host_still_rejects_a_lookalike_portal(self) -> None:
+        for portal in ("https://munich.example", "https://münich.evil.example"):
+            link = resolve_portal_link(None, portal, "https://gis.münich.example/s")
+            assert link.losses == ["portal_url_domain_mismatch"], portal
+
+    @pytest.mark.parametrize(
+        "service_url",
+        [
+            "https://" + "a" * 70 + ".example/s",
+            "https://x\u2100.example/s",
+            "https:///s",
+        ],
+    )
+    def test_a_service_host_that_fails_idna_never_matches(
+        self, service_url: str
+    ) -> None:
+        link = resolve_portal_link(None, "https://portal.example", service_url)
+        assert link.losses == ["portal_url_domain_mismatch"]
+        assert not same_registrable_domain(service_url, "https://portal.example")
 
     def test_a_unicode_host_is_compared_in_its_ascii_form(self) -> None:
         link = resolve_portal_link(None, "https://аrcgis.com", _SERVICE)
