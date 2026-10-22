@@ -20,12 +20,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from procrastinate import App, PsycopgConnector
+from procrastinate import App
 
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
-from app.core.config import settings
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
+from app.platform.jobs.queue_connector import make_queue_connector
 from app.platform.storage import get_storage
 
 if TYPE_CHECKING:
@@ -205,19 +205,8 @@ class IngestContext:
     source_columns: list[dict] | None = None
 
 
-_connector_kwargs: dict = {
-    "min_size": 1,
-    "max_size": 3,
-    "kwargs": {"connect_timeout": 5},
-}
-if settings.db_use_external_pooler:
-    _connector_kwargs["kwargs"]["prepare_threshold"] = None
-
 task_app = App(
-    connector=PsycopgConnector(
-        conninfo=settings.procrastinate_conninfo,
-        **_connector_kwargs,
-    ),
+    connector=make_queue_connector(),
     import_paths=[
         "app.processing.ingest.tasks_vector",
         "app.processing.ingest.tasks_raster",

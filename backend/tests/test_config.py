@@ -393,6 +393,26 @@ class TestProcrastinateConninfo:
         )
         assert "host=/var/run/postgresql" in s.procrastinate_conninfo
 
+    @pytest.mark.parametrize(
+        "override", [None, "postgresql://u:p@pooler:6432/db"], ids=["composed", "url"]
+    )
+    def test_external_pooler_sends_no_startup_options(self, override):
+        # PgBouncer refuses any options startup parameter, so the job queue
+        # could not open a single connection behind it.
+        s = _make_settings(database_url_override=override, db_use_external_pooler=True)
+        conninfo = s.procrastinate_conninfo
+        assert "options=" not in conninfo
+        assert "search_path" not in conninfo
+
+    def test_external_pooler_keeps_caller_options(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql://u:p@host/db?options=-c%20statement_timeout%3D5000"
+            ),
+            db_use_external_pooler=True,
+        )
+        assert "options='-c statement_timeout=5000'" in s.procrastinate_conninfo
+
 
 class TestOgrConnectionString:
     """Test ogr_connection_string property."""

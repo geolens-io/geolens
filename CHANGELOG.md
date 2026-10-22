@@ -80,6 +80,13 @@ and releases use semantic versioning.
 - The message shown when an account is temporarily locked out of signing in now
   also names API keys as the way back in for scripts and desktop apps.
 
+### Fixed
+
+- The api and worker start behind PgBouncer in transaction mode with
+  `DB_USE_EXTERNAL_POOLER=true`. The job queue no longer sends its search path in
+  the `options` startup parameter, which PgBouncer rejects; it sets it inside each
+  transaction instead.
+
 ## [1.26.0] - 2026-10-18
 
 ### Added

@@ -1313,30 +1313,30 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
             # server cert here while database_connect_args skips that check for the API.
             if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
-            # Keep the search_path option the job queue needs on managed Postgres;
-            # a caller-supplied ?options= is preserved and ours is applied last so it wins.
-            search_path_opt = f"-c search_path={self.procrastinate_schema},public"
             # Operator boot-time config, not a runtime service-advertised value.
             caller_options = parse_qs(parsed.query).get(  # parse_qs: unbounded
                 "options", [""]
             )[0]
-            combined_options = (
-                f"{caller_options} {search_path_opt}".strip()
-                if caller_options.strip()
-                else search_path_opt
-            )
-            parts.append(f"options='{combined_options}'")
-            return " ".join(parts)
-        parts = [
-            f"host={libpq_value(self.postgres_host)}",
-            f"port={self.postgres_port}",
-            f"dbname={libpq_value(self.postgres_db)}",
-            f"user={libpq_value(self.postgres_user)}",
-            f"password={libpq_value(self.postgres_password.get_secret_value())}",
-        ]
-        parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
-        parts.append(f"options='-c search_path={self.procrastinate_schema},public'")
+        else:
+            caller_options = ""
+            parts = [
+                f"host={libpq_value(self.postgres_host)}",
+                f"port={self.postgres_port}",
+                f"dbname={libpq_value(self.postgres_db)}",
+                f"user={libpq_value(self.postgres_user)}",
+                f"password={libpq_value(self.postgres_password.get_secret_value())}",
+            ]
+            parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
+        # Last, so it wins; behind a pooler the queue connector sets it instead.
+        if not self.db_use_external_pooler:
+            caller_options += f" -c search_path={self.procrastinate_search_path}"
+        if options := caller_options.strip():
+            parts.append(f"options='{options}'")
         return " ".join(parts)
+
+    @property
+    def procrastinate_search_path(self) -> str:
+        return f"{self.procrastinate_schema},public"
 
     @property
     def ogr_connection_string(self) -> str:
