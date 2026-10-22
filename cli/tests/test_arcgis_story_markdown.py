@@ -163,3 +163,14 @@ def test_a_tour_with_invalid_geometries_still_renders_its_text():
     text = story.render_storymap(data, title="t", map_link=_link)
 
     assert "### Downtown Blue Way" in text and "Location:" not in text
+
+
+def test_an_image_missing_from_the_saved_set_becomes_a_comment():
+    data = _tour()
+
+    text = story.render_storymap(
+        data, title="t", map_link=_link, available={"one.png", "three.jpg"}
+    )
+
+    assert "![](resources/one.png)" in text and "two.png" not in text
+    assert "<!-- image not saved in the export -->" in text

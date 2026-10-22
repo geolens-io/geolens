@@ -13,7 +13,7 @@ from __future__ import annotations
 import html
 import re
 from urllib.parse import quote
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from html.parser import HTMLParser
 from typing import Any
 
@@ -113,12 +113,17 @@ def _text_block(data: Mapping[str, Any]) -> str:
 
 class _Story:
     def __init__(
-        self, data: Mapping[str, Any], map_link: MapLink, resource_dir: str
+        self,
+        data: Mapping[str, Any],
+        map_link: MapLink,
+        resource_dir: str,
+        available: Collection[str] | None,
     ) -> None:
         self.nodes: Mapping[str, Any] = data.get("nodes") or {}
         self.resources: Mapping[str, Any] = data.get("resources") or {}
         self.map_link = map_link
         self.resource_dir = resource_dir
+        self.available = available
         self.blocks: list[str] = []
         self.seen: set[str] = set()
 
@@ -216,6 +221,9 @@ class _Story:
         if not isinstance(name, str):
             self._add("<!-- image without a stored file -->")
             return
+        if self.available is not None and name not in self.available:
+            self._add("<!-- image not saved in the export -->")
+            return
         caption = inline_markdown(data.get("caption") or data.get("attribution"))
         self._add(f"![{caption}]({self.resource_dir}{quote(name, safe='/')})")
 
@@ -236,12 +244,15 @@ def render_storymap(
     title: str,
     map_link: MapLink,
     resource_dir: str = "resources/",
+    available: Collection[str] | None = None,
 ) -> str:
     """``story.md`` for an ArcGIS StoryMaps ``/data`` document.
 
-    The item *title* heads the page when the story has no cover node.
+    The item *title* heads the page when the story has no cover node. With
+    *available* (the resource names that were saved), an image whose file is
+    not among them is left as a comment instead of a dead link.
     """
-    story = _Story(data, map_link, resource_dir)
+    story = _Story(data, map_link, resource_dir, available)
     story.walk(str(data.get("root")))
     if not any(block.startswith("# ") for block in story.blocks):
         story.blocks.insert(0, f"# {title}")

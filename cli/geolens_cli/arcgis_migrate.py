@@ -553,7 +553,9 @@ def _report(
     failed = [
         item["id"] for item in plan["items"] if state.status(item["id"]) == FAILED
     ]
+    ran = {item["id"] for item in to_run}
     report_files: tuple[Path, Path] | None = None
+    report_failed = False
     if not opts.dry_run:
         try:
             report_files = write_run_report(
@@ -568,7 +570,8 @@ def _report(
                 redact,
             )
         except OSError as exc:
-            fmt.warn(f"couldn't write the report: {exc.strerror or exc}")
+            report_failed = True
+            fmt.error(f"couldn't write the report: {exc.strerror or exc}")
     payload = {
         "plan": str(opts.plan_path),
         "state": None if opts.dry_run else str(state.path),
@@ -583,6 +586,7 @@ def _report(
         "waiting": summary.waiting,
         "stopped": summary.stopped,
         "report": [str(p) for p in report_files] if report_files else None,
+        "failed": failed,
     }
     if fmt.json_mode:
         fmt.json(payload)
@@ -597,6 +601,10 @@ def _report(
             if row["error"]:
                 # An error, not a warning: --quiet must not hide a failed item.
                 fmt.error(f"{row['id']}: {row['error']}")
+        for item_id in failed:
+            if item_id not in ran:
+                # Failed before, left out of this run: the exit code counts it.
+                fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
         for line in owners.reassigned:
             fmt.warn(f"owner fell back to --unmapped-owner for {line}")
         for line in owners.warnings:
@@ -629,7 +637,7 @@ def _report(
                     f"{len(failed)} item(s) failed; see {report_files[1] if report_files else state.path}"
                 )
     left = summary.unavailable or summary.waiting or summary.stopped
-    return EXIT_GENERIC if failed or left else EXIT_OK
+    return EXIT_GENERIC if failed or left or report_failed else EXIT_OK
 
 
 def run_cli(
@@ -760,16 +768,25 @@ def _check_hosts(hosts: list[str]) -> None:
             )
 
 
+def _portal_base(url: str) -> str:
+    """The portal root story links start from, without a ``/home`` or
+    ``/sharing/rest`` tail."""
+    try:
+        return portal_root(url, True)
+    except ValueError:
+        return url.rstrip("/")
+
+
 def _write_partial_report(
     plan: Mapping[str, Any],
     state: MigrationState,
     redact: Redactor,
     stopped: str,
     owner_changes: Sequence[Mapping[str, str]] = (),
-) -> None:
+) -> tuple[Path, Path]:
     """The report of a run that ended early, so it is not left stale."""
     state.save()
-    write_run_report(
+    return write_run_report(
         state.path.parent,
         build_run_report(
             plan,
@@ -862,7 +879,7 @@ def _run(
         export_dir=state.path.parent / EXPORT_DIRNAME,
         export_cap=opts.export_cap_mb * 1024 * 1024,
         web_origin=_web_origin(instance),
-        portal_root=plan["portal"]["url"].rstrip("/"),
+        portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,
     )
     # Any way out of the loop but a normal return leaves the report to the
@@ -883,7 +900,10 @@ def _run(
     finally:
         if stopped is not None:
             try:
-                _write_partial_report(plan, state, redact, stopped, owners.changed)
+                _json_path, md_path = _write_partial_report(
+                    plan, state, redact, stopped, owners.changed
+                )
+                fmt.info(f"Report: {md_path}")
             except OSError as exc:
                 # Not allowed to replace the exit outcome this run is leaving by.
                 fmt.warn(f"couldn't write the report: {exc.strerror or exc}")

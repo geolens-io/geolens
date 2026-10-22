@@ -309,7 +309,9 @@ def _safe_relative(name: str) -> PurePosixPath | None:
     return PurePosixPath(name)
 
 
-def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> None:
+def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> set[str]:
+    """Save the item's resources and return the names that reached the bundle."""
+    saved: set[str] = set()
     base = (export.folder / "resources").resolve()
     for name in _resource_names(export, item_id):
         shown = redact_json(name, ctx.redact)
@@ -336,6 +338,9 @@ def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> Non
             raw_dest=dest,
             required=dest.suffix.lower() in (".json", ".ipynb"),
         )
+        if dest.exists():
+            saved.add(name)
+    return saved
 
 
 def _map_link(ctx: MigrationContext, item_id: str) -> str:
@@ -346,7 +351,11 @@ def _map_link(ctx: MigrationContext, item_id: str) -> str:
 
 
 def _story(
-    ctx: MigrationContext, export: _Export, item: Mapping[str, Any], data: Any
+    ctx: MigrationContext,
+    export: _Export,
+    item: Mapping[str, Any],
+    data: Any,
+    saved: set[str],
 ) -> bool:
     if not isinstance(data, dict):
         return False
@@ -356,7 +365,9 @@ def _story(
 
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:
-        text = render_storymap(data, title=item["title"], map_link=link)
+        text = render_storymap(
+            data, title=item["title"], map_link=link, available=saved
+        )
     elif item["type"] == _STORY:
         text = render_classic(data, title=item["title"], map_link=link)
     if text is None:
@@ -418,7 +429,13 @@ def _swap_in(build: Path, folder: Path) -> None:
     if folder.exists():
         old = folder.with_name(f".{folder.name}.old-{os.getpid()}")
         folder.rename(old)
-    build.rename(folder)
+    try:
+        build.rename(folder)
+    except OSError:
+        # Put the kept bundle back before the error leaves.
+        if old is not None:
+            old.rename(folder)
+        raise
     if old is not None:
         shutil.rmtree(old, ignore_errors=True)
 
@@ -446,22 +463,26 @@ def _export_into(
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
         data = _save_data(ctx, export, item)
-        _save_resources(ctx, export, item["id"])
-        story = _story(ctx, export, item, data)
-    if not (export.failures and folder.exists()):
+        saved = _save_resources(ctx, export, item["id"])
+        story = _story(ctx, export, item, data, saved)
+    swapped = not (export.failures and folder.exists())
+    if swapped:
         _swap_in(build, folder)
     relative = folder.relative_to(ctx.export_dir.parent)
-    entry.export = {
+    record = {
         "path": relative.as_posix(),
         "bytes": export.bytes,
         "partial": export.partial,
         "errors": [redact_json(e, ctx.redact) for e in export.errors],
         "story": story,
     }
+    if swapped:
+        # Otherwise the earlier bundle stays as it was, and so does its record.
+        entry.export = record
     notes = [f"exported to {relative.as_posix()}"]
     if export.partial:
         notes.append("partial: some files were left out; see the export notes")
-    notes.extend(f"export: {e}" for e in entry.export["errors"])
+    notes.extend(f"export: {e}" for e in record["errors"])
     if export.failures:
         # Left failed, so a rerun fetches what a transient error cost.
         raise ItemFailed(

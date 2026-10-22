@@ -818,3 +818,89 @@ def test_a_local_error_in_setup_or_the_swap_fails_only_that_item(
     entry = _state(plan_file)["items"][C3]
     assert entry["status"] == "failed" and "Permission denied" in entry["error"]
     assert not [p for p in _export(plan_file).rglob(f".{C3}.new-*") if p.exists()]
+
+
+def test_a_failed_retry_keeps_the_earlier_exports_metadata(
+    runner, tmp_path, geolens, install
+):
+    portal = install(
+        {
+            f"content/items/{C3}/resources": _resources("logo.png"),
+            f"content/items/{C3}/resources/logo.png": b"PNG",
+        }
+    )
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+    before = _state(plan_file)["items"][C3]["export"]
+    state = _state(plan_file)
+    state["items"][C3]["status"] = "failed"
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+    portal.routes[f"content/items/{C3}/resources"] = _resources()
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][C3]["export"] == before
+
+
+def test_a_failed_swap_puts_the_kept_bundle_back(tmp_path, monkeypatch):
+    from geolens_cli.arcgis_migrate_export import _swap_in
+
+    folder = tmp_path / "item"
+    folder.mkdir()
+    (folder / "item.json").write_text("old")
+    build = tmp_path / ".item.new-1"
+    build.mkdir()
+    real = Path.rename
+
+    def failing(self, target):
+        if self == build:
+            raise OSError(13, "Permission denied")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing)
+
+    with pytest.raises(OSError):
+        _swap_in(build, folder)
+
+    assert (folder / "item.json").read_text() == "old"
+    assert not [p for p in tmp_path.iterdir() if ".old-" in p.name]
+
+
+def test_story_links_only_images_that_were_saved(runner, tmp_path, geolens, install):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    install(
+        {
+            f"content/items/{C2}/data": data,
+            f"content/items/{C2}/resources": _resources("cover photo.jpg?token=abc"),
+        }
+    )
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    text = (_export(plan_file, "storymap", C2) / "story.md").read_text()
+    assert "![" not in text and "image not saved in the export" in text
+
+
+def test_fallback_item_links_start_from_the_portal_root(
+    runner, tmp_path, geolens, install
+):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    install({f"content/items/{C2}/data": data})
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+    plan = json.loads(plan_file.read_text())
+    plan["portal"]["url"] += "/home"
+    plan_file.write_text(json.dumps(plan))
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    report["portal"]["url"] = plan["portal"]["url"]
+    inventory.write_text(json.dumps(report))
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    text = (_export(plan_file, "storymap", C2) / "story.md").read_text()
+    assert "/home/home/" not in text and "/home/item.html?id=" in text

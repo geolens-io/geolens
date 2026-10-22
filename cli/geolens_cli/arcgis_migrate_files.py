@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,9 @@ JOB_KEY = "file"
 # with JOB_KEY whatever its name.
 # Upload-job states in which a fan-out is known to have queued no child.
 _CHILDLESS = frozenset({"cancelled", "failed"})
+# Seconds after sending a fan-out before a failed or cancelled upload job counts
+# as having queued nothing: longer than the server's grace for a stale dispatch.
+FAN_OUT_SETTLE = 600.0
 LAYER_PREFIX = "layer:"
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _TOKEN_STATUSES = (498, 499)
@@ -205,6 +209,7 @@ def _fan_out(
         "job": str(job_id),
         "layers": layers,
         "titles": [titles[name] for name in layers],
+        "sent_at": _wall_clock(),
     }
     ctx.save()
     request = FanOutCommitRequest(
@@ -269,6 +274,15 @@ def _resume_fan_out(
         return ItemResult(
             notes=[f"the file holds {len(layers)} layers, one dataset each", *failed]
         )
+    wait = FAN_OUT_SETTLE - (_wall_clock() - entry.fan_out.get("sent_at", 0.0))
+    if status in _CHILDLESS and wait > 0:
+        # A request that was lost may still be running on the server, and the
+        # stale-job sweep can fail the parent while it goes on queuing children.
+        raise ItemFailed(
+            f"{base}: the layers were sent {int((FAN_OUT_SETTLE - wait) // 60)} "
+            f"minutes ago and GeoLens may still be queuing them (the upload job "
+            f"is {status}); rerun in {int(wait // 60) + 1} minutes"
+        )
     if status in _CHILDLESS:
         # The job ended without queuing a child (cancelled, expired, or the
         # dispatch was interrupted), so no dataset exists: import afresh.
@@ -284,6 +298,10 @@ def _resume_fan_out(
         f'datasets titled {titles}; delete them and remove "fan_out" from this '
         "item in the state file to import again, or set the item to skip."
     )
+
+
+def _wall_clock() -> float:
+    return time.time()
 
 
 def _layer_key(name: str) -> str:

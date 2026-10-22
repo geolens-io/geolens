@@ -429,3 +429,85 @@ def test_the_partial_export_follow_up_names_no_single_cause(tmp_path):
         f["text"] for f in report["follow_ups"] if f["kind"] == "export_partial"
     )
     assert "redact" in text and "size cap" in text
+
+
+def test_the_group_mode_note_is_not_a_collection_permission_follow_up(tmp_path):
+    plan = _plan(tmp_path)
+    state = _state(tmp_path)
+    _set(
+        state,
+        A1,
+        "done",
+        dataset_ids=["ds-1"],
+        notes=[
+            "not filed into collections: collection_from is group, and ArcGIS "
+            "groups map to GeoLens groups, not collections"
+        ],
+    )
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    assert "collections" not in {f["kind"] for f in report["follow_ups"]}
+
+
+def test_a_skipped_item_has_no_missing_dependency_follow_up(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == A1:
+            item["action"] = "skip"
+            item["depends_on"] = ["f" * 32]
+    state = _state(tmp_path)
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    assert (A1, "unresolved_dependency") not in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }
+
+
+def test_a_report_that_cannot_be_written_at_the_end_of_a_run_exits_nonzero(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+
+    def done(ctx, item, entry):
+        return migrate.ItemResult()
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", done)
+    monkeypatch.setattr(migrate, "write_run_report", full_disk)
+    monkeypatch.setattr(migrate, "transfer", lambda *a, **k: None)
+    monkeypatch.setattr(migrate, "apply_item_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(migrate, "file_into_collections", lambda *a, **k: [])
+
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 1
+    assert "couldn't write the report" in result.output
+
+
+def test_a_failed_item_left_out_of_the_run_is_printed(runner, tmp_path, geolens):
+    plan_file = _write_plan(tmp_path)
+    runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    result = runner.invoke(
+        app, ["arcgis", "migrate", str(plan_file), "--only", A2, "--no-retry"]
+    )
+
+    assert result.exit_code == 1
+    assert A2 in result.output and "probe failed" in result.output
+
+
+def test_an_early_exit_says_where_the_report_is(runner, tmp_path, geolens, monkeypatch):
+    plan_file = _write_plan(tmp_path)
+
+    def interrupted(ctx, item, entry):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", interrupted)
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 130
+    assert "arcgis-migration-report.md" in result.output

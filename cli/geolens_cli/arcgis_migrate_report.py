@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import arcgis_report as _report
+from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_export import replacement_note
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
@@ -56,7 +57,7 @@ def _follow_ups(
                 add(item["id"], "skipped_layer", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
-            elif note.startswith("not filed into collections"):
+            elif note == DENIED:
                 add(
                     item["id"],
                     "collections",
@@ -130,6 +131,8 @@ def _follow_ups(
         if unmet:
             add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
     for item in plan["items"]:
+        if item["action"] == _plan.SKIP or state.status(item["id"]) == SKIPPED:
+            continue
         for dep in item["depends_on"]:
             if dep not in items:
                 add(
