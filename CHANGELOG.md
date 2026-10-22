@@ -55,8 +55,8 @@ and releases use semantic versioning.
   `scope: "publish"` on `POST /auth/api-keys` and `POST /admin/api-keys`. A
   publish key can read, upload and import, apply manifests, edit dataset
   metadata, create and import maps, and replace an uploaded dataset's data.
-  A replacement keeps one previous version, as a reupload in the app does, so
-  a second replacement in a row leaves only the first one's data to restore.
+  A replacement keeps the data it replaces as a previous version, as a
+  reupload in the app does, up to the instance's limit on kept versions.
   It can't update an existing map (`PUT /maps/{id}`; a republish creates a new
   map), delete anything, write features, reach admin or key routes, or replace
   a raster dataset or one bound to a service, STAC item or table, and it acts

@@ -47,7 +47,8 @@ covers how long it lasts and what to do if the script dies part-way.
 Datasets keep their last three previous versions by default, where earlier
 releases kept one, so the database can grow to about three times a replaced
 dataset's size per dataset. Set **Previous versions kept per dataset** to 1
-under Settings > Storage to keep the earlier behaviour.
+under Settings > Storage, or send `{"settings": {"previous_versions_kept": 1}}`
+to `PUT /settings/` as an admin, to keep the earlier behaviour.
 
 ## Rollback
 
