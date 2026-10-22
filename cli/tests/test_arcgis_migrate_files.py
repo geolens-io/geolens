@@ -637,3 +637,33 @@ def test_a_child_job_that_fails_while_resuming_is_noted(
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == [dataset_id("Roads")]
     assert "boom" in entry["notes"][-1]
+
+
+def test_a_failed_target_update_on_resume_does_not_lose_the_dataset(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    commit = files.commit
+    lost = {"on": True}
+
+    def flaky(job, seen):
+        reply = commit(job, seen)
+        return (500, _problem(500, "gateway lost")) if lost["on"] else reply
+
+    files.commit = flaky
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    lost["on"] = False
+    [job] = files.commits
+    patch = f"PATCH /datasets/{dataset_id(job)}"
+    served = geolens.routes[patch]
+    geolens.routes[patch] = (500, _problem(500, "database unavailable"))
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][D3]["dataset_ids"] == [dataset_id(job)]
+
+    geolens.routes[patch] = served
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 1

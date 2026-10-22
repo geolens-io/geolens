@@ -303,10 +303,14 @@ def import_file(
     if recorded:
         dataset = _finish_recorded(ctx, UUID(recorded), base, visibility)
         del entry.layer_jobs[JOB_KEY]
-        ctx.save()
         if dataset is not None:
+            # Pinned and saved before the target is applied: a failure there
+            # must leave the dataset recorded, or a rerun would upload again.
+            result = _pinned(entry, dataset)
+            ctx.save()
             _apply_target(ctx, dataset, _commit_body(base, visibility))
-            return _pinned(entry, dataset)
+            return result
+        ctx.save()
 
     limit = _limit(ctx)
     size = row.get("size_bytes")
