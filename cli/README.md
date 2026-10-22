@@ -47,6 +47,8 @@ Items are imported as you, then handed to the owner the plan names. Each target 
 
 Public items need none. For anything else pass `--token`, `ARCGIS_TOKEN` or `--token-stdin`, or `--username` with the password in `ARCGIS_PASSWORD`, `--password-stdin` or a prompt. A token made from a password is renewed before it expires. A token you pasted is not: when it runs out the run stops, writes the state file and tells you to resume with a fresh one. Accounts that sign in with SAML or OpenID Connect have no password to give here, so use a token. Tokens and passwords are never written to the state file, the report or the export folder.
 
+A private service hosted on a federated ArcGIS Server whose host differs from the portal's (or from `arcgis.com`) only receives the token when you name its host with `--trust-service-host <host>` (repeatable); without it the item fails before any import and the error names the host to pass.
+
 GeoLens needs `REDIS_URL` set to take a token for a private service import; without it the instance answers 503 and the run stops with that message.
 
 ### Resuming and reports
