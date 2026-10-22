@@ -20,6 +20,43 @@ geolens status DATASET_ID        # the UUID at the end of the URL publish printe
 
 The CLI wraps the [`geolens`](https://pypi.org/project/geolens/) Python SDK package.
 
+## Migrate from ArcGIS
+
+Three commands move an ArcGIS Online or Enterprise organization into GeoLens. They are written for an ArcGIS organization administrator, because a portal search only returns items shared with the caller and a non-admin never sees other people's private items. On the GeoLens side the session must be an admin (`geolens login` as one), since the run reads the user list and hands ownership to the people the plan names.
+
+```bash
+geolens arcgis inventory --portal-url https://yourorg.maps.arcgis.com --scope org -o ./run
+geolens arcgis plan ./run/arcgis-inventory.json --owner-map owners.json
+geolens arcgis migrate ./run/arcgis-migration-plan.json
+```
+
+1. `inventory` reads the portal and writes `arcgis-inventory.json` and a readable report.
+2. `plan` turns it into `arcgis-migration-plan.json`, which you review and edit. Each item has an action (`import_layers`, `import_file`, `import_map`, `export_only` or `skip`), a target owner, visibility, collections and title. `owners.json` maps ArcGIS usernames to GeoLens usernames or emails; an empty value means no owner yet.
+3. `migrate` (hidden from `--help` until the whole flow ships) runs the plan one item at a time, in dependency order. Add `--dry-run` first to check the plan and the owners without importing anything.
+
+### What each action does
+
+- `import_layers`: GeoLens imports the feature layers and tables of a hosted or federated service itself; the CLI never contacts the service.
+- `import_file`: a CSV, GeoJSON, Shapefile or File Geodatabase item is downloaded from the portal and uploaded. It is bounded by the instance's upload size limit; an item over it is skipped with its size.
+- `export_only`: items GeoLens can't host (dashboards, forms, StoryMaps, Hub pages and so on) are saved under `export/<type>/<item id>/` next to the state file, with `item.json`, the item's data, its resources and, for a story, a readable `story.md`. `export/INDEX.md` lists them with what to use instead. `--export-cap-mb` (default 200) limits each item.
+- `import_map` is not available yet; those items stay pending.
+
+Items are imported as you, then handed to the owner the plan names. Each target user needs a role with `upload` (datasets) or `edit_metadata` (maps); `migrate` warns when the role matrix says otherwise and the server decides on each transfer. `--unmapped-owner` names an owner for items whose mapped owner is empty or inactive. Folders become collections (`defaults.collection_from` in the plan: `folder` or `none`); ArcGIS groups are not migrated yet and are listed in the report.
+
+### Credentials
+
+Public items need none. For anything else pass `--token`, `ARCGIS_TOKEN` or `--token-stdin`, or `--username` with the password in `ARCGIS_PASSWORD`, `--password-stdin` or a prompt. A token made from a password is renewed before it expires. A token you pasted is not: when it runs out the run stops, writes the state file and tells you to resume with a fresh one. Accounts that sign in with SAML or OpenID Connect have no password to give here, so use a token. Tokens and passwords are never written to the state file, the report or the export folder.
+
+GeoLens needs `REDIS_URL` set to take a token for a private service import; without it the instance answers 503 and the run stops with that message.
+
+### Resuming and reports
+
+Progress is saved in `arcgis-migration-state.json` (mode 0600) after every item. Run the same command again to resume: finished items are skipped, failed ones are retried (`--no-retry` leaves them alone), and layers already imported are never imported twice. `--only <item id>` runs one item plus the unfinished items it depends on. Only one run can use a state file at a time.
+
+Each run writes `arcgis-migration-report.md` and `.json` next to the state file. They cover every item of the plan, the manual follow-ups (failed items, skipped files and layers, group-only sharing, partial exports, items waiting on others) and the unsupported items with where each was saved. The exit code is 0 when nothing failed and 1 otherwise; 2 means the plan, state file or owner mapping couldn't be used.
+
+For a large migration, run the GeoLens worker with `WORKER_CONCURRENCY=2` or more, since each layer import is a background job.
+
 ## Documentation
 
 The full command reference, manifest schema, exit codes and CI setup are in the [CLI guide](https://docs.getgeolens.com/guides/cli/).
