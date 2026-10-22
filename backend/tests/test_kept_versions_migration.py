@@ -214,3 +214,47 @@ async def test_the_downgrade_finds_a_kept_table_in_any_data_schema(
         await session.commit()
         await _drop(session, found_id, [])
         await _drop(session, missing_id, [])
+
+
+async def test_the_downgrade_leaves_another_datasets_table_under_a_kept_name(
+    test_db_session,
+) -> None:
+    """A same-named table that another dataset uses, outside the dataset's own schema, is neither renamed nor recorded."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dataset_id, base, _ = await _seed(session, versions=[])
+    schema = "data_t_" + str(uuid.uuid4()).replace("-", "_")
+    name = previous_version_table(base, dataset_id, 2)
+    claimant = await create_dataset(session, created_by=admin_id, table_name=name)
+    claimant_id = claimant.id
+    await session.execute(text(f'CREATE SCHEMA "{schema}"'))
+    await session.execute(text(f'CREATE TABLE "{schema}"."{name}" (gid int)'))
+    await session.execute(
+        text(
+            "INSERT INTO catalog.dataset_versions "
+            "(dataset_id, version_number, kept_table, kept_at) "
+            "VALUES (:id, 2, :t, now())"
+        ),
+        {"id": dataset_id, "t": name},
+    )
+    await session.commit()
+    try:
+        down = run_alembic("downgrade", _BEFORE)
+        assert down.returncode == 0, down.stderr
+        number = await fresh_query(
+            "SELECT previous_version_number FROM catalog.datasets WHERE id = :id",
+            {"id": dataset_id},
+        )
+        assert number == [(None,)]
+        assert await fresh_query(
+            "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :s AND c.relname = :t",
+            {"s": schema, "t": name},
+        )
+    finally:
+        run_alembic("upgrade", "heads")
+        await session.rollback()
+        await session.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await session.commit()
+        await _drop(session, dataset_id, [])
+        await _drop(session, claimant_id, [])
