@@ -884,3 +884,28 @@ def test_fresh_defaults_use_the_plans_fallback_visibility(runner, inventory_file
     for item_id in (A1, new_id):
         assert merged[item_id]["target"]["visibility"] == "internal"
         assert merged[item_id]["defaults"]["target"]["visibility"] == "internal"
+
+
+def test_a_merge_without_an_org_id_keeps_the_plans_org_id():
+    anonymous = inventory_report()
+    anonymous["auth"].update(mode="anonymous", user=None)
+    anonymous["scope"]["org_id"] = anonymous["portal"]["org_id"] = None
+    merged, _ = _merge(_plan(), anonymous)
+    assert merged["inventory"]["scope"]["org_id"] == ORG_ID
+    other = inventory_report()
+    other["scope"]["org_id"] = other["portal"]["org_id"] = "AnotherOrg000"
+
+    with pytest.raises(plan_mod.PlanError, match="ArcGIS organization"):
+        _merge(merged, other)
+
+
+def test_owners_to_map_counts_only_owners_plan_items_use():
+    plan = _plan(owner_map={USER: "gina"})
+    plan["owner_map"]["departed"] = ""
+    _items(plan)[A1]["owner"] = "handed_over"
+    _items(plan)[A1]["target"]["owner"] = "gina"
+    plan["owner_map"]["handed_over"] = ""
+    assert plan_mod.summary(plan, inventory_report())["owners_to_map"] == 0
+    _items(plan)[A2]["owner"] = "needs_one"
+    plan["owner_map"]["needs_one"] = ""
+    assert plan_mod.summary(plan, inventory_report())["owners_to_map"] == 1

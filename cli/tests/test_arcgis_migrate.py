@@ -795,6 +795,24 @@ def test_an_unlisted_items_owner_is_not_checked(runner, tmp_path, geolens, handl
     assert payload["unlisted"] == [L1]
 
 
+def test_only_does_not_reach_through_a_removed_dependency(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, removed=True, depends_on=[M1]),
+            _item(M1),
+        ]
+    )
+
+    result, _ = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+
+
 def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
     result, payload = _run(
         runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"

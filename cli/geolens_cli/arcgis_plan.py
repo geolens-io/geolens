@@ -318,6 +318,19 @@ def other_organization(
     return theirs if ours and theirs and ours != theirs else None
 
 
+def _recorded_inventory(
+    current: Mapping[str, Any], fresh: Mapping[str, Any]
+) -> dict[str, Any]:
+    """*fresh*'s ``inventory`` block, keeping the plan's org id when the new
+    inventory has none, so ``other_organization`` can still catch another
+    organization later."""
+    block = copy.deepcopy(dict(fresh["inventory"]))
+    ours = (current["inventory"].get("scope") or {}).get("org_id")
+    if ours and not block["scope"]["org_id"]:
+        block["scope"]["org_id"] = ours
+    return block
+
+
 def shows_removals(inventory: Mapping[str, Any]) -> bool:
     """Whether an inventory not listing an item shows the item is gone.
 
@@ -408,7 +421,7 @@ def merge_plan(
             owner_map[owner] = name
     return {
         "schema_version": SCHEMA_VERSION,
-        "inventory": dict(fresh["inventory"]),
+        "inventory": _recorded_inventory(current, fresh),
         "portal": dict(fresh["portal"]),
         "defaults": dict(current["defaults"]),
         "owner_map": dict(sorted(owner_map.items())),
@@ -495,6 +508,7 @@ def load_owner_map(path: Path) -> dict[str, str]:
 def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, Any]:
     present = [item for item in plan["items"] if not item.get("removed")]
     by_action = Counter(item["action"] for item in present)
+    mapped_owners = {i["owner"] for i in present if i["target"]["owner"] is None}
     ids = {item["id"] for item in plan["items"]}
     unresolved = sorted(
         {
@@ -509,7 +523,9 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
         "items": len(present),
         "removed": len(plan["items"]) - len(present),
         "by_action": {a: by_action.get(a, 0) for a in ACTIONS},
-        "owners_to_map": sum(1 for v in plan["owner_map"].values() if not v),
+        "owners_to_map": sum(
+            1 for k, v in plan["owner_map"].items() if not v and k in mapped_owners
+        ),
         "groups": len(plan["group_map"]),
         "basemaps": len(plan["basemap_map"]),
         "unresolved_dependencies": [

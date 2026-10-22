@@ -190,6 +190,8 @@ def _wanted(
         if item_id in wanted:
             continue
         wanted.add(item_id)
+        if by_id[item_id].get("removed"):
+            continue
         for dep in by_id[item_id]["depends_on"]:
             if dep in by_id and state.status(dep) not in FINISHED:
                 stack.append(dep)
