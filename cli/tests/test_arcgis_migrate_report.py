@@ -295,3 +295,20 @@ def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):
 
     text = next(f["text"] for f in report["follow_ups"] if f["kind"] == "superseded")
     assert text.endswith("GeoLens dataset: not migrated")
+
+
+def test_an_unexpected_error_still_writes_the_report(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+
+    def breaks(ctx, item, entry):
+        raise ValueError("malformed response")
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", breaks)
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 1
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["stopped"] == "stopped by an unexpected error"
+    assert report["counts"]["running"] == 1

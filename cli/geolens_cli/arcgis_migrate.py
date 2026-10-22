@@ -842,15 +842,22 @@ def _run(
         portal_root=plan["portal"]["url"].rstrip("/"),
         redact=redact,
     )
+    # Any way out of the loop but a normal return leaves the report to the
+    # finally block, so it is never stale.
+    stopped: str | None = "stopped by an unexpected error"
     try:
         summary = run_items(ctx, plan, state, to_run, owners.by_item)
+        stopped = None
     except KeyboardInterrupt:
-        _write_partial_report(plan, state, redact, "interrupted")
+        stopped = "interrupted"
         fmt.error(
             f"interrupted; rerun with the same state file ({state.path}) to resume"
         )
         return EXIT_INTERRUPTED
     except typer.Exit:
-        _write_partial_report(plan, state, redact, "stopped by a failed request")
+        stopped = "stopped by a failed request"
         raise
+    finally:
+        if stopped is not None:
+            _write_partial_report(plan, state, redact, stopped)
     return _report(fmt, opts, plan, state, to_run, owners, summary, redact)
