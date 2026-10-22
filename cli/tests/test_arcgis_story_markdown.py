@@ -135,3 +135,22 @@ def test_local_image_links_encode_characters_a_link_would_misread():
     text = story.render_storymap(data, title="t", map_link=_link)
 
     assert "![](resources/a%23b%3Fc%20d%281%29.png)" in text
+
+
+def test_classic_story_contents_keep_their_paragraph_boundaries():
+    data = {
+        "values": {
+            "story": {
+                "entries": [
+                    {
+                        "title": "T",
+                        "contents": "<p>First</p><p>Second <b>bold</b></p><div>Third</div>",
+                    }
+                ]
+            }
+        }
+    }
+
+    text = story.render_classic(data, title="t", map_link=_link)
+
+    assert "First\n\nSecond **bold**\n\nThird" in text

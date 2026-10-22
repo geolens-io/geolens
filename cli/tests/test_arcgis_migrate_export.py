@@ -615,3 +615,21 @@ def test_item_json_over_the_cap_is_not_written(runner, tmp_path, geolens, instal
     assert not (_export(plan_file, "dashboard", C3) / "item.json").exists()
     export = _state(plan_file)["items"][C3]["export"]
     assert export["partial"] is True and export["bytes"] <= 1024 * 1024
+
+
+def test_a_retried_export_drops_files_the_new_attempt_does_not_make(
+    runner, tmp_path, geolens, install
+):
+    install({f"content/items/{C3}/resources": _resources()})
+    plan_file = _plan(tmp_path)
+    stale = _export(plan_file, "dashboard", C3, "resources", "old.bin")
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"stale")
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert not stale.exists()
+    folder = _export(plan_file, "dashboard", C3)
+    total = sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
+    assert _state(plan_file)["items"][C3]["export"]["bytes"] == total

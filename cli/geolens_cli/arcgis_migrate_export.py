@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
@@ -365,6 +366,9 @@ def export_item(
     if not _ITEM_ID.fullmatch(item["id"]):
         raise ItemFailed("the item id is not an ArcGIS item id")
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
+    # The folder is rebuilt, so a file an earlier attempt saved and this one
+    # doesn't (or can't, under a lower cap) is not left behind.
+    shutil.rmtree(folder, ignore_errors=True)
     _private_dirs(folder)
     with tempfile.TemporaryDirectory(prefix="geolens-arcgis-export-") as stage:
         export = _Export(client, folder, ctx.export_cap, Path(stage))

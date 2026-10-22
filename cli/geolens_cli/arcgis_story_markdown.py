@@ -246,6 +246,17 @@ def render_storymap(
     return "\n\n".join(story.blocks) + "\n"
 
 
+_BLOCK_END = re.compile(r"(?i)</(?:p|div|h[1-6]|li|ul|ol|blockquote|section)\s*>")
+
+
+def block_markdown(value: Any) -> str:
+    """Block HTML as Markdown paragraphs: each closing block tag ends one."""
+    if not isinstance(value, str):
+        return ""
+    parts = (inline_markdown(part) for part in _BLOCK_END.split(value))
+    return "\n\n".join(part for part in parts if part)
+
+
 def render_classic(
     data: Mapping[str, Any], *, title: str, map_link: MapLink
 ) -> str | None:
@@ -264,7 +275,7 @@ def render_classic(
         if entry.get("title"):
             blocks.append(f"## {inline_markdown(entry.get('title'))}")
         if entry.get("contents"):
-            blocks.append(inline_markdown(entry.get("contents")))
+            blocks.append(block_markdown(entry.get("contents")))
         media = entry.get("media") if isinstance(entry.get("media"), Mapping) else {}
         webmap = media.get("webmap")
         if isinstance(webmap, Mapping) and isinstance(webmap.get("id"), str):
