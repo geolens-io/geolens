@@ -683,6 +683,7 @@
       "tileCacheTtlDescription": "Temps en secondes avant l'expiration des entrées du cache de tuiles (0 = pas de cache).",
       "previousVersionsKept": "Versions précédentes conservées par jeu de données",
       "previousVersionsKeptDescription": "Nombre de versions remplacées de chaque jeu de données qui restent restaurables, de 1 à 50. Une valeur plus basse libère l'espace au prochain remplacement ou à la prochaine restauration de chaque jeu de données.",
+      "invalidPreviousVersionsKept": "Saisissez un nombre entier de 1 à 50.",
       "previousVersionsStorage": "Les versions conservées occupent actuellement {{size}}.",
       "perUserLimitsTitle": "Limites par utilisateur",
       "perUserLimitsDescription": "Plafonds appliqués à chaque utilisateur lors du téléchargement. 0 = illimité.",

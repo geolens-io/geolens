@@ -72,6 +72,8 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
   const [storageQuantity, setStorageQuantity] = useState(() => displayStorage(storedBytes, storageUnit));
   const editedBytes = useRef(storedBytes);
   const quantityBytes = storageBytes(storageQuantity, storageUnit);
+  const keptVersions = values.previous_versions_kept as number;
+  const keptVersionsValid = Number.isInteger(keptVersions) && keptVersions >= 1 && keptVersions <= 50;
 
   useEffect(() => {
     if (storedBytes !== editedBytes.current) {
@@ -173,10 +175,12 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
           step={1}
           value={values.previous_versions_kept as number}
           onChange={(e) => setters.previous_versions_kept(Number(e.target.value))}
-          aria-describedby="previous-versions-help"
+          aria-invalid={!keptVersionsValid}
+          aria-describedby={keptVersionsValid ? 'previous-versions-help' : 'previous-versions-error'}
           disabled={envOnly}
           className="w-32"
         />
+        {!keptVersionsValid && <p id="previous-versions-error" className="text-sm text-destructive">{t('settings.uploads.invalidPreviousVersionsKept')}</p>}
         {stats && (
           <p className="text-sm text-muted-foreground">
             {t('settings.uploads.previousVersionsStorage', { size: formatBytes(stats.previous_versions_bytes) })}
@@ -243,7 +247,7 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
         </div>
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly || quantityBytes === null} isSaving={isSaving} onSave={onSave} onDiscard={discardChanges} onDirtyChange={onDirtyChange} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly || quantityBytes === null || !keptVersionsValid} isSaving={isSaving} onSave={onSave} onDiscard={discardChanges} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

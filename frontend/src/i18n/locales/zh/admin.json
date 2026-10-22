@@ -717,6 +717,7 @@
       "tileCacheTtlDescription": "瓦片缓存条目过期前的秒数（0 = 不缓存）。",
       "previousVersionsKept": "每个数据集保留的上一版本数",
       "previousVersionsKeptDescription": "每个数据集可恢复的已替换版本数量，范围 1 到 50。调低后，存储空间会在各数据集下次替换或恢复时释放。",
+      "invalidPreviousVersionsKept": "请输入 1 到 50 之间的整数。",
       "previousVersionsStorage": "保留的版本当前占用 {{size}}。",
       "perUserLimitsTitle": "每用户限制",
       "perUserLimitsDescription": "对每个用户生效的上限，在上传时强制执行。设为 0 表示不限。",

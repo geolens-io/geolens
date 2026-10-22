@@ -683,6 +683,7 @@
       "tileCacheTtlDescription": "Tiempo en segundos antes de que expiren las entradas de caché de teselas (0 = sin caché).",
       "previousVersionsKept": "Versiones anteriores conservadas por conjunto de datos",
       "previousVersionsKeptDescription": "Cuántas versiones reemplazadas de cada conjunto de datos se pueden restaurar, de 1 a 50. Al reducirlo, el almacenamiento se libera en el siguiente reemplazo o restauración de cada conjunto de datos.",
+      "invalidPreviousVersionsKept": "Introduzca un número entero de 1 a 50.",
       "previousVersionsStorage": "Las versiones conservadas ocupan ahora {{size}}.",
       "perUserLimitsTitle": "Límites por usuario",
       "perUserLimitsDescription": "Límites aplicados a cada usuario al subir archivos. 0 = ilimitado.",

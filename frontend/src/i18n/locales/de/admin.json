@@ -683,6 +683,7 @@
       "tileCacheTtlDescription": "Zeit in Sekunden, bevor Tile-Cache-Einträge ablaufen (0 = kein Cache).",
       "previousVersionsKept": "Aufbewahrte vorherige Versionen pro Datensatz",
       "previousVersionsKeptDescription": "Wie viele ersetzte Versionen jedes Datensatzes wiederherstellbar bleiben, von 1 bis 50. Ein niedrigerer Wert gibt Speicher bei der nächsten Ersetzung oder Wiederherstellung des jeweiligen Datensatzes frei.",
+      "invalidPreviousVersionsKept": "Geben Sie eine ganze Zahl von 1 bis 50 ein.",
       "previousVersionsStorage": "Aufbewahrte Versionen belegen derzeit {{size}}.",
       "perUserLimitsTitle": "Limits pro Benutzer",
       "perUserLimitsDescription": "Obergrenzen, die für jeden Benutzer gelten und beim Upload durchgesetzt werden. 0 = unbegrenzt.",

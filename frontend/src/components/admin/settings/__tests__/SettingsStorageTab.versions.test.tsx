@@ -58,4 +58,21 @@ describe('previous versions kept', () => {
     expect(getCatalogStats).not.toHaveBeenCalled();
     expect(screen.queryByText(/Kept versions currently use/)).not.toBeInTheDocument();
   });
+
+  it('refuses to save a kept count outside 1 to 50', async () => {
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SettingsStorageTab settings={settings} envOnly={false} onSave={onSave} onReset={vi.fn()} isSaving={false} />,
+    );
+
+    const field = screen.getByLabelText('Previous versions kept per dataset');
+    await user.clear(field);
+    await user.type(field, '0');
+
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Enter a whole number from 1 to 50.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });
