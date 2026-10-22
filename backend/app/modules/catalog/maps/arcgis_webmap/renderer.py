@@ -251,19 +251,13 @@ def _has_gap(usable: list) -> bool:
 
 
 def _graduated_expression(
-    field_name: str, usable: list, colors: list[str], fallback: str
+    field_name: str, breaks: list[float], colors: list[str], fallback: str
 ) -> list:
-    """Inclusive per-class bounds; ArcGIS ranges include both ends and may leave gaps."""
-    value = ["get", field_name]
-    branches: list = []
-    previous: float | None = None
-    for (high, low, _), color in zip(usable, colors):
-        test: list = ["<=", value, high]
-        if low is not None and (previous is None or low > previous):
-            test = ["all", [">=", value, low], test]
-        branches.extend([test, color])
-        previous = high
-    return ["case", ["==", value, None], fallback, *branches, fallback]
+    """The builder's null-guarded colour step, which its editor and legend read."""
+    step: list = ["step", ["get", field_name], colors[0]]
+    for stop, color in zip(breaks, colors[1:]):
+        step.extend([stop, color])
+    return ["case", ["==", ["get", field_name], None], fallback, step]
 
 
 def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
@@ -298,16 +292,16 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
 
     colors = [_class_color(s) for _, _, s in usable]
     breaks = [m for m, _, _ in usable[:-1]]
-    default = (
-        _symbol(r["defaultSymbol"], f"{path}.defaultSymbol", loss)
-        if r.get("defaultSymbol")
-        else None
-    )
-    expression = _graduated_expression(
-        field_name, usable, colors, _class_color(default) if default else NULL_COLOR
+    expression = _graduated_expression(field_name, breaks, colors, NULL_COLOR)
+    # A step starts each class at its break, so a value equal to a class maximum
+    # takes the next class, and gaps between classes take the following colour.
+    loss.add(
+        path, "class_boundary", "a value equal to a class maximum takes the next class"
     )
     if _has_gap(usable):
-        loss.add(path, "class_gap", "values between classes use the default colour")
+        loss.add(
+            path, "class_gap", "values between classes take the next class's colour"
+        )
     config = _style_config(
         base,
         {

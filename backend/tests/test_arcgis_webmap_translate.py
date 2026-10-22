@@ -348,30 +348,21 @@ class TestClassBreaksRenderer:
             **extra,
         }
 
-    def test_becomes_inclusive_per_class_bounds(self) -> None:
+    def test_becomes_the_builders_null_guarded_step(self) -> None:
         result = _translate(_with_renderer(self._renderer()))
         layer = result.layers[0]
         assert layer.style_config["mode"] == "graduated"
         assert layer.style_config["breaks"] == [10.0, 100.0]
         assert layer.style_config["colors"] == ["#00ff00", "#ffff00", "#ff0000"]
-        expression = layer.paint["fill-color"]
-        assert "step" not in json.dumps(expression)
-        colors = {
-            v: _eval(expression, {"POP": v}) for v in (0, 5, 10, 11, 100, 101, 1000)
-        }
-        assert colors == {
-            0: "#00ff00",
-            5: "#00ff00",
-            10: "#00ff00",
-            11: "#ffff00",
-            100: "#ffff00",
-            101: "#ff0000",
-            1000: "#ff0000",
-        }
-        assert _eval(expression, {"POP": None}) == "#cccccc"
-        assert not result.loss.items
+        assert layer.paint["fill-color"] == [
+            "case",
+            ["==", ["get", "POP"], None],
+            "#cccccc",
+            ["step", ["get", "POP"], "#00ff00", 10.0, "#ffff00", 100.0, "#ff0000"],
+        ]
+        assert _kinds(result) == {"class_boundary"}
 
-    def test_values_in_a_gap_between_classes_get_the_default_colour(self) -> None:
+    def test_gaps_between_classes_are_reported(self) -> None:
         renderer = {
             "type": "classBreaks",
             "field": "POP",
@@ -388,14 +379,21 @@ class TestClassBreaksRenderer:
                 },
             ],
         }
-        result = _translate(_with_renderer(renderer))
-        expression = result.layers[0].paint["fill-color"]
-        assert _eval(expression, {"POP": 10}) == "#ff0000"
-        assert _eval(expression, {"POP": 15}) == "#cccccc"
-        assert _eval(expression, {"POP": 20}) == "#0000ff"
-        assert _eval(expression, {"POP": 30}) == "#0000ff"
-        assert _eval(expression, {"POP": 31}) == "#cccccc"
-        assert _kinds(result) == {"class_gap"}
+        assert _kinds(_translate(_with_renderer(renderer))) == {
+            "class_boundary",
+            "class_gap",
+        }
+
+    def test_contiguous_classes_report_no_gap(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "POP",
+            "classBreakInfos": [
+                {"classMinValue": 0, "classMaxValue": 10, "symbol": _fill()},
+                {"classMinValue": 10, "classMaxValue": 30, "symbol": _fill()},
+            ],
+        }
+        assert "class_gap" not in _kinds(_translate(_with_renderer(renderer)))
 
     def test_normalization_is_reported_and_not_applied_to_the_raw_field(self) -> None:
         result = _translate(
