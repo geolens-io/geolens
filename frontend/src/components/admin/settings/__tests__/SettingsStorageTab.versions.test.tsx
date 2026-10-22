@@ -75,4 +75,20 @@ describe('previous versions kept', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it('stops showing cached storage once the stats permission is gone', async () => {
+    vi.mocked(getCatalogStats).mockResolvedValue({
+      previous_versions_bytes: 5 * 1024 * 1024,
+    } as CatalogStatsResponse);
+    const tab = () => (
+      <SettingsStorageTab settings={settings} envOnly={false} onSave={vi.fn()} onReset={vi.fn()} isSaving={false} />
+    );
+    const { rerender } = render(tab());
+    expect(await screen.findByText('Kept versions currently use 5 MB.')).toBeInTheDocument();
+
+    allow(['manage_settings']);
+    rerender(tab());
+
+    expect(screen.queryByText(/Kept versions currently use/)).not.toBeInTheDocument();
+  });
 });

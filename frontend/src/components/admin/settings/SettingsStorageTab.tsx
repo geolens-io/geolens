@@ -65,8 +65,11 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
   // The stats route needs manage_users, which a settings-only operator may lack.
+  // A revoked permission leaves earlier stats in the query cache, so the render
+  // checks it too.
   const { can } = usePermissions();
-  const { data: stats } = useCatalogStats({ enabled: can('manage_users') });
+  const canReadStats = can('manage_users');
+  const { data: stats } = useCatalogStats({ enabled: canReadStats });
   const storedBytes = values.max_storage_bytes_per_user as number;
   const [storageUnit, setStorageUnit] = useState<StorageUnit>(() => storedBytes && storedBytes % GIB !== 0 ? 'bytes' : 'gib');
   const [storageQuantity, setStorageQuantity] = useState(() => displayStorage(storedBytes, storageUnit));
@@ -181,7 +184,7 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
           className="w-32"
         />
         {!keptVersionsValid && <p id="previous-versions-error" className="text-sm text-destructive">{t('settings.uploads.invalidPreviousVersionsKept')}</p>}
-        {stats && (
+        {canReadStats && stats && (
           <p className="text-sm text-muted-foreground">
             {t('settings.uploads.previousVersionsStorage', { size: formatBytes(stats.previous_versions_bytes) })}
           </p>
