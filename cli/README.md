@@ -63,7 +63,7 @@ Exit codes:
 - 1: an item of the plan is failed (including one this run left out with `--only` or `--no-retry`, and a portal download or GeoLens server error once items are running), an item the run selected was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
 - 2: the plan, state file, owner mapping or credentials couldn't be used, or the portal URL redirected before any item ran. A redirect refused once items are running fails that item (exit 1).
 - 3: authentication failed before any item ran (the GeoLens checks, or an ArcGIS password sign-in), or the server rejected a `GEOLENS_TOKEN` at any point, which stops the run with this code. A stored login that is rejected once items are running fails that item (exit 1).
-- 4: the portal couldn't be reached while signing in, or a request to GeoLens timed out or couldn't connect at any point, which stops the run with this code. A portal download that fails once items are running fails that item (exit 1).
+- 4: the portal couldn't be reached while signing in, or a GeoLens request couldn't connect or timed out at any point, which stops the run with this code. The exception is a timeout on the status poll of an import job: it is retried until the poll's deadline, and a deadline that runs out fails that item (exit 1). A portal download that fails once items are running also fails only that item (exit 1).
 - 5: a server error from the GeoLens checks, before any item ran.
 - 130: interrupted; run the same command to resume.
 
