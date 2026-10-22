@@ -120,3 +120,18 @@ def test_an_unknown_node_with_nothing_in_it_is_a_comment():
     assert "<!-- unsupported node type: widget -->" in story.render_storymap(
         data, title="t", map_link=_link
     )
+
+
+def test_local_image_links_encode_characters_a_link_would_misread():
+    data = {
+        "root": "a",
+        "nodes": {
+            "a": {"type": "story", "children": ["b"]},
+            "b": {"type": "image", "data": {"image": "r"}},
+        },
+        "resources": {"r": {"type": "image", "data": {"resourceId": "a#b?c d(1).png"}}},
+    }
+
+    text = story.render_storymap(data, title="t", map_link=_link)
+
+    assert "![](resources/a%23b%3Fc%20d%281%29.png)" in text

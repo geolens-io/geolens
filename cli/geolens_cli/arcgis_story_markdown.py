@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import quote
 from collections.abc import Callable, Mapping
 from html.parser import HTMLParser
 from typing import Any
@@ -214,7 +215,7 @@ class _Story:
             self._add("<!-- image without a stored file -->")
             return
         caption = inline_markdown(data.get("caption") or data.get("attribution"))
-        self._add(f"![{caption}]({_link_target(self.resource_dir + name)})")
+        self._add(f"![{caption}]({self.resource_dir}{quote(name, safe='/')})")
 
     def _map(self, data: Mapping[str, Any]) -> None:
         resource = self.resources.get(str(data.get("map")))

@@ -258,3 +258,139 @@ def test_a_rejected_token_stops_the_run(runner, tmp_path, geolens, install):
     assert result.exit_code == 1
     assert "fresh token" in payload["stopped"]
     assert token not in result.output
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../escape.txt",
+        "a/../../escape.txt",
+        "..\\escape.txt",
+        "a/..\\b",
+        "C:\\temp\\x",
+        "C:/temp/x",
+        "\\\\host\\share\\x",
+        "/etc/passwd",
+        "//host/share/x",
+        "a//b",
+        "./x",
+        "a/./b",
+        "line\nbreak",
+        "",
+    ],
+)
+def test_resource_names_that_could_leave_the_folder_on_any_platform_are_refused(name):
+    from geolens_cli.arcgis_migrate_export import _safe_relative
+
+    assert _safe_relative(name) is None
+
+
+@pytest.mark.parametrize(
+    "name", ["logo.png", "deep/a.bin", "notes/info.json", "a b#c?.png"]
+)
+def test_ordinary_resource_names_are_accepted(name):
+    from geolens_cli.arcgis_migrate_export import _safe_relative
+
+    assert _safe_relative(name) is not None
+
+
+def test_a_backslash_name_is_refused_end_to_end(runner, tmp_path, geolens, install):
+    install({f"content/items/{C3}/resources": _resources("..\\..\\escape.txt")})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert not list(tmp_path.rglob("escape.txt"))
+    assert any(
+        "unsafe" in e for e in _state(plan_file)["items"][C3]["export"]["errors"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "body"),
+    [
+        ("big.json", b'{"apiKey": "SECRETKEYVALUE", "pad": "' + b"x" * 200 + b'"}'),
+        ("broken.json", b'{"apiKey": "SECRETKEYVALUE", '),
+        ("nb.ipynb", b'{"cells": [{"source": "token=SECRETKEYVALUE"'),
+    ],
+)
+def test_json_that_cannot_be_redacted_is_never_saved(
+    runner, tmp_path, geolens, install, monkeypatch, name, body
+):
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_export.JSON_LIMIT", 100)
+    install(
+        {
+            f"content/items/{C3}/resources": _resources(name),
+            f"content/items/{C3}/resources/{name}": body,
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "dashboard", C3) / "resources" / name).exists()
+    for path in _export(plan_file).rglob("*"):
+        if path.is_file():
+            assert b"SECRETKEYVALUE" not in path.read_bytes()
+    entry = _state(plan_file)["items"][C3]
+    assert entry["export"]["partial"] is True
+    assert any("can't be redacted" in e for e in entry["export"]["errors"])
+
+
+def test_oversized_json_data_is_not_kept_raw(
+    runner, tmp_path, geolens, install, monkeypatch
+):
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_export.JSON_LIMIT", 100)
+    install(
+        {
+            f"content/items/{C3}/data": b'{"apiKey": "SECRETKEYVALUE", "pad": "'
+            + b"x" * 200
+            + b'"}'
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "dashboard", C3)
+    assert not (folder / "data.json").exists() and not (folder / "data.bin").exists()
+    assert _state(plan_file)["items"][C3]["export"]["partial"] is True
+
+
+def test_generated_files_count_against_the_cap(runner, tmp_path, geolens, install):
+    install({f"content/items/{C3}/data": {"rows": ["x" * 100] * 4000}})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", C3, "--token", TOKEN, "--export-cap-mb", "1"
+    )
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "dashboard", C3)
+    total = sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
+    assert total <= 1024 * 1024
+    assert _state(plan_file)["items"][C3]["export"]["bytes"] == total
+
+
+def test_a_story_over_the_cap_is_not_saved(
+    runner, tmp_path, geolens, install, monkeypatch
+):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    install({f"content/items/{C2}/data": data})
+    monkeypatch.setattr(
+        "geolens_cli.arcgis_migrate_export.render_storymap",
+        lambda *args, **kwargs: "x" * (2 * 1024 * 1024),
+    )
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", C2, "--token", TOKEN, "--export-cap-mb", "1"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
+    entry = _state(plan_file)["items"][C2]
+    assert entry["export"]["partial"] is True and entry["export"]["story"] is False

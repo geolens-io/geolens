@@ -152,29 +152,67 @@ class _Export:
             else:
                 self.note_error(what, exc)
             return False
-        self.remaining -= size
-        self.bytes += size
+        self.charge(size)
         return True
 
+    def charge(self, size: int) -> bool:
+        """Count *size* bytes written (negative when a file shrank) against
+        the cap; False when that overran it."""
+        self.bytes += size
+        self.remaining -= size
+        if self.remaining >= 0:
+            return True
+        self.remaining = 0
+        return False
 
-def _write_json(ctx: MigrationContext, path: Path, value: Any) -> None:
+
+def _write_json(ctx: MigrationContext, path: Path, value: Any) -> int:
+    """Write *value* redacted and return the size of the file."""
     _private_dirs(path.parent)
     safe = redact_json(value, ctx.redact)
-    _report.write_private(path, json.dumps(safe, indent=2, ensure_ascii=False) + "\n")
+    text = json.dumps(safe, indent=2, ensure_ascii=False) + "\n"
+    _report.write_private(path, text)
+    return len(text.encode())
 
 
-def _redacted_json_file(ctx: MigrationContext, path: Path) -> Any | None:
-    """Parse the JSON in *path* if it is one, replace the file with its
-    redacted form, and return the parsed (unredacted) value."""
-    try:
-        if path.stat().st_size > JSON_LIMIT:
-            return None
-        value = json.loads(path.read_bytes())
-    except (OSError, ValueError, RecursionError):
-        return None
+def _looks_like_json(path: Path) -> bool:
+    with path.open("rb") as handle:
+        return handle.read(64).lstrip()[:1] in (b"{", b"[")
+
+
+def _redact_download(
+    ctx: MigrationContext, export: _Export, path: Path, what: str, *, required: bool
+) -> Any | None:
+    """Replace a downloaded JSON file with its redacted form and return the
+    parsed (unredacted) value.
+
+    JSON is never kept as downloaded. A file that is *required* to be JSON
+    (a ``.json`` or ``.ipynb`` name, or content that starts like JSON) and
+    can't be redacted, because it is over ``JSON_LIMIT`` or malformed, is
+    removed and the item is marked partial.
+    """
+    before = path.stat().st_size
+    value = None
+    if before <= JSON_LIMIT:
+        try:
+            value = json.loads(path.read_bytes())
+        except (ValueError, RecursionError):
+            value = None
     if isinstance(value, dict | list):
-        _write_json(ctx, path, value)
-        return value
+        after = _write_json(ctx, path, value)
+        if export.charge(after - before):
+            return value
+        path.unlink(missing_ok=True)
+        export.partial = True
+        export.errors.append(f"{what}: over the export size cap, not saved")
+        return None
+    if required or _looks_like_json(path):
+        path.unlink(missing_ok=True)
+        export.charge(-before)
+        export.partial = True
+        export.errors.append(
+            f"{what}: JSON that can't be redacted (over 32 MiB or malformed), not saved"
+        )
     return None
 
 
@@ -184,14 +222,15 @@ def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) 
     if not export.fetch(path, raw, "data"):
         return None
     name = FILENAMES.get(item["type"], "data.json")
-    target = export.folder / name
-    parsed = _redacted_json_file(ctx, raw)
+    parsed = _redact_download(
+        ctx, export, raw, "data", required=name.endswith(".ipynb")
+    )
+    if not raw.exists():
+        return None
     if parsed is not None and name == "data.json":
-        raw.replace(target)
+        raw.replace(export.folder / name)
         return parsed
-    if name == "data.json":
-        name = "data.bin"
-    raw.replace(export.folder / name)
+    raw.replace(export.folder / ("data.bin" if name == "data.json" else name))
     return None
 
 
@@ -216,26 +255,41 @@ def _resource_names(export: _Export, item_id: str) -> list[str]:
 
 
 def _safe_relative(name: str) -> PurePosixPath | None:
-    path = PurePosixPath(name)
-    if path.is_absolute() or ".." in path.parts or not path.parts:
+    """*name* as a path below ``resources/``, or None when it could leave it
+    on any platform: backslashes, drive letters, absolute or UNC forms,
+    ``.``/``..``/empty segments and control characters are all refused."""
+    parts = name.split("/")
+    if (
+        not name
+        or "\\" in name
+        or ":" in name
+        or any(ord(c) < 32 for c in name)
+        or any(part in ("", ".", "..") for part in parts)
+    ):
         return None
-    return path
+    return PurePosixPath(name)
 
 
 def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> None:
+    base = (export.folder / "resources").resolve()
     for name in _resource_names(export, item_id):
         relative = _safe_relative(name)
-        if relative is None:
+        dest = export.folder / "resources" / relative if relative else None
+        if dest is None or not dest.resolve().is_relative_to(base):
             export.errors.append(f"resource {name!r}: unsafe name, not saved")
             continue
-        dest = export.folder / "resources" / relative
         url = f"content/items/{item_id}/resources/{quote(name)}"
         if not export.fetch(url, dest, f"resource {name}"):
             if export.partial:
                 break
             continue
-        if dest.suffix.lower() == ".json":
-            _redacted_json_file(ctx, dest)
+        _redact_download(
+            ctx,
+            export,
+            dest,
+            f"resource {name}",
+            required=dest.suffix.lower() in (".json", ".ipynb"),
+        )
 
 
 def _map_link(ctx: MigrationContext, item_id: str) -> str:
@@ -246,7 +300,7 @@ def _map_link(ctx: MigrationContext, item_id: str) -> str:
 
 
 def _story(
-    ctx: MigrationContext, item: Mapping[str, Any], data: Any, folder: Path
+    ctx: MigrationContext, export: _Export, item: Mapping[str, Any], data: Any
 ) -> bool:
     if not isinstance(data, dict):
         return False
@@ -261,7 +315,12 @@ def _story(
         text = render_classic(data, title=item["title"], map_link=link)
     if text is None:
         return False
-    _report.write_private(folder / "story.md", ctx.redact(text))
+    text = ctx.redact(text)
+    if not export.charge(len(text.encode())):
+        export.partial = True
+        export.errors.append("story.md: over the export size cap, not saved")
+        return False
+    _report.write_private(export.folder / "story.md", text)
     return True
 
 
@@ -284,12 +343,15 @@ def export_item(
     except PortalError as exc:
         export.note_error("item", exc)
         raise ItemFailed(f"reading the item failed, {exc}") from None
-    _write_json(ctx, folder / "item.json", {"inventory": row, "item": full})
+    if not export.charge(
+        _write_json(ctx, folder / "item.json", {"inventory": row, "item": full})
+    ):
+        export.partial = True
     data = None
     if item["type"] not in ITEM_JSON_ONLY:
         data = _save_data(ctx, export, item)
     _save_resources(ctx, export, item["id"])
-    story = _story(ctx, item, data, folder)
+    story = _story(ctx, export, item, data)
     relative = folder.relative_to(ctx.export_dir.parent)
     entry.export = {
         "path": relative.as_posix(),
