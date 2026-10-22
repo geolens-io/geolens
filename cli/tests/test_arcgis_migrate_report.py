@@ -8,14 +8,16 @@ import stat
 from pathlib import Path
 
 import pytest
+import typer
 
+from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_report as report_mod
 from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
 from geolens_cli.arcgis_portal import Redactor
 from geolens_cli.main import app
 
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import A1, A2, A3, B1, C3, D3
+from .arcgis_fake import A1, A2, A3, B1, C1, C3, D3
 from .test_arcgis_migrate_layers import _write_plan, dataset_id
 
 geolens = layers.geolens
@@ -96,7 +98,13 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
             item["superseded_by"] = A1
     state = _state(tmp_path)
     _set(state, A1, "done", dataset_ids=["ds-1"])
-    _set(state, A2, "done", notes=["Roads: Raster layer, not imported"])
+    _set(
+        state,
+        A2,
+        "done",
+        dataset_ids=["ds-2"],
+        notes=["Roads: Raster layer, not imported"],
+    )
     _set(
         state,
         A3,
@@ -115,12 +123,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
         },
     )
 
-    report = report_mod.build_run_report(
-        plan,
-        state,
-        unavailable=[B1],
-        waiting=[{"item": C3, "waiting_on": [B1]}],
-    )
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
     kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
     assert (A2, "group_sharing") in kinds
@@ -128,7 +131,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
     assert (D3, "superseded") in kinds
     assert (A3, "quota") in kinds
     assert (C3, "export_partial") in kinds and (C3, "export_error") in kinds
-    assert (B1, "not_available") in kinds and (C3, "unresolved_dependency") in kinds
+    assert (B1, "not_available") in kinds and (C1, "unresolved_dependency") in kinds
     superseded = next(f for f in report["follow_ups"] if f["kind"] == "superseded")
     assert "ds-1" in superseded["text"]
 
@@ -195,3 +198,68 @@ def test_a_failed_item_is_reported_in_every_output_mode(
 
     assert result.exit_code == 1
     assert A2 in result.output and "probe failed" in result.output
+
+
+def test_a_group_shared_export_gets_no_audience_follow_up(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == C3:
+            item["target"]["groups"] = ["g1"]
+    state = _state(tmp_path)
+    _set(
+        state,
+        C3,
+        "done",
+        export={"path": "p", "bytes": 1, "partial": False, "errors": []},
+    )
+
+    report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
+
+    assert (C3, "group_sharing") not in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }
+
+
+def test_unavailable_actions_are_found_across_the_whole_plan(tmp_path):
+    plan = _plan(tmp_path)
+
+    report = report_mod.build_run_report(
+        plan, _state(tmp_path), runnable={"import_layers"}
+    )
+
+    assert (B1, "not_available") in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }
+
+
+def test_an_interrupted_run_still_writes_the_report(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+
+    def interrupted(ctx, item, entry):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", interrupted)
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 130
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["stopped"] == "interrupted"
+    assert report["counts"]["failed"] == 1
+
+
+def test_a_failed_request_exit_still_writes_the_report(
+    runner, tmp_path, geolens, monkeypatch
+):
+    plan_file = _write_plan(tmp_path)
+
+    def exits(ctx, item, entry):
+        raise typer.Exit(4)
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", exits)
+    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
+
+    assert result.exit_code == 4
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["stopped"] == "stopped by a failed request"

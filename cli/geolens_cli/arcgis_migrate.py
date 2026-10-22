@@ -553,13 +553,7 @@ def _report(
     if not opts.dry_run:
         report_files = write_run_report(
             state.path.parent,
-            build_run_report(
-                plan,
-                state,
-                unavailable=summary.unavailable,
-                waiting=summary.waiting,
-                stopped=summary.stopped,
-            ),
+            build_run_report(plan, state, runnable=HANDLERS, stopped=summary.stopped),
             redact,
         )
     payload = {
@@ -753,6 +747,18 @@ def _check_hosts(hosts: list[str]) -> None:
             )
 
 
+def _write_partial_report(
+    plan: Mapping[str, Any], state: MigrationState, redact: Redactor, stopped: str
+) -> None:
+    """The report of a run that ended early, so it is not left stale."""
+    state.save()
+    write_run_report(
+        state.path.parent,
+        build_run_report(plan, state, runnable=HANDLERS, stopped=stopped),
+        redact,
+    )
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -839,8 +845,12 @@ def _run(
     try:
         summary = run_items(ctx, plan, state, to_run, owners.by_item)
     except KeyboardInterrupt:
+        _write_partial_report(plan, state, redact, "interrupted")
         fmt.error(
             f"interrupted; rerun with the same state file ({state.path}) to resume"
         )
         return EXIT_INTERRUPTED
+    except typer.Exit:
+        _write_partial_report(plan, state, redact, "stopped by a failed request")
+        raise
     return _report(fmt, opts, plan, state, to_run, owners, summary, redact)

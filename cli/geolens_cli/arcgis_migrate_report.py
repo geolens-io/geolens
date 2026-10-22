@@ -14,26 +14,27 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Container, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from . import arcgis_report as _report
 from .arcgis_migrate_export import replacement_note
-from .arcgis_migrate_state import FAILED, PENDING, MigrationState
+from . import arcgis_plan as _plan
+from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
 from .arcgis_portal import Redactor, redact_json
 
 REPORT_JSON = "arcgis-migration-report.json"
 REPORT_MD = "arcgis-migration-report.md"
+_SETTLED = frozenset({DONE, EXISTS, SKIPPED})
 _SKIPPED_LAYER = ("layer, not imported", "layer not imported")
 
 
 def _follow_ups(
     plan: Mapping[str, Any],
     state: MigrationState,
-    unavailable: Iterable[str],
-    waiting: Iterable[Mapping[str, Any]],
+    runnable: Container[str],
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -54,7 +55,8 @@ def _follow_ups(
                 add(item["id"], "skipped_layer", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
-        if item["target"].get("groups") and status != PENDING:
+        made = entry is not None and (entry.dataset_ids or entry.map_id)
+        if item["target"].get("groups") and made:
             add(
                 item["id"],
                 "group_sharing",
@@ -80,18 +82,22 @@ def _follow_ups(
                 )
             for error in entry.export["errors"]:
                 add(item["id"], "export_error", error)
-    for item_id in unavailable:
-        add(
-            item_id,
-            "not_available",
-            f"the {items[item_id]['action']} action can't run yet",
-        )
-    for wait in waiting:
-        add(
-            wait["item"],
-            "unresolved_dependency",
-            "waits on " + ", ".join(wait["waiting_on"]),
-        )
+    for item in plan["items"]:
+        if state.status(item["id"]) != PENDING or item["action"] == _plan.SKIP:
+            continue
+        if item["action"] not in runnable:
+            add(
+                item["id"],
+                "not_available",
+                f"the {item['action']} action can't run yet",
+            )
+        unmet = [
+            dep
+            for dep in item["depends_on"]
+            if dep in items and state.status(dep) not in _SETTLED
+        ]
+        if unmet:
+            add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
     for item in plan["items"]:
         for dep in item["depends_on"]:
             if dep not in items:
@@ -129,14 +135,11 @@ def build_run_report(
     plan: Mapping[str, Any],
     state: MigrationState,
     *,
-    unavailable: Iterable[str] = (),
-    waiting: Iterable[Mapping[str, Any]] = (),
+    runnable: Container[str] = (),
     stopped: str | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """The report of the whole plan as of *state*."""
-    unavailable = list(unavailable)
-    waiting = list(waiting)
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -164,7 +167,7 @@ def build_run_report(
         "stopped": stopped,
         "items": rows,
         "unsupported": _export_section(plan, state),
-        "follow_ups": _follow_ups(plan, state, unavailable, waiting),
+        "follow_ups": _follow_ups(plan, state, runnable),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}
         ),
