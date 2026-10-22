@@ -1306,7 +1306,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1708,
+    "backend/app/api/main.py": 1628,
     # Map request validation and published response contracts share this module.
     "backend/app/modules/catalog/maps/schemas.py": 1387,
     # Metadata facade preserves the import and patch surface used by extensions and

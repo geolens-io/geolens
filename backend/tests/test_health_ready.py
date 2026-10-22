@@ -151,5 +151,5 @@ async def test_claim_health_alert_is_granted_once_per_window(monkeypatch):
 
     monkeypatch.setattr(provider, "_cache_provider", InMemoryCacheProvider())
 
-    assert await service.claim_health_alert(["database"]) is True
-    assert await service.claim_health_alert(["database"]) is False
+    assert await service.claim_health_alert(["database"]) is not None
+    assert await service.claim_health_alert(["database"]) is None
