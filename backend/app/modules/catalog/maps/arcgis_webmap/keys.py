@@ -38,8 +38,23 @@ LAYER_KEYS = _BOOKKEEPING | _set(
     "refreshInterval",
     "customParameters",
     "featureCollection",
-    "layers",
     "disableDisplayFilter",
+)
+# A group applies its visibility, opacity, scale range and legend flag to its
+# members; popups, labels and layer definitions don't apply to a group.
+GROUP_KEYS = _BOOKKEEPING | _set(
+    "visibility",
+    "opacity",
+    "minScale",
+    "maxScale",
+    "showLegend",
+    "layers",
+    "blendMode",
+    "effect",
+    "featureReduction",
+    "timeInfo",
+    "refreshInterval",
+    "customParameters",
 )
 LAYER_DEFINITION_KEYS = _BOOKKEEPING | _set(
     "definitionExpression",

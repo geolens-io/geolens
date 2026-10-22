@@ -1676,3 +1676,81 @@ class TestUnclassifiedFeatures:
     def test_class_breaks_with_a_default_paint_nulls(self) -> None:
         expression = self._color(self._breaks(defaultSymbol=_fill([1, 2, 3, 255])))
         assert expression[2] == "#010203"
+
+
+def _scale(zoom: float) -> float:
+    return 591657550.5 / 2 ** (zoom + 1)
+
+
+class TestGroupScaleLimits:
+    def _group(self, group: dict, layer: dict | None = None) -> list:
+        leaf = {"id": "L1", "layerType": "ArcGISFeatureLayer", **(layer or {})}
+        webmap = {
+            "operationalLayers": [
+                {"id": "G", "layerType": "GroupLayer", **group, "layers": [leaf]}
+            ]
+        }
+        return _translate(webmap)
+
+    def test_members_inherit_the_groups_limits(self) -> None:
+        result = self._group({"minScale": _scale(5), "maxScale": _scale(12)})
+        assert result.layers[0].layout == {"_minzoom": 5.0, "_maxzoom": 12.0}
+
+    def test_the_tighter_of_group_and_layer_wins(self) -> None:
+        result = self._group(
+            {"minScale": _scale(5), "maxScale": _scale(12)},
+            {"minScale": _scale(7), "maxScale": _scale(20)},
+        )
+        assert result.layers[0].layout == {"_minzoom": 7.0, "_maxzoom": 12.0}
+
+    def test_nested_groups_intersect_with_every_ancestor(self) -> None:
+        inner = {
+            "id": "G2",
+            "layerType": "GroupLayer",
+            "minScale": _scale(8),
+            "layers": [{"id": "L1", "layerType": "ArcGISFeatureLayer"}],
+        }
+        webmap = {
+            "operationalLayers": [
+                {
+                    "id": "G",
+                    "layerType": "GroupLayer",
+                    "maxScale": _scale(10),
+                    "layers": [inner],
+                }
+            ]
+        }
+        layer = _translate(webmap).layers[0]
+        assert layer.layout == {"_minzoom": 8.0, "_maxzoom": 10.0}
+
+    def test_limits_that_never_overlap_hide_the_layer_and_are_reported(self) -> None:
+        result = self._group({"maxScale": _scale(5)}, {"minScale": _scale(9)})
+        layer = result.layers[0]
+        assert layer.visible is False
+        assert layer.layout is None
+        assert "scale_range_empty" in _kinds(result)
+
+    def test_a_group_that_hides_its_legend_hides_its_members(self) -> None:
+        assert self._group({"showLegend": False}).layers[0].show_in_legend is False
+
+    def test_nested_visibility_applies(self) -> None:
+        inner = {
+            "id": "G2",
+            "layerType": "GroupLayer",
+            "visibility": False,
+            "layers": [{"id": "L1", "layerType": "ArcGISFeatureLayer"}],
+        }
+        webmap = {
+            "operationalLayers": [
+                {"id": "G", "layerType": "GroupLayer", "layers": [inner]}
+            ]
+        }
+        assert _translate(webmap).layers[0].visible is False
+
+    @pytest.mark.parametrize("key", ["popupInfo", "showLabels", "layerDefinition"])
+    def test_group_keys_that_do_not_apply_are_reported(self, key: str) -> None:
+        result = self._group({key: {"x": 1}})
+        details = [
+            i.detail for i in result.loss.items if i.kind == "unsupported_property"
+        ]
+        assert details == [key]

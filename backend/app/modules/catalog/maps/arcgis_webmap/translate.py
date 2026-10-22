@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -19,6 +19,7 @@ from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
 )
 from app.modules.catalog.maps.arcgis_webmap.keys import (
     DRAWING_INFO_KEYS,
+    GROUP_KEYS,
     LAYER_DEFINITION_KEYS,
     LAYER_KEYS,
     report_unknown_keys,
@@ -60,12 +61,49 @@ class Translation:
     zoom: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Group:
+    """The top group's folder, plus what every enclosing group imposes on a member."""
+
     id: str
     name: str
     visible: bool
     opacity: float
+    min_zoom: float | None = None
+    max_zoom: float | None = None
+    show_legend: bool = True
+
+
+def _enter_group(layer: dict, here: str, parent: _Group | None) -> _Group:
+    """The state a group's members inherit; nested groups add to their parent's."""
+    own_min = scale_to_zoom(layer.get("minScale"))
+    own_max = scale_to_zoom(layer.get("maxScale"))
+    visible = layer.get("visibility") is not False
+    opacity = _unit(layer.get("opacity"))
+    show_legend = layer.get("showLegend") is not False
+    if parent is None:
+        return _Group(
+            id=_text(layer.get("id"), 120) or here,
+            name=_text(layer.get("title"), 255) or "Group",
+            visible=visible,
+            opacity=opacity,
+            min_zoom=own_min,
+            max_zoom=own_max,
+            show_legend=show_legend,
+        )
+    return replace(
+        parent,
+        visible=parent.visible and visible,
+        opacity=parent.opacity * opacity,
+        min_zoom=_tighter(parent.min_zoom, own_min, max),
+        max_zoom=_tighter(parent.max_zoom, own_max, min),
+        show_legend=parent.show_legend and show_legend,
+    )
+
+
+def _tighter(first: float | None, second: float | None, pick) -> float | None:
+    values = [v for v in (first, second) if v is not None]
+    return pick(values) if values else None
 
 
 def _d(value: Any) -> dict:
@@ -97,21 +135,19 @@ def _flatten(
             out.append((layer, here, group))
             continue
         _layer_extras(layer, here, loss)
-        report_unknown_keys([layer], LAYER_KEYS, here, loss)
+        report_unknown_keys([layer], GROUP_KEYS, here, loss)
         if group is not None:
             loss.add(here, "nested_group", _text(layer.get("title"), 80))
         if depth >= _MAX_GROUP_DEPTH:
             loss.add(here, "nested_group", "too deep, layers skipped")
             continue
-        current = group or _Group(
-            id=_text(layer.get("id"), 120) or here,
-            name=_text(layer.get("title"), 255) or "Group",
-            visible=layer.get("visibility") is not False,
-            opacity=_unit(layer.get("opacity")),
-        )
         out.extend(
             _flatten(
-                _l(layer.get("layers")), loss, f"{here}.layers", current, depth + 1
+                _l(layer.get("layers")),
+                loss,
+                f"{here}.layers",
+                _enter_group(layer, here, group),
+                depth + 1,
             )
         )
     return out
@@ -146,10 +182,25 @@ def _layer_extras(layer: dict, path: str, loss: LossReport) -> None:
         )
 
 
-def _zoom_range(layer: dict, definition: dict) -> dict:
-    """Layer zoom limits; ArcGIS ``minScale`` is the zoomed-out limit."""
+def _zoom_range(
+    layer: dict, definition: dict, group: _Group | None, path: str, loss: LossReport
+) -> dict | None:
+    """Layer zoom limits within every enclosing group's; ArcGIS ``minScale`` is the zoomed-out limit.
+
+    None when the limits leave no zoom at which the layer can show.
+    """
     min_zoom = scale_to_zoom(layer.get("minScale", definition.get("minScale")))
     max_zoom = scale_to_zoom(layer.get("maxScale", definition.get("maxScale")))
+    if group is not None:
+        min_zoom = _tighter(min_zoom, group.min_zoom, max)
+        max_zoom = _tighter(max_zoom, group.max_zoom, min)
+    if min_zoom is not None and max_zoom is not None and min_zoom >= max_zoom:
+        loss.add(
+            path,
+            "scale_range_empty",
+            "the layer's and its groups' scale limits never overlap",
+        )
+        return None
     layout: dict = {}
     if min_zoom:
         layout["_minzoom"] = min_zoom
@@ -212,20 +263,24 @@ def _layer_input(
         visible = visible and group.visible
         opacity *= group.opacity
 
+    zoom_layout = _zoom_range(layer, definition, group, path, loss)
+    if zoom_layout is None:
+        visible, zoom_layout = False, {}
     return {
         "dataset_id": dataset_id,
         "visible": visible,
         "opacity": round(opacity, 3),
         "display_name": _text(layer.get("title"), 255) or None,
         "paint": styled.paint,
-        "layout": _zoom_range(layer, definition) or None,
+        "layout": zoom_layout or None,
         "filter": _filter(definition, path, loss),
         "label_config": label_config(
             layer, drawing, f"{path}.layerDefinition.drawingInfo", loss
         ),
         "popup_config": popup_config(layer, path, loss),
         "style_config": style_config,
-        "show_in_legend": layer.get("showLegend") is not False,
+        "show_in_legend": layer.get("showLegend") is not False
+        and (group is None or group.show_legend),
     }
 
 
