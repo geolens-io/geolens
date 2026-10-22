@@ -49,7 +49,8 @@
           "required": ["mode", "user"],
           "properties": {
             "mode": {"enum": ["token", "generateToken", "anonymous"]},
-            "user": {"type": ["string", "null"]}
+            "user": {"type": ["string", "null"]},
+            "role": {"type": ["string", "null"]}
           }
         }
       }

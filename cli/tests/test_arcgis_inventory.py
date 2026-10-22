@@ -1791,7 +1791,11 @@ def test_token_ignored_in_the_header_but_read_from_the_form_proceeds(run):
     portal = FakePortal(portal_routes({"portals/self": self_info}))
     result, _ = run(portal, "--scope", "org")
     assert result.exit_code == 0, result.output
-    assert _report(result)["auth"] == {"mode": "token", "user": USER}
+    assert _report(result)["auth"] == {
+        "mode": "token",
+        "user": USER,
+        "role": "org_admin",
+    }
     assert all(s.method == "POST" for s in portal.seen[1:])
 
 

@@ -684,13 +684,19 @@ def _inventories() -> dict[str, dict]:
     aborted = _without(inventory_report(), D3)
     aborted["complete"] = False
     anonymous = _without(inventory_report(), B2, D3)
-    anonymous["auth"].update(mode="anonymous", user=None)
+    anonymous["auth"].update(mode="anonymous", user=None, role=None)
     other_admin = _without(inventory_report(), D3)
     other_admin["auth"].update(user="another_admin")
+    member = _without(inventory_report(), D3)
+    member["auth"].update(user="field_tech", role="org_user")
+    role_unknown = _without(inventory_report(), D3)
+    del role_unknown["auth"]["role"]
     return {
         "org": inventory_report(),
         "gone": _without(inventory_report(), D3),
         "other_admin": other_admin,
+        "member": member,
+        "role_unknown": role_unknown,
         # A3 and D3 belong to someone else, so a user-scope read misses them.
         "user": _user_scope(_without(inventory_report(), A3, D3)),
         # A1 has since been handed to another owner.
@@ -712,6 +718,8 @@ NONE: frozenset[str] = frozenset()
         (("org", "v2"), [("gone", {D3}, NONE, True), ("gone", {D3}, NONE, True)]),
         (("org", "v1"), [("gone", {D3}, NONE, True)]),
         (("org", "v2"), [("other_admin", {D3}, NONE, True)]),
+        (("org", "v2"), [("member", NONE, {D3}, True), ("gone", {D3}, NONE, True)]),
+        (("org", "v2"), [("role_unknown", NONE, {D3}, True)]),
         (
             ("user", "v2"),
             [("org", NONE, NONE, True), ("user", NONE, {A3, D3}, True)],
@@ -760,7 +768,9 @@ NONE: frozenset[str] = frozenset()
     ids=[
         "org_admin_removes_and_repeats",
         "v1_org_admin_removes",
-        "another_signed_in_org_reader_removes",
+        "another_org_admin_removes",
+        "non_admin_org_reader_removes_nothing",
+        "inventory_without_a_role_removes_nothing",
         "narrow_wide_narrow",
         "v1_narrow_wide_narrow",
         "user_scope_owner_change",
@@ -770,7 +780,7 @@ NONE: frozenset[str] = frozenset()
         "removed_kept_then_restored",
     ],
 )
-def test_only_a_signed_in_org_inventory_removes_items(start, steps):
+def test_only_an_org_admin_inventory_removes_items(start, steps):
     inventories = _inventories()
     source, version = start
     plan = plan_mod.build_plan(inventories[source], inventory_path="inv.json")
@@ -888,7 +898,7 @@ def test_fresh_defaults_use_the_plans_fallback_visibility(runner, inventory_file
 
 def test_a_merge_without_an_org_id_keeps_the_plans_org_id():
     anonymous = inventory_report()
-    anonymous["auth"].update(mode="anonymous", user=None)
+    anonymous["auth"].update(mode="anonymous", user=None, role=None)
     anonymous["scope"]["org_id"] = anonymous["portal"]["org_id"] = None
     merged, _ = _merge(_plan(), anonymous)
     assert merged["inventory"]["scope"]["org_id"] == ORG_ID
@@ -1052,6 +1062,8 @@ def _set_access(access: str):
 
 
 GIS_TEAM = [{"id": "g1", "title": "GIS team", "access": "org"}]
+PRIVATE_TEAM = [{"id": "g2", "title": "Assessors", "access": "private"}]
+EXTRA_TEAM = [{"id": "g3", "title": "Planning", "access": "org"}]
 
 
 def _value(item: dict, path: tuple[str, ...]) -> Any:
@@ -1060,54 +1072,83 @@ def _value(item: dict, path: tuple[str, ...]) -> Any:
     return item
 
 
-# Every item value the plan derives from the inventory, with the read it comes
-# from failing ("unread": the plan keeps its value) or answering something new
-# ("read": an unedited value follows). target.owner has no inventory default.
+# Every item value the plan derives from the inventory, against the read it
+# comes from: failed ("unread": the plan keeps its value), read by an org
+# admin, or read by a member who sees only what is shared with them. Item
+# listing fields (title, tags, access, folder, type) are complete for any
+# reader who sees the item; only an item's groups can be a subset.
+# target.owner has no inventory default.
 @pytest.mark.parametrize(
-    ("item_id", "path", "mutate", "expected"),
+    ("item_id", "path", "mutate", "reader", "expected"),
     [
-        (A3, ("target", "collections"), _set_folder(None), ["Projects"]),
-        (A3, ("target", "collections"), _set_folder("Roads"), ["Roads"]),
-        (A3, ("target", "groups"), _set_groups(None), ["g1"]),
-        (A3, ("target", "groups"), _set_groups([]), []),
-        (B1, ("action",), _web_map_dependencies("error"), "import_map"),
-        (B1, ("depends_on",), _web_map_dependencies("not_fetched"), "KEEP"),
-        (B1, ("depends_on",), _web_map_dependencies("parsed"), []),
-        (D3, ("action",), _layer_relationships("error"), "export_only"),
-        (D3, ("superseded_by",), _layer_relationships("error"), A1),
-        (D3, ("action",), _layer_relationships("parsed"), "import_file"),
-        (D3, ("superseded_by",), _layer_relationships("parsed"), None),
-        (A3, ("target", "visibility"), _set_access("public"), "public"),
-        (A3, ("target", "title"), _set_row(A3, title="Roads"), "Roads"),
-        (A3, ("target", "tags"), _set_row(A3, tags=["roads"]), ["roads"]),
+        (A3, ("target", "collections"), _set_folder(None), "admin", ["Projects"]),
+        (A3, ("target", "collections"), _set_folder("Roads"), "admin", ["Roads"]),
+        (A3, ("target", "collections"), _set_folder("Roads"), "member", ["Roads"]),
+        (A3, ("target", "groups"), _set_groups(None), "admin", ["g1", "g2"]),
+        (A3, ("target", "groups"), _set_groups(GIS_TEAM), "admin", ["g1"]),
+        (A3, ("target", "groups"), _set_groups(GIS_TEAM), "member", ["g1", "g2"]),
+        (A3, ("target", "groups"), _set_groups([]), "member", ["g1", "g2"]),
+        (
+            A3,
+            ("target", "groups"),
+            _set_groups(GIS_TEAM + PRIVATE_TEAM + EXTRA_TEAM),
+            "member",
+            ["g1", "g2", "g3"],
+        ),
+        (B1, ("action",), _web_map_dependencies("error"), "admin", "import_map"),
+        (B1, ("depends_on",), _web_map_dependencies("not_fetched"), "admin", "KEEP"),
+        (B1, ("depends_on",), _web_map_dependencies("parsed"), "admin", []),
+        (B1, ("depends_on",), _web_map_dependencies("parsed"), "member", []),
+        (D3, ("action",), _layer_relationships("error"), "admin", "export_only"),
+        (D3, ("superseded_by",), _layer_relationships("error"), "admin", A1),
+        (D3, ("action",), _layer_relationships("parsed"), "admin", "import_file"),
+        (D3, ("superseded_by",), _layer_relationships("parsed"), "admin", None),
+        (D3, ("action",), _layer_relationships("parsed"), "member", "import_file"),
+        (A3, ("target", "visibility"), _set_access("public"), "admin", "public"),
+        (A3, ("target", "visibility"), _set_access("public"), "member", "public"),
+        (A3, ("target", "title"), _set_row(A3, title="Roads"), "admin", "Roads"),
+        (A3, ("target", "title"), _set_row(A3, title="Roads"), "member", "Roads"),
+        (A3, ("target", "tags"), _set_row(A3, tags=["roads"]), "admin", ["roads"]),
+        (A3, ("target", "tags"), _set_row(A3, tags=["roads"]), "member", ["roads"]),
     ],
     ids=[
         "collections_folder_title_unread",
-        "collections_folder_renamed",
+        "collections_admin_read",
+        "collections_member_read",
         "groups_unread",
-        "groups_read",
+        "groups_admin_read_shrinks",
+        "groups_member_read_keeps_unseen",
+        "groups_member_read_empty_keeps_all",
+        "groups_member_read_adds",
         "web_map_action_dependencies_unread",
         "depends_on_dependencies_not_fetched",
-        "depends_on_dependencies_read",
+        "depends_on_admin_read",
+        "depends_on_member_read",
         "file_action_layer_unread",
         "superseded_by_layer_unread",
-        "file_action_layer_read",
-        "superseded_by_layer_read",
-        "visibility_always_read",
-        "title_always_read",
-        "tags_always_read",
+        "file_action_admin_read",
+        "superseded_by_admin_read",
+        "file_action_member_read",
+        "visibility_admin_read",
+        "visibility_member_read",
+        "title_admin_read",
+        "title_member_read",
+        "tags_admin_read",
+        "tags_member_read",
     ],
 )
 def test_each_derived_value_follows_only_a_successful_read(
-    item_id, path, mutate, expected
+    item_id, path, mutate, reader, expected
 ):
     base = inventory_report({f"content/items/{A1}/relatedItems": _CLAIMS_D3})
     _set_folder("Projects")(base)
-    _set_groups(GIS_TEAM)(base)
+    _set_groups(GIS_TEAM + PRIVATE_TEAM)(base)
     plan = plan_mod.build_plan(base, inventory_path="inv.json")
     before = _value(_items(plan)[item_id], path)
     report = json.loads(json.dumps(base))
     mutate(report)
+    if reader == "member":
+        report["auth"]["role"] = "org_user"
 
     merged, _ = _merge(plan, report)
 
@@ -1115,3 +1156,23 @@ def test_each_derived_value_follows_only_a_successful_read(
     assert after == (before if expected == "KEEP" else expected)
     if expected == "KEEP":
         assert before
+
+
+def test_a_member_read_after_an_admin_read_keeps_a_private_group():
+    admin = inventory_report()
+    _set_groups(GIS_TEAM + PRIVATE_TEAM)(admin)
+    plan = plan_mod.build_plan(admin, inventory_path="inv.json")
+    member = inventory_report()
+    _set_groups(GIS_TEAM)(member)
+    member["auth"].update(user="field_tech", role="org_user")
+
+    merged, changes = _merge(plan, member)
+
+    assert _items(merged)[A3]["target"]["groups"] == ["g1", "g2"]
+    assert _items(merged)[A3]["defaults"]["target"]["groups"] == ["g1", "g2"]
+    assert merged["group_map"]["g2"]["collection"] == "Assessors"
+    assert changes["groups_kept"] == [A3]
+    assert changes["conflicts"] == []
+    again, changes = _merge(merged, admin)
+    assert _items(again)[A3]["target"]["groups"] == ["g1", "g2"]
+    assert changes["groups_kept"] == []

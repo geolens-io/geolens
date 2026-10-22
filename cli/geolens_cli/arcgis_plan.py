@@ -28,6 +28,7 @@ from .arcgis_portal import portal_root
 
 SCHEMA_VERSION = "2"
 PLAN_FILENAME = "arcgis-migration-plan.json"
+ORG_ADMIN = "org_admin"
 CONFLICT_LINES = 10
 _PLAN_SCHEMAS = {
     "1": "arcgis-migration-plan-v1.schema.json",
@@ -351,19 +352,36 @@ def _recorded_inventory(
     return block
 
 
-def shows_removals(inventory: Mapping[str, Any]) -> bool:
-    """Whether an inventory not listing an item shows the item is gone.
+def reads_everything(inventory: Mapping[str, Any]) -> bool:
+    """Whether the inventory was read by an org admin, who sees every item and
+    every group an item is shared with. Anyone else sees only what is shared
+    with them, and an inventory from before the role was recorded can't tell."""
+    return inventory["auth"].get("role") == ORG_ADMIN
 
-    Only a complete, org-scope inventory read signed in can. A user-scope
-    inventory misses items moved to another owner, and an anonymous one
-    misses everything not public. The inventory doesn't record whether the
-    reader is an org admin, so a non-admin reader counts too.
-    """
+
+def shows_removals(inventory: Mapping[str, Any]) -> bool:
+    """Whether an inventory not listing an item shows the item is gone: only
+    a complete, org-scope inventory read by an org admin. A user-scope one
+    misses items moved to another owner, and other readers miss items not
+    shared with them."""
     return bool(
         inventory["complete"]
         and inventory["scope"]["mode"] == "org"
-        and inventory["auth"]["mode"] != "anonymous"
+        and reads_everything(inventory)
     )
+
+
+def _keep_unseen_groups(current: Mapping[str, Any], fresh: dict[str, Any]) -> bool:
+    """Add the groups *current* recorded to *fresh*'s, for an inventory read
+    by someone who may not see every group; True when that kept any."""
+    was = ((current.get("defaults") or {}).get("target") or {}).get("groups")
+    new = fresh["target"]["groups"]
+    if was is None or new is None or set(was) <= set(new):
+        return False
+    union = sorted(set(was) | set(new))
+    fresh["target"]["groups"] = union
+    fresh["defaults"]["target"]["groups"] = list(union)
+    return True
 
 
 def merge_plan(
@@ -394,11 +412,13 @@ def merge_plan(
     rows = {row["id"]: row for row in inventory["items"]}
     listed = {item["id"]: item for item in fresh["items"]}
     complete = shows_removals(fresh["inventory"])
+    all_groups = reads_everything(fresh["inventory"])
     changes: dict[str, list[Any]] = {
         "added": [],
         "removed": [],
         "restored": [],
         "unlisted": [],
+        "groups_kept": [],
         "conflicts": [],
         "owner_conflicts": [],
     }
@@ -408,6 +428,10 @@ def merge_plan(
         if item is not None:
             if mine.get("removed"):
                 changes["restored"].append(mine["id"])
+            if not all_groups:
+                item = copy.deepcopy(item)
+                if _keep_unseen_groups(mine, item):
+                    changes["groups_kept"].append(mine["id"])
             items.append(
                 _merge_item(
                     mine,
@@ -587,8 +611,15 @@ def _report_merge(
         fmt.warn(
             f"{len(changes['unlisted'])} plan item(s) are missing from this inventory "
             "and were marked unlisted, not removed, since only a complete --scope "
-            "org inventory read signed in marks items removed: "
+            "org inventory read by an org admin marks items removed: "
             + ", ".join(changes["unlisted"][:5])
+        )
+    if changes["groups_kept"]:
+        fmt.warn(
+            f"{len(changes['groups_kept'])} item(s) keep groups this inventory "
+            "didn't list: it wasn't read by an org admin, so it may not see every "
+            "group, and a group removed in the portal isn't confirmed: "
+            + ", ".join(changes["groups_kept"][:5])
         )
     conflicts = changes["conflicts"]
     for c in conflicts[:CONFLICT_LINES]:

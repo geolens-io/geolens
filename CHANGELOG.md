@@ -26,13 +26,15 @@ and releases use semantic versioning.
   (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
   Re-importing an exported style is unaffected.
 - `geolens arcgis plan` run against a directory that already holds a plan now
-  merges the new inventory into it instead of refusing. Values you edited stay,
-  values you left alone take the new defaults, new portal items are added, and
-  items gone from the portal are kept and marked `removed`, which `migrate`
-  doesn't run again. Only a complete `--scope org` inventory read signed in
-  marks items removed. `--force` still replaces the plan. Plans now use schema
-  v2, which records each item's defaults; `migrate` reads v1 and v2 plans, but
-  a reader that validates against the v1 schema rejects a v2 plan.
+  merges the new inventory into it instead of refusing. Values you edited
+  stay, values you left alone take the new defaults, new portal items are
+  added, and items gone from the portal are kept and marked `removed`, which
+  `migrate` doesn't run again. Only a complete `--scope org` inventory read by
+  an organization administrator marks items removed. The inventory now records
+  the signed-in account's portal role as `auth.role`. `--force` still replaces
+  the plan. Plans now use schema v2, which records each item's defaults;
+  `migrate` reads v1 and v2 plans, but a reader that validates against the v1
+  schema rejects a v2 plan.
 
 ### Added
 
