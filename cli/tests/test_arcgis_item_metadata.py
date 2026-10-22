@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from geolens_cli.arcgis_item_metadata import html_to_text, item_metadata
+import pytest
+
+from geolens_cli.arcgis_item_metadata import _BLOCK_TAGS, html_to_text, item_metadata
 
 
 def test_html_becomes_plain_text():
@@ -106,3 +108,69 @@ def test_html5_containers_are_markup_and_blocks():
         {"access_information": "<address>County GIS</address>"}, {"tags": []}, None
     )
     assert fields["attribution"] == "County GIS"
+
+
+@pytest.mark.parametrize("tag", sorted(_BLOCK_TAGS - {"br", "hr"}))
+def test_every_block_level_element_separates_the_text_around_it(tag):
+    assert html_to_text(f"<{tag}>License</{tag}>CC0") == "License\nCC0"
+
+
+@pytest.mark.parametrize(
+    ("html", "text"),
+    [
+        ("<details><summary>License</summary>CC0</details>", "License\nCC0"),
+        ("<form>License</form>CC0", "License\nCC0"),
+        ("<fieldset><legend>License</legend>CC0</fieldset>", "License\nCC0"),
+        ("<o:p>License</o:p>", "License"),
+        ("<x-panel>License</x-panel>CC0", "LicenseCC0"),
+        ("<p><o:p></o:p>License</p>", "License"),
+        ("a <https://example.org/x> b", "a <https://example.org/x> b"),
+        ("a <mailto:gis@example.org> b", "a <mailto:gis@example.org> b"),
+        ("a <gis@example.org> b", "a <gis@example.org> b"),
+    ],
+)
+def test_markup_shapes_and_literal_angle_text(html, text):
+    assert html_to_text(html) == text
+
+
+def test_markup_names_with_punctuation_never_reach_an_attribution():
+    row = {"access_information": "<o:p>County</o:p> <x-panel>GIS</x-panel>"}
+    assert item_metadata(row, {"tags": []}, None)["attribution"] == "County GIS"
+
+
+@pytest.mark.parametrize(
+    ("html", "text"),
+    [
+        (
+            'Use subject to <a href="https://example.org/terms">these terms</a>',
+            "Use subject to these terms (https://example.org/terms)",
+        ),
+        (
+            '<a href="https://example.org/t"><b>these</b> <i>terms</i></a>.',
+            "these terms (https://example.org/t).",
+        ),
+        ('<a href="https://example.org/t"></a>', "https://example.org/t"),
+        (
+            '<a href="https://example.org/t">https://example.org/t</a>',
+            "https://example.org/t",
+        ),
+        ('<a href="mailto:gis@example.org">gis@example.org</a>', "gis@example.org"),
+        ('<a href="#top">top</a>', "top"),
+        ('<a href="javascript:void(0)">terms</a>', "terms"),
+        ("<a>terms</a>", "terms"),
+        ('<a href="https://example.org/t">terms', "terms (https://example.org/t)"),
+    ],
+)
+def test_a_link_keeps_its_destination_as_text(html, text):
+    assert html_to_text(html) == text
+
+
+def test_links_in_every_field_keep_their_destination():
+    link = '<a href="https://example.org/x">label</a>'
+    fields = item_metadata(
+        {"license_info": link, "access_information": link, "snippet": link},
+        {"tags": []},
+        None,
+    )
+    for name in ("license", "attribution", "summary"):
+        assert fields[name] == "label (https://example.org/x)"

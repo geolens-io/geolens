@@ -1111,6 +1111,9 @@ def test_a_failed_metadata_write_fails_the_item_and_a_rerun_redoes_only_it(
     entry = _state(plan_file)["items"][A2]
     assert entry["status"] == "failed" and "item metadata" in entry["error"]
     assert entry["dataset_ids"] == [dataset_id("Parcels")]
+    # The summary was written before the keyword failed; a rerun has to be
+    # able to tell it from an edit.
+    assert entry["metadata_hash"]
 
     geolens.routes[PREVIEW] = preview
     service._serve_dataset(dataset_id("Parcels"))
