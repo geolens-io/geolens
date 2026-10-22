@@ -38,7 +38,7 @@ geolens arcgis migrate ./run/arcgis-migration-plan.json
 
 - `import_layers`: GeoLens imports the feature layers and tables of a hosted or federated service itself; the CLI never contacts the service.
 - `import_file`: a CSV, GeoJSON, Shapefile or File Geodatabase item is downloaded from the portal and uploaded. It is bounded by the instance's upload size limit; an item over it is skipped with its size.
-- `export_only`: items GeoLens can't host (dashboards, forms, StoryMaps, Hub pages and so on) are saved under `export/<type>/<item id>/` next to the state file, with `item.json`, the item's data, its resources and, for a story, a readable `story.md`. `export/INDEX.md` lists them with what to use instead. `--export-cap-mb` (default 200) limits each item.
+- `export_only`: items GeoLens can't host (dashboards, forms, StoryMaps, Hub pages and so on) are saved under `export/<type>/<item id>/` next to the state file, with `item.json`, the item's data, its resources and, for a story, a readable `story.md`. `export/INDEX.md` lists them with what to use instead. `--export-cap-mb` (default 200) limits each item. An export can finish with files missing: one over the cap, JSON that can't be redacted, a request the portal refused, or an unsafe resource name. The item notes, the report and `INDEX.md` (status `partial` or `complete, with errors`) say which, so check them before retiring the ArcGIS source. A network or server error while exporting leaves the item failed, and a rerun retries it.
 - `import_map` is not available yet; those items stay pending.
 
 Items are imported as you, then handed to the owner the plan names. Each target user needs a role with `upload` (datasets) or `edit_metadata` (maps); `migrate` warns when the role matrix says otherwise and the server decides on each transfer. `--unmapped-owner` names an owner for items whose mapped owner is empty or inactive. Folders become collections (`defaults.collection_from` in the plan: `folder` or `none`); ArcGIS groups are not migrated yet and are listed in the report.
@@ -60,11 +60,11 @@ A run that gets as far as the item loop writes `arcgis-migration-report.md` and 
 Exit codes:
 
 - 0: nothing failed.
-- 1: an item failed, an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
+- 1: an item failed (including a network or server error once items are running), an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
 - 2: the plan, state file, owner mapping or credentials couldn't be used, or a redirect was refused.
 - 3: GeoLens or ArcGIS authentication failed.
-- 4: the portal couldn't be reached.
-- 5: a server error.
+- 4: the portal couldn't be reached while signing in, before any item ran.
+- 5: a server error from the GeoLens checks, before any item ran.
 - 130: interrupted; run the same command to resume.
 
 For a large migration, run the GeoLens worker with `WORKER_CONCURRENCY=2` or more, since each layer import is a background job.
