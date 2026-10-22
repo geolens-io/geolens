@@ -179,7 +179,7 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
           value={values.previous_versions_kept as number}
           onChange={(e) => setters.previous_versions_kept(Number(e.target.value))}
           aria-invalid={!keptVersionsValid}
-          aria-describedby={keptVersionsValid ? 'previous-versions-help' : 'previous-versions-error'}
+          aria-describedby={keptVersionsValid ? 'previous-versions-help' : 'previous-versions-error previous-versions-help'}
           disabled={envOnly}
           className="w-32"
         />

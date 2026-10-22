@@ -72,6 +72,9 @@ describe('previous versions kept', () => {
 
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByText('Enter a whole number from 1 to 50.')).toBeInTheDocument();
+    expect(field).toHaveAccessibleDescription(
+      expect.stringMatching(/^Enter a whole number from 1 to 50\. How many replaced versions/),
+    );
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(onSave).not.toHaveBeenCalled();
   });
