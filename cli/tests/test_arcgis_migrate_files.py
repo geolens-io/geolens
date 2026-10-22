@@ -510,7 +510,9 @@ def test_a_fan_out_interrupted_while_waiting_does_not_upload_again(
     _migrate(runner, plan_file, "--only", D3)
     state = _state(plan_file)
     entry = state["items"][D3]
-    entry.update(status="failed", layer_datasets={}, layer_jobs={"Parcels": child})
+    entry.update(
+        status="failed", layer_datasets={}, layer_jobs={"layer:Parcels": child}
+    )
     (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
 
     result, _ = _migrate(runner, plan_file, "--only", D3)
@@ -624,7 +626,7 @@ def test_a_child_job_that_fails_while_resuming_is_noted(
     entry.update(
         status="failed",
         layer_datasets={},
-        layer_jobs={"Roads": roads, "Parcels": parcels},
+        layer_jobs={"layer:Roads": roads, "layer:Parcels": parcels},
         notes=[],
     )
     (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
@@ -816,3 +818,17 @@ def test_the_size_limit_applies_to_a_redirected_body(runner, tmp_path, geolens, 
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][D3]["status"] == "skipped"
     assert not files.uploads
+
+
+def test_a_layer_named_like_the_single_file_marker_is_still_imported(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens, layer_names=["file", "Parcels"])
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == [dataset_id("file"), dataset_id("Parcels")]
+    assert entry["layer_jobs"] == {}

@@ -52,6 +52,9 @@ MAX_FAN_OUT_LAYERS = 50
 DEFAULT_LIMIT_MB = 500
 # The single-layer upload job, until it yields its dataset.
 JOB_KEY = "file"
+# State keys of a fan-out's layers carry this prefix, so a layer can't collide
+# with JOB_KEY whatever its name.
+LAYER_PREFIX = "layer:"
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _TOKEN_STATUSES = (498, 499)
 
@@ -209,7 +212,7 @@ def _fan_out(
     entry.notes = []
     for layer in result.results:
         if layer.new_job_id and layer.status == "queued":
-            entry.layer_jobs[layer.layer_name] = str(layer.new_job_id)
+            entry.layer_jobs[_layer_key(layer.layer_name)] = str(layer.new_job_id)
         else:
             entry.notes.append(
                 f"layer not imported, {layer.layer_name}: {layer.error or layer.status}"
@@ -219,17 +222,25 @@ def _fan_out(
     if not entry.layer_datasets:
         raise ItemFailed(f"{base}: {'; '.join(entry.notes)}")
     for name, dataset in entry.layer_datasets.items():
-        _apply_target(ctx, dataset, _commit_body(titles[name], visibility))
+        _apply_target(ctx, dataset, _commit_body(titles[_layer_name(name)], visibility))
     return list(entry.notes)
+
+
+def _layer_key(name: str) -> str:
+    return LAYER_PREFIX + name
+
+
+def _layer_name(key: str) -> str:
+    return key.removeprefix(LAYER_PREFIX)
 
 
 def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> None:
     """Wait for the fan-out jobs an earlier call queued and pin their datasets.
     A job that ended without a dataset becomes a note on the item."""
-    for name in [n for n in entry.layer_jobs if n != JOB_KEY]:
+    for name in [n for n in entry.layer_jobs if n.startswith(LAYER_PREFIX)]:
         try:
             entry.layer_datasets[name] = _wait_for_dataset(
-                ctx, UUID(entry.layer_jobs[name]), _title(base, name)
+                ctx, UUID(entry.layer_jobs[name]), _title(base, _layer_name(name))
             )
         except _JobEnded as exc:
             entry.notes.append(f"layer not imported, {exc}")
@@ -293,7 +304,7 @@ def import_file(
     if entry.layer_datasets:
         many = JOB_KEY not in entry.layer_datasets
         for name, dataset in entry.layer_datasets.items():
-            title = _title(base, name if many else None)
+            title = _title(base, _layer_name(name) if many else None)
             _apply_target(ctx, dataset, _commit_body(title, visibility))
         # Notes from the run that imported the layers, such as a layer that
         # failed to queue, must survive this resume.
