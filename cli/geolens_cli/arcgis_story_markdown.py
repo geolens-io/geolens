@@ -180,7 +180,9 @@ class _Story:
         tour_map = self.nodes.get(str(data.get("map")))
         shapes = {}
         if isinstance(tour_map, Mapping) and isinstance(tour_map.get("data"), Mapping):
-            shapes = tour_map["data"].get("geometries") or {}
+            shapes = tour_map["data"].get("geometries")
+            if not isinstance(shapes, Mapping):
+                shapes = {}
         for place in data.get("places") or []:
             if not isinstance(place, Mapping):
                 continue

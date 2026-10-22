@@ -325,7 +325,7 @@ def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> Non
             f"content/items/{item_id}/resources/{quote(name)}", what
         )
         if staged is None:
-            if export.partial:
+            if export.remaining <= 0:
                 break
             continue
         export.place(
@@ -390,6 +390,10 @@ def export_item(
     build = Path(tempfile.mkdtemp(dir=folder.parent, prefix=f".{folder.name}.new-"))
     try:
         notes = _export_into(ctx, item, entry, row, client, folder, build)
+    except OSError as exc:
+        raise ItemFailed(
+            f"writing the export failed: {exc.strerror or type(exc).__name__}"
+        ) from None
     finally:
         shutil.rmtree(build, ignore_errors=True)
     return notes

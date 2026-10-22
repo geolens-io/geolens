@@ -754,3 +754,47 @@ def test_a_swap_a_killed_run_left_half_done_is_recovered(
 
     assert (parent / C3 / "item.json").read_text() == "{}"
     assert not leftover.exists() and not old.exists()
+
+
+def test_a_local_write_error_fails_only_that_item(
+    runner, tmp_path, geolens, install, monkeypatch
+):
+    install()
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(
+        "geolens_cli.arcgis_migrate_export.shutil.rmtree", lambda *a, **k: None
+    )
+    monkeypatch.setattr("geolens_cli.arcgis_migrate_export._redacted_text", full_disk)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][C3]
+    assert entry["status"] == "failed" and "No space left" in entry["error"]
+
+
+def test_a_resource_over_the_remaining_budget_does_not_stop_the_smaller_ones(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {
+            f"content/items/{C3}/resources": _resources("big.bin", "small.bin"),
+            f"content/items/{C3}/resources/big.bin": b"x" * (2 * 1024 * 1024),
+            f"content/items/{C3}/resources/small.bin": b"ok",
+        }
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", C3, "--token", TOKEN, "--export-cap-mb", "1"
+    )
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "dashboard", C3) / "resources"
+    assert not (folder / "big.bin").exists()
+    assert (folder / "small.bin").read_bytes() == b"ok"
+    assert _state(plan_file)["items"][C3]["export"]["partial"] is True

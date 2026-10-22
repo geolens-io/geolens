@@ -154,3 +154,12 @@ def test_classic_story_contents_keep_their_paragraph_boundaries():
     text = story.render_classic(data, title="t", map_link=_link)
 
     assert "First\n\nSecond **bold**\n\nThird" in text
+
+
+def test_a_tour_with_invalid_geometries_still_renders_its_text():
+    data = _tour()
+    data["nodes"]["n-tourmap"]["data"]["geometries"] = ["not", "a", "mapping"]
+
+    text = story.render_storymap(data, title="t", map_link=_link)
+
+    assert "### Downtown Blue Way" in text and "Location:" not in text
