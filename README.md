@@ -358,10 +358,31 @@ requests too. Ask questions in
 described in [SECURITY.md](.github/SECURITY.md). The [roadmap](https://docs.getgeolens.com/roadmap/)
 shows what's planned.
 
+## Built on
+
+GeoLens is built on these open source projects. Thanks to everyone who maintains them.
+
+- [PostgreSQL](https://www.postgresql.org/) and [PostGIS](https://postgis.net/) hold the catalog and every vector dataset, and
+  [pgvector](https://github.com/pgvector/pgvector) stores the embeddings behind search by meaning.
+- [GDAL](https://gdal.org/) reads the files and services GeoLens imports and writes the formats it exports,
+  and [PROJ](https://proj.org/) handles coordinate transformations.
+- [TiTiler](https://developmentseed.org/titiler/) serves raster tiles from Cloud Optimized GeoTIFFs.
+- [FastAPI](https://fastapi.tiangolo.com/) serves the API, and [Procrastinate](https://procrastinate.readthedocs.io/) runs background
+  jobs with PostgreSQL as the queue.
+- [MapLibre GL JS](https://maplibre.org/) draws the maps, [deck.gl](https://deck.gl/) and
+  [loaders.gl](https://loaders.gl/) render 3D Tiles and point clouds, and [Terra Draw](https://terradraw.io/)
+  handles drawing and editing.
+- The web app is written in [React](https://react.dev/).
+
+These names belong to their owners, and listing them doesn't mean they endorse GeoLens; see
+[TRADEMARKS.md](TRADEMARKS.md#other-projects-names).
+
 ## License
 
 GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo and brand
 assets are not covered by this license; see [TRADEMARKS.md](TRADEMARKS.md). Sample-data
-attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md). The web app serves the license notices for the
+code it bundles at `/third-party-licenses.txt`, and the backend image's copyleft notices are in
+[backend/licenses](backend/licenses/).
 
 Project policies: [editions](EDITIONS.md) · [support](SUPPORT.md) · [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md)

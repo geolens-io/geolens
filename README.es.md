@@ -368,11 +368,34 @@ informa de los errores en [Issues](https://github.com/geolens-io/geolens/issues)
 problemas de seguridad de forma privada, como se describe en [SECURITY.md](.github/SECURITY.md).
 La [hoja de ruta](https://docs.getgeolens.com/roadmap/) muestra lo planificado.
 
+## Basado en
+
+GeoLens se basa en estos proyectos de código abierto. Gracias a todas las personas que los
+mantienen.
+
+- [PostgreSQL](https://www.postgresql.org/) y [PostGIS](https://postgis.net/) guardan el catálogo y todos los
+  conjuntos de datos vectoriales, y [pgvector](https://github.com/pgvector/pgvector) almacena los embeddings de la
+  búsqueda por significado.
+- [GDAL](https://gdal.org/) lee los archivos y servicios que GeoLens importa y escribe los formatos que
+  exporta, y [PROJ](https://proj.org/) se encarga de las transformaciones de coordenadas.
+- [TiTiler](https://developmentseed.org/titiler/) sirve teselas ráster a partir de Cloud Optimized GeoTIFF.
+- [FastAPI](https://fastapi.tiangolo.com/) sirve la API, y [Procrastinate](https://procrastinate.readthedocs.io/) ejecuta las
+  tareas en segundo plano con PostgreSQL como cola.
+- [MapLibre GL JS](https://maplibre.org/) dibuja los mapas, [deck.gl](https://deck.gl/) y
+  [loaders.gl](https://loaders.gl/) muestran 3D Tiles y nubes de puntos, y
+  [Terra Draw](https://terradraw.io/) se encarga del dibujo y la edición.
+- La aplicación web está escrita en [React](https://react.dev/).
+
+Estos nombres pertenecen a sus propietarios, y mencionarlos no implica que respalden GeoLens;
+consulta [TRADEMARKS.md](TRADEMARKS.md#other-projects-names).
+
 ## Licencia
 
 GeoLens se distribuye bajo la [Apache License 2.0](LICENSE). El nombre, el logotipo y los
 recursos de marca de GeoLens no están cubiertos por esta licencia; consulta
 [TRADEMARKS.md](TRADEMARKS.md). La atribución de los datos de muestra está en
-[THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+[THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md). La aplicación web sirve los avisos de licencia del
+código que incluye en `/third-party-licenses.txt`, y los avisos copyleft de la imagen del
+backend están en [backend/licenses](backend/licenses/).
 
 Políticas del proyecto: [ediciones](EDITIONS.md) · [soporte](SUPPORT.md) · [gobernanza](GOVERNANCE.md) · [mantenedores](MAINTAINERS.md) · [seguridad](.github/SECURITY.md) · [proceso de publicación](RELEASE.md) · [salida de red y entornos aislados](EGRESS.md)

@@ -35,6 +35,14 @@ official build.
 - Community meetups and events may reference GeoLens descriptively. Please do
   not imply official sponsorship or endorsement without written permission.
 
+## Other projects' names
+
+The README names the open source projects GeoLens is built on. Those names and
+logos belong to their owners, and naming a project doesn't mean it sponsors or
+endorses GeoLens. Postgres, PostgreSQL and the Slonik Logo are trademarks or
+registered trademarks of the PostgreSQL Community Association of Canada, and
+used with their permission.
+
 ## Questions
 
 If you're unsure whether a use is permitted, open a

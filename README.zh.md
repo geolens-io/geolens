@@ -278,8 +278,21 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 
 欢迎提交缺陷报告、修复、翻译和文档。[CONTRIBUTING](.github/CONTRIBUTING.md) 涵盖环境搭建、测试和 DCO 签名，[ARCHITECTURE](.github/ARCHITECTURE.md) 描绘了代码结构。[QGIS 插件](https://github.com/geolens-io/qgis-geolens-plugin)、[示例](https://github.com/geolens-io/geolens-examples)和[部署](https://github.com/geolens-io/geolens-deployments)仓库同样接受 issue 和 pull request。问题请发到 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions)，缺陷请提交到 [Issues](https://github.com/geolens-io/geolens/issues)，安全问题请按 [SECURITY.md](.github/SECURITY.md) 中的说明私下报告。[路线图](https://docs.getgeolens.com/roadmap/)展示了计划中的工作。
 
+## 基于开源项目构建
+
+GeoLens 构建在以下开源项目之上，感谢所有维护者。
+
+- [PostgreSQL](https://www.postgresql.org/) 和 [PostGIS](https://postgis.net/) 存储目录和所有矢量数据集，[pgvector](https://github.com/pgvector/pgvector) 存储按含义搜索所用的嵌入向量。
+- [GDAL](https://gdal.org/) 读取 GeoLens 导入的文件和服务，并写出导出的格式；[PROJ](https://proj.org/) 负责坐标转换。
+- [TiTiler](https://developmentseed.org/titiler/) 基于云优化 GeoTIFF 提供栅格瓦片。
+- [FastAPI](https://fastapi.tiangolo.com/) 提供 API，[Procrastinate](https://procrastinate.readthedocs.io/) 以 PostgreSQL 作为队列运行后台任务。
+- [MapLibre GL JS](https://maplibre.org/) 绘制地图，[deck.gl](https://deck.gl/) 和 [loaders.gl](https://loaders.gl/) 渲染 3D Tiles 和点云，[Terra Draw](https://terradraw.io/) 负责绘制与编辑。
+- Web 应用用 [React](https://react.dev/) 编写。
+
+这些名称归各自所有者所有，列出它们并不表示它们为 GeoLens 背书，参见 [TRADEMARKS.md](TRADEMARKS.md#other-projects-names)。
+
 ## 许可证
 
-GeoLens 采用 [Apache License 2.0](LICENSE) 许可。GeoLens 的名称、标志和品牌资产不在此许可范围内，参见 [TRADEMARKS.md](TRADEMARKS.md)。示例数据的署名见 [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md)。
+GeoLens 采用 [Apache License 2.0](LICENSE) 许可。GeoLens 的名称、标志和品牌资产不在此许可范围内，参见 [TRADEMARKS.md](TRADEMARKS.md)。示例数据的署名见 [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md)。Web 应用在 `/third-party-licenses.txt` 提供其打包代码的许可声明，后端镜像的 copyleft 声明见 [backend/licenses](backend/licenses/)。
 
 项目政策：[版本](EDITIONS.md) · [支持](SUPPORT.md) · [治理](GOVERNANCE.md) · [维护者](MAINTAINERS.md) · [安全](.github/SECURITY.md) · [发布流程](RELEASE.md) · [出站连接与隔离网络](EGRESS.md)

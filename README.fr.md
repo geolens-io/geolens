@@ -372,10 +372,33 @@ les [Issues](https://github.com/geolens-io/geolens/issues) et les problèmes de 
 comme décrit dans [SECURITY.md](.github/SECURITY.md). La
 [feuille de route](https://docs.getgeolens.com/roadmap/) montre ce qui est prévu.
 
+## Construit sur
+
+GeoLens repose sur ces projets open source. Merci à toutes les personnes qui les maintiennent.
+
+- [PostgreSQL](https://www.postgresql.org/) et [PostGIS](https://postgis.net/) stockent le catalogue et tous les
+  jeux de données vectoriels, et [pgvector](https://github.com/pgvector/pgvector) conserve les embeddings de la
+  recherche par le sens.
+- [GDAL](https://gdal.org/) lit les fichiers et services que GeoLens importe et écrit les formats qu’il
+  exporte, et [PROJ](https://proj.org/) prend en charge les transformations de coordonnées.
+- [TiTiler](https://developmentseed.org/titiler/) sert les tuiles raster à partir de Cloud Optimized GeoTIFF.
+- [FastAPI](https://fastapi.tiangolo.com/) sert l’API, et [Procrastinate](https://procrastinate.readthedocs.io/)
+  exécute les tâches de fond avec PostgreSQL comme file d’attente.
+- [MapLibre GL JS](https://maplibre.org/) dessine les cartes, [deck.gl](https://deck.gl/) et
+  [loaders.gl](https://loaders.gl/) affichent les 3D Tiles et les nuages de points, et
+  [Terra Draw](https://terradraw.io/) gère le dessin et l’édition.
+- L’application web est écrite en [React](https://react.dev/).
+
+Ces noms appartiennent à leurs propriétaires, et leur mention ne signifie pas qu’ils soutiennent
+GeoLens ; voir [TRADEMARKS.md](TRADEMARKS.md#other-projects-names).
+
 ## Licence
 
 GeoLens est publié sous la [licence Apache 2.0](LICENSE). Le nom, le logo et les éléments de
 marque de GeoLens ne sont pas couverts par cette licence ; voir [TRADEMARKS.md](TRADEMARKS.md).
 L’attribution des données d’exemple figure dans [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+L’application web sert les mentions de licence du code qu’elle embarque à
+`/third-party-licenses.txt`, et les mentions copyleft de l’image backend figurent dans
+[backend/licenses](backend/licenses/).
 
 Politiques du projet : [éditions](EDITIONS.md) · [support](SUPPORT.md) · [gouvernance](GOVERNANCE.md) · [mainteneurs](MAINTAINERS.md) · [sécurité](.github/SECURITY.md) · [processus de publication](RELEASE.md) · [sorties réseau &amp; réseau isolé](EGRESS.md)

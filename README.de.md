@@ -370,10 +370,32 @@ Requests an. Stellen Sie Fragen in den
 [SECURITY.md](.github/SECURITY.md) beschrieben. Die
 [Roadmap](https://docs.getgeolens.com/roadmap/) zeigt, was geplant ist.
 
+## Aufgebaut auf
+
+GeoLens baut auf diesen Open-Source-Projekten auf. Danke an alle, die sie pflegen.
+
+- [PostgreSQL](https://www.postgresql.org/) und [PostGIS](https://postgis.net/) halten den Katalog und alle
+  Vektordatensätze, und [pgvector](https://github.com/pgvector/pgvector) speichert die Embeddings für die Suche
+  nach Bedeutung.
+- [GDAL](https://gdal.org/) liest die Dateien und Dienste, die GeoLens importiert, und schreibt die
+  Formate, die es exportiert; [PROJ](https://proj.org/) übernimmt die Koordinatentransformationen.
+- [TiTiler](https://developmentseed.org/titiler/) liefert Rasterkacheln aus Cloud Optimized GeoTIFFs.
+- [FastAPI](https://fastapi.tiangolo.com/) stellt die API bereit, und [Procrastinate](https://procrastinate.readthedocs.io/) führt
+  Hintergrundjobs mit PostgreSQL als Warteschlange aus.
+- [MapLibre GL JS](https://maplibre.org/) zeichnet die Karten, [deck.gl](https://deck.gl/) und
+  [loaders.gl](https://loaders.gl/) stellen 3D Tiles und Punktwolken dar, und
+  [Terra Draw](https://terradraw.io/) übernimmt Zeichnen und Bearbeiten.
+- Die Web-App ist in [React](https://react.dev/) geschrieben.
+
+Die Namen gehören ihren Inhabern, und ihre Nennung bedeutet nicht, dass sie GeoLens empfehlen;
+siehe [TRADEMARKS.md](TRADEMARKS.md#other-projects-names).
+
 ## Lizenz
 
 GeoLens steht unter der [Apache License 2.0](LICENSE). Name, Logo und Markenmaterialien von
 GeoLens fallen nicht unter diese Lizenz; siehe [TRADEMARKS.md](TRADEMARKS.md). Quellenangaben zu
-Beispieldaten stehen in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+Beispieldaten stehen in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md). Die Web-App liefert die
+Lizenzhinweise für den mitgelieferten Code unter `/third-party-licenses.txt` aus, und die
+Copyleft-Hinweise des Backend-Images stehen in [backend/licenses](backend/licenses/).
 
 Projektrichtlinien: [Editionen](EDITIONS.md) · [Support](SUPPORT.md) · [Governance](GOVERNANCE.md) · [Maintainer](MAINTAINERS.md) · [Sicherheit](.github/SECURITY.md) · [Release-Prozess](RELEASE.md) · [ausgehender Datenverkehr &amp; Air-Gap](EGRESS.md)
