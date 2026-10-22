@@ -1199,3 +1199,55 @@ def test_a_fan_out_whose_upload_job_ended_without_children_is_uploaded_afresh(
     assert len(files.uploads) == 2
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == [dataset_id("Roads"), dataset_id("Parcels")]
+
+
+def _seed_child_jobs(plan_file: Path, **jobs: str) -> None:
+    state = _state(plan_file)
+    entry = state["items"][D3]
+    entry.update(
+        status="failed",
+        layer_datasets={},
+        dataset_ids=[],
+        layer_jobs={f"layer:{name}": job for name, job in jobs.items()},
+        notes=[],
+    )
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+
+
+def test_children_whose_jobs_are_all_gone_keep_the_fan_out_record(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    roads, parcels = _uuid("0e", "Roads"), _uuid("0e", "Parcels")
+    _seed_child_jobs(plan_file, Roads=roads, Parcels=parcels)
+    for job in (roads, parcels):
+        geolens.routes[f"GET /jobs/{job}"] = (404, _problem(404, "Job not found"))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][D3]["fan_out"] is not None
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 1 and len(files.uploads) == 1
+
+
+def test_children_that_all_failed_on_a_later_run_clear_the_fan_out_record(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    roads, parcels = _uuid("0e", "Roads"), _uuid("0e", "Parcels")
+    _seed_child_jobs(plan_file, Roads=roads, Parcels=parcels)
+    for job, name in ((roads, "Roads"), (parcels, "Parcels")):
+        geolens.routes[f"GET /jobs/{job}"] = files.helper.job(job, name, "boom")
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    # The failed children are known, so the same run imports the file afresh.
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 2
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == [dataset_id("Roads"), dataset_id("Parcels")]

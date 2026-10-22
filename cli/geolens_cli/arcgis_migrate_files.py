@@ -224,11 +224,14 @@ def _fan_out(
                 f"layer not imported, {layer.layer_name}: {layer.error or layer.status}"
             )
     ctx.save()
-    _wait_for_layers(ctx, entry, base)
+    unknown = _wait_for_layers(ctx, entry, base)
     if not entry.layer_datasets:
-        # Every outcome is known and none imported, so a rerun uploads afresh.
-        entry.fan_out = None
-        ctx.save()
+        if not unknown:
+            # Every outcome is known and none imported, so a rerun uploads
+            # afresh. A job GeoLens no longer has leaves the outcome unknown,
+            # so the record stays and the rerun does not upload again.
+            entry.fan_out = None
+            ctx.save()
         raise ItemFailed(f"{base}: {'; '.join(entry.notes)}")
     for name, dataset in entry.layer_datasets.items():
         _apply_target(ctx, dataset, _commit_body(titles[_layer_name(name)], visibility))
@@ -285,10 +288,17 @@ def _layer_name(key: str) -> str:
     return key.removeprefix(LAYER_PREFIX)
 
 
-def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> None:
+def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> int:
     """Wait for the fan-out jobs an earlier call queued and pin their datasets.
-    A job that ended without a dataset becomes a note on the item."""
+    A job that ended without a dataset becomes a note on the item.
+
+    Returns how many jobs GeoLens no longer had, whose outcome is unknown. When
+    jobs were waited for, all of them are known to have failed and no dataset
+    exists, the fan-out record is cleared so a rerun imports afresh.
+    """
+    waited = unknown = 0
     for name in [n for n in entry.layer_jobs if n.startswith(LAYER_PREFIX)]:
+        waited += 1
         try:
             entry.layer_datasets[name] = _wait_for_dataset(
                 ctx, UUID(entry.layer_jobs[name]), _title(base, _layer_name(name))
@@ -300,12 +310,17 @@ def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> None
                 raise ItemFailed(f"{_layer_name(name)}: {exc}") from None
             # GeoLens no longer has the job: note the layer and go on, so the
             # siblings are not held up by it on every rerun.
+            unknown += 1
             entry.notes.append(
                 f"layer not imported, {_layer_name(name)}: its import job is gone"
             )
         del entry.layer_jobs[name]
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    if waited and not unknown and not entry.layer_datasets:
+        entry.fan_out = None
+        ctx.save()
+    return unknown
 
 
 def _upload_fresh(
