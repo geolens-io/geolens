@@ -763,6 +763,27 @@ def test_pins_from_another_service_are_not_reused(runner, plan_file, geolens):
     assert _state(plan_file)["items"][A2]["service_url"] != entry["service_url"]
 
 
+def test_pins_survive_a_replacement_service_that_fails_to_probe(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    _migrate(runner, plan_file, "--only", A2)
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_path.read_text())
+    entry = state["items"][A2]
+    old = "https://services.example.org/arcgis/rest/services/Old/FeatureServer"
+    entry["service_url"] = old
+    entry["status"] = "pending"
+    state_path.write_text(json.dumps(state))
+    service.needs_auth = True
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    after = _state(plan_file)["items"][A2]
+    assert after["layer_datasets"] == {"0": dataset_id("Parcels")}
+    assert after["service_url"] == old
+
+
 def test_pins_without_a_recorded_service_are_kept(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     _migrate(runner, plan_file, "--only", A2)

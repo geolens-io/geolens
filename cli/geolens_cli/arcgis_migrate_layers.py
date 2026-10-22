@@ -362,12 +362,6 @@ def import_layers(
     from geolens.models.probe_request import ProbeRequest
 
     row = _row(ctx, item)
-    if entry.service_url not in (None, row["url"]):
-        # A layer id from the old service could match one of the new service's.
-        entry.layer_datasets.clear()
-        entry.layer_jobs.clear()
-        entry.dataset_ids.clear()
-    entry.service_url = row["url"]
     try:
         with long_request_timeout(ctx.geolens.client):
             probe = _send(
@@ -379,6 +373,14 @@ def import_layers(
             )
     except GeoLensError as exc:
         raise ItemFailed(f"probe failed, {exc}") from None
+    if entry.service_url not in (None, row["url"]):
+        # Only once the new service answered: a typo'd URL must not drop the
+        # pins of the service the item still belongs to. A layer id from the
+        # old service could match one of the new service's.
+        entry.layer_datasets.clear()
+        entry.layer_jobs.clear()
+        entry.dataset_ids.clear()
+    entry.service_url = row["url"]
     layers = list(probe.layers)
     selected = probe.selected_layer_id
     if isinstance(selected, int | str):
