@@ -63,12 +63,12 @@ function PublicViewer() {
   const embedNeedsLegend = useMemo(
     () =>
       isEmbed &&
-      (layers?.some(
-        (layer) =>
-          layer.visible &&
-          layer.show_in_legend !== false &&
-          legendFacts(layer)?.classes?.some((c) => c.target === 'color'),
-      ) ?? false),
+      (layers?.some((layer) => {
+        if (!layer.visible || layer.show_in_legend === false) return false;
+        const facts = legendFacts(layer);
+        const classes = [...(facts?.classes ?? []), ...(facts?.cluster?.steps ? [facts.cluster.steps.classes] : [])];
+        return classes.some((c) => c.target === 'color');
+      }) ?? false),
     [isEmbed, layers],
   );
   const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed || embedNeedsLegend;

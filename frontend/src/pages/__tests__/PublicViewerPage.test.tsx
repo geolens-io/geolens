@@ -228,6 +228,25 @@ describe('PublicViewerPage', () => {
       );
     });
 
+    it('shows the legend in an embed when the only classes are cluster count colours', () => {
+      mapWith({
+        ...SHARED_MAP.layers[0],
+        style_config: {
+          render_mode: 'cluster' as const,
+          builder: {
+            clusterColorRamp: [
+              { count: 0, color: '#818cf8' },
+              { count: 25, color: '#6366f1' },
+              { count: 2500, color: '#4338ca' },
+            ],
+          },
+        },
+      });
+      renderPage('/m/share-token?embed=true');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+    });
+
     it('keeps the embed legend hidden for a single-colour layer', () => {
       renderPage('/m/share-token?embed=true');
 
