@@ -1364,3 +1364,51 @@ class TestLabelAndPopupSweep:
         result = _translate(_webmap({"popupInfo": popup}))
         assert result.layers[0].popup_config.visible_fields == []
         assert "popup_field_cap" in _kinds(result)
+
+
+class TestLayerSettingsSweep:
+    def _extra_kinds(self, layer: dict) -> set[str]:
+        return _kinds(_translate(_webmap(layer))) - {"renderer_missing"}
+
+    @pytest.mark.parametrize(
+        ("layer", "kind"),
+        [
+            ({"blendMode": "multiply"}, "layer_effect"),
+            ({"effect": [{"type": "drop-shadow"}]}, "layer_effect"),
+            ({"featureReduction": {"type": "cluster"}}, "feature_reduction"),
+            ({"timeInfo": {"startTimeField": "T"}}, "time"),
+            ({"layerDefinition": {"timeInfo": {"startTimeField": "T"}}}, "time"),
+            ({"refreshInterval": 5}, "refresh_interval"),
+            ({"customParameters": {"token": "secret"}}, "custom_parameters"),
+        ],
+    )
+    def test_reported(self, layer: dict, kind: str) -> None:
+        assert self._extra_kinds(layer) == {kind}
+
+    def test_defaults_are_not_losses(self) -> None:
+        layer = {"blendMode": "normal", "refreshInterval": 0, "effect": []}
+        assert not self._extra_kinds(layer)
+
+    def test_custom_parameter_values_stay_out_of_the_report(self) -> None:
+        result = _translate(_webmap({"customParameters": {"token": "s3cr3t"}}))
+        assert "s3cr3t" not in json.dumps(result.loss.as_dict())
+
+    def test_a_groups_effect_is_reported(self) -> None:
+        webmap = {
+            "operationalLayers": [
+                {
+                    "id": "G",
+                    "layerType": "GroupLayer",
+                    "blendMode": "screen",
+                    "layers": [{"id": "L1", "layerType": "ArcGISFeatureLayer"}],
+                }
+            ]
+        }
+        assert "layer_effect" in _kinds(_translate(webmap))
+
+    def test_renderer_transparency_lowers_the_layer_opacity(self) -> None:
+        layer = {
+            "opacity": 0.5,
+            "layerDefinition": {"drawingInfo": {"transparency": 40}},
+        }
+        assert _translate(_webmap(layer)).layers[0].opacity == 0.3

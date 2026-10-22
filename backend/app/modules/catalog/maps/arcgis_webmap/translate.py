@@ -90,6 +90,7 @@ def _flatten(
         if layer.get("layerType") != "GroupLayer":
             out.append((layer, here, group))
             continue
+        _layer_extras(layer, here, loss)
         if group is not None:
             loss.add(here, "nested_group", _text(layer.get("title"), 80))
         if depth >= _MAX_GROUP_DEPTH:
@@ -107,6 +108,29 @@ def _flatten(
             )
         )
     return out
+
+
+def _layer_extras(layer: dict, path: str, loss: LossReport) -> None:
+    """Layer settings that change what renders or what the map shows and aren't carried."""
+    definition = _d(layer.get("layerDefinition"))
+    if layer.get("blendMode") not in (None, "normal") or layer.get("effect"):
+        loss.add(path, "layer_effect", "blend mode or effect")
+    if layer.get("featureReduction"):
+        loss.add(
+            path,
+            "feature_reduction",
+            describe(_d(layer["featureReduction"]).get("type")),
+        )
+    if layer.get("timeInfo") or definition.get("timeInfo"):
+        loss.add(path, "time", "time-aware layer shown without a time filter")
+    if (num(layer.get("refreshInterval")) or 0) > 0:
+        loss.add(path, "refresh_interval", describe(layer.get("refreshInterval")))
+    if layer.get("customParameters"):
+        loss.add(
+            path,
+            "custom_parameters",
+            ", ".join(sorted(map(describe, _d(layer["customParameters"])))),
+        )
 
 
 def _zoom_range(layer: dict, definition: dict) -> dict:
@@ -154,6 +178,10 @@ def _layer_input(
     style_config = styled.style_config
     visible = layer.get("visibility") is not False
     opacity = _unit(layer.get("opacity"))
+    transparency = num(drawing.get("transparency"))
+    if transparency:
+        opacity *= 1 - min(100.0, max(0.0, transparency)) / 100
+    _layer_extras(layer, path, loss)
     if group is not None:
         style_config = dict(style_config or {})
         style_config["builder"] = {
