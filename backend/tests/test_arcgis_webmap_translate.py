@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -310,12 +311,27 @@ def _eval(expression, props: dict):
         return fallback
     if op == "all":
         return all(_eval(a, props) for a in args)
+    if op == "any":
+        return any(_eval(a, props) for a in args)
+    if op == "!":
+        return not _eval(args[0], props)
+    if op == "literal":
+        return args[0]
     left, right = (_eval(a, props) for a in args)
     if op == "==":
         return left == right
+    if op == "!=":
+        return left != right
+    if op == "in":
+        return left in right
     if left is None:
         return False
-    return {"<=": left <= right, ">=": left >= right}[op]
+    return {
+        "<=": left <= right,
+        ">=": left >= right,
+        "<": left < right,
+        ">": left > right,
+    }[op]
 
 
 class TestClassBreaksRenderer:
@@ -533,18 +549,36 @@ class TestDefinitionExpression:
         ("sql", "expected"),
         [
             ("STATUS = 'open'", ["==", ["get", "STATUS"], "open"]),
-            ("N <> 3", ["!=", ["get", "N"], 3]),
+            (
+                "N <> 3",
+                ["all", ["!=", ["get", "N"], None], ["!=", ["get", "N"], 3]],
+            ),
             ("N >= 2.5", [">=", ["get", "N"], 2.5]),
             ("A IS NULL", ["==", ["get", "A"], None]),
             ("A IS NOT NULL", ["!=", ["get", "A"], None]),
             ("A IN ('x', 'y')", ["in", ["get", "A"], ["literal", ["x", "y"]]]),
-            ("A NOT IN (1, 2)", ["!", ["in", ["get", "A"], ["literal", [1, 2]]]]),
+            (
+                "A NOT IN (1, 2)",
+                [
+                    "all",
+                    ["!=", ["get", "A"], None],
+                    ["!", ["in", ["get", "A"], ["literal", [1, 2]]]],
+                ],
+            ),
             (
                 "A = 'it''s' AND (B < 1 OR NOT C = 2)",
                 [
                     "all",
                     ["==", ["get", "A"], "it's"],
-                    ["any", ["<", ["get", "B"], 1], ["!", ["==", ["get", "C"], 2]]],
+                    [
+                        "any",
+                        ["<", ["get", "B"], 1],
+                        [
+                            "all",
+                            ["!=", ["get", "C"], None],
+                            ["!", ["==", ["get", "C"], 2]],
+                        ],
+                    ],
                 ],
             ),
             ('"Odd Name" = 1', ["==", ["get", "Odd Name"], 1]),
@@ -1046,3 +1080,92 @@ class TestHugeIntegers:
     def test_a_huge_opacity_keeps_the_default(self) -> None:
         result = _translate(_webmap({"opacity": 10**400}))
         assert result.layers[0].opacity == 1.0
+
+
+class TestNullSemantics:
+    """SQL hides a row whose compared field is NULL; MapLibre's negations don't."""
+
+    @pytest.mark.parametrize(
+        ("sql", "shown", "hidden"),
+        [
+            ("A <> 3", [{"A": 5}], [{"A": 3}, {"A": None}, {}]),
+            ("A != 3", [{"A": 5}], [{"A": 3}, {"A": None}, {}]),
+            ("A NOT IN (1, 2)", [{"A": 5}], [{"A": 1}, {"A": None}, {}]),
+            ("NOT A = 2", [{"A": 5}], [{"A": 2}, {"A": None}, {}]),
+            ("NOT A IN (1)", [{"A": 5}], [{"A": 1}, {}]),
+            ("NOT (A < 2)", [{"A": 5}], [{"A": 1}, {}]),
+            ("NOT A IS NULL", [{"A": 5}], [{}, {"A": None}]),
+            ("NOT A IS NOT NULL", [{}, {"A": None}], [{"A": 5}]),
+            ("NOT NOT A = 2", [{"A": 2}], [{"A": 5}, {}]),
+            ("NOT A <> 3", [{"A": 3}], [{"A": 5}, {}]),
+            (
+                "A = 1 OR NOT B = 2",
+                [{"A": 1}, {"A": 0, "B": 5}],
+                [{"A": 0}, {"A": 0, "B": 2}],
+            ),
+        ],
+    )
+    def test_negations_hide_null_rows(
+        self, sql: str, shown: list, hidden: list
+    ) -> None:
+        expression = definition_expression_to_filter(sql)
+        assert expression is not None
+        for props in shown:
+            assert _eval(expression, props) is True, props
+        for props in hidden:
+            assert _eval(expression, props) is False, props
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "NOT (A = 1 AND B = 2)",
+            "NOT (A = 1 OR B = 2)",
+            "NOT (NOT (A = 1 AND B = 2))",
+        ],
+    )
+    def test_a_negated_compound_has_no_faithful_filter(self, sql: str) -> None:
+        assert definition_expression_to_filter(sql) is None
+
+
+class TestTokenizerCost:
+    """Pathological expressions are refused or tokenized in linear time."""
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            " " * 200_000 + "!",
+            "A = 1" + " " * 200_000 + "!",
+            "A > 0" + "0" * 200_000 + "!",
+            "A > " + "0" * 200_000 + "e",
+            "A > '" + " 0" * 100_000,
+            "A > [" + " [" * 100_000,
+            "A = " + "[" * 200_000,
+            "A > " + "-" * 200_000,
+            "A > " + "." * 200_000,
+        ],
+    )
+    def test_linear_time(self, expression: str) -> None:
+        started = time.monotonic()
+        definition_expression_to_filter(expression)
+        assert time.monotonic() - started < 1.0
+
+    def test_scanner_reads_the_same_tokens_as_before(self) -> None:
+        assert definition_expression_to_filter("A >= -1.5e3") == [
+            ">=",
+            ["get", "A"],
+            -1500.0,
+        ]
+        assert definition_expression_to_filter("A = .5") == ["==", ["get", "A"], 0.5]
+        assert definition_expression_to_filter("A = 5.") == ["==", ["get", "A"], 5.0]
+        assert definition_expression_to_filter("A = 'a''b'") == [
+            "==",
+            ["get", "A"],
+            "a'b",
+        ]
+        assert definition_expression_to_filter("[Odd Name] = 1") == [
+            "==",
+            ["get", "Odd Name"],
+            1,
+        ]
+        assert definition_expression_to_filter("A = 'open") is None
+        assert definition_expression_to_filter("A = 1e") is None
