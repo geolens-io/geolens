@@ -76,6 +76,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "map.create",
         "map.delete",
         "map.duplicate",
+        "map.import_arcgis_webmap",
         "map.import_style",
         "map.patch_layers",
         "map.remove_layer",

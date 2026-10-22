@@ -63,6 +63,20 @@ from .api_key_status_response_anthropic_platform import (
 from .approve_request import ApproveRequest
 from .arc_gis_sign_in_request import ArcGISSignInRequest
 from .arc_gis_sign_in_response import ArcGISSignInResponse
+from .arcgis_loss_item import ArcgisLossItem
+from .arcgis_loss_report import ArcgisLossReport
+from .arcgis_loss_report_summary import ArcgisLossReportSummary
+from .arcgis_unmatched_layer import ArcgisUnmatchedLayer
+from .arcgis_webmap_import_request import ArcgisWebmapImportRequest
+from .arcgis_webmap_import_request_basemap_map import (
+    ArcgisWebmapImportRequestBasemapMap,
+)
+from .arcgis_webmap_import_request_dataset_matches import (
+    ArcgisWebmapImportRequestDatasetMatches,
+)
+from .arcgis_webmap_import_request_webmap import ArcgisWebmapImportRequestWebmap
+from .arcgis_webmap_import_response import ArcgisWebmapImportResponse
+from .arcgis_webmap_import_response_layer_ids import ArcgisWebmapImportResponseLayerIds
 from .attribute_metadata_list_response import AttributeMetadataListResponse
 from .attribute_metadata_response import AttributeMetadataResponse
 from .attribute_metadata_update import AttributeMetadataUpdate
@@ -1010,8 +1024,18 @@ __all__ = (
     "ApiKeyStatusResponse",
     "ApiKeyStatusResponseAnthropicPlatform",
     "ApproveRequest",
+    "ArcgisLossItem",
+    "ArcgisLossReport",
+    "ArcgisLossReportSummary",
     "ArcGISSignInRequest",
     "ArcGISSignInResponse",
+    "ArcgisUnmatchedLayer",
+    "ArcgisWebmapImportRequest",
+    "ArcgisWebmapImportRequestBasemapMap",
+    "ArcgisWebmapImportRequestDatasetMatches",
+    "ArcgisWebmapImportRequestWebmap",
+    "ArcgisWebmapImportResponse",
+    "ArcgisWebmapImportResponseLayerIds",
     "AttributeMetadataListResponse",
     "AttributeMetadataResponse",
     "AttributeMetadataUpdate",

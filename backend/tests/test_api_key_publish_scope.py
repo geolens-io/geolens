@@ -73,6 +73,13 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "not needed to publish; PATCH /datasets/{id} and the manifest set status",
     ),
+    **dict.fromkeys(
+        [
+            ("POST", "/maps/import/arcgis-webmap"),
+            ("POST", "/maps/import/arcgis-webmap/"),
+        ],
+        "migration import, not a desktop publish",
+    ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
     ("PUT", "/maps/{map_id}"): (
         "replaces a map's layers and settings in place, with no earlier "
@@ -1708,5 +1715,26 @@ async def test_the_locked_recheck_judges_an_admins_publish_key_without_admin(
         monkeypatch.undo()
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_import_an_arcgis_web_map(
+    client: AsyncClient, owner, test_db_session
+):
+    headers, owner_id = owner
+    publish = await _mint(client, headers, "publish")
+    try:
+        resp = await client.post(
+            "/maps/import/arcgis-webmap/", json={"webmap": {}}, headers=publish
+        )
+        assert _scope_refused(resp), resp.text
+    finally:
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.api_keys WHERE user_id = :u AND scope = 'publish'"
+            ),
+            {"u": owner_id},
         )
         await test_db_session.commit()

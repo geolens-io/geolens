@@ -1003,6 +1003,153 @@ export type ArcGisSignInResponse = {
 };
 
 /**
+ * ArcgisLossItem
+ */
+export type ArcgisLossItem = {
+    /**
+     * Path
+     *
+     * JSON path of the web map part that was not carried over.
+     */
+    path: string;
+    /**
+     * Kind
+     *
+     * Stable code for the kind of loss.
+     */
+    kind: string;
+    /**
+     * Detail
+     *
+     * Free text; not localized.
+     */
+    detail?: string;
+};
+
+/**
+ * ArcgisLossReport
+ */
+export type ArcgisLossReport = {
+    /**
+     * Items
+     */
+    items: Array<ArcgisLossItem>;
+    /**
+     * Summary
+     *
+     * Item count per `kind`.
+     */
+    summary: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ArcgisUnmatchedLayer
+ */
+export type ArcgisUnmatchedLayer = {
+    /**
+     * Layer Id
+     */
+    layer_id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Url
+     */
+    url: string;
+    /**
+     * Reason
+     *
+     * `no_match` or `invalid`.
+     */
+    reason: string;
+};
+
+/**
+ * ArcgisWebmapImportRequest
+ */
+export type ArcgisWebmapImportRequest = {
+    /**
+     * Webmap
+     *
+     * The web map item data JSON, at most 1 MB serialized.
+     */
+    webmap: {
+        [key: string]: unknown;
+    };
+    /**
+     * Name
+     *
+     * Map name. Defaults to `title`.
+     */
+    name?: string | null;
+    /**
+     * Title
+     *
+     * The web map item's title.
+     */
+    title?: string | null;
+    /**
+     * Visibility of the new map.
+     */
+    visibility?: MapVisibility;
+    /**
+     * Basemap Map
+     *
+     * Esri basemap URL or style URL (the first base map layer's `url` or `styleUrl`) to a GeoLens basemap id. An unmapped basemap falls back to the first enabled basemap and is reported.
+     */
+    basemap_map?: {
+        [key: string]: string;
+    };
+    /**
+     * Dataset Matches
+     *
+     * Operational layer id to GeoLens dataset id. Every dataset must be one the caller can read, or the request is refused with 404. A layer with no entry is not imported and is listed as unmatched.
+     */
+    dataset_matches?: {
+        [key: string]: string;
+    };
+    /**
+     * Dry Run
+     *
+     * Return the translation without creating a map.
+     */
+    dry_run?: boolean;
+};
+
+/**
+ * ArcgisWebmapImportResponse
+ */
+export type ArcgisWebmapImportResponse = {
+    /**
+     * The new map; null on a dry run.
+     */
+    map: MapResponse | null;
+    /**
+     * Layers
+     *
+     * The translated layers, in draw order.
+     */
+    layers: Array<MapLayerInput>;
+    /**
+     * Layer Ids
+     *
+     * Operational layer id to the id of the map layer created for it. Layers that were not imported are absent; see `loss_report`. Empty on a dry run.
+     */
+    layer_ids?: {
+        [key: string]: string;
+    };
+    loss_report: ArcgisLossReport;
+    /**
+     * Unmatched Layers
+     */
+    unmatched_layers: Array<ArcgisUnmatchedLayer>;
+};
+
+/**
  * AttributeMetadataListResponse
  */
 export type AttributeMetadataListResponse = {
@@ -25333,6 +25480,63 @@ export type ImportMapStyleEndpointMapsImportPostResponses = {
 };
 
 export type ImportMapStyleEndpointMapsImportPostResponse = ImportMapStyleEndpointMapsImportPostResponses[keyof ImportMapStyleEndpointMapsImportPostResponses];
+
+export type ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostData = {
+    body: ArcgisWebmapImportRequest;
+    path?: never;
+    query?: never;
+    url: '/maps/import/arcgis-webmap/';
+};
+
+export type ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostError = ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostErrors[keyof ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostErrors];
+
+export type ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: ArcgisWebmapImportResponse;
+};
+
+export type ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostResponse = ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostResponses[keyof ImportArcgisWebmapEndpointMapsImportArcgisWebmapPostResponses];
 
 export type GetSharedMapEndpointMapsSharedTokenGetData = {
     body?: never;

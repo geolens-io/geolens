@@ -1625,6 +1625,209 @@
         "title": "ArcGISSignInResponse",
         "type": "object"
       },
+      "ArcgisLossItem": {
+        "properties": {
+          "path": {
+            "description": "JSON path of the web map part that was not carried over.",
+            "title": "Path",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Stable code for the kind of loss.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "detail": {
+            "default": "",
+            "description": "Free text; not localized.",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ],
+        "title": "ArcgisLossItem",
+        "type": "object"
+      },
+      "ArcgisLossReport": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArcgisLossItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Item count per `kind`.",
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "summary"
+        ],
+        "title": "ArcgisLossReport",
+        "type": "object"
+      },
+      "ArcgisUnmatchedLayer": {
+        "properties": {
+          "layer_id": {
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "reason": {
+            "description": "`no_match` or `invalid`.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_id",
+          "title",
+          "url",
+          "reason"
+        ],
+        "title": "ArcgisUnmatchedLayer",
+        "type": "object"
+      },
+      "ArcgisWebmapImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "webmap": {
+            "additionalProperties": true,
+            "description": "The web map item data JSON, at most 1 MB serialized.",
+            "title": "Webmap",
+            "type": "object"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map name. Defaults to `title`.",
+            "title": "Name"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The web map item's title.",
+            "title": "Title"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/MapVisibility",
+            "default": "private",
+            "description": "Visibility of the new map."
+          },
+          "basemap_map": {
+            "additionalProperties": {
+              "maxLength": 255,
+              "type": "string"
+            },
+            "description": "Esri basemap URL or style URL (the first base map layer's `url` or `styleUrl`) to a GeoLens basemap id. An unmapped basemap falls back to the first enabled basemap and is reported.",
+            "title": "Basemap Map",
+            "type": "object"
+          },
+          "dataset_matches": {
+            "additionalProperties": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "description": "Operational layer id to GeoLens dataset id. Every dataset must be one the caller can read, or the request is refused with 404. A layer with no entry is not imported and is listed as unmatched.",
+            "title": "Dataset Matches",
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "description": "Return the translation without creating a map.",
+            "title": "Dry Run",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "webmap"
+        ],
+        "title": "ArcgisWebmapImportRequest",
+        "type": "object"
+      },
+      "ArcgisWebmapImportResponse": {
+        "properties": {
+          "map": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MapResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new map; null on a dry run."
+          },
+          "layers": {
+            "description": "The translated layers, in draw order.",
+            "items": {
+              "$ref": "#/components/schemas/MapLayerInput"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "layer_ids": {
+            "additionalProperties": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "description": "Operational layer id to the id of the map layer created for it. Layers that were not imported are absent; see `loss_report`. Empty on a dry run.",
+            "title": "Layer Ids",
+            "type": "object"
+          },
+          "loss_report": {
+            "$ref": "#/components/schemas/ArcgisLossReport"
+          },
+          "unmatched_layers": {
+            "items": {
+              "$ref": "#/components/schemas/ArcgisUnmatchedLayer"
+            },
+            "title": "Unmatched Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "map",
+          "layers",
+          "loss_report",
+          "unmatched_layers"
+        ],
+        "title": "ArcgisWebmapImportResponse",
+        "type": "object"
+      },
       "AttributeMetadataListResponse": {
         "properties": {
           "attributes": {
@@ -51951,6 +52154,148 @@
           }
         ],
         "summary": "Import Map Style Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/maps/import/arcgis-webmap/": {
+      "post": {
+        "description": "Import an ArcGIS web map as a new GeoLens map.\n\nTranslates the web map's operational layers, renderers, labels, popups and\nscale ranges, and reports everything it could not carry over in\n`loss_report`. Only layers named in `dataset_matches` are imported, and\nevery matched dataset must be readable by the caller (404 otherwise). The\nreport is also written to the map's private notes. With `dry_run` nothing\nis created and `map` is null.",
+        "operationId": "import_arcgis_webmap_endpoint_maps_import_arcgis_webmap__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArcgisWebmapImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArcgisWebmapImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Import Arcgis Webmap Endpoint",
         "tags": [
           "Maps"
         ]

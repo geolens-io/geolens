@@ -1,0 +1,1593 @@
+{
+  "applicationProperties": {
+    "offline": {
+      "editableLayers": {
+        "download": "features",
+        "sync": "syncFeaturesUploadAttachments"
+      },
+      "readonlyLayers": {
+        "downloadAttachments": false
+      }
+    }
+  },
+  "authoringApp": "WebMapViewer",
+  "authoringAppVersion": "8.4",
+  "baseMap": {
+    "baseMapLayers": [
+      {
+        "id": "defaultBasemap",
+        "layerType": "ArcGISTiledMapServiceLayer",
+        "opacity": 1,
+        "title": "World Topographic Map",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer",
+        "visibility": true
+      }
+    ],
+    "title": "Topographic"
+  },
+  "operationalLayers": [
+    {
+      "id": "faf11c6bd9e2494a9c936f717b0b968a",
+      "itemId": "da6f8c385a9a45e0ba0550b68cfd4c08",
+      "layerDefinition": {
+        "drawingInfo": {
+          "labelingInfo": [
+            {
+              "labelExpression": null,
+              "labelExpressionInfo": {
+                "expression": "$feature.APP_NAME"
+              },
+              "labelPlacement": "esriServerPolygonPlacementAlwaysHorizontal",
+              "maxScale": 0,
+              "minScale": 0,
+              "name": "Class 1",
+              "symbol": {
+                "angle": 0,
+                "backgroundColor": null,
+                "borderLineColor": null,
+                "borderLineSize": null,
+                "color": [
+                  0,
+                  0,
+                  0,
+                  255
+                ],
+                "font": {
+                  "decoration": "none",
+                  "family": "Tahoma",
+                  "size": 10,
+                  "style": "normal",
+                  "weight": "normal"
+                },
+                "haloColor": null,
+                "haloSize": 0,
+                "horizontalAlignment": "left",
+                "kerning": true,
+                "rightToLeft": false,
+                "rotated": false,
+                "text": "",
+                "type": "esriTS",
+                "verticalAlignment": "bottom",
+                "xoffset": 0,
+                "yoffset": 0
+              },
+              "useCodedValues": true,
+              "where": null
+            }
+          ],
+          "renderer": {
+            "symbol": {
+              "color": [
+                130,
+                130,
+                130,
+                0
+              ],
+              "outline": {
+                "color": [
+                  255,
+                  255,
+                  115,
+                  255
+                ],
+                "style": "esriSLSDash",
+                "type": "esriSLS",
+                "width": 4
+              },
+              "style": "esriSFSSolid",
+              "type": "esriSFS"
+            },
+            "type": "simple"
+          },
+          "scaleSymbols": true
+        },
+        "geometryType": "esriGeometryPolygon",
+        "objectIdField": "OBJECTID",
+        "templates": []
+      },
+      "layerType": "ArcGISFeatureLayer",
+      "opacity": 1,
+      "popupInfo": {
+        "description": "<div style='text-align: center;'>{APP_ACRES} ACRES</div><div style='text-align: center;'>B: {HL_PARCELS_2017_BLOCK}\u00a0 L: {HL_PARCELS_2017_LOT}\u00a0 QCODE: {HL_PARCELS_2017_QCODE}</div><div style='text-align: center;'><br /></div><div style='text-align: center;'>{HL_MODIV_2017_MUN_NAME}, {HL_MODIV_2017_COUNTY} COUNTY\u00a0</div><div style='text-align: center;'><br /></div><div style='text-align: center;'><a href='https://survey123.arcgis.com/share/83627e77589349a3bc7720a04d506569?open&amp;field:GUID={GlobalID}&amp;field:Prop_Name={APP_NAME}&amp;field:Pams_Pin={HL_Parcels_2017_PAMS_PIN} ' target='_blank' rel='nofollow ugc noopener noreferrer'>Open Inspection Form\u00a0(Windows)\u00a0<br />\u00a0</a><a href='https://survey123.arcgis.app?itemId=83627e77589349a3bc7720a04d506569' target='_blank' rel='nofollow ugc noopener noreferrer'>Open Survey Form (iOS and Android)</a></div>",
+        "fieldInfos": [
+          {
+            "fieldName": "OBJECTID",
+            "format": {
+              "digitSeparator": false,
+              "places": 0
+            },
+            "isEditable": false,
+            "label": "OBJECTID",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_Parcels_2017_PAMS_PIN",
+            "isEditable": true,
+            "label": "PAMS_PIN",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_Parcels_2017_MUN",
+            "isEditable": true,
+            "label": "MUN",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_Parcels_2017_BLOCK",
+            "isEditable": true,
+            "label": "BLOCK",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_Parcels_2017_LOT",
+            "isEditable": true,
+            "label": "LOT",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_Parcels_2017_QCODE",
+            "isEditable": true,
+            "label": "QCODE",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_MODIV_2017_COUNTY",
+            "isEditable": true,
+            "label": "COUNTY",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_MODIV_2017_MUN_NAME",
+            "isEditable": true,
+            "label": "MUN_NAME",
+            "visible": true
+          },
+          {
+            "fieldName": "APP_NAME",
+            "isEditable": true,
+            "label": "APP_NAME",
+            "visible": true
+          },
+          {
+            "fieldName": "APP_OWNER",
+            "isEditable": true,
+            "label": "APP_OWNER",
+            "visible": true
+          },
+          {
+            "fieldName": "APP_LOCATION",
+            "isEditable": true,
+            "label": "APP_LOCATION",
+            "visible": true
+          },
+          {
+            "fieldName": "APP_ACRES",
+            "isEditable": true,
+            "label": "APP_ACRES",
+            "visible": true
+          },
+          {
+            "fieldName": "Index_Name",
+            "isEditable": true,
+            "label": "Index_Name",
+            "visible": true
+          },
+          {
+            "fieldName": "PropUse_Initial",
+            "isEditable": true,
+            "label": "Initial Property Use",
+            "visible": true
+          },
+          {
+            "fieldName": "GUID",
+            "isEditable": true,
+            "label": "GUID",
+            "visible": true
+          },
+          {
+            "fieldName": "GlobalID",
+            "isEditable": false,
+            "label": "GlobalID",
+            "visible": true
+          },
+          {
+            "fieldName": "Shape__Area",
+            "format": {
+              "digitSeparator": false,
+              "places": 6
+            },
+            "isEditable": false,
+            "label": "Shape__Area",
+            "visible": true
+          },
+          {
+            "fieldName": "Shape__Length",
+            "format": {
+              "digitSeparator": false,
+              "places": 6
+            },
+            "isEditable": false,
+            "label": "Shape__Length",
+            "visible": true
+          },
+          {
+            "fieldName": "relationships/0/OBJECTID",
+            "isEditable": false,
+            "label": "OBJECTID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/globalid",
+            "isEditable": false,
+            "label": "GlobalID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Date",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": false,
+            "label": "Date",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/username",
+            "isEditable": false,
+            "label": "username",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Inspector",
+            "isEditable": false,
+            "label": "Inspector",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Prop_Name",
+            "isEditable": false,
+            "label": "Property Name",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Pams_Pin",
+            "isEditable": false,
+            "label": "Pams Pin",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Visit_Type",
+            "isEditable": false,
+            "label": "Reason for Visit",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomForSusAge",
+            "isEditable": false,
+            "label": "Dominant Forest Successional Age",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomOverSp1",
+            "isEditable": false,
+            "label": "Dominant Overstory Species 1",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomOverSp2",
+            "isEditable": false,
+            "label": "Dominant Overstory Species 2",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomOverSp3",
+            "isEditable": false,
+            "label": "Dominant Overstory Species 3",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomUnderSp1",
+            "isEditable": false,
+            "label": "Dominant Understory Species 1",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomUnderSp2",
+            "isEditable": false,
+            "label": "Dominant Understory Species 2",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DomUnderSp3",
+            "isEditable": false,
+            "label": "Dominant Understory Species 3",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/InvasiveSp",
+            "isEditable": false,
+            "label": "Invasive Species Present",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/NatRegen",
+            "isEditable": false,
+            "label": "Natural regeneration present",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/DeerBrowse",
+            "isEditable": false,
+            "label": "Deer Browse Present",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Roads",
+            "isEditable": false,
+            "label": "Roads Present",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Structures",
+            "isEditable": false,
+            "label": "Structures Present",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Structures_other",
+            "isEditable": false,
+            "label": "Specify other.",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/NatFeat",
+            "isEditable": false,
+            "label": "Unique natural occurrences",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/NatFeat_other",
+            "isEditable": false,
+            "label": "Specify other.",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Waterbodies",
+            "isEditable": false,
+            "label": "Waterbodies",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Waterbodies_other",
+            "isEditable": false,
+            "label": "Specify other.",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Streams",
+            "isEditable": false,
+            "label": "If a stream is present, is it C-1?",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Dumping",
+            "isEditable": false,
+            "label": "Evidence of Dumping/Litter",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/MngmtPrac",
+            "isEditable": false,
+            "label": "Evidence of management practices",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/ATV_use",
+            "isEditable": false,
+            "label": "Off Road vehicle use",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Prop_Use_Change",
+            "isEditable": false,
+            "label": "Property Use Change",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Notes",
+            "isEditable": false,
+            "label": "Notes",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/GUID",
+            "isEditable": false,
+            "label": "GUID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/CreationDate",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": false,
+            "label": "CreationDate",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Creator",
+            "isEditable": false,
+            "label": "Creator",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/EditDate",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": false,
+            "label": "EditDate",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Editor",
+            "isEditable": false,
+            "label": "Editor",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          }
+        ],
+        "mediaInfos": [],
+        "relatedRecordsInfo": {
+          "showRelatedRecords": true
+        },
+        "showAttachments": false,
+        "title": "{APP_NAME}"
+      },
+      "showLabels": true,
+      "showLegend": true,
+      "title": "HDC_Properties",
+      "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/Map_WFL1/FeatureServer/1",
+      "visibility": false
+    },
+    {
+      "id": "1238ed19cb094b34923395dbe1d8c01d",
+      "itemId": "da6f8c385a9a45e0ba0550b68cfd4c08",
+      "layerDefinition": {
+        "drawingInfo": {
+          "renderer": {
+            "description": "Survey Data Locations",
+            "label": "ForestQuality_Form 2",
+            "symbol": {
+              "angle": 0,
+              "contentType": "image/png",
+              "height": 10,
+              "imageData": "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA2ElEQVQokZ3S0XHCMBBF0aMZmjBtiDIUylDacNpwG6YMXAa4jM2HbTCGgUz2U7N37urt7vyzdtuHCBUVezQYcEpJ+xKMkNEaFf3cDlWW5QgFx5Rct8bWoPheQdAho5c1zvMkExihGhU/G2ipAQdcNBFqSrrFWPXo36Rxne1V5Q7ujW+gtXka/PbHZvryn2pcgydfiu4Dku/eBRwURfY6nAWqGzAlbYSilx14GnvaMAzLIaz3eNQ4u2h0K/Oj6bg038D5IvYR6hx5NgUxoE/pMYGnW50bPsXkF9gZQoJrCCWkAAAAAElFTkSuQmCC",
+              "type": "esriPMS",
+              "url": "ceaaf5a4ca9cfe28981131e6f3b29142",
+              "width": 10,
+              "xoffset": 0,
+              "yoffset": 0
+            },
+            "type": "simple"
+          },
+          "scaleSymbols": true
+        },
+        "geometryType": "esriGeometryPoint",
+        "objectIdField": "OBJECTID",
+        "templates": []
+      },
+      "layerType": "ArcGISFeatureLayer",
+      "opacity": 1,
+      "popupInfo": {
+        "expressionInfos": [],
+        "fieldInfos": [
+          {
+            "fieldName": "OBJECTID",
+            "format": {
+              "digitSeparator": false,
+              "places": 0
+            },
+            "isEditable": false,
+            "label": "OBJECTID",
+            "visible": true
+          },
+          {
+            "fieldName": "globalid",
+            "isEditable": false,
+            "label": "GlobalID",
+            "visible": true
+          },
+          {
+            "fieldName": "Date",
+            "isEditable": true,
+            "label": "Date",
+            "visible": true
+          },
+          {
+            "fieldName": "username",
+            "isEditable": true,
+            "label": "username",
+            "visible": true
+          },
+          {
+            "fieldName": "Inspector",
+            "isEditable": true,
+            "label": "Inspector",
+            "visible": true
+          },
+          {
+            "fieldName": "Prop_Name",
+            "isEditable": true,
+            "label": "Property Name",
+            "visible": true
+          },
+          {
+            "fieldName": "Pams_Pin",
+            "isEditable": true,
+            "label": "Pams Pin",
+            "visible": true
+          },
+          {
+            "fieldName": "Visit_Type",
+            "isEditable": true,
+            "label": "Reason for Visit",
+            "visible": true
+          },
+          {
+            "fieldName": "DomForSusAge",
+            "isEditable": true,
+            "label": "Dominant Forest Successional Age",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp1",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 1",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp2",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 2",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp3",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 3",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp1",
+            "isEditable": true,
+            "label": "Dominant Understory Species 1",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp2",
+            "isEditable": true,
+            "label": "Dominant Understory Species 2",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp3",
+            "isEditable": true,
+            "label": "Dominant Understory Species 3",
+            "visible": true
+          },
+          {
+            "fieldName": "InvasiveSp",
+            "isEditable": true,
+            "label": "Invasive Species Present",
+            "visible": true
+          },
+          {
+            "fieldName": "NatRegen",
+            "isEditable": true,
+            "label": "Natural regeneration present",
+            "visible": true
+          },
+          {
+            "fieldName": "DeerBrowse",
+            "isEditable": true,
+            "label": "Deer Browse Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Roads",
+            "isEditable": true,
+            "label": "Roads Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Structures",
+            "isEditable": true,
+            "label": "Structures Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Structures_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "NatFeat",
+            "isEditable": true,
+            "label": "Unique natural occurrences",
+            "visible": true
+          },
+          {
+            "fieldName": "NatFeat_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "Waterbodies",
+            "isEditable": true,
+            "label": "Waterbodies",
+            "visible": true
+          },
+          {
+            "fieldName": "Waterbodies_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "Streams",
+            "isEditable": true,
+            "label": "If a stream is present, is it C-1?",
+            "visible": true
+          },
+          {
+            "fieldName": "Dumping",
+            "isEditable": true,
+            "label": "Evidence of Dumping/Litter",
+            "visible": true
+          },
+          {
+            "fieldName": "MngmtPrac",
+            "isEditable": true,
+            "label": "Evidence of management practices",
+            "visible": true
+          },
+          {
+            "fieldName": "ATV_use",
+            "isEditable": true,
+            "label": "Off Road vehicle use",
+            "visible": true
+          },
+          {
+            "fieldName": "Prop_Use_Change",
+            "isEditable": true,
+            "label": "Property Use Change",
+            "visible": true
+          },
+          {
+            "fieldName": "Notes",
+            "isEditable": true,
+            "label": "Notes",
+            "visible": true
+          },
+          {
+            "fieldName": "GUID",
+            "isEditable": true,
+            "label": "GUID",
+            "visible": true
+          },
+          {
+            "fieldName": "CreationDate",
+            "isEditable": true,
+            "label": "CreationDate",
+            "visible": true
+          },
+          {
+            "fieldName": "Creator",
+            "isEditable": true,
+            "label": "Creator",
+            "visible": true
+          },
+          {
+            "fieldName": "EditDate",
+            "isEditable": true,
+            "label": "EditDate",
+            "visible": true
+          },
+          {
+            "fieldName": "Editor",
+            "isEditable": true,
+            "label": "Editor",
+            "visible": true
+          }
+        ],
+        "mediaInfos": [],
+        "popupElements": [
+          {
+            "fieldInfos": [
+              {
+                "fieldName": "OBJECTID",
+                "format": {
+                  "digitSeparator": false,
+                  "places": 0
+                },
+                "isEditable": false,
+                "label": "OBJECTID",
+                "visible": true
+              },
+              {
+                "fieldName": "globalid",
+                "isEditable": false,
+                "label": "GlobalID",
+                "visible": true
+              },
+              {
+                "fieldName": "Date",
+                "isEditable": true,
+                "label": "Date",
+                "visible": true
+              },
+              {
+                "fieldName": "username",
+                "isEditable": true,
+                "label": "username",
+                "visible": true
+              },
+              {
+                "fieldName": "Inspector",
+                "isEditable": true,
+                "label": "Inspector",
+                "visible": true
+              },
+              {
+                "fieldName": "Prop_Name",
+                "isEditable": true,
+                "label": "Property Name",
+                "visible": true
+              },
+              {
+                "fieldName": "Pams_Pin",
+                "isEditable": true,
+                "label": "Pams Pin",
+                "visible": true
+              },
+              {
+                "fieldName": "Visit_Type",
+                "isEditable": true,
+                "label": "Reason for Visit",
+                "visible": true
+              },
+              {
+                "fieldName": "DomForSusAge",
+                "isEditable": true,
+                "label": "Dominant Forest Successional Age",
+                "visible": true
+              },
+              {
+                "fieldName": "DomOverSp1",
+                "isEditable": true,
+                "label": "Dominant Overstory Species 1",
+                "visible": true
+              },
+              {
+                "fieldName": "DomOverSp2",
+                "isEditable": true,
+                "label": "Dominant Overstory Species 2",
+                "visible": true
+              },
+              {
+                "fieldName": "DomOverSp3",
+                "isEditable": true,
+                "label": "Dominant Overstory Species 3",
+                "visible": true
+              },
+              {
+                "fieldName": "DomUnderSp1",
+                "isEditable": true,
+                "label": "Dominant Understory Species 1",
+                "visible": true
+              },
+              {
+                "fieldName": "DomUnderSp2",
+                "isEditable": true,
+                "label": "Dominant Understory Species 2",
+                "visible": true
+              },
+              {
+                "fieldName": "DomUnderSp3",
+                "isEditable": true,
+                "label": "Dominant Understory Species 3",
+                "visible": true
+              },
+              {
+                "fieldName": "InvasiveSp",
+                "isEditable": true,
+                "label": "Invasive Species Present",
+                "visible": true
+              },
+              {
+                "fieldName": "NatRegen",
+                "isEditable": true,
+                "label": "Natural regeneration present",
+                "visible": true
+              },
+              {
+                "fieldName": "DeerBrowse",
+                "isEditable": true,
+                "label": "Deer Browse Present",
+                "visible": true
+              },
+              {
+                "fieldName": "Roads",
+                "isEditable": true,
+                "label": "Roads Present",
+                "visible": true
+              },
+              {
+                "fieldName": "Structures",
+                "isEditable": true,
+                "label": "Structures Present",
+                "visible": true
+              },
+              {
+                "fieldName": "Structures_other",
+                "isEditable": true,
+                "label": "Specify other.",
+                "visible": true
+              },
+              {
+                "fieldName": "NatFeat",
+                "isEditable": true,
+                "label": "Unique natural occurrences",
+                "visible": true
+              },
+              {
+                "fieldName": "NatFeat_other",
+                "isEditable": true,
+                "label": "Specify other.",
+                "visible": true
+              },
+              {
+                "fieldName": "Waterbodies",
+                "isEditable": true,
+                "label": "Waterbodies",
+                "visible": true
+              },
+              {
+                "fieldName": "Waterbodies_other",
+                "isEditable": true,
+                "label": "Specify other.",
+                "visible": true
+              },
+              {
+                "fieldName": "Streams",
+                "isEditable": true,
+                "label": "If a stream is present, is it C-1?",
+                "visible": true
+              },
+              {
+                "fieldName": "Dumping",
+                "isEditable": true,
+                "label": "Evidence of Dumping/Litter",
+                "visible": true
+              },
+              {
+                "fieldName": "MngmtPrac",
+                "isEditable": true,
+                "label": "Evidence of management practices",
+                "visible": true
+              },
+              {
+                "fieldName": "ATV_use",
+                "isEditable": true,
+                "label": "Off Road vehicle use",
+                "visible": true
+              },
+              {
+                "fieldName": "Prop_Use_Change",
+                "isEditable": true,
+                "label": "Property Use Change",
+                "visible": true
+              },
+              {
+                "fieldName": "Notes",
+                "isEditable": true,
+                "label": "Notes",
+                "visible": true
+              },
+              {
+                "fieldName": "GUID",
+                "isEditable": true,
+                "label": "GUID",
+                "visible": true
+              },
+              {
+                "fieldName": "CreationDate",
+                "isEditable": true,
+                "label": "CreationDate",
+                "visible": true
+              },
+              {
+                "fieldName": "Creator",
+                "isEditable": true,
+                "label": "Creator",
+                "visible": true
+              },
+              {
+                "fieldName": "EditDate",
+                "isEditable": true,
+                "label": "EditDate",
+                "visible": true
+              },
+              {
+                "fieldName": "Editor",
+                "isEditable": true,
+                "label": "Editor",
+                "visible": true
+              }
+            ],
+            "type": "fields"
+          },
+          {
+            "displayType": "preview",
+            "type": "attachments"
+          }
+        ],
+        "relatedRecordsInfo": {
+          "showRelatedRecords": true
+        },
+        "showAttachments": true,
+        "title": "{username}"
+      },
+      "showLegend": true,
+      "title": "FQ_DataCollection_Records2",
+      "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/Map_WFL1/FeatureServer/0",
+      "visibility": false
+    },
+    {
+      "id": "FOREST__QUALITY_COLLECTOR_1113",
+      "itemId": "cfae0fd7d2ee4620b35111f71d317494",
+      "layerType": "ArcGISFeatureLayer",
+      "opacity": 1,
+      "popupInfo": {
+        "description": "<div style='text-align: center;'>{expression/expr1}\u00a0ACRES</div><div style='text-align: center;'>{HL_MODIV_2017_ST_ADDRESS}<br /></div><div style='text-align: center;'>{HL_MODIV_2017_MUN_NAME}, {HL_MODIV_2017_COUNTY} COUNTY\u00a0</div><div style='text-align: center;'><br />Initial Property Use: <br />{PropUse_Initial}<br />\u00a0<br /></div><div style='text-align: center;'><a href='https://survey123.arcgis.com/share/83627e77589349a3bc7720a04d506569?open&amp;field:GUID={GlobalID}&amp;field:Prop_Name={APP_NAME}&amp;field:Pams_Pin={HL_Parcels_2017_PAMS_PIN} ' target='_blank' rel='nofollow ugc noopener noreferrer'>Open Inspection Form\u00a0(Windows)\u00a0<br />\u00a0</a><a href='arcgis-survey123://?itemID=83627e77589349a3bc7720a04d506569&amp;field:GUID={GlobalID}&amp;field:Prop_Name={APP_NAME}&amp;field:Pams_Pin={HL_Parcels_2017_PAMS_PIN}' target='_blank' rel='nofollow ugc noopener noreferrer'>Open Survey Form (iOS and Android)</a></div>",
+        "expressionInfos": [
+          {
+            "expression": "//create the SQL expression to map a feature to its inspections:\r\n\r\nvar rtbl = FeatureSetByRelationshipName($feature,\"FQ_DataCollection_Records2\")\r\nvar code = $feature.GlobalID\r\nvar name = $feature.APP_NAME\r\n\r\n//the related records are created on GlobalID/GUID\r\n\r\nvar sql = \"GUID = '\" + code + \"'\";\r\nconsole(name)\r\nconsole(sql)\r\nvar inspections = Filter(rtbl,sql);\r\nvar total_inspections = Count(inspections)\r\nconsole(total_inspections)\r\nvar last_inspection_date = \"\"\r\nif (total_inspections > 0) {\r\n    var ordered_inspections = OrderBy(inspections, 'Date')\r\n    var latest_inspection = first(ordered_inspections)\r\n    var latest_date = Text(latest_inspection.Date, 'M/DD/YY')\r\n    last_inspection_date = latest_date\r\n}\r\nelse {\r\n    last_inspection_date = \"has not been inspected yet\"\r\n}\r\n\r\nreturn last_inspection_date",
+            "name": "expr0",
+            "returnType": "string",
+            "title": "Last Inspection Date"
+          },
+          {
+            "expression": "$feature[\"Shape__Area\"]/43560",
+            "name": "expr1",
+            "returnType": "number",
+            "title": "App_Acres"
+          }
+        ],
+        "fieldInfos": [
+          {
+            "fieldName": "OBJECTID",
+            "format": {
+              "digitSeparator": false,
+              "places": 0
+            },
+            "isEditable": false,
+            "label": "OBJECTID",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_MODIV_2017_COUNTY",
+            "isEditable": true,
+            "label": "COUNTY",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_MODIV_2017_MUN_NAME",
+            "isEditable": true,
+            "label": "MUN_NAME",
+            "visible": true
+          },
+          {
+            "fieldName": "APP_NAME",
+            "isEditable": true,
+            "label": "APP_NAME",
+            "visible": true
+          },
+          {
+            "fieldName": "Index_Name",
+            "isEditable": true,
+            "label": "Index_Name",
+            "visible": true
+          },
+          {
+            "fieldName": "PropUse_Initial",
+            "isEditable": true,
+            "label": "Initial Property Use",
+            "visible": true
+          },
+          {
+            "fieldName": "GlobalID",
+            "isEditable": false,
+            "label": "GlobalID",
+            "visible": true
+          },
+          {
+            "fieldName": "Shape__Area",
+            "format": {
+              "digitSeparator": true,
+              "places": 2
+            },
+            "isEditable": false,
+            "label": "Shape__Area",
+            "visible": true
+          },
+          {
+            "fieldName": "Shape__Length",
+            "format": {
+              "digitSeparator": true,
+              "places": 2
+            },
+            "isEditable": false,
+            "label": "Shape__Length",
+            "visible": true
+          },
+          {
+            "fieldName": "expression/expr0",
+            "visible": true
+          },
+          {
+            "fieldName": "HL_MODIV_2017_OWNER_NAME",
+            "isEditable": true,
+            "label": "OWNER_NAME",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "HL_MODIV_2017_ST_ADDRESS",
+            "isEditable": true,
+            "label": "ST_ADDRESS",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "expression/expr1",
+            "format": {
+              "digitSeparator": true,
+              "places": 2
+            },
+            "visible": true
+          }
+        ],
+        "mediaInfos": [],
+        "showAttachments": false,
+        "title": "{APP_NAME}"
+      },
+      "title": "FOREST_QUALITY_COLLECTOR - HDC_Properties",
+      "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/FOREST__QUALITY_COLLECTOR/FeatureServer/1",
+      "visibility": true
+    },
+    {
+      "id": "FOREST__QUALITY_COLLECTOR_9125",
+      "itemId": "cfae0fd7d2ee4620b35111f71d317494",
+      "layerDefinition": {
+        "drawingInfo": {
+          "renderer": {
+            "description": "Survey Data Locations",
+            "label": "ForestQuality_Form 2",
+            "symbol": {
+              "angle": 0,
+              "contentType": "image/png",
+              "height": 12.247499999999999,
+              "imageData": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHlxyWU8AAADImlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS4wLWMwNjAgNjEuMTM0Nzc3LCAyMDEwLzAyLzEyLTE3OjMyOjAwICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ1M1IE1hY2ludG9zaCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDowNzc0N0NCNEQzMjExMUUwQUU5NUVFMEYwMTY0NzUwNSIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDowNzc0N0NCNUQzMjExMUUwQUU5NUVFMEYwMTY0NzUwNSI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjA3NzQ3Q0IyRDMyMTExRTBBRTk1RUUwRjAxNjQ3NTA1IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjA3NzQ3Q0IzRDMyMTExRTBBRTk1RUUwRjAxNjQ3NTA1Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQg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",
+              "type": "esriPMS",
+              "url": "http://static.arcgis.com/images/Symbols/Shapes/GreenStarLargeB.png",
+              "width": 12.247499999999999,
+              "xoffset": 0,
+              "yoffset": 0
+            },
+            "type": "simple"
+          }
+        }
+      },
+      "layerType": "ArcGISFeatureLayer",
+      "opacity": 1,
+      "popupInfo": {
+        "description": null,
+        "fieldInfos": [
+          {
+            "fieldName": "OBJECTID",
+            "format": {
+              "digitSeparator": false,
+              "places": 0
+            },
+            "isEditable": false,
+            "label": "OBJECTID",
+            "visible": false
+          },
+          {
+            "fieldName": "globalid",
+            "isEditable": false,
+            "label": "GlobalID",
+            "visible": false
+          },
+          {
+            "fieldName": "Date",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": true,
+            "label": "Date",
+            "visible": true
+          },
+          {
+            "fieldName": "username",
+            "isEditable": true,
+            "label": "username",
+            "visible": false
+          },
+          {
+            "fieldName": "Inspector",
+            "isEditable": true,
+            "label": "Inspector",
+            "visible": true
+          },
+          {
+            "fieldName": "Prop_Name",
+            "isEditable": true,
+            "label": "Property Name",
+            "visible": true
+          },
+          {
+            "fieldName": "Pams_Pin",
+            "isEditable": true,
+            "label": "Pams Pin",
+            "visible": true
+          },
+          {
+            "fieldName": "Visit_Type",
+            "isEditable": true,
+            "label": "Reason for Visit",
+            "visible": true
+          },
+          {
+            "fieldName": "DomForSusAge",
+            "isEditable": true,
+            "label": "Dominant Forest Successional Age",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp1",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 1",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp2",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 2",
+            "visible": true
+          },
+          {
+            "fieldName": "DomOverSp3",
+            "isEditable": true,
+            "label": "Dominant Overstory Species 3",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp1",
+            "isEditable": true,
+            "label": "Dominant Understory Species 1",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp2",
+            "isEditable": true,
+            "label": "Dominant Understory Species 2",
+            "visible": true
+          },
+          {
+            "fieldName": "DomUnderSp3",
+            "isEditable": true,
+            "label": "Dominant Understory Species 3",
+            "visible": true
+          },
+          {
+            "fieldName": "InvasiveSp",
+            "isEditable": true,
+            "label": "Invasive Species Present",
+            "visible": true
+          },
+          {
+            "fieldName": "NatRegen",
+            "isEditable": true,
+            "label": "Natural regeneration present",
+            "visible": true
+          },
+          {
+            "fieldName": "DeerBrowse",
+            "isEditable": true,
+            "label": "Deer Browse Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Roads",
+            "isEditable": true,
+            "label": "Roads Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Structures",
+            "isEditable": true,
+            "label": "Structures Present",
+            "visible": true
+          },
+          {
+            "fieldName": "Structures_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "NatFeat",
+            "isEditable": true,
+            "label": "Unique natural occurrences",
+            "visible": true
+          },
+          {
+            "fieldName": "NatFeat_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "Waterbodies",
+            "isEditable": true,
+            "label": "Waterbodies",
+            "visible": true
+          },
+          {
+            "fieldName": "Waterbodies_other",
+            "isEditable": true,
+            "label": "Specify other.",
+            "visible": true
+          },
+          {
+            "fieldName": "Streams",
+            "isEditable": true,
+            "label": "If a stream is present, is it C-1?",
+            "visible": true
+          },
+          {
+            "fieldName": "Dumping",
+            "isEditable": true,
+            "label": "Evidence of Dumping/Litter",
+            "visible": true
+          },
+          {
+            "fieldName": "MngmtPrac",
+            "isEditable": true,
+            "label": "Evidence of management practices",
+            "visible": true
+          },
+          {
+            "fieldName": "ATV_use",
+            "isEditable": true,
+            "label": "Off Road vehicle use",
+            "visible": true
+          },
+          {
+            "fieldName": "Prop_Use_Change",
+            "isEditable": true,
+            "label": "Property Use Change",
+            "visible": true
+          },
+          {
+            "fieldName": "Notes",
+            "isEditable": true,
+            "label": "Notes",
+            "visible": true
+          },
+          {
+            "fieldName": "GUID",
+            "isEditable": true,
+            "label": "GUID",
+            "visible": false
+          },
+          {
+            "fieldName": "CreationDate",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": true,
+            "label": "CreationDate",
+            "visible": false
+          },
+          {
+            "fieldName": "Creator",
+            "isEditable": true,
+            "label": "Creator",
+            "visible": false
+          },
+          {
+            "fieldName": "EditDate",
+            "format": {
+              "dateFormat": "shortDateShortTime",
+              "timezone": "utc"
+            },
+            "isEditable": true,
+            "label": "EditDate",
+            "visible": false
+          },
+          {
+            "fieldName": "Editor",
+            "isEditable": true,
+            "label": "Editor",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/OBJECTID",
+            "isEditable": false,
+            "label": "OBJECTID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_Parcels_2017_PAMS_PIN",
+            "isEditable": false,
+            "label": "PAMS_PIN",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_Parcels_2017_MUN",
+            "isEditable": false,
+            "label": "MUN",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_Parcels_2017_BLOCK",
+            "isEditable": false,
+            "label": "BLOCK",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_Parcels_2017_LOT",
+            "isEditable": false,
+            "label": "LOT",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_Parcels_2017_QCODE",
+            "isEditable": false,
+            "label": "QCODE",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_MODIV_2017_COUNTY",
+            "isEditable": false,
+            "label": "COUNTY",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/HL_MODIV_2017_MUN_NAME",
+            "isEditable": false,
+            "label": "MUN_NAME",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/APP_NAME",
+            "isEditable": false,
+            "label": "APP_NAME",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/APP_OWNER",
+            "isEditable": false,
+            "label": "APP_OWNER",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/APP_LOCATION",
+            "isEditable": false,
+            "label": "APP_LOCATION",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/APP_ACRES",
+            "isEditable": false,
+            "label": "APP_ACRES",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Index_Name",
+            "isEditable": false,
+            "label": "Index_Name",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/PropUse_Initial",
+            "isEditable": false,
+            "label": "Initial Property Use",
+            "statisticType": "count",
+            "stringFieldOption": "textbox",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/GUID",
+            "isEditable": false,
+            "label": "GUID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/GlobalID",
+            "isEditable": false,
+            "label": "GlobalID",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Shape__Area",
+            "format": {
+              "digitSeparator": true,
+              "places": 2
+            },
+            "isEditable": false,
+            "label": "Shape__Area",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "relationships/0/Shape__Length",
+            "format": {
+              "digitSeparator": true,
+              "places": 2
+            },
+            "isEditable": false,
+            "label": "Shape__Length",
+            "statisticType": "count",
+            "visible": false
+          },
+          {
+            "fieldName": "Ag_only",
+            "isEditable": true,
+            "label": "Ag_only",
+            "stringFieldOption": "textbox",
+            "tooltip": "",
+            "visible": true
+          }
+        ],
+        "mediaInfos": [],
+        "relatedRecordsInfo": {
+          "showRelatedRecords": true
+        },
+        "showAttachments": true,
+        "title": "{username}"
+      },
+      "title": "FOREST_QUALITY_COLLECTOR - FQ_DataCollection_Records2",
+      "url": "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/FOREST__QUALITY_COLLECTOR/FeatureServer/0",
+      "visibility": true
+    }
+  ],
+  "spatialReference": {
+    "latestWkid": 3857,
+    "wkid": 102100
+  },
+  "version": "2.18"
+}

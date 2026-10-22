@@ -59,6 +59,9 @@ from app.platform.jobs.router import router as jobs_router
 from app.modules.catalog.layers.router import layers_router
 from app.modules.catalog.maps.router import router as maps_router
 from app.modules.catalog.maps.router_assets import sprites_router as maps_sprites_router
+from app.modules.catalog.maps.router_import_arcgis import (
+    router as maps_import_arcgis_router,
+)
 from app.modules.catalog.maps.router_link_preview import (
     router as maps_link_preview_router,
 )
@@ -123,6 +126,7 @@ api_router.include_router(collections_crud_router)
 api_router.include_router(ogc_features_router)
 
 api_router.include_router(maps_router)
+api_router.include_router(maps_import_arcgis_router)
 api_router.include_router(maps_ownership_router)
 api_router.include_router(maps_link_preview_router)
 # Sprites are unauthenticated reads; mounted as a sibling of
