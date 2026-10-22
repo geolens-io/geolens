@@ -223,3 +223,21 @@ def test_a_collection_error_echoing_the_token_is_redacted(runner, tmp_path, geol
     error = _state(plan_file)["items"][A1]["error"]
     assert "token [REDACTED]" in error and token not in error
     assert token not in result.output
+
+
+def test_a_service_with_many_layers_is_filed_in_batches(runner, tmp_path, geolens):
+    names = [f"Layer{n:03d}" for n in range(130)]
+    FakeImport(geolens, [_layer(n, name) for n, name in enumerate(names)])
+    collections = FakeCollections(geolens)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    sizes = [
+        len(s.json()["dataset_ids"])
+        for s in geolens.seen
+        if s.url.endswith("/datasets/") and s.method == "POST"
+    ]
+    assert sizes == [100, 30]
+    assert len(collections.membership()["Transportation"]) == 130

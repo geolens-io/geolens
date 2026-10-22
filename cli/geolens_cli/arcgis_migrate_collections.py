@@ -28,6 +28,8 @@ from .arcgis_migrate_state import ItemState
 FOLDER = "folder"
 GROUP = "group"
 MAX_NAME = 255
+# The most datasets one add-datasets request accepts.
+ADD_BATCH = 100
 FALLBACK_PREFIX = "ArcGIS"
 
 
@@ -74,11 +76,13 @@ def _add(ctx: MigrationContext, collection_id: str, dataset_ids: list[str]) -> N
         CollectionAddDatasetsRequest,
     )
 
-    ctx.geolens.call(
-        add.sync_detailed,
-        collection_id=UUID(collection_id),
-        body=CollectionAddDatasetsRequest(dataset_ids=[UUID(d) for d in dataset_ids]),
-    )
+    for start in range(0, len(dataset_ids), ADD_BATCH):
+        batch = dataset_ids[start : start + ADD_BATCH]
+        ctx.geolens.call(
+            add.sync_detailed,
+            collection_id=UUID(collection_id),
+            body=CollectionAddDatasetsRequest(dataset_ids=[UUID(d) for d in batch]),
+        )
 
 
 def file_into_collections(
