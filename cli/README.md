@@ -61,7 +61,7 @@ Exit codes:
 
 - 0: no item of the plan is failed, and nothing was left waiting or unable to run.
 - 1: an item of the plan is failed (including one this run left out with `--only` or `--no-retry`, and a network or server error once items are running), an item was left pending because its action can't run yet or it waits on another item, or the run stopped (for example on an expired pasted token).
-- 2: the plan, state file, owner mapping or credentials couldn't be used, or a redirect was refused.
+- 2: the plan, state file, owner mapping or credentials couldn't be used, or the portal URL redirected before any item ran. A redirect refused once items are running fails that item (exit 1).
 - 3: GeoLens or ArcGIS authentication failed.
 - 4: the portal couldn't be reached while signing in, before any item ran.
 - 5: a server error from the GeoLens checks, before any item ran.
