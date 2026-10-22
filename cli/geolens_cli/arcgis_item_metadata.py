@@ -166,6 +166,33 @@ def _current(dataset: Any, name: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _decide(
+    name: str, existing: str, value: str, base: Mapping[str, Any] | None, old_hash: Any
+) -> tuple[str, bool]:
+    """What to do with a field now holding *existing* when the source says
+    *value*: ``("write" | "keep" | "same", claim)``, where *claim* records
+    *value* in the baseline.
+
+    The baseline holds a field only if this command wrote that value, so
+    equality with what GeoLens holds claims nothing. The exception is a dataset
+    with no baseline at all, from a state file that predates it or a dataset
+    seen for the first time: there an equal value is taken as ours, except a
+    summary the file's ``metadata_hash`` doesn't vouch for.
+    """
+    if base is None:
+        ours = name != "summary" or summary_hash(existing) == old_hash
+        if existing == value:
+            return "same", ours
+        if name != "summary" or not existing or ours:
+            return "write", True
+        return "keep", False
+    if existing == value:
+        return "same", False
+    if existing == base.get(name, ""):
+        return "write", True
+    return "keep", False
+
+
 def apply_item_metadata(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> None:
@@ -173,9 +200,7 @@ def apply_item_metadata(
 
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
-    command wrote (``entry.metadata_baseline``), or is empty. A dataset with no
-    baseline, from a file written before it existed, takes every field except a
-    summary that differs from the one recorded in ``entry.metadata_hash``.
+    command wrote (``entry.metadata_baseline``), or is empty.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -189,7 +214,6 @@ def apply_item_metadata(
     fields = item_metadata(row, item["target"], ctx.portal_info)
     keywords = fields.pop("keywords")
     record_ids: list[str] = []
-    pending: list[tuple[Any, list[str], list[str]]] = []
     try:
         for dataset_id in entry.dataset_ids:
             current = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
@@ -197,21 +221,19 @@ def apply_item_metadata(
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
             for name, value in fields.items():
-                existing = _current(current, name)
-                if existing == value:
-                    # An edit that happens to match the source isn't ours: keep
-                    # the old baseline so a later change to the source still
-                    # finds the field edited.
-                    if base is None or base.get(name, existing) == existing:
-                        baseline[name] = value
-                elif _writable(name, existing, base, entry):
+                action, claim = _decide(
+                    name, _current(current, name), value, base, entry.metadata_hash
+                )
+                if action == "write":
                     meta[name] = value
-                    baseline[name] = value
-                else:
+                elif action == "keep":
                     entry.notes.append(
                         f"kept the {name.replace('_', ' ')} edited in GeoLens on "
                         f"dataset {dataset_id}"
                     )
+                if claim:
+                    baseline[name] = value
+            baseline.setdefault("keywords", [])
             if meta:
                 ctx.geolens.call(
                     patch.sync_detailed,
@@ -220,43 +242,41 @@ def apply_item_metadata(
                 )
             record_ids.append(str(current.record_id))
             entry.metadata_baseline[dataset_id] = baseline
-            pending.append((current.record_id, keywords, baseline.get("keywords", [])))
         # Saved once every dataset is written and before the keywords, which
         # can fail: a rerun must still tell its own fields from an edit.
         entry.record_ids = record_ids
         ctx.save()
-        for dataset_id, (record_id, wanted, written) in zip(
-            entry.dataset_ids, pending, strict=True
-        ):
-            kept = _add_keywords(ctx, record_id, wanted, written)
+        for dataset_id, record_id in zip(entry.dataset_ids, record_ids, strict=True):
+            kept = _add_keywords(
+                ctx,
+                record_id,
+                keywords,
+                entry.metadata_baseline[dataset_id]["keywords"],
+            )
             entry.notes.extend(
                 f"kept the removal of keyword {word!r} on dataset {dataset_id}"
                 for word in kept
-            )
-            entry.metadata_baseline[dataset_id]["keywords"] = list(
-                dict.fromkeys([*written, *wanted])
             )
     except GeoLensError as exc:
         raise ItemFailed(f"writing the item metadata failed, {exc}") from None
     ctx.save()
 
 
-def _writable(
-    name: str, existing: str, base: Mapping[str, Any] | None, entry: ItemState
-) -> bool:
-    """Whether a field holding *existing* may be overwritten."""
-    if base is not None:
-        return existing == base.get(name, "")
-    if name == "summary":
-        return not existing or summary_hash(existing) == entry.metadata_hash
-    return True
+def _plan_keywords(
+    wanted: list[str], written: list[str], present: set[str]
+) -> tuple[list[str], list[str]]:
+    """The keywords to create, and those this command created that someone
+    has since removed, which stay removed."""
+    kept = [word for word in wanted if word in written and word not in present]
+    add = [word for word in wanted if word not in present and word not in kept]
+    return add, kept
 
 
 def _add_keywords(
     ctx: MigrationContext, record_id: Any, keywords: list[str], written: list[str]
 ) -> list[str]:
-    """Add the keywords the record lacks, except those this command added and
-    someone since removed; returns those."""
+    """Create the keywords the record lacks and append each to *written* as it
+    succeeds, so a later failure can't forget it; returns the removed ones."""
     from geolens.api.records import (
         create_keyword_endpoint_records_record_id_keywords_post as create,
     )
@@ -276,10 +296,8 @@ def _add_keywords(
         for k in listed.keywords
         if k.keyword_type == "theme" and not k.vocabulary_uri
     }
-    kept = [word for word in keywords if word in written and word not in present]
-    for keyword in keywords:
-        if keyword in present or keyword in kept:
-            continue
+    add, kept = _plan_keywords(keywords, written, present)
+    for keyword in add:
         try:
             ctx.geolens.call(
                 create.sync_detailed,
@@ -290,4 +308,6 @@ def _add_keywords(
         except GeoLensError as exc:
             if exc.status != 409:
                 raise
+        else:
+            written.append(keyword)
     return kept

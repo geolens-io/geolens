@@ -1361,3 +1361,40 @@ def test_a_keyword_the_record_holds_as_inherited_is_present_not_removed(
 
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][A2]["notes"] == []
+
+
+def test_a_keyword_written_before_a_failure_is_remembered(runner, tmp_path, geolens):
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    parcels = dataset_id("Parcels")
+    preview = service.preview
+    keyword_route = f"POST /records/{parcels}/keywords/"
+
+    def preview_then_break_the_second_keyword(seen):
+        reply = preview(seen)
+        working = geolens.routes[keyword_route]
+
+        def first_only(seen):
+            if seen.json()["keyword"] == "cadastre":
+                return (500, _problem(500, "database unavailable"))
+            return working(seen)
+
+        geolens.routes[keyword_route] = first_only
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_the_second_keyword
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    assert service.keywords[parcels] == ["parcels"]
+    assert _state(plan_file)["items"][A2]["metadata_baseline"][parcels]["keywords"] == [
+        "parcels"
+    ]
+
+    service.keywords[parcels].remove("parcels")
+    geolens.routes[PREVIEW] = preview
+    service._serve_dataset(parcels)
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.keywords[parcels] == ["cadastre"]
+    assert any("'parcels'" in n for n in _state(plan_file)["items"][A2]["notes"])

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from geolens_cli.arcgis_item_metadata import _BLOCK_TAGS, html_to_text, item_metadata
+from geolens_cli.arcgis_item_metadata import (
+    _BLOCK_TAGS,
+    _decide,
+    _plan_keywords,
+    html_to_text,
+    item_metadata,
+    summary_hash,
+)
 
 
 def test_html_becomes_plain_text():
@@ -175,3 +182,82 @@ def test_links_in_every_field_keep_their_destination():
     )
     for name in ("license", "attribution", "summary"):
         assert fields[name] == "label (https://example.org/x)"
+
+
+# Each row: baseline state, what GeoLens holds, the source value, then the
+# decision and whether the baseline claims the source value afterwards. The
+# baseline holds a field only if this command wrote it, so a GeoLens value that
+# merely equals the source claims nothing, except in a legacy or new dataset
+# with no baseline at all.
+LEGACY, ABSENT, PRESENT = None, {}, {"license": "old"}
+FIELD_CASES = [
+    # no baseline: every equal or empty value is ours, anything else is rewritten
+    (LEGACY, "", "new", "write", True),
+    (LEGACY, "new", "new", "same", True),
+    (LEGACY, "old", "new", "write", True),
+    (LEGACY, "edit", "new", "write", True),
+    # a baseline without this field: only an empty field is ours to fill
+    (ABSENT, "", "new", "write", True),
+    (ABSENT, "new", "new", "same", False),
+    (ABSENT, "old", "new", "keep", False),
+    (ABSENT, "edit", "new", "keep", False),
+    # a baseline with the field, source unchanged
+    (PRESENT, "", "old", "keep", False),
+    (PRESENT, "old", "old", "same", False),
+    (PRESENT, "edit", "old", "keep", False),
+    # a baseline with the field, source changed
+    (PRESENT, "", "new", "keep", False),
+    (PRESENT, "old", "new", "write", True),
+    (PRESENT, "new", "new", "same", False),
+    (PRESENT, "edit", "new", "keep", False),
+]
+
+
+@pytest.mark.parametrize(("base", "existing", "value", "action", "claim"), FIELD_CASES)
+def test_a_field_is_written_only_while_it_is_ours(base, existing, value, action, claim):
+    assert _decide("license", existing, value, base, None) == (action, claim)
+
+
+@pytest.mark.parametrize(
+    ("base", "existing", "value", "action", "claim"),
+    [
+        (LEGACY, "", "new", "write", True),
+        (LEGACY, "ours", "new", "write", True),
+        (LEGACY, "ours", "ours", "same", True),
+        (LEGACY, "edit", "new", "keep", False),
+        # equal to the source but not vouched for by the saved hash
+        (LEGACY, "edit", "edit", "same", False),
+        (ABSENT, "", "new", "write", True),
+        (ABSENT, "edit", "new", "keep", False),
+        (ABSENT, "new", "new", "same", False),
+        ({"summary": "old"}, "old", "new", "write", True),
+        ({"summary": "old"}, "", "new", "keep", False),
+        ({"summary": "old"}, "edit", "new", "keep", False),
+        ({"summary": "old"}, "new", "new", "same", False),
+    ],
+)
+def test_a_summary_follows_the_same_rules_and_the_legacy_hash(
+    base, existing, value, action, claim
+):
+    assert _decide("summary", existing, value, base, summary_hash("ours")) == (
+        action,
+        claim,
+    )
+
+
+@pytest.mark.parametrize(
+    ("wanted", "written", "present", "add", "kept"),
+    [
+        (["a", "b"], [], set(), ["a", "b"], []),
+        (["a", "b"], [], {"a"}, ["b"], []),
+        (["a", "b"], ["a", "b"], {"a", "b"}, [], []),
+        (["a", "b"], ["a", "b"], {"a"}, [], ["b"]),
+        (["a", "b"], ["a", "b"], set(), [], ["a", "b"]),
+        (["a", "b"], ["a"], {"b"}, [], ["a"]),
+        (["a", "b", "c"], ["a"], {"a"}, ["b", "c"], []),
+    ],
+)
+def test_a_keyword_is_created_unless_it_is_present_or_was_removed(
+    wanted, written, present, add, kept
+):
+    assert _plan_keywords(wanted, written, present) == (add, kept)
