@@ -5,9 +5,11 @@ Hand-maintained. Shared by ``geolens arcgis inventory`` and the commands that
 build on it. Egress contract: a ``PortalClient`` sends requests only to the
 portal root it was built with, never to the services an item points at and
 never to GeoLens; redirects are refused so a credential can't follow one to
-another host. A command that also needs GeoLens reaches it only through the
-SDK client for the configured instance, so it contacts two hosts: the portal
-and GeoLens. Tokens and passwords stay in memory, and every error message is
+another host. The one exception is a file download, which may take a single
+redirect to https on the portal's own host or ArcGIS storage (``arcgis.com``
+and its subdomains) and sends no credential there. A command that also needs
+GeoLens reaches it only through the SDK client for the configured instance,
+so it contacts the portal, its ArcGIS storage and GeoLens. Tokens and passwords stay in memory, and every error message is
 redacted when it is built.
 """
 
@@ -30,7 +32,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, quote_plus, unquote_plus, urlencode, urlsplit
+from urllib.parse import quote, quote_plus, unquote_plus, urlencode, urljoin, urlsplit
 
 # AGOL and Enterprise 10.5.1+ read the token from this header. Not
 # `Authorization`, which a web tier in front of Enterprise may consume.
@@ -47,6 +49,7 @@ GET_ATTEMPTS = 3
 MAX_RETRY_AFTER = 60.0
 TOKEN_EXPIRATION_MINUTES = 60
 
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
@@ -588,8 +591,11 @@ class PortalClient:
         path: str,
         dest: Path,
         max_bytes: int | None,
+        *,
+        may_redirect: bool = True,
     ) -> int:
         deadline = self._clock() + DOWNLOAD_DEADLINE
+        redirect: tuple[int, str | None] | None = None
         watchdog = _Watchdog()
         request.watchdog = watchdog
         timer = threading.Timer(DOWNLOAD_DEADLINE, watchdog.fire)
@@ -599,7 +605,10 @@ class PortalClient:
             with self._opener.open(request, timeout=SOCKET_TIMEOUT) as response:
                 size = self._stream(response, path, dest, max_bytes, deadline)
         except urllib.error.HTTPError as exc:
-            raise self._http_error(exc, path) from None
+            if not (may_redirect and exc.code in _REDIRECT_STATUSES):
+                raise self._http_error(exc, path) from None
+            redirect = (exc.code, exc.headers.get("Location"))
+            exc.close()
         except PortalError:
             raise
         except Exception as exc:  # broad: a shut socket can surface as any I/O error
@@ -620,6 +629,10 @@ class PortalClient:
         finally:
             timer.cancel()
             watchdog.release()
+        if redirect is not None:
+            return self._follow_download(
+                request.full_url, path, redirect, dest, max_bytes
+            )
         if watchdog.fired:
             raise self._error(
                 f"{path} took longer than {DOWNLOAD_DEADLINE:g} s",
@@ -627,6 +640,51 @@ class PortalClient:
                 retryable=True,
             )
         return size
+
+    def _follow_download(
+        self,
+        base: str,
+        path: str,
+        redirect: tuple[int, str | None],
+        dest: Path,
+        max_bytes: int | None,
+    ) -> int:
+        """The one redirect a file download may take: to https on the portal's
+        own host or ArcGIS storage, sent with no credential of any kind.
+
+        The target's query is a pre-signed credential, so only its host and
+        path are ever named in a message or logged.
+        """
+        status, location = redirect
+        target = urljoin(base, location) if location else ""
+        parts = urlsplit(target)
+        host = (parts.hostname or "").lower()
+        portal_host = (urlsplit(self.root).hostname or "").lower()
+        allowed = (
+            parts.scheme == "https"
+            and not parts.username
+            and parts.port in (None, 443)
+            and (
+                host in (portal_host, "arcgis.com")
+                or (host.endswith(".arcgis.com") and len(host) > len(".arcgis.com"))
+            )
+        )
+        if not allowed:
+            where = host or "an unreadable address"
+            raise self._error(
+                f"{path} answered with a redirect (HTTP {status}) to {where}, "
+                "which is neither the portal nor its ArcGIS storage over https; "
+                "redirects elsewhere are refused so the credential stays on the "
+                "portal origin.",
+                kind="redirect",
+                http_status=status,
+            )
+        shown = f"{host}{parts.path}"
+        self._wait_turn()
+        if self._on_request:
+            self._on_request("GET", parts.path)
+        request = urllib.request.Request(target, method="GET")
+        return self._download_once(request, shown, dest, max_bytes, may_redirect=False)
 
     def _stream(
         self,

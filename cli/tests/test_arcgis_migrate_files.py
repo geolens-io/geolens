@@ -687,3 +687,132 @@ def test_an_error_envelope_arriving_in_small_reads_is_still_detected(
     assert result.exit_code == 1
     assert "permission" in _state(plan_file)["items"][D3]["error"]
     assert not files.uploads
+
+
+SIGNED = "X-Amz-Security-Token=SIGNEDSECRET123&X-Amz-Signature=SIGSECRET456&k=PLAINQUERYSECRET"
+STORAGE_PATH = "/itemdata/org/file.csv"
+
+
+def _redirect(location: str) -> tuple:
+    return (302, b"", {"Location": location})
+
+
+def _storage(host: str = "www.arcgis.com", scheme: str = "https") -> str:
+    return f"{scheme}://{host}{STORAGE_PATH}?{SIGNED}"
+
+
+def _assert_no_query_anywhere(plan_file: Path, result) -> None:
+    for secret in ("SIGNEDSECRET123", "SIGSECRET456", "PLAINQUERYSECRET"):
+        assert secret not in result.output
+        for path in plan_file.parent.rglob("arcgis-migration-state.json"):
+            assert secret not in path.read_text()
+
+
+def test_a_download_follows_one_redirect_to_arcgis_storage_without_credentials(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    token = secrets.token_urlsafe(16)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = CSV
+    plan_file = _plan(tmp_path, public=False)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert CSV in files.uploads[0]
+    [first] = portal.requests_to(item_data_path(D3))
+    [second] = portal.requests_to(STORAGE_PATH)
+    assert first.headers["x-esri-authorization"] == f"Bearer {token}"
+    assert second.method == "GET" and second.body == ""
+    assert not {"x-esri-authorization", "authorization", "cookie", "referer"} & set(
+        second.headers
+    )
+    assert urlsplit(second.url).hostname == "www.arcgis.com"
+    _assert_no_query_anywhere(plan_file, result)
+
+
+@pytest.mark.parametrize("host", ["org.maps.arcgis.com", urlsplit(PORTAL).hostname])
+def test_arcgis_subdomains_and_the_portal_host_are_allowed_targets(
+    runner, tmp_path, geolens, portal, host
+):
+    FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(_storage(host))
+    portal.routes[STORAGE_PATH] = CSV
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        _storage("evil.example"),
+        _storage("evilarcgis.com"),
+        _storage("arcgis.com.evil.example"),
+        _storage("www.arcgis.com", scheme="http"),
+        _storage("user@www.arcgis.com"),
+        _storage("www.arcgis.com:8443"),
+    ],
+)
+def test_other_redirect_targets_are_refused_without_naming_the_query(
+    runner, tmp_path, geolens, portal, target
+):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(target)
+    portal.routes[STORAGE_PATH] = CSV
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert "redirect" in _state(plan_file)["items"][D3]["error"]
+    assert not files.uploads
+    assert not portal.requests_to(STORAGE_PATH)
+    _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_second_redirect_is_refused(runner, tmp_path, geolens, portal):
+    files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = _redirect(_storage("www.arcgis.com"))
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert len(portal.requests_to(STORAGE_PATH)) == 1
+    assert not files.uploads
+    _assert_no_query_anywhere(plan_file, result)
+
+
+def test_a_failure_on_the_storage_hop_does_not_leak_its_query(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = (403, b"denied")
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    error = _state(plan_file)["items"][D3]["error"]
+    assert "www.arcgis.com" in error and STORAGE_PATH in error
+    _assert_no_query_anywhere(plan_file, result)
+
+
+def test_the_size_limit_applies_to_a_redirected_body(runner, tmp_path, geolens, portal):
+    files = FakeFiles(geolens)
+    geolens.routes["GET /settings/all/"] = _limit_settings(1)
+    portal.routes[item_data_path(D3)] = _redirect(_storage())
+    portal.routes[STORAGE_PATH] = b"x" * (2 * 1024 * 1024)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][D3]["status"] == "skipped"
+    assert not files.uploads
