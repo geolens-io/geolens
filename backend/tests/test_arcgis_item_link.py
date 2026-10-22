@@ -106,6 +106,35 @@ class TestResolvePortalLink:
         assert link.fields == {"portal_url": "https://xn--mnich-kva.example/portal"}
         assert link.losses == []
 
+    @pytest.mark.parametrize(
+        ("service", "portal", "stored_host", "lookalike"),
+        [
+            ("gis.faß.de", "portal.faß.de", "portal.xn--fa-hia.de", "portal.fass.de"),
+            (
+                "gis.ςα.example",
+                "portal.ςα.example",
+                "portal.xn--mxa7a.example",
+                "portal.σα.example",
+            ),
+        ],
+        ids=["sharp_s", "final_sigma"],
+    )
+    def test_a_deviation_character_is_compared_as_a_browser_resolves_it(
+        self, service: str, portal: str, stored_host: str, lookalike: str
+    ) -> None:
+        service_url = f"https://{service}/arcgis/rest/services/S"
+        kept = resolve_portal_link(None, f"https://{portal}/portal", service_url)
+        assert kept.fields == {"portal_url": f"https://{stored_host}/portal"}
+        other = resolve_portal_link(None, f"https://{lookalike}", service_url)
+        assert other.losses == ["portal_url_domain_mismatch"]
+        assert same_registrable_domain(service_url, f"https://{portal}")
+        assert not same_registrable_domain(service_url, f"https://{lookalike}")
+
+    def test_a_joiner_outside_its_context_fails_closed(self) -> None:
+        url = "https://a\u200db.example/s"
+        assert not same_registrable_domain(url, url)
+        assert resolve_portal_link(None, url, url).losses == ["portal_url_invalid"]
+
     def test_a_unicode_service_host_still_rejects_a_lookalike_portal(self) -> None:
         for portal in ("https://munich.example", "https://münich.evil.example"):
             link = resolve_portal_link(None, portal, "https://gis.münich.example/s")

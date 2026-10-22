@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+import idna
+
 PORTAL_URL_MAX_LENGTH = 2048
 ITEM_ID_MAX_LENGTH = 64
 
@@ -73,16 +75,22 @@ def registrable_domain(host: str) -> str:
 
 
 def _ascii_host(host: str) -> str | None:
-    """The host as lowercase ASCII, or None when it holds anything else."""
+    """The host as a browser resolves it, lowercase ASCII; None when invalid.
+
+    Non-transitional UTS #46, like browsers: the built-in ``idna`` codec
+    (IDNA 2003) maps ``ß`` to ``ss`` and would validate a different domain
+    from the one the link opens.
+    """
     try:
         if ipaddress.ip_address(host):
             return host
     except ValueError:
         pass
     try:
-        host = host.encode("idna").decode("ascii").lower()
-    except UnicodeError:
+        host = idna.encode(host, uts46=True, transitional=False).decode("ascii")
+    except (idna.IDNAError, UnicodeError, ValueError):
         return None
+    host = host.lower()
     return host if _HOST.fullmatch(host) else None
 
 
