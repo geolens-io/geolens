@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
@@ -188,6 +189,15 @@ class MigrationContext:
     collection_from: str = "folder"
     collections: dict[str, str] = field(default_factory=dict)
     collections_denied: bool = False
+    # The export bundle: its folder, byte cap per item, and the web origins
+    # story links point at.
+    export_dir: Path | None = None
+    # Every item's state, for the map a story's web map became.
+    items: dict[str, Any] = field(default_factory=dict)
+    export_cap: int = 0
+    web_origin: str = ""
+    portal_root: str = ""
+    redact: Callable[[str], str] = str
     # The instance's upload_max_size_mb in bytes, read once from its settings.
     upload_limit: int | None = None
     sleep: Callable[[float], None] = time.sleep

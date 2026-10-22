@@ -81,6 +81,8 @@ class ItemState:
     # was recorded, which a rerun adopts rather than distrusts.
     service_url: str | None = None
     collection_ids: list[str] = field(default_factory=list)
+    # The export bundle of an export_only item: folder, bytes, partial, errors.
+    export: dict[str, Any] | None = None
     owner_id: str | None = None
     notes: list[str] = field(default_factory=list)
     error: str | None = None

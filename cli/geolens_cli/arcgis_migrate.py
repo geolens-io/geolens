@@ -36,6 +36,12 @@ from ._sdk_helpers import (
 )
 from .arcgis_item_metadata import apply_item_metadata
 from .arcgis_migrate_collections import file_into_collections
+from .arcgis_migrate_export import (
+    DEFAULT_CAP_MB,
+    EXPORT_DIRNAME,
+    export_item,
+    write_index,
+)
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import import_layers
 from .arcgis_migrate_session import (
@@ -57,6 +63,7 @@ from .arcgis_migrate_state import (
     StateError,
     release_locks,
 )
+from .publish import _web_origin
 from .arcgis_portal import (
     PortalClient,
     PortalError,
@@ -89,7 +96,7 @@ _PORTAL_EXIT = {
 }
 EXIT_INTERRUPTED = 130
 # Actions that read the inventory and, for a non-public item, the portal.
-_PORTAL_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
+_PORTAL_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.EXPORT_ONLY)
 
 
 class UsageError(Exception):
@@ -102,6 +109,7 @@ Handler = Callable[[MigrationContext, Mapping[str, Any], ItemState], ItemResult]
 HANDLERS: dict[str, Handler] = {
     _plan.IMPORT_LAYERS: import_layers,
     _plan.IMPORT_FILE: import_file,
+    _plan.EXPORT_ONLY: export_item,
 }
 
 
@@ -125,6 +133,7 @@ class MigrateOptions:
     password_stdin: bool = False
     allow_insecure_http: bool = False
     trusted_hosts: list[str] = field(default_factory=list)
+    export_cap_mb: int = DEFAULT_CAP_MB
 
 
 def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -447,21 +456,22 @@ def _migrate_one(
     state: MigrationState,
     item: Mapping[str, Any],
     handler: Handler,
-    owner: Owner,
+    owner: Owner | None,
 ) -> None:
     entry = state.start(item["id"])
     try:
         result = handler(ctx, item, entry)
         entry.notes = [state.clean(note) for note in result.notes]
         state.save()
-        apply_item_metadata(ctx, item, entry)
-        entry.notes.extend(
-            state.clean(n) for n in file_into_collections(ctx, item, entry)
-        )
-        # Even to the operator: a run that failed part way may have handed
-        # some of the item's objects to another owner already.
-        transfer(ctx.geolens, entry, owner)
-        entry.owner_id = owner.id
+        if owner is not None:
+            apply_item_metadata(ctx, item, entry)
+            entry.notes.extend(
+                state.clean(n) for n in file_into_collections(ctx, item, entry)
+            )
+            # Even to the operator: a run that failed part way may have handed
+            # some of the item's objects to another owner already.
+            transfer(ctx.geolens, entry, owner)
+            entry.owner_id = owner.id
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
         return
@@ -499,11 +509,12 @@ def run_items(
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
         try:
-            _migrate_one(ctx, state, item, handler, owners[item["id"]])
+            _migrate_one(ctx, state, item, handler, owners.get(item["id"]))
         except StopRun:
             summary.stopped = state.item(item["id"]).error
             break
     state.save()
+    write_index(ctx, plan, state)
     return summary
 
 
@@ -670,7 +681,7 @@ def _portal_client(
         for item in wanted
         if (rows[item["id"]].get("sharing") or {}).get("access") != "public"
     )
-    files = any(i["action"] == _plan.IMPORT_FILE for i in wanted)
+    files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
     supplied = bool(opts.token or opts.token_stdin or opts.username)
     if not private and not (files and supplied):
         # A public data file is still downloaded from the portal, anonymously
@@ -787,6 +798,12 @@ def _run(
         trusted_hosts=frozenset(h.strip().lower() for h in opts.trusted_hosts),
         collection_from=plan["defaults"]["collection_from"],
         collections=state.collections,
+        items=state.items,
+        export_dir=state.path.parent / EXPORT_DIRNAME,
+        export_cap=opts.export_cap_mb * 1024 * 1024,
+        web_origin=_web_origin(instance),
+        portal_root=plan["portal"]["url"].rstrip("/"),
+        redact=redact,
     )
     try:
         summary = run_items(ctx, plan, state, to_run, owners.by_item)

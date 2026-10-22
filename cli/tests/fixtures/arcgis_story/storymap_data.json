@@ -1,0 +1,27 @@
+{
+  "root": "n-root",
+  "nodes": {
+    "n-root": {"type": "story", "children": ["n-cover", "n-intro", "n-h", "n-list", "n-img", "n-imm", "n-embed", "n-sep", "n-odd", "n-nav", "n-credits"]},
+    "n-cover": {"type": "storycover", "children": ["n-title-image"], "data": {"title": "Open Space Theme", "byline": "By the <em>county</em> GIS team", "summary": "How parcels protect water."}},
+    "n-title-image": {"type": "image", "data": {"image": "r-cover", "attribution": "Preserve, 2025"}},
+    "n-intro": {"type": "text", "data": {"type": "paragraph", "text": "Read the <strong>report</strong> at <a href=\"https://example.org/a b(1)\">example.org</a>.<br>Next line&nbsp;here."}},
+    "n-h": {"type": "text", "data": {"type": "h2", "text": "<span class=\"sm-text-color-themeColor1\">Waterbodies</span>&nbsp;"}},
+    "n-list": {"type": "text", "data": {"type": "bullet-list", "text": "<li>Streams</li><li>Lakes</li>"}},
+    "n-img": {"type": "image", "data": {"image": "r-cover", "caption": "A <b>lake</b>"}},
+    "n-imm": {"type": "immersive", "children": ["n-slide"], "data": {"subtype": "slideshow"}},
+    "n-slide": {"type": "immersive-slide", "children": ["n-map", "n-panel"], "data": {"transition": "fade"}},
+    "n-map": {"type": "webmap", "data": {"map": "r-map", "caption": "Conservation map"}},
+    "n-panel": {"type": "immersive-narrative-panel", "children": ["n-panel-text"], "data": {"position": "start-top"}},
+    "n-panel-text": {"type": "text", "data": {"type": "paragraph", "text": "Inside a slide."}},
+    "n-embed": {"type": "embed", "data": {"title": "Experience", "url": "https://experience.arcgis.com/experience/abc/"}},
+    "n-sep": {"type": "separator"},
+    "n-odd": {"type": "timeline", "data": {}},
+    "n-nav": {"type": "navigation", "data": {"links": []}},
+    "n-credits": {"type": "credits", "children": ["n-attr"]},
+    "n-attr": {"type": "attribution", "data": {"attribution": "Data: NJDEP", "content": ""}}
+  },
+  "resources": {
+    "r-cover": {"type": "image", "data": {"resourceId": "cover photo.jpg", "width": 10, "height": 10, "provider": "item-resource"}},
+    "r-map": {"type": "webmap", "data": {"itemId": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "itemType": "Web Map"}}
+  }
+}

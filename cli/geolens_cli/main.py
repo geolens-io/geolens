@@ -2219,6 +2219,14 @@ def arcgis_migrate(
             "(the portal's host and its ArcGIS Online hosted services always may). Repeatable.",
         ),
     ] = None,
+    export_cap_mb: Annotated[
+        int,
+        typer.Option(
+            "--export-cap-mb",
+            min=1,
+            help="Most megabytes saved per item in the export folder for items GeoLens can't host",
+        ),
+    ] = _arcgis_migrate.DEFAULT_CAP_MB,
 ) -> None:
     """Migrate the items of a plan into GeoLens, resuming from the state file.
 
@@ -2240,6 +2248,7 @@ def arcgis_migrate(
         password_stdin=password_stdin,
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
+        export_cap_mb=export_cap_mb,
     )
     code = _arcgis_migrate.run_cli(
         state.output,
