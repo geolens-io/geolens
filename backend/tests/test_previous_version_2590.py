@@ -313,13 +313,15 @@ def test_the_producer_and_the_recognizer_agree() -> None:
     assert not is_previous_version_table("parcels_previous")
 
 
-def test_kept_versions_get_distinct_key_names() -> None:
-    """Two versions of one dataset differ within the 58 characters a key name keeps."""
-    dataset_id = uuid.uuid4()
-    first, second = (
-        previous_version_table("x" * 80, dataset_id, number)[:58] for number in (1, 2)
-    )
-    assert first != second
+@pytest.mark.parametrize("dataset_id", [uuid.uuid4() for _ in range(3)])
+def test_kept_and_key_names_are_distinct_and_fit(dataset_id) -> None:
+    """Every version of one dataset gets its own table and key name within 63 characters."""
+    for base in ("a" * 63, "ab_" * 21, "x"):
+        names = [previous_version_table(base, dataset_id, n) for n in range(1, 120)]
+        names += [previous_version_table(base, dataset_id, 2**31 - 1)]
+        assert all(len(n) <= 63 for n in names)
+        assert len(set(names)) == len(names)
+        assert len({f"{n[:58]}_pkey" for n in names}) == len(names)
 
 
 async def test_a_replacement_keeps_the_replaced_table(
@@ -1944,3 +1946,163 @@ async def test_the_setting_keeps_at_least_one_version(
         headers=admin_auth_header,
     )
     assert response.status_code == 422, response.text
+
+
+async def test_restore_at_one_kept_version_is_reversible(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """Keeping one version, a restore keeps the data it replaces, so restoring again goes back."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+
+    def table(number: int) -> str:
+        return previous_version_table(dataset.table_name, dataset.id, number)
+
+    try:
+        with _keeping(1):
+            await _replace(session, dataset, admin_id, ["paris"])
+            assert await _kept(session, dataset.id) == {1: table(1)}
+            await session.commit()
+
+            first = await _restore_version(client, admin_auth_header, dataset, 1)
+            assert first.status_code == 202, first.text
+            assert await _names(session, dataset.table_name) == ["New York"]
+            assert await _kept(session, dataset.id) == {2: table(2)}
+            assert await _names(session, table(2)) == ["Paris"]
+            await session.commit()
+
+            back = await _restore_version(client, admin_auth_header, dataset, 2)
+            assert back.status_code == 202, back.text
+            assert await _names(session, dataset.table_name) == ["Paris"]
+            assert await _kept(session, dataset.id) == {3: table(3)}
+            assert await _names(session, table(3)) == ["New York"]
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def _claimant(session, dataset, number: int) -> tuple[str, uuid.UUID]:
+    """Another dataset whose own table has the name ``dataset`` keeps ``number`` under."""
+    name = previous_version_table(dataset.table_name, dataset.id, number)
+    other = await create_dataset(
+        session,
+        created_by=await get_user_id(session, "admin"),
+        name="Claimant",
+        table_name=name,
+    )
+    await session.execute(
+        text(f'CREATE TABLE "data"."{name}" (gid serial PRIMARY KEY, name text)')
+    )
+    await session.execute(text(f'INSERT INTO "data"."{name}" (name) VALUES (\'Mine\')'))
+    await _mark_kept(session, dataset.id, number, name)
+    await session.commit()
+    return name, other.id
+
+
+async def _drop_claimant(session, other_id) -> None:
+    await session.rollback()
+    await session.execute(
+        text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": other_id}
+    )
+    await session.commit()
+
+
+async def test_a_replacement_leaves_a_kept_table_another_dataset_claims(
+    test_db_session,
+) -> None:
+    """Past the limit, a kept name another dataset uses as its own table is forgotten, not dropped."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    name, other_id = await _claimant(session, dataset, 0)
+    try:
+        with _keeping(1):
+            await _replace(session, dataset, admin_id, ["paris"])
+        assert await _names(session, name) == ["Mine"]
+        assert 0 not in await _kept(session, dataset.id)
+    finally:
+        await _drop_claimant(session, other_id)
+        await _cleanup(session, dataset)
+
+
+@pytest.mark.parametrize("via", ["dataset_delete", "version_delete"])
+async def test_drops_leave_a_kept_name_another_dataset_claims(
+    client: AsyncClient, test_db_session, admin_auth_header, via
+) -> None:
+    """Deleting the dataset or the kept version leaves another dataset's table under that name."""
+    session = test_db_session
+    _, dataset = await _seed(session)
+    name, other_id = await _claimant(session, dataset, 1)
+    try:
+        if via == "dataset_delete":
+            response = await client.request(
+                "DELETE",
+                f"/api/datasets/{dataset.id}",
+                json={"confirm_title": "Test Dataset"},
+                headers=admin_auth_header,
+            )
+        else:
+            response = await client.delete(
+                f"/api/datasets/{dataset.id}/previous-versions/1",
+                headers=admin_auth_header,
+            )
+        assert response.status_code == 204, response.text
+        assert await _names(session, name) == ["Mine"]
+    finally:
+        await _drop_claimant(session, other_id)
+        await _cleanup(session, dataset)
+
+
+@pytest.mark.parametrize(
+    ("visibility", "expected"), [("public", 403), ("private", 404)]
+)
+async def test_numbered_routes_refuse_a_non_writer(
+    client: AsyncClient,
+    test_db_session,
+    editor_auth_header,
+    visibility: str,
+    expected: int,
+) -> None:
+    """An editor who does not own the dataset can neither restore nor delete a kept version by number."""
+    session = test_db_session
+    _, dataset = await _seed(session, visibility=visibility)
+    kept = previous_version_table(dataset.table_name, dataset.id, 1)
+    await session.execute(text(f'CREATE TABLE "data"."{kept}" (gid int)'))
+    await _mark_kept(session, dataset.id, 1, kept)
+    await session.commit()
+    try:
+        base = f"/api/datasets/{dataset.id}/previous-versions/1"
+        restore = await client.post(f"{base}/restore", headers=editor_auth_header)
+        drop = await client.delete(base, headers=editor_auth_header)
+        assert (restore.status_code, drop.status_code) == (expected, expected)
+        assert await _relation_exists(session, kept)
+        runs = await session.scalar(
+            text(
+                "SELECT count(*) FROM catalog.dataset_refresh_runs WHERE dataset_id = :id"
+            ),
+            {"id": dataset.id},
+        )
+        assert runs == 0
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_the_detail_never_names_a_kept_table(
+    client: AsyncClient, test_db_session, admin_auth_header, editor_auth_header
+) -> None:
+    """A reader sees kept versions by number only, never the table that keeps them."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        await _replace(session, dataset, admin_id, ["paris"])
+        kept = previous_version_table(dataset.table_name, dataset.id, 1)
+        detail = await client.get(
+            f"/api/datasets/{dataset.id}", headers=editor_auth_header
+        )
+        assert detail.status_code == 200, detail.text
+        assert kept not in detail.text
+        assert "kept_table" not in detail.text
+        versions = await client.get(
+            f"/api/datasets/{dataset.id}/versions/", headers=editor_auth_header
+        )
+        assert kept not in versions.text
+    finally:
+        await _cleanup(session, dataset)

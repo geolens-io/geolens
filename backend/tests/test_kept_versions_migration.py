@@ -164,3 +164,53 @@ async def test_the_downgrade_refuses_while_a_dataset_keeps_several_versions(
     finally:
         run_alembic("upgrade", "heads")
         await _drop(session, dataset_id, tables.values())
+
+
+async def test_the_downgrade_finds_a_kept_table_in_any_data_schema(
+    test_db_session,
+) -> None:
+    """A kept table in another data schema is still moved back; one no schema holds leaves the number empty."""
+    session = test_db_session
+    found_id, found_base, _ = await _seed(session, versions=[])
+    missing_id, _, _ = await _seed(session, versions=[])
+    schema = "data_t_" + str(uuid.uuid4()).replace("-", "_")
+    kept = previous_version_table(found_base, found_id, 2)
+    await session.execute(text(f'CREATE SCHEMA "{schema}"'))
+    await session.execute(text(f'CREATE TABLE "{schema}"."{kept}" (gid int)'))
+    for dataset_id, table in (
+        (found_id, kept),
+        (missing_id, f"gone_previous_2_{missing_id.hex}"),
+    ):
+        await session.execute(
+            text(
+                "INSERT INTO catalog.dataset_versions "
+                "(dataset_id, version_number, kept_table, kept_at) "
+                "VALUES (:id, 2, :t, now())"
+            ),
+            {"id": dataset_id, "t": table},
+        )
+    await session.commit()
+    single = _single_name(found_base, found_id)
+    try:
+        down = run_alembic("downgrade", _BEFORE)
+        assert down.returncode == 0, down.stderr
+        numbers = dict(
+            await fresh_query(
+                "SELECT id, previous_version_number FROM catalog.datasets "
+                "WHERE id IN (:a, :b)",
+                {"a": found_id, "b": missing_id},
+            )
+        )
+        assert numbers == {found_id: 2, missing_id: None}
+        assert await fresh_query(
+            "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :s AND c.relname = :t",
+            {"s": schema, "t": single},
+        )
+    finally:
+        run_alembic("upgrade", "heads")
+        await session.rollback()
+        await session.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await session.commit()
+        await _drop(session, found_id, [])
+        await _drop(session, missing_id, [])

@@ -89,7 +89,9 @@ and releases use semantic versioning.
   /datasets/{id}/previous-versions/{version_number}/restore` restores any of
   them, and `DELETE /datasets/{id}/previous-versions/{version_number}` deletes
   one. The admin stats report their size in `previous_versions_bytes`, and
-  `total_storage_bytes` now counts them.
+  `total_storage_bytes` now counts them. Three kept versions take up to three
+  times a replaced dataset's size; set the limit to 1 to keep the earlier
+  behaviour.
 
 ### Deprecated
 

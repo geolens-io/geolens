@@ -44,6 +44,11 @@ migrations, pins the new `GEOLENS_VERSION` in `.env`, and starts the stack. Thos
 last steps are an outage. [RUNBOOK.md § 10](RUNBOOK.md#10-routine-version-upgrade-outage-and-rollback)
 covers how long it lasts and what to do if the script dies part-way.
 
+Datasets keep their last three previous versions by default, where earlier
+releases kept one, so the database can grow to about three times a replaced
+dataset's size per dataset. Set **Previous versions kept per dataset** to 1
+under Settings > Storage to keep the earlier behaviour.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.

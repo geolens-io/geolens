@@ -838,9 +838,9 @@ async def register_existing_table(
         )
     if is_previous_version_table(table_name):
         raise ValueError(
-            f"Table '{table_name}' holds a dataset's previous version, which "
-            "GeoLens drops or replaces at that dataset's next replacement. "
-            "Rename the table if you mean to keep it."
+            f"Table '{table_name}' holds one of a dataset's kept previous "
+            "versions, which GeoLens drops once the dataset keeps more than its "
+            "limit or is deleted. Rename the table if you mean to keep it."
         )
 
     result = await session.execute(
