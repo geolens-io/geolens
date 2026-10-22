@@ -77,6 +77,9 @@ class ItemState:
     layer_jobs: dict[str, str] = field(default_factory=dict)
     # The coordinate columns a CSV's pending upload job is committed with.
     file_columns: dict[str, str] = field(default_factory=dict)
+    # A multi-layer file's fan-out, recorded before it is sent: the parent
+    # upload job and the layers asked for.
+    fan_out: dict[str, Any] | None = None
     # The service the pins above belong to; None in a file written before it
     # was recorded, which a rerun adopts rather than distrusts.
     service_url: str | None = None
