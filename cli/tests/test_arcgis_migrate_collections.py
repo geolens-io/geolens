@@ -265,6 +265,48 @@ def test_a_refused_add_to_a_known_collection_skips_filing(runner, tmp_path, geol
     assert "can't manage collections" in entry["notes"][0]
 
 
+def test_a_refused_later_batch_fails_the_item_and_a_rerun_finishes(
+    runner, tmp_path, geolens
+):
+    names = [f"Layer{n:03d}" for n in range(130)]
+    FakeImport(geolens, [_layer(n, name) for n, name in enumerate(names)])
+    collections = FakeCollections(geolens)
+    plan_file = _plan(tmp_path)
+    create = collections.create
+
+    def refuse_second_batch(seen):
+        reply = create(seen)
+        [collection] = collections.names
+        calls = []
+
+        def add(s):
+            calls.append(s)
+            if len(calls) == 2:
+                return (403, _problem(403, "Permission denied"))
+            return collections.add(collection, s)
+
+        geolens.routes[f"POST {COLLECTIONS}{collection}/datasets/"] = add
+        return reply
+
+    geolens.routes[f"POST {COLLECTIONS}"] = refuse_second_batch
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed" and "partway" in entry["error"]
+    [collection] = collections.names
+    assert len(collections.members[collection]) == 100
+
+    geolens.routes[f"POST {COLLECTIONS}{collection}/datasets/"] = (
+        lambda s: collections.add(collection, s)
+    )
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["status"] == "done"
+    assert len(collections.membership()["Transportation"]) == 130
+
+
 def test_a_deleted_collection_fails_the_item_with_a_hint(runner, tmp_path, geolens):
     _services(geolens)
     collections = FakeCollections(geolens)

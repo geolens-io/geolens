@@ -79,11 +79,19 @@ def _add(ctx: MigrationContext, collection_id: str, dataset_ids: list[str]) -> N
 
     for start in range(0, len(dataset_ids), ADD_BATCH):
         batch = dataset_ids[start : start + ADD_BATCH]
-        ctx.geolens.call(
-            add.sync_detailed,
-            collection_id=UUID(collection_id),
-            body=CollectionAddDatasetsRequest(dataset_ids=[UUID(d) for d in batch]),
-        )
+        try:
+            ctx.geolens.call(
+                add.sync_detailed,
+                collection_id=UUID(collection_id),
+                body=CollectionAddDatasetsRequest(dataset_ids=[UUID(d) for d in batch]),
+            )
+        except GeoLensError as exc:
+            if exc.status == 403 and start:
+                raise ItemFailed(
+                    f"filing into a collection stopped partway, {exc}; "
+                    "rerun to finish it"
+                ) from None
+            raise
 
 
 def file_into_collections(
