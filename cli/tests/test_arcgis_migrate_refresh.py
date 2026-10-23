@@ -1019,6 +1019,29 @@ def test_cutover_refuses_a_migrated_layer_with_attachments_until_accepted(
     assert recorded["accepted"] == ["attachment-loss"] and recorded["at"]
 
 
+@pytest.mark.parametrize("with_parcels", [True, False])
+def test_cutover_counts_a_service_layer_geolens_does_not_import(
+    runner, plan_file, geolens, with_parcels
+):
+    _edit_plan(plan_file, (A2,))
+    imagery = _layer(1, "Imagery", "Raster Layer", has_attachments=False)
+    group = _layer(2, "Districts", "Group Layer", has_attachments=False)
+    parcels = [_layer(0, "Parcels", has_attachments=False)] if with_parcels else []
+    service = FakeImport(geolens, [*parcels, imagery, group])
+    result, _ = _migrate(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    assert check["items"] == [
+        {"item": A2, "reason": "Imagery: Raster Layer layer, not imported"}
+    ]
+
+
 def test_cutover_treats_a_layer_the_probe_says_nothing_about_as_a_loss(
     runner, plan_file, geolens
 ):

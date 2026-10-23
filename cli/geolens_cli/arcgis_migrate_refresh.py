@@ -327,7 +327,7 @@ def refresh_layers(
     flags = attachment_flags(probe.layers)
     entry.attachments = {key: flags.get(key) for key in entry.layer_datasets}
     ctx.save()
-    wanted, _notes = importable_layers(probe)
+    wanted, _notes, entry.left_behind = importable_layers(probe)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"

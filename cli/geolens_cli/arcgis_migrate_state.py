@@ -115,6 +115,9 @@ class ItemState:
     attachments: dict[str, bool | None] | None = None
     # Why the item sits with --unmapped-owner instead of its plan owner.
     owner_pending: str | None = None
+    # What of the item GeoLens doesn't import, such as a service's raster
+    # layers; cutover counts each as a loss.
+    left_behind: list[str] = field(default_factory=list)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None

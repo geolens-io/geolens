@@ -30,6 +30,7 @@ from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
 # ArcGIS sub-layer types that hold features GeoLens can import.
 IMPORTABLE_LAYER_TYPES = frozenset({"Feature Layer", "Table"})
+GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
 JOB_POLL_INTERVAL = 5.0
 JOB_TIMEOUT = 3600.0
@@ -159,15 +160,22 @@ def attachment_flags(layers: Any) -> dict[str, bool | None]:
     return flags
 
 
-def importable_layers(probe: Any) -> tuple[list[Any], list[str]]:
-    """The probed layers to import, and a note for each one left out."""
+def importable_layers(probe: Any) -> tuple[list[Any], list[str], list[str]]:
+    """The probed layers to import, a note for each one left out, and those of
+    the notes that are data left behind: every left-out layer but a group
+    layer, which holds no data of its own."""
     layers = list(probe.layers)
     selected = probe.selected_layer_id
     if isinstance(selected, int | str):
         layers = [layer for layer in layers if str(layer.layer_id) == str(selected)]
     reasons = [(layer, _importable(layer)) for layer in layers]
     notes = [reason for _layer, reason in reasons if reason]
-    return [layer for layer, reason in reasons if reason is None], notes
+    lost = [
+        reason
+        for layer, reason in reasons
+        if reason and getattr(layer, "source_layer_type", None) != GROUP_LAYER
+    ]
+    return [layer for layer, reason in reasons if reason is None], notes, lost
 
 
 def _titles(base: str, layers: list[Any]) -> list[str]:
@@ -434,7 +442,7 @@ def import_layers(
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
     entry.service_url = row["url"]
-    wanted, notes = importable_layers(probe)
+    wanted, notes, entry.left_behind = importable_layers(probe)
     entry.attachments = attachment_flags(wanted)
     if not wanted:
         # Done rather than skipped: a rerun's probe reports a layer added later.
