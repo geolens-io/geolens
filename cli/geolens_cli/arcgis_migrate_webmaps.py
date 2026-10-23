@@ -173,12 +173,32 @@ def get_map(geolens: GeoLens, map_id: str) -> Any:
     return geolens.call(get.sync_detailed, map_id=UUID(map_id))
 
 
+def _map_gone(ctx: MigrationContext, entry: ItemState) -> str | None:
+    """Why the GeoLens map recorded for the item can't be found, or None."""
+    gone = "the migrated map is gone from GeoLens"
+    if not entry.map_id:
+        return gone
+    try:
+        get_map(ctx.geolens, entry.map_id)
+    except ValueError:
+        return gone
+    except GeoLensError as exc:
+        if exc.status == 404:
+            return gone
+        return f"reading the migrated map from GeoLens failed, {exc}"
+    return None
+
+
 def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
-    """Why a migrated web map may not match its portal item: changed there
-    since it was read for the import, or with no way to tell. A web map isn't
-    translated again; the operator updates the GeoLens map."""
+    """Why a migrated web map may not match its portal item: gone from
+    GeoLens, changed in the portal since it was read for the import, or with
+    no way to tell. A web map isn't translated again; the operator updates the
+    GeoLens map."""
+    gone = _map_gone(ctx, entry)
+    if gone:
+        return [gone]
     if ctx.portal is None:
         return [
             "the run can't read this web map from the portal to check it for changes"

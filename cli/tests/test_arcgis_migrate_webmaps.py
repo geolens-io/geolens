@@ -518,6 +518,33 @@ def test_a_migrated_web_map_changed_in_the_portal_is_reported_at_cutover(
     assert payload["cutover"]["refused"] == ["unfinished-items"]
 
 
+@pytest.mark.parametrize("gone", ["deleted", "no_id"])
+def test_a_migrated_map_gone_from_geolens_blocks_cutover(
+    runner, plan_file, geolens, gone
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    _only_the_map(plan_file)
+    token = secrets.token_urlsafe(16)
+    _migrate(runner, plan_file, "--token", token)
+    if gone == "deleted":
+        geolens.routes["GET /maps/" + MAP_ID] = (
+            404,
+            {"title": "Not Found", "status": 404, "detail": "Map not found"},
+        )
+    else:
+        path = plan_file.parent / "arcgis-migration-state.json"
+        state = json.loads(path.read_text())
+        state["items"][B1]["map_id"] = None
+        path.write_text(json.dumps(state))
+
+    result, payload = _migrate(runner, plan_file, "--token", token, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][B1] == ["the migrated map is gone from GeoLens"]
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
 @pytest.mark.parametrize("recorded", [True, "1790000000000", 1.5])
 def test_an_unusable_recorded_map_time_is_reported(
     runner, plan_file, geolens, portal, recorded
