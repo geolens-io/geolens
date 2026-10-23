@@ -28,6 +28,9 @@ export const queryKeys = {
     usage: (userId: string | undefined) => ['auth', 'me', 'usage', userId] as const,
   },
 
+  groups: {
+    mine: ['groups', 'mine'] as const,
+  },
   datasets: {
     all: ['datasets'] as const,
     detail: (id: string) => ['dataset', id] as const,

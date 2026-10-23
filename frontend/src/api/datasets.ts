@@ -38,6 +38,7 @@ import type {
   ApiKeyCreateResponse,
   DatasetApiKeyCreateRequest,
   DatasetApiKeyResponse,
+  DatasetGroupsResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -168,6 +169,17 @@ export async function updateDataset(
   return apiFetch<DatasetResponse>(`/datasets/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  });
+}
+
+/** Share a dataset with exactly these groups; an empty list unshares it. */
+export async function setDatasetGroups(
+  id: string,
+  groupIds: string[],
+): Promise<DatasetGroupsResponse> {
+  return apiFetch<DatasetGroupsResponse>(`/datasets/${encodeURIComponent(id)}/groups/`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_ids: groupIds }),
   });
 }
 

@@ -20,6 +20,8 @@ interface UserPickerProps {
   busy?: boolean;
   /** Reports whether the list is open, so an enclosing dialog can leave Escape to it. */
   onOpenChange?: (open: boolean) => void;
+  /** Wording for other kinds of pick (groups); defaults to the people wording. */
+  text?: { placeholder: string; noMatches: string; results: (count: number) => string };
 }
 
 const MAX_OPTIONS = 50;
@@ -30,7 +32,7 @@ const MAX_OPTIONS = 50;
  * the list before it can close an enclosing dialog.
  */
 export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function UserPicker(
-  { label, users, onSelect, disabled, busy, onOpenChange },
+  { label, users, onSelect, disabled, busy, onOpenChange, text },
   ref,
 ) {
   const { t } = useTranslation('admin');
@@ -88,11 +90,16 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
     }
   }
 
+  const wording = text ?? {
+    placeholder: t('groups.picker.placeholder'),
+    noMatches: t('groups.picker.noMatches'),
+    results: (count: number) => t('groups.picker.results', { count }),
+  };
   const status = !open
     ? ''
     : matches.length === 0
-      ? t('groups.picker.noMatches')
-      : t('groups.picker.results', { count: matches.length });
+      ? wording.noMatches
+      : wording.results(matches.length);
 
   return (
     <div className="space-y-2">
@@ -110,7 +117,7 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
           autoComplete="off"
           value={query}
           disabled={disabled}
-          placeholder={t('groups.picker.placeholder')}
+          placeholder={wording.placeholder}
           onChange={(e) => {
             setQuery(e.target.value);
             setActive(0);
@@ -148,7 +155,7 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
         </ul>
       </div>
       {open && matches.length === 0 && (
-        <p className="text-sm text-muted-foreground">{t('groups.picker.noMatches')}</p>
+        <p className="text-sm text-muted-foreground">{wording.noMatches}</p>
       )}
       <LiveAnnouncement text={status} delayMs={300} />
     </div>

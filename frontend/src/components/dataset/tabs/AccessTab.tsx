@@ -39,6 +39,7 @@ import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
 import { DatasetWriteKeys } from '@/components/dataset/DatasetWriteKeys';
+import { DatasetGroupShare } from '@/components/dataset/DatasetGroupShare';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
@@ -64,10 +65,11 @@ interface AccessTabProps {
 }
 
 /** The visibility values this control can move a dataset TO, in ladder order.
- * `restricted` is not one: a non-admin owner who picked it would lose access to
- * their own dataset, and grants have no write path. A dataset already stored
- * as `restricted` still displays its own value (see below), a one-way exit,
- * never a silent coercion. The import pickers stay at private/public. */
+ * `restricted` is not one: it follows from sharing a private dataset with
+ * groups (see DatasetGroupShare), and a non-admin owner who picked it directly
+ * would lose access to their own dataset. A dataset already stored as
+ * `restricted` still displays its own value (see below), a one-way exit, never
+ * a silent coercion. The import pickers stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
 /** The full ladder in widening order, for deciding whether a visibility move
@@ -404,6 +406,14 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
             <p className="text-xs text-muted-foreground mt-1">
               {t('common:visibilityPublicAdminOnly')}
             </p>
+          )}
+          {/* The server sends the group list to the owner and admins only. */}
+          {canEdit && dataset.groups && (
+            <DatasetGroupShare
+              datasetId={dataset.id}
+              visibility={dataset.visibility}
+              groups={dataset.groups}
+            />
           )}
         </CardContent>
       </Card>

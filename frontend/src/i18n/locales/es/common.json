@@ -374,6 +374,7 @@
     "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención.",
     "retentionDeleteTrigger": "La retención no puede ejecutarse en una tabla con un disparador de borrado, porque puede conservar filas o cambiar otras al borrar las antiguas. Quita el disparador para usar la retención.",
     "groupNotFound": "Grupo no encontrado",
+    "groupNotJoined": "Solo puede compartir un conjunto de datos con grupos a los que pertenece.",
     "groupMemberNotFound": "Esa persona no es miembro de este grupo",
     "groupNameTaken": "Ya existe un grupo llamado \"{{name}}\"",
     "vrtAudienceExceedsSources": "Un conjunto de datos VRT llegaría a personas que no pueden ver todos sus conjuntos de datos de origen. Restrinja la visibilidad del VRT o use orígenes que su audiencia pueda ver."

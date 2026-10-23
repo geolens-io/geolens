@@ -505,6 +505,7 @@
     "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention.",
     "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention.",
     "groupNotFound": "Group not found",
+    "groupNotJoined": "You can share a dataset only with groups you belong to.",
     "groupMemberNotFound": "That person is not a member of this group",
     "groupNameTaken": "A group named \"{{name}}\" already exists",
     "vrtAudienceExceedsSources": "A VRT dataset would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see."

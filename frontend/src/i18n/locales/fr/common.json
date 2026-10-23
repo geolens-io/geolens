@@ -374,6 +374,7 @@
     "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention.",
     "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention.",
     "groupNotFound": "Groupe introuvable",
+    "groupNotJoined": "Vous ne pouvez partager un jeu de données qu'avec des groupes auxquels vous appartenez.",
     "groupMemberNotFound": "Cette personne n’est pas membre de ce groupe",
     "groupNameTaken": "Un groupe nommé « {{name}} » existe déjà",
     "vrtAudienceExceedsSources": "Un jeu de données VRT serait accessible à des personnes qui ne voient pas tous ses jeux de données sources. Restreignez la visibilité du VRT ou utilisez des sources que son public peut voir."

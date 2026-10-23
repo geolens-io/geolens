@@ -46,6 +46,10 @@ vi.mock('@/components/dataset/DatasetWriteKeys', () => ({
   ),
 }));
 
+vi.mock('@/components/dataset/DatasetGroupShare', () => ({
+  DatasetGroupShare: () => <div data-testid="dataset-group-share" />,
+}));
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
@@ -219,6 +223,24 @@ describe('AccessTab', () => {
     expect(screen.queryByText('Connect with QGIS, Python, or curl')).not.toBeInTheDocument();
     expect(screen.getByText('No additional downloads or services are listed here.')).toBeInTheDocument();
     expect(screen.getByText('https://tiles.example.com/{z}/{x}/{y}.png')).toBeInTheDocument();
+  });
+
+  it('explains every level of the visibility ladder, restricted included', () => {
+    render(<AccessTab dataset={makeDataset({ visibility: 'restricted' })} canEdit />);
+    expect(screen.getByText(/Private = .* Restricted = .* Internal = .* Public = /)).toBeInTheDocument();
+  });
+
+  describe('sharing with groups', () => {
+    const groups = [{ id: 'g-1', name: 'Surveyors' }];
+
+    it.each([
+      ['an owner or admin whose dataset carries a group list', { groups }, true, true],
+      ['a reader without write rights', { groups }, false, false],
+      ['an editor when the server withheld the group list', { groups: null }, true, false],
+    ])('group picker for %s', (_who, overrides, canEdit, shown) => {
+      render(<AccessTab dataset={makeDataset(overrides)} canEdit={canEdit} />);
+      expect(screen.queryByTestId('dataset-group-share') !== null).toBe(shown);
+    });
   });
 
   describe('a tileset', () => {

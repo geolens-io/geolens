@@ -7,6 +7,7 @@ import {
   getDataset,
   getDatasetRows,
   updateDataset,
+  setDatasetGroups,
   setDatasetRetention,
   setTargetStatus,
   deleteDataset,
@@ -25,9 +26,11 @@ import {
   type DatasetRowsSort,
 } from '@/api/datasets';
 import { cancelJob } from '@/api/ingest';
+import { listMyGroups } from '@/api/groups';
 import type {
   CreateDatasetRequest,
   DatasetOrigin,
+  DatasetResponse,
   DatasetUpdateRequest,
   DatasetRetention,
   AttributeMetadataUpdate,
@@ -107,6 +110,37 @@ export function useUpdateDataset() {
       // quality-score badge reflects the recomputed value.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
       if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
+    },
+  });
+}
+
+export function useMyGroups(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.groups.mine,
+    queryFn: listMyGroups,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetDatasetGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, groupIds }: { datasetId: string; groupIds: string[] }) =>
+      setDatasetGroups(datasetId, groupIds),
+    onSuccess: (result, variables) => {
+      // Shows the new audience at once; the refetch below confirms it.
+      qc.setQueryData<DatasetResponse>(queryKeys.datasets.detail(variables.datasetId), (old) =>
+        old && {
+          ...old,
+          visibility: result.visibility as DatasetResponse['visibility'],
+          groups: result.groups,
+        },
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      invalidateTileTokens(qc, variables.datasetId);
     },
   });
 }
