@@ -35,7 +35,11 @@ from app.core.service_tokens import (
 )
 
 from app.core.db.tenant_session import tenant_task
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import (
+    BoundPointer,
+    bound_pointer,
+    set_dataset_origin,
+)
 from app.platform.refresh.credentials import (
     CredentialExpiredError,
     CredentialStoreUnavailable,
@@ -186,17 +190,6 @@ _CRS_UNIDENTIFIED_MESSAGE = (
     "keeps its previous asset until the source is reprojected to an EPSG CRS "
     "(gdalwarp's -t_srs option does this) and refreshed again."
 )
-
-
-def _binding(dataset: Any) -> tuple:
-    """The ``(origin_uri, origin_ref, source_format)`` triple, as read.
-
-    One spelling of the triple, used for three things that must agree: the
-    guard the write transaction checks before it changes anything, the guard
-    the failed-health stamp writes under, and the value the two are compared
-    as.
-    """
-    return (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
 
 
 def _stac_pointers(
@@ -533,11 +526,10 @@ class _StacRefresh:
         self.credential: ServiceCredential | None = None
         # The binding this attempt resolves against, for the write's fence and
         # the failure's stamp. None until the claim reads it.
-        self.bound: tuple | None = None
+        self.bound: BoundPointer | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
-        self.bound = _binding(dataset)
-        self.stored_ref = dataset.origin_ref
+        self.bound = bound_pointer(dataset)
         self.dataset_id = dataset.id
 
     async def fetch(self) -> None:
@@ -550,7 +542,7 @@ class _StacRefresh:
             self.asset_href,
             self.asset_key,
             self.catalog_url,
-        ) = _stac_pointers(self.stored_ref)
+        ) = _stac_pointers(self.bound.origin_ref)
         # Redeemed after the claim, so a delivery that loses it spends nothing.
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)
@@ -596,7 +588,7 @@ class _StacRefresh:
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        if _binding(dataset) != self.bound:
+        if bound_pointer(dataset) != self.bound:
             raise StacRefreshError(
                 "This dataset's source changed while its STAC item was "
                 "being re-resolved, so the older answer was discarded "

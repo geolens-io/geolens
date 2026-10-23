@@ -32,6 +32,7 @@ from app.platform.catalog_locks import (
     lock_conflict_report,
     worker_lock_budget,
 )
+from app.platform.dataset_origin import BoundPointer, still_bound
 from app.platform.jobs import heartbeat, ledger
 from app.platform.jobs.heartbeat import (
     StaleIngestAttempt,
@@ -144,7 +145,7 @@ class Failure:
     schema_diff: dict[str, Any] | None = None
     verification: dict[str, Any] | None = None
     # The origin binding the attempt contacted, when it reached the origin.
-    contacted: tuple[str | None, dict[str, Any] | None, str | None] | None = None
+    contacted: BoundPointer | None = None
     # What the contact established about the origin: (health, detail).
     health: tuple[str, str | None] | None = None
     # A refused input is recorded like any failure, but the task returns.
@@ -827,7 +828,7 @@ _VERDICT_LOCK_TIMEOUT = "1s"
 async def _stamp_contact(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-    binding: tuple[str | None, dict[str, Any] | None, str | None],
+    binding: BoundPointer,
     health: tuple[str, str | None] | None = None,
 ) -> bool:
     """Date a failed attempt's origin contact, only while the dataset is still bound as it read.
@@ -841,18 +842,12 @@ async def _stamp_contact(
     from app.platform.extensions import get_processing_port
 
     Dataset = get_processing_port().get_dataset_orm_class()
-    origin_uri, origin_ref, source_format = binding
     values: dict[str, Any] = {"last_checked_at": datetime.now(timezone.utc)}
     if health is not None:
         values.update(source_health=health[0], source_health_detail=health[1])
     stamp = (
         update(Dataset)
-        .where(
-            Dataset.id == dataset_id,
-            Dataset.origin_uri.is_not_distinct_from(origin_uri),
-            Dataset.origin_ref.is_not_distinct_from(origin_ref),
-            Dataset.source_format.is_not_distinct_from(source_format),
-        )
+        .where(still_bound(Dataset, dataset_id, binding))
         .values(**values)
         .execution_options(synchronize_session=False)
     )

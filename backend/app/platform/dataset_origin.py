@@ -13,6 +13,9 @@ domain, the ingest tasks, and the API response boundary.
   raises) and gate 2 (no external PostGIS federation — ``postgis`` accepts
   only ``table_name``). Widening the JSON blob alone can't add federation;
   it needs a new kind here.
+- ``bound_pointer`` and ``still_bound`` answer "is the dataset still bound to
+  what I read?": a snapshot of the stored binding, and the SQL predicate a
+  guarded write runs under so it lands only while that snapshot still holds.
 - ``project_unknown`` is the NULL-means-unknown projection: NULL is the
   only stored spelling of "never determined" (the CHECK sets exclude
   ``unknown``), rendered as that string at the API boundary.
@@ -26,7 +29,10 @@ Dataset ORM instance.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
+
+from sqlalchemy import and_
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.platform.portal_link import (
@@ -410,6 +416,41 @@ def set_dataset_origin(
         ref_fields |= carried
     dataset.origin_ref = build_origin_ref(kind, **ref_fields)
     return losses
+
+
+class BoundPointer(NamedTuple):
+    """A dataset's stored ``(origin_uri, origin_ref, source_format)``, as read.
+
+    Two pointers are the same binding only when all three are equal, the
+    whole ``origin_ref`` included, so an ``auth_required`` flip or a new
+    portal link counts as a rebind.
+    """
+
+    origin_uri: str | None
+    origin_ref: dict[str, Any] | None
+    source_format: str | None
+
+
+def bound_pointer(dataset: Any) -> BoundPointer:
+    """Snapshot the binding a Dataset ORM instance holds now."""
+    return BoundPointer(dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+
+
+def still_bound(
+    dataset_cls: Any, dataset_id: Any, pointer: BoundPointer
+) -> ColumnElement[bool]:
+    """WHERE clause matching the dataset only while it holds ``pointer`` exactly.
+
+    The caller keeps its own statement, so it can add ``RETURNING`` or lock
+    options. ``origin_ref`` is compared as JSONB, so key order is not a change.
+    """
+    origin_uri, origin_ref, source_format = pointer
+    return and_(
+        dataset_cls.id == dataset_id,
+        dataset_cls.origin_uri.is_not_distinct_from(origin_uri),
+        dataset_cls.origin_ref.is_not_distinct_from(origin_ref),
+        dataset_cls.source_format.is_not_distinct_from(source_format),
+    )
 
 
 def project_unknown(value: str | None) -> str:

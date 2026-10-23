@@ -28,6 +28,7 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.catalog_locks import bump_tile_cache_version_atomic
+from app.platform.dataset_origin import BoundPointer, bound_pointer
 from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -494,7 +495,7 @@ class _PostgisRefresh:
         # The binding this attempt measured against; None until the
         # measurement reads it, since nothing earlier says anything about an
         # origin.
-        self.bound: tuple | None = None
+        self.bound: BoundPointer | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         return None
@@ -547,7 +548,7 @@ class _PostgisRefresh:
             ).scalar_one_or_none()
             if dataset is None:
                 raise DatasetDeleted
-            self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+            self.bound = bound_pointer(dataset)
             table_name = _resolve_bound_table(dataset, schema=schema)
             # The fence `write` checks: the tile version moves with every
             # change to this dataset's content.
