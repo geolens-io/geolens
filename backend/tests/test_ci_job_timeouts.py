@@ -381,3 +381,29 @@ def test_every_direct_apt_get_invocation_is_bounded_and_fits_its_step_cap():
                     f"{worst_case_seconds}s >= step cap {step_cap_seconds}s"
                 )
     assert not offenders, f"direct apt-get retry budget/coverage problem: {offenders}"
+
+
+_RUNNER_APT_GET = re.compile(r"\bsudo\s+timeout\b[^\n]*\bapt-get\b")
+_DROPS_AZURE_MIRROR = re.compile(
+    r"sudo\s+sed\s+-i\s+'/azure\\\.archive\\\.ubuntu\\\.com/d'\s+/etc/apt/apt-mirrors\.txt"
+)
+
+
+def test_every_runner_apt_retry_falls_back_from_the_azure_mirror():
+    """A trickling azure.archive.ubuntu.com mirror stalls every attempt on it,
+    so each runner-level apt retry loop drops it before retrying."""
+    checked, offenders = [], []
+    for job_name, job in _workflow(CI)["jobs"].items():
+        for step in job.get("steps", []):
+            code = _without_comment_lines(step.get("run") or "")
+            attempts = _FOR_LOOP_ATTEMPTS.search(code)
+            if not attempts or len(attempts.group(1).split()) < 2:
+                continue
+            if not _RUNNER_APT_GET.search(code):
+                continue
+            label = f"{job_name}: {step.get('name', '<unnamed>')}"
+            checked.append(label)
+            if not _DROPS_AZURE_MIRROR.search(code):
+                offenders.append(label)
+    assert checked, "found no runner-level apt retry loop to check"
+    assert not offenders, f"apt retry loops that keep the Azure mirror: {offenders}"
