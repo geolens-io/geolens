@@ -1176,7 +1176,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 116,
+        "backend/app/modules/catalog/datasets/domain/service.py": 118,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1308,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1628,
+    "backend/app/api/main.py": 1630,
     # Map request validation and published response contracts share this module.
     "backend/app/modules/catalog/maps/schemas.py": 1387,
     # Metadata facade preserves the import and patch surface used by extensions and

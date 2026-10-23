@@ -15,6 +15,7 @@ from app.modules.catalog.datasets.domain.service_analysis import (
     PREVIEW_FEATURE_CAP,
     build_preview_sql,
     compile_layer_filter,
+    preview_slot_bound,
     resolve_source_feature_count,
     run_analysis_preview,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "get_relationship_datasets",
     "list_attributes",
     "list_datasets",
+    "preview_slot_bound",
     "sortable_columns",
     "list_relationships",
     "list_relationships_with_total",

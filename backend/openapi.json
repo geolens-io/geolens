@@ -5602,6 +5602,94 @@
         "title": "ContactUpdate",
         "type": "object"
       },
+      "CountRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter, as the OGC API Features `filter` accepts.",
+            "title": "Filter"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.",
+            "title": "Bbox"
+          },
+          "op": {
+            "const": "count",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "title": "CountRequest",
+        "type": "object"
+      },
+      "CountResponse": {
+        "properties": {
+          "approximate": {
+            "const": false,
+            "default": false,
+            "description": "Always false: a view too wide to count exactly is refused.",
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "count",
+            "title": "Op",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CountResult"
+          }
+        },
+        "required": [
+          "cached",
+          "op",
+          "result"
+        ],
+        "title": "CountResponse",
+        "type": "object"
+      },
+      "CountResult": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "CountResult",
+        "type": "object"
+      },
       "CreateEmptyDatasetRequest": {
         "properties": {
           "title": {
@@ -9527,6 +9615,138 @@
         "title": "GeoJSONGeometryCollection",
         "type": "object"
       },
+      "GroupByRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter, as the OGC API Features `filter` accepts.",
+            "title": "Filter"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.",
+            "title": "Bbox"
+          },
+          "op": {
+            "const": "group_by",
+            "title": "Op",
+            "type": "string"
+          },
+          "group_column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Group Column",
+            "type": "string"
+          },
+          "stat": {
+            "enum": [
+              "count",
+              "sum",
+              "avg",
+              "min",
+              "max"
+            ],
+            "title": "Stat",
+            "type": "string"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The numeric column `stat` reads; omit for `count`.",
+            "title": "Column"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "op",
+          "group_column",
+          "stat"
+        ],
+        "title": "GroupByRequest",
+        "type": "object"
+      },
+      "GroupByResponse": {
+        "properties": {
+          "approximate": {
+            "const": false,
+            "default": false,
+            "description": "Always false: a view too wide to count exactly is refused.",
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "group_by",
+            "title": "Op",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GroupByResult"
+          }
+        },
+        "required": [
+          "cached",
+          "op",
+          "result"
+        ],
+        "title": "GroupByResponse",
+        "type": "object"
+      },
+      "GroupByResult": {
+        "properties": {
+          "groups": {
+            "description": "Largest value first.",
+            "items": {
+              "$ref": "#/components/schemas/GroupValue"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "GroupByResult",
+        "type": "object"
+      },
       "GroupListResponse": {
         "properties": {
           "groups": {
@@ -9634,6 +9854,55 @@
         "title": "GroupResponse",
         "type": "object"
       },
+      "GroupValue": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.",
+            "title": "Key"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact for count, sum, min and max, as for a key; avg is a float.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "GroupValue",
+        "type": "object"
+      },
       "GroupWrite": {
         "properties": {
           "name": {
@@ -9686,6 +9955,135 @@
           "providers"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HistogramBin": {
+        "properties": {
+          "lower": {
+            "title": "Lower",
+            "type": "number"
+          },
+          "upper": {
+            "title": "Upper",
+            "type": "number"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lower",
+          "upper",
+          "count"
+        ],
+        "title": "HistogramBin",
+        "type": "object"
+      },
+      "HistogramRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter, as the OGC API Features `filter` accepts.",
+            "title": "Filter"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.",
+            "title": "Bbox"
+          },
+          "op": {
+            "const": "histogram",
+            "title": "Op",
+            "type": "string"
+          },
+          "column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "bins": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Bins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "op",
+          "column"
+        ],
+        "title": "HistogramRequest",
+        "type": "object"
+      },
+      "HistogramResponse": {
+        "properties": {
+          "approximate": {
+            "const": false,
+            "default": false,
+            "description": "Always false: a view too wide to count exactly is refused.",
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "histogram",
+            "title": "Op",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/HistogramResult"
+          }
+        },
+        "required": [
+          "cached",
+          "op",
+          "result"
+        ],
+        "title": "HistogramResponse",
+        "type": "object"
+      },
+      "HistogramResult": {
+        "properties": {
+          "bins": {
+            "description": "Equal-width bins over the finite values; empty with none.",
+            "items": {
+              "$ref": "#/components/schemas/HistogramBin"
+            },
+            "title": "Bins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "bins"
+        ],
+        "title": "HistogramResult",
         "type": "object"
       },
       "ImportResult": {
@@ -20474,6 +20872,188 @@
         "title": "StaleCleanupResponse",
         "type": "object"
       },
+      "StatsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter, as the OGC API Features `filter` accepts.",
+            "title": "Filter"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.",
+            "title": "Bbox"
+          },
+          "op": {
+            "const": "stats",
+            "title": "Op",
+            "type": "string"
+          },
+          "column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "stats": {
+            "items": {
+              "enum": [
+                "count",
+                "sum",
+                "avg",
+                "min",
+                "max"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Stats",
+            "type": "array"
+          }
+        },
+        "required": [
+          "op",
+          "column",
+          "stats"
+        ],
+        "title": "StatsRequest",
+        "type": "object"
+      },
+      "StatsResponse": {
+        "properties": {
+          "approximate": {
+            "const": false,
+            "default": false,
+            "description": "Always false: a view too wide to count exactly is refused.",
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "stats",
+            "title": "Op",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/StatsResult"
+          }
+        },
+        "required": [
+          "cached",
+          "op",
+          "result"
+        ],
+        "title": "StatsResponse",
+        "type": "object"
+      },
+      "StatsResult": {
+        "description": "The requested statistics; one over no rows is null.\n\n``sum``, ``min`` and ``max`` are exact: a number when JSON can carry it\nexactly, else text. ``avg`` is a float, or text for NaN and infinity.",
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sum"
+          },
+          "avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          }
+        },
+        "title": "StatsResult",
+        "type": "object"
+      },
       "StatusUpdate": {
         "examples": [
           {
@@ -21621,6 +22201,153 @@
           "warnings"
         ],
         "title": "ValidationResultResponse",
+        "type": "object"
+      },
+      "ValueCount": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.",
+            "title": "Value"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "ValueCount",
+        "type": "object"
+      },
+      "ValueCountsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CQL2-JSON filter, as the OGC API Features `filter` accepts.",
+            "title": "Filter"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.",
+            "title": "Bbox"
+          },
+          "op": {
+            "const": "value_counts",
+            "title": "Op",
+            "type": "string"
+          },
+          "column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "op",
+          "column"
+        ],
+        "title": "ValueCountsRequest",
+        "type": "object"
+      },
+      "ValueCountsResponse": {
+        "properties": {
+          "approximate": {
+            "const": false,
+            "default": false,
+            "description": "Always false: a view too wide to count exactly is refused.",
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "value_counts",
+            "title": "Op",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ValueCountsResult"
+          }
+        },
+        "required": [
+          "cached",
+          "op",
+          "result"
+        ],
+        "title": "ValueCountsResponse",
+        "type": "object"
+      },
+      "ValueCountsResult": {
+        "properties": {
+          "values": {
+            "description": "Most frequent first.",
+            "items": {
+              "$ref": "#/components/schemas/ValueCount"
+            },
+            "title": "Values",
+            "type": "array"
+          },
+          "other_count": {
+            "description": "Rows whose value is not listed.",
+            "title": "Other Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "values",
+          "other_count"
+        ],
+        "title": "ValueCountsResult",
         "type": "object"
       },
       "VectorTileToken": {
@@ -37755,6 +38482,223 @@
         "summary": "Update Dataset Metadata",
         "tags": [
           "Datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/aggregate/": {
+      "post": {
+        "description": "Compute one exact aggregate over a dataset's rows, for a widget.\n\nAnonymous callers can read public, published datasets; ``X-Embed-Token``\nauthorizes datasets in the token's scope. Other datasets return 404.\n\nWith ``bbox``, a view the planner expects to hold more than 500,000 rows\nis refused with 422 and the code ``too_wide`` rather than approximated. A\n``bbox`` that contains the whole dataset is answered as the whole layer.\nRefusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,\n``invalid_filter``, ``no_geometry``, ``query_timeout``,\n``query_data_error``, ``result_too_large``, and with 429 ``query_busy``\n(this caller already has two aggregates running) or ``query_at_capacity``.\n\nClients should keep at most two requests in flight per caller and retry a\n429 after 200-400 ms with jitter.",
+        "operationId": "aggregate_endpoint_datasets__dataset_id__aggregate__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+              "title": "X-Embed-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "discriminator": {
+                  "mapping": {
+                    "count": "#/components/schemas/CountRequest",
+                    "group_by": "#/components/schemas/GroupByRequest",
+                    "histogram": "#/components/schemas/HistogramRequest",
+                    "stats": "#/components/schemas/StatsRequest",
+                    "value_counts": "#/components/schemas/ValueCountsRequest"
+                  },
+                  "propertyName": "op"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CountRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StatsRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ValueCountsRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/HistogramRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GroupByRequest"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "count": "#/components/schemas/CountResponse",
+                      "group_by": "#/components/schemas/GroupByResponse",
+                      "histogram": "#/components/schemas/HistogramResponse",
+                      "stats": "#/components/schemas/StatsResponse",
+                      "value_counts": "#/components/schemas/ValueCountsResponse"
+                    },
+                    "propertyName": "op"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CountResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StatsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ValueCountsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistogramResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GroupByResponse"
+                    }
+                  ],
+                  "title": "Response Aggregate Endpoint Datasets  Dataset Id  Aggregate  Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Aggregate Endpoint",
+        "tags": [
+          "Datasets - Analysis"
         ]
       }
     },
