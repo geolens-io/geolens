@@ -346,6 +346,7 @@ def _start_replace(
     dataset: Any,
     revision: int,
     path: Path,
+    layers_seen: set[str],
 ) -> str | None:
     from geolens.api.datasets_reupload import (
         reupload_commit_datasets_dataset_id_reupload_job_id_commit_post as commit,
@@ -380,6 +381,9 @@ def _start_replace(
                 job_id=upload.job_id,
                 body=_replace.build_preview_request(layer),
             )
+        layers_seen.update(
+            found["name"] for found in _replace.layer_summaries(previewed)
+        )
         if layer is None and _replace.layer_summaries(previewed):
             return _settle_unrecorded(
                 ctx,
@@ -440,9 +444,19 @@ def refresh_file(
             return [f"not replaced: {skipped}"]
         except ItemFailed as exc:
             return [str(exc)]
-        return _bring_each(
-            ctx, item, entry, partial(_start_replace, ctx, entry, path=path)
+        layers_seen: set[str] = set()
+        problems = _bring_each(
+            ctx,
+            item,
+            entry,
+            partial(_start_replace, ctx, entry, path=path, layers_seen=layers_seen),
         )
+    known = {_layer_name(key) for key in entry.layer_datasets if key != JOB_KEY}
+    # Only a multi-layer file's previews list its layers.
+    added = sorted(layers_seen - known) if known else []
+    return [
+        f"layer {name} is in the file but isn't migrated" for name in added
+    ] + problems
 
 
 def _bring_one(

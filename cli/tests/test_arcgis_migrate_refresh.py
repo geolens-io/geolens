@@ -795,6 +795,58 @@ def test_a_stopped_refresh_ends_the_pass_and_marks_no_cutover(
     assert _state(plan_file)["cutover"] is None
 
 
+def test_a_layer_added_to_a_migrated_multi_layer_file_is_reported_and_blocks_cutover(
+    runner, tmp_path, geolens, portal
+):
+    files.FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = files._plan(tmp_path)
+    _edit_plan(plan_file, (D3,))
+    result, _ = _migrate(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    assert datasets == [dataset_id("Roads"), dataset_id("Parcels")]
+    committed = []
+    for n, dataset in enumerate(datasets):
+        job = _uuid("0c", f"{n:02d}")
+        preview = _preview(job)
+        preview["all_layers"] = [
+            {"name": name} for name in ("Roads", "Parcels", "Hydrants")
+        ]
+        geolens.routes.update(
+            {
+                f"POST /datasets/{dataset}/reupload": (
+                    201,
+                    {"job_id": job, "message": "ok", "status": "pending"},
+                ),
+                f"POST /datasets/{dataset}/reupload/{job}/preview": preview,
+                f"POST /datasets/{dataset}/reupload/{job}/commit": (
+                    lambda seen, d=dataset, j=job: committed.append(d)
+                    or (202, {"job_id": j, "status": "pending", "message": "queued"})
+                ),
+                f"GET /datasets/{dataset}/refresh-runs": {
+                    "runs": [
+                        _run(
+                            dataset,
+                            _uuid("5e", f"{n:02d}"),
+                            "succeeded",
+                            ingest_job_id=job,
+                        )
+                    ],
+                    "total": 1,
+                },
+            }
+        )
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert committed == datasets
+    assert payload["not_up_to_date"][D3] == [
+        "layer Hydrants is in the file but isn't migrated"
+    ]
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
 def test_a_replacement_of_a_file_that_now_holds_several_layers_is_not_committed(
     runner, tmp_path, geolens, portal
 ):
