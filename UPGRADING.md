@@ -57,7 +57,9 @@ fails with `credential_over_http`, and that includes refreshes of datasets you
 imported earlier. Move the service to `https://` where you can. For intranet
 services without TLS, list their hosts in `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`
 in `.env` (comma-separated, `host` or `host:port`) and restart `api` and
-`worker`.
+`worker`. Deployments that don't use the bundled Compose files, such as Helm
+charts and the cloud templates, must pass the variable to both the api and
+worker containers.
 
 ## Rollback
 

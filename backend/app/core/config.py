@@ -278,29 +278,49 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
+def canonical_service_host(host: str) -> str | None:
+    """*host* in one spelling, or None when it isn't a usable host.
+
+    An IP literal (brackets optional for IPv6, no zone ID) in its compressed
+    form; otherwise a DNS name UTS46-mapped to lowercase punycode by the
+    validator ``_is_valid_privacy_url_host`` uses, with no trailing dot.
+    """
+    bare = host.lower().removeprefix("[").removesuffix("]")
+    if "%" not in bare:
+        try:
+            return ipaddress.ip_address(bare).compressed
+        except ValueError:
+            pass
+    if bare != host.lower() or bare.endswith("."):
+        return None
+    if not _is_valid_privacy_url_host(bare, bracketed=False):
+        return None
+    return idna.encode(bare, uts46=True, std3_rules=True).decode("ascii")
+
+
 def parse_http_credential_hosts(value: str) -> list[tuple[str, int | None]]:
-    """``SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`` as (lowercase host, port or None).
+    """``SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`` as (canonical host, port or None).
 
     Raises ValueError for an entry that isn't a bare host or host:port.
     """
     hosts: list[tuple[str, int | None]] = []
-    for entry in filter(None, (raw.strip().lower() for raw in value.split(","))):
+    for entry in filter(None, (raw.strip() for raw in value.split(","))):
+        host = None
         try:
             parts = urlsplit(f"//{entry}")
             port = parts.port
+            if parts.netloc == entry and not entry.endswith(":") and "@" not in entry:
+                host = canonical_service_host(
+                    entry.rsplit(":", 1)[0] if port else entry
+                )
         except ValueError:
-            parts, port = None, None
-        if (
-            parts is None
-            or not parts.hostname
-            or parts.netloc != entry
-            or any(mark in entry for mark in "*@")
-        ):
+            pass
+        if host is None:
             raise ValueError(
                 "SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS takes host or host:port "
                 "entries, comma-separated"
             )
-        hosts.append((parts.hostname, port))
+        hosts.append((host, port))
     return hosts
 
 

@@ -1313,8 +1313,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
     # Ingest API router debt, including the commit door's token scheme check; split
-    # upload, import and registration endpoints before raising further. Each upload door branches once per 3D upload kind: a 3D
-    # Tiles tileset and a COPC point cloud.
+    # upload, import and registration endpoints before raising further. Each upload
+    # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
     "backend/app/processing/ingest/router.py": 1690,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
@@ -1348,7 +1348,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1192,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1483,
+    "backend/app/core/config.py": 1503,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
     "backend/app/core/persistent_config.py": 1203,

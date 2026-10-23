@@ -121,6 +121,11 @@ class TestThePolicy:
             ("gis.internal", "http://gis.internal.evil.test/wfs", True),
             ("gis.internal", "ftp://gis.internal/wfs", True),
             ("", "http://gis.internal/wfs", True),
+            ("b\u00fccher.test", "http://xn--bcher-kva.test/wfs", False),
+            ("xn--bcher-kva.test", "http://b\u00fccher.test/wfs", False),
+            ("[0:0::1]:8080", "http://[::1]:8080/wfs", False),
+            ("[::1]", "http://[0:0:0:0:0:0:0:1]/wfs", False),
+            ("[::1]:8080", "http://[::1]:8081/wfs", True),
         ],
     )
     def test_a_listed_host_may_take_one_over_http(
@@ -138,7 +143,24 @@ class TestThePolicy:
         credential_over_http_or_422("", "t")
 
     @pytest.mark.parametrize(
-        "value", ["http://gis.internal", "gis.internal/wfs", "*.internal", "u@h.test"]
+        "value",
+        [
+            "http://gis.internal",
+            "gis.internal/wfs",
+            "*.internal",
+            "u@h.test",
+            "x y",
+            "x;y",
+            "x\\y",
+            "x%2ey",
+            ".x",
+            "x..",
+            "x:",
+            "x.",
+            "::1",
+            "[fe80::1%eth0]",
+            "gis.internal:99999",
+        ],
     )
     def test_the_setting_takes_hosts_only(self, value):
         from app.core.config import Settings

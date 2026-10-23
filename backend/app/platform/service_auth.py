@@ -42,7 +42,7 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.coded_errors import CodedValueError
-from app.core.config import settings
+from app.core.config import canonical_service_host, settings
 from app.core.service_tokens import (
     BASIC_USERNAME_POLICY,
     CREDENTIAL_METHOD_POLICY,
@@ -308,10 +308,10 @@ def _http_host_allowed(url: str) -> bool:
     """Whether the operator listed *url*'s host, or host and port, for http."""
     try:
         parts = urlsplit(url)
-        host, port = (parts.hostname or "").lower(), parts.port or 80
+        host, port = canonical_service_host(parts.hostname or ""), parts.port or 80
     except ValueError:
         return False
-    return any(
+    return host is not None and any(
         allowed == host and allowed_port in (None, port)
         for allowed, allowed_port in settings.http_credential_hosts
     )

@@ -12,8 +12,8 @@ and releases use semantic versioning.
 - GeoLens no longer sends a service credential (token, username and password,
   or API key) to a plain `http://` service address. Probe, preview, import,
   re-upload and refresh requests that would do so, STAC requests included,
-  answer 422 `credential_over_http`, and a scheduled refresh of such a source
-  fails with that code. List intranet hosts without TLS in the new
+  answer 422 `credential_over_http`. A scheduled refresh of such a source fails
+  with that code where an extension supplies its credential resolver. List intranet hosts without TLS in the new
   `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS` setting to keep using them; see
   `UPGRADING.md`.
 - New API keys start with `glk_` and are 47 characters long, so a pasted key is
