@@ -38,21 +38,27 @@ _TOKEN_STATUSES = (498, 499)
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
-    """Operational layers including group members."""
+    """Operational layers in the order the server reads them: depth first,
+    group members in place of their group."""
     found: list[Mapping[str, Any]] = []
-    pending = [layers]
-    while pending:
-        current = pending.pop()
-        if not isinstance(current, list):
+    stack = [iter(layers if isinstance(layers, list) else [])]
+    while stack:
+        layer = next(stack[-1], None)
+        if layer is None:
+            stack.pop()
+        elif not isinstance(layer, dict):
             continue
-        for layer in current:
-            if isinstance(layer, dict):
-                found.append(layer)
-                pending.append(layer.get("layers"))
+        elif layer.get("layerType") == "GroupLayer":
+            members = layer.get("layers")
+            stack.append(iter(members if isinstance(members, list) else []))
+        else:
+            found.append(layer)
     return found
 
 
-def _dataset_for(layer: Mapping[str, Any], source: ItemState) -> str | None:
+def _dataset_for(
+    layer: Mapping[str, Any], source: ItemState, *, aliased: bool = False
+) -> str | None:
     """The dataset imported for *layer*, or None when the item holds no
     unambiguous one."""
     url = layer.get("url")
@@ -61,6 +67,10 @@ def _dataset_for(layer: Mapping[str, Any], source: ItemState) -> str | None:
     except ValueError:
         return None
     sub = _TRAILING_LAYER.search(path)
+    if sub and aliased:
+        # A hosted view numbers its layers on its own, and nothing the run
+        # recorded ties a view layer to the parent's.
+        return None
     if sub:
         # An index the run imported no dataset for is another layer's, not
         # the sole dataset's.
@@ -78,18 +88,21 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
     """Operational layer id -> dataset id, for the layers whose item the run
     imported."""
     matches: dict[str, str] = {}
+    seen: set[str] = set()
     for layer in _walk(webmap.get("operationalLayers")):
         layer_id, item_id = layer.get("id"), layer.get("itemId")
-        source = (
-            ctx.items.get(ctx.aliases.get(item_id, item_id))
-            if isinstance(item_id, str)
-            else None
-        )
-        if not isinstance(layer_id, str) or source is None:
+        # The server keeps the first layer of an id, so a later one must not
+        # take its match.
+        if not isinstance(layer_id, str) or layer_id in seen:
             continue
-        if source.status not in FINISHED:
+        seen.add(layer_id)
+        if not isinstance(item_id, str):
             continue
-        dataset = _dataset_for(layer, source)
+        parent = ctx.aliases.get(item_id)
+        source = ctx.items.get(parent or item_id)
+        if source is None or source.status not in FINISHED:
+            continue
+        dataset = _dataset_for(layer, source, aliased=parent is not None)
         if dataset:
             matches[layer_id] = dataset
     return matches

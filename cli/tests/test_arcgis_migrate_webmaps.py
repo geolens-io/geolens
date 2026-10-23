@@ -234,6 +234,7 @@ def test_layers_match_the_dataset_of_their_service_layer():
             {"id": "noitem", "url": f"{base}/0"},
             {
                 "id": "group",
+                "layerType": "GroupLayer",
                 "layers": [{"id": "inner", "itemId": "svc", "url": f"{base}/0"}],
             },
         ]
@@ -374,7 +375,7 @@ def test_a_basemap_url_with_a_query_finds_the_plans_entry(
     assert request["basemap_map"] == {sent_url: "dark"}
 
 
-def test_a_layer_of_a_skipped_view_matches_its_parents_dataset(
+def test_a_layer_of_a_skipped_view_is_not_guessed_from_its_parents_layers(
     runner, plan_file, geolens
 ):
     _services(geolens)
@@ -390,4 +391,47 @@ def test_a_layer_of_a_skipped_view_matches_its_parents_dataset(
 
     assert result.exit_code == 0, result.output
     [request] = [s.json() for s in _sent(geolens)]
-    assert request["dataset_matches"]["view_0"] == dataset_id("Parcels")
+    assert "view_0" not in request["dataset_matches"]
+
+
+def test_a_views_layer_index_is_never_read_as_the_parents():
+    ctx = SimpleNamespace(
+        aliases={"view": "parent", "solo_view": "solo"},
+        items={
+            "parent": _state_item(
+                layer_datasets={"0": "ds-0", "3": "ds-3"}, dataset_ids=["ds-0", "ds-3"]
+            ),
+            "solo": _state_item(dataset_ids=["ds-solo"]),
+        },
+    )
+    base = "https://h/arcgis/rest/services/V/FeatureServer"
+    webmap = {
+        "operationalLayers": [
+            {"id": "indexed", "itemId": "view", "url": f"{base}/0"},
+            {"id": "plain", "itemId": "solo_view"},
+        ]
+    }
+
+    assert match_datasets(ctx, webmap) == {"plain": "ds-solo"}
+
+
+def test_the_first_layer_of_a_duplicate_id_keeps_the_match():
+    ctx = SimpleNamespace(
+        aliases={},
+        items={"svc": _state_item(layer_datasets={"0": "ds-0"}, dataset_ids=["ds-0"])},
+    )
+    base = "https://h/arcgis/rest/services/S/FeatureServer"
+    webmap = {
+        "operationalLayers": [
+            {"id": "dup", "itemId": "other"},
+            {"id": "dup", "itemId": "svc", "url": f"{base}/0"},
+            {
+                "id": "grp",
+                "layerType": "GroupLayer",
+                "layers": [{"id": "first", "itemId": "svc", "url": f"{base}/0"}],
+            },
+            {"id": "first", "itemId": "other"},
+        ]
+    }
+
+    assert match_datasets(ctx, webmap) == {"first": "ds-0"}
