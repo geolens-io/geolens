@@ -34,13 +34,18 @@ invariant 4) and clear the stored probe verdict. This walks every module under
 Inside the owner module, each write is counted by the function it sits in, so
 a second write site, or a write outside the setter, fails too.
 
-Out of reach: names and SQL built at runtime (a computed attribute, column or
-table name, a mapping built with ``zip`` or a comprehension, SQL assembled
-across variables, from a list or read from a file), a mapping, statement or
-alias of the stored dict that arrives as a parameter, through an attribute or
-container, or from another module, SQL in database functions and triggers,
-migrations (outside ``backend/app/``), and ``source_format``, which several
-publication paths write beside the setter.
+Behind those rules sits a backstop: any string outside the owner module that
+names a column (f-strings and ``+`` concatenations read as one text,
+docstrings aside) fails unless its file and innermost function or class are in
+``LITERAL_ALLOWLIST``. A dynamic write needs the column's name as text or an
+attribute store, so the specific rules give the clearer message and the
+backstop catches what they miss. An allowlist entry that no longer matches a
+site fails, so the list only shrinks.
+
+Out of reach: a column name built at runtime from pieces that never spell it,
+an alias of the stored dict kept on an attribute or in a container, SQL in
+database functions and triggers, migrations (outside ``backend/app/``), and
+``source_format``, which several publication paths write beside the setter.
 """
 
 import ast
@@ -85,6 +90,8 @@ _WRITE_METHODS = frozenset(
         "bulk_update_mappings",
     }
 )
+# Keyword spellings of the setters' attribute name: set_attribute(key=...).
+_KEY_KEYWORDS = frozenset({"key", "name"})
 # Bulk loaders that take a table name and, optionally, the columns they fill.
 _TABLE_LOADERS = frozenset({"copy_records_to_table", "copy_to_table", "to_sql"})
 # Calls that set an attribute named by a string argument.
@@ -95,7 +102,7 @@ _SETTERS = frozenset({"setattr", "set_attribute", "set_committed_value", "__seta
 _SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 _COLUMN = r"\borigin_(?:ref|uri)\b"
 _DATASETS = (
-    r"(?:\w+\.)?datasets\b"
+    r"(?:only\s+)?(?:\w+\.)?datasets\b"
     r"(?:\s+(?:as\s+)?(?!(?:values|select|default|overriding|from|using|with)\b)\w+)?"
 )
 _SQL_WRITES = tuple(
@@ -472,7 +479,11 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
     name = _terminal_name(func)
     if column := _mutated_dict(call, scope):
         return [f"mutates {column} with {name}()"]
-    if name in _SETTERS and any(_names_a_column(arg) for arg in call.args[:2]):
+    named = [
+        *call.args[:2],
+        *(kw.value for kw in call.keywords if kw.arg in _KEY_KEYWORDS),
+    ]
+    if name in _SETTERS and any(_names_a_column(arg) for arg in named):
         return [f"{name}() sets a column by name"]
     if name in _TABLE_LOADERS:
         return _table_load_writes(call, name)
@@ -577,6 +588,90 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
     return found
 
 
+# The backstop: any string literal naming a column. A dynamic write needs either
+# an attribute store, caught above, or the column's name as text.
+_LITERAL = re.compile(r"\borigin_(?:ref|uri)\b")
+# Sites outside the binding module whose literals name a column, by file and
+# innermost function or class, each with why it is not a write.
+LITERAL_ALLOWLIST: dict[tuple[str, str], str] = {
+    (
+        "app/modules/catalog/datasets/api/router_refresh.py",
+        "_dispatch_postgis_refresh",
+    ): "db.refresh() reloads the columns after the run is reserved",
+    (
+        "app/modules/catalog/datasets/api/router_refresh.py",
+        "_dispatch_stac_refresh",
+    ): "db.refresh() reloads the columns after the run is reserved",
+    (
+        "app/modules/catalog/datasets/api/router_refresh.py",
+        "refresh_dataset",
+    ): "db.refresh() reloads the columns after the run is reserved",
+    (
+        "app/modules/catalog/datasets/domain/models.py",
+        "Dataset",
+    ): "index definitions over the columns",
+    (
+        "app/modules/catalog/datasets/domain/schemas.py",
+        "DatasetResponse",
+    ): "the response field's description",
+    (
+        "app/processing/ingest/previous_version.py",
+        "<module>",
+    ): "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
+}
+
+
+def literal_mentions(source: str) -> list[tuple[int, str]]:
+    """``(line, site)`` of every string expression naming a column, docstrings aside.
+
+    The site is the innermost function or class, or ``<module>``. An f-string or
+    a ``+`` of strings is read as one text.
+    """
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    found: list[tuple[int, str]] = []
+
+    def visit(node: ast.AST, site: str, in_string: bool) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            site = node.name
+        text = None if in_string or id(node) in docstrings else _string_text(node)
+        if text is not None:
+            if _LITERAL.search(text.lower()):
+                found.append((node.lineno, site))
+            in_string = True
+        for child in ast.iter_child_nodes(node):
+            visit(child, site, in_string)
+
+    visit(tree, "<module>", False)
+    return found
+
+
+def unlisted_mentions(
+    rel: str, source: str, allowlist: dict[tuple[str, str], str]
+) -> list[str]:
+    return [
+        f"{rel}:{line} in {site}"
+        for line, site in literal_mentions(source)
+        if (rel, site) not in allowlist
+    ]
+
+
+def _app_sources():
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT).as_posix()
+        if rel != OWNER:
+            yield rel, path.read_text(encoding="utf-8")
+
+
 def owner_writes(source: str) -> Counter:
     return Counter((function, what) for _, function, what in binding_writes(source))
 
@@ -595,6 +690,62 @@ def test_only_the_binding_module_writes_origin_columns() -> None:
         "set_postgis_origin in backend/app/platform/dataset_origin.py:\n"
         + "\n".join(violations)
     )
+
+
+def test_no_string_literal_outside_the_binding_module_names_a_column() -> None:
+    unlisted = [
+        mention
+        for rel, source in _app_sources()
+        if "origin_" in source.lower()
+        for mention in unlisted_mentions(rel, source, LITERAL_ALLOWLIST)
+    ]
+    assert not unlisted, (
+        "A string naming origin_ref/origin_uri outside the binding module can "
+        "write them by name. Write through set_dataset_origin, or add the site to "
+        "LITERAL_ALLOWLIST with why it is no write:\n" + "\n".join(unlisted)
+    )
+
+
+def test_every_allowlisted_site_still_names_a_column() -> None:
+    seen = {
+        (rel, site)
+        for rel, source in _app_sources()
+        if "origin_" in source.lower()
+        for _, site in literal_mentions(source)
+    }
+    assert set(LITERAL_ALLOWLIST) <= seen, sorted(set(LITERAL_ALLOWLIST) - seen)
+
+
+def test_the_backstop_catches_a_name_only_it_sees() -> None:
+    source = (
+        "COLUMN = 'origin_ref'\n"
+        "def write(obj, value):\n"
+        "    setattr(obj, COLUMN, value)\n"
+    )
+    assert binding_writes(source) == []
+    assert literal_mentions(source) == [(1, "<module>")]
+    assert literal_mentions("NAME = 'origin_' + 'uri'") == [(1, "<module>")]
+    assert literal_mentions("KEY = f'{prefix}.origin_uri'") == [(1, "<module>")]
+
+
+def test_an_allowlist_entry_clears_only_its_own_site() -> None:
+    source = "def keys():\n    return ['origin_ref']\n\ndef other():\n    return 'origin_uri'\n"
+    assert unlisted_mentions("app/x.py", source, {}) == [
+        "app/x.py:2 in keys",
+        "app/x.py:5 in other",
+    ]
+    listed = {("app/x.py", "keys"): "a test"}
+    assert unlisted_mentions("app/x.py", source, listed) == ["app/x.py:5 in other"]
+
+
+def test_the_backstop_leaves_docstrings_and_other_names_alone() -> None:
+    source = (
+        '"""Reads origin_ref."""\n'
+        "def f():\n"
+        '    """Also origin_uri."""\n'
+        "    return 'ix_datasets_origin_uri', 'origin_ref_snapshot'\n"
+    )
+    assert literal_mentions(source) == []
 
 
 def test_the_owner_module_writes_only_inside_its_setter() -> None:
@@ -764,6 +915,8 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         # Attribute writes by name.
         "set_attribute(dataset, 'origin_ref', ref)",
         "set_committed_value(dataset, 'origin_uri', u)",
+        "set_attribute(instance=dataset, key='origin_ref', value=ref)",
+        "text('INSERT INTO ONLY catalog.datasets VALUES (:a, :b)')",
         "dataset.__dict__['origin_ref'] = ref",
         "dataset.__setattr__('origin_ref', ref)",
         "object.__setattr__(dataset, 'origin_uri', u)",
