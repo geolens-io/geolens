@@ -871,9 +871,11 @@ def test_the_record_stays_the_published_one_when_the_metadata_write_races_an_edi
 
     geolens.routes[f"PATCH /datasets/{PARCELS}"] = patch_while_alice_edits
 
-    result, _ = _migrate(runner, plan_file, "--only", A2)
+    result, payload = _migrate(runner, plan_file, "--only", A2)
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][A2]
+    assert "changed in GeoLens while its metadata was written" in reason
     assert service.summaries[PARCELS].startswith("New summary")
     assert _state(plan_file)["items"][A2]["last_update"][PARCELS] == {
         "updated_at": "2026-10-02T00:00:00+00:00",

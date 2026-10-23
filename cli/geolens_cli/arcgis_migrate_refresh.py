@@ -496,9 +496,10 @@ def _bring_one(
     ctx.save()
     apply_item_metadata(ctx, item, entry, [dataset_id])
     after = get_dataset(ctx, dataset_id)
-    if _published_unchanged(ctx, after, marker):
-        record(entry, dataset_id, after)
-        ctx.save()
+    if not _published_unchanged(ctx, after, marker):
+        return "changed in GeoLens while its metadata was written; it was left as it is"
+    record(entry, dataset_id, after)
+    ctx.save()
     return None
 
 
