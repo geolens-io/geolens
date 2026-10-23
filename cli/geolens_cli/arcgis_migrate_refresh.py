@@ -88,7 +88,7 @@ def record(entry: ItemState, dataset_id: str, dataset: Any) -> None:
     entry.refreshing.pop(dataset_id, None)
 
 
-def _operator_wrote_last(
+def operator_wrote_last(
     ctx: MigrationContext, dataset: Any, operator: str | None = None
 ) -> bool:
     """Whether *operator*, by default this run's, made the dataset's last write."""
@@ -135,7 +135,7 @@ def _published_unchanged(
     return (
         expected is not None
         and _revision(dataset) == expected
-        and _operator_wrote_last(ctx, dataset, marker.get("by"))
+        and operator_wrote_last(ctx, dataset, marker.get("by"))
         and ("owner" not in marker or _owner(dataset) == marker["owner"])
     )
 
@@ -174,7 +174,7 @@ def changed_in_geolens(
         finished = aware_time(entry.finished_at)
         if (
             finished is not None
-            and _operator_wrote_last(ctx, dataset)
+            and operator_wrote_last(ctx, dataset)
             and dataset.updated_at <= finished
         ):
             return None

@@ -53,9 +53,11 @@ from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
     get_dataset,
+    operator_wrote_last,
     record,
     refresh_file,
     refresh_layers,
+    snapshot,
 )
 from .arcgis_migrate_webmaps import get_map, import_map, refresh_map
 from .arcgis_migrate_session import (
@@ -614,12 +616,31 @@ def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
     )
 
 
-def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> dict[str, Any]:
+def transfer(
+    ctx: MigrationContext,
+    entry: ItemState,
+    owner: Owner,
+    revisions: Mapping[str, Any],
+) -> dict[str, Any]:
     """Hand every dataset and the map recorded for an item to *owner*; each
-    dataset as its transfer left it."""
-    left = {d: transfer_dataset(geolens, d, owner) for d in entry.dataset_ids}
+    dataset as its transfer left it.
+
+    A dataset is handed over only while the operator wrote it last and its
+    data revision is still the one in *revisions*, read after the import.
+    """
+    left = {}
+    for dataset_id in entry.dataset_ids:
+        read = get_dataset(ctx, dataset_id)
+        if not operator_wrote_last(ctx, read) or snapshot(read)[
+            "data_revision"
+        ] != revisions.get(dataset_id):
+            raise ItemFailed(
+                f"dataset {dataset_id} changed in GeoLens before its owner was "
+                "handed over; it was left as it is"
+            )
+        left[dataset_id] = transfer_dataset(ctx.geolens, dataset_id, owner, read)
     if entry.map_id:
-        _transfer_map(geolens, entry.map_id, owner)
+        _transfer_map(ctx.geolens, entry.map_id, owner)
     return left
 
 
@@ -663,6 +684,10 @@ def _migrate_one(
         entry.notes = [state.clean(note) for note in result.notes]
         state.save()
         if owner is not None:
+            revisions = {
+                d: snapshot(get_dataset(ctx, d))["data_revision"]
+                for d in entry.dataset_ids
+            }
             entry.visibility = dict.fromkeys(
                 entry.dataset_ids, item["target"]["visibility"]
             )
@@ -674,7 +699,8 @@ def _migrate_one(
             # some of the item's objects to another owner already.
             # The transfer is the last write, so its answers are the baseline;
             # a read after it could take an edit made since as this command's.
-            for dataset_id, dataset in transfer(ctx.geolens, entry, owner).items():
+            handed = transfer(ctx, entry, owner, revisions)
+            for dataset_id, dataset in handed.items():
                 record(entry, dataset_id, dataset)
             entry.owner_id = owner.id
             entry.owner_pending = pending

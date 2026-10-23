@@ -92,6 +92,7 @@ def _dataset(dataset_id: str, owner: str) -> dict:
         "created_by_display": None,
         "created_at": NOW,
         "updated_at": NOW,
+        "updated_by": OPERATOR,
     }
 
 
@@ -490,6 +491,35 @@ def test_items_are_transferred_to_the_mapped_owner(runner, tmp_path, geolens, ha
         ("maps", {"owner_id": ALICE, "expected_updated_at": READ_AT}),
     ]
     assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
+
+
+@pytest.mark.parametrize(
+    "edit", [{"updated_by": ALICE}, {"data_revision": 1}], ids=["alice", "data"]
+)
+def test_a_dataset_changed_before_its_first_transfer_is_not_handed_over(
+    runner, tmp_path, geolens, handled, edit
+):
+    dataset_id = _created_id(L1)
+    _allow_transfers(geolens, dataset_id)
+    imported = {**_dataset(dataset_id, OPERATOR), "data_revision": 0}
+    reads = []
+
+    def read(seen):
+        reads.append(seen)
+        return imported if len(reads) == 1 else {**imported, **edit}
+
+    geolens.routes[f"GET /datasets/{dataset_id}"] = read
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 1
+    entry = _state(tmp_path)["items"][L1]
+    assert entry["error"] == (
+        f"dataset {dataset_id} changed in GeoLens before its owner was handed "
+        "over; it was left as it is"
+    )
+    assert [s for s in geolens.seen if s.method == "PATCH"] == []
+    assert entry["last_update"] == {} and entry["owner_id"] is None
 
 
 def test_the_baseline_is_the_transfers_answer_not_a_later_read(
