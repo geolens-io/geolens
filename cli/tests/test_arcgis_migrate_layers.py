@@ -1210,6 +1210,7 @@ def test_item_metadata_is_written_onto_the_datasets(runner, tmp_path, geolens):
         "attribution": "Example County GIS",
         "license": "CC BY 4.0",
         "source_organization": "Example County",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
     }
     assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]
     entry = _state(plan_file)["items"][A2]

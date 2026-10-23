@@ -852,6 +852,14 @@ class DatasetMeta(BaseModel):
         default=None,
         description="Admin only: transfer the dataset to this active user.",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The dataset's `updated_at` the caller read. When set and the dataset "
+            "has changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
+    )
 
     @field_validator("language")
     @classmethod

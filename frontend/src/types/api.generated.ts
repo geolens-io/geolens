@@ -8949,6 +8949,11 @@ export interface components {
              * @description Admin only: transfer the dataset to this active user.
              */
             owner_id?: string | null;
+            /**
+             * Expected Updated At
+             * @description The dataset's `updated_at` the caller read. When set and the dataset has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /**
          * DatasetRefreshRequest

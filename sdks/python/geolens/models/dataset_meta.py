@@ -53,6 +53,9 @@ class DatasetMeta:
             tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
                 emits geometry-only tiles, list emits those properties at any zoom.
             owner_id (None | Unset | UUID): Admin only: transfer the dataset to this active user.
+            expected_updated_at (datetime.datetime | None | Unset): The dataset's `updated_at` the caller read. When set and
+                the dataset has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit
+                it to write unconditionally.
     """
 
     title: None | str | Unset = UNSET
@@ -77,6 +80,7 @@ class DatasetMeta:
     is_dem: bool | None | Unset = UNSET
     tile_columns: list[str] | None | Unset = UNSET
     owner_id: None | Unset | UUID = UNSET
+    expected_updated_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -226,6 +230,14 @@ class DatasetMeta:
         else:
             owner_id = self.owner_id
 
+        expected_updated_at: None | str | Unset
+        if isinstance(self.expected_updated_at, Unset):
+            expected_updated_at = UNSET
+        elif isinstance(self.expected_updated_at, datetime.datetime):
+            expected_updated_at = self.expected_updated_at.isoformat()
+        else:
+            expected_updated_at = self.expected_updated_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -273,6 +285,8 @@ class DatasetMeta:
             field_dict["tile_columns"] = tile_columns
         if owner_id is not UNSET:
             field_dict["owner_id"] = owner_id
+        if expected_updated_at is not UNSET:
+            field_dict["expected_updated_at"] = expected_updated_at
 
         return field_dict
 
@@ -536,6 +550,27 @@ class DatasetMeta:
 
         owner_id = _parse_owner_id(d.pop("owner_id", UNSET))
 
+        def _parse_expected_updated_at(
+            data: object,
+        ) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expected_updated_at_type_0 = isoparse(data)
+
+                return expected_updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expected_updated_at = _parse_expected_updated_at(
+            d.pop("expected_updated_at", UNSET)
+        )
+
         dataset_meta = cls(
             title=title,
             summary=summary,
@@ -559,6 +594,7 @@ class DatasetMeta:
             is_dem=is_dem,
             tile_columns=tile_columns,
             owner_id=owner_id,
+            expected_updated_at=expected_updated_at,
         )
 
         dataset_meta.additional_properties = d

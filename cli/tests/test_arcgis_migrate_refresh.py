@@ -1009,6 +1009,38 @@ def test_the_record_stays_the_published_one_when_the_metadata_write_races_an_edi
     }
 
 
+def test_a_metadata_write_geolens_refuses_as_stale_keeps_the_published_record(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    _set_snippet(plan_file, A2, "New summary")
+    sent = []
+
+    def stale(seen):
+        sent.append(seen.json())
+        detail = {"code": "stale_write", "message": "changed"}
+        return (409, layers._problem(409, detail))
+
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = stale
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert [body["expected_updated_at"] for body in sent] == [
+        "2026-10-02T00:00:00+00:00"
+    ]
+    [reason] = payload["not_up_to_date"][A2]
+    assert reason.endswith(
+        "changed in GeoLens while its metadata was written; it was left as it is"
+    )
+    assert _state(plan_file)["items"][A2]["last_update"][PARCELS] == {
+        "updated_at": "2026-10-02T00:00:00+00:00",
+        "feature_count": 0,
+        "data_revision": 0,
+    }
+
+
 def test_a_replacement_made_in_geolens_during_the_upload_is_not_overwritten(
     runner, tmp_path, geolens, portal
 ):
