@@ -307,7 +307,11 @@ def _typed_value(value: Any, field_kind: str | None) -> str | int | float:
             return int(exact)
         return value
     number = float(exact)
-    if field_kind == "single":
+    if field_kind == "numeric":
+        # The distinct values endpoint sends a numeric column as a float.
+        if not math.isfinite(number):
+            return value
+    elif field_kind == "single":
         try:
             number = struct.unpack("f", struct.pack("f", number))[0]
         except OverflowError:

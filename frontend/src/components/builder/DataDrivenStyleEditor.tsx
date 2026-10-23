@@ -358,7 +358,12 @@ export function DataDrivenStyleEditor({
 
   const columns = layer.dataset_column_info ?? [];
   // Booleans classify as the strings "true"/"false" (a match label can't be a boolean).
-  const textColumns = columns.filter((c) => isTextColumn(c.type) || isBooleanColumn(c.type));
+  // A numeric column stays listed while the saved style is categorical on it (an imported coded-value field).
+  const savedCategoricalColumn =
+    layer.style_config?.mode === 'categorical' ? layer.style_config.column : undefined;
+  const textColumns = columns.filter(
+    (c) => isTextColumn(c.type) || isBooleanColumn(c.type) || c.name === savedCategoricalColumn,
+  );
   const columnIsBoolean = columns.some((c) => c.name === column && isBooleanColumn(c.type));
   const numericColumns = columns.filter((c) => isNumericColumn(c.type));
   const filteredColumns = mode === 'categorical' ? textColumns : numericColumns;
@@ -611,6 +616,7 @@ export function DataDrivenStyleEditor({
     const sizes = computeSizes(sizeRange, effectiveClassCount);
     const sizeExpression = buildGraduatedSizeExpression(column, breaks, sizes);
 
+    const nullColor = styleConfig?.column === column ? styleConfig.nullColor : undefined;
     const config: StyleConfig = {
       mode: 'graduated',
       column,
@@ -618,6 +624,7 @@ export function DataDrivenStyleEditor({
       classCount,
       method,
       breaks,
+      ...(nullColor ? { nullColor } : {}),
       target,
       sizes,
       sizeRange,
@@ -991,7 +998,9 @@ export function DataDrivenStyleEditor({
                   color={cat.color}
                   onChange={(hex) => handleCategoryColorChange(cat.value, hex)}
                 />
-                <span className="text-xs truncate">{cat.value}</span>
+                <span className="text-xs truncate">
+                  {cat.label && cat.label !== String(cat.value) ? `${cat.label} (${cat.value})` : cat.value}
+                </span>
               </div>
             ))}
           </div>

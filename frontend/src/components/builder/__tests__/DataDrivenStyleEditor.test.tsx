@@ -755,6 +755,31 @@ describe('DataDrivenStyleEditor', () => {
         expect(onStyleConfigChange).not.toHaveBeenCalled();
       });
     });
+
+    it('shows the column and class labels of an imported style on an integer field', async () => {
+      const values = [1, 2];
+      const config: StyleConfig = {
+        mode: 'categorical',
+        column: 'population',
+        ramp: 'custom',
+        categories: [
+          { value: 1, label: 'Hospital', color: '#ff0000' },
+          { value: 2, label: 'Clinic', color: '#00ff00' },
+        ],
+      };
+      mockUseColumnValues.mockReturnValue(hookData({ values, count: values.length }));
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('population') } })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByRole('combobox', { name: 'Column' }).textContent).toContain('population');
+      expect(screen.getByText('Hospital (1)')).toBeDefined();
+      expect(screen.getByText('Clinic (2)')).toBeDefined();
+    });
   });
 
   describe('target selector', () => {
@@ -789,6 +814,58 @@ describe('DataDrivenStyleEditor', () => {
 
       // Target selector should be visible (i18n renders "Target" label)
       expect(screen.getByText('Target')).toBeDefined();
+    });
+
+    it('keeps an imported null colour through a colour to radius to colour toggle', async () => {
+      const breaks = equalIntervalBreaks(0, 100, 3);
+      const colors = getRampColors('YlOrRd', 3);
+      const config: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'custom',
+        method: 'equal_interval',
+        classCount: 3,
+        breaks,
+        colors,
+        nullColor: 'rgba(0,0,0,0)',
+        target: 'color',
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({ min: 0, max: 100, count: 100, mean: 50, quantiles: [0, 50, 100] }) as unknown as ReturnType<
+          typeof useColumnStats
+        >,
+      );
+      const onStyleConfigChange = vi.fn();
+      const pointLayer = (cfg: StyleConfig, paint: Record<string, unknown>) =>
+        makeLayer({ dataset_geometry_type: 'Point', style_config: cfg, paint });
+      const { rerender } = render(
+        <DataDrivenStyleEditor
+          layer={pointLayer(config, { 'circle-color': colorExprFor('population') })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('combobox', { name: 'Target' }));
+      await user.click(await screen.findByRole('option', { name: 'Radius' }));
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled());
+      const [, sizeConfig, sizePaint] = onStyleConfigChange.mock.calls.at(-1)!;
+      expect((sizeConfig as StyleConfig).target).toBe('radius');
+      expect((sizeConfig as StyleConfig).nullColor).toBe('rgba(0,0,0,0)');
+
+      onStyleConfigChange.mockClear();
+      rerender(
+        <DataDrivenStyleEditor
+          layer={pointLayer(sizeConfig as StyleConfig, sizePaint as Record<string, unknown>)}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+      await user.click(screen.getByRole('combobox', { name: 'Target' }));
+      await user.click(await screen.findByRole('option', { name: 'Color' }));
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled());
+      const [, colorConfig, colorPaint] = onStyleConfigChange.mock.calls.at(-1)!;
+      expect((colorConfig as StyleConfig).nullColor).toBe('rgba(0,0,0,0)');
+      expect((colorPaint as Record<string, unknown[]>)['circle-color'][2]).toBe('rgba(0,0,0,0)');
     });
 
     it('does NOT show a target selector for a polygon layer in graduated mode', async () => {

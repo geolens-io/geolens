@@ -244,7 +244,7 @@ _NUMERIC_COLUMN_KINDS = {
     "smallint": "integer",
     "integer": "integer",
     "bigint": "integer",
-    "numeric": "float",
+    "numeric": "numeric",
     "real": "single",
     "double precision": "float",
 }

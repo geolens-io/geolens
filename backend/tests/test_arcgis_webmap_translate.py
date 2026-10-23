@@ -6,10 +6,12 @@ import copy
 import json
 import time
 import uuid
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from app.modules.catalog.datasets.domain.column_stats import _json_number
 from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
     definition_expression_to_filter,
     is_match_all,
@@ -60,6 +62,7 @@ def _translate(webmap: dict, matches: dict | None = None, **kwargs):
         dataset_matches=matches,
         basemap_map=kwargs.pop("basemap_map", {"https://esri/base": "openstreetmap"}),
         available_basemaps=kwargs.pop("available_basemaps", BASEMAPS),
+        dataset_columns=kwargs.pop("dataset_columns", None),
     )
 
 
@@ -315,6 +318,25 @@ class TestUniqueValueRenderer:
         layer = _translate(webmap).layers[0]
         values = [c["value"] for c in layer.style_config["categories"]]
         assert values == [0.1, 2.5, 0.30000000000000004, "0.1000000000000000001"]
+
+    def test_a_numeric_column_category_matches_the_distinct_values_conversion(
+        self,
+    ) -> None:
+        text = "0.1000000000000000001"
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "RATE",
+            "uniqueValueInfos": [{"value": text, "symbol": _fill()}],
+        }
+        dataset_id = uuid.uuid4()
+        layer = _translate(
+            _with_renderer(renderer),
+            matches={"L1": dataset_id},
+            dataset_columns={dataset_id: [{"name": "RATE", "type": "numeric"}]},
+        ).layers[0]
+        expected = _json_number(Decimal(text))
+        assert layer.style_config["categories"][0]["value"] == expected
+        assert layer.paint["fill-color"][3][2] == "0.1"
 
     @pytest.mark.parametrize(
         ("field_type", "text", "value", "key"),
