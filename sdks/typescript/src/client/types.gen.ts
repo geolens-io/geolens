@@ -1212,6 +1212,14 @@ export type AttributeMetadataResponse = {
      */
     example_values?: Array<unknown> | null;
     /**
+     * Value Labels
+     *
+     * Label for each stored code, keyed by the code as text.
+     */
+    value_labels?: {
+        [key: string]: string;
+    } | null;
+    /**
      * Ordinal Position
      *
      * Column position in the table (1-based)
@@ -1267,6 +1275,14 @@ export type AttributeMetadataUpdate = {
      * Value domain: continuous, categorical, coded, etc.
      */
     domain_type?: 'continuous' | 'discrete' | 'categorical' | 'coded' | 'codedValue' | 'boolean' | 'text' | 'date' | 'temporal' | 'geometry' | 'range' | null;
+    /**
+     * Value Labels
+     *
+     * Label for each stored code, keyed by the code as text.
+     */
+    value_labels?: {
+        [key: string]: string;
+    } | null;
 };
 
 /**
@@ -3375,6 +3391,66 @@ export type ContactUpdate = {
      * Sort Order
      */
     sort_order?: number | null;
+};
+
+/**
+ * CountRequest
+ */
+export type CountRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'count';
+};
+
+/**
+ * CountResponse
+ */
+export type CountResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'count';
+    result: CountResult;
+};
+
+/**
+ * CountResult
+ */
+export type CountResult = {
+    /**
+     * Count
+     */
+    count: number;
 };
 
 /**
@@ -5655,6 +5731,86 @@ export type GeoJsonGeometryCollection = {
 };
 
 /**
+ * GroupByRequest
+ */
+export type GroupByRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'group_by';
+    /**
+     * Group Column
+     */
+    group_column: string;
+    /**
+     * Stat
+     */
+    stat: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    /**
+     * Column
+     *
+     * The numeric column `stat` reads; omit for `count`.
+     */
+    column?: string | null;
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
+ * GroupByResponse
+ */
+export type GroupByResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'group_by';
+    result: GroupByResult;
+};
+
+/**
+ * GroupByResult
+ */
+export type GroupByResult = {
+    /**
+     * Groups
+     *
+     * Largest value first.
+     */
+    groups: Array<GroupValue>;
+};
+
+/**
  * GroupListResponse
  */
 export type GroupListResponse = {
@@ -5739,6 +5895,24 @@ export type GroupResponse = {
 };
 
 /**
+ * GroupValue
+ */
+export type GroupValue = {
+    /**
+     * Key
+     *
+     * The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+     */
+    key: string | number | number | boolean | null;
+    /**
+     * Value
+     *
+     * Exact for count, sum, min and max, as for a key; avg is a float.
+     */
+    value: number | number | string | null;
+};
+
+/**
  * GroupWrite
  */
 export type GroupWrite = {
@@ -5772,6 +5946,94 @@ export type HealthResponse = {
     providers: {
         [key: string]: ServiceHealth;
     };
+};
+
+/**
+ * HistogramBin
+ */
+export type HistogramBin = {
+    /**
+     * Lower
+     */
+    lower: number;
+    /**
+     * Upper
+     */
+    upper: number;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * HistogramRequest
+ */
+export type HistogramRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'histogram';
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Bins
+     */
+    bins?: number;
+};
+
+/**
+ * HistogramResponse
+ */
+export type HistogramResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'histogram';
+    result: HistogramResult;
+};
+
+/**
+ * HistogramResult
+ */
+export type HistogramResult = {
+    /**
+     * Bins
+     *
+     * Equal-width bins over the finite values; empty with none.
+     */
+    bins: Array<HistogramBin>;
 };
 
 /**
@@ -11994,6 +12256,95 @@ export type StaleCleanupResponse = {
 };
 
 /**
+ * StatsRequest
+ */
+export type StatsRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'stats';
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Stats
+     */
+    stats: Array<'count' | 'sum' | 'avg' | 'min' | 'max'>;
+};
+
+/**
+ * StatsResponse
+ */
+export type StatsResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'stats';
+    result: StatsResult;
+};
+
+/**
+ * StatsResult
+ *
+ * The requested statistics; one over no rows is null.
+ *
+ * ``sum``, ``min`` and ``max`` are exact: a number when JSON can carry it
+ * exactly, else text. ``avg`` is a float, or text for NaN and infinity.
+ */
+export type StatsResult = {
+    /**
+     * Count
+     */
+    count?: number | null;
+    /**
+     * Sum
+     */
+    sum?: number | number | string | null;
+    /**
+     * Avg
+     */
+    avg?: number | string | null;
+    /**
+     * Min
+     */
+    min?: number | number | string | null;
+    /**
+     * Max
+     */
+    max?: number | number | string | null;
+};
+
+/**
  * StatusUpdate
  */
 export type StatusUpdate = {
@@ -12740,6 +13091,98 @@ export type ValidationResultResponse = {
     quality_score?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * ValueCount
+ */
+export type ValueCount = {
+    /**
+     * Value
+     *
+     * The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+     */
+    value: string | number | number | boolean | null;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * ValueCountsRequest
+ */
+export type ValueCountsRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'value_counts';
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
+ * ValueCountsResponse
+ */
+export type ValueCountsResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'value_counts';
+    result: ValueCountsResult;
+};
+
+/**
+ * ValueCountsResult
+ */
+export type ValueCountsResult = {
+    /**
+     * Values
+     *
+     * Most frequent first.
+     */
+    values: Array<ValueCount>;
+    /**
+     * Other Count
+     *
+     * Rows whose value is not listed.
+     */
+    other_count: number;
 };
 
 /**
@@ -19562,6 +20005,97 @@ export type UpdateDatasetMetadataDatasetsDatasetIdPatchResponses = {
 };
 
 export type UpdateDatasetMetadataDatasetsDatasetIdPatchResponse = UpdateDatasetMetadataDatasetsDatasetIdPatchResponses[keyof UpdateDatasetMetadataDatasetsDatasetIdPatchResponses];
+
+export type AggregateEndpointDatasetsDatasetIdAggregatePostData = {
+    /**
+     * Body
+     */
+    body: ({
+        op: 'count';
+    } & CountRequest) | ({
+        op: 'stats';
+    } & StatsRequest) | ({
+        op: 'value_counts';
+    } & ValueCountsRequest) | ({
+        op: 'histogram';
+    } & HistogramRequest) | ({
+        op: 'group_by';
+    } & GroupByRequest);
+    headers?: {
+        /**
+         * X-Embed-Token
+         *
+         * Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).
+         */
+        'X-Embed-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/aggregate/';
+};
+
+export type AggregateEndpointDatasetsDatasetIdAggregatePostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type AggregateEndpointDatasetsDatasetIdAggregatePostError = AggregateEndpointDatasetsDatasetIdAggregatePostErrors[keyof AggregateEndpointDatasetsDatasetIdAggregatePostErrors];
+
+export type AggregateEndpointDatasetsDatasetIdAggregatePostResponses = {
+    /**
+     * Response Aggregate Endpoint Datasets  Dataset Id  Aggregate  Post
+     *
+     * Successful Response
+     */
+    200: ({
+        op: 'count';
+    } & CountResponse) | ({
+        op: 'stats';
+    } & StatsResponse) | ({
+        op: 'value_counts';
+    } & ValueCountsResponse) | ({
+        op: 'histogram';
+    } & HistogramResponse) | ({
+        op: 'group_by';
+    } & GroupByResponse);
+};
+
+export type AggregateEndpointDatasetsDatasetIdAggregatePostResponse = AggregateEndpointDatasetsDatasetIdAggregatePostResponses[keyof AggregateEndpointDatasetsDatasetIdAggregatePostResponses];
 
 export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostData = {
     body: AnalysisMaterializeRequest;

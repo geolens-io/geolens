@@ -631,7 +631,7 @@ class _PostgisRefresh:
             )
         # With no staging copy the diff is the live table against what was
         # recorded. Drift is recorded, never refused.
-        schema_diff = await project(session, dataset, self.measurement)
+        schema_diff = await project(session, dataset, self.measurement, field_labels={})
         # The measurement read the relation, so it exists and is readable, and
         # this strategy is the only writer of its origin kind's verdict.
         dataset.source_health = _HEALTHY

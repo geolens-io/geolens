@@ -114,7 +114,8 @@ _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f"
 # POST. POST /stac/search is STAC's required JSON-body search surface,
 # delegating to the same read-only `_execute_search` the GET form uses.
 # POST /jobs/status carries many job ids in a body, which a GET cannot hold; it
-# reads what `GET /jobs/{id}` reads.
+# reads what `GET /jobs/{id}` reads. POST /datasets/{id}/aggregate reads rows
+# the dataset's feature routes already serve, through the read-only sandbox.
 #
 # Spelled WITHOUT the `/api` prefix: the app uses `root_path="/api"`, which
 # Starlette strips before route matching, so no route template starts with
@@ -129,6 +130,8 @@ _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/stac/search"),
         ("POST", "/jobs/status"),
         ("POST", "/jobs/status/"),
+        ("POST", "/datasets/{dataset_id}/aggregate"),
+        ("POST", "/datasets/{dataset_id}/aggregate/"),
     }
 )
 

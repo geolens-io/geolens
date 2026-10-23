@@ -49,6 +49,7 @@ __all__ = [
     "build_arcgis_id_query_url",
     "enrich_arcgis_feature_counts",
     "fetch_arcgis_feature_count",
+    "fetch_arcgis_field_labels",
     "fetch_arcgis_id_plan",
     "fetch_arcgis_layer_preview",
     "fetch_arcgis_pagination_info",
@@ -374,7 +375,11 @@ async def _read_with_query_token(
     """
     retry_headers, retry_token = _query_form_credential(token)
     body, _ = await bounded_probe_read(
-        client, build_url(retry_token), headers=retry_headers, accept=OGC_JSON_ACCEPT
+        client,
+        build_url(retry_token),
+        headers=retry_headers,
+        accept=OGC_JSON_ACCEPT,
+        credential_in_query=True,
     )
     return _arcgis_parsed_json(body)
 
@@ -412,7 +417,11 @@ async def read_arcgis_json(
     requested_url = build_url(query_token)
     try:
         body, _ = await bounded_probe_read(
-            client, requested_url, headers=headers, accept=OGC_JSON_ACCEPT
+            client,
+            requested_url,
+            headers=headers,
+            accept=OGC_JSON_ACCEPT,
+            credential_in_query=query_token is not None,
         )
     except httpx.HTTPStatusError as exc:
         if not headers or not token or not _is_web_tier_refusal(exc, requested_url):
@@ -930,6 +939,16 @@ async def fetch_arcgis_layer_meta(
 
     reject_unsupported_arcgis_type(meta)
     return meta
+
+
+async def fetch_arcgis_field_labels(
+    base: str, layer_id: int | str, client: httpx.AsyncClient, token: str | None = None
+) -> dict:
+    """The layer's published field labels, keyed by stored column name."""
+    meta = await fetch_arcgis_layer_meta(
+        base.rstrip("/"), str(layer_id).strip("/"), client, token
+    )
+    return arcgis_field_labels(meta)
 
 
 async def fetch_arcgis_layer_preview(

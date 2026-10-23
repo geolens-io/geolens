@@ -689,25 +689,20 @@ class TestACrossOriginRedirectIsRefused:
         assert len(recorded) == 2
         assert recorded[1].headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
 
-    async def test_the_query_fallback_does_not_follow_a_redirect_either(
-        self, redirecting
-    ) -> None:
-        """On the pre-10.5.1 path the credential is in the request URL, and a
-        redirect target is chosen by the SERVICE, so it carries none of our
-        query string. No header goes out, so the hop is not refused -- it is
-        followed, and arrives with nothing. Pinned so a future 'preserve the
-        query across the redirect' convenience cannot land unnoticed."""
+    async def test_the_query_fallback_refuses_the_hop_too(self, redirecting) -> None:
+        """On the pre-10.5.1 path the adapter put the credential in the URL
+        itself, so a cross-origin hop is refused as for the header, whether
+        or not the target repeats the token."""
         recorded = redirecting("https://elsewhere.example/harvest")
 
         async with security_mod.make_safe_client() as client:
-            await fetch_arcgis_feature_count(
-                _BASE, 0, client, token=_TOKEN, current_version="10.4"
-            )
+            with pytest.raises(SSRFError):
+                await fetch_arcgis_feature_count(
+                    _BASE, 0, client, token=_TOKEN, current_version="10.4"
+                )
 
-        assert len(recorded) == 2
+        assert len(recorded) == 1
         assert "token=" in str(recorded[0].url)
-        assert "token=" not in str(recorded[1].url)
-        assert "x-esri-authorization" not in {n.lower() for n in recorded[1].headers}
 
 
 class TestTheTokenCannotReachTheHttpxRequestLog:

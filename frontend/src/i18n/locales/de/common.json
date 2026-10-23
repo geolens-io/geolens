@@ -315,6 +315,7 @@
     "userNotFound": "Benutzer nicht gefunden",
     "apiKeyNotFound": "API-Schlüssel nicht gefunden",
     "datasetKeyLimit": "Dieser Datensatz hat bereits 100 aktive Schreibschlüssel. Widerrufen Sie einen, um einen neuen zu erstellen.",
+    "valueLabelsTooLarge": "Die Wertebezeichnungen dieses Datensatzes überschreiten das Limit von 1 MB. Entfernen Sie einige Bezeichnungen, um weitere hinzuzufügen.",
     "accessDenied": "Zugriff verweigert",
     "couldNotValidateCredentials": "Anmeldedaten konnten nicht überprüft werden",
     "inactiveUser": "Inaktiver Benutzer",

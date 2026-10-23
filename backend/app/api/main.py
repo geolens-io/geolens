@@ -1289,6 +1289,7 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
     )
+    from app.modules.catalog.datasets.api.router_aggregate import aggregate_endpoint
     from app.modules.catalog.features.router import get_features_geojson_z_endpoint
     from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
     from app.processing.tiles.router import (
@@ -1308,6 +1309,7 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
     # template (sig, exp, scope); the batch token mint and the other two
     # capability handlers check X-Embed-Token only.
     capability_responses = {
+        aggregate_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,

@@ -93,6 +93,12 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
         "raises its own 401 when NOTHING presented resolves, so an entirely "
         "credential-less caller is still refused. See app/modules/auth/router.py.",
     ),
+    "app.modules.catalog.datasets.api.router_aggregate.aggregate_endpoint": (
+        CAPABILITY,
+        "Accepts X-Embed-Token as an independent capability, in the same order "
+        "as the GeoJSON-Z route: reject_unresolvable_credentials runs on the "
+        "`not embed_ok` path only.",
+    ),
     "app.modules.catalog.features.router.get_features_geojson_z_endpoint": (
         CAPABILITY,
         "Accepts X-Embed-Token as an independent capability. The "
@@ -1047,6 +1053,7 @@ def test_401_capability_sentence_matches_the_allowlist() -> None:
     }
 
     EXPECTED_CAPABILITY_TEXT = {
+        "app.modules.catalog.datasets.api.router_aggregate.aggregate_endpoint": embed_token_description,
         "app.modules.catalog.features.router.get_features_geojson_z_endpoint": embed_token_description,
         "app.modules.catalog.maps.router_sharing.get_shared_map_endpoint": embed_token_description,
         "app.processing.tiles.router.get_tile_tokens_batch": embed_token_description,

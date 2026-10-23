@@ -231,10 +231,11 @@ async def apply_source_field_labels(
     dataset_id: uuid.UUID,
     user_metadata: dict,
 ) -> None:
-    """Give a new dataset's attributes the alias and description its source published.
+    """Give a new dataset's attributes the labels its source published.
 
     ``user_metadata["field_labels"]`` is keyed by stored column name. The alias
-    replaces the humanized title and a description fills the empty one. Only
+    replaces the humanized title, a description fills the empty one and code
+    labels are stored as they are. Only
     called on a first import, before any user edit exists.
     """
     labels = user_metadata.get("field_labels")
@@ -258,6 +259,8 @@ async def apply_source_field_labels(
             am.title = alias
         if label.get("description"):
             am.description = label["description"]
+        if label.get("value_labels"):
+            am.value_labels = label["value_labels"]
     await session.flush()
 
 

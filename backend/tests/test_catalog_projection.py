@@ -154,7 +154,7 @@ async def _measure_and_project(session, dataset: Dataset, table: str) -> dict:
         record_id=dataset.record_id,
         lock_timeout=None,
     )
-    diff = await project(session, dataset, measurement)
+    diff = await project(session, dataset, measurement, field_labels=None)
     await session.commit()
     return diff
 
@@ -525,7 +525,7 @@ async def _assert_refused_without_a_write(
         session, dataset, table=table, schema="data", score=score
     )
     with pytest.raises(error):
-        await project(session, dataset, measurement)
+        await project(session, dataset, measurement, field_labels=None)
     # Flushed so that anything project assigned before refusing shows below.
     await session.flush()
     row = (
@@ -687,7 +687,7 @@ async def test_the_diff_reads_the_stored_values_under_the_lock(test_db_session) 
             lock_timeout=None,
         )
 
-        diff = await project(session, dataset, measurement)
+        diff = await project(session, dataset, measurement, field_labels=None)
 
         assert (diff["row_count_old"], diff["row_count_new"]) == (9, 2)
     finally:

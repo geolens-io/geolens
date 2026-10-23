@@ -1754,6 +1754,7 @@ async def _write_reupload_catalog(
     source_url: str | None = None,
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
+    field_labels: dict | None,
     job_id: uuid.UUID | None = None,
 ) -> tuple[Any, dict]:
     """Write what the installed table holds onto the catalog rows the caller holds.
@@ -1791,7 +1792,9 @@ async def _write_reupload_catalog(
     new_version = dataset.current_version + 1
 
     await record_live_version(session, dataset)
-    schema_diff = await project(session, dataset, measurement)
+    schema_diff = await project(
+        session, dataset, measurement, field_labels=field_labels
+    )
     await stamp_kept_versions(session, dataset, dataset.current_version)
 
     dataset.source_format = source_format

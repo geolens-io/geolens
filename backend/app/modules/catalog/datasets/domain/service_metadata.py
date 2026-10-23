@@ -23,6 +23,10 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
+from app.modules.catalog.datasets.domain.value_label_budget import (
+    ValueLabelsOverBudget,
+    refuse_value_labels_over_budget,
+)
 from app.modules.catalog.write_recheck import refuse_publish_key_widening
 from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_catalog_port, get_workflow_extension
@@ -32,6 +36,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 
 __all__ = [
+    "ValueLabelsOverBudget",
     "compute_schema_diff",
     "defer_metadata_embedding",
     "get_attribute",
@@ -467,7 +472,17 @@ async def update_attribute(
     if attr is None:
         raise ValueError("Attribute not found")
 
-    editable = {"title", "description", "units", "semantic_role", "domain_type"}
+    if kwargs.get("value_labels"):
+        await refuse_value_labels_over_budget(session, attr, kwargs["value_labels"])
+
+    editable = {
+        "title",
+        "description",
+        "units",
+        "semantic_role",
+        "domain_type",
+        "value_labels",
+    }
     modified_fields = set(attr.user_modified_fields or [])
     for key, value in kwargs.items():
         if key in editable:
@@ -549,6 +564,7 @@ async def reset_attribute(
     attr.domain_type = port.infer_domain_type(attr.data_type or "")
     attr.units = port.infer_units(attr.field_name)
     attr.description = None
+    attr.value_labels = None
     attr.user_modified_fields = []
     attr.example_values = example_values
 

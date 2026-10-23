@@ -85,7 +85,7 @@ ANALYSIS_JOB_PRIORITY = -10
 # failures are data-driven (e.g. degenerate geometries). Generic
 # query_failed stays a 500 -- also covers connection loss and role-binding
 # failures, server faults rather than bad requests.
-_SANDBOX_STATUS = {
+SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     # Server-at-capacity is also a 429, but a distinct
     # category so the message isn't relabelled as the per-user one.
@@ -350,7 +350,7 @@ async def analysis_preview_endpoint(
         ) from exc
     except SandboxError as exc:
         raise HTTPException(
-            status_code=_SANDBOX_STATUS.get(
+            status_code=SANDBOX_STATUS.get(
                 exc.category, status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=exc.user_message,

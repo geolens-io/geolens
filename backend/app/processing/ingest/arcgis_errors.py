@@ -91,6 +91,7 @@ async def fetch_arcgis_error_detail(gdal_source: str, token: str | None) -> str 
                     headers={},
                     accept=OGC_JSON_ACCEPT,
                     raise_for_status=False,
+                    credential_in_query=bool(token),
                 )
         data = json.loads(body)
     except Exception as exc:  # broad: a diagnostic read; the import already failed

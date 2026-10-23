@@ -810,6 +810,7 @@ class AttributeMetadata(Base):
     example_values: Mapped[list | None] = mapped_column(
         MutableList.as_mutable(JSONB), nullable=True
     )
+    value_labels: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ordinal_position: Mapped[int | None] = mapped_column(nullable=True)
     is_nullable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_current: Mapped[bool] = mapped_column(

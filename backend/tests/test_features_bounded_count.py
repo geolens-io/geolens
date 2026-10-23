@@ -281,7 +281,7 @@ def estimate_forced_low(monkeypatch):
     async def _low(*_args, **_kwargs):
         return 0
 
-    monkeypatch.setattr(features_service, "_planner_row_estimate", _low)
+    monkeypatch.setattr(features_service, "planner_row_estimate", _low)
 
 
 async def test_a_low_estimate_does_not_strand_a_full_page(

@@ -169,8 +169,9 @@ class _RestorePreviousVersion:
         restored_refreshed_at = None if source is None else source.kept_refreshed_at
 
         await record_live_version(session, dataset)
+        # Restore keeps the current attribute metadata, titles and code labels alike.
         schema_diff = await catalog_projection.project(
-            session, dataset, self.measurement
+            session, dataset, self.measurement, field_labels=None
         )
         await stamp_kept_versions(session, dataset, replaced)
         dataset.current_version = replaced + 1

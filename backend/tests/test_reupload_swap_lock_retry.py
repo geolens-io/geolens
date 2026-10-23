@@ -41,7 +41,7 @@ async def swap_in(session, *, dataset, staging_table, measurement, **writes):
     )
     await _take_catalog_rows(session, _SWAP, dataset)
     written = await _write_reupload_catalog(
-        session, dataset=dataset, measurement=measurement, **writes
+        session, dataset=dataset, measurement=measurement, field_labels=None, **writes
     )
     await catalog_locks.bump_tile_cache_version_on(session, dataset)
     return written
@@ -101,7 +101,7 @@ def _make_dataset_stub(table_name: str):
 def _stub_projection(monkeypatch, trace: list | None = None) -> None:
     """Stand in for ``project``, which writes catalog rows these stubs do not have."""
 
-    async def _project(session, dataset, measurement):
+    async def _project(session, dataset, measurement, **_):
         if trace is not None:
             trace.append(("write", "project"))
         return {}

@@ -616,6 +616,7 @@ class _FileReupload:
             # The new bytes came from a file, so the binding says upload, even
             # when the dataset was a registered table or service.
             origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
+            field_labels={},
         )
         # A manifest re-apply lands here carrying the manifest's current
         # attribution, which replaces the old credit.
@@ -1147,6 +1148,7 @@ class _ServiceReupload:
         # Whether the outbound fetch was reached, so a failure can date the
         # contact.
         self.contacted = False
+        self.field_labels: dict | None = None
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
         self.verification: dict | None = None
@@ -1177,6 +1179,7 @@ class _ServiceReupload:
 
     async def fetch(self) -> None:
         from app.platform.security import SSRFError, validate_url_for_ssrf
+        from app.processing.ingest import tasks_vector as _tv
         from app.processing.ingest.ogr import IngestionError, build_pg_conn_str
 
         self.source_url_value = _require_service_source_url(
@@ -1260,6 +1263,13 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
+        self.field_labels = (
+            await _tv._fetch_arcgis_field_labels(
+                self.source_url_value, self.layer_id, self.token
+            )
+            if self.service_type == "arcgis_featureserver"
+            else {}
+        )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
@@ -1494,6 +1504,7 @@ class _ServiceReupload:
                 "layer_id": self.source_binding["layer_id"],
                 "auth_required": True if self.token else None,
             },
+            field_labels=self.field_labels,
             job_id=self.job_uuid,
         )
         return Published(
