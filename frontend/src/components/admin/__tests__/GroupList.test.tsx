@@ -273,6 +273,37 @@ describe('GroupList', () => {
       await waitFor(() => expect(api.addGroupMembers).toHaveBeenCalledWith('g1', ['u3']));
     });
 
+    it('ignores a second pick while an add is pending, then accepts it once the add settles', async () => {
+      api.listUserNames.mockResolvedValue([
+        { id: 'u3', username: 'carol' },
+        { id: 'u4', username: 'dave' },
+      ]);
+      let settleFirst!: (group: typeof GROUP) => void;
+      api.addGroupMembers
+        .mockReturnValueOnce(new Promise((resolve) => (settleFirst = resolve)))
+        .mockResolvedValue({ ...GROUP, member_count: 4 });
+      const user = userEvent.setup();
+      await openMembers(user);
+      await screen.findByRole('list', { name: 'Members of Planning' });
+      const picker = screen.getByRole('combobox', { name: 'Add a person' });
+
+      await user.type(picker, 'carol');
+      await user.click(screen.getByRole('option', { name: 'carol' }));
+      await waitFor(() => expect(api.addGroupMembers).toHaveBeenCalledWith('g1', ['u3']));
+
+      await user.type(picker, 'dave');
+      await user.click(screen.getByRole('option', { name: 'dave' }));
+      expect(api.addGroupMembers).toHaveBeenCalledTimes(1);
+      expect(picker).toHaveValue('dave');
+      expect(picker).toHaveAttribute('aria-expanded', 'true');
+
+      settleFirst({ ...GROUP, member_count: 3 });
+      await waitFor(() => expect(picker).not.toHaveAttribute('aria-busy'));
+      await user.click(screen.getByRole('option', { name: 'dave' }));
+      await waitFor(() => expect(api.addGroupMembers).toHaveBeenLastCalledWith('g1', ['u4']));
+      expect(api.addGroupMembers).toHaveBeenCalledTimes(2);
+    });
+
     it('shows why the server refused an add', async () => {
       api.addGroupMembers.mockRejectedValue(
         new ApiError("A VRT dataset would reach people who cannot see all of its source datasets.", 422),
