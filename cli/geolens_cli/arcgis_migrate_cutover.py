@@ -103,7 +103,14 @@ def inventory_changes(
     item of the organization changed after the inventory was read, or the
     portal couldn't be asked."""
     inventory = plan["inventory"]
-    read_at = datetime.fromisoformat(inventory["generated_at"])
+    if not inventory.get("started_at"):
+        return (
+            "the plan's inventory records no start time, so items changed while "
+            "it ran can't be told apart; run inventory and plan again"
+        )
+    # The start, not the end: an item changed while the inventory ran may
+    # have been read before the change.
+    read_at = datetime.fromisoformat(inventory["started_at"])
     age = _age(now - read_at)
     org = (inventory.get("scope") or {}).get("org_id")
     unchecked = f"couldn't check the portal for items changed since the inventory was read {age} ago"

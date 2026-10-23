@@ -178,6 +178,7 @@ def inventory_report(
         inv,
         tool_version="test",
         generated_at="2026-10-01T00:00:00Z",
+        started_at="2026-09-30T23:00:00Z",
         max_items=100,
         retirements=inventory.RETIREMENTS,
         classes=inventory.CLASSES,

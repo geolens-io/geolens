@@ -262,6 +262,7 @@ def _as_v1(plan: dict) -> dict:
     old = json.loads(json.dumps(plan))
     old["schema_version"] = "1"
     del old["inventory"]["scope"], old["inventory"]["auth"]
+    old["inventory"].pop("started_at", None)
     for item in old["items"]:
         del item["defaults"]
     return old

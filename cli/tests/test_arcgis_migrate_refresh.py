@@ -1272,7 +1272,9 @@ _READ_AT = "2026-10-01T00:00:00Z"
 _NOW = datetime(2026, 10, 11, tzinfo=UTC)
 _PLAN = {
     "inventory": {
-        "generated_at": _READ_AT,
+        "started_at": _READ_AT,
+        # Read for an hour: an item changed meanwhile is after the start.
+        "generated_at": "2026-10-01T01:00:00Z",
         "scope": {"mode": "org", "owner": None, "org_id": "ExAmPlEoRg0123"},
     }
 }
@@ -1282,6 +1284,8 @@ _PLAN = {
     ("client", "says"),
     [
         (_SearchPortal({"results": [{"modified": 1791000000000}]}), "changed after"),
+        # Changed while the inventory ran, after its start, before its end.
+        (_SearchPortal({"results": [{"modified": 1790815000000}]}), "changed after"),
         (_SearchPortal({"results": [{"modified": 1759000000000}]}), None),
         (_SearchPortal({"results": []}), None),
         (_SearchPortal({"results": []}, token=None), "no ArcGIS credential"),
@@ -1396,3 +1400,36 @@ def test_a_file_item_cutover_cant_bring_up_to_date_is_refused(
     assert result.exit_code == 1
     assert says in payload["not_up_to_date"][D3][0]
     _refused_for(payload, D3, says)
+
+
+def test_an_inventory_without_a_start_time_refuses_the_freshness_check():
+    plan = {"inventory": {**_PLAN["inventory"]}}
+    del plan["inventory"]["started_at"]
+    client = _SearchPortal({"results": []})
+
+    reason = cutover_mod.inventory_changes(client, plan, _NOW)
+
+    assert (
+        "records no start time" in reason and "run inventory and plan again" in reason
+    )
+    assert client.asked == []
+
+
+def test_a_plan_carries_the_start_time_of_the_inventory_it_was_merged_from(
+    runner, tmp_path
+):
+    from geolens_cli import arcgis_plan as plan_mod
+
+    from .arcgis_fake import inventory_report
+
+    report = inventory_report()
+    assert report["started_at"] == "2026-09-30T23:00:00Z"
+    plan = plan_mod.build_plan(report, inventory_path="i.json", owner_map={})
+    assert plan["inventory"]["started_at"] == "2026-09-30T23:00:00Z"
+    newer = {**report, "started_at": "2026-10-05T00:00:00Z"}
+    merged, _ = plan_mod.merge_plan(
+        plan,
+        plan_mod.build_plan(newer, inventory_path="i.json", owner_map={}),
+        newer,
+    )
+    assert merged["inventory"]["started_at"] == "2026-10-05T00:00:00Z"

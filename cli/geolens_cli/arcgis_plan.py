@@ -213,6 +213,11 @@ def build_plan(
         "inventory": {
             "path": inventory_path,
             "generated_at": inventory["generated_at"],
+            **(
+                {"started_at": inventory["started_at"]}
+                if "started_at" in inventory
+                else {}
+            ),
             "complete": bool(inventory["complete"] and not inventory["truncated"]),
             "scope": dict(inventory["scope"]),
             "auth": dict(inventory["auth"]),

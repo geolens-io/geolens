@@ -1593,6 +1593,10 @@ def _clock() -> float:
     return time.monotonic()
 
 
+def _iso_now() -> str:
+    return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+
+
 def run_cli(fmt: _output.Formatter, opts: InventoryOptions) -> int:
     """Run ``geolens arcgis inventory`` and return its exit code."""
     redact = Redactor()
@@ -1628,6 +1632,7 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         clock=_clock,
         on_request=lambda method, path: fmt.debug(redact(f"{method} {path}")),
     )
+    started_at = _iso_now()
     try:
         if password is not None and opts.username:
             client.generate_token(opts.username, password)
@@ -1648,7 +1653,8 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
     report = _report.build_report(
         inv,
         tool_version=_tool_version(),
-        generated_at=datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
+        generated_at=_iso_now(),
+        started_at=started_at,
         max_items=opts.max_items,
         retirements=RETIREMENTS,
         classes=CLASSES,
