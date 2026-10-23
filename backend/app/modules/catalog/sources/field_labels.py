@@ -1,16 +1,29 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
+import json
 import math
 from decimal import Decimal
 from typing import Any
 
+import structlog
+
 from app.platform.column_names import stored_column_names
+
+logger = structlog.get_logger()
 
 _PG_IDENTIFIER_BYTES = 63
 _MAX_ALIAS = 500
 _MAX_DESCRIPTION = 2000
 MAX_VALUE_LABELS = 5000
 MAX_VALUE_LABEL_LENGTH = 500
+# Across one dataset's columns. The per-field caps alone allow megabytes per
+# column, and the attributes list returns every column's labels.
+MAX_DATASET_VALUE_LABEL_BYTES = 1024 * 1024
+
+
+def value_labels_bytes(labels: dict[str, str] | None) -> int:
+    """Size of the labels as the budget counts it: their JSON text in UTF-8."""
+    return len(json.dumps(labels, ensure_ascii=False).encode()) if labels else 0
 
 
 def _clean(value: object, limit: int) -> str | None:
@@ -97,6 +110,8 @@ def arcgis_field_labels(meta: dict) -> dict[str, dict[str, Any]]:
     ]
     stored = stored_column_names([field["name"] for field in fields])
     labels: dict[str, dict[str, Any]] = {}
+    label_bytes = 0
+    dropped: list[str] = []
     for field, column in zip(fields, stored, strict=True):
         name = field["name"]
         label: dict[str, Any] = {}
@@ -108,7 +123,14 @@ def arcgis_field_labels(meta: dict) -> dict[str, dict[str, Any]]:
             label["description"] = description
         value_labels = _coded_value_labels(field.get("domain"))
         if value_labels is not None:
-            label["value_labels"] = value_labels
+            size = value_labels_bytes(value_labels)
+            if not dropped and label_bytes + size <= MAX_DATASET_VALUE_LABEL_BYTES:
+                label_bytes += size
+                label["value_labels"] = value_labels
+            else:
+                dropped.append(field["name"])
         if label:
             labels[_pg_truncated(column)] = label
+    if dropped:
+        logger.warning("value_labels_over_dataset_budget", dropped_fields=dropped)
     return labels

@@ -315,6 +315,7 @@
     "userNotFound": "Usuario no encontrado",
     "apiKeyNotFound": "Clave API no encontrada",
     "datasetKeyLimit": "Este conjunto de datos ya tiene 100 claves de escritura activas. Revoque una para crear otra.",
+    "valueLabelsTooLarge": "Las etiquetas de valores de este conjunto de datos superan el límite de 1 MB. Elimine algunas etiquetas para añadir más.",
     "accessDenied": "Acceso denegado",
     "couldNotValidateCredentials": "No se pudieron validar las credenciales",
     "inactiveUser": "Usuario inactivo",

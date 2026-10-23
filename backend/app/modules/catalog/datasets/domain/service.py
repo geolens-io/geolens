@@ -38,6 +38,7 @@ from app.modules.catalog.datasets.domain.service_metadata import (
     reset_attribute,
     sample_example_values,
     update_attribute,
+    ValueLabelsOverBudget,
     update_user_metadata,
 )
 from app.modules.catalog.datasets.domain.service_previous_version import (
@@ -110,5 +111,6 @@ __all__ = [
     "resolve_source_feature_count",
     "run_analysis_preview",
     "update_attribute",
+    "ValueLabelsOverBudget",
     "update_user_metadata",
 ]

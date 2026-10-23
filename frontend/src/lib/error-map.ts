@@ -35,6 +35,8 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'API key not found': 'errors.apiKeyNotFound',
   'This dataset already has 100 active keys. Revoke one to create another.':
     'errors.datasetKeyLimit',
+  'Value labels for this dataset are over the 1 MB limit.':
+    'errors.valueLabelsTooLarge',
   'Access denied': 'errors.accessDenied',
   'Could not validate credentials': 'errors.couldNotValidateCredentials',
   'Inactive user': 'errors.inactiveUser',

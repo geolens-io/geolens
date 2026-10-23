@@ -446,6 +446,7 @@
     "userNotFound": "User not found",
     "apiKeyNotFound": "API key not found",
     "datasetKeyLimit": "This dataset already has 100 active write keys. Revoke one to create another.",
+    "valueLabelsTooLarge": "The value labels for this dataset are over the 1 MB limit. Remove some labels to add more.",
     "accessDenied": "Access denied",
     "couldNotValidateCredentials": "Could not validate credentials",
     "inactiveUser": "Inactive user",

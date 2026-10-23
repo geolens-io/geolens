@@ -187,7 +187,10 @@ async def update_attribute_endpoint(
     from app.modules.catalog.datasets.domain.service import (
         get_attribute as get_attr_svc,
     )
-    from app.modules.catalog.datasets.domain.service import update_attribute
+    from app.modules.catalog.datasets.domain.service import (
+        ValueLabelsOverBudget,
+        update_attribute,
+    )
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     attr = await get_attr_svc(db, attribute_id)
@@ -220,6 +223,11 @@ async def update_attribute_endpoint(
             )
             await db.commit()
         await db.refresh(attr)
+    except ValueLabelsOverBudget:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Value labels for this dataset are over the 1 MB limit.",
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Attribute not found"

@@ -70,6 +70,40 @@ def test_numeric_codes_are_keyed_as_javascript_writes_them(code, key) -> None:
     assert labels == ({} if key is None else {"name": {"value_labels": {key: "x"}}})
 
 
+def test_import_labels_keep_a_prefix_of_columns_within_the_dataset_budget(
+    monkeypatch,
+) -> None:
+    from app.modules.catalog.sources import field_labels
+
+    def field(name: str, labels: int) -> dict:
+        return {
+            "name": name,
+            "type": "esriFieldTypeInteger",
+            "domain": {
+                "type": "codedValue",
+                "codedValues": [
+                    {"code": i, "name": f"label {i}"} for i in range(labels)
+                ],
+            },
+        }
+
+    meta = {"fields": [field("a", 10), field("b", 10), field("c", 1)]}
+    one = field_labels.value_labels_bytes({str(i): f"label {i}" for i in range(10)})
+    monkeypatch.setattr(field_labels, "MAX_DATASET_VALUE_LABEL_BYTES", one + 10)
+
+    labels = arcgis_field_labels(meta)
+
+    # b does not fit, so c is dropped too although it would.
+    assert list(labels) == ["a"]
+    assert field_labels.value_labels_bytes(labels["a"]["value_labels"]) <= one + 10
+
+
+def test_the_dataset_label_budget_is_1_mb() -> None:
+    from app.modules.catalog.sources.field_labels import MAX_DATASET_VALUE_LABEL_BYTES
+
+    assert MAX_DATASET_VALUE_LABEL_BYTES == 1024 * 1024
+
+
 def test_string_codes_are_kept_exactly_and_unstorable_ones_are_skipped() -> None:
     meta = _layer(
         (" A", "Padded"),
@@ -318,3 +352,45 @@ async def test_a_reupload_from_a_service_without_coded_labels_clears_unedited_la
     await test_db_session.refresh(job)
     assert job.status == "complete", job.error_message
     assert (await _labels(test_db_session, dataset_id))["name"].value_labels is None
+
+
+async def test_a_patch_that_passes_the_dataset_budget_is_refused(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    from app.modules.catalog.datasets.domain import value_label_budget
+
+    dataset_id = await _import(
+        test_db_session, monkeypatch, arcgis_field_labels(_layer((1, "Active")))
+    )
+    attrs = await _labels(test_db_session, dataset_id)
+    other = (
+        attrs["geom"]
+        if "geom" in attrs
+        else next(a for k, a in attrs.items() if k != "name")
+    )
+    big = {str(i): "x" * 20 for i in range(10)}
+    monkeypatch.setattr(
+        value_label_budget,
+        "MAX_DATASET_VALUE_LABEL_BYTES",
+        2 * value_label_budget.value_labels_bytes(big) - 1,
+    )
+
+    async def patch(attr, labels):
+        return await client.patch(
+            f"/datasets/{dataset_id}/attributes/{attr.id}/",
+            json={"value_labels": labels},
+            headers=admin_auth_header,
+        )
+
+    # Replacing the column's own labels does not count them twice.
+    assert (await patch(attrs["name"], big)).status_code == 200
+    assert (await patch(attrs["name"], big)).status_code == 200
+    refused = await patch(other, big)
+
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == (
+        "Value labels for this dataset are over the 1 MB limit."
+    )
+    assert (await _labels(test_db_session, dataset_id))[
+        other.field_name
+    ].value_labels is None
