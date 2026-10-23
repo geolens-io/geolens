@@ -20,7 +20,7 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
-from app.platform.egress_proxy import service_egress_proxy
+from app.platform.egress_proxy import pinned_origin, service_egress_proxy
 from app.platform.gdal_argv import reject_option_like_layer_name
 from app.platform.gdal_env import gdal_service_safe_env
 from app.platform.service_auth import credential_input_rejection
@@ -326,7 +326,10 @@ async def run_service_preview(
         # never add it. The proxy checks and pins every connection ogrinfo
         # opens, redirect hops included. SERVICE variant: this branch reads
         # WFS/OAPIF, which the vector variant skips.
-        async with service_egress_proxy(idle_seconds=_HTTP_TIMEOUT_SECONDS) as egress:
+        async with service_egress_proxy(
+            idle_seconds=_HTTP_TIMEOUT_SECONDS,
+            origin=pinned_origin(gdal_source, credential=credential is not None),
+        ) as egress:
             env = gdal_service_safe_env(egress)
             pair: tuple[str, str] | None = None
             if credential is not None and (
@@ -416,11 +419,9 @@ async def run_service_preview(
                 os.chmod(header_file_path, 0o600)
                 env["GDAL_HTTP_HEADER_FILE"] = header_file_path
                 env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
-                # GDAL forwards non-Authorization headers verbatim across
-                # hosts, so a service-chosen API key is redirect-exposed here
-                # and can't be protected from inside (AGENTS.md Rule 2).
-                # IF_SAME_HOST not NO: a same-host canonical redirect (e.g. a
-                # trailing slash) must keep the credential or the service 401s.
+                # Other header names would follow a redirect to any host; the
+                # proxy's origin pin refuses those. IF_SAME_HOST, not NO: a
+                # same-host redirect (a trailing slash) must keep the credential.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
             # Computed here so it accounts for budget already spent (page

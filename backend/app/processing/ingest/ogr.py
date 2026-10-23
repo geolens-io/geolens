@@ -46,7 +46,7 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
-from app.platform.egress_proxy import service_egress_proxy
+from app.platform.egress_proxy import pinned_origin, service_egress_proxy
 from app.platform.gdal_argv import is_option_like_layer_name
 from app.processing.ingest.arcgis_errors import (
     ARCGIS_ERROR_RESPONSE_RE,
@@ -1426,7 +1426,8 @@ async def run_ogr2ogr_service(
     header_line: str | None = None
     try:
         async with service_egress_proxy(
-            idle_seconds=settings.ingest_http_timeout_seconds
+            idle_seconds=settings.ingest_http_timeout_seconds,
+            origin=pinned_origin(gdal_source, credential=bool(token)),
         ) as egress:
             env = _tenant_writer_subprocess_env(
                 schema,
@@ -1495,13 +1496,9 @@ async def run_ogr2ogr_service(
                 os.chmod(header_file_path, 0o600)
                 env["GDAL_HTTP_HEADER_FILE"] = header_file_path
                 env.update(gdal_transport_env(service_type))
-                # GDAL forwards `Authorization` only to the host it was
-                # given to, but forwards every other header name verbatim
-                # across hosts, so a service-chosen API key is redirect-exposed
-                # here and can't be protected from inside (bounded
-                # operationally, AGENTS.md Rule 2). IF_SAME_HOST, not NO: a
-                # same-host canonical redirect (e.g. a trailing slash) must
-                # keep the credential or a protected service answers 401.
+                # Other header names would follow a redirect to any host; the
+                # proxy's origin pin refuses those. IF_SAME_HOST, not NO: a
+                # same-host redirect (a trailing slash) must keep the credential.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
             # Computed here, not at each spender, so it accounts for all of

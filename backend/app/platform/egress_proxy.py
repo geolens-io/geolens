@@ -14,13 +14,17 @@ from contextlib import asynccontextmanager
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
+import httpx
 import structlog
 
 from app.platform.security import (
+    _CREDENTIAL_QUERY_PARAM,
     SSRFError,
     SSRFResolutionError,
+    _origin,
     _resolve_all_and_validate,
 )
+from app.platform.service_endpoints import bounded_parse_qsl
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -50,9 +54,35 @@ _HOP_HEADERS = frozenset(
 class ServiceEgress:
     """A running proxy: the address GDAL is given, and whether it refused one."""
 
-    def __init__(self, address: str) -> None:
+    def __init__(
+        self, address: str, origin: tuple[str, str, int | None] | None = None
+    ) -> None:
         self.address = address
+        self.origin = origin
         self.refused = False
+
+
+def pinned_origin(gdal_source: str, *, credential: bool) -> str | None:
+    """The source URL a run's connections are held to, or None for no pin.
+
+    A run is pinned when it carries a credential, given as ``credential`` or
+    as a ``token`` query parameter: libcurl repeats the query on a redirect
+    and sends custom headers to any host, and an https hop reaches the proxy
+    only as ``CONNECT host:port``.
+    """
+    url = gdal_source
+    if not url.lower().startswith(("http://", "https://")):
+        url = gdal_source.partition(":")[2]
+        if not url.lower().startswith(("http://", "https://")):
+            return None
+    if credential:
+        return url
+    try:
+        query = bounded_parse_qsl(urlsplit(url).query)
+    except ValueError:
+        return url  # Too many fields to look through, so it is held anyway.
+    names = {name.lower() for name, _ in query}
+    return url if _CREDENTIAL_QUERY_PARAM in names else None
 
 
 class _Request(NamedTuple):
@@ -126,6 +156,15 @@ def _parse_head(head: bytes) -> _Request:
         ]
     )
     return _Request(url.hostname, url.port or 80, forward + b"\r\n\r\n", body_length)
+
+
+def _request_origin(request: _Request) -> tuple[str, str, int | None] | None:
+    # libcurl tunnels https with CONNECT and forwards plain http in absolute form.
+    scheme = "https" if request.forward is None else "http"
+    try:
+        return _origin(httpx.URL(scheme=scheme, host=request.host, port=request.port))
+    except httpx.InvalidURL:
+        return None
 
 
 async def _pipe(
@@ -221,6 +260,12 @@ async def _serve(
         writer.write(_reply("400 Bad Request"))
         return
 
+    if egress.origin is not None and egress.origin != _request_origin(request):
+        egress.refused = True
+        logger.warning("service connection off its origin refused", port=request.port)
+        writer.write(_reply("403 Forbidden"))
+        return
+
     try:
         addresses = await _resolve_all_and_validate(request.host, request.port)
     except SSRFResolutionError:
@@ -272,12 +317,16 @@ async def _serve(
 
 
 @asynccontextmanager
-async def service_egress_proxy(*, idle_seconds: float) -> AsyncIterator[ServiceEgress]:
+async def service_egress_proxy(
+    *, idle_seconds: float, origin: str | None = None
+) -> AsyncIterator[ServiceEgress]:
     """Listen on a loopback port for the block, relaying only to allowed hosts.
 
     Hand the yielded proxy to ``gdal_service_safe_env`` and run the subprocess
     inside the block. A relay that moves no bytes for ``idle_seconds`` is
-    closed, and every connection closes when the block exits.
+    closed, and every connection closes when the block exits. With ``origin``
+    (from ``pinned_origin``), a connection to any other scheme, host or port
+    is refused.
     """
     handlers: set[asyncio.Task] = set()
     closing = False
@@ -296,7 +345,10 @@ async def service_egress_proxy(*, idle_seconds: float) -> AsyncIterator[ServiceE
 
     server = await asyncio.start_server(handle, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
-    egress = ServiceEgress(f"http://127.0.0.1:{port}")
+    egress = ServiceEgress(
+        f"http://127.0.0.1:{port}",
+        None if origin is None else _origin(httpx.URL(origin)),
+    )
     try:
         yield egress
     finally:
