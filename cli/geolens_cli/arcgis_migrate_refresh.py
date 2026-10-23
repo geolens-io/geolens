@@ -219,6 +219,14 @@ def changed_in_geolens(
             return unsettled
         marker = entry.refreshing.get(dataset_id)
     run = _find_run(ctx, dataset_id, marker) if marker else None
+    if run is not None and str(run.status) == "blocked" and "blocked" not in marker:
+        # Blocked after the run that sent it stopped watching: keep it as
+        # _wait_for_run would have, and look for the successor that accepted it.
+        marker = {k: v for k, v in marker.items() if k not in ("run", "job")}
+        marker["blocked"] = str(run.id)
+        entry.refreshing[dataset_id] = marker
+        ctx.save()
+        run = _find_run(ctx, dataset_id, marker)
     if run is not None:
         if str(run.status) not in _ENDED:
             return "a refresh an earlier run started is still running"

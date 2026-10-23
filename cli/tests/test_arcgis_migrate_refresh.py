@@ -382,6 +382,37 @@ def test_a_refresh_an_earlier_run_left_is_found_behind_newer_runs(
     assert _state(plan_file)["items"][A2]["refreshing"] == {}
 
 
+def test_a_run_blocked_after_polling_ended_follows_its_accepted_successor(
+    runner, plan_file, geolens, monkeypatch
+):
+    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
+    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service, outcome="running").allow(PARCELS)
+    _migrate(runner, plan_file, "--only", A2)
+    [run] = refresh.runs[PARCELS]
+    run.update(status="blocked", finished_at=LATER)
+    refresh.runs[PARCELS].insert(
+        0,
+        _run(
+            PARCELS,
+            _uuid("8e", "02"),
+            "succeeded",
+            triggered_by=ALICE,
+            verification={"accepted_blocked_run_id": run["id"], "data_revision": 1},
+        ),
+    )
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "updated_by": ALICE, "data_revision": 1}
+    )
+    refresh.outcome = "succeeded"
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+
+
 def test_a_recovered_refresh_is_recorded_before_the_next_one_starts(
     runner, plan_file, geolens, monkeypatch
 ):
