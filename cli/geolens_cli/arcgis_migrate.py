@@ -621,27 +621,37 @@ def transfer(
     entry: ItemState,
     owner: Owner,
     revisions: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Hand every dataset and the map recorded for an item to *owner*; each
-    dataset as its transfer left it.
+) -> None:
+    """Hand every dataset and the map recorded for an item to *owner*,
+    recording and saving each dataset's transfer answer as its baseline as it
+    lands, so a later failure keeps the transfers made before it.
 
-    A dataset is handed over only while the operator wrote it last and its
-    data revision is still the one in *revisions*, read after the import.
+    A dataset this import has not handed over goes only while the operator
+    wrote it last and its data revision is still the one in *revisions*. One an
+    earlier attempt handed over is left with an owner it already has, and
+    otherwise moves only while it is as that transfer left it.
     """
-    left = {}
     for dataset_id in entry.dataset_ids:
         read = get_dataset(ctx, dataset_id)
-        if not operator_wrote_last(ctx, read) or snapshot(read)[
+        if dataset_id in entry.last_update:
+            if str(read.created_by) == owner.id:
+                continue
+            reason = changed_in_geolens(ctx, entry, dataset_id, read)
+            if reason:
+                raise ItemFailed(f"dataset {dataset_id} was {reason}")
+        elif not operator_wrote_last(ctx, read) or snapshot(read)[
             "data_revision"
         ] != revisions.get(dataset_id):
             raise ItemFailed(
                 f"dataset {dataset_id} changed in GeoLens before its owner was "
                 "handed over; it was left as it is"
             )
-        left[dataset_id] = transfer_dataset(ctx.geolens, dataset_id, owner, read)
+        record(
+            entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, read)
+        )
+        ctx.save()
     if entry.map_id:
         _transfer_map(ctx.geolens, entry.map_id, owner)
-    return left
 
 
 @dataclass
@@ -684,24 +694,21 @@ def _migrate_one(
         entry.notes = [state.clean(note) for note in result.notes]
         state.save()
         if owner is not None:
+            # Datasets an earlier attempt handed over are no longer written.
+            fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
             revisions = {
-                d: snapshot(get_dataset(ctx, d))["data_revision"]
-                for d in entry.dataset_ids
+                d: snapshot(get_dataset(ctx, d))["data_revision"] for d in fresh
             }
             entry.visibility = dict.fromkeys(
                 entry.dataset_ids, item["target"]["visibility"]
             )
-            apply_item_metadata(ctx, item, entry)
+            apply_item_metadata(ctx, item, entry, fresh)
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
             )
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
-            # The transfer is the last write, so its answers are the baseline;
-            # a read after it could take an edit made since as this command's.
-            handed = transfer(ctx, entry, owner, revisions)
-            for dataset_id, dataset in handed.items():
-                record(entry, dataset_id, dataset)
+            transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
             entry.owner_pending = pending
             ctx.save()

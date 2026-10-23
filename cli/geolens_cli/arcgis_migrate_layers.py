@@ -294,7 +294,7 @@ def _import_layer(
         del entry.layer_jobs[key]
         if dataset is not None:
             # The commit that made it may predate an edit of the plan.
-            _apply_target(ctx, dataset, title_visibility)
+            _apply_target(ctx, entry, dataset, title_visibility)
             entry.layer_datasets[key] = dataset
             return False
         ctx.save()
@@ -316,7 +316,7 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        _apply_target(ctx, existing, title_visibility)
+        _apply_target(ctx, entry, existing, title_visibility)
         entry.layer_datasets[key] = existing
         return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
@@ -336,9 +336,14 @@ def _commit_body(title: str, visibility: str) -> Any:
     return CommitRequest(title=title, visibility=visibility)
 
 
-def _apply_target(ctx: MigrationContext, dataset: str, target: Any) -> None:
+def _apply_target(
+    ctx: MigrationContext, entry: ItemState, dataset: str, target: Any
+) -> None:
     """Give a dataset GeoLens already held the plan's title and visibility,
-    which a fresh import would have received at commit."""
+    which a fresh import would have received at commit. A dataset an earlier
+    attempt handed to its owner, which has a recorded last update, is left."""
+    if dataset in entry.last_update:
+        return
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch_dataset,
@@ -463,7 +468,7 @@ def import_layers(
         if pinned:
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
-            _apply_target(ctx, pinned, target)
+            _apply_target(ctx, entry, pinned, target)
             continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry

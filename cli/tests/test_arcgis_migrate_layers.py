@@ -1311,10 +1311,65 @@ def test_a_failed_metadata_write_fails_the_item_and_a_rerun_redoes_only_it(
     assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]
 
 
+def test_a_transfer_that_landed_before_a_later_one_failed_is_kept(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+    parcels, owners = dataset_id("Parcels"), dataset_id("Owners")
+    serve = service._serve_dataset
+    refuse = {"owners": True}
+
+    def serve_refusing_the_second_transfer(dataset: str) -> None:
+        serve(dataset)
+        patch = geolens.routes[f"PATCH /datasets/{dataset}"]
+
+        def patch_or_refuse(seen):
+            if dataset == owners and "owner_id" in seen.json() and refuse["owners"]:
+                return (503, _problem(503, "Transfer unavailable"))
+            return patch(seen)
+
+        geolens.routes[f"PATCH /datasets/{dataset}"] = patch_or_refuse
+
+    service._serve_dataset = serve_refusing_the_second_transfer
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed" and "Transfer unavailable" in entry["error"]
+    transferred = entry["last_update"][parcels]
+    assert list(entry["last_update"]) == [parcels]
+
+    # The new owner edits the handed-over dataset before the retry.
+    service.fields[parcels].update(
+        {
+            "updated_at": "2026-10-02T00:00:00Z",
+            "updated_by": "someone",
+            "data_revision": 1,
+        }
+    )
+    refuse["owners"] = False
+    before = len(geolens.seen)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen[before:]
+        if s.method in ("PATCH", "POST") and parcels in s.url
+    ]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["last_update"][parcels] == transferred
+    assert owners in entry["last_update"]
+
+
 def _rerun_as_pending(runner, plan_file):
     state_path = plan_file.parent / "arcgis-migration-state.json"
     state = json.loads(state_path.read_text())
     state["items"][A2]["status"] = "pending"
+    # A recorded last update would mark the dataset as already handed over.
+    state["items"][A2]["last_update"] = {}
     state_path.write_text(json.dumps(state))
     return _migrate(runner, plan_file, "--only", A2)
 
