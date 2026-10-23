@@ -149,6 +149,9 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- Restoring a retained dataset version preserves its columns' source field
+  names, including columns dropped or spelled differently in a later upload.
+  Versions retained before this change still report unknown source names.
 - The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
   process, which exited at the limit and took its container down. As in
   `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`

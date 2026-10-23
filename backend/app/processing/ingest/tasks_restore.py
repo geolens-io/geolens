@@ -169,6 +169,12 @@ class _RestorePreviousVersion:
         restored_refreshed_at = None if source is None else source.kept_refreshed_at
 
         await record_live_version(session, dataset)
+        source_columns = None if source is None else source.column_info
+        source_names = {
+            col["name"]: col.get("source_name") for col in source_columns or []
+        }
+        for col in self.measurement.metadata.get("column_info") or []:
+            col["source_name"] = source_names.get(col["name"])
         # Restore keeps the current attribute metadata, titles and code labels alike.
         schema_diff = await catalog_projection.project(
             session, dataset, self.measurement, field_labels=None
@@ -192,6 +198,7 @@ class _RestorePreviousVersion:
             srid=self.measurement.metadata.get("srid"),
             geometry_type=self.measurement.geometry_type,
             original_srid=None if source is None else source.original_srid,
+            column_info=dataset.column_info,
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,

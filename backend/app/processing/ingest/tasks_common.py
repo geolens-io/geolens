@@ -1856,6 +1856,7 @@ async def _write_reupload_catalog(
         geometry_type=measurement.geometry_type,
         file_hash=file_hash,
         original_srid=original_srid,
+        column_info=dataset.column_info,
         is_3d=measurement.three_d.get("is_3d"),
         n_dims=measurement.three_d.get("n_dims"),
         uploaded_by=actor_id,
