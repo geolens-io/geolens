@@ -492,6 +492,28 @@ def test_items_are_transferred_to_the_mapped_owner(runner, tmp_path, geolens, ha
     assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
 
 
+def test_the_baseline_is_the_transfers_answer_not_a_later_read(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id = _created_id(L1)
+    _allow_transfers(geolens, dataset_id)
+    read = geolens.routes[f"GET /datasets/{dataset_id}"]
+
+    def alice_edits_after_the_transfer(seen):
+        if any(s.method == "PATCH" for s in geolens.seen):
+            return {**read, "updated_at": "2026-10-02T00:00:00Z", "updated_by": ALICE}
+        return read
+
+    geolens.routes[f"GET /datasets/{dataset_id}"] = alice_edits_after_the_transfer
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][L1]["last_update"][dataset_id]["updated_at"] == (
+        READ_AT
+    )
+
+
 def test_a_retry_mapped_to_the_operator_reclaims_partly_transferred_items(
     runner, tmp_path, geolens, handled
 ):

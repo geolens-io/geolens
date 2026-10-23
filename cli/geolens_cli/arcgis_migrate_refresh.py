@@ -16,7 +16,7 @@ GeoLens stops the publication for review if the data changes after that.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -80,15 +80,6 @@ def snapshot(dataset: Any) -> dict[str, Any]:
 
 def _revision(dataset: Any) -> int | None:
     return _value(getattr(dataset, "data_revision", None))
-
-
-def record_last_update(
-    ctx: MigrationContext, entry: ItemState, dataset_ids: Iterable[str]
-) -> None:
-    """Record how this command leaves each dataset, once its writes are done."""
-    for dataset_id in dataset_ids:
-        record(entry, dataset_id, get_dataset(ctx, dataset_id))
-    ctx.save()
 
 
 def record(entry: ItemState, dataset_id: str, dataset: Any) -> None:

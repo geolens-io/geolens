@@ -54,7 +54,6 @@ from .arcgis_migrate_refresh import (
     changed_in_geolens,
     get_dataset,
     record,
-    record_last_update,
     refresh_file,
     refresh_layers,
 )
@@ -615,12 +614,13 @@ def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
     )
 
 
-def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
-    """Hand every dataset and the map recorded for an item to *owner*."""
-    for dataset_id in entry.dataset_ids:
-        transfer_dataset(geolens, dataset_id, owner)
+def transfer(geolens: GeoLens, entry: ItemState, owner: Owner) -> dict[str, Any]:
+    """Hand every dataset and the map recorded for an item to *owner*; each
+    dataset as its transfer left it."""
+    left = {d: transfer_dataset(geolens, d, owner) for d in entry.dataset_ids}
     if entry.map_id:
         _transfer_map(geolens, entry.map_id, owner)
+    return left
 
 
 @dataclass
@@ -672,10 +672,13 @@ def _migrate_one(
             )
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
-            transfer(ctx.geolens, entry, owner)
+            # The transfer is the last write, so its answers are the baseline;
+            # a read after it could take an edit made since as this command's.
+            for dataset_id, dataset in transfer(ctx.geolens, entry, owner).items():
+                record(entry, dataset_id, dataset)
             entry.owner_id = owner.id
             entry.owner_pending = pending
-            record_last_update(ctx, entry, entry.dataset_ids)
+            ctx.save()
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
         return
