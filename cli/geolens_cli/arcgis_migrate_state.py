@@ -101,6 +101,9 @@ class ItemState:
     loss_report_path: str | None = None
     # A web map's loss payload from the import until its report file is written.
     pending_loss: dict[str, Any] | None = None
+    # The portal item's modified time when a web map was read for its import,
+    # which a rerun compares to report a map changed since.
+    portal_modified: int | None = None
     # Hash of the summary a file written before the baseline wrote; read only
     # when a dataset has no baseline.
     metadata_hash: str | None = None

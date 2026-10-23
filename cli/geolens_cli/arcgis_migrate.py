@@ -58,7 +58,7 @@ from .arcgis_migrate_refresh import (
     refresh_file,
     refresh_layers,
 )
-from .arcgis_migrate_webmaps import import_map
+from .arcgis_migrate_webmaps import import_map, refresh_map
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -139,6 +139,7 @@ REFRESHERS: dict[str, Refresher] = {
     _plan.IMPORT_LAYERS: refresh_layers,
     _plan.IMPORT_FILE: refresh_file,
     _plan.EXPORT_ONLY: refresh_export,
+    _plan.IMPORT_MAP: refresh_map,
 }
 
 
@@ -1114,6 +1115,7 @@ def _portal_client(
         )
         and not (
             item["action"] == _plan.IMPORT_MAP
+            and state.status(item["id"]) not in FINISHED
             and getattr(state.items.get(item["id"]), "map_id", None)
         )
     )

@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 from . import arcgis_report as _report
 from ._sdk_helpers import long_request_timeout
+from .arcgis_migrate_export import _modified, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_session import (
     GeoLensError,
@@ -153,6 +154,47 @@ def _fetch(ctx: MigrationContext, item_id: str) -> dict[str, Any]:
     return redact_json(data, ctx.redact)
 
 
+def _read_modified(ctx: MigrationContext, item_id: str) -> int | None:
+    """The portal item's modified time, or None when it can't be read."""
+    if ctx.portal is None:
+        return None
+    try:
+        return _modified(ctx.portal.client.get_json(f"content/items/{item_id}"))
+    except PortalError as exc:
+        _stop_if_token_refused(exc)
+        return None
+
+
+def refresh_map(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
+    """Why a migrated web map may not match its portal item: changed there
+    since it was read for the import, or with no way to tell. A web map isn't
+    translated again; the operator updates the GeoLens map."""
+    if ctx.portal is None:
+        return [
+            "the run can't read this web map from the portal to check it for changes"
+        ]
+    try:
+        modified = _modified(ctx.portal.client.get_json(f"content/items/{item['id']}"))
+    except PortalError as exc:
+        _stop_if_token_refused(exc)
+        return [f"reading the web map to check it for changes failed, {exc}"]
+    if modified is None:
+        return ["the portal doesn't say when the web map last changed"]
+    if entry.portal_modified is None:
+        return [
+            "the state doesn't record when the web map was read for its import, so "
+            "a change since can't be ruled out; compare the GeoLens map by hand"
+        ]
+    if modified > entry.portal_modified:
+        return [
+            "the web map changed in the portal since it was migrated; web maps "
+            "aren't translated again, so update the GeoLens map by hand"
+        ]
+    return []
+
+
 def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
     if ctx.export_dir is None:
         raise ItemFailed("the run has no folder for the loss report")
@@ -196,6 +238,7 @@ def import_map(
     )
     from geolens.models.map_visibility import check_map_visibility
 
+    modified = _read_modified(ctx, item["id"])
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
     title = item["target"]["title"] or item["title"]
@@ -220,6 +263,7 @@ def import_map(
         raise ItemFailed(f"the web map import failed, {exc}") from None
 
     entry.map_id = str(result.map_.id)
+    entry.portal_modified = modified
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
