@@ -565,6 +565,87 @@ class TestSharedMapValueLabels:
             "type": "integer",
         }
 
+    @staticmethod
+    def _attribute_statements(captured, fetched_labels: bool):
+        """Statements on attribute_metadata that read the labels themselves, or only their size."""
+        return [
+            (sql, params)
+            for sql, params in captured
+            if "attribute_metadata" in sql
+            and "value_labels" in sql
+            and ("octet_length" not in sql) == fetched_labels
+        ]
+
+    async def test_labels_of_unexposed_columns_are_never_selected(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}
+        )
+        captured: list = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            captured.append((statement, repr(parameters)))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            resp = await client.get(
+                f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+            )
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert resp.status_code == 200, resp.text
+        reads = self._attribute_statements(captured, fetched_labels=True)
+        sizes = self._attribute_statements(captured, fetched_labels=False)
+        assert len(reads) == 1 and len(sizes) == 1
+        for _sql, params in reads + sizes:
+            assert "status" in params
+            assert "not_exposed" not in params
+
+    async def test_an_over_budget_layer_never_reads_its_labels_but_keeps_its_titles(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        from sqlalchemy import event, update
+        from sqlalchemy.engine import Engine
+
+        from app.modules.catalog.maps import service_public
+
+        labels = {str(i): f"label {i}" for i in range(50)}
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, labels
+        )
+        await test_db_session.execute(
+            update(AttributeMetadata)
+            .where(AttributeMetadata.field_name == "status")
+            .values(title="Status")
+        )
+        await test_db_session.commit()
+        monkeypatch.setattr(service_public, "SHARED_VALUE_LABELS_MAX_BYTES", 100)
+        captured: list = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            captured.append((statement, repr(parameters)))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            resp = await client.get(
+                f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+            )
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert resp.status_code == 200, resp.text
+        assert self._attribute_statements(captured, fetched_labels=True) == []
+        assert resp.json()["layers"][0]["column_info"][0] == {
+            "name": "status",
+            "type": "integer",
+            "title": "Status",
+        }
+
     def test_the_layer_budget_is_64_kb(self):
         from app.modules.catalog.maps.service_public import (
             SHARED_VALUE_LABELS_MAX_BYTES,

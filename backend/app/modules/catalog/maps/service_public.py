@@ -1,14 +1,13 @@
 """Map sharing, public viewer, and dataset-in-use helpers."""
 
 import hashlib
-import json
 import secrets
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, func, nulls_last, or_, select
+from sqlalchemy import Text, and_, cast, func, nulls_last, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -305,27 +304,42 @@ async def _validate_share_token(
     return token_obj
 
 
-# Per layer, the most value-label JSON a shared map carries. A layer whose
-# exposed columns hold more than this gets none, so a very wide coded domain
-# cannot inflate every embed load; the popup then shows the raw codes.
+# Per dataset, the most value-label JSON (as PostgreSQL writes it) a shared map
+# carries. A dataset whose exposed columns hold more than this gets none, so a
+# very wide coded domain cannot inflate every embed load; the popup then shows
+# the raw codes.
 SHARED_VALUE_LABELS_MAX_BYTES = 64 * 1024
 
 
 async def _attribute_display_by_dataset(
-    session: AsyncSession, dataset_ids: set[uuid.UUID]
+    session: AsyncSession, exposed: dict[uuid.UUID, set[str]]
 ) -> dict[uuid.UUID, dict[str, dict]]:
-    """Current attribute titles and value labels for datasets whose layers already passed authorization."""
-    if not dataset_ids:
+    """Current titles and value labels of the exposed columns, by dataset.
+
+    ``exposed`` holds the column names each authorized dataset's layers show.
+    The labels' size is measured in SQL first, and only a dataset within
+    ``SHARED_VALUE_LABELS_MAX_BYTES`` has its labels read; an oversized one
+    keeps its titles.
+    """
+    pairs = [
+        (dataset_id, name) for dataset_id, names in exposed.items() for name in names
+    ]
+    if not pairs:
         return {}
+    in_scope = (
+        tuple_(AttributeMetadata.dataset_id, AttributeMetadata.field_name).in_(pairs),
+        AttributeMetadata.is_current.is_(True),
+    )
     rows = await session.execute(
         select(
             AttributeMetadata.dataset_id,
             AttributeMetadata.field_name,
             AttributeMetadata.title,
-            AttributeMetadata.value_labels,
+            func.coalesce(
+                func.octet_length(cast(AttributeMetadata.value_labels, Text)), 0
+            ),
         ).where(
-            AttributeMetadata.dataset_id.in_(dataset_ids),
-            AttributeMetadata.is_current.is_(True),
+            *in_scope,
             or_(
                 and_(
                     AttributeMetadata.title.is_not(None),
@@ -336,49 +350,55 @@ async def _attribute_display_by_dataset(
         )
     )
     display: dict[uuid.UUID, dict[str, dict]] = {}
-    for dataset_id, field_name, title, value_labels in rows.all():
-        entry = {}
+    label_bytes: dict[uuid.UUID, int] = {}
+    labelled: set[tuple[uuid.UUID, str]] = set()
+    for dataset_id, field_name, title, size in rows.all():
         if title:
-            entry["title"] = title
-        if value_labels:
-            entry["value_labels"] = value_labels
-        if entry:
-            display.setdefault(dataset_id, {})[field_name] = entry
+            display.setdefault(dataset_id, {}).setdefault(field_name, {})["title"] = (
+                title
+            )
+        if size:
+            labelled.add((dataset_id, field_name))
+            label_bytes[dataset_id] = label_bytes.get(dataset_id, 0) + size
+    within_budget = [
+        pair
+        for pair in labelled
+        if label_bytes[pair[0]] <= SHARED_VALUE_LABELS_MAX_BYTES
+    ]
+    if within_budget:
+        label_rows = await session.execute(
+            select(
+                AttributeMetadata.dataset_id,
+                AttributeMetadata.field_name,
+                AttributeMetadata.value_labels,
+            ).where(
+                tuple_(AttributeMetadata.dataset_id, AttributeMetadata.field_name).in_(
+                    within_budget
+                ),
+                AttributeMetadata.is_current.is_(True),
+                AttributeMetadata.value_labels.is_not(None),
+            )
+        )
+        for dataset_id, field_name, value_labels in label_rows.all():
+            if value_labels:
+                display.setdefault(dataset_id, {}).setdefault(field_name, {})[
+                    "value_labels"
+                ] = value_labels
     return display
 
 
 def _column_info_with_display(
     column_info: list | None, display: dict[str, dict] | None
 ) -> list | None:
-    """Attach each exposed column's title and value labels; other columns add nothing.
-
-    A layer's labels are left out whole when their JSON exceeds
-    ``SHARED_VALUE_LABELS_MAX_BYTES``.
-    """
+    """Attach each exposed column's title and value labels; other columns add nothing."""
     if not column_info or not display:
         return column_info
-    exposed = {
-        col["name"]
-        for col in column_info
+    return [
+        {**col, **display[col["name"]]}
         if isinstance(col, dict) and col.get("name") in display
-    }
-    label_bytes = sum(
-        len(json.dumps(display[name]["value_labels"]).encode())
-        for name in exposed
-        if "value_labels" in display[name]
-    )
-    keep_labels = label_bytes <= SHARED_VALUE_LABELS_MAX_BYTES
-    columns = []
-    for col in column_info:
-        if isinstance(col, dict) and col.get("name") in display:
-            extra = {
-                key: value
-                for key, value in display[col["name"]].items()
-                if key == "title" or keep_labels
-            }
-            col = {**col, **extra}
-        columns.append(col)
-    return columns
+        else col
+        for col in column_info
+    ]
 
 
 def _build_shared_layer_dict(
@@ -578,9 +598,14 @@ async def get_shared_map(
     has_non_public = False
     layers = []
     visible_dataset_ids: set[str] = set()
-    attribute_display = await _attribute_display_by_dataset(
-        session, {row[1].dataset_id for row in layer_rows}
-    )
+    exposed: dict[uuid.UUID, set[str]] = {}
+    for row in layer_rows:
+        exposed.setdefault(row[1].dataset_id, set()).update(
+            col["name"]
+            for col in row[5] or []
+            if isinstance(col, dict) and isinstance(col.get("name"), str)
+        )
+    attribute_display = await _attribute_display_by_dataset(session, exposed)
     for (
         _map_obj,
         layer,
