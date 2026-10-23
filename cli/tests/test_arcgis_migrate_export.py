@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shutil
 import stat
 from pathlib import Path
 
@@ -1045,3 +1046,43 @@ def test_a_bundle_whose_item_change_time_cant_be_read_is_reported(
 
     assert result.exit_code == 1
     assert payload["not_up_to_date"][C3]
+
+
+@pytest.mark.parametrize("left", ["old", "nothing"])
+def test_a_bundle_missing_from_its_path_is_put_back_or_exported_again(
+    runner, tmp_path, geolens, install, left
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    if left == "old":
+        # A run killed inside the swap, after the old bundle moved aside.
+        folder.rename(folder.with_name(f".{C3}.old-4242"))
+    else:
+        shutil.rmtree(folder)
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert _tree(folder) == before
+
+
+def test_a_missing_bundle_that_cant_be_exported_again_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    shutil.rmtree(_export(plan_file, "dashboard", C3))
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert reason.startswith("its bundle is missing")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]

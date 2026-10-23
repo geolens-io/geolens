@@ -429,7 +429,8 @@ def refresh_export(
     was written; why the bundle may be out of date.
 
     A bundle without a recorded change time, from before it was recorded,
-    counts as changed. A failed export keeps the earlier bundle.
+    counts as changed, and so does one missing from its path. A failed export
+    keeps the earlier bundle.
     """
     client = ctx.portal.client if ctx.portal is not None else None
     if client is None:
@@ -444,18 +445,34 @@ def refresh_export(
             "the portal doesn't say when the item last changed, so its bundle "
             "may be out of date"
         ]
+    present = _bundle_in_place(ctx, item)
     recorded = (entry.export or {}).get("modified")
-    if isinstance(recorded, int) and modified <= recorded:
+    if present and isinstance(recorded, int) and modified <= recorded:
         return []
+    why = (
+        "changed in the portal since it was exported"
+        if present
+        else "its bundle is missing"
+    )
     try:
         result = export_item(ctx, item, entry)
     except ItemFailed as exc:
-        return [
-            "changed in the portal since it was exported, and exporting it "
-            f"again failed: {exc}"
-        ]
+        return [f"{why}, and exporting it again failed: {exc}"]
     entry.notes = list(result.notes)
     return []
+
+
+def _bundle_in_place(ctx: MigrationContext, item: Mapping[str, Any]) -> bool:
+    """Whether the item's bundle is at its path, once what a run killed
+    mid-swap left beside it is put back."""
+    if ctx.export_dir is None or not _ITEM_ID.fullmatch(item["id"]):
+        return False
+    folder = ctx.export_dir / _slug(item["type"]) / item["id"]
+    try:
+        _recover_leftovers(folder)
+    except OSError:
+        return False
+    return folder.is_dir()
 
 
 def _recover_leftovers(folder: Path) -> None:
