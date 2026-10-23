@@ -22,3 +22,13 @@ export function isBooleanColumn(type: string): boolean {
   const t = type.toLowerCase();
   return t === 'boolean' || t === 'bool';
 }
+
+const INTEGER_TYPES = new Set([
+  'smallint', 'integer', 'bigint', 'int', 'int2', 'int4', 'int8',
+  'serial', 'smallserial', 'bigserial',
+]);
+
+/** Check if a column type string represents a Postgres integer type. */
+export function isIntegerColumn(type: string): boolean {
+  return INTEGER_TYPES.has(type.toLowerCase());
+}

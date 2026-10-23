@@ -36,7 +36,9 @@ import {
 } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { isGenericGeometryType } from '@/components/builder/layer-adapters/shared';
-import { isBooleanColumn, isNumericColumn } from '@/lib/column-utils';
+import { isBooleanColumn, isIntegerColumn, isNumericColumn } from '@/lib/column-utils';
+import { useAttributes } from '@/components/dataset/hooks/use-dataset';
+import { valueLabelFor, valueLabelsByField } from '@/lib/value-labels';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 interface DataDrivenStyleEditorProps {
@@ -358,13 +360,18 @@ export function DataDrivenStyleEditor({
 
   const columns = layer.dataset_column_info ?? [];
   // Booleans classify as the strings "true"/"false" (a match label can't be a boolean).
-  // A numeric column stays listed while the saved style is categorical on it (an imported coded-value field).
+  // Integer columns classify by their numeric codes. A float column stays listed only
+  // while the saved style is categorical on it (an imported coded-value field).
   const savedCategoricalColumn =
     layer.style_config?.mode === 'categorical' ? layer.style_config.column : undefined;
   const textColumns = columns.filter(
-    (c) => isTextColumn(c.type) || isBooleanColumn(c.type) || c.name === savedCategoricalColumn,
+    (c) => isTextColumn(c.type) ||
+      isBooleanColumn(c.type) ||
+      isIntegerColumn(c.type) ||
+      c.name === savedCategoricalColumn,
   );
   const columnIsBoolean = columns.some((c) => c.name === column && isBooleanColumn(c.type));
+  const columnIsInteger = columns.some((c) => c.name === column && isIntegerColumn(c.type));
   const numericColumns = columns.filter((c) => isNumericColumn(c.type));
   const filteredColumns = mode === 'categorical' ? textColumns : numericColumns;
 
@@ -382,6 +389,16 @@ export function DataDrivenStyleEditor({
   const { data: statsData } = useColumnStats(
     columnForStats ? layer.dataset_id : undefined,
     columnForStats,
+  );
+
+  // Value labels come from the attribute metadata; a coded column waits for it
+  // so its first generated classes already carry their labels.
+  const { data: attributeList, isPending: attributesPending } = useAttributes(
+    columnIsInteger ? layer.dataset_id : undefined,
+  );
+  const valueLabels = useMemo(
+    () => valueLabelsByField(attributeList?.attributes).get(column),
+    [attributeList, column],
   );
 
   // std-dev classification needs mean and σ. The stats endpoint returns `mean`
@@ -454,6 +471,7 @@ export function DataDrivenStyleEditor({
   // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;
+    if (columnIsInteger && attributesPending) return;
 
     // Boolean columns arrive as true/false; classify them by their string form.
     const values = columnIsBoolean
@@ -497,12 +515,15 @@ export function DataDrivenStyleEditor({
     const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
     const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback, columnIsBoolean);
 
-    const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
+    const categories = values.map((v, i) => {
+      const label = valueLabelFor(valueLabels, v);
+      return { value: v, ...(label !== undefined ? { label } : {}), color: colors[i] };
+    });
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
     const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, reversed, valuesData, columnIsBoolean, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, reversed, valuesData, columnIsBoolean, columnIsInteger, attributesPending, valueLabels, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
