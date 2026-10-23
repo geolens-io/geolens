@@ -179,6 +179,77 @@ async def test_map_detail_and_access(client, admin_auth_header, test_db_session)
         assert await _observe(world, read) == expected, path
 
 
+# A credential reads as the account behind it, except that a publish key never
+# carries admin. One that doesn't resolve is refused, not read as anonymous.
+CREDENTIALS = {
+    "admin full key": "admin",
+    "admin read-only key": "admin",
+    "admin publish key": "other",
+    "owner publish key": "owner",
+    "deactivated user": None,
+    "stale credential": None,
+}
+
+
+async def _mint_key(client: AsyncClient, headers: dict, scope: str) -> dict:
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": f"{scope} key", "scope": scope},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return {"X-Api-Key": resp.json()["key"]}
+
+
+async def test_credentials_read_as_their_account(
+    client, admin_auth_header, test_db_session
+):
+    world = await _world(client, admin_auth_header, test_db_session)
+    deactivated_headers, deactivated_id = await create_user(
+        client, admin_auth_header, "editor"
+    )
+    resp = await client.patch(
+        f"/admin/users/{deactivated_id}",
+        json={"is_active": False},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    headers = {
+        "admin full key": await _mint_key(client, admin_auth_header, "full"),
+        "admin read-only key": await _mint_key(client, admin_auth_header, "read_only"),
+        "admin publish key": await _mint_key(client, admin_auth_header, "publish"),
+        "owner publish key": await _mint_key(client, world.headers["owner"], "publish"),
+        "deactivated user": deactivated_headers,
+        "stale credential": {"Authorization": "Bearer not-a-real-credential"},
+    }
+    tag = world.names["public"].rsplit("-", 1)[0]
+    by_id = {map_id: v for v, map_id in world.maps.items()}
+
+    observed = {}
+    expected = {}
+    for credential, account in CREDENTIALS.items():
+        for v in VISIBILITIES:
+            for path in ("", "/access/", "/style.json"):
+                resp = await client.get(
+                    f"/maps/{world.maps[v]}{path}", headers=headers[credential]
+                )
+                observed[credential, v, path] = resp.status_code
+                expected[credential, v, path] = (
+                    401 if account is None else 200 if _reads(v, account) else 404
+                )
+        resp = await client.get(
+            "/maps/", params={"search": tag}, headers=headers[credential]
+        )
+        observed[credential, "list"] = (
+            {by_id[m["id"]] for m in resp.json()["maps"]}
+            if resp.status_code == 200
+            else resp.status_code
+        )
+        expected[credential, "list"] = 401 if account is None else _audience(account)
+
+    assert observed == expected
+
+
 async def test_stored_images(client, admin_auth_header, test_db_session):
     world = await _world(client, admin_auth_header, test_db_session, with_images=True)
 
