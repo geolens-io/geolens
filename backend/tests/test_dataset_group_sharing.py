@@ -25,6 +25,7 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from tests.alembic_helpers import fresh_query
 from tests.factories import create_user, get_user_id
+from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 from tests.test_dataset_group_grants import _new_group
 from tests.test_tile_signature_revocation_1963 import _evict_tile_meta, _make_vector
 from tests.test_vrt_member_audience import _servable_vrt

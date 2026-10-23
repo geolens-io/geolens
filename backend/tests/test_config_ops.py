@@ -17,6 +17,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from tests.test_persistent_config import _clean_settings  # noqa: F401
+
 
 # ---------------------------------------------------------------------------
 # Export tests
