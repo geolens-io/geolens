@@ -461,6 +461,9 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     counts = {int(row[2]): int(row[3]) for row in rows}
     # A weighted mean of the ends stays finite where high - low would overflow.
     edges = [low * (1 - i / bins) + high * (i / bins) for i in range(bins + 1)]
+    # Rounding over adjacent doubles can step an edge backwards.
+    for i in range(1, len(edges)):
+        edges[i] = max(edges[i], edges[i - 1])
     return HistogramResult(
         bins=[
             HistogramBin(lower=edges[i], upper=edges[i + 1], count=counts.get(i + 1, 0))
