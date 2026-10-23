@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -295,6 +296,8 @@ async def test_resetting_an_attribute_clears_its_labels_and_the_edit_mark(
         {"1": "x" * 501},
         {"1": "bad\x00"},
         {"a" * 501: "x"},
+        {"1": "lone\ud800"},
+        {"lone\udfff": "x"},
     ],
 )
 async def test_the_edit_endpoint_bounds_what_it_stores(
@@ -307,8 +310,9 @@ async def test_the_edit_endpoint_bounds_what_it_stores(
 
     response = await client.patch(
         f"/datasets/{dataset_id}/attributes/{attr.id}/",
-        json={"value_labels": labels},
-        headers=admin_auth_header,
+        # Raw JSON text: a lone surrogate travels as a \\u escape.
+        content=json.dumps({"value_labels": labels}),
+        headers={**admin_auth_header, "Content-Type": "application/json"},
     )
 
     assert response.status_code == 422

@@ -11,6 +11,7 @@ from app.platform.value_labels import (
     MAX_DATASET_VALUE_LABEL_BYTES,
     MAX_VALUE_LABEL_LENGTH,
     MAX_VALUE_LABELS,
+    is_storable_text,
     value_labels_bytes,
 )
 
@@ -58,11 +59,7 @@ def _code_text(code: object) -> str | None:
     # as given is skipped, not rewritten.
     if not isinstance(code, str) or len(code) > MAX_VALUE_LABEL_LENGTH:
         return None
-    try:
-        code.encode("utf-8")
-    except UnicodeEncodeError:
-        return None
-    return None if "\x00" in code else code
+    return code if is_storable_text(code) else None
 
 
 def _coded_value_labels(domain: object) -> dict[str, str] | None:

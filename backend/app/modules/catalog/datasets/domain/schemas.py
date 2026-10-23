@@ -14,7 +14,11 @@ from pydantic import (
 )
 
 from app.core.url_redaction import has_url_credentials
-from app.platform.value_labels import MAX_VALUE_LABEL_LENGTH, MAX_VALUE_LABELS
+from app.platform.value_labels import (
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+    is_storable_text,
+)
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
@@ -1345,9 +1349,10 @@ class AttributeMetadataUpdate(BaseModel):
                 raise ValueError(
                     f"Codes and labels are at most {MAX_VALUE_LABEL_LENGTH} characters"
                 )
-            # JSONB rejects NUL.
-            if "\x00" in code or "\x00" in label:
-                raise ValueError("Codes and labels cannot contain NUL")
+            if not (is_storable_text(code) and is_storable_text(label)):
+                raise ValueError(
+                    "Codes and labels must be valid UTF-8 text without NUL"
+                )
         return labels
 
 

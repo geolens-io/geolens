@@ -9,6 +9,17 @@ MAX_VALUE_LABEL_LENGTH = 500
 MAX_DATASET_VALUE_LABEL_BYTES = 1024 * 1024
 
 
+def is_storable_text(text: str) -> bool:
+    """Whether JSONB can keep the text: UTF-8 encodable, and no NUL."""
+    if "\x00" in text:
+        return False
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def value_labels_bytes(labels: dict[str, str] | None) -> int:
     """Size of the labels as the budget counts it: their JSON text in UTF-8."""
     return len(json.dumps(labels, ensure_ascii=False).encode()) if labels else 0
