@@ -414,17 +414,17 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
-  it('maps token_over_http to its own key', () => {
+  it('maps credential_over_http to its own key', () => {
     expect(
       classifyApiError(
         {
-          code: 'token_over_http',
+          code: 'credential_over_http',
           message: 'This service address uses plain HTTP.',
           field: 'url',
         },
         422,
       ),
-    ).toEqual({ key: 'errors.tokenOverHttp' });
+    ).toEqual({ key: 'errors.credentialOverHttp' });
   });
 
   // The sixth and

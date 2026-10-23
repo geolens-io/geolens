@@ -20,12 +20,16 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
-from app.platform.egress_proxy import pinned_origin, service_egress_proxy
+from app.platform.egress_proxy import (
+    gdal_source_url,
+    pinned_origin,
+    service_egress_proxy,
+)
 from app.platform.gdal_argv import reject_option_like_layer_name
 from app.platform.gdal_env import gdal_service_safe_env
 from app.platform.service_auth import (
     credential_input_rejection,
-    refuse_token_over_http,
+    refuse_credential_over_http,
 )
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
@@ -202,7 +206,7 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
-        refuse_token_over_http(base_url, token)
+        refuse_credential_over_http(base_url, token)
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
         # Omitting outFields returns only the display field, dropping every
@@ -276,6 +280,7 @@ async def run_service_preview(
     columns, sample_rows.
     """
     reject_option_like_layer_name(layer_name)
+    refuse_credential_over_http(gdal_source_url(gdal_source), credential)
     empty_fallback: dict = {
         "srid": None,
         "geometry_type": None,
@@ -493,8 +498,8 @@ async def run_service_preview(
         )
         if egress.left_origin:
             raise IngestionError(
-                "the source service redirected to another address while "
-                "carrying a credential"
+                "the source service redirected to another address, and GeoLens "
+                "does not send a credential anywhere but the service's own address"
             )
         if egress.refused:
             raise IngestionError(

@@ -64,6 +64,15 @@ class ServiceEgress:
         self.left_origin = False
 
 
+def gdal_source_url(gdal_source: str) -> str | None:
+    """The http(s) URL in a GDAL source string, with any ``DRIVER:`` prefix
+    dropped, or None for a local path."""
+    for url in (gdal_source, gdal_source.partition(":")[2]):
+        if url.lower().startswith(("http://", "https://")):
+            return url
+    return None
+
+
 def pinned_origin(gdal_source: str, *, credential: bool) -> str | None:
     """The source URL a run's connections are held to, or None for no pin.
 
@@ -72,11 +81,9 @@ def pinned_origin(gdal_source: str, *, credential: bool) -> str | None:
     and sends custom headers to any host, and an https hop reaches the proxy
     only as ``CONNECT host:port``.
     """
-    url = gdal_source
-    if not url.lower().startswith(("http://", "https://")):
-        url = gdal_source.partition(":")[2]
-        if not url.lower().startswith(("http://", "https://")):
-            return None
+    url = gdal_source_url(gdal_source)
+    if url is None:
+        return None
     if credential:
         return url
     try:

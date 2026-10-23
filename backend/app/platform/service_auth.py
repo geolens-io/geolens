@@ -42,6 +42,7 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.coded_errors import CodedValueError
+from app.core.config import settings
 from app.core.service_tokens import (
     BASIC_USERNAME_POLICY,
     CREDENTIAL_METHOD_POLICY,
@@ -285,36 +286,67 @@ def url_query_token(credential: ServiceCredential | None) -> str | None:
     return credential.token
 
 
-TOKEN_OVER_HTTP_CODE = "token_over_http"
+CREDENTIAL_OVER_HTTP_CODE = "credential_over_http"
 
-TOKEN_OVER_HTTP_POLICY = (
-    "This service address uses plain HTTP, and GeoLens won't send a token "
-    "over an unencrypted connection. Use the service's https:// address."
+CREDENTIAL_OVER_HTTP_POLICY = (
+    "This service address uses plain HTTP, so GeoLens won't send a credential "
+    "to it. Use the service's https:// address, or ask an administrator to "
+    "list its host in SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS."
 )
 
 
-class TokenOverHttpError(CodedValueError):
-    """A token was about to be sent to an address that isn't https."""
+class CredentialOverHttpError(CodedValueError):
+    """A credential was about to be sent to an address that isn't https."""
 
     field = "url"
 
     def __init__(self) -> None:
-        super().__init__(TOKEN_OVER_HTTP_CODE, TOKEN_OVER_HTTP_POLICY)
+        super().__init__(CREDENTIAL_OVER_HTTP_CODE, CREDENTIAL_OVER_HTTP_POLICY)
 
 
-def refuse_token_over_http(url: str, token: str | None) -> None:
-    """Raise :class:`TokenOverHttpError` when *token* would go to *url* unencrypted."""
-    if token and urlsplit(url).scheme.lower() != "https":
-        raise TokenOverHttpError
-
-
-def token_over_http_or_422(
-    url: str | None, credential: ServiceCredential | None
-) -> None:
-    """A door's 422 ``token_over_http`` for a bearer token bound for *url* over http."""
+def _http_host_allowed(url: str) -> bool:
+    """Whether the operator listed *url*'s host, or host and port, for http."""
     try:
-        refuse_token_over_http(url or "", url_query_token(credential))
-    except TokenOverHttpError as exc:
+        parts = urlsplit(url)
+        host, port = (parts.hostname or "").lower(), parts.port or 80
+    except ValueError:
+        return False
+    return any(
+        allowed == host and allowed_port in (None, port)
+        for allowed, allowed_port in settings.http_credential_hosts
+    )
+
+
+def refuse_credential_over_http(
+    url: str | None, credential: ServiceCredential | str | None
+) -> None:
+    """Raise :class:`CredentialOverHttpError` when *credential* would go to
+    *url* unencrypted.
+
+    *credential* is a :class:`ServiceCredential` or the string that carries
+    one (a token or a header line). Nothing is refused without both a URL and
+    a credential, and an http host listed in
+    ``SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`` passes.
+    """
+    if isinstance(credential, ServiceCredential):
+        carries = credential.method != CredentialMethod.NONE
+    else:
+        carries = bool(credential)
+    if not url or not carries:
+        return
+    scheme = urlsplit(url).scheme.lower()
+    if scheme == "https" or (scheme == "http" and _http_host_allowed(url)):
+        return
+    raise CredentialOverHttpError
+
+
+def credential_over_http_or_422(
+    url: str | None, credential: ServiceCredential | str | None
+) -> None:
+    """:func:`refuse_credential_over_http` as a door's coded 422."""
+    try:
+        refuse_credential_over_http(url, credential)
+    except CredentialOverHttpError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": exc.message, "field": exc.field},

@@ -85,7 +85,7 @@ from app.platform.ratelimit import limiter
 from app.platform.service_auth import (
     credential_or_422,
     custom_credential_header_name,
-    token_over_http_or_422,
+    credential_over_http_or_422,
     url_query_token,
 )
 from app.platform.probe_bounds import bounded_probe_read
@@ -903,7 +903,7 @@ async def probe_service_url(
             WFS_SERVICE_FORMAT if sends_a_header else ARCGIS_SERVICE_FORMAT
         ),
     )
-    token_over_http_or_422(request.url, service_credential)
+    credential_over_http_or_422(request.url, service_credential)
     safe_url = redact_url_credentials(request.url)
     # Read off `user` before the release below expires it.
     user_id = user.id
@@ -1131,7 +1131,7 @@ async def preview_service_layer(
         service_credential_from_request(request.auth, request.token),
         service_format=_preview_service_format(request.service_type),
     )
-    token_over_http_or_422(request.url, service_credential)
+    credential_over_http_or_422(request.url, service_credential)
     # ArcGIS is the only branch reading a bare token (`build_gdal_source`
     # percent-encodes it into the ESRIJSON query); header-auth formats get
     # None here and travel as a header instead.

@@ -36,6 +36,7 @@ import structlog
 import uvloop
 from sqlalchemy import select, text
 
+from app.core.config import settings
 from app.modules.catalog.sources.preview import run_service_preview
 from app.platform import egress_proxy
 from app.platform.egress_proxy import ServiceEgress, service_egress_proxy
@@ -1023,10 +1024,11 @@ class TestAServiceImportJobError:
         assert marker not in refreshed.error_message
 
     async def test_an_echoed_arcgis_token_is_scrubbed_from_the_log(
-        self, resolver_calls
+        self, resolver_calls, monkeypatch
     ):
         """An ArcGIS token rides in the URL rather than a header, so a service
         that echoes it as plain text is caught only by value."""
+        monkeypatch.setattr(settings, "service_credentials_allow_http_hosts", _HOST)
         token = f"tok-{uuid.uuid4().hex}"
         with _wfs_service(exception_text=token) as (port, _requests):
             with structlog.testing.capture_logs() as logs:

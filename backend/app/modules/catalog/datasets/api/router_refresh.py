@@ -52,7 +52,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.service_auth import token_over_http_or_422, wire_credential
+from app.platform.service_auth import credential_over_http_or_422, wire_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
@@ -700,7 +700,8 @@ async def _dispatch_stac_refresh(
     # chose. A binding from before that was recorded has no anchor, and
     # falling back to the stored item pointer would let a document from that
     # era name where the credential goes.
-    if token and not (dataset.origin_ref or {}).get("url"):
+    catalog_url = (dataset.origin_ref or {}).get("url")
+    if token and not catalog_url:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -714,6 +715,7 @@ async def _dispatch_stac_refresh(
                 "origin_kind": "stac",
             },
         )
+    credential_over_http_or_422(catalog_url, token)
 
     # Refused before anything is written, for the reason the service path
     # gives: without a shared store the secret cannot reach the worker.
@@ -1058,7 +1060,7 @@ async def refresh_dataset(
     # a URL to validate outside the reservation window. The binding the
     # worker actually gets is read again below, after the reservation.
     candidate = _resolve_service_origin(dataset)
-    token_over_http_or_422(candidate.base_url, credential)
+    credential_over_http_or_422(candidate.base_url, credential)
 
     # Rule 2: the URL is ours, but "ours" isn't a safety property -- it
     # was a client's when ingest stored it, and DNS moves. Revalidating

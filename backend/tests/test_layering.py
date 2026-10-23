@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1365,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1367,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1346,9 +1346,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1192,
-    # Central settings and boot-validation debt; split by configuration domain before
-    # raising.
-    "backend/app/core/config.py": 1442,
+    # Central settings and boot-validation debt, including the service-credential
+    # http allowlist; split by configuration domain before raising further.
+    "backend/app/core/config.py": 1483,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
     "backend/app/core/persistent_config.py": 1203,
@@ -1369,7 +1369,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1149,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1575,
+    "backend/app/processing/ingest/ogr.py": 1581,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

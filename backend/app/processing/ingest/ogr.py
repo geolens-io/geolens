@@ -46,7 +46,12 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
-from app.platform.egress_proxy import pinned_origin, service_egress_proxy
+from app.platform.egress_proxy import (
+    gdal_source_url,
+    pinned_origin,
+    service_egress_proxy,
+)
+from app.platform.service_auth import refuse_credential_over_http
 from app.platform.gdal_argv import is_option_like_layer_name
 from app.processing.ingest.arcgis_errors import (
     ARCGIS_ERROR_RESPONSE_RE,
@@ -1319,6 +1324,7 @@ async def run_ogr2ogr_service(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+    refuse_credential_over_http(gdal_source_url(gdal_source), token)
 
     # A protected OGC API collection is read here, not by GDAL, so the
     # credential never becomes a header file: GDAL applies a header file to

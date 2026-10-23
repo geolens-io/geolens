@@ -278,6 +278,32 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
+def parse_http_credential_hosts(value: str) -> list[tuple[str, int | None]]:
+    """``SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`` as (lowercase host, port or None).
+
+    Raises ValueError for an entry that isn't a bare host or host:port.
+    """
+    hosts: list[tuple[str, int | None]] = []
+    for entry in filter(None, (raw.strip().lower() for raw in value.split(","))):
+        try:
+            parts = urlsplit(f"//{entry}")
+            port = parts.port
+        except ValueError:
+            parts, port = None, None
+        if (
+            parts is None
+            or not parts.hostname
+            or parts.netloc != entry
+            or any(mark in entry for mark in "*@")
+        ):
+            raise ValueError(
+                "SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS takes host or host:port "
+                "entries, comma-separated"
+            )
+        hosts.append((parts.hostname, port))
+    return hosts
+
+
 class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
@@ -501,6 +527,10 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # GDAL's 120s default.
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
+    # Hosts (host or host:port, comma-separated) a service credential may reach
+    # over plain http, for intranet services without TLS. Empty refuses them all.
+    service_credentials_allow_http_hosts: str = ""
+
     # The materialize CTAS budget, applied as SET LOCAL statement_timeout before
     # the CREATE TABLE AS. 300 seconds covers roughly 150k-600k buffered polygon
     # rows, so a one-million-parcel buffer fails.
@@ -702,6 +732,17 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                     ) from None
             normalized.append(host)
         return ",".join(dict.fromkeys(normalized))
+
+    @field_validator("service_credentials_allow_http_hosts", mode="after")
+    @classmethod
+    def validate_service_credentials_allow_http_hosts(cls, v: str) -> str:
+        """Each entry is a host or host:port, with no scheme, path or wildcard."""
+        parse_http_credential_hosts(v)
+        return v
+
+    @property
+    def http_credential_hosts(self) -> list[tuple[str, int | None]]:
+        return parse_http_credential_hosts(self.service_credentials_allow_http_hosts)
 
     @field_validator("embedding_dims", mode="before")
     @classmethod
