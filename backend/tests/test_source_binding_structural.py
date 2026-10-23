@@ -7,7 +7,8 @@ invariant 4) and clear the stored probe verdict. This walks every module under
 
 - ORM attributes: assignment, ``del``, item writes, ``|=`` and mutating methods
   on the stored dict (reached as ``x.origin_ref``, ``getattr(x, "origin_ref")``
-  or a local name bound to either, and through ``dict.update`` or
+  or a local alias of either, bound by assignment, annotation, walrus,
+  unpacking, ``for``, ``with`` or another alias, and through ``dict.update`` or
   ``operator.setitem``), ``setattr``/``set_attribute``/``set_committed_value``/
   ``__setattr__`` by name, and ``__dict__``/``vars()`` items.
 - The model's constructor (under any alias), with the columns as keywords or as
@@ -333,6 +334,60 @@ class _Module:
         return False
 
 
+def _bindings(scope: ast.AST):
+    """``(target, value)`` for every way the scope binds a name to a value."""
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                yield target, node.value
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value:
+            yield node.target, node.value
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            if isinstance(node.iter, (ast.Tuple, ast.List, ast.Set)):
+                for element in node.iter.elts:
+                    yield node.target, element
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    yield item.optional_vars, item.context_expr
+
+
+def _name_pairs(target: ast.AST, value: ast.AST):
+    """``(name, value)`` a binding gives each plain name, unpacking literals."""
+    if isinstance(target, ast.Name):
+        yield target.id, value
+    elif (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+        and not any(isinstance(e, ast.Starred) for e in target.elts)
+    ):
+        for inner_target, inner_value in zip(target.elts, value.elts):
+            yield from _name_pairs(inner_target, inner_value)
+
+
+def _holds_stored(value: ast.AST, aliases: set[str]) -> bool:
+    """Whether the expression evaluates to the stored dict itself, not a copy."""
+    if _reads_stored(value):
+        return True
+    if isinstance(value, ast.Name):
+        return value.id in aliases
+    if isinstance(value, ast.BoolOp):
+        return any(_holds_stored(part, aliases) for part in value.values)
+    if isinstance(value, ast.IfExp):
+        return _holds_stored(value.body, aliases) or _holds_stored(
+            value.orelse, aliases
+        )
+    if isinstance(value, ast.NamedExpr):
+        return _holds_stored(value.value, aliases)
+    return (
+        isinstance(value, ast.Call)
+        and _terminal_name(value.func) == "nullcontext"
+        and bool(value.args)
+        and _holds_stored(value.args[0], aliases)
+    )
+
+
 class _Scope:
     """Column mentions in a write's arguments, following local names one level."""
 
@@ -414,16 +469,26 @@ class _Scope:
         )
 
     def stored_aliases(self) -> frozenset[str]:
-        """Local names bound to a stored ``origin_ref``/``origin_uri`` value."""
+        """Local names bound to a stored ``origin_ref``/``origin_uri`` value.
+
+        Through any binding (assignment, annotated assignment, walrus,
+        unpacking, a ``for`` over a literal, ``with ... as``) and through
+        other aliases, until none is new.
+        """
         if self._stored_aliases is None:
-            names = set()
-            for node in ast.walk(self.scope):
-                if not isinstance(node, ast.Assign):
-                    continue
-                value = node.value
-                parts = value.values if isinstance(value, ast.BoolOp) else [value]
-                if any(_reads_stored(part) for part in parts):
-                    names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            pairs = [
+                pair
+                for target, value in _bindings(self.scope)
+                for pair in _name_pairs(target, value)
+            ]
+            names: set[str] = set()
+            grew = True
+            while grew:
+                grew = False
+                for name, value in pairs:
+                    if name not in names and _holds_stored(value, names):
+                        names.add(name)
+                        grew = True
             self._stored_aliases = frozenset(names)
         return self._stored_aliases
 
@@ -1066,6 +1131,22 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "getattr(dataset, 'origin_ref').update(token=t)",
         "getattr(dataset, 'origin_ref')['token'] = t",
         "operator.setitem(dataset.origin_ref, 'token', t)",
+        # Every way a local name can come to hold the stored dict.
+        "def f(dataset, t):\n    ref: dict = dataset.origin_ref\n    ref['token'] = t",
+        "def f(dataset, t):\n    if (ref := dataset.origin_ref):\n"
+        "        ref['token'] = t",
+        "def f(dataset, x, t):\n    ref, other = dataset.origin_ref, x\n"
+        "    ref['token'] = t",
+        "[ref, other] = [dataset.origin_ref, x]\nref.update(token=t)",
+        "def f(dataset, t):\n    for ref in (dataset.origin_ref,):\n"
+        "        ref['token'] = t",
+        "[ref.update(token=t) for ref in [dataset.origin_ref]]",
+        "def f(dataset, t):\n    with dataset.origin_ref as ref:\n"
+        "        ref['token'] = t",
+        "with nullcontext(dataset.origin_ref) as ref:\n    ref['token'] = t",
+        "def f(dataset, t):\n    a = dataset.origin_ref\n    b = a\n    b['token'] = t",
+        "ref = dataset.origin_ref if c else {}\nref['token'] = t",
+        "b = (a := dataset.origin_ref)\nb['token'] = t",
         "def f(dataset):\n    ref = getattr(dataset, 'origin_ref')\n"
         "    del ref['token']",
         # Bulk loaders.
@@ -1108,6 +1189,12 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "def f(dataset):\n    uri = dataset.origin_uri\n    uri += '/1'\n"
         "    return uri",
         "getattr(dataset, 'origin_ref').get('url')",
+        "def f(dataset, x, t):\n    other, ref = dataset.origin_ref, x\n"
+        "    ref['token'] = t",
+        "def f(dataset, t):\n    ref = dict(dataset.origin_ref)\n    b = ref\n"
+        "    b['token'] = t",
+        "def f(dataset, payload):\n    for key in dataset.origin_ref:\n"
+        "        payload[key] = 1",
         "frame.to_sql('dataset_stats', engine)",
         "await conn.copy_records_to_table('datasets', records=rows, "
         "columns=['id', 'title'])",
