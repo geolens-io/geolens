@@ -28,7 +28,7 @@
         },
         "generated_at": {"type": "string", "format": "date-time"},
         "started_at": {
-          "description": "When the inventory the plan was last built or merged from started reading the portal; cutover asks the portal for items changed since.",
+          "description": "When the inventory the plan was last built or merged from started reading the portal, by the portal's clock; cutover asks the portal for items changed since.",
           "type": "string",
           "format": "date-time"
         },

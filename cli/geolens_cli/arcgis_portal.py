@@ -396,6 +396,8 @@ class PortalClient:
         self._lock = threading.Lock()
         self._renew_lock = threading.Lock()
         self._next_slot = 0.0
+        # The Date header of the latest response: the portal's own clock.
+        self.server_date: str | None = None
 
     def _error(self, message: str, **kwargs: Any) -> PortalError:
         return PortalError(self._redact(message), **kwargs)
@@ -895,6 +897,7 @@ class PortalClient:
     ) -> bytes:
         try:
             with self._opener.open(request, timeout=SOCKET_TIMEOUT) as response:
+                self.server_date = response.headers.get("Date") or self.server_date
                 return self._read_capped(response, path, deadline)
         except urllib.error.HTTPError as exc:
             raise self._http_error(exc, path) from None

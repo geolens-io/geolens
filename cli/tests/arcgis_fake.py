@@ -21,6 +21,8 @@ B1, B2 = "b1" * 16, "b2" * 16
 C1, C2, C3 = "c1" * 16, "c2" * 16, "c3" * 16
 D1, D2, D3, D4, D5 = ("d1" * 16, "d2" * 16, "d3" * 16, "d4" * 16, "d5" * 16)
 HYDRANTS = "e9" * 16
+# Every answer's Date header: the portal's clock when it answered.
+PORTAL_DATE = "Wed, 30 Sep 2026 23:00:00 GMT"
 EMPTY_GROUPS = {"admin": [], "member": [], "other": []}
 NO_RELATED = {"total": 0, "relatedItems": []}
 
@@ -109,7 +111,8 @@ class FakePortal:
             raise urllib.error.HTTPError(
                 request.full_url, status, "fake", _message(extra), io.BytesIO(raw)
             )
-        return _Response(raw, extra)
+        dated = {"Date": PORTAL_DATE} if PORTAL_DATE else {}
+        return _Response(raw, {**dated, **(extra or {})})
 
 
 def portal_routes(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -178,7 +181,7 @@ def inventory_report(
         inv,
         tool_version="test",
         generated_at="2026-10-01T00:00:00Z",
-        started_at="2026-09-30T23:00:00Z",
+        started_at_local="2026-09-30T23:00:05Z",
         max_items=100,
         retirements=inventory.RETIREMENTS,
         classes=inventory.CLASSES,

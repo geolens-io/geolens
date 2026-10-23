@@ -45,7 +45,7 @@ def build_report(
     *,
     tool_version: str,
     generated_at: str,
-    started_at: str,
+    started_at_local: str,
     max_items: int,
     retirements: Mapping[str, Mapping[str, str | None]],
     classes: Iterable[str],
@@ -61,7 +61,8 @@ def build_report(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
-        "started_at": started_at,
+        **({"started_at": inv.started_at} if inv.started_at else {}),
+        "started_at_local": started_at_local,
         "tool_version": tool_version,
         "complete": inv.abort is None,
         "abort_reason": str(inv.abort) if inv.abort is not None else None,

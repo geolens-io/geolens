@@ -106,8 +106,9 @@ def inventory_changes(
     inventory = plan["inventory"]
     if not inventory.get("started_at"):
         return (
-            "the plan's inventory records no start time, so items changed while "
-            "it ran can't be told apart; run inventory and plan again"
+            "the plan's inventory records no start time by the portal's clock, so "
+            "items changed while it ran can't be told apart; run inventory and "
+            "plan again"
         )
     # The start, not the end: an item changed while the inventory ran may
     # have been read before the change.

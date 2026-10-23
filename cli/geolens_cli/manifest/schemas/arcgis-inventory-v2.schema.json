@@ -27,7 +27,12 @@
     "schema_version": {"const": "2"},
     "generated_at": {"type": "string", "format": "date-time"},
     "started_at": {
-      "description": "When the inventory started reading the portal. Items changed after it may be missing or out of date. Absent in reports written before it was recorded.",
+      "description": "When the inventory started reading the portal, by the portal's clock (the Date header of its first answer). Items changed after it may be missing or out of date. Absent when the portal gave no time, and in reports written before it was recorded.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at_local": {
+      "description": "The same moment by the clock of the machine that ran the inventory, for display.",
       "type": "string",
       "format": "date-time"
     },

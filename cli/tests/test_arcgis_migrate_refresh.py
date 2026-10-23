@@ -1474,3 +1474,27 @@ def test_the_freshness_search_needs_an_org_admin_account(user, searched):
         assert reason is None
     else:
         assert "isn't an organization administrator (org_admin)" in reason
+
+
+@pytest.mark.parametrize("date", [None, "not a date"])
+def test_an_inventory_without_a_portal_time_records_no_start(monkeypatch, date):
+    from geolens_cli import arcgis_plan as plan_mod
+
+    from . import arcgis_fake
+
+    monkeypatch.setattr(arcgis_fake, "PORTAL_DATE", date)
+    report = arcgis_fake.inventory_report()
+
+    assert "started_at" not in report and report["started_at_local"]
+    plan = plan_mod.build_plan(report, inventory_path="i.json", owner_map={})
+    reason = cutover_mod.inventory_changes(_SearchPortal({"results": []}), plan, _NOW)
+    assert "no start time by the portal's clock" in reason
+
+
+def test_the_inventory_start_is_the_portals_clock_not_the_hosts():
+    from .arcgis_fake import inventory_report
+
+    report = inventory_report()
+
+    assert report["started_at"] == "2026-09-30T23:00:00Z"
+    assert report["started_at_local"] == "2026-09-30T23:00:05Z"

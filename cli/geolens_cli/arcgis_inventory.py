@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -357,6 +358,8 @@ class Inventory:
     truncated: bool = False
     search_ceiling: bool = False
     abort: PortalError | None = None
+    # When the reading started, by the portal's clock; None when it gave none.
+    started_at: str | None = None
 
 
 def _pages(
@@ -1405,6 +1408,17 @@ def _signed_in_role(info: Mapping[str, Any]) -> str | None:
     return role if isinstance(role, str) and role else None
 
 
+def _portal_time(header: str | None) -> str | None:
+    """An HTTP Date header as an ISO time, or None."""
+    try:
+        when = parsedate_to_datetime(header) if header else None
+    except (TypeError, ValueError):
+        return None
+    if when is None or when.tzinfo is None:
+        return None
+    return when.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _mark_not_fetched(inv: Inventory) -> None:
     for row in inv.items:
         if row["dependencies_status"] == "pending":
@@ -1430,6 +1444,7 @@ def run_inventory(
     kept for a partial report.
     """
     info = client.get_json("portals/self")
+    started_at = _portal_time(client.server_date)
     username = _signed_in_user(info)
     # A server or web tier that ignores the header answers anonymously
     # rather than with a 499, so a token without an identity gets one
@@ -1467,6 +1482,7 @@ def run_inventory(
             "owner": username if scope == "user" else None,
             "org_id": org_id if scope == "org" else None,
         },
+        started_at=started_at,
     )
     try:
         for raw, folder_id in _list_items(client, inv, max_items):
@@ -1632,7 +1648,7 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         clock=_clock,
         on_request=lambda method, path: fmt.debug(redact(f"{method} {path}")),
     )
-    started_at = _iso_now()
+    started_at_local = _iso_now()
     try:
         if password is not None and opts.username:
             client.generate_token(opts.username, password)
@@ -1654,7 +1670,7 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         inv,
         tool_version=_tool_version(),
         generated_at=_iso_now(),
-        started_at=started_at,
+        started_at_local=started_at_local,
         max_items=opts.max_items,
         retirements=RETIREMENTS,
         classes=CLASSES,
