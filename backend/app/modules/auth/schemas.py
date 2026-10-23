@@ -384,3 +384,13 @@ class ChangePasswordRequest(BaseModel):
 
         validate_password_from_settings(v)
         return v
+
+
+class GroupRef(BaseModel):
+    id: uuid.UUID = Field(description="Unique group identifier.")
+    name: str = Field(description="Group name.")
+
+
+class GroupRefListResponse(BaseModel):
+    groups: list[GroupRef] = Field(description="Page of groups, by name.")
+    total: int = Field(description="Total number of groups (across all pages).")

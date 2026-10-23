@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from ..models.dataset_retention import DatasetRetention
     from ..models.derived_from_response import DerivedFromResponse
+    from ..models.group_ref import GroupRef
     from ..models.point_cloud_metadata import PointCloudMetadata
     from ..models.previous_version_response import PreviousVersionResponse
     from ..models.quality_detail import QualityDetail
@@ -143,6 +144,8 @@ class DatasetResponse:
         previous_versions (list[PreviousVersionResponse] | None | Unset): The kept previous versions, newest first, each
             of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a
             dataset keeps. Set on the detail endpoint only; null elsewhere.
+        groups (list[GroupRef] | None | Unset): The sharing groups the dataset is shared with, by name. Set on the
+            detail endpoint for the owner and admins only; null elsewhere.
     """
 
     id: UUID
@@ -213,6 +216,7 @@ class DatasetResponse:
     metadata_warnings: list[str] | None | Unset = UNSET
     previous_version: None | PreviousVersionResponse | Unset = UNSET
     previous_versions: list[PreviousVersionResponse] | None | Unset = UNSET
+    groups: list[GroupRef] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -636,6 +640,18 @@ class DatasetResponse:
         else:
             previous_versions = self.previous_versions
 
+        groups: list[dict[str, Any]] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = groups_type_0_item_data.to_dict()
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -766,6 +782,8 @@ class DatasetResponse:
             field_dict["previous_version"] = previous_version
         if previous_versions is not UNSET:
             field_dict["previous_versions"] = previous_versions
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -781,6 +799,7 @@ class DatasetResponse:
         )
         from ..models.dataset_retention import DatasetRetention
         from ..models.derived_from_response import DerivedFromResponse
+        from ..models.group_ref import GroupRef
         from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.previous_version_response import PreviousVersionResponse
         from ..models.quality_detail import QualityDetail
@@ -1528,6 +1547,28 @@ class DatasetResponse:
 
         previous_versions = _parse_previous_versions(d.pop("previous_versions", UNSET))
 
+        def _parse_groups(data: object) -> list[GroupRef] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = GroupRef.from_dict(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[GroupRef] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         dataset_response = cls(
             id=id,
             record_id=record_id,
@@ -1597,6 +1638,7 @@ class DatasetResponse:
             metadata_warnings=metadata_warnings,
             previous_version=previous_version,
             previous_versions=previous_versions,
+            groups=groups,
         )
 
         dataset_response.additional_properties = d

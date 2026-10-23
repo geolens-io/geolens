@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -216,15 +217,24 @@ async def _apply_visibility_change(
     dataset: Dataset,
     dataset_id: uuid.UUID,
     new_visibility: str,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> bool:
     """Set record.visibility unless it strands one of the owner's shared maps.
 
     The helper compares the before and after audiences so internal-map
-    viewers are protected as well as public-map viewers.
+    viewers are protected as well as public-map viewers. ``regrant`` changes
+    the dataset's grants in the same step, which moves its audience even when
+    the visibility stays.
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
     )
+
+    pending = [regrant] if regrant is not None else []
+
+    async def regrant_once() -> None:
+        while pending:
+            await pending.pop()()
 
     broken_maps = await find_maps_broken_by_dataset_visibility(
         session,
@@ -234,18 +244,20 @@ async def _apply_visibility_change(
         record_status=record.record_status,
         record_id=record.id,
         owner_id=record.created_by,
+        regrant=regrant_once if pending else None,
     )
     if broken_maps:
         raise ValueError(
             "Cannot restrict visibility: dataset is used in shared maps: "
             f"{', '.join(broken_maps)}"
         )
-    if new_visibility == record.visibility:
+    await regrant_once()
+    if new_visibility == record.visibility and regrant is None:
         return True
     record.visibility = new_visibility
-    # A visibility change moves who may read the dataset, so it
+    # A visibility or grant change moves who may read the dataset, so it
     # retires outstanding tile signatures exactly as a status change does.
-    # `update_user_metadata` already holds both catalog rows.
+    # Every caller already holds both catalog rows.
     await bump_publication_version_on(session, dataset)
     return True
 
@@ -368,6 +380,10 @@ async def update_user_metadata(
     await lock_catalog_rows_for_write(
         session, dataset, with_raster_asset=touches_raster
     )
+    # Loaded before the lock: judge the row as committed. The flush keeps an
+    # ownership transfer this request already applied.
+    await session.flush()
+    await session.refresh(record, ["visibility", "record_status", "created_by"])
     await refuse_publish_key_widening(
         session, record.id, visibility=meta.visibility, record_status=meta.record_status
     )

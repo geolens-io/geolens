@@ -73,6 +73,7 @@ _RLS_TABLES = [
     "ingest_jobs",
     "groups",
     "group_members",
+    "dataset_group_grants",
 ]
 
 

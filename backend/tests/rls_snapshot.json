@@ -21,6 +21,15 @@
       "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
     },
     {
+      "policyname": "tenant_isolation_dataset_group_grants",
+      "tablename": "dataset_group_grants",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
       "policyname": "tenant_isolation_datasets",
       "tablename": "datasets",
       "qual_contains": "current_setting",
@@ -112,6 +121,10 @@
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
+      "dataset_group_grants": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "datasets": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
@@ -155,6 +168,10 @@
         "relforcerowsecurity": true
       },
       "collections": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "dataset_group_grants": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },

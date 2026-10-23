@@ -54,17 +54,25 @@ async def member_counts(
 
 
 async def list_groups(
-    db: AsyncSession, *, skip: int, limit: int
+    db: AsyncSession,
+    *,
+    skip: int,
+    limit: int,
+    member_id: uuid.UUID | None = None,
 ) -> tuple[list[Group], int]:
-    total = (await db.execute(select(func.count()).select_from(Group))).scalar_one()
-    groups = (
-        (
-            await db.execute(
-                select(Group).order_by(Group.name, Group.id).offset(skip).limit(limit)
+    """Groups by name and their total; only ``member_id``'s groups when given."""
+    stmt = select(Group)
+    if member_id is not None:
+        stmt = stmt.where(
+            Group.id.in_(
+                select(GroupMember.group_id).where(GroupMember.user_id == member_id)
             )
         )
-        .scalars()
-        .all()
+    total = (
+        await db.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
+    groups = await db.scalars(
+        stmt.order_by(Group.name, Group.id).offset(skip).limit(limit)
     )
     return list(groups), total
 

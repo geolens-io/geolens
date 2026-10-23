@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.modules.auth.models import Group, GroupMember
+from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
 
 pytestmark = [pytest.mark.rls, pytest.mark.xdist_group("tenancy_global_state")]
 
@@ -150,3 +151,46 @@ async def test_a_tenant_session_cannot_add_to_another_tenants_group(groups):
                         group_id=group_b, user_id=uuid.UUID(ctx.user_a_id)
                     )
                 )
+
+
+async def test_a_tenant_reads_only_its_own_dataset_group_grants(groups):
+    ctx, group_a, group_b = groups
+    records = [uuid.uuid4(), uuid.uuid4()]
+    async with _privileged(ctx.db_url) as conn:
+        for record_id, tenant, group_id in zip(
+            records, (ctx.tenant_a, ctx.tenant_b), (group_a, group_b), strict=True
+        ):
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO catalog.records "
+                    "(id, title, visibility, record_status, record_type, tenant_id) "
+                    "VALUES (:id, 'Shared', 'restricted', 'published', "
+                    "'vector_dataset', :tenant)"
+                ),
+                {"id": record_id, "tenant": tenant},
+            )
+            dataset_id = await conn.scalar(
+                sa.text(
+                    "INSERT INTO catalog.datasets (record_id, table_name, tenant_id) "
+                    "VALUES (:record, :table, :tenant) RETURNING id"
+                ),
+                {"record": record_id, "table": f"t_{record_id.hex}", "tenant": tenant},
+            )
+            # No tenant_id: the validator takes it from the dataset.
+            await conn.execute(
+                sa.insert(DatasetGroupGrant).values(
+                    dataset_id=dataset_id, group_id=group_id
+                )
+            )
+    try:
+        async with ctx.tenant_session(ctx.tenant_a) as session:
+            granted = set(await session.scalars(select(DatasetGroupGrant.group_id)))
+
+        assert group_a in granted
+        assert group_b not in granted
+    finally:
+        async with _privileged(ctx.db_url) as conn:
+            await conn.execute(
+                sa.text("DELETE FROM catalog.records WHERE id = ANY(:ids)"),
+                {"ids": records},
+            )
