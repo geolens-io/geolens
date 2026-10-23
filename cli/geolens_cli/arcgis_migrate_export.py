@@ -12,6 +12,7 @@ passes through the redactor. The only host contacted is the plan's portal.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -465,9 +466,9 @@ def _bundle_in_place(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> bool:
     """Whether the item's bundle is at its path with every file the export
-    recorded, at its recorded size, once what a run killed mid-swap left beside
-    it is put back. A record without its file list, from before it was kept,
-    counts as not in place."""
+    recorded, at its recorded size and SHA-256, once what a run killed mid-swap
+    left beside it is put back. A record without its file list or digests,
+    from before they were kept, counts as not in place."""
     files = (entry.export or {}).get("files")
     if (
         ctx.export_dir is None
@@ -484,13 +485,25 @@ def _bundle_in_place(
         return False
 
 
-def _bundle_files(folder: Path) -> dict[str, int]:
-    """Every file in *folder*, by its path inside it, with its size."""
+def _bundle_files(folder: Path) -> dict[str, dict[str, Any]]:
+    """Every file in *folder*, by its path inside it, with its size and
+    SHA-256."""
     return {
-        path.relative_to(folder).as_posix(): path.stat().st_size
+        path.relative_to(folder).as_posix(): {
+            "size": path.stat().st_size,
+            "sha256": _sha256(path),
+        }
         for path in folder.rglob("*")
         if path.is_file()
     }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _recover_leftovers(folder: Path) -> None:

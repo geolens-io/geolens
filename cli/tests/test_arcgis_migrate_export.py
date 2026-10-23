@@ -1149,7 +1149,9 @@ def test_an_export_whose_change_time_cant_be_read_blocks_cutover(
     assert payload["cutover"]["refused"] == ["unfinished-items"]
 
 
-@pytest.mark.parametrize("damage", ["deleted", "truncated", "no_file_list"])
+@pytest.mark.parametrize(
+    "damage", ["deleted", "truncated", "same_length", "no_file_list", "sizes_only"]
+)
 def test_a_bundle_missing_a_file_it_recorded_is_exported_again(
     runner, tmp_path, geolens, install, damage
 ):
@@ -1160,6 +1162,17 @@ def test_a_bundle_missing_a_file_it_recorded_is_exported_again(
         (folder / "item.json").unlink()
     elif damage == "truncated":
         (folder / "data.json").write_text("{}")
+    elif damage == "same_length":
+        data = (folder / "data.json").read_bytes()
+        (folder / "data.json").write_bytes(b"X" * len(data))
+    elif damage == "sizes_only":
+        # A record from before the digests were kept.
+        state = _state(plan_file)
+        recorded = state["items"][C3]["export"]["files"]
+        state["items"][C3]["export"]["files"] = {
+            name: entry["size"] for name, entry in recorded.items()
+        }
+        (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
     else:
         # A record from before the file list was kept.
         state = _state(plan_file)
