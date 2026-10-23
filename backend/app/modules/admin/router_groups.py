@@ -23,6 +23,7 @@ from app.modules.auth import groups as group_service
 from app.modules.auth.dependencies import require_mode_permission
 from app.modules.auth.models import Group
 from app.modules.catalog.group_access import change_group_access
+from app.modules.catalog.maps.service import unshare_group_maps
 from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import CONFLICT_RESPONSE, NOT_FOUND_RESPONSE
 
@@ -205,16 +206,19 @@ async def delete_group(
 ) -> Response:
     """Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets at once, signed tile URLs included.
+    Its members lose the group's datasets and maps at once, signed tile URLs
+    included. A restricted map shared only with this group becomes private.
     """
+
+    async def delete() -> tuple[str, int, list[uuid.UUID]]:
+        await unshare_group_maps(db, group_id)
+        return await group_service.delete_group(
+            db, group_id, id_limit=AUDIT_MEMBER_ID_CAP
+        )
+
     try:
         name, member_count, member_ids = await change_group_access(
-            db,
-            group_id,
-            lambda: group_service.delete_group(
-                db, group_id, id_limit=AUDIT_MEMBER_ID_CAP
-            ),
-            narrowing=True,
+            db, group_id, delete, narrowing=True
         )
     except LookupError as exc:
         raise _not_found(exc)

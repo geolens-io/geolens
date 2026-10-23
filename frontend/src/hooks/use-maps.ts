@@ -29,7 +29,7 @@ import {
   uploadMapIcon,
 } from '@/api/maps';
 import type { ShareExpirationInput } from '@/api/maps';
-import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
+import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
@@ -270,7 +270,7 @@ export function useMapShareToken(mapId: string | undefined) {
 export function usePublishMap() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, visibility }: { id: string; visibility: 'public' | 'private' | 'internal' }) =>
+    mutationFn: ({ id, visibility }: { id: string; visibility: MapVisibility }) =>
       publishMap(id, visibility),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });

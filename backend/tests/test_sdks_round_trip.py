@@ -423,6 +423,18 @@ class TestPythonAuthWrapperUnit:
         assert headers == {"X-Probe": "1"}
         assert httpx_args == {"trust_env": False}
 
+    @pytest.mark.parametrize(
+        "auth", [{}, {"bearer_token": "abc"}, {"api_key": "key123"}]
+    )
+    def test_every_client_reads_restricted_map_visibility(self, auth: dict) -> None:
+        c = GeolensClient(base_url="http://x", **auth)
+        clients = [c.client]
+        c.set_api_key("k2")
+        clients.append(c.client)
+        for client in clients:
+            for http in (client.get_httpx_client(), client.get_async_httpx_client()):
+                assert http.headers["X-GeoLens-Map-Visibility"] == "restricted"
+
     @pytest.mark.parametrize("setter", ["set_bearer_token", "set_api_key"])
     def test_client_options_survive_a_credential_swap(self, setter: str) -> None:
         import httpx

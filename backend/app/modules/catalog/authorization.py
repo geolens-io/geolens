@@ -1226,6 +1226,20 @@ async def _owner_vrt_ids(
 # Map visibilities open to a caller who neither owns the map nor is an admin.
 ANONYMOUS_MAP_VISIBILITIES = ("public",)
 SIGNED_IN_MAP_VISIBILITIES = ("internal", "public")
+# Open, beyond the owner and admins, to members of the groups granted on the map.
+RESTRICTED_MAP_VISIBILITY = "restricted"
+
+
+def _map_group_member(map_id: Any, user_id: uuid.UUID) -> ColumnElement[bool]:
+    """Whether ``user_id`` belongs to a group granted on ``map_id``."""
+    from app.modules.auth.models import GroupMember
+    from app.modules.catalog.maps.models import MapGroupGrant
+
+    return exists().where(
+        MapGroupGrant.map_id == map_id,
+        GroupMember.group_id == MapGroupGrant.group_id,
+        GroupMember.user_id == user_id,
+    )
 
 
 def apply_map_visibility_filter(
@@ -1242,6 +1256,10 @@ def apply_map_visibility_filter(
         or_(
             Map.created_by == user_id,
             Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+            and_(
+                Map.visibility == RESTRICTED_MAP_VISIBILITY,
+                _map_group_member(Map.id, user_id),
+            ),
         )
     )
 
@@ -1262,6 +1280,12 @@ async def check_map_access(
             "admin" in roles
             or map_obj.created_by == user.id
             or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
+            or (
+                map_obj.visibility == RESTRICTED_MAP_VISIBILITY
+                and bool(
+                    await db.scalar(select(_map_group_member(map_obj.id, user.id)))
+                )
+            )
         )
     if not allowed:
         logger.warning(

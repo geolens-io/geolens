@@ -19,6 +19,8 @@ export function isCredentialRejected(err: unknown): boolean {
 // callers manage their own longer-lived signals.
 const REQUEST_TIMEOUT_MS = 30_000;
 
+const MAP_VISIBILITY_HEADER = 'X-GeoLens-Map-Visibility';
+
 export class ApiError extends Error {
   status: number;
   body?: unknown;
@@ -401,6 +403,8 @@ async function apiFetchResponse(
     if (!headers.has('Content-Type') && !(fetchOptions.body instanceof URLSearchParams) && !(fetchOptions.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
+    // Without it, the API reads a restricted map back as private.
+    headers.set(MAP_VISIBILITY_HEADER, 'restricted');
   });
 
   if (response.status === 404 && expected404) {

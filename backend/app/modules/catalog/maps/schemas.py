@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PlainSerializer,
     StringConstraints,
     field_validator,
     model_serializer,
@@ -18,6 +19,7 @@ from pydantic import (
 
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.maps.filter_grammar import validate_filter
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_CONFIG_DESCRIPTION,
@@ -26,6 +28,9 @@ from app.modules.catalog.maps.publish_vocabulary import (
 from app.modules.catalog.maps.sharing_policy import (
     SHARE_EXPIRATION_SELECTION_ERROR,
     ShareExpirationPresetDays,
+)
+from app.modules.catalog.maps.visibility_contract import (
+    restricted_map_visibility_opted_in,
 )
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 
@@ -297,10 +302,28 @@ class PopupConfig(BaseModel):
 
 
 class MapVisibility(StrEnum):
-    # 'restricted' is omitted: only datasets support it.
+    """Who may read a map. A response names `restricted` only to a client
+    that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+    reads a restricted map as `private`."""
+
     private = "private"
     internal = "internal"
     public = "public"
+    restricted = "restricted"
+
+
+def _project_map_visibility(value: MapVisibility) -> MapVisibility:
+    if value == MapVisibility.restricted and not restricted_map_visibility_opted_in():
+        return MapVisibility.private
+    return value
+
+
+ReadMapVisibility = Annotated[
+    MapVisibility,
+    PlainSerializer(
+        _project_map_visibility, return_type=MapVisibility, when_used="json"
+    ),
+]
 
 
 class TerrainConfig(BaseModel):
@@ -872,7 +895,12 @@ class MapUpdate(BaseModel):
         description="Map-level terrain source and exaggeration preferences",
     )
     visibility: MapVisibility | None = Field(
-        default=None, description="private, internal, or public"
+        default=None,
+        description=(
+            "private, internal, public or restricted. A map shared with groups "
+            "is restricted when it would otherwise be private, so private keeps "
+            "it restricted; restricted needs at least one group."
+        ),
     )
     layers: list[MapLayerInput] | None = Field(
         default=None,
@@ -992,7 +1020,7 @@ class MapResponse(BaseModel):
     show_basemap_labels: bool
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
-    visibility: MapVisibility
+    visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     og_image_url: str | None = None
     forked_from_id: uuid.UUID | None = Field(
@@ -1007,8 +1035,39 @@ class MapResponse(BaseModel):
     layer_count: int
     plugins: list[str] | None = None
     legend_title: str | None = None
+    groups: list[GroupRef] | None = Field(
+        default=None,
+        description=(
+            "The sharing groups the map is shared with, by name. Set on the "
+            "detail endpoint for the owner and admins only; null elsewhere."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MapGroupsUpdate(BaseModel):
+    group_ids: list[uuid.UUID] = Field(
+        max_length=100,
+        description=(
+            "Every group the map is shared with afterwards; an empty list "
+            "unshares it. An owner may add only groups they belong to, and an "
+            "admin any group."
+        ),
+    )
+
+
+class MapGroupsResponse(BaseModel):
+    visibility: ReadMapVisibility = Field(
+        description=(
+            "The map's visibility after the change: a private map shared with "
+            "a group becomes restricted, and a restricted one left with no "
+            "group becomes private."
+        )
+    )
+    groups: list[GroupRef] = Field(
+        description="The sharing groups the map is shared with, by name."
+    )
 
 
 class MapStyleImportWarning(BaseModel):
@@ -1145,7 +1204,7 @@ class MapSummaryResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    visibility: MapVisibility
+    visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     # The thumbnail's cache version, apart from the map's edit timestamp.
     # Null for older thumbnails; the card falls back to `updated_at`.

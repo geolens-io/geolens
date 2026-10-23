@@ -270,11 +270,12 @@ async def test_map_transfer_is_admin_only(
     _, target_id = people["target"]
     map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
 
-    for headers in (owner_headers, peer_headers):
+    # The peer can't read the private map, so it doesn't learn it exists.
+    for headers, refused in ((owner_headers, 403), (peer_headers, 404)):
         resp = await client.patch(
             f"/maps/{map_id}", json={"owner_id": target_id}, headers=headers
         )
-        assert resp.status_code == 403, resp.text
+        assert resp.status_code == refused, resp.text
     assert await _map_owner(test_db_session, map_id) == uuid.UUID(owner_id)
     assert await _transfer_rows(test_db_session, "map.transfer_owner", map_id) == []
 
@@ -308,7 +309,7 @@ async def test_admin_transfers_a_map_and_back(
     }
 
     old = await client.put(f"/maps/{map_id}", json={"name": "x"}, headers=owner_headers)
-    assert old.status_code == 403, old.text
+    assert old.status_code == 404, old.text
     new = await client.put(
         f"/maps/{map_id}", json={"name": "Mine now"}, headers=target_headers
     )

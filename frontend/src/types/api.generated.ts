@@ -278,7 +278,8 @@ export interface paths {
          * Delete Group
          * @description Delete a sharing group and all its memberships (admin only).
          *
-         *     Its members lose the group's datasets at once, signed tile URLs included.
+         *     Its members lose the group's datasets and maps at once, signed tile URLs
+         *     included. A restricted map shared only with this group becomes private.
          */
         delete: operations["delete_group_admin_groups__group_id__delete"];
         options?: never;
@@ -4205,10 +4206,10 @@ export interface paths {
         };
         /**
          * List Maps Endpoint
-         * @description List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
+         * @description List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
          *
          *     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-         *     sort_dir (asc/desc), and visibility filter (private/internal/public).
+         *     sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
          *     owned_only restricts results to the caller's maps; anonymous callers get no maps.
          */
         get: operations["list_maps_endpoint_maps__get"];
@@ -4521,6 +4522,32 @@ export interface paths {
         patch: operations["update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch"];
         trace?: never;
     };
+    "/maps/{map_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Map Groups Endpoint
+         * @description Share a map with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private map shared with a group becomes restricted and its members can
+         *     read it; a restricted one left with no group becomes private. Internal
+         *     and public maps keep their audience. Becoming restricted revokes the
+         *     map's share link and embed tokens. 404 for an unknown group.
+         */
+        put: operations["set_map_groups_endpoint_maps__map_id__groups__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/maps/{map_id}/history": {
         parameters: {
             query?: never;
@@ -4762,8 +4789,7 @@ export interface paths {
          *
          *     Owner-or-admin like the other sharing mutations: the response names
          *     non-public dataset titles, which read access alone must not reveal.
-         *     Read access is checked first so unreadable maps keep answering 404
-         *     (existence-hiding); readable non-owners get 403.
+         *     Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
          */
         get: operations["visibility_check_endpoint_maps__map_id__visibility_check__get"];
         put?: never;
@@ -7012,7 +7038,7 @@ export interface components {
              */
             title?: string | null;
             /**
-             * @description Visibility of the new map.
+             * @description Visibility of the new map: private, internal or public. A map becomes restricted by sharing it with groups afterwards.
              * @default private
              */
             visibility: components["schemas"]["MapVisibility"];
@@ -9991,6 +10017,11 @@ export interface components {
             /** Legend Title */
             legend_title?: string | null;
             /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
+            /**
              * Excluded Layer Count
              * @description Layers skipped due to access restrictions
              * @default 0
@@ -11405,6 +11436,24 @@ export interface components {
             /** Datasets Used */
             datasets_used: string[];
         };
+        /** MapGroupsResponse */
+        MapGroupsResponse: {
+            /** @description The map's visibility after the change: a private map shared with a group becomes restricted, and a restricted one left with no group becomes private. */
+            visibility: components["schemas"]["MapVisibility"];
+            /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+        };
+        /** MapGroupsUpdate */
+        MapGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+        };
         /** MapHistoryEventResponse */
         MapHistoryEventResponse: {
             /**
@@ -11809,6 +11858,11 @@ export interface components {
             plugins?: string[] | null;
             /** Legend Title */
             legend_title?: string | null;
+            /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
         };
         /**
          * MapSpriteEntry
@@ -12018,7 +12072,7 @@ export interface components {
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             /** @description Map-level terrain source and exaggeration preferences */
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
-            /** @description private, internal, or public */
+            /** @description private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group. */
             visibility?: components["schemas"]["MapVisibility"] | null;
             /**
              * Layers
@@ -12038,9 +12092,12 @@ export interface components {
         };
         /**
          * MapVisibility
+         * @description Who may read a map. A response names `restricted` only to a client
+         *     that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+         *     reads a restricted map as `private`.
          * @enum {string}
          */
-        MapVisibility: "private" | "internal" | "public";
+        MapVisibility: "private" | "internal" | "public" | "restricted";
         /**
          * MercatorClipDetail
          * @description Counts geometry changed by the Web Mercator clamp.
@@ -38848,6 +38905,115 @@ export interface operations {
                 };
             };
             /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    set_map_groups_endpoint_maps__map_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                map_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
             403: {
                 headers: {
                     [name: string]: unknown;

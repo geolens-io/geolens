@@ -536,6 +536,7 @@
     "private": "Privado",
     "internal": "Interno",
     "public": "Público",
+    "restricted": "Restringido",
     "listView": "Vista de lista",
     "gridView": "Vista de cuadrícula",
     "loadFailed": "Error al cargar mapas: {{message}}",

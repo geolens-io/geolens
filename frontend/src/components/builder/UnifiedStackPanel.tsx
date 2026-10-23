@@ -30,7 +30,7 @@ import { getParentGroupId } from '@/components/builder/folder-groups';
 import { computeSelectableRowIds } from '@/components/builder/selection-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder/stack-types';
 import { computeDisambiguationLabels, isLayerHiddenFromMapAudience } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
@@ -51,7 +51,7 @@ interface UnifiedStackPanelProps {
    * other audiences). Defaults to private, meaning no audience beyond the owner
    * and so no warning.
    */
-  mapVisibility?: 'private' | 'internal' | 'public';
+  mapVisibility?: MapVisibility;
   /**
    * Ids of DEM layers whose 2D overlay is off and that aren't the active 3D
    * terrain source: they paint nothing despite the eye being on. Computed by

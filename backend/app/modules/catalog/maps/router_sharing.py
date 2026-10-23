@@ -205,13 +205,11 @@ async def visibility_check_endpoint(
 
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await check_map_access(db, map_obj, user)
     await check_map_ownership(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id, user)
     return VisibilityCheckResponse(

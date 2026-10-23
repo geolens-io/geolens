@@ -520,7 +520,8 @@ class TestEveryPublicationStateWriterIsAccountedFor:
         """A new entry means: decide whether that write must roll the counter.
 
         ``tasks_common.py`` stamps an initial status on a dataset that does not
-        exist yet, which no outstanding signature can name.
+        exist yet, which no outstanding signature can name. ``service_groups.py``
+        writes a map's visibility, and no tile signature names a map.
         """
         import pathlib
 
@@ -534,6 +535,10 @@ class TestEveryPublicationStateWriterIsAccountedFor:
                 "attr:record_status",
                 "attr:record_status",
                 "attr:visibility",
+            ],
+            "modules/catalog/maps/service_groups.py": [
+                "attr:visibility",
+                "values:visibility",
             ],
             "processing/ingest/tasks_common.py": ["attr:record_status"],
         }

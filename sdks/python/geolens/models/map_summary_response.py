@@ -26,7 +26,9 @@ class MapSummaryResponse:
         id (UUID):
         name (str):
         description (None | str):
-        visibility (MapVisibility):
+        visibility (MapVisibility): Who may read a map. A response names `restricted` only to a client
+            that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+            reads a restricted map as `private`.
         layer_count (int):
         created_at (datetime.datetime):
         updated_at (datetime.datetime):

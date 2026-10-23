@@ -45,6 +45,7 @@ _RLS_TABLES = [
     "groups",
     "group_members",
     "dataset_group_grants",
+    "map_group_grants",
 ]
 
 
@@ -122,7 +123,8 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.ingest_jobs'::regclass,
                 'catalog.groups'::regclass,
                 'catalog.group_members'::regclass,
-                'catalog.dataset_group_grants'::regclass
+                'catalog.dataset_group_grants'::regclass,
+                'catalog.map_group_grants'::regclass
             ])
             ORDER BY relname
             """
@@ -157,7 +159,8 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.ingest_jobs'::regclass,
                 'catalog.groups'::regclass,
                 'catalog.group_members'::regclass,
-                'catalog.dataset_group_grants'::regclass
+                'catalog.dataset_group_grants'::regclass,
+                'catalog.map_group_grants'::regclass
             ])
             ORDER BY relname
             """
@@ -310,6 +313,14 @@ class TestCatalogReadsNotBlockedByRls:
         normal, bypass = await self._table_row_counts("group_members")
         assert normal == bypass, (
             f"catalog.group_members: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_map_group_grants_read_not_blocked(self):
+        """Map group grants stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("map_group_grants")
+        assert normal == bypass, (
+            f"catalog.map_group_grants: normal count={normal} != bypass "
             f"count={bypass}. RLS policy may be filtering rows in single_tenant."
         )
 

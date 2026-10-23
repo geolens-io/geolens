@@ -40,6 +40,7 @@ _SHARED_TABLES = [
     "groups",
     "group_members",
     "dataset_group_grants",
+    "map_group_grants",
 ]
 
 _TENANT_TABLES = [

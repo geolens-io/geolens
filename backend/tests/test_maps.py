@@ -1014,7 +1014,7 @@ class TestUpdateMap:
         admin_auth_header: dict,
         editor_auth_header: dict,
     ):
-        """PUT /maps/{id} as editor who doesn't own the map returns 403."""
+        """PUT /maps/{id} as an editor who can't read the private map returns 404."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -1023,7 +1023,7 @@ class TestUpdateMap:
             json={"name": "Hijack"},
             headers=editor_auth_header,
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
     async def test_update_map_rejects_public_with_non_public_datasets(
         self,
@@ -1437,7 +1437,7 @@ class TestMapHistory:
             f"/maps/{map_id}/history",
             headers=editor_auth_header,
         )
-        assert editor_resp.status_code == 403
+        assert editor_resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1480,12 +1480,12 @@ class TestDeleteMap:
         admin_auth_header: dict,
         editor_auth_header: dict,
     ):
-        """DELETE /maps/{id} as editor who doesn't own the map returns 403."""
+        """DELETE /maps/{id} as an editor who can't read the private map returns 404."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
         resp = await client.delete(f"/maps/{map_id}", headers=editor_auth_header)
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -1175,7 +1175,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 108,
+        "backend/app/modules/catalog/maps/service.py": 116,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 128,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1310,8 +1310,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1630,
-    # Map request validation and published response contracts share this module.
-    "backend/app/modules/catalog/maps/schemas.py": 1387,
+    # Map request validation and published response contracts share this module,
+    # including the visibility a client that hasn't opted in reads.
+    "backend/app/modules/catalog/maps/schemas.py": 1446,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1397,7 +1398,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1522,
+    "backend/app/modules/catalog/maps/router.py": 1523,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1432,9 +1433,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog probes.
     "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
-    # may see, share the permission extension's one filter; map reads share
-    # the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1275,
+    # may see, share the permission extension's one filter; map reads, group
+    # grants included, share the one map guard beside it.
+    "backend/app/modules/catalog/authorization.py": 1299,
 }
 
 

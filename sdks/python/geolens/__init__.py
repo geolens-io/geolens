@@ -2,7 +2,8 @@
 """A client library for accessing GeoLens API.
 
 Public exports:
-    GeolensClient    — high-level wrapper with bearer/api-key/anonymous auth modes.
+    GeolensClient    — high-level wrapper with bearer/api-key/anonymous auth modes;
+                       it reads maps with their restricted visibility.
     cog_download     — COG download that works on every storage backend.
     AuthenticatedClient, Client — generator's underlying clients (advanced use).
 

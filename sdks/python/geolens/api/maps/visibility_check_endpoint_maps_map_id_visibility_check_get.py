@@ -108,8 +108,7 @@ def sync_detailed(
 
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -144,8 +143,7 @@ def sync(
 
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -175,8 +173,7 @@ async def asyncio_detailed(
 
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -209,8 +206,7 @@ async def asyncio(
 
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):

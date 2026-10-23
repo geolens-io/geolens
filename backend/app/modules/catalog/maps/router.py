@@ -57,6 +57,7 @@ from app.modules.catalog.maps.schemas import (
     ThumbnailUploadRequest,
 )
 from app.modules.catalog.maps.router_assets import router as assets_router
+from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
 from app.modules.catalog.maps.style_import import MapStyleImportLayerLimitError
 from app.modules.catalog.maps.style_json import parse_maplibre_style_import
@@ -75,22 +76,19 @@ from app.modules.catalog.maps.service import (
     list_map_history,
     list_maps,
     lock_map_for_asset_write,
-    lock_map_layers,
     map_asset_publication,
+    map_groups,
     new_map_asset_key,
     record_map_history_event,
+    RestrictedWithoutGroupsError,
     remove_layer,
-    revoke_share_token_by_map,
     update_map,
     validate_public_visibility,
     with_visible_vrt_extents,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
-from app.modules.embed_tokens.service import (
-    revoke_embed_tokens_by_map,
-    revoke_embed_tokens_for_dropped_datasets,
-)
+from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
 from app.platform.request_credential import refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
@@ -106,7 +104,6 @@ from app.modules.catalog.maps._router_helpers import (
     _build_map_response,
     _readable_terrain,
     _can_edit_map,
-    _is_map_owner_or_admin,
     _layer_history_name,
     _layer_patch_history_actions,
     _layer_rows_by_id,
@@ -115,14 +112,25 @@ from app.modules.catalog.maps._router_helpers import (
     _reject_non_public_datasets,
     _stored_image_cache_control,
     _stored_image_response,
-    _visibility_value,
     _visible_map_response,
+)
+from app.modules.catalog.maps.visibility_contract import (
+    map_visibility_contract,
+    stored_map_visibilities,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
+# Every map route reads the restricted-visibility opt-in, so the slash
+# aliases cloned from these routes read it too.
+router = APIRouter(
+    prefix="/maps",
+    tags=["Maps"],
+    responses=ERROR_RESPONSES_WRITE,
+    dependencies=[Depends(map_visibility_contract)],
+)
 router.include_router(assets_router)
+router.include_router(groups_router)
 router.include_router(sharing_router)
 
 
@@ -216,10 +224,10 @@ async def list_maps_endpoint(
     db: AsyncSession = Depends(get_db),
     owned_only: bool = False,
 ) -> MapListResponse:
-    """List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
+    """List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
     """
     user_roles = await get_user_roles(db, user) if user is not None else set()
@@ -232,7 +240,7 @@ async def list_maps_endpoint(
         search=search,
         sort_by=sort_by,
         sort_dir=sort_dir,
-        visibility=visibility,
+        visibilities=stored_map_visibilities(visibility) if visibility else None,
         owned_only=owned_only,
     )
 
@@ -392,16 +400,23 @@ async def get_map_endpoint(
             detail="Map not found",
         )
 
-    await check_map_access(db, map_obj, user)
-    return await _visible_map_response(
+    roles = await check_map_access(db, map_obj, user)
+    owner_or_admin = user is not None and (
+        map_obj.created_by == user.id or "admin" in roles
+    )
+    response = await _visible_map_response(
         db,
         map_obj,
         layer_tuples,
         user,
         forked_name,
         owner_username,
-        include_notes=await _is_map_owner_or_admin(map_obj, user, db),
+        include_notes=owner_or_admin,
+        roles=roles,
     )
+    if owner_or_admin:
+        response.groups = await map_groups(db, map_id)
+    return response
 
 
 @router.get(
@@ -471,18 +486,6 @@ async def update_map_endpoint(
     await check_map_ownership(map_obj, user, db)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
-    # Auto-revoke share tokens when visibility moves away from public. Layer
-    # writers hold the map while they revoke tokens; taking it first keeps the
-    # two from waiting on each other, and the visibility read under it is current.
-    if body.visibility is not None and body.visibility != MapVisibility.public:
-        await lock_map_layers(db, map_id)
-        current = await db.scalar(select(Map.visibility).where(Map.id == map_id))
-        if current == "public":
-            await revoke_share_token_by_map(db, map_id)
-            # Embed tokens must be revoked too, or they keep serving tiles
-            # for a now-private map.
-            await revoke_embed_tokens_by_map(db, map_id)
-
     # A non-admin may not move a map to public when restrict_public_visibility
     # is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
@@ -541,6 +544,8 @@ async def update_map_endpoint(
         map_obj, layer_tuples, forked_name, owner_username = await update_map(
             db, map_id, user=user, **kwargs
         )
+    except RestrictedWithoutGroupsError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -561,11 +566,7 @@ async def update_map_endpoint(
     )
     # One table of (changed, action, summary, details) drives the per-field
     # history events.
-    new_visibility = (
-        _visibility_value(kwargs["visibility"])
-        if "visibility" in kwargs and kwargs["visibility"] is not None
-        else None
-    )
+    new_visibility = map_obj.visibility
     config_fields = sorted(
         set(changed_fields)
         - {"name", "visibility", "terrain_config", "basemap_config", "layers"}

@@ -16,6 +16,7 @@ import type {
   MapBasemapConfig,
   MapLayerResponse,
   MapTerrainConfig,
+  MapVisibility,
   PopupConfig,
   StyleConfig,
 } from '@/types/api';
@@ -426,26 +427,29 @@ export function computeDisambiguationLabels(
  * backend's `filter_layer_rows_by_dataset_visibility` drops a private dataset
  * on a public/shared map, so other-audience viewers never see the layer. A
  * private map has no audience beyond the owner/grantees, so it is never flagged;
- * only public/internal (shared) maps can strand a layer this way.
+ * only public, internal and restricted (shared) maps can strand a layer this way.
  *
  * Conservative: when dataset_visibility/dataset_status are both absent (e.g. an
  * older cached response) it returns `false` rather than guess.
  *
- * The two shared audiences differ. A public map's audience includes anonymous
- * visitors, so only a public dataset survives; an internal map's audience is
- * every signed-in user, which an `internal` dataset serves, so such a layer
- * isn't stranded there. `restricted` is flagged on both: it needs a grant a
- * generic member of either audience lacks.
+ * The shared audiences differ. A public map's audience includes anonymous
+ * visitors, so only a public dataset survives. An internal map's audience is
+ * every signed-in user, and a restricted map's is its groups' members, both of
+ * whom an `internal` dataset serves, so such a layer isn't stranded there.
+ * A `restricted` dataset is flagged on public and internal maps: it needs a
+ * grant a generic member of the audience lacks. On a restricted map the client
+ * can't see whether the dataset is shared with the map's groups, so it isn't.
  */
 export function isLayerHiddenFromMapAudience(
   layer: Pick<MapLayerResponse, 'dataset_visibility' | 'dataset_status'>,
-  mapVisibility: 'private' | 'internal' | 'public',
+  mapVisibility: MapVisibility,
 ): boolean {
   if (mapVisibility === 'private') return false;
   if (layer.dataset_visibility == null && layer.dataset_status == null) return false;
   if (layer.dataset_status !== 'published') return true;
   if (layer.dataset_visibility === 'public') return false;
-  return !(mapVisibility === 'internal' && layer.dataset_visibility === 'internal');
+  if (mapVisibility === 'restricted' && layer.dataset_visibility === 'restricted') return false;
+  return !(mapVisibility !== 'public' && layer.dataset_visibility === 'internal');
 }
 
 function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {

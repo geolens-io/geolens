@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import cast
 
 import structlog
@@ -19,7 +19,6 @@ from app.modules.catalog.authorization import (
     apply_map_visibility_filter,
     apply_visibility_filter,
     check_map_access,
-    get_user_roles,
 )
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
@@ -169,16 +168,22 @@ async def discard_map_asset_objects(
         logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
 
 
-async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
-    """Verify user owns the map or is admin. Raises 403 if neither.
+async def check_map_ownership(
+    map_obj: Map, user: Identity, db: AsyncSession
+) -> set[str]:
+    """Verify user owns the map or is admin and return the user's roles.
 
-    The map row locks check the caller again; see ``recheck_map_ownership``.
+    Raises 404 when the user can't read the map, like a missing one, and 403
+    when they read it but neither own it nor are admin. The map row locks
+    check the caller again; see ``recheck_map_ownership``.
     """
-    if map_obj.created_by != user.id and "admin" not in await get_user_roles(db, user):
+    roles = await check_map_access(db, map_obj, user)
+    if map_obj.created_by != user.id and "admin" not in roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
         )
     admit_writer(db, ("map", map_obj.id), user)
+    return roles
 
 
 async def create_map(
@@ -277,18 +282,19 @@ async def list_maps(
     search: str | None = None,
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
-    visibility: str | None = None,
+    visibilities: Sequence[str] | None = None,
     owned_only: bool = False,
 ) -> tuple[list[dict], int]:
     """List maps with layer counts, filtered by visibility rules.
 
     - Admins can see every map; explicit filters still apply.
-    - Authenticated non-admin users see: their own private maps + all internal + all public.
-    - If user_roles is omitted, treats user as non-admin (still sees own + internal + public).
+    - Authenticated non-admin users see: their own maps + all internal + all public,
+      and restricted maps shared with one of their groups.
+    - If user_roles is omitted, treats user as non-admin.
     - search: ILIKE filter on name and description.
     - sort_by: name, created_at, updated_at (default). Unknown values fall back to updated_at.
     - sort_dir: asc or desc.
-    - visibility: additional filter on Map.visibility (additive on top of RBAC).
+    - visibilities: additional filter on Map.visibility (additive on top of RBAC).
     - owned_only: restrict to the caller's maps; anonymous callers get no maps.
     - layer_count counts only the layers whose dataset map reads show the caller.
 
@@ -323,8 +329,8 @@ async def list_maps(
                     ),
                 )
             )
-        if visibility:
-            stmt = stmt.where(Map.visibility == visibility)
+        if visibilities:
+            stmt = stmt.where(Map.visibility.in_(visibilities))
         return stmt
 
     sort_column_map = {
@@ -428,6 +434,9 @@ async def update_map(
     whose dataset map reads hide from it survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
 
+    A ``visibility`` goes through ``prepare_map_visibility``, which may make it
+    restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
+
     Raises ValueError if not found. Flushes but does NOT commit --
     callers must own the commit lifecycle.
 
@@ -441,6 +450,10 @@ async def update_map(
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
+    if visibility is not None:
+        from app.modules.catalog.maps.service_groups import prepare_map_visibility
+
+        visibility = await prepare_map_visibility(session, map_id, visibility)
 
     # Update scalar fields (skip None values, except explicit notes=null which
     # clears private builder notes, and explicit plugins=null which restores

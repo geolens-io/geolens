@@ -38,9 +38,15 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
     with_visible_vrt_extents,
 )
+from app.modules.catalog.maps.visibility_contract import map_visibility_contract
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
+router = APIRouter(
+    prefix="/maps",
+    tags=["Maps"],
+    responses=ERROR_RESPONSES_WRITE,
+    dependencies=[Depends(map_visibility_contract)],
+)
 
 
 async def _enabled_basemap_ids(db: AsyncSession) -> list[str]:

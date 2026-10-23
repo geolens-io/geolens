@@ -13,6 +13,7 @@ from sqlalchemy.pool import NullPool
 
 from app.modules.auth.models import Group, GroupMember
 from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
+from app.modules.catalog.maps.models import MapGroupGrant
 
 pytestmark = [pytest.mark.rls, pytest.mark.xdist_group("tenancy_global_state")]
 
@@ -193,4 +194,36 @@ async def test_a_tenant_reads_only_its_own_dataset_group_grants(groups):
             await conn.execute(
                 sa.text("DELETE FROM catalog.records WHERE id = ANY(:ids)"),
                 {"ids": records},
+            )
+
+
+async def test_a_tenant_reads_only_its_own_map_group_grants(groups):
+    ctx, group_a, group_b = groups
+    maps = [uuid.uuid4(), uuid.uuid4()]
+    async with _privileged(ctx.db_url) as conn:
+        for map_id, tenant, group_id in zip(
+            maps, (ctx.tenant_a, ctx.tenant_b), (group_a, group_b), strict=True
+        ):
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO catalog.maps (id, name, visibility, tenant_id) "
+                    "VALUES (:id, 'Shared', 'restricted', :tenant)"
+                ),
+                {"id": map_id, "tenant": tenant},
+            )
+            # No tenant_id: the validator takes it from the map.
+            await conn.execute(
+                sa.insert(MapGroupGrant).values(map_id=map_id, group_id=group_id)
+            )
+    try:
+        async with ctx.tenant_session(ctx.tenant_a) as session:
+            granted = set(await session.scalars(select(MapGroupGrant.group_id)))
+
+        assert group_a in granted
+        assert group_b not in granted
+    finally:
+        async with _privileged(ctx.db_url) as conn:
+            await conn.execute(
+                sa.text("DELETE FROM catalog.maps WHERE id = ANY(:ids)"),
+                {"ids": maps},
             )

@@ -1,11 +1,12 @@
 from typing import Literal, cast
 
-MapVisibility = Literal["internal", "private", "public"]
+MapVisibility = Literal["internal", "private", "public", "restricted"]
 
 MAP_VISIBILITY_VALUES: set[MapVisibility] = {
     "internal",
     "private",
     "public",
+    "restricted",
 }
 
 

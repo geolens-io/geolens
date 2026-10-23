@@ -609,6 +609,8 @@ from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
 from .map_generate_response import MapGenerateResponse
+from .map_groups_response import MapGroupsResponse
+from .map_groups_update import MapGroupsUpdate
 from .map_history_event_response import MapHistoryEventResponse
 from .map_history_event_response_details import MapHistoryEventResponseDetails
 from .map_history_list_response import MapHistoryListResponse
@@ -1430,6 +1432,8 @@ __all__ = (
     "MapDefaultsResponse",
     "MapGenerateRequest",
     "MapGenerateResponse",
+    "MapGroupsResponse",
+    "MapGroupsUpdate",
     "MapHistoryEventResponse",
     "MapHistoryEventResponseDetails",
     "MapHistoryListResponse",

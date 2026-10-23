@@ -46,7 +46,10 @@ class ArcgisWebmapImportRequest(BaseModel):
     )
     visibility: MapVisibility = Field(
         default=MapVisibility.private,
-        description="Visibility of the new map.",
+        description=(
+            "Visibility of the new map: private, internal or public. A map "
+            "becomes restricted by sharing it with groups afterwards."
+        ),
     )
     basemap_map: dict[str, Annotated[str, StringConstraints(max_length=255)]] = Field(
         default_factory=dict,
@@ -73,6 +76,13 @@ class ArcgisWebmapImportRequest(BaseModel):
     @classmethod
     def _normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+    @field_validator("visibility")
+    @classmethod
+    def _not_restricted(cls, v: MapVisibility) -> MapVisibility:
+        if v == MapVisibility.restricted:
+            raise ValueError("a new map can't be restricted before it has groups")
+        return v
 
     @field_validator("webmap")
     @classmethod

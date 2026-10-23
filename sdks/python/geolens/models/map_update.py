@@ -37,7 +37,9 @@ class MapUpdate:
         show_basemap_labels (bool | None | Unset):
         basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
-        visibility (MapVisibility | None | Unset): private, internal, or public
+        visibility (MapVisibility | None | Unset): private, internal, public or restricted. A map shared with groups is
+            restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one
+            group.
         layers (list[MapLayerInput] | None | Unset): Full replacement layer list (max 200 layers)
         plugins (list[str] | None | Unset): Enabled plugin IDs, e.g. ['measurement']
         legend_title (None | str | Unset): Custom map-level legend title. Null or empty leaves the legend without a

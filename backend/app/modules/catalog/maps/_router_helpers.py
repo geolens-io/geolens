@@ -8,6 +8,7 @@ import hashlib
 import uuid
 
 from fastapi import HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -18,6 +19,7 @@ from app.modules.auth.permissions import get_effective_permissions
 # through this module.
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
+    apply_map_visibility_filter,
     check_map_access as check_map_access,
     get_user_roles,
 )
@@ -183,10 +185,6 @@ def _layer_rows_by_id(layer_rows: list[LayerRow]) -> dict[uuid.UUID, LayerRow]:
     return {row.layer.id: row for row in layer_rows}
 
 
-def _visibility_value(value: object) -> str:
-    return getattr(value, "value", value)
-
-
 def _style_config_mentions_symbol(value: object) -> bool:
     if not isinstance(value, dict):
         return False
@@ -290,16 +288,6 @@ def _stored_image_response(
     return Response(content=data, media_type=media_type, headers=headers)
 
 
-async def _is_map_owner_or_admin(
-    map_obj: Map,
-    user: Identity | None,
-    db: AsyncSession,
-) -> bool:
-    if user is None:
-        return False
-    return map_obj.created_by == user.id or "admin" in await get_user_roles(db, user)
-
-
 async def _can_edit_map(
     map_obj: Map,
     user: Identity | None,
@@ -381,13 +369,24 @@ async def _visible_map_response(
     created_by_username: str | None,
     *,
     include_notes: bool,
+    roles: set[str] | None = None,
 ) -> MapResponse:
-    """Build the map response from only the layers and terrain DEM ``user`` may read.
+    """Build the map response from only the layers, terrain DEM and fork
+    source name ``user`` may read. ``roles`` are the caller's, when known.
 
     Stored layers are untouched; this shapes the response only.
     """
     visible_rows = await filter_layer_rows_by_dataset_visibility(db, layer_rows, user)
     layers = _layers_from_tuples(visible_rows)
+    if forked_from_name is not None:
+        if roles is None:
+            roles = await get_user_roles(db, user) if user is not None else set()
+        source = select(Map.id).where(Map.id == map_obj.forked_from)
+        readable = apply_map_visibility_filter(
+            source, user.id if user is not None else None, "admin" in roles
+        )
+        if await db.scalar(readable) is None:
+            forked_from_name = None
     return _build_map_response(
         map_obj,
         layers,

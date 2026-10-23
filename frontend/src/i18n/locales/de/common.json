@@ -536,6 +536,7 @@
     "private": "Privat",
     "internal": "Intern",
     "public": "Öffentlich",
+    "restricted": "Eingeschränkt",
     "listView": "Listenansicht",
     "gridView": "Rasteransicht",
     "loadFailed": "Karten konnten nicht geladen werden: {{message}}",

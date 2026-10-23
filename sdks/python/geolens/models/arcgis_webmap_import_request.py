@@ -33,7 +33,9 @@ class ArcgisWebmapImportRequest:
         webmap (ArcgisWebmapImportRequestWebmap): The web map item data JSON, at most 1 MB serialized.
         name (None | str | Unset): Map name. Defaults to `title`.
         title (None | str | Unset): The web map item's title.
-        visibility (MapVisibility | Unset):
+        visibility (MapVisibility | Unset): Who may read a map. A response names `restricted` only to a client
+            that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+            reads a restricted map as `private`.
         basemap_map (ArcgisWebmapImportRequestBasemapMap | Unset): Esri basemap URL or style URL (the first base map
             layer's `url` or `styleUrl`) to a GeoLens basemap id. An unmapped basemap falls back to the first enabled
             basemap and is reported.

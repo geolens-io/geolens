@@ -1168,22 +1168,6 @@ _READ_METHODS = frozenset({"GET", "HEAD"})
 
 # Map-fetching handlers without a map guard, each by design. Asserted exact.
 MAP_ALLOWLIST: dict[str, str] = {
-    "app.modules.catalog.maps.router.get_map_history_endpoint": (
-        "owner-or-admin read via check_map_ownership (403 for a map the "
-        "caller can't read)"
-    ),
-    "app.modules.catalog.maps.router_sharing.get_map_share_token_endpoint": (
-        "owner-or-admin read via check_map_ownership (403 for a map the "
-        "caller can't read)"
-    ),
-    "app.modules.embed_tokens.router.list_embed_tokens_endpoint": (
-        "owner-or-admin read via check_map_ownership (403 for a map the "
-        "caller can't read)"
-    ),
-    "app.modules.catalog.maps.router.import_map_style_endpoint": (
-        "creates the caller's own map and re-reads it; layers pass "
-        "bulk_check_dataset_access"
-    ),
     "app.modules.catalog.maps.router_sharing.shared_map_card_endpoint": (
         "share-token capability route; requires a map open to anonymous readers"
     ),

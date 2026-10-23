@@ -165,6 +165,7 @@ export function MapsPage() {
               <SelectItem value="private">{t('maps.private')}</SelectItem>
               <SelectItem value="internal">{t('maps.internal')}</SelectItem>
               <SelectItem value="public">{t('maps.public')}</SelectItem>
+              <SelectItem value="restricted">{t('maps.restricted')}</SelectItem>
             </SelectContent>
           </Select>
         )}

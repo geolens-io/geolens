@@ -258,11 +258,12 @@ async def test_hidden_layer_rules_widen_nothing(
         json={"layers": [_layer_input(ids["a"], ds["a"], 0)]},
         headers=other,
     )
-    assert put.status_code == 403, put.text
+    # The map is private, so a non-owner can't tell it exists.
+    assert put.status_code == 404, put.text
     patch = await client.patch(
         f"/maps/{map_id}/layers", json={"order": [ids["b"], ids["a"]]}, headers=other
     )
-    assert patch.status_code == 403, patch.text
+    assert patch.status_code == 404, patch.text
     assert await _stored_stack(test_db_session, map_id) == [
         ids["a"],
         ids["hidden"],

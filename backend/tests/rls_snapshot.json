@@ -75,6 +75,15 @@
       "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
     },
     {
+      "policyname": "tenant_isolation_map_group_grants",
+      "tablename": "map_group_grants",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
       "policyname": "tenant_isolation_maps",
       "tablename": "maps",
       "qual_contains": "current_setting",
@@ -145,6 +154,10 @@
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
+      "map_group_grants": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "maps": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
@@ -192,6 +205,10 @@
         "relforcerowsecurity": true
       },
       "ingest_jobs": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "map_group_grants": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },

@@ -11,15 +11,22 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 
-from sqlalchemy import delete, exists, insert, or_, select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.auth.models import Group, GroupMember
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     check_vrt_audiences_after_change,
     lock_dataset_rows_for_write,
+)
+from app.modules.catalog.group_sharing import (
+    GroupNotJoinedError as GroupNotJoinedError,
+    UnknownGroupsError as UnknownGroupsError,
+    group_refs,
+    lock_share_groups,
+    refuse_unjoined_groups,
+    write_group_grants,
 )
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -31,29 +38,16 @@ from app.modules.catalog.datasets.domain.service_metadata import (
 )
 
 
-class UnknownGroupsError(LookupError):
-    """Groups that don't exist, or belong to another tenant than the dataset."""
-
-    def __init__(self, group_ids: Iterable[uuid.UUID]) -> None:
-        super().__init__("Group not found")
-        self.group_ids = sorted(group_ids)
-
-
-class GroupNotJoinedError(PermissionError):
-    """A non-admin owner named a group they don't belong to."""
-
-
 async def dataset_groups(
     session: AsyncSession, dataset_id: uuid.UUID
 ) -> list[GroupRef]:
     """The groups a dataset is shared with, by name."""
-    rows = await session.execute(
-        select(Group.id, Group.name)
-        .join(DatasetGroupGrant, DatasetGroupGrant.group_id == Group.id)
-        .where(DatasetGroupGrant.dataset_id == dataset_id)
-        .order_by(Group.name, Group.id)
+    return await group_refs(
+        session,
+        select(DatasetGroupGrant.group_id).where(
+            DatasetGroupGrant.dataset_id == dataset_id
+        ),
     )
-    return [GroupRef(id=row.id, name=row.name) for row in rows.all()]
 
 
 async def set_dataset_groups(
@@ -80,32 +74,14 @@ async def set_dataset_groups(
     granted = select(DatasetGroupGrant.group_id).where(
         DatasetGroupGrant.dataset_id == dataset.id
     )
-    # Groups before the dataset rows, the order a group deletion takes them.
-    found = await session.execute(
-        select(Group.id, Group.tenant_id)
-        .where(or_(Group.id.in_(wanted), Group.id.in_(granted)))
-        .order_by(Group.id)
-        .with_for_update(read=True, key_share=True)
-    )
-    usable = {row.id for row in found.all() if row.tenant_id == dataset.tenant_id}
-    if wanted - usable:
-        raise UnknownGroupsError(wanted - usable)
+    await lock_share_groups(session, wanted, granted, dataset.tenant_id)
     await lock_dataset_rows_for_write(session, dataset)
     record = dataset.record
     # Loaded before the lock: judge the row as committed, not as first read.
     await session.refresh(record, ["visibility", "record_status", "created_by"])
     current = set(await session.scalars(granted))
     added, removed = wanted - current, current - wanted
-    if added and not is_admin:
-        joined = set(
-            await session.scalars(
-                select(GroupMember.group_id)
-                .where(GroupMember.user_id == actor.id)
-                .where(GroupMember.group_id.in_(added))
-            )
-        )
-        if added - joined:
-            raise GroupNotJoinedError
+    await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
     visibility = record.visibility
     if visibility == "private" and wanted:
         visibility = "restricted"
@@ -117,25 +93,15 @@ async def set_dataset_groups(
         return False
 
     async def regrant() -> None:
-        if removed:
-            await session.execute(
-                delete(DatasetGroupGrant)
-                .where(DatasetGroupGrant.dataset_id == dataset.id)
-                .where(DatasetGroupGrant.group_id.in_(removed))
-            )
-        if added:
-            await session.execute(
-                insert(DatasetGroupGrant).values(
-                    [
-                        {
-                            "dataset_id": dataset.id,
-                            "group_id": group_id,
-                            "granted_by": actor.id,
-                        }
-                        for group_id in sorted(added)
-                    ]
-                )
-            )
+        await write_group_grants(
+            session,
+            DatasetGroupGrant,
+            "dataset_id",
+            dataset.id,
+            added=added,
+            removed=removed,
+            actor=actor,
+        )
         await session.flush()
 
     if record.visibility in ("private", "restricted"):

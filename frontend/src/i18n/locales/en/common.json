@@ -552,6 +552,7 @@
     "private": "Private",
     "internal": "Internal",
     "public": "Public",
+    "restricted": "Restricted",
     "listView": "List view",
     "gridView": "Grid view",
     "loadFailed": "Failed to load maps: {{message}}",

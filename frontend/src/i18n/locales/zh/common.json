@@ -552,6 +552,7 @@
     "private": "私有",
     "internal": "内部",
     "public": "公开",
+    "restricted": "受限",
     "listView": "列表视图",
     "gridView": "网格视图",
     "loadFailed": "加载地图失败：{{message}}",

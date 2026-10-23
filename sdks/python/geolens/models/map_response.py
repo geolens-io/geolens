@@ -17,6 +17,7 @@ import datetime
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.group_ref import GroupRef
     from ..models.map_layer_response import MapLayerResponse
     from ..models.terrain_config import TerrainConfig
 
@@ -38,7 +39,9 @@ class MapResponse:
         pitch (float):
         basemap_style (str):
         show_basemap_labels (bool):
-        visibility (MapVisibility):
+        visibility (MapVisibility): Who may read a map. A response names `restricted` only to a client
+            that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+            reads a restricted map as `private`.
         created_by (None | UUID):
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
@@ -54,6 +57,8 @@ class MapResponse:
         created_by_username (None | str | Unset):
         plugins (list[str] | None | Unset):
         legend_title (None | str | Unset):
+        groups (list[GroupRef] | None | Unset): The sharing groups the map is shared with, by name. Set on the detail
+            endpoint for the owner and admins only; null elsewhere.
     """
 
     id: UUID
@@ -82,6 +87,7 @@ class MapResponse:
     created_by_username: None | str | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
+    groups: list[GroupRef] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -200,6 +206,18 @@ class MapResponse:
         else:
             legend_title = self.legend_title
 
+        groups: list[dict[str, Any]] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = groups_type_0_item_data.to_dict()
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -242,12 +260,15 @@ class MapResponse:
             field_dict["plugins"] = plugins
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.group_ref import GroupRef
         from ..models.map_layer_response import MapLayerResponse
         from ..models.terrain_config import TerrainConfig
 
@@ -446,6 +467,28 @@ class MapResponse:
 
         legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
 
+        def _parse_groups(data: object) -> list[GroupRef] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = GroupRef.from_dict(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[GroupRef] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         map_response = cls(
             id=id,
             name=name,
@@ -473,6 +516,7 @@ class MapResponse:
             created_by_username=created_by_username,
             plugins=plugins,
             legend_title=legend_title,
+            groups=groups,
         )
 
         map_response.additional_properties = d

@@ -1745,7 +1745,7 @@
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility",
             "default": "private",
-            "description": "Visibility of the new map."
+            "description": "Visibility of the new map: private, internal or public. A map becomes restricted by sharing it with groups afterwards."
           },
           "basemap_map": {
             "additionalProperties": {
@@ -8745,6 +8745,21 @@
             ],
             "title": "Legend Title"
           },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GroupRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.",
+            "title": "Groups"
+          },
           "excluded_layer_count": {
             "default": 0,
             "description": "Layers skipped due to access restrictions",
@@ -11904,6 +11919,47 @@
         "title": "MapGenerateResponse",
         "type": "object"
       },
+      "MapGroupsResponse": {
+        "properties": {
+          "visibility": {
+            "$ref": "#/components/schemas/MapVisibility",
+            "description": "The map's visibility after the change: a private map shared with a group becomes restricted, and a restricted one left with no group becomes private."
+          },
+          "groups": {
+            "description": "The sharing groups the map is shared with, by name.",
+            "items": {
+              "$ref": "#/components/schemas/GroupRef"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "visibility",
+          "groups"
+        ],
+        "title": "MapGroupsResponse",
+        "type": "object"
+      },
+      "MapGroupsUpdate": {
+        "properties": {
+          "group_ids": {
+            "description": "Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Group Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "group_ids"
+        ],
+        "title": "MapGroupsUpdate",
+        "type": "object"
+      },
       "MapHistoryEventResponse": {
         "properties": {
           "id": {
@@ -13034,6 +13090,21 @@
               }
             ],
             "title": "Legend Title"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GroupRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.",
+            "title": "Groups"
           }
         },
         "required": [
@@ -13605,7 +13676,7 @@
                 "type": "null"
               }
             ],
-            "description": "private, internal, or public"
+            "description": "private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group."
           },
           "layers": {
             "anyOf": [
@@ -13657,10 +13728,12 @@
         "type": "object"
       },
       "MapVisibility": {
+        "description": "Who may read a map. A response names `restricted` only to a client\nthat sends `X-GeoLens-Map-Visibility: restricted`; any other client\nreads a restricted map as `private`.",
         "enum": [
           "private",
           "internal",
-          "public"
+          "public",
+          "restricted"
         ],
         "title": "MapVisibility",
         "type": "string"
@@ -25380,7 +25453,7 @@
     },
     "/admin/groups/{group_id}": {
       "delete": {
-        "description": "Delete a sharing group and all its memberships (admin only).\n\nIts members lose the group's datasets at once, signed tile URLs included.",
+        "description": "Delete a sharing group and all its memberships (admin only).\n\nIts members lose the group's datasets and maps at once, signed tile URLs\nincluded. A restricted map shared only with this group becomes private.",
         "operationId": "delete_group_admin_groups__group_id__delete",
         "parameters": [
           {
@@ -54076,7 +54149,7 @@
     },
     "/maps/": {
       "get": {
-        "description": "List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.\n\nSupports search (ILIKE on name+description), sort_by (name/created_at/updated_at),\nsort_dir (asc/desc), and visibility filter (private/internal/public).\nowned_only restricts results to the caller's maps; anonymous callers get no maps.",
+        "description": "List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.\n\nSupports search (ILIKE on name+description), sort_by (name/created_at/updated_at),\nsort_dir (asc/desc), and visibility filter (private/internal/public/restricted).\nowned_only restricts results to the caller's maps; anonymous callers get no maps.",
         "operationId": "list_maps_endpoint_maps__get",
         "parameters": [
           {
@@ -56995,6 +57068,160 @@
         ]
       }
     },
+    "/maps/{map_id}/groups/": {
+      "put": {
+        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.",
+        "operationId": "set_map_groups_endpoint_maps__map_id__groups__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapGroupsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapGroupsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Set Map Groups Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
     "/maps/{map_id}/history": {
       "get": {
         "description": "Return recent builder edit history for a map.",
@@ -59130,7 +59357,7 @@
     },
     "/maps/{map_id}/visibility-check/": {
       "get": {
-        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nRead access is checked first so unreadable maps keep answering 404\n(existence-hiding); readable non-owners get 403.",
+        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nUnreadable maps answer 404 (existence-hiding); readable non-owners get 403.",
         "operationId": "visibility_check_endpoint_maps__map_id__visibility_check__get",
         "parameters": [
           {

@@ -19,6 +19,12 @@ from app.modules.catalog.maps.service_crud import (
     update_map,
 )
 from app.modules.catalog.maps.service_diff import apply_layer_diff
+from app.modules.catalog.maps.service_groups import (
+    map_groups,
+    RestrictedWithoutGroupsError,
+    set_map_groups,
+    unshare_group_maps,
+)
 from app.modules.catalog.maps.service_history import (
     list_map_history,
     record_map_history_event,
@@ -64,6 +70,10 @@ __all__ = [
     "DatasetMeta",
     "LayerRow",
     "check_map_ownership",
+    "map_groups",
+    "RestrictedWithoutGroupsError",
+    "set_map_groups",
+    "unshare_group_maps",
     "get_dataset_meta",
     "generate_default_style",
     "create_map",

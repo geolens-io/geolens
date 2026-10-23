@@ -31,6 +31,14 @@ import { createClient, createConfig, type Client } from './client/client/index.j
 import { installFileReadHandling } from './fileReads.js';
 import { installRedirectHandling } from './redirects.js';
 
+/**
+ * Every client this wrapper configures reads the `restricted` map visibility.
+ * A client that doesn't send this header reads a restricted map as `private`.
+ */
+export const MAP_VISIBILITY_OPT_IN: Readonly<Record<string, string>> = {
+  'X-GeoLens-Map-Visibility': 'restricted',
+};
+
 export interface GeolensClientOptions {
   /**
    * Base URL of the GeoLens instance, including the `/api` prefix the
@@ -86,7 +94,7 @@ export const createGeolensClient = (
     );
   }
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...MAP_VISIBILITY_OPT_IN };
 
   if (opts.bearerToken) {
     headers['Authorization'] = `Bearer ${opts.bearerToken}`;
@@ -112,6 +120,7 @@ export const createGeolensClient = (
   client.setConfig({
     baseUrl: opts.baseUrl,
     headers: {
+      ...MAP_VISIBILITY_OPT_IN,
       Authorization: headers['Authorization'] ?? null,
       'X-API-Key': headers['X-API-Key'] ?? null,
     },

@@ -926,7 +926,7 @@ async def get_maps_for_dataset(
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
     - Admins see all maps.
-    - Authenticated users see own maps + internal + public.
+    - Authenticated users see own + internal + public + restricted to their groups.
     - Anonymous (user_id is None) see public only.
     """
     if user_roles is None:

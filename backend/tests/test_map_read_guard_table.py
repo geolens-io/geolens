@@ -38,16 +38,19 @@ from app.modules.embed_tokens.service import create_embed_token
 from app.processing.ai import router as ai_router
 
 from tests.factories import create_dataset, create_user, get_user_id
+from tests.test_dataset_group_grants import _new_group
 
 pytestmark = pytest.mark.anyio
 
-VISIBILITIES = ("private", "internal", "public")
-CALLERS = ("anonymous", "owner", "admin", "other")
+VISIBILITIES = ("private", "internal", "public", "restricted")
+# "member" belongs to the group the restricted map is shared with.
+CALLERS = ("anonymous", "owner", "admin", "other", "member")
 
 READERS = {
     "private": {"owner", "admin"},
-    "internal": {"owner", "admin", "other"},
-    "public": {"anonymous", "owner", "admin", "other"},
+    "internal": {"owner", "admin", "other", "member"},
+    "public": {"anonymous", "owner", "admin", "other", "member"},
+    "restricted": {"owner", "admin", "member"},
 }
 SHARE_LINK_VISIBILITIES = {"public"}
 
@@ -87,9 +90,12 @@ async def _world(
     with_layer: bool = False,
     with_images: bool = False,
 ) -> World:
-    """One editor-owned map per visibility, plus an unrelated signed-in editor."""
+    """One editor-owned map per visibility, an unrelated signed-in editor, and a
+    editor in the group the restricted map is shared with."""
     owner_headers, owner_id = await create_user(client, admin_headers, "editor")
     other_headers, other_id = await create_user(client, admin_headers, "editor")
+    member_headers, member_id = await create_user(client, admin_headers, "editor")
+    group_id = await _new_group(client, admin_headers, [owner_id, member_id])
     admin_id = await get_user_id(session, settings.geolens_admin_username)
     dataset_id = None
     if with_layer:
@@ -122,7 +128,14 @@ async def _world(
                     headers=owner_headers,
                 )
                 assert resp.status_code == 204, resp.text
-        if visibility != "private":
+        if visibility == "restricted":
+            resp = await client.put(
+                f"/maps/{map_id}/groups/",
+                json={"group_ids": [group_id]},
+                headers=owner_headers,
+            )
+            assert resp.status_code == 200, resp.text
+        elif visibility != "private":
             resp = await client.put(
                 f"/maps/{map_id}",
                 json={"visibility": visibility},
@@ -138,11 +151,13 @@ async def _world(
             "owner": owner_headers,
             "admin": admin_headers,
             "other": other_headers,
+            "member": member_headers,
         },
         user_ids={
             "owner": uuid.UUID(owner_id),
             "admin": admin_id,
             "other": uuid.UUID(other_id),
+            "member": uuid.UUID(member_id),
         },
         maps=maps,
         names=names,
@@ -186,6 +201,8 @@ CREDENTIALS = {
     "admin read-only key": "admin",
     "admin publish key": "other",
     "owner publish key": "owner",
+    "member read-only key": "member",
+    "member publish key": "member",
     "deactivated user": None,
     "stale credential": None,
 }
@@ -236,6 +253,8 @@ async def test_credentials_read_as_their_account(
         "admin read-only key": await mint_key(admin_auth_header, "read_only"),
         "admin publish key": await mint_key(admin_auth_header, "publish"),
         "owner publish key": await mint_key(world.headers["owner"], "publish"),
+        "member read-only key": await mint_key(world.headers["member"], "read_only"),
+        "member publish key": await mint_key(world.headers["member"], "publish"),
         "deactivated user": deactivated_headers,
         "stale credential": {"Authorization": "Bearer not-a-real-credential"},
     }
@@ -380,7 +399,7 @@ async def test_ai_chat_map_gate(client, admin_auth_header, test_db_session):
     world = await _world(client, admin_auth_header, test_db_session)
     users = {
         c: await test_db_session.get(User, world.user_ids[c])
-        for c in ("owner", "admin", "other")
+        for c in ("owner", "admin", "other", "member")
     }
 
     observed = {}
@@ -409,8 +428,8 @@ async def test_share_link_creation(client, admin_auth_header, test_db_session):
     def expected(v, c):
         if c == "anonymous":
             return 401
-        if c == "other":
-            return 403
+        if c in ("other", "member"):
+            return 403 if _reads(v, c) else 404
         return 200 if v in SHARE_LINK_VISIBILITIES else 400
 
     assert await _observe(world, share) == _table(expected)

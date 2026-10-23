@@ -1093,7 +1093,7 @@ export type ArcgisWebmapImportRequest = {
      */
     title?: string | null;
     /**
-     * Visibility of the new map.
+     * Visibility of the new map: private, internal or public. A map becomes restricted by sharing it with groups afterwards.
      */
     visibility?: MapVisibility;
     /**
@@ -5147,6 +5147,12 @@ export type DuplicateMapResponse = {
      */
     legend_title?: string | null;
     /**
+     * Groups
+     *
+     * The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+     */
+    groups?: Array<GroupRef> | null;
+    /**
      * Excluded Layer Count
      *
      * Layers skipped due to access restrictions
@@ -7037,6 +7043,34 @@ export type MapGenerateResponse = {
 };
 
 /**
+ * MapGroupsResponse
+ */
+export type MapGroupsResponse = {
+    /**
+     * The map's visibility after the change: a private map shared with a group becomes restricted, and a restricted one left with no group becomes private.
+     */
+    visibility: MapVisibility;
+    /**
+     * Groups
+     *
+     * The sharing groups the map is shared with, by name.
+     */
+    groups: Array<GroupRef>;
+};
+
+/**
+ * MapGroupsUpdate
+ */
+export type MapGroupsUpdate = {
+    /**
+     * Group Ids
+     *
+     * Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+     */
+    group_ids: Array<string>;
+};
+
+/**
  * MapHistoryEventResponse
  */
 export type MapHistoryEventResponse = {
@@ -7627,6 +7661,12 @@ export type MapResponse = {
      * Legend Title
      */
     legend_title?: string | null;
+    /**
+     * Groups
+     *
+     * The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+     */
+    groups?: Array<GroupRef> | null;
 };
 
 /**
@@ -7910,7 +7950,7 @@ export type MapUpdate = {
      */
     terrain_config?: TerrainConfig | null;
     /**
-     * private, internal, or public
+     * private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group.
      */
     visibility?: MapVisibility | null;
     /**
@@ -7935,8 +7975,12 @@ export type MapUpdate = {
 
 /**
  * MapVisibility
+ *
+ * Who may read a map. A response names `restricted` only to a client
+ * that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+ * reads a restricted map as `private`.
  */
-export type MapVisibility = 'private' | 'internal' | 'public';
+export type MapVisibility = 'private' | 'internal' | 'public' | 'restricted';
 
 /**
  * MercatorClipDetail
@@ -27745,6 +27789,68 @@ export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses = 
 };
 
 export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponse = UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses[keyof UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses];
+
+export type SetMapGroupsEndpointMapsMapIdGroupsPutData = {
+    body: MapGroupsUpdate;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/groups/';
+};
+
+export type SetMapGroupsEndpointMapsMapIdGroupsPutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SetMapGroupsEndpointMapsMapIdGroupsPutError = SetMapGroupsEndpointMapsMapIdGroupsPutErrors[keyof SetMapGroupsEndpointMapsMapIdGroupsPutErrors];
+
+export type SetMapGroupsEndpointMapsMapIdGroupsPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapGroupsResponse;
+};
+
+export type SetMapGroupsEndpointMapsMapIdGroupsPutResponse = SetMapGroupsEndpointMapsMapIdGroupsPutResponses[keyof SetMapGroupsEndpointMapsMapIdGroupsPutResponses];
 
 export type GetMapHistoryEndpointMapsMapIdHistoryGetData = {
     body?: never;

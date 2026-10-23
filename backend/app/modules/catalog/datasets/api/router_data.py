@@ -39,6 +39,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     StatusUpdateResponse,
 )
 from app.modules.catalog.maps.schemas import MapListResponse
+from app.modules.catalog.maps.visibility_contract import map_visibility_contract
 from app.modules.catalog.records.inherited import (
     inherited_keyword_disclosure_warning,
 )
@@ -271,6 +272,7 @@ async def validate_dataset(
     "/{dataset_id}/maps/",
     response_model=MapListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    dependencies=[Depends(map_visibility_contract)],
 )
 async def dataset_maps(
     dataset_id: uuid.UUID,

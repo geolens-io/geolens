@@ -1,6 +1,7 @@
 import { apiFetch, ApiError, authenticatedRawFetch } from './client';
 import type {
   MapResponse,
+  MapVisibility,
   DuplicateMapResponse,
   MapListResponse,
   MapCreateRequest,
@@ -267,7 +268,7 @@ export async function uploadMapIcon(file: File): Promise<MapIconResponse> {
   });
 }
 
-export async function publishMap(id: string, visibility: 'public' | 'private' | 'internal'): Promise<MapResponse> {
+export async function publishMap(id: string, visibility: MapVisibility): Promise<MapResponse> {
   return apiFetch<MapResponse>(`/maps/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({ visibility }),

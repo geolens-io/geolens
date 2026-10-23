@@ -74,6 +74,10 @@ _CONDITIONAL_LOWER = frozenset(h.lower() for h in _CONDITIONAL_HEADERS)
 _CREDENTIAL_HEADERS = ("authorization", "cookie", "x-api-key", "x-embed-token")
 _CREDENTIAL_QUERY_PARAMS = ("api_key", "embed_token")
 
+# The opt-in that lets a client read the restricted map visibility
+# (catalog/maps/visibility_contract.py).
+_MAP_VISIBILITY_HEADER = "X-GeoLens-Map-Visibility"
+
 # A script that sends a key in the X-Api-Key header already holds it, so CORS
 # has no ambient credential to guard on that lane and any origin may read the
 # answer. Cookies, bearer tokens, embed tokens and query-string credentials are
@@ -85,6 +89,7 @@ _HEADER_KEY_ALLOWED_HEADER_NAMES = (
     "Idempotency-Key",
     "Idempotency-Attempt",
     "X-Config-Preview-Token",
+    _MAP_VISIBILITY_HEADER,
     *_CONDITIONAL_HEADERS,
 )
 _HEADER_KEY_ALLOWED_HEADERS = ", ".join(_HEADER_KEY_ALLOWED_HEADER_NAMES)
@@ -318,7 +323,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Allow-Headers"] = (
             "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token, "
             "X-Config-Preview-Token, Idempotency-Key, Idempotency-Attempt, "
-            "Range, If-Range, If-None-Match, If-Match"
+            f"{_MAP_VISIBILITY_HEADER}, Range, If-Range, If-None-Match, If-Match"
         )
         response.headers["Access-Control-Expose-Headers"] = _EXPOSE_HEADERS
         response.headers["Access-Control-Max-Age"] = "3600"

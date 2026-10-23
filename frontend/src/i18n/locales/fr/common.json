@@ -536,6 +536,7 @@
     "private": "Privé",
     "internal": "Interne",
     "public": "Public",
+    "restricted": "Restreint",
     "listView": "Vue liste",
     "gridView": "Vue grille",
     "loadFailed": "Échec du chargement des cartes : {{message}}",

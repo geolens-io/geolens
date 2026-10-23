@@ -26,9 +26,15 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.ownership import require_transfer_admin, transfer_map_owner
 from app.modules.catalog.write_recheck import refuse_stale_write
+from app.modules.catalog.maps.visibility_contract import map_visibility_contract
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
+router = APIRouter(
+    prefix="/maps",
+    tags=["Maps"],
+    responses=ERROR_RESPONSES_WRITE,
+    dependencies=[Depends(map_visibility_contract)],
+)
 
 
 class MapPatch(BaseModel):

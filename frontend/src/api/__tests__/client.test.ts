@@ -73,6 +73,14 @@ describe('apiFetch', () => {
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 
+  it('reads maps with their restricted visibility', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}));
+    await apiFetch('/maps/');
+
+    const headers = mockFetch.mock.calls[0][1].headers as Headers;
+    expect(headers.get('X-GeoLens-Map-Visibility')).toBe('restricted');
+  });
+
   it('does not set Content-Type for FormData body', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({}));
     const formData = new FormData();

@@ -99,7 +99,8 @@ def sync_detailed(
 
      Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets at once, signed tile URLs included.
+    Its members lose the group's datasets and maps at once, signed tile URLs
+    included. A restricted map shared only with this group becomes private.
 
     Args:
         group_id (UUID):
@@ -132,7 +133,8 @@ def sync(
 
      Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets at once, signed tile URLs included.
+    Its members lose the group's datasets and maps at once, signed tile URLs
+    included. A restricted map shared only with this group becomes private.
 
     Args:
         group_id (UUID):
@@ -160,7 +162,8 @@ async def asyncio_detailed(
 
      Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets at once, signed tile URLs included.
+    Its members lose the group's datasets and maps at once, signed tile URLs
+    included. A restricted map shared only with this group becomes private.
 
     Args:
         group_id (UUID):
@@ -191,7 +194,8 @@ async def asyncio(
 
      Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets at once, signed tile URLs included.
+    Its members lose the group's datasets and maps at once, signed tile URLs
+    included. A restricted map shared only with this group becomes private.
 
     Args:
         group_id (UUID):
