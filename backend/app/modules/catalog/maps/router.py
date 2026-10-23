@@ -353,17 +353,17 @@ async def import_map_style_endpoint(
     await db.commit()
 
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
-        db,
-        map_obj.id,
+        db, map_obj.id
     )
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     assert map_obj is not None
     return MapStyleImportResponse(
-        map=_build_map_response(
+        map=await _visible_map_response(
+            db,
             map_obj,
-            layers,
-            forked_from_name=forked_name,
-            created_by_username=owner_username,
+            layer_tuples,
+            user,
+            forked_name,
+            owner_username,
             include_notes=True,
         ),
         summary=imported.summary,
