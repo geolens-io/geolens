@@ -428,7 +428,7 @@ def _is_number_text(code: str, col_type: str) -> bool:
         exact = Decimal(code)
     except InvalidOperation:
         return False
-    if "_" in code or not exact.is_finite():
+    if "_" in code or not code.isascii() or not exact.is_finite():
         return False
     if col_type == "numeric":
         return -16383 < exact.adjusted() < 131072

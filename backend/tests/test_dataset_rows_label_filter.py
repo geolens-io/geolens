@@ -71,7 +71,12 @@ async def coded_dataset(test_db_session):
             dataset_id=ds.id,
             field_name="depth",
             data_type="double precision",
-            value_labels={"10000000000000000": "Deep", "n/a": "Deep, unknown"},
+            # Python reads the Arabic-Indic digit as 1; PostgreSQL refuses it.
+            value_labels={
+                "10000000000000000": "Deep",
+                "n/a": "Deep, unknown",
+                "\u0661": "Deep, written as \u0661",
+            },
         )
     )
     test_db_session.add(
