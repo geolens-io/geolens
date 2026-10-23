@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet, useLocation } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute } from '@/components/auth/AdminRoute';
+import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute, AdminGroupsRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -65,6 +65,9 @@ const AdminOverviewPage = lazy(loadAdminOverviewPage);
 const loadAdminUsersPage = () =>
   import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage }));
 const AdminUsersPage = lazy(loadAdminUsersPage);
+const loadAdminGroupsPage = () =>
+  import('./pages/admin/AdminGroupsPage').then(m => ({ default: m.AdminGroupsPage }));
+const AdminGroupsPage = lazy(loadAdminGroupsPage);
 const loadAdminJobsPage = () =>
   import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage }));
 const AdminJobsPage = lazy(loadAdminJobsPage);
@@ -169,6 +172,9 @@ export const appRoutes = (
             </Route>
             <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
+            </Route>
+            <Route element={<AdminGroupsRoute />} handle={requires('capability')}>
+              <Route path="admin/groups" element={<AdminGroupsPage />} handle={preload(loadAdminGroupsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* The settings and config-ops APIs flip to manage_tenants in
                 multi-tenant mode, so these routes gate mode-aware; plain

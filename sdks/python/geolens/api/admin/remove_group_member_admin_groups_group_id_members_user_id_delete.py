@@ -102,6 +102,8 @@ def sync_detailed(
 
      Remove one user from a sharing group (admin only).
 
+    The user loses the group's datasets at once, signed tile URLs included.
+
     Args:
         group_id (UUID):
         user_id (UUID):
@@ -136,6 +138,8 @@ def sync(
 
      Remove one user from a sharing group (admin only).
 
+    The user loses the group's datasets at once, signed tile URLs included.
+
     Args:
         group_id (UUID):
         user_id (UUID):
@@ -164,6 +168,8 @@ async def asyncio_detailed(
     """Remove Group Member
 
      Remove one user from a sharing group (admin only).
+
+    The user loses the group's datasets at once, signed tile URLs included.
 
     Args:
         group_id (UUID):
@@ -196,6 +202,8 @@ async def asyncio(
     """Remove Group Member
 
      Remove one user from a sharing group (admin only).
+
+    The user loses the group's datasets at once, signed tile URLs included.
 
     Args:
         group_id (UUID):

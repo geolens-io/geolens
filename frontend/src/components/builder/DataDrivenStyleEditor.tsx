@@ -547,7 +547,8 @@ export function DataDrivenStyleEditor({
     const rawColors = getRampColors(effectiveRamp, effectiveClassCount);
     const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const colorProp = getColorProperty(geomType);
-    const expression = buildGraduatedExpression(column, breaks, colors);
+    const nullColor = styleConfig?.column === column ? styleConfig.nullColor : undefined;
+    const expression = buildGraduatedExpression(column, breaks, colors, nullColor);
 
     const config: StyleConfig = {
       mode: 'graduated',
@@ -558,6 +559,7 @@ export function DataDrivenStyleEditor({
       method,
       breaks,
       colors,
+      ...(nullColor ? { nullColor } : {}),
       target: 'color',
     };
     const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
@@ -757,7 +759,12 @@ export function DataDrivenStyleEditor({
       const updatedColors = [...styleConfig.colors];
       updatedColors[index] = newColor;
       const colorProp = getColorProperty(geomType);
-      const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
+      const expression = buildGraduatedExpression(
+        styleConfig.column,
+        styleConfig.breaks,
+        updatedColors,
+        styleConfig.nullColor,
+      );
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
       // 200ms debounce — HexColorPicker fires on every drag pixel.

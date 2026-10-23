@@ -16,7 +16,12 @@ from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
 )
-from app.platform.dataset_origin import classify_origin, service_layer_identity
+from app.platform.dataset_origin import (
+    BoundPointer,
+    bound_pointer,
+    classify_origin,
+    service_layer_identity,
+)
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
@@ -955,7 +960,7 @@ async def _staged_geometry_contract(
 
 
 def _matches_service_origin(
-    bound: tuple,
+    bound: BoundPointer,
     *,
     source_format: str,
     source_url: str,
@@ -963,9 +968,9 @@ def _matches_service_origin(
     layer_name: str,
 ) -> bool:
     """Return whether a fetch still describes the dataset's stored source."""
-    stored_ref = bound[1] or {}
+    stored_ref = bound.origin_ref or {}
     return (
-        classify_origin(bound[2]) == "service"
+        classify_origin(bound.source_format) == "service"
         and stored_ref.get("service_type") == source_format
         and stored_ref.get("url") == source_url
         and stored_ref.get("layer_id")
@@ -1159,7 +1164,7 @@ class _ServiceReupload:
         self.dataset_id = dataset.id
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
-        self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+        self.bound = bound_pointer(dataset)
         um = job.user_metadata or {}
         self.service_type_raw = um.get("service_type", "")
         self.layer_id = um.get("layer_id")

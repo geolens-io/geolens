@@ -5,7 +5,7 @@ read this record?" — the set-shaped reading of the rule ``filter_visible``
 already applies per user. Nothing structural keeps the two in step, so this
 file compares them account by account against a real database, across every
 visibility rung, every publication status, and the owner / admin / grantee /
-stranger roles that each rung treats differently.
+group-member / stranger roles that each rung treats differently.
 
 That equivalence is the whole warrant for
 ``find_maps_broken_by_dataset_visibility`` trusting the seam: if the two ever
@@ -19,8 +19,12 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from app.modules.auth.models import Role, User, UserRole
-from app.modules.catalog.datasets.domain.models import DatasetGrant, Record
+from app.modules.auth.models import Group, GroupMember, Role, User, UserRole
+from app.modules.catalog.datasets.domain.models import (
+    DatasetGrant,
+    DatasetGroupGrant,
+    Record,
+)
 from app.platform.extensions import RecordAudienceQuery
 from app.platform.extensions.defaults import DefaultPermissionExtension
 from tests.factories import create_dataset as _create_dataset
@@ -32,17 +36,18 @@ _STATUSES = ("published", "draft")
 
 
 class _Principals:
-    """The four accounts the ladder treats differently, plus their role sets."""
+    """The accounts the ladder treats differently, plus their role sets."""
 
-    def __init__(self, owner, admin, grantee, stranger):
+    def __init__(self, owner, admin, grantee, group_member, stranger):
         self.owner = owner
         self.admin = admin
         self.grantee = grantee
+        self.group_member = group_member
         self.stranger = stranger
 
     @property
     def all(self):
-        return (self.owner, self.admin, self.grantee, self.stranger)
+        return (self.owner, self.admin, self.grantee, self.group_member, self.stranger)
 
     def roles(self, user):
         """What ``get_user_roles`` would return for this account.
@@ -70,7 +75,8 @@ async def _make_user(session, label: str) -> User:
 
 @pytest.fixture
 async def principals(test_db_session) -> _Principals:
-    """Four fresh accounts: a non-admin owner, an admin, a grantee, a stranger.
+    """Fresh accounts: a non-admin owner, an admin, a grantee, a group member
+    and a stranger.
 
     The owner is deliberately NOT an admin. Every existing guard test owns its
     dataset as the seeded admin, which makes "the owner keeps access" and "an
@@ -80,6 +86,7 @@ async def principals(test_db_session) -> _Principals:
     owner = await _make_user(test_db_session, "owner")
     admin = await _make_user(test_db_session, "admin")
     grantee = await _make_user(test_db_session, "grantee")
+    group_member = await _make_user(test_db_session, "member")
     stranger = await _make_user(test_db_session, "stranger")
 
     admin_role = (
@@ -87,12 +94,13 @@ async def principals(test_db_session) -> _Principals:
     ).scalar_one()
     test_db_session.add(UserRole(user_id=admin.id, role_id=admin_role.id))
     await test_db_session.commit()
-    return _Principals(owner, admin, grantee, stranger)
+    return _Principals(owner, admin, grantee, group_member, stranger)
 
 
 @pytest.fixture
 async def granted_dataset(test_db_session, principals: _Principals):
-    """A dataset owned by ``principals.owner`` with a grant reaching the grantee."""
+    """A dataset owned by ``principals.owner``, granted to a role the grantee
+    holds and to a group the group member is in."""
     dataset = await _create_dataset(
         test_db_session,
         created_by=principals.owner.id,
@@ -105,6 +113,13 @@ async def granted_dataset(test_db_session, principals: _Principals):
     await test_db_session.flush()
     test_db_session.add(UserRole(user_id=principals.grantee.id, role_id=role.id))
     test_db_session.add(DatasetGrant(dataset_id=dataset.id, role_id=role.id))
+    group = Group(name=f"aud-group-{uuid.uuid4().hex[:8]}")
+    test_db_session.add(group)
+    await test_db_session.flush()
+    test_db_session.add(
+        GroupMember(group_id=group.id, user_id=principals.group_member.id)
+    )
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset.id, group_id=group.id))
     await test_db_session.commit()
     return dataset
 
@@ -183,6 +198,9 @@ async def test_the_audience_is_exactly_who_filter_visible_admits(
     # A cell where nobody at all can read would satisfy the equality above
     # trivially; the admin bypass means no cell is ever empty.
     assert principals.admin.id in via_filter
+    shared_with = {principals.grantee.id, principals.group_member.id}
+    if (visibility, record_status) == ("restricted", "published"):
+        assert shared_with <= via_filter
 
 
 @pytest.mark.parametrize("visibility", _VISIBILITIES)

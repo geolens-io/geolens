@@ -1263,7 +1263,7 @@ class TestServiceReuploadPreview:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
-        blocked_url = "http://127.0.0.1/internal"
+        blocked_url = "https://127.0.0.1/internal"
 
         with (
             patch(

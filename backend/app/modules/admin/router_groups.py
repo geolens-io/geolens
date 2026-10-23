@@ -22,6 +22,7 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth import groups as group_service
 from app.modules.auth.dependencies import require_mode_permission
 from app.modules.auth.models import Group
+from app.modules.catalog.group_access import change_group_access
 from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import CONFLICT_RESPONSE, NOT_FOUND_RESPONSE
 
@@ -30,8 +31,8 @@ router = APIRouter()
 # Keeps one audit row bounded however large the deleted group was.
 AUDIT_MEMBER_ID_CAP = 1000
 
-# Groups carry no tenant stamp, so in hosted mode only a fleet admin may see
-# or change them.
+# In hosted mode groups stay with fleet admins until tenant admins are given
+# them; RLS still scopes every read and write to the active tenant.
 require_group_admin = require_mode_permission(
     single_tenant="manage_users", multi_tenant="manage_tenants"
 )
@@ -202,10 +203,18 @@ async def delete_group(
     current_user: Identity = Depends(require_group_admin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a sharing group and all its memberships (admin only)."""
+    """Delete a sharing group and all its memberships (admin only).
+
+    Its members lose the group's datasets at once, signed tile URLs included.
+    """
     try:
-        name, member_count, member_ids = await group_service.delete_group(
-            db, group_id, id_limit=AUDIT_MEMBER_ID_CAP
+        name, member_count, member_ids = await change_group_access(
+            db,
+            group_id,
+            lambda: group_service.delete_group(
+                db, group_id, id_limit=AUDIT_MEMBER_ID_CAP
+            ),
+            narrowing=True,
         )
     except LookupError as exc:
         raise _not_found(exc)
@@ -283,10 +292,16 @@ async def add_group_members(
     """Add users to a sharing group (admin only).
 
     Users already in the group are skipped. If any id matches no user, the
-    request is 404 and nobody is added.
+    request is 404 and nobody is added. 422 when the new members' access to
+    the group's datasets would let a VRT reach past one of its sources.
     """
     try:
-        group, added = await group_service.add_members(db, group_id, body.user_ids)
+        group, added = await change_group_access(
+            db,
+            group_id,
+            lambda: group_service.add_members(db, group_id, body.user_ids),
+            narrowing=False,
+        )
     except LookupError as exc:
         raise _not_found(exc)
     if added:
@@ -319,9 +334,17 @@ async def remove_group_member(
     current_user: Identity = Depends(require_group_admin),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Remove one user from a sharing group (admin only)."""
+    """Remove one user from a sharing group (admin only).
+
+    The user loses the group's datasets at once, signed tile URLs included.
+    """
     try:
-        await group_service.remove_member(db, group_id, user_id)
+        await change_group_access(
+            db,
+            group_id,
+            lambda: group_service.remove_member(db, group_id, user_id),
+            narrowing=True,
+        )
     except LookupError as exc:
         raise _not_found(exc)
     await audit_emit(

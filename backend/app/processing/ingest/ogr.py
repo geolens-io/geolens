@@ -46,7 +46,12 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
-from app.platform.egress_proxy import service_egress_proxy
+from app.platform.egress_proxy import (
+    gdal_source_url,
+    pinned_origin,
+    service_egress_proxy,
+)
+from app.platform.service_auth import refuse_credential_over_http
 from app.platform.gdal_argv import is_option_like_layer_name
 from app.processing.ingest.arcgis_errors import (
     ARCGIS_ERROR_RESPONSE_RE,
@@ -198,6 +203,10 @@ def _gdal_failure_reason(
 SERVICE_ADDRESS_REFUSED = (
     "the source service pointed to an address this server does not connect to"
 )
+SERVICE_LEFT_ORIGIN = (
+    "the source service redirected to another address, and GeoLens does not "
+    "send a credential anywhere but the service's own address"
+)
 
 # A service can refuse a credential inside an HTTP 200 exception report. The
 # sentence names authentication so the caller can still suggest a credential.
@@ -229,12 +238,14 @@ def _raise_service_gdal_failure(
     stderr_text: str,
     *,
     refused: bool,
+    left_origin: bool = False,
     service_error: str | None = None,
 ) -> NoReturn:
     """Raise a service import's reason, having logged the redacted GDAL text.
 
     ``refused`` is whether the egress proxy turned a destination away, which
-    GDAL itself reports only as an HTTP 403. ``service_error`` is the
+    GDAL itself reports only as an HTTP 403, and ``left_origin`` whether that
+    was a hop off a credentialed run's origin. ``service_error`` is the
     service's own redacted error, added to the reason.
     """
     structlog.get_logger().error(
@@ -244,9 +255,8 @@ def _raise_service_gdal_failure(
         service_error=service_error,
     )
     if refused:
-        raise IngestionError(
-            f"{tool} failed (exit {returncode}): {SERVICE_ADDRESS_REFUSED}"
-        )
+        why = SERVICE_LEFT_ORIGIN if left_origin else SERVICE_ADDRESS_REFUSED
+        raise IngestionError(f"{tool} failed (exit {returncode}): {why}")
     reason = _gdal_failure_reason(
         tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES
     )
@@ -1314,6 +1324,7 @@ async def run_ogr2ogr_service(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+    refuse_credential_over_http(gdal_source_url(gdal_source), token)
 
     # A protected OGC API collection is read here, not by GDAL, so the
     # credential never becomes a header file: GDAL applies a header file to
@@ -1426,7 +1437,8 @@ async def run_ogr2ogr_service(
     header_line: str | None = None
     try:
         async with service_egress_proxy(
-            idle_seconds=settings.ingest_http_timeout_seconds
+            idle_seconds=settings.ingest_http_timeout_seconds,
+            origin=pinned_origin(gdal_source, credential=bool(token)),
         ) as egress:
             env = _tenant_writer_subprocess_env(
                 schema,
@@ -1495,13 +1507,9 @@ async def run_ogr2ogr_service(
                 os.chmod(header_file_path, 0o600)
                 env["GDAL_HTTP_HEADER_FILE"] = header_file_path
                 env.update(gdal_transport_env(service_type))
-                # GDAL forwards `Authorization` only to the host it was
-                # given to, but forwards every other header name verbatim
-                # across hosts, so a service-chosen API key is redirect-exposed
-                # here and can't be protected from inside (bounded
-                # operationally, AGENTS.md Rule 2). IF_SAME_HOST, not NO: a
-                # same-host canonical redirect (e.g. a trailing slash) must
-                # keep the credential or a protected service answers 401.
+                # Other header names would follow a redirect to any host; the
+                # proxy's origin pin refuses those. IF_SAME_HOST, not NO: a
+                # same-host redirect (a trailing slash) must keep the credential.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
             # Computed here, not at each spender, so it accounts for all of
@@ -1568,5 +1576,6 @@ async def run_ogr2ogr_service(
             proc.returncode,
             stderr_text,
             refused=egress.refused,
+            left_origin=egress.left_origin,
             service_error=service_error,
         )

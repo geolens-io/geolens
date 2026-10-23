@@ -32,6 +32,10 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Feature not found': 'errors.featureNotFound',
   'Layer not found': 'errors.layerNotFound',
   'User not found': 'errors.userNotFound',
+  'Group not found': 'errors.groupNotFound',
+  'User is not a member of this group': 'errors.groupMemberNotFound',
+  "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.":
+    'errors.vrtAudienceExceedsSources',
   'API key not found': 'errors.apiKeyNotFound',
   'This dataset already has 100 active keys. Revoke one to create another.':
     'errors.datasetKeyLimit',
@@ -298,6 +302,9 @@ function formatInteger(raw: string): string {
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
+
+  const groupName = message.match(/^A group named '(.*)' already exists$/s);
+  if (groupName) return { key: 'errors.groupNameTaken', values: { name: groupName[1] } };
 
   const storageQuota = message.match(
     /^Storage quota exceeded:\s*used\s+(\d+)\s+of\s+(\d+)\s+bytes\s+\(adding\s+(\d+)\s+bytes\)$/i,
@@ -595,6 +602,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     // list-shaped one `validationDescriptor` handles, so it is checked here.
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
+    }
+    if (value.code === 'credential_over_http') {
+      return { key: 'errors.credentialOverHttp' };
     }
     // arcgis_portal_host_invalid (sources/arcgis_signin.py HOST_INVALID): a 422 for
     // a portal hostname that can't be canonicalized; same shape as above.

@@ -21,6 +21,10 @@ from app.core.failure_reason import FixedReason, coded_failure_reason
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.service_auth import (
+    CredentialOverHttpError,
+    refuse_credential_over_http,
+)
 from app.platform.refresh.service import (
     claim_admitted_run_for_job,
     create_pending_run,
@@ -394,6 +398,27 @@ async def execute_admitted_refresh(
             return RefreshExecutionResult(
                 job_id=job_id, run_id=claimed_run_id, status="rejected"
             )
+
+    try:
+        refuse_credential_over_http(task_args["source_url"], token)
+    except CredentialOverHttpError:
+        async with async_session() as session:
+            await fail_claimed_admitted_refresh(
+                session,
+                ingest_job_id=job_id,
+                execution_key=claim_key,
+                error_code="credential_over_http",
+                error_message=FixedReason(
+                    "This dataset's service uses plain HTTP, so its credential "
+                    "was not sent. Re-import it from the service's https:// "
+                    "address, or ask an administrator to allow its host.",
+                    code="credential_over_http",
+                ),
+            )
+            await session.commit()
+        return RefreshExecutionResult(
+            job_id=job_id, run_id=claimed_run_id, status="rejected"
+        )
 
     task = get_catalog_port().verified_refresh_service_task()
     try:

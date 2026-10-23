@@ -19,6 +19,11 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Companion drawing**: A label, arrow or extrusion associated with a saved layer. It belongs to that layer's presentation rather than representing another saved layer.
 
+**Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
+_Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
+
+**Origin**: How a dataset's data entered the catalog: an upload, a registered table, a service, a STAC item, or drawing in the app. Derived from the source binding, never stored.
+
 **Service import**: Bringing one remote service layer into GeoLens as a dataset that is a managed copy of it.
 _Avoid_: ArcGIS import, when referring to a single layer.
 

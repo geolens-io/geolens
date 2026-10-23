@@ -107,6 +107,10 @@ async def import_arcgis_webmap_endpoint(
         dataset_matches=body.dataset_matches,
         basemap_map=body.basemap_map,
         available_basemaps=await _enabled_basemap_ids(db),
+        dataset_columns={
+            dataset_id: dataset.column_info or []
+            for dataset_id, dataset in datasets.items()
+        },
     )
     loss_report = ArcgisLossReport.model_validate(translation.loss.as_dict())
     unmatched = [

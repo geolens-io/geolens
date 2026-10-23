@@ -892,5 +892,66 @@
   "sortable": {
     "sortAscending": "ordenar de forma ascendente",
     "sortDescending": "ordenar de forma descendente"
+  },
+  "groups": {
+    "title": "Grupos",
+    "listHeading": "Grupos para compartir",
+    "errorLoading": "No se pudieron cargar los grupos: {{message}}",
+    "nameLabel": "Nombre del grupo",
+    "actionsFor": "Acciones del grupo {{name}}",
+    "table": {
+      "name": "Nombre",
+      "members": "Miembros",
+      "created": "Creado",
+      "actions": "Acciones",
+      "manageMembers": "Miembros",
+      "memberCount_one": "{{count}} miembro",
+      "memberCount_other": "{{count}} miembros"
+    },
+    "empty": {
+      "title": "Aún no hay grupos",
+      "hint": "Cree un grupo, añada personas y comparta conjuntos de datos con él."
+    },
+    "create": {
+      "button": "Crear grupo",
+      "title": "Crear grupo",
+      "description": "Los grupos permiten compartir conjuntos de datos restringidos con un conjunto de personas."
+    },
+    "rename": {
+      "button": "Renombrar",
+      "title": "Renombrar grupo",
+      "description": "Elija un nombre nuevo para {{name}}."
+    },
+    "delete": {
+      "title": "¿Eliminar {{name}}?",
+      "description_one": "Este grupo tiene {{count}} miembro. Pierde de inmediato el acceso a los conjuntos de datos compartidos con el grupo. Esta acción no se puede deshacer.",
+      "description_other": "Este grupo tiene {{count}} miembros. Pierden de inmediato el acceso a los conjuntos de datos compartidos con el grupo. Esta acción no se puede deshacer.",
+      "deleting": "Eliminando..."
+    },
+    "members": {
+      "title": "Miembros de {{name}}",
+      "description": "Las personas de este grupo pueden abrir los conjuntos de datos compartidos con él.",
+      "addLabel": "Añadir una persona",
+      "listHeading_one": "{{count}} miembro",
+      "listHeading_other": "{{count}} miembros",
+      "listLabel": "Miembros de {{name}}",
+      "removeLabel": "Quitar a {{name}} de {{group}}",
+      "empty": "Este grupo aún no tiene miembros.",
+      "added": "{{name}} añadido",
+      "removed": "{{name}} quitado",
+      "errorLoading": "No se pudieron cargar los miembros: {{message}}",
+      "needsUserManagement": "Añadir personas requiere permiso de gestión de usuarios. Aún puede ver y quitar miembros."
+    },
+    "picker": {
+      "placeholder": "Buscar por nombre de usuario",
+      "noMatches": "No hay personas que coincidan",
+      "results_one": "{{count}} persona disponible",
+      "results_other": "{{count}} personas disponibles"
+    },
+    "toasts": {
+      "created": "Grupo creado",
+      "renamed": "Grupo renombrado",
+      "deleted": "Grupo eliminado"
+    }
   }
 }

@@ -10,6 +10,9 @@ import type {
   BackfillResponse,
   CatalogStatsResponse,
   EmbeddingStatsResponse,
+  GroupListResponse,
+  GroupMemberListResponse,
+  GroupResponse,
   UserListResponse,
   UserResponse,
   AuditLogListResponse,
@@ -54,6 +57,49 @@ export async function listUserNames(): Promise<{ id: string; username: string }[
     names.push(...page);
     if (page.length < limit) return names;
   }
+}
+
+export async function listGroups(params: { skip?: number; limit?: number } = {}): Promise<GroupListResponse> {
+  const query = new URLSearchParams();
+  if (params.skip !== undefined) query.set('skip', String(params.skip));
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return apiFetch<GroupListResponse>(`/admin/groups/${qs ? `?${qs}` : ''}`);
+}
+
+export async function createGroup(name: string): Promise<GroupResponse> {
+  return apiFetch<GroupResponse>('/admin/groups/', { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+export async function renameGroup(groupId: string, name: string): Promise<GroupResponse> {
+  return apiFetch<GroupResponse>(`/admin/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  await apiFetch<void>(`/admin/groups/${groupId}`, { method: 'DELETE' });
+}
+
+export async function listGroupMembers(groupId: string): Promise<{ id: string; username: string }[]> {
+  const limit = 200;
+  const members: { id: string; username: string }[] = [];
+  for (let skip = 0; ; skip += limit) {
+    const page = await apiFetch<GroupMemberListResponse>(
+      `/admin/groups/${groupId}/members/?skip=${skip}&limit=${limit}`,
+    );
+    members.push(...page.members);
+    if (members.length >= page.total || page.members.length < limit) return members;
+  }
+}
+
+export async function addGroupMembers(groupId: string, userIds: string[]): Promise<GroupResponse> {
+  return apiFetch<GroupResponse>(`/admin/groups/${groupId}/members/`, {
+    method: 'POST',
+    body: JSON.stringify({ user_ids: userIds }),
+  });
+}
+
+export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  await apiFetch<void>(`/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
 }
 
 export async function listAdminJobs(

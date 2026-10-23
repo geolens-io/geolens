@@ -44,7 +44,7 @@ from app.observability.metrics.refresh import (
     origin_probe_total,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import classify_origin
+from app.platform.dataset_origin import bound_pointer, classify_origin, still_bound
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -209,9 +209,7 @@ async def check_source_health(
     # above, so nothing could re-probe). Snapshot the binding now and make
     # the write conditional on it below; set_dataset_origin clearing probe
     # state on rebind covers the other interleaving.
-    bound_uri = dataset.origin_uri
-    bound_ref = dataset.origin_ref
-    bound_format = dataset.source_format
+    bound = bound_pointer(dataset)
 
     # Resolve what to contact while the session is still live...
     if origin == "stac":
@@ -270,12 +268,7 @@ async def check_source_health(
         values["last_checked_at"] = now
     outcome = await db.execute(
         update(Dataset)
-        .where(
-            Dataset.id == dataset_id,
-            Dataset.origin_uri.is_not_distinct_from(bound_uri),
-            Dataset.origin_ref.is_not_distinct_from(bound_ref),
-            Dataset.source_format.is_not_distinct_from(bound_format),
-        )
+        .where(still_bound(Dataset, dataset_id, bound))
         .values(**values)
         # The response reports what the row actually holds
         # after this write, not a pre-probe snapshot -- a concurrent probe

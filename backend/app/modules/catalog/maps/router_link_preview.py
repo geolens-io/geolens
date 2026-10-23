@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.public_urls import get_shareable_app_url, join_public_url
-from app.modules.catalog.maps._router_helpers import _check_map_read_access
+from app.modules.catalog.authorization import check_map_access
 from app.modules.catalog.maps.service import get_map
 from app.modules.catalog.maps.sharing import get_share_card_image_url
 
@@ -46,7 +46,7 @@ async def map_link_preview_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
         )
-    await _check_map_read_access(map_obj, None, db)
+    await check_map_access(db, map_obj, None)
     app_url = await get_shareable_app_url(db, request=request)
     if app_url is None:
         raise HTTPException(

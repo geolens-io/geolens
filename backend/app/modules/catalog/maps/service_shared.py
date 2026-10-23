@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Select, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -379,29 +379,6 @@ async def _resolve_save_response_metadata(
     if row is None:
         return None, None, None
     return row[0], row[1], row[2]
-
-
-def _apply_map_visibility_filter(
-    stmt: Select,
-    user_id: uuid.UUID | None,
-    is_admin: bool,
-) -> Select:
-    """Apply RBAC visibility filter to a Map query.
-
-    - Admins see everything (no filter).
-    - Authenticated users see: their own private maps + all internal + all public.
-    - Anonymous users see public only.
-    """
-    if is_admin:
-        return stmt
-    if user_id is not None:
-        return stmt.where(
-            or_(
-                Map.created_by == user_id,
-                Map.visibility.in_(["internal", "public"]),
-            )
-        )
-    return stmt.where(Map.visibility == "public")
 
 
 def _infer_layer_type(record_type: str | None) -> str:

@@ -253,7 +253,7 @@ class TestUniqueValueRenderer:
         assert layer.style_config["ramp"] == "custom"
         assert layer.style_config["categories"] == [
             {"value": "a", "label": "Alpha", "color": "#ff0000"},
-            {"value": "2", "label": "Two", "color": "#0000ff"},
+            {"value": 2, "label": "Two", "color": "#0000ff"},
         ]
         expression = layer.paint["fill-color"]
         assert expression[0] == "case"
@@ -268,6 +268,170 @@ class TestUniqueValueRenderer:
             "#c8c8c8",
         ]
         assert not result.loss.items
+
+    def test_values_of_a_numeric_field_are_stored_as_numbers(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "CODE",
+            "uniqueValueInfos": [
+                {"value": "1", "symbol": _fill([255, 0, 0, 255])},
+                {"value": "2.5", "symbol": _fill([0, 0, 255, 255])},
+            ],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "CODE", "type": "esriFieldTypeDouble"}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert [c["value"] for c in layer.style_config["categories"]] == [1, 2.5]
+        assert layer.paint["fill-color"][3][2:6] == ["1", "#ff0000", "2.5", "#0000ff"]
+
+    def test_integers_past_2_53_stay_distinct_strings(self) -> None:
+        big = ["9007199254740992", "9007199254740993"]
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "ID",
+            "uniqueValueInfos": [{"value": v, "symbol": _fill()} for v in ["7", *big]],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "ID", "type": "esriFieldTypeBigInteger"}
+        ]
+        layer = _translate(webmap).layers[0]
+        values = [c["value"] for c in layer.style_config["categories"]]
+        assert values == [7, *big]
+
+    def test_decimal_values_of_a_float_field_become_numbers(self) -> None:
+        texts = ["0.1", "2.5", "0.30000000000000004", "0.1000000000000000001"]
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "RATE",
+            "uniqueValueInfos": [{"value": v, "symbol": _fill()} for v in texts],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "RATE", "type": "esriFieldTypeDouble"}
+        ]
+        layer = _translate(webmap).layers[0]
+        values = [c["value"] for c in layer.style_config["categories"]]
+        assert values == [0.1, 2.5, 0.30000000000000004, "0.1000000000000000001"]
+
+    @pytest.mark.parametrize(
+        ("field_type", "text", "value", "key"),
+        [
+            ("esriFieldTypeInteger", "1.0", 1, "1"),
+            ("esriFieldTypeInteger", "1e3", 1000, "1000"),
+            ("esriFieldTypeDouble", "2.50", 2.5, "2.5"),
+            ("esriFieldTypeDouble", "0.00001", 1e-05, "0.00001"),
+            ("esriFieldTypeDouble", "1e-7", 1e-07, "1e-7"),
+        ],
+    )
+    def test_the_paint_key_is_the_text_of_the_typed_number(
+        self, field_type: str, text: str, value: float, key: str
+    ) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [{"value": text, "symbol": _fill([255, 0, 0, 255])}],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": field_type}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert layer.style_config["categories"][0]["value"] == value
+        assert layer.paint["fill-color"][3][2] == key
+
+    def test_a_dataset_column_types_a_field_the_web_map_does_not_declare(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "CODE",
+            "uniqueValueInfos": [{"value": "7", "symbol": _fill()}],
+        }
+        dataset_id = uuid.uuid4()
+        result = translate_webmap(
+            _with_renderer(renderer),
+            name=None,
+            dataset_matches={"L1": dataset_id},
+            basemap_map={},
+            available_basemaps=BASEMAPS,
+            dataset_columns={dataset_id: [{"name": "CODE", "type": "integer"}]},
+        )
+        assert result.layers[0].style_config["categories"][0]["value"] == 7
+
+    @pytest.mark.parametrize("text", ["NaN", "Infinity", "-Infinity", "1e999999999"])
+    def test_values_that_are_not_safe_integers_stay_strings(self, text: str) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [{"value": text, "symbol": _fill()}],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": "esriFieldTypeInteger"}
+        ]
+        result = _translate(webmap)
+        assert result.layers[0].style_config["categories"][0]["value"] == text
+
+    def test_single_fields_hold_float32_values(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [{"value": "0.1", "symbol": _fill()}],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": "esriFieldTypeSingle"}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert layer.style_config["categories"][0]["value"] == 0.10000000149011612
+        assert layer.paint["fill-color"][3][2] == "0.10000000149011612"
+
+    def test_a_large_integral_double_keeps_its_javascript_text(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [{"value": "123456789012345680000", "symbol": _fill()}],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": "esriFieldTypeDouble"}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert isinstance(layer.style_config["categories"][0]["value"], float)
+        assert layer.paint["fill-color"][3][2] == "123456789012345680000"
+
+    def test_values_with_the_same_paint_key_collapse_to_one_class(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [
+                {"value": "1", "symbol": _fill([255, 0, 0, 255])},
+                {"value": "1.0", "symbol": _fill([0, 0, 255, 255])},
+            ],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": "esriFieldTypeInteger"}
+        ]
+        result = _translate(webmap)
+        layer = result.layers[0]
+        assert [c["value"] for c in layer.style_config["categories"]] == [1]
+        assert layer.paint["fill-color"][3][2:4] == ["1", "#ff0000"]
+        assert _kinds(result) == {"renderer_class_dropped"}
+
+    def test_oid_values_are_stored_as_numbers(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "OBJECTID",
+            "uniqueValueInfos": [{"value": "5", "symbol": _fill()}],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "OBJECTID", "type": "esriFieldTypeOID"}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert layer.style_config["categories"][0]["value"] == 5
 
     def test_duplicate_values_are_reported(self) -> None:
         renderer = self._renderer()
@@ -356,6 +520,7 @@ class TestClassBreaksRenderer:
         assert layer.style_config["breaks"] == [10.0, 100.0]
         assert layer.style_config["colors"] == ["#00ff00", "#ffff00", "#ff0000"]
         assert layer.style_config["ramp"] == "custom"
+        assert layer.style_config["nullColor"] == "rgba(0,0,0,0)"
         assert layer.paint["fill-color"] == [
             "case",
             ["==", ["get", "POP"], None],
@@ -2030,6 +2195,7 @@ class TestLegendLabels:
         return {
             "type": "classBreaks",
             "field": "N",
+            "minValue": 0,
             "classBreakInfos": [
                 {"classMaxValue": (n + 1) * 10, "label": label, "symbol": _fill()}
                 for n, label in enumerate(labels)
@@ -2048,6 +2214,25 @@ class TestLegendLabels:
     )
     def test_range_labels_are_not(self, labels: list[str]) -> None:
         assert "class_label" not in self._kinds(self._breaks(labels))
+
+    @pytest.mark.parametrize("label", ["1", "$0–$10", "★", "10 - 20"])
+    def test_authored_labels_without_letters_are_reported(self, label: str) -> None:
+        assert "class_label" in self._kinds(self._breaks([label, "10 - 20"]))
+
+    @pytest.mark.parametrize("label", ["< 20", "<= 20", "1 0 - 20"])
+    def test_a_later_class_has_no_upper_bound_form(self, label: str) -> None:
+        assert "class_label" in self._kinds(self._breaks(["0 - 10", label]))
+
+    def test_a_long_run_of_spaces_is_handled(self) -> None:
+        gap = " " * 100_000
+        assert "class_label" not in self._kinds(self._breaks([f"0{gap}-{gap}10"]))
+        assert "class_label" in self._kinds(self._breaks([f"0{gap}x{gap}-10"]))
+
+    def test_spacing_inside_a_number_is_not_ignored(self) -> None:
+        renderer = self._breaks(["0 - 1 000", "1000 - 2000"])
+        renderer["classBreakInfos"][0]["classMaxValue"] = 1000
+        renderer["classBreakInfos"][1]["classMaxValue"] = 2000
+        assert "class_label" in self._kinds(renderer)
 
     def test_a_default_label_is_reported_only_with_a_default_symbol(self) -> None:
         with_symbol = self._breaks(

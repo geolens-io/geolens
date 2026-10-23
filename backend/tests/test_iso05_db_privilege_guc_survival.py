@@ -97,6 +97,8 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 ]
 
 # Roles under test (geolens_readonly may be absent in the test DB — handled via
@@ -272,7 +274,9 @@ class TestIso05RolePrivileges:
                                 'catalog.embed_tokens'::regclass,
                                 'catalog.oauth_accounts'::regclass,
                                 'catalog.audit_logs'::regclass,
-                                'catalog.ingest_jobs'::regclass
+                                'catalog.ingest_jobs'::regclass,
+                                'catalog.groups'::regclass,
+                                'catalog.group_members'::regclass
                             ])
                             ORDER BY c.relname
                             """

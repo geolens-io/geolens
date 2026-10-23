@@ -15,7 +15,12 @@ from sqlalchemy.orm import aliased
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_map_visibility_filter,
+    apply_visibility_filter,
+    check_map_access,
+    get_user_roles,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
@@ -31,7 +36,6 @@ from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
-    _apply_map_visibility_filter,
     _fetch_layer_rows_ordered,
     _resolve_save_response_metadata,
 )
@@ -299,7 +303,7 @@ async def list_maps(
     is_admin = "admin" in user_roles
 
     def _apply_vis_filter(stmt: Select) -> Select:
-        return _apply_map_visibility_filter(stmt, user_id, is_admin)
+        return apply_map_visibility_filter(stmt, user_id, is_admin)
 
     def _apply_extra_filters(stmt: Select) -> Select:
         if owned_only:
@@ -558,18 +562,7 @@ async def duplicate_map(
     if source is None:
         raise ValueError(f"Map {map_id} not found")
 
-    user_roles = await get_user_roles(session, user)
-    is_admin = "admin" in user_roles
-    if not (
-        source.visibility == "public"
-        or source.visibility == "internal"
-        or source.created_by == user.id
-        or is_admin
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
+    user_roles = await check_map_access(session, source, user)
 
     fork_name = await _generate_fork_name(session, source.name, user.id)
 

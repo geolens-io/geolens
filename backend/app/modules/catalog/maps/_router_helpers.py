@@ -7,14 +7,20 @@ circular import.
 import hashlib
 import uuid
 
-import structlog
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
 from app.modules.auth.permissions import get_effective_permissions
-from app.modules.catalog.authorization import get_user_roles
+
+# check_map_access is re-exported for processing/ai, which reaches maps only
+# through this module.
+from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
+    check_map_access as check_map_access,
+    get_user_roles,
+)
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     DatasetMetaKwargs,
@@ -32,8 +38,6 @@ from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.extensions import get_permission_extension
-
-logger = structlog.stdlib.get_logger(__name__)
 
 
 def _build_frame_ancestors(origins: list[str] | None) -> str:
@@ -235,33 +239,6 @@ def _layer_patch_history_actions(patch: dict) -> list[tuple[str, str]]:
     return actions
 
 
-async def _check_map_read_access(
-    map_obj: Map,
-    user: Identity | None,
-    db: AsyncSession,
-) -> None:
-    """Raise 404 if the user cannot read the map."""
-    if user is None:
-        if map_obj.visibility != "public":
-            logger.warning("map_read_denied map_id=%s user=anon", map_obj.id)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Map not found",
-            )
-    else:
-        user_roles = await get_user_roles(db, user)
-        is_admin = "admin" in user_roles
-        is_owner = map_obj.created_by == user.id
-        is_internal = map_obj.visibility == "internal"
-        is_public = map_obj.visibility == "public"
-        if not (is_public or is_owner or is_admin or is_internal):
-            logger.warning("map_read_denied map_id=%s user_id=%s", map_obj.id, user.id)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Map not found",
-            )
-
-
 async def _reject_non_public_datasets(
     db: AsyncSession, map_obj: Map, reader: Identity
 ) -> None:
@@ -295,7 +272,7 @@ async def _stored_image_cache_control(
     """
     if not await can_read_every_map_dataset(db, map_obj, user):
         return None
-    if map_obj.visibility == "public" and (
+    if map_obj.visibility in ANONYMOUS_MAP_VISIBILITIES and (
         user is None or await can_read_every_map_dataset(db, map_obj, None)
     ):
         return "public, no-cache"

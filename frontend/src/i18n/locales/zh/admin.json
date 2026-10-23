@@ -892,5 +892,66 @@
   "sortable": {
     "sortAscending": "升序排序",
     "sortDescending": "降序排序"
+  },
+  "groups": {
+    "title": "用户组",
+    "listHeading": "共享用户组",
+    "errorLoading": "无法加载用户组：{{message}}",
+    "nameLabel": "用户组名称",
+    "actionsFor": "用户组 {{name}} 的操作",
+    "table": {
+      "name": "名称",
+      "members": "成员",
+      "created": "创建时间",
+      "actions": "操作",
+      "manageMembers": "成员",
+      "memberCount_one": "{{count}} 位成员",
+      "memberCount_other": "{{count}} 位成员"
+    },
+    "empty": {
+      "title": "还没有用户组",
+      "hint": "创建用户组，添加成员，然后向该组共享数据集。"
+    },
+    "create": {
+      "button": "创建用户组",
+      "title": "创建用户组",
+      "description": "用户组可让您将受限数据集共享给一组人员。"
+    },
+    "rename": {
+      "button": "重命名",
+      "title": "重命名用户组",
+      "description": "为 {{name}} 选择新名称。"
+    },
+    "delete": {
+      "title": "删除 {{name}}？",
+      "description_one": "该用户组有 {{count}} 位成员。他们将立即失去对共享给该组的数据集的访问权限。此操作无法撤销。",
+      "description_other": "该用户组有 {{count}} 位成员。他们将立即失去对共享给该组的数据集的访问权限。此操作无法撤销。",
+      "deleting": "正在删除..."
+    },
+    "members": {
+      "title": "{{name}} 的成员",
+      "description": "该组中的成员可以打开共享给该组的数据集。",
+      "addLabel": "添加成员",
+      "listHeading_one": "{{count}} 位成员",
+      "listHeading_other": "{{count}} 位成员",
+      "listLabel": "{{name}} 的成员",
+      "removeLabel": "将 {{name}} 从 {{group}} 中移除",
+      "empty": "该用户组还没有成员。",
+      "added": "已添加 {{name}}",
+      "removed": "已移除 {{name}}",
+      "errorLoading": "无法加载成员：{{message}}",
+      "needsUserManagement": "添加成员需要用户管理权限。您仍可查看和移除成员。"
+    },
+    "picker": {
+      "placeholder": "按用户名搜索",
+      "noMatches": "没有匹配的用户",
+      "results_one": "有 {{count}} 位可选用户",
+      "results_other": "有 {{count}} 位可选用户"
+    },
+    "toasts": {
+      "created": "用户组已创建",
+      "renamed": "用户组已重命名",
+      "deleted": "用户组已删除"
+    }
   }
 }

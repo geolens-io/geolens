@@ -66,7 +66,7 @@ from app.modules.catalog.sources.schemas import (
 )
 from app.core.service_tokens import STAC_SERVICE_FORMAT, ServiceCredential
 from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
-from app.platform.service_auth import credential_or_422
+from app.platform.service_auth import credential_or_422, credential_over_http_or_422
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -468,13 +468,16 @@ def _stac_credential(
 
     One door helper for all three STAC endpoints, so they cannot judge the
     same credential three ways. ``credential_or_422`` binds the STAC service
-    format and raises the coded 422 for an input the rules refuse; the
-    header itself is composed later, at each write site.
+    format and raises the coded 422 for an input the rules refuse, as does a
+    credential bound for a plain http catalog; the header itself is composed
+    later, at each write site.
     """
-    return credential_or_422(
+    credential = credential_or_422(
         service_credential_from_request(request.auth, request.token),
         service_format=STAC_SERVICE_FORMAT,
     )
+    credential_over_http_or_422(request.url, credential)
+    return credential
 
 
 @router.post("/connect", response_model=StacConnectResponse)

@@ -277,6 +277,8 @@ export interface paths {
         /**
          * Delete Group
          * @description Delete a sharing group and all its memberships (admin only).
+         *
+         *     Its members lose the group's datasets at once, signed tile URLs included.
          */
         delete: operations["delete_group_admin_groups__group_id__delete"];
         options?: never;
@@ -306,7 +308,8 @@ export interface paths {
          * @description Add users to a sharing group (admin only).
          *
          *     Users already in the group are skipped. If any id matches no user, the
-         *     request is 404 and nobody is added.
+         *     request is 404 and nobody is added. 422 when the new members' access to
+         *     the group's datasets would let a VRT reach past one of its sources.
          */
         post: operations["add_group_members_admin_groups__group_id__members__post"];
         delete?: never;
@@ -328,6 +331,8 @@ export interface paths {
         /**
          * Remove Group Member
          * @description Remove one user from a sharing group (admin only).
+         *
+         *     The user loses the group's datasets at once, signed tile URLs included.
          */
         delete: operations["remove_group_member_admin_groups__group_id__members__user_id__delete"];
         options?: never;
@@ -22878,6 +22883,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The account can't be activated yet */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

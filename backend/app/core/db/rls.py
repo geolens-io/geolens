@@ -51,6 +51,8 @@ RLS_TABLES: tuple[str, ...] = (
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 )
 
 #: Policy names for the complete current tenant boundary.
@@ -135,11 +137,7 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
                     JOIN pg_catalog.pg_namespace protected_namespace
                       ON protected_namespace.oid = protected_relation.relnamespace
                     WHERE protected_namespace.nspname = 'catalog'
-                      AND protected_relation.relname IN (
-                          'users', 'records', 'datasets', 'maps',
-                          'collections', 'embed_tokens', 'oauth_accounts',
-                          'audit_logs', 'ingest_jobs'
-                      )
+                      AND protected_relation.relname = ANY(:rls_tables)
                       AND protected_relation.relkind IN ('r', 'p')
                       AND pg_catalog.pg_has_role(
                           session_user,
@@ -181,7 +179,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
             JOIN pg_roles login_role ON login_role.rolname = session_user
             WHERE effective_role.rolname = current_user
             """
-        )
+        ),
+        {"rls_tables": list(RLS_TABLES)},
     )
     row = result.fetchone()
     if row is None:

@@ -37,6 +37,10 @@ export type UserQuotaUsage = components['schemas']['UserQuotaUsage'];
 
 export type UserResponse = components['schemas']['UserResponse'];
 
+export type GroupResponse = components['schemas']['GroupResponse'];
+export type GroupListResponse = components['schemas']['GroupListResponse'];
+export type GroupMemberListResponse = components['schemas']['GroupMemberListResponse'];
+
 /** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */
 export type RasterBandInfo = components['schemas']['RasterBandInfo'];
 
@@ -470,6 +474,8 @@ export interface StyleConfig {
   categories?: { value: string | number | null; label?: string; color: string }[];
   breaks?: number[];
   colors?: string[];
+  /** Colour of features whose classified value is null (graduated colour mode). */
+  nullColor?: string;
   /** Styling target — defaults to 'color' when absent for backward compatibility */
   target?: 'color' | 'radius' | 'width';
   /** Per-class size values for graduated size mode (parallel to colors) */

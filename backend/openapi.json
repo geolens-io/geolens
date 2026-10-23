@@ -25264,7 +25264,7 @@
     },
     "/admin/groups/{group_id}": {
       "delete": {
-        "description": "Delete a sharing group and all its memberships (admin only).",
+        "description": "Delete a sharing group and all its memberships (admin only).\n\nIts members lose the group's datasets at once, signed tile URLs included.",
         "operationId": "delete_group_admin_groups__group_id__delete",
         "parameters": [
           {
@@ -25830,7 +25830,7 @@
         ]
       },
       "post": {
-        "description": "Add users to a sharing group (admin only).\n\nUsers already in the group are skipped. If any id matches no user, the\nrequest is 404 and nobody is added.",
+        "description": "Add users to a sharing group (admin only).\n\nUsers already in the group are skipped. If any id matches no user, the\nrequest is 404 and nobody is added. 422 when the new members' access to\nthe group's datasets would let a VRT reach past one of its sources.",
         "operationId": "add_group_members_admin_groups__group_id__members__post",
         "parameters": [
           {
@@ -25974,7 +25974,7 @@
     },
     "/admin/groups/{group_id}/members/{user_id}": {
       "delete": {
-        "description": "Remove one user from a sharing group (admin only).",
+        "description": "Remove one user from a sharing group (admin only).\n\nThe user loses the group's datasets at once, signed tile URLs included.",
         "operationId": "remove_group_member_admin_groups__group_id__members__user_id__delete",
         "parameters": [
           {
@@ -32715,6 +32715,16 @@
               }
             },
             "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The account can't be activated yet"
           },
           "422": {
             "content": {

@@ -55,6 +55,8 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 ]
 
 _POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
@@ -119,7 +121,9 @@ async def _reflect_rls_flags(db_url: str) -> dict[str, dict[str, bool]]:
                             'catalog.embed_tokens'::regclass,
                             'catalog.oauth_accounts'::regclass,
                             'catalog.audit_logs'::regclass,
-                            'catalog.ingest_jobs'::regclass
+                            'catalog.ingest_jobs'::regclass,
+                            'catalog.groups'::regclass,
+                            'catalog.group_members'::regclass
                         ]
                     )
                     ORDER BY relname

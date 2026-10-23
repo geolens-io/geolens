@@ -892,5 +892,66 @@
   "sortable": {
     "sortAscending": "sort ascending",
     "sortDescending": "sort descending"
+  },
+  "groups": {
+    "title": "Groups",
+    "listHeading": "Sharing groups",
+    "errorLoading": "Failed to load groups: {{message}}",
+    "nameLabel": "Group name",
+    "actionsFor": "Actions for group {{name}}",
+    "table": {
+      "name": "Name",
+      "members": "Members",
+      "created": "Created",
+      "actions": "Actions",
+      "manageMembers": "Members",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members"
+    },
+    "empty": {
+      "title": "No groups yet",
+      "hint": "Create a group, add people to it, then share datasets with it."
+    },
+    "create": {
+      "button": "Create group",
+      "title": "Create group",
+      "description": "Groups let you share restricted datasets with a set of people."
+    },
+    "rename": {
+      "button": "Rename",
+      "title": "Rename group",
+      "description": "Choose a new name for {{name}}."
+    },
+    "delete": {
+      "title": "Delete {{name}}?",
+      "description_one": "This group has {{count}} member. They lose access to datasets shared with the group right away. This can't be undone.",
+      "description_other": "This group has {{count}} members. They lose access to datasets shared with the group right away. This can't be undone.",
+      "deleting": "Deleting..."
+    },
+    "members": {
+      "title": "Members of {{name}}",
+      "description": "People in this group can open the datasets shared with it.",
+      "addLabel": "Add a person",
+      "listHeading_one": "{{count}} member",
+      "listHeading_other": "{{count}} members",
+      "listLabel": "Members of {{name}}",
+      "removeLabel": "Remove {{name}} from {{group}}",
+      "empty": "This group has no members yet.",
+      "added": "{{name}} added",
+      "removed": "{{name}} removed",
+      "errorLoading": "Failed to load members: {{message}}",
+      "needsUserManagement": "Adding people needs user management permission. You can still see and remove members."
+    },
+    "picker": {
+      "placeholder": "Search by username",
+      "noMatches": "No matching people",
+      "results_one": "{{count}} person available",
+      "results_other": "{{count}} people available"
+    },
+    "toasts": {
+      "created": "Group created",
+      "renamed": "Group renamed",
+      "deleted": "Group deleted"
+    }
   }
 }

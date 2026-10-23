@@ -135,7 +135,8 @@
     "settingsAppearance": "Apariencia",
     "settingsInfrastructure": "Infraestructura",
     "backToApp": "Volver a la App",
-    "configOps": "Operaciones de config."
+    "configOps": "Operaciones de config.",
+    "groups": "Grupos"
   },
   "errors": {
     "unexpected": "Ocurrió un error inesperado",
@@ -160,6 +161,7 @@
     "jobFailureStaleNeverQueued": "Obsoleto: estuvo pendiente demasiado tiempo (nunca se puso en cola)",
     "jobFailureUploadAbandoned": "Abandonado: la subida nunca se completó",
     "jobFailureUserCancelled": "Cancelado por el usuario",
+    "jobFailureCredentialOverHttp": "El servicio de este conjunto de datos usa HTTP sin cifrar, así que no se envió su credencial. Vuelva a importarlo desde la dirección https:// del servicio o pida a un administrador que permita su host.",
     "jobFailureWorkerLost": "Obsoleto: el trabajo se ejecutó demasiado tiempo sin que su proceso de trabajo informara del progreso",
     "requestFailed": "No se pudo completar la solicitud. Inténtalo de nuevo.",
     "badRequest": "No se pudo completar la solicitud. Comprueba los datos introducidos.",
@@ -208,6 +210,8 @@
     "arcgisSigninInProgress": "Ya hay otro inicio de sesión en curso para esta cuenta. Vuelva a intentarlo en un momento.",
     "arcgisPortalNotHttps": "Este portal, o el servicio de tokens al que apunta, no usa HTTPS. GeoLens no enviará una contraseña por HTTP sin cifrar; use una URL de portal https://.",
     "arcgisPortalHostInvalid": "Esa dirección de portal no es un nombre de host utilizable. Verifique la URL, por ejemplo https://tu-org.maps.arcgis.com.",
+    "credentialOverHttp": "Esta dirección de servicio usa HTTP sin cifrar, así que GeoLens no le enviará una credencial. Use la dirección https:// del servicio o pida a un administrador que permita este host.",
+    "credentialOverHttpRefresh": "El origen de este conjunto de datos usa HTTP sin cifrar, así que GeoLens no le enviará una credencial. Vuelva a importar los datos desde la dirección https:// del servicio o pida a un administrador que permita este host.",
     "refreshServiceTokenRequired": "La fuente de este conjunto de datos necesita una credencial de servicio para actualizarse. Proporciona una a continuación para continuar.",
     "refreshSourceUrlBlocked": "La URL de origen almacenada de este conjunto de datos no superó una comprobación de seguridad y no se puede actualizar automáticamente. Contacta con un administrador.",
     "reuploadGeometryLoss": "Este reemplazo no tiene geometría y este conjunto de datos sí la almacena, así que no se cambió nada. Importa el archivo como un conjunto de datos nuevo.",
@@ -368,7 +372,11 @@
     "retentionColumnNotTemporal": "La columna {{column}} no es de fecha ni de marca de tiempo. Elige una columna de fecha o marca de tiempo.",
     "retentionColumnInUse": "La retención borra filas según la columna {{column}}. Desactiva la retención o pásala a otra columna antes de cambiar esa columna o de dar su nombre a otra columna.",
     "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención.",
-    "retentionDeleteTrigger": "La retención no puede ejecutarse en una tabla con un disparador de borrado, porque puede conservar filas o cambiar otras al borrar las antiguas. Quita el disparador para usar la retención."
+    "retentionDeleteTrigger": "La retención no puede ejecutarse en una tabla con un disparador de borrado, porque puede conservar filas o cambiar otras al borrar las antiguas. Quita el disparador para usar la retención.",
+    "groupNotFound": "Grupo no encontrado",
+    "groupMemberNotFound": "Esa persona no es miembro de este grupo",
+    "groupNameTaken": "Ya existe un grupo llamado \"{{name}}\"",
+    "vrtAudienceExceedsSources": "Un conjunto de datos VRT llegaría a personas que no pueden ver todos sus conjuntos de datos de origen. Restrinja la visibilidad del VRT o use orígenes que su audiencia pueda ver."
   },
   "settings": {
     "apiKeys": {
@@ -725,7 +733,8 @@
     "adminSaml": "Configuración de SSO SAML",
     "verifyEmail": "Verificar correo",
     "signingIn": "Iniciando sesión",
-    "trustBrowser": "Recordar este navegador"
+    "trustBrowser": "Recordar este navegador",
+    "adminGroups": "Grupos admin"
   },
   "sidebar": {
     "title": "Barra lateral",

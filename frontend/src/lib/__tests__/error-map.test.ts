@@ -414,6 +414,19 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
+  it('maps credential_over_http to its own key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'credential_over_http',
+          message: 'This service address uses plain HTTP.',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.credentialOverHttp' });
+  });
+
   // The sixth and
   // final caller-facing code (backend/app/modules/catalog/sources/
   // arcgis_signin.py, HOST_INVALID), a 422 for a portal hostname that
@@ -837,5 +850,17 @@ describe('describeUploadRefusal', () => {
     };
 
     expect(translateApiErrorDetail(detail, 413)).not.toContain('{{');
+  });
+
+  it.each([
+    [
+      "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.",
+      422,
+      'A VRT dataset would reach people',
+    ],
+    ["A group named 'Planning' already exists", 409, 'A group named "Planning" already exists'],
+    ['Group not found', 404, 'Group not found'],
+  ])('gives the group refusal %j a readable message', (detail, status, text) => {
+    expect(translateApiErrorDetail(detail, status)).toContain(text);
   });
 });

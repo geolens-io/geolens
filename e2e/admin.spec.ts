@@ -46,6 +46,17 @@ test.describe('Admin Panel', () => {
     ).toBeVisible();
   });
 
+  test('group management: view the groups page', async ({ page }) => {
+    await page.goto('/admin/groups');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Groups' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Create group' }).first(),
+    ).toBeVisible({ timeout: 10_000 });
+  });
+
   test('job monitoring: view job list page', async ({ page }) => {
     await page.goto('/admin/jobs');
 

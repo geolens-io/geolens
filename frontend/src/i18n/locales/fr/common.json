@@ -135,7 +135,8 @@
     "settingsAppearance": "Apparence",
     "settingsInfrastructure": "Infrastructure",
     "backToApp": "Retour",
-    "configOps": "Opérations de config."
+    "configOps": "Opérations de config.",
+    "groups": "Groupes"
   },
   "errors": {
     "unexpected": "Une erreur inattendue s'est produite",
@@ -160,6 +161,7 @@
     "jobFailureStaleNeverQueued": "Périmée : en attente trop longtemps (jamais mise en file d'attente)",
     "jobFailureUploadAbandoned": "Abandonnée : le téléversement n'a jamais été terminé",
     "jobFailureUserCancelled": "Annulée par l'utilisateur",
+    "jobFailureCredentialOverHttp": "Le service de ce jeu de données utilise HTTP non chiffré : ses identifiants n'ont pas été envoyés. Réimportez-le depuis l'adresse https:// du service ou demandez à un administrateur d'autoriser son hôte.",
     "jobFailureWorkerLost": "Périmée : la tâche a duré trop longtemps sans que son processus de travail signale de progression",
     "requestFailed": "La requête n'a pas pu aboutir. Réessayez.",
     "badRequest": "La requête n'a pas pu aboutir. Vérifiez les données saisies.",
@@ -208,6 +210,8 @@
     "arcgisSigninInProgress": "Une autre connexion pour ce compte est déjà en cours. Réessayez dans un instant.",
     "arcgisPortalNotHttps": "Ce portail, ou le service de jetons qu'il indique, n'utilise pas HTTPS. GeoLens n'enverra pas de mot de passe en HTTP non chiffré ; utilisez une URL de portail en https://.",
     "arcgisPortalHostInvalid": "Cette adresse de portail n'est pas un nom d'hôte utilisable. Vérifiez l'URL, par exemple https://votre-org.maps.arcgis.com.",
+    "credentialOverHttp": "Cette adresse de service utilise HTTP non chiffré : GeoLens ne lui enverra pas d'identifiants. Utilisez l'adresse https:// du service ou demandez à un administrateur d'autoriser cet hôte.",
+    "credentialOverHttpRefresh": "La source de ce jeu de données utilise HTTP non chiffré : GeoLens ne lui enverra pas d'identifiants. Réimportez les données depuis l'adresse https:// du service ou demandez à un administrateur d'autoriser cet hôte.",
     "refreshServiceTokenRequired": "La source de ce jeu de données nécessite un identifiant de service pour être actualisée. Fournissez-en un ci-dessous pour continuer.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "reuploadGeometryLoss": "Ce remplacement n'a pas de géométrie alors que ce jeu de données en stocke, rien n'a donc été modifié. Importez le fichier comme un nouveau jeu de données.",
@@ -368,7 +372,11 @@
     "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage.",
     "retentionColumnInUse": "La rétention supprime les lignes selon la colonne {{column}}. Désactivez la rétention ou associez-la à une autre colonne avant de modifier cette colonne ou de donner son nom à une autre colonne.",
     "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention.",
-    "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention."
+    "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention.",
+    "groupNotFound": "Groupe introuvable",
+    "groupMemberNotFound": "Cette personne n’est pas membre de ce groupe",
+    "groupNameTaken": "Un groupe nommé « {{name}} » existe déjà",
+    "vrtAudienceExceedsSources": "Un jeu de données VRT serait accessible à des personnes qui ne voient pas tous ses jeux de données sources. Restreignez la visibilité du VRT ou utilisez des sources que son public peut voir."
   },
   "settings": {
     "apiKeys": {
@@ -725,7 +733,8 @@
     "adminSaml": "Configuration SSO SAML",
     "verifyEmail": "Vérifier l'e-mail",
     "signingIn": "Connexion en cours",
-    "trustBrowser": "Mémoriser ce navigateur"
+    "trustBrowser": "Mémoriser ce navigateur",
+    "adminGroups": "Groupes admin"
   },
   "sidebar": {
     "title": "Barre latérale",

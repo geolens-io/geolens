@@ -842,6 +842,34 @@ class DatasetGrant(Base):
     )
 
 
+class DatasetGroupGrant(Base):
+    """A sharing group that may read a ``restricted`` dataset."""
+
+    __tablename__ = "dataset_group_grants"
+    __table_args__ = (
+        Index("ix_dataset_group_grants_group_id", "group_id"),
+        Index(
+            "ix_dataset_group_grants_granted_by",
+            "granted_by",
+            postgresql_where=text("granted_by IS NOT NULL"),
+        ),
+        {"schema": "catalog"},
+    )
+
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class DatasetRelationship(Base):
     __tablename__ = "dataset_relationships"
     __table_args__ = (
