@@ -395,6 +395,7 @@ def _holds_stored(value: ast.AST, is_alias) -> bool:
 
 
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_INLINED = (ast.ListComp, ast.SetComp, ast.DictComp)
 
 
 def _header_nodes(node: ast.AST) -> list[ast.AST]:
@@ -444,6 +445,35 @@ def _kind(table: symtable.SymbolTable) -> str:
     return getattr(kind, "value", kind)
 
 
+class _ClassComprehension:
+    """An inlined comprehension in a class body, which ``symtable`` folds into the class.
+
+    Only its iteration variables are its own; any other name skips the class,
+    as Python resolves it.
+    """
+
+    def __init__(self, node: ast.AST, table) -> None:
+        self._id = ("comprehension", id(node))
+        self._class = table._class if isinstance(table, _ClassComprehension) else table
+        self._targets = {
+            name.id
+            for generator in node.generators
+            for name in ast.walk(generator.target)
+            if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)
+        }
+
+    def get_id(self) -> tuple[str, int]:
+        return self._id
+
+    def get_type(self) -> str:
+        return "comprehension"
+
+    def lookup(self, name: str) -> symtable.Symbol:
+        if name not in self._targets:
+            raise KeyError(name)
+        return self._class.lookup(name)
+
+
 class _Names:
     """Which binding each name in a module refers to, by Python's own scope rules.
 
@@ -452,20 +482,18 @@ class _Names:
     or nonlocal. This maps the AST onto those scopes and resolves a name to the
     scope that binds it, so an alias of the stored dict or a mapping of column
     keys is followed wherever Python would follow it. List, set and dict
-    comprehensions share their enclosing scope (PEP 709); a generator
-    expression has its own, apart from its first iterable.
+    comprehensions share their enclosing scope (PEP 709), except in a class
+    body; a generator expression has its own, apart from its first iterable.
     """
 
     def __init__(self, module: _Module, tree: ast.AST, top: symtable.SymbolTable):
         self.module = module
         self.top = top
         self._parent: dict[int, symtable.SymbolTable | None] = {}
-        self._by_id: dict[int, symtable.SymbolTable] = {}
         self._tables: dict[tuple[str, str, int], deque] = defaultdict(deque)
 
         def index(table, parent) -> None:
             self._parent[table.get_id()] = parent
-            self._by_id[table.get_id()] = table
             key = (_kind(table), table.get_name(), table.get_lineno())
             self._tables[key].append(table)
             for child in table.get_children():
@@ -473,23 +501,42 @@ class _Names:
 
         index(top, None)
         self._table_of: dict[int, symtable.SymbolTable] = {}
-        # A method's table id -> (its class's name, its first parameter).
-        self._methods: dict[int, tuple[str, str]] = {}
+        # A class's table id -> the key of the name its statement binds.
+        self._class_keys: dict[int, tuple[int, str]] = {}
+        # A method's table id -> (its class's key, its first parameter).
+        self._methods: dict[int, tuple[tuple[int, str], str]] = {}
         self._values: dict[tuple, list[ast.AST]] = defaultdict(list)
         self._mapping_values: dict[tuple, list[ast.AST]] = defaultdict(list)
         self._items: dict[tuple, list[ast.AST]] = defaultdict(list)
         self._calls: dict[tuple, list[ast.Call]] = defaultdict(list)
         self._assign(tree, top)
         self.aliases = self._alias_keys()
-        self.class_aliases: dict[str, set[str]] = defaultdict(set)
+        self.class_aliases: dict[tuple[int, str], set[str]] = defaultdict(set)
         for table_id, name in self.aliases:
-            table = self._by_id[table_id]
-            if _kind(table) == "class":
-                self.class_aliases[table.get_name()].add(name)
+            if table_id in self._class_keys:
+                self.class_aliases[self._class_keys[table_id]].add(name)
+        # A name bound to such a class (H = Holder) reaches the same attributes.
+        grew = True
+        while grew:
+            grew = False
+            for key, values in self._values.items():
+                for value in values:
+                    if not isinstance(value, ast.Name):
+                        continue
+                    reached = self.class_aliases.get(self.key_of(value), set())
+                    if not reached <= self.class_aliases[key]:
+                        self.class_aliases[key] |= reached
+                        grew = True
 
     def _table(self, kind: str, name: str, line: int, fallback):
         tables = self._tables.get((kind, name, line))
-        return tables.popleft() if tables else fallback
+        if not tables:
+            return fallback
+        table = tables.popleft()
+        # The scope the AST encloses it in: symtable nests a scope inside a
+        # class-body comprehension in the class itself.
+        self._parent[table.get_id()] = fallback
+        return table
 
     def _assign(self, node: ast.AST, table: symtable.SymbolTable) -> None:
         """Record the scope of every name under ``node``, and what each binds."""
@@ -499,13 +546,15 @@ class _Names:
             enclosing = self._type_params(node, table)
             if isinstance(node, ast.ClassDef):
                 inner = self._table("class", node.name, node.lineno, enclosing)
+                if inner is not enclosing:
+                    self._class_keys[inner.get_id()] = self._key(node.name, table)
             else:
                 name = "lambda" if isinstance(node, ast.Lambda) else node.name
                 inner = self._table("function", name, node.lineno, enclosing)
                 positional = [*node.args.posonlyargs, *node.args.args]
-                if _kind(table) == "class" and positional:
+                if table.get_id() in self._class_keys and positional:
                     self._methods[inner.get_id()] = (
-                        table.get_name(),
+                        self._class_keys[table.get_id()],
                         positional[0].arg,
                     )
                 for param, default in _defaults(node):
@@ -520,12 +569,22 @@ class _Names:
             alias = self._table("type alias", node.name.id, node.lineno, enclosing)
             self._assign(node.value, alias)
             return
-        if isinstance(node, ast.GeneratorExp):
+        in_class = _kind(table) in {"class", "comprehension"}
+        if isinstance(node, ast.GeneratorExp) or (
+            isinstance(node, _INLINED) and in_class
+        ):
             first = node.generators[0]
             self._assign(first.iter, table)
-            inner = self._table("function", "genexpr", node.lineno, table)
+            if isinstance(node, ast.GeneratorExp):
+                inner = self._table("function", "genexpr", node.lineno, table)
+            else:
+                inner = _ClassComprehension(node, table)
+                self._parent[inner.get_id()] = table
             self._collect(first, inner)
-            for part in (node.elt, first.target, *first.ifs, *node.generators[1:]):
+            elements = (
+                [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+            )
+            for part in (*elements, first.target, *first.ifs, *node.generators[1:]):
                 self._assign(part, inner)
             return
         if isinstance(node, ast.Name):
@@ -677,13 +736,12 @@ class _Names:
         # A class attribute aliasing it, read as Class.attr, self.attr or cls.attr.
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
             holder = node.value
-            owner = holder.id
-            table = self.owner(holder.id, self._table_of.get(id(holder), self.top))
-            method = self._methods.get(table.get_id())
+            owner = self.key_of(holder)
+            method = self._methods.get(owner[0])
             if method is not None and holder.id == method[1]:
                 owner = method[0]
             if node.attr in self.class_aliases.get(owner, set()):
-                return f"the origin pointer through {owner}.{node.attr}"
+                return f"the origin pointer through {owner[1]}.{node.attr}"
         return None
 
     def call_mentions(self, call: ast.Call, args: list[ast.expr]) -> list[str]:
@@ -1455,6 +1513,12 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "alias = dataset.origin_ref\ndef f[T = alias.update(token='x')]():\n    pass",
         "alias = dataset.origin_ref\nclass K[T: alias.update(token='x')]:\n    pass",
         "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[T: (int, ref.update(token='x'))]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[**P = ref.update(token='x')]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    type X[T: ref.update(token='x')] = int",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
         "    def f[T: ref.update(token='x')]():\n        pass",
         "def outer(dataset):\n    ref = dataset.origin_ref\n    def middle():\n"
         "        def inner():\n            ref.update(token='x')\n"
@@ -1467,6 +1531,23 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "        ref = dataset.origin_ref\n    ref.update(token='x')",
         "ref = {}\nclass Holder:\n    global ref\n    ref = dataset.origin_ref\n"
         "ref.update(token='x')",
+        # A class-body comprehension sees the class only in its first iterable.
+        "ref = dataset.origin_ref\nclass C:\n    ref = {}\n"
+        "    values = [ref.update(token='x') for _ in (1,)]",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    class C:\n"
+        "        ref = {}\n        values = {k: ref.update(token='x') for k in (1,)}\n"
+        "    return C",
+        "class C:\n    ref = dataset.origin_ref\n"
+        "    values = [r.update(token='x') for r in [ref]]",
+        "class C:\n    values = [(lambda: r.update(token='x'))() "
+        "for r in [dataset.origin_ref]]",
+        "class C:\n    values = [[r.update(token='x') for _ in (1,)] "
+        "for r in [dataset.origin_ref]]",
+        # A class name is looked up like any other name.
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    Holder.ref.update(title='x')",
+        "class Holder:\n    ref = dataset.origin_ref\nH = Holder\n"
+        "def touch(t):\n    K = H\n    K.ref.update(token=t)",
         # A default value aliasing it, mutated through the parameter.
         "def touch(ref=dataset.origin_ref):\n    ref['token'] = 'x'",
         # Nested scopes writing to a name the enclosing scope owns.
@@ -1577,6 +1658,17 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "    ref.update(title='x')\n    return peek",
         "def outer(dataset):\n    ref = {}\n    class Holder:\n"
         "        ref = dataset.origin_ref\n    ref.update(title='x')\n    return Holder",
+        "ref = {}\nclass C:\n    ref = dataset.origin_ref\n"
+        "    values = [ref.update(title='x') for _ in (1,)]",
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    return Holder\ndef b():\n    class Holder:\n        ref = {}\n"
+        "    Holder.ref.update(title='x')",
+        "class Holder:\n    ref = dataset.origin_ref\nclass Other:\n    ref = {}\n"
+        "H = Other\nH.ref.update(title='x')",
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    return Holder\ndef b():\n    class Holder:\n        ref = {}\n"
+        "        def touch(self):\n            self.ref.update(title='x')\n"
+        "    return Holder",
         "def outer(r, t):\n    changes = {'title': t}\n    def inner():\n"
         "        changes = {'origin_ref': r}\n        return changes\n"
         "    return update(Dataset).values(**changes)",
