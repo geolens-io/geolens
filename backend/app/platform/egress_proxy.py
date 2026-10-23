@@ -60,6 +60,8 @@ class ServiceEgress:
         self.address = address
         self.origin = origin
         self.refused = False
+        # A refusal of a hop off the pinned origin, as opposed to a blocked address.
+        self.left_origin = False
 
 
 def pinned_origin(gdal_source: str, *, credential: bool) -> str | None:
@@ -261,7 +263,7 @@ async def _serve(
         return
 
     if egress.origin is not None and egress.origin != _request_origin(request):
-        egress.refused = True
+        egress.refused = egress.left_origin = True
         logger.warning("service connection off its origin refused", port=request.port)
         writer.write(_reply("403 Forbidden"))
         return
@@ -318,16 +320,17 @@ async def _serve(
 
 @asynccontextmanager
 async def service_egress_proxy(
-    *, idle_seconds: float, origin: str | None = None
+    *, idle_seconds: float, origin: str | None
 ) -> AsyncIterator[ServiceEgress]:
     """Listen on a loopback port for the block, relaying only to allowed hosts.
 
     Hand the yielded proxy to ``gdal_service_safe_env`` and run the subprocess
     inside the block. A relay that moves no bytes for ``idle_seconds`` is
-    closed, and every connection closes when the block exits. With ``origin``
-    (from ``pinned_origin``), a connection to any other scheme, host or port
-    is refused.
+    closed, and every connection closes when the block exits. ``origin``
+    comes from ``pinned_origin``; when it is a URL, a connection to any other
+    scheme, host or port is refused.
     """
+    pin = None if origin is None else _origin(httpx.URL(origin))
     handlers: set[asyncio.Task] = set()
     closing = False
 
@@ -345,10 +348,7 @@ async def service_egress_proxy(
 
     server = await asyncio.start_server(handle, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
-    egress = ServiceEgress(
-        f"http://127.0.0.1:{port}",
-        None if origin is None else _origin(httpx.URL(origin)),
-    )
+    egress = ServiceEgress(f"http://127.0.0.1:{port}", pin)
     try:
         yield egress
     finally:

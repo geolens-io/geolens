@@ -491,6 +491,11 @@ async def run_service_preview(
             returncode=proc.returncode,
             stderr=safe_error_msg,
         )
+        if egress.left_origin:
+            raise IngestionError(
+                "the source service redirected to another address while "
+                "carrying a credential"
+            )
         if egress.refused:
             raise IngestionError(
                 "the source service pointed to an address this server does not "

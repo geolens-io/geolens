@@ -288,10 +288,8 @@ class TestTheHeaderFileHoldsOneComposedLine:
         """Both GDAL paths pin the Authorization redirect rule.
 
         GDAL forwards ``Authorization`` only to the host it was given to, and
-        forwards every other header name verbatim even across hosts, so a
-        service-chosen API key is redirect-exposed here and cannot be protected
-        from inside; that residual is bounded operationally, which is why the
-        httpx probe path refuses the cross-origin hop outright instead.
+        forwards every other header name verbatim even across hosts; the egress
+        proxy's origin pin refuses that hop for a run that carries a credential.
 
         The value is asserted rather than left to GDAL's default so a later
         change to that default cannot silently widen what this credential

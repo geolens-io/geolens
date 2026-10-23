@@ -198,6 +198,10 @@ def _gdal_failure_reason(
 SERVICE_ADDRESS_REFUSED = (
     "the source service pointed to an address this server does not connect to"
 )
+SERVICE_LEFT_ORIGIN = (
+    "the source service redirected to another address, and GeoLens does not "
+    "send a credential anywhere but the service's own address"
+)
 
 # A service can refuse a credential inside an HTTP 200 exception report. The
 # sentence names authentication so the caller can still suggest a credential.
@@ -229,12 +233,14 @@ def _raise_service_gdal_failure(
     stderr_text: str,
     *,
     refused: bool,
+    left_origin: bool = False,
     service_error: str | None = None,
 ) -> NoReturn:
     """Raise a service import's reason, having logged the redacted GDAL text.
 
     ``refused`` is whether the egress proxy turned a destination away, which
-    GDAL itself reports only as an HTTP 403. ``service_error`` is the
+    GDAL itself reports only as an HTTP 403, and ``left_origin`` whether that
+    was a hop off a credentialed run's origin. ``service_error`` is the
     service's own redacted error, added to the reason.
     """
     structlog.get_logger().error(
@@ -244,9 +250,8 @@ def _raise_service_gdal_failure(
         service_error=service_error,
     )
     if refused:
-        raise IngestionError(
-            f"{tool} failed (exit {returncode}): {SERVICE_ADDRESS_REFUSED}"
-        )
+        why = SERVICE_LEFT_ORIGIN if left_origin else SERVICE_ADDRESS_REFUSED
+        raise IngestionError(f"{tool} failed (exit {returncode}): {why}")
     reason = _gdal_failure_reason(
         tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES
     )
@@ -1565,5 +1570,6 @@ async def run_ogr2ogr_service(
             proc.returncode,
             stderr_text,
             refused=egress.refused,
+            left_origin=egress.left_origin,
             service_error=service_error,
         )

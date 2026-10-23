@@ -239,8 +239,8 @@ GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
 # Measured on GDAL 3.10.3 and 3.13.0: on a
 # cross-host 302, libcurl under GDAL drops `Authorization` but forwards every
 # other header verbatim, so prefer `Authorization` framing wherever a
-# provider accepts it (a header-key credential IS forwarded cross-host with
-# no GDAL option to stop it; bounded operationally per AGENTS.md Rule 2).
+# provider accepts it (GDAL forwards a header-key credential cross-host, and
+# the egress proxy's origin pin refuses that hop).
 #
 # IF_SAME_HOST, not NO — NO blocks forwarding after
 # ANY redirect, so a protected endpoint redirecting to its own canonical path

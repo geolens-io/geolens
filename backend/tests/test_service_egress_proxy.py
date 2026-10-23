@@ -291,7 +291,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             port = server.server_port
-            async with service_egress_proxy(idle_seconds=60) as egress:
+            async with service_egress_proxy(idle_seconds=60, origin=None) as egress:
                 reader, writer = await _open(egress)
                 writer.write(
                     _get(f"http://{_HOST}:{port}/wfs?REQUEST=x", f"{_HOST}:{port}")
@@ -326,7 +326,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
     )
     async def test_the_address_policy_refuses_before_any_connection(self, request_head):
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 response = await _exchange(
                     egress, request_head.format(port=port).encode()
                 )
@@ -347,7 +347,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
         with structlog.testing.capture_logs() as logs:
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 response = await _exchange(
                     egress,
                     _get("http://internal.example.test/wfs", "internal.example.test"),
@@ -376,7 +376,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 for _ in range(2):
                     response = await _exchange(
                         egress,
@@ -402,7 +402,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 response = await _exchange(
                     egress,
                     _get(f"http://{_HOST}:{port}/wfs?REQUEST=GetCapabilities", _HOST),
@@ -432,7 +432,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         monkeypatch.setattr(egress_proxy, "_FALLBACK_CONNECT_TIMEOUT_SECONDS", 0.2)
         monkeypatch.setattr(asyncio, "open_connection", open_connection)
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 response = await asyncio.wait_for(
                     _exchange(
                         egress,
@@ -465,7 +465,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
             return real_getaddrinfo(host, port, *args, **kwargs)
 
         monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
-        async with service_egress_proxy(idle_seconds=30) as egress:
+        async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
             response = await _exchange(
                 egress, _get("http://mixed.example.test/wfs", "mixed.example.test")
             )
@@ -482,7 +482,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         server = await asyncio.start_server(echo, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         try:
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 address = urlsplit(egress.address)
                 reader, writer = await asyncio.open_connection(
                     address.hostname, address.port
@@ -514,7 +514,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
     async def test_a_request_it_cannot_route_is_refused_unresolved(
         self, request_head, resolver_calls
     ):
-        async with service_egress_proxy(idle_seconds=30) as egress:
+        async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
             response = await _exchange(egress, request_head)
 
         assert response.startswith(b"HTTP/1.1 400"), response
@@ -524,7 +524,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         """libcurl reuses a proxy connection across hosts; a second request
         on it must not reach the first host's address."""
         with _wfs_service() as (port, requests):
-            async with service_egress_proxy(idle_seconds=30) as egress:
+            async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                 response = await _exchange(
                     egress,
                     _get(f"http://{_HOST}:{port}/wfs?REQUEST=GetCapabilities", _HOST)
@@ -541,7 +541,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
         async def relay() -> bytes:
             with _wfs_service() as (port, _requests):
-                async with service_egress_proxy(idle_seconds=30) as egress:
+                async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
                     return await _exchange(
                         egress,
                         _get(f"http://{_HOST}:{port}/?REQUEST=GetCapabilities", _HOST),
@@ -551,7 +551,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
     async def test_an_idle_tunnel_is_closed(self, resolver_calls):
         with _silent_upstream() as (port, upstream_closed):
-            async with service_egress_proxy(idle_seconds=0.5) as egress:
+            async with service_egress_proxy(idle_seconds=0.5, origin=None) as egress:
                 reader, writer = await _open(egress)
                 writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
                 await reader.readuntil(b"\r\n\r\n")
@@ -561,7 +561,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
     async def test_a_response_that_never_starts_is_closed(self, resolver_calls):
         with _silent_upstream() as (port, _upstream_closed):
-            async with service_egress_proxy(idle_seconds=0.5) as egress:
+            async with service_egress_proxy(idle_seconds=0.5, origin=None) as egress:
                 response = await _exchange(egress, _get(f"http://{_HOST}:{port}/", "x"))
 
         assert response.startswith(b"HTTP/1.1 502"), response
@@ -577,7 +577,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         server = await asyncio.start_server(trickle, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         try:
-            async with service_egress_proxy(idle_seconds=0.5) as egress:
+            async with service_egress_proxy(idle_seconds=0.5, origin=None) as egress:
                 reader, writer = await _open(egress)
                 writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
                 await reader.readuntil(b"\r\n\r\n")
@@ -591,7 +591,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
 
     async def test_leaving_the_block_closes_open_relays(self, resolver_calls):
         with _silent_upstream() as (port, upstream_closed):
-            async with service_egress_proxy(idle_seconds=60) as egress:
+            async with service_egress_proxy(idle_seconds=60, origin=None) as egress:
                 reader, writer = await _open(egress)
                 writer.write(f"CONNECT {_HOST}:{port} HTTP/1.1\r\n\r\n".encode())
                 await reader.readuntil(b"\r\n\r\n")
@@ -616,7 +616,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve_forever)
 
         async def request_then_leave() -> asyncio.StreamWriter:
-            async with service_egress_proxy(idle_seconds=60) as egress:
+            async with service_egress_proxy(idle_seconds=60, origin=None) as egress:
                 _reader, writer = await _open(egress)
                 writer.write(_get(f"http://{_HOST}/wfs", _HOST))
                 await asyncio.wait_for(entered.wait(), 5)
@@ -628,7 +628,7 @@ class TestTheProxyRelaysOnlyToCheckedAddresses:
         assert cancelled.is_set()
 
     async def test_it_stops_listening_when_its_block_exits(self):
-        async with service_egress_proxy(idle_seconds=30) as egress:
+        async with service_egress_proxy(idle_seconds=30, origin=None) as egress:
             address = urlsplit(egress.address)
 
         assert address.hostname == "127.0.0.1"

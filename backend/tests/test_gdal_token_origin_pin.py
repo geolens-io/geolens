@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from cryptography import x509
@@ -23,11 +24,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
+from app.core.service_tokens import CredentialMethod, ServiceCredential
+from app.modules.catalog.sources import preview
 from app.modules.catalog.sources.preview import run_service_preview
 from app.platform import egress_proxy
 from app.platform.egress_proxy import pinned_origin, service_egress_proxy
+from app.processing.ingest import ogr
 from app.processing.ingest.ogr import (
-    SERVICE_ADDRESS_REFUSED,
+    SERVICE_LEFT_ORIGIN,
     IngestionError,
     run_ogr2ogr_service,
 )
@@ -162,7 +166,7 @@ class TestATokenRunStaysOnItsOrigin:
             stolen = _query(_OTHER, other_port, token)
             with _https_service(tls_context, redirect_to=stolen) as (port, requests):
                 source = "ESRIJSON:" + _query(_ORIGIN, port, token, path="/moved")
-                with pytest.raises(IngestionError, match="does not connect to"):
+                with pytest.raises(IngestionError, match="redirected to another"):
                     await run_service_preview(source, "", timeout=60.0)
 
         assert requests, "the origin was asked first"
@@ -187,7 +191,7 @@ class TestATokenRunStaysOnItsOrigin:
 
         assert requests
         assert other_requests == []
-        assert str(error.value).endswith(SERVICE_ADDRESS_REFUSED)
+        assert str(error.value).endswith(SERVICE_LEFT_ORIGIN)
         assert token not in str(error.value)
 
     @needs_preview_ogrinfo
@@ -201,6 +205,69 @@ class TestATokenRunStaysOnItsOrigin:
         assert [row["name"] for row in preview["sample_rows"]] == ["one"]
         assert requests[0].startswith("/moved?")
         assert any(path.startswith(_QUERY_PATH) for path in requests[1:])
+
+
+@pytest.fixture
+def endpoint_checks_pass(monkeypatch) -> None:
+    """The WFS description checks run over httpx; these tests are about GDAL."""
+    for module in (preview, ogr):
+        monkeypatch.setattr(module, "assert_endpoints_stay_on_origin", AsyncMock())
+        monkeypatch.setattr(module, "require_wfs_layer", lambda *a, **k: None)
+
+
+@needs_ogr
+@pytest.mark.usefixtures(
+    "gdal_trusts_the_test_certificate", "both_hosts_resolve", "endpoint_checks_pass"
+)
+class TestAHeaderCredentialRunStaysOnItsOrigin:
+    """A WFS header file is pinned by the credential itself, with no token in the URL."""
+
+    async def test_an_import_never_sends_the_header_to_another_origin(
+        self, tls_context
+    ):
+        key = uuid.uuid4().hex
+        with _https_service(tls_context) as (other_port, other_requests):
+            stolen = f"https://{_OTHER}:{other_port}/wfs?REQUEST=GetCapabilities"
+            with _https_service(tls_context, redirect_to=stolen) as (port, requests):
+                with pytest.raises(IngestionError) as error:
+                    await run_ogr2ogr_service(
+                        f"WFS:https://{_ORIGIN}:{port}/wfs",
+                        "app:parcels",
+                        "never_created",
+                        "PG:dbname=never_opened",
+                        "wfs",
+                        token=f"X-Api-Key: {key}",
+                        timeout=60.0,
+                        schema="data",
+                    )
+
+        assert requests
+        assert other_requests == []
+        assert str(error.value).endswith(SERVICE_LEFT_ORIGIN)
+
+    @needs_preview_ogrinfo
+    async def test_a_preview_never_sends_the_header_to_another_origin(
+        self, tls_context
+    ):
+        credential = ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format="wfs",
+            header_name="X-Api-Key",
+            header_value=uuid.uuid4().hex,
+        )
+        with _https_service(tls_context) as (other_port, other_requests):
+            stolen = f"https://{_OTHER}:{other_port}/wfs?REQUEST=GetCapabilities"
+            with _https_service(tls_context, redirect_to=stolen) as (port, requests):
+                with pytest.raises(IngestionError, match="redirected to another"):
+                    await run_service_preview(
+                        f"WFS:https://{_ORIGIN}:{port}/wfs",
+                        "app:parcels",
+                        timeout=60.0,
+                        credential=credential,
+                    )
+
+        assert requests
+        assert other_requests == []
 
 
 class TestTheProxyPin:
