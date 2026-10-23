@@ -241,6 +241,80 @@ describe('syncLayersToMap cluster rendering', () => {
     });
   });
 
+  describe.each(['get', 'to-number'] as const)('numeric cluster filter through %s', (accessor) => {
+    it.each([
+      ['smallint minimum', 'smallint', -32768, true],
+      ['smallint maximum', 'smallint', 32767, true],
+      ['below smallint minimum', 'smallint', -32769, false],
+      ['above smallint maximum', 'smallint', 32768, false],
+      ['integer minimum', 'integer', -2147483648, true],
+      ['integer maximum', 'integer', 2147483647, true],
+      ['below integer minimum', 'integer', -2147483649, false],
+      ['above integer maximum', 'integer', 2147483648, false],
+      ['bigint safe minimum', 'bigint', -9007199254740991, true],
+      ['bigint safe maximum', 'bigint', 9007199254740991, true],
+      ['below bigint safe minimum', 'bigint', -9007199254740992, false],
+      ['above bigint safe maximum', 'bigint', 9007199254740992, false],
+      ['bigint PostgreSQL minimum', 'bigint', Number(-9223372036854775808n), false],
+      ['bigint PostgreSQL maximum', 'bigint', Number(9223372036854775807n), false],
+      ['below bigint PostgreSQL minimum', 'bigint', Number(-9223372036854775809n), false],
+      ['above bigint PostgreSQL maximum', 'bigint', Number(9223372036854775808n), false],
+      ['real minimum', 'real', -3.4028234663852886e38, true],
+      ['real maximum', 'real', 3.4028234663852886e38, true],
+      ['negative real overflow', 'real', -1e100, false],
+      ['positive real overflow', 'real', 1e100, false],
+      ['unbounded numeric', 'numeric', 1e100, true],
+      ['unbounded double precision', 'double precision', 1e100, true],
+      ['unlisted numeric type', undefined, 1e100, true],
+    ] as const)('%s', (_label, type, value, compatible) => {
+      const map = makeMockMap();
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['==', accessor === 'get' ? ['get', 'pop'] : ['to-number', ['get', 'pop'], 0], value] as SyncLayerInput['filter'],
+        dataset_column_info: type ? [{ name: 'pop', type }] : [],
+        dataset_tile_columns: ['pop'],
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
+        compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
+      );
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
+    });
+  });
+
+  describe.each(['in', 'not-in'] as const)('numeric cluster %s list', (operator) => {
+    it.each([
+      ['all members in range', [5, 32767], true],
+      ['one member out of range', [5, 32768], false],
+    ] as const)('%s', (_label, values, compatible) => {
+      const map = makeMockMap();
+      const membership = ['in', ['get', 'pop'], ['literal', [...values]]];
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: (operator === 'in' ? membership : ['!', membership]) as unknown as SyncLayerInput['filter'],
+        dataset_column_info: [{ name: 'pop', type: 'smallint' }],
+        dataset_tile_columns: ['pop'],
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+      const filter = vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter;
+      if (compatible) expect(filter).toBeDefined();
+      else expect(filter).toBeUndefined();
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
+    });
+  });
+
   it.each([
     ['text', 5, false],
     ['integer', '5', false],

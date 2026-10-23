@@ -457,14 +457,27 @@ function isCql2Scalar(value: unknown): value is string | number | boolean {
   );
 }
 
-/** Check scalar types using the converter's temporal/UUID literal rules too. */
+// Inclusive bounds from backend/app/core/db/pg_ranges.py; BigInt keeps int8 endpoints exact.
+const CQL2_PG_INTEGER_RANGES = new Map<string, readonly [bigint, bigint]>([
+  ['smallint', [-32768n, 32767n]],
+  ['integer', [-2147483648n, 2147483647n]],
+  ['bigint', [-(2n ** 63n), 2n ** 63n - 1n]],
+]);
+const CQL2_FLOAT4_MAX = 3.4028234663852886e38;
+
+/** Check scalar types and numeric ranges using the converter's temporal/UUID rules too. */
 export function isCql2LiteralCompatible(value: unknown, pgType: string | undefined): boolean {
   if (!isCql2Scalar(value) || cql2Literal(value, pgType) === null) return false;
   if (CQL2_STRING_TYPES.has(pgType ?? '')) return typeof value === 'string';
-  if (['smallint', 'integer', 'bigint'].includes(pgType ?? '')) {
-    return typeof value === 'number' && Number.isInteger(value);
+  const bounds = CQL2_PG_INTEGER_RANGES.get(pgType ?? '');
+  if (bounds) {
+    // Unsafe integers may already have rounded before the filter is serialized.
+    if (typeof value !== 'number' || !Number.isSafeInteger(value)) return false;
+    const integer = BigInt(value);
+    return integer >= bounds[0] && integer <= bounds[1];
   }
-  if (['real', 'double precision', 'numeric'].includes(pgType ?? '')) return typeof value === 'number';
+  if (pgType === 'real') return typeof value === 'number' && Math.abs(value) <= CQL2_FLOAT4_MAX;
+  if (['double precision', 'numeric'].includes(pgType ?? '')) return typeof value === 'number';
   if (pgType === 'boolean') return typeof value === 'boolean';
   return true;
 }

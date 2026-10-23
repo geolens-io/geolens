@@ -177,8 +177,8 @@ and releases use semantic versioning.
   the `options` startup parameter, which PgBouncer rejects; it sets it inside each
   transaction instead.
 - Your server-clustered layer's bubbles now stay visible when a saved filter has a
-  type-mismatched literal or uses a property outside the dataset's tile attribute
-  allowlist. Bubbles then count all the layer's points, while individual points
+  literal incompatible with a known column type or uses a property outside the dataset's
+  tile attribute allowlist. Bubbles then count all the layer's points, while individual points
   keep the filter.
 
 ## [1.26.0] - 2026-10-18
