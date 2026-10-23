@@ -22,7 +22,7 @@ from io import BytesIO
 import pytest
 from httpx import AsyncClient
 from PIL import Image
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.core import public_urls
 from app.core.config import settings
@@ -191,18 +191,35 @@ CREDENTIALS = {
 }
 
 
-async def _mint_key(client: AsyncClient, headers: dict, scope: str) -> dict:
-    resp = await client.post(
-        "/auth/api-keys/",
-        json={"name": f"{scope} key", "scope": scope},
-        headers=headers,
-    )
-    assert resp.status_code == 201, resp.text
-    return {"X-Api-Key": resp.json()["key"]}
+@pytest.fixture
+async def mint_key(client, test_db_session):
+    """Mint API keys for one test and delete them after it.
+
+    A live publish key makes the downgrade past the migration that added the
+    scope refuse, so a key left behind breaks later migration tests.
+    """
+    key_ids: list[str] = []
+
+    async def mint(headers: dict, scope: str) -> dict:
+        resp = await client.post(
+            "/auth/api-keys/",
+            json={"name": f"{scope} key", "scope": scope},
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+        key_ids.append(resp.json()["id"])
+        return {"X-Api-Key": resp.json()["key"]}
+
+    yield mint
+    for key_id in key_ids:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.api_keys WHERE id = :id"), {"id": key_id}
+        )
+    await test_db_session.commit()
 
 
 async def test_credentials_read_as_their_account(
-    client, admin_auth_header, test_db_session
+    client, admin_auth_header, test_db_session, mint_key
 ):
     world = await _world(client, admin_auth_header, test_db_session)
     deactivated_headers, deactivated_id = await create_user(
@@ -215,10 +232,10 @@ async def test_credentials_read_as_their_account(
     )
     assert resp.status_code == 200, resp.text
     headers = {
-        "admin full key": await _mint_key(client, admin_auth_header, "full"),
-        "admin read-only key": await _mint_key(client, admin_auth_header, "read_only"),
-        "admin publish key": await _mint_key(client, admin_auth_header, "publish"),
-        "owner publish key": await _mint_key(client, world.headers["owner"], "publish"),
+        "admin full key": await mint_key(admin_auth_header, "full"),
+        "admin read-only key": await mint_key(admin_auth_header, "read_only"),
+        "admin publish key": await mint_key(admin_auth_header, "publish"),
+        "owner publish key": await mint_key(world.headers["owner"], "publish"),
         "deactivated user": deactivated_headers,
         "stale credential": {"Authorization": "Bearer not-a-real-credential"},
     }
