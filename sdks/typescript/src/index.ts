@@ -5,7 +5,6 @@
  * Hand-maintained — re-exports the auth wrapper alongside the generated
  * client + types. Drift gate excludes this file.
  */
-import { MAP_VISIBILITY_OPT_IN } from './auth.js';
 import { client } from './client/client.gen.js';
 import { installFileReadHandling } from './fileReads.js';
 import { installRedirectHandling } from './redirects.js';
@@ -27,6 +26,5 @@ export { RedirectError } from './redirects.js';
 export * from './client/index.js';
 
 // Generated functions called without createGeolensClient() use this singleton.
-client.setConfig({ headers: { ...MAP_VISIBILITY_OPT_IN } });
 installFileReadHandling(client);
 installRedirectHandling(client);

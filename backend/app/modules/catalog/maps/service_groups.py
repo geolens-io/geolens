@@ -95,17 +95,22 @@ async def prepare_map_visibility(
 async def unshare_group_maps(session: AsyncSession, group_id: uuid.UUID) -> None:
     """Make private the restricted maps ``group_id`` is the last group of.
 
-    Call before the group's deletion cascades its grants away; the map then
-    reaches its owner and admins either way.
+    Call holding the group's row lock, before its deletion cascades its grants
+    away; the map then reaches its owner and admins either way. Locks each map
+    shared with the group, in id order, so concurrent deletions of a map's
+    last two groups can't each count the other's grant as still there.
     """
+    shared = select(MapGroupGrant.map_id).where(MapGroupGrant.group_id == group_id)
+    await session.execute(
+        select(Map.id)
+        .where(Map.id.in_(shared))
+        .order_by(Map.id)
+        .with_for_update(key_share=True)
+    )
     other = aliased(MapGroupGrant)
-    sole = (
-        select(MapGroupGrant.map_id)
-        .where(MapGroupGrant.group_id == group_id)
-        .where(
-            ~exists().where(
-                other.map_id == MapGroupGrant.map_id, other.group_id != group_id
-            )
+    sole = shared.where(
+        ~exists().where(
+            other.map_id == MapGroupGrant.map_id, other.group_id != group_id
         )
     )
     await session.execute(

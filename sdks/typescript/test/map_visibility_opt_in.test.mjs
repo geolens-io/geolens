@@ -1,5 +1,6 @@
 /**
- * Every client the SDK configures reads the restricted map visibility.
+ * Every client the SDK configures with a credential reads the restricted map
+ * visibility; an anonymous client sends only CORS-safelisted headers.
  *
  * Run: node --test test/map_visibility_opt_in.test.mjs
  */
@@ -20,19 +21,31 @@ async function sentHeaders(client) {
   return sent[0];
 }
 
-test('the shared singleton opts in before createGeolensClient() runs', async () => {
+test('the shared singleton sends no opt-in before createGeolensClient() runs', async () => {
   singletonClient.setConfig({ baseUrl: 'https://default.example.test' });
   const headers = await sentHeaders(singletonClient);
-  assert.equal(headers.get('X-GeoLens-Map-Visibility'), 'restricted');
+  assert.equal(headers.get('X-GeoLens-Map-Visibility'), null);
 });
 
-test('a scoped client and the singleton it reconfigures both opt in', async () => {
-  const sdk = createGeolensClient({ baseUrl: 'https://maps.example.test', apiKey: 'key' });
+for (const credential of [{ apiKey: 'key' }, { bearerToken: 'tok' }]) {
+  test(`a scoped client and the singleton both opt in with ${Object.keys(credential)[0]}`, async () => {
+    const sdk = createGeolensClient({ baseUrl: 'https://maps.example.test', ...credential });
+
+    const scoped = await sentHeaders(sdk.client);
+    const shared = await sentHeaders(singletonClient);
+
+    assert.equal(scoped.get('X-GeoLens-Map-Visibility'), 'restricted');
+    assert.equal(shared.get('X-GeoLens-Map-Visibility'), 'restricted');
+  });
+}
+
+test('an anonymous client sends no opt-in, even after a credentialed one', async () => {
+  createGeolensClient({ baseUrl: 'https://maps.example.test', apiKey: 'key' });
+  const sdk = createGeolensClient({ baseUrl: 'https://maps.example.test' });
 
   const scoped = await sentHeaders(sdk.client);
   const shared = await sentHeaders(singletonClient);
 
-  assert.equal(scoped.get('X-GeoLens-Map-Visibility'), 'restricted');
-  assert.equal(shared.get('X-GeoLens-Map-Visibility'), 'restricted');
-  assert.equal(scoped.get('X-API-Key'), 'key');
+  assert.equal(scoped.get('X-GeoLens-Map-Visibility'), null);
+  assert.equal(shared.get('X-GeoLens-Map-Visibility'), null);
 });

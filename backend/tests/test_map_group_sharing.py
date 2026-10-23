@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from typing import Literal
 
@@ -11,13 +13,16 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from httpx import AsyncClient
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.main import app
+from app.modules.auth import groups as group_service
+from app.modules.catalog.group_access import change_group_access
 from app.modules.catalog.maps.models import Map, MapGroupGrant, MapShareToken
 from app.modules.catalog.maps.visibility_contract import map_visibility_contract
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import create_embed_token
-from app.modules.catalog.maps.service import update_map
+from app.modules.catalog.maps.service import unshare_group_maps, update_map
 from tests.factories import create_dataset, create_user
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 from tests.test_dataset_group_grants import _new_group
@@ -232,6 +237,53 @@ async def test_deleting_one_of_two_groups_keeps_the_map_restricted(
     assert await _stored(test_db_session, owned["map"]) == "restricted"
     member_read = await client.get(f"/maps/{owned['map']}", headers=owned["member"])
     assert member_read.status_code == 200
+
+
+async def _blocked_or_done(holder, task) -> None:
+    """Return once ``task`` finishes or waits on a lock ``holder`` holds."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and not task.done():
+        # The activity view is snapshotted once per transaction.
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        blocked = await holder.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+            )
+        )
+        if blocked:
+            return
+        await asyncio.sleep(0.05)
+
+
+async def test_deleting_a_maps_last_two_groups_at_once_leaves_it_private(
+    client: AsyncClient, admin_auth_header: dict, owned, test_db_session
+):
+    second = await _new_group(client, admin_auth_header, [owned["member_id"]])
+    shared = await _share(
+        client, owned["map"], [owned["mine"], second], admin_auth_header
+    )
+    assert shared.status_code == 200, shared.text
+    factory = async_sessionmaker(test_db_session.bind, expire_on_commit=False)
+
+    async def delete(session, group_id: str) -> None:
+        group_id = uuid.UUID(group_id)
+
+        async def change():
+            await unshare_group_maps(session, group_id)
+            return await group_service.delete_group(session, group_id, id_limit=10)
+
+        await change_group_access(session, group_id, change, narrowing=True)
+
+    async with factory() as first, factory() as other:
+        await delete(first, owned["mine"])
+        deleting = asyncio.create_task(delete(other, second))
+        await _blocked_or_done(first, deleting)
+        await first.commit()
+        await deleting
+        await other.commit()
+
+    assert await _stored(test_db_session, owned["map"]) == "private"
 
 
 @pytest.fixture

@@ -254,6 +254,12 @@ ALLOWLIST: dict[str, str] = {
     "app.modules.admin.router_operations.list_share_tokens_endpoint": (
         "admin-gated (manage_users); lists public maps and their share links"
     ),
+    # Sharing-group deletion; gated by require_group_admin. It locks the
+    # group's maps to make private those left with no group, and returns none.
+    "app.modules.admin.router_groups.delete_group": (
+        "admin-gated (manage_users / manage_tenants); locks the group's maps, "
+        "returns no map content"
+    ),
     # Duplicate-source existence check before creating an IngestJob. The
     # select is scoped ``Record.created_by == user.id`` — the caller can only
     # ever see their own datasets in the 409 payload.
@@ -1173,6 +1179,10 @@ MAP_ALLOWLIST: dict[str, str] = {
     ),
     "app.modules.admin.router_operations.list_share_tokens_endpoint": (
         "admin-gated (manage_users); lists public maps and their share links"
+    ),
+    "app.modules.admin.router_groups.delete_group": (
+        "admin-gated (manage_users / manage_tenants); locks the group's maps, "
+        "returns no map content"
     ),
 }
 
