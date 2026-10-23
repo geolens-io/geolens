@@ -92,7 +92,11 @@ from app.core.persistent_config import (
 )
 from app.modules.auth.domain_policy import enforce_email_domain_gate
 from app.platform.ratelimit import limiter
-from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_AUTH,
+    PROBLEM_RESPONSE,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
@@ -713,7 +717,13 @@ async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None
     response_model=RegisterResponse,
     include_in_schema=False,
 )
-@router.post("/verify-email/", response_model=RegisterResponse)
+@router.post(
+    "/verify-email/",
+    response_model=RegisterResponse,
+    responses={
+        409: {**PROBLEM_RESPONSE, "description": "The account can't be activated yet"}
+    },
+)
 @limiter.limit("10/minute")
 async def verify_email(
     request: Request,
