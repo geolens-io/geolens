@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+import uuid
+
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select, text, update
 
 from app.modules.audit.models import AuditLog
+from app.modules.catalog.datasets.domain.models import Record
+from app.modules.catalog.maps.models import Map
 from tests.factories import (
     create_dataset as _create_dataset,
     create_map_via_api,
@@ -173,3 +179,81 @@ async def test_a_map_transfer_after_an_edit(
     else:
         assert resp.status_code == 200, resp.text
         assert resp.json()["created_by"] == target_id
+
+
+async def _wait_for_a_blocked_writer(session) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        # The activity view is snapshotted once per transaction.
+        await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+        blocked = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity"
+                    " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if blocked:
+            return
+        await asyncio.sleep(0.1)
+    pytest.fail("the write never waited on the locked row")
+
+
+async def _race(session, client: AsyncClient, path: str, body: dict, headers, row):
+    """Send the write while *session* holds an uncommitted edit of *row*, then
+    commit the edit once the write waits on it."""
+    model, row_id = row
+    await session.execute(
+        update(model)
+        .where(model.id == row_id)
+        .values(updated_at=func.clock_timestamp())
+    )
+    write = asyncio.create_task(client.patch(path, json=body, headers=headers))
+    try:
+        await _wait_for_a_blocked_writer(session)
+        await session.commit()
+    finally:
+        await session.rollback()
+    return await asyncio.wait_for(write, timeout=20)
+
+
+async def test_an_edit_committed_while_a_dataset_write_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/datasets/{dataset.id}",
+        {"summary": "Written", "expected_updated_at": updated_at},
+        admin_auth_header,
+        (Record, dataset.record_id),
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+
+
+async def test_an_edit_committed_while_a_map_transfer_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
+    created, _, owner_id, target_id = await _map(client, admin_auth_header)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/maps/{created['id']}",
+        {"owner_id": target_id, "expected_updated_at": created["updated_at"]},
+        admin_auth_header,
+        (Map, uuid.UUID(created["id"])),
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    assert after.json()["created_by"] == owner_id

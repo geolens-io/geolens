@@ -67,6 +67,8 @@ async def patch_map_endpoint(
     await check_map_ownership(map_obj, user, db)
     owner_id = require_transfer_admin(await get_user_roles(db, user), body.owner_id)
     if body.expected_updated_at is not None:
+        # FOR NO KEY UPDATE, which every UPDATE of the map row waits on, so no
+        # edit lands between this comparison and the transfer.
         await lock_map_layers(db, map_id)
         await db.refresh(map_obj, ["updated_at"])
         refuse_stale_write(map_obj.updated_at, body.expected_updated_at)
