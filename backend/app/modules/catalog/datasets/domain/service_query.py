@@ -429,7 +429,7 @@ async def _label_matched_codes(
         name: [
             code
             for code, label in labels.items()
-            if filters[name].casefold() in str(label).casefold()
+            if isinstance(label, str) and filters[name].casefold() in label.casefold()
         ]
         for name, labels in result.all()
     }

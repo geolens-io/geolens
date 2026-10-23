@@ -15,7 +15,7 @@ from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
-LABELS = {"1": "Hospital", "3": "Shelter", "13": "Fire Shelter Annex"}
+LABELS = {"1": "Hospital", "2": None, "3": "Shelter", "13": "Fire Shelter Annex"}
 # (kind, name) inserted in this order, so gid 1..4 follows the list. kind_codes
 # holds "c-<name>"; its name is the label filter's old bind name for kind.
 ROWS = [(1, "north"), (3, "south"), (13, "east"), (2, "west")]
@@ -78,6 +78,8 @@ async def coded_dataset(test_db_session):
         # A code still matches as text: "3" is a substring of codes 3 and 13.
         ("kind", "3", ["south", "east"]),
         ("kind", "2", ["west"]),
+        # A null label is no label, not the text "None".
+        ("kind", "none", []),
         # Another column's labels never match.
         ("name", "shelter", []),
         ("name", "OR", ["north"]),
