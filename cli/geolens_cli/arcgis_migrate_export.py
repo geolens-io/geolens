@@ -445,7 +445,7 @@ def refresh_export(
             "the portal doesn't say when the item last changed, so its bundle "
             "may be out of date"
         ]
-    present = _bundle_in_place(ctx, item)
+    present = _bundle_in_place(ctx, item, entry)
     recorded = (entry.export or {}).get("modified")
     if present and isinstance(recorded, int) and modified <= recorded:
         return []
@@ -462,17 +462,35 @@ def refresh_export(
     return []
 
 
-def _bundle_in_place(ctx: MigrationContext, item: Mapping[str, Any]) -> bool:
-    """Whether the item's bundle is at its path, once what a run killed
-    mid-swap left beside it is put back."""
-    if ctx.export_dir is None or not _ITEM_ID.fullmatch(item["id"]):
+def _bundle_in_place(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> bool:
+    """Whether the item's bundle is at its path with every file the export
+    recorded, at its recorded size, once what a run killed mid-swap left beside
+    it is put back. A record without its file list, from before it was kept,
+    counts as not in place."""
+    files = (entry.export or {}).get("files")
+    if (
+        ctx.export_dir is None
+        or not _ITEM_ID.fullmatch(item["id"])
+        or not isinstance(files, dict)
+    ):
         return False
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
     try:
         _recover_leftovers(folder)
+        return _bundle_files(folder) == files
     except OSError:
         return False
-    return folder.is_dir()
+
+
+def _bundle_files(folder: Path) -> dict[str, int]:
+    """Every file in *folder*, by its path inside it, with its size."""
+    return {
+        path.relative_to(folder).as_posix(): path.stat().st_size
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
 
 
 def _recover_leftovers(folder: Path) -> None:
@@ -562,6 +580,8 @@ def _export_into(
         "story": story,
         # The portal's last change to the item, which a rerun compares.
         "modified": _modified(full),
+        # What the bundle holds, which a rerun checks before trusting it.
+        "files": _bundle_files(folder) if swapped else {},
     }
     if swapped:
         # Otherwise the earlier bundle stays as it was, and so does its record.

@@ -1147,3 +1147,50 @@ def test_an_export_whose_change_time_cant_be_read_blocks_cutover(
     [reason] = payload["not_up_to_date"][C3]
     assert "doesn't say when the item last changed" in reason
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize("damage", ["deleted", "truncated", "no_file_list"])
+def test_a_bundle_missing_a_file_it_recorded_is_exported_again(
+    runner, tmp_path, geolens, install, damage
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    if damage == "deleted":
+        (folder / "item.json").unlink()
+    elif damage == "truncated":
+        (folder / "data.json").write_text("{}")
+    else:
+        # A record from before the file list was kept.
+        state = _state(plan_file)
+        del state["items"][C3]["export"]["files"]
+        (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{C3}/data"))
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads + 1
+    assert _tree(folder) == before
+    assert set(_state(plan_file)["items"][C3]["export"]["files"]) == set(before)
+
+
+def test_a_bundle_missing_a_file_that_cant_be_exported_again_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    (_export(plan_file, "dashboard", C3) / "item.json").unlink()
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert reason.startswith("its bundle is missing")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
