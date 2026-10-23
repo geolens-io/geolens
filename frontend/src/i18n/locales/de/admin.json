@@ -939,7 +939,8 @@
       "empty": "Diese Gruppe hat noch keine Mitglieder.",
       "added": "{{name}} hinzugefügt",
       "removed": "{{name}} entfernt",
-      "errorLoading": "Mitglieder konnten nicht geladen werden: {{message}}"
+      "errorLoading": "Mitglieder konnten nicht geladen werden: {{message}}",
+      "needsUserManagement": "Zum Hinzufügen von Personen ist die Berechtigung zur Benutzerverwaltung nötig. Mitglieder können Sie weiterhin ansehen und entfernen."
     },
     "picker": {
       "placeholder": "Nach Benutzernamen suchen",

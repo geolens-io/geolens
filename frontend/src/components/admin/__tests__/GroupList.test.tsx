@@ -16,6 +16,15 @@ vi.mock('@/api/admin', async (importOriginal) => ({
   listUserNames: vi.fn(),
 }));
 
+const permissions = vi.hoisted(() => ({ manageUsers: true }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: (capability: string) => capability === 'manage_users' && permissions.manageUsers,
+    isLoading: false,
+    permissions: {},
+  }),
+}));
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const api = vi.mocked(adminApi);
@@ -34,6 +43,7 @@ function listOf(...groups: (typeof GROUP)[]) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  permissions.manageUsers = true;
   api.listGroups.mockResolvedValue(listOf(GROUP));
   api.listGroupMembers.mockResolvedValue([
     { id: 'u1', username: 'alice' },
@@ -151,6 +161,27 @@ describe('GroupList', () => {
     it('puts focus on the picker when the dialog opens', async () => {
       await openMembers(userEvent.setup());
       await waitFor(() => expect(screen.getByRole('combobox', { name: 'Add a person' })).toHaveFocus());
+    });
+
+    it('without user management permission, shows a note instead of the picker and still lists members', async () => {
+      permissions.manageUsers = false;
+      const user = userEvent.setup();
+      await openMembers(user);
+
+      expect(await screen.findByText(/needs user management permission/i)).toBeInTheDocument();
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      expect(api.listUserNames).not.toHaveBeenCalled();
+      await screen.findByText('alice');
+      api.removeGroupMember.mockResolvedValue(undefined);
+      await user.click(screen.getByRole('button', { name: 'Remove bob from Planning' }));
+      await waitFor(() => expect(api.removeGroupMember).toHaveBeenCalledWith('g1', 'u2'));
+    });
+
+    it('shows the error when the user names request fails', async () => {
+      api.listUserNames.mockRejectedValue(new ApiError('Could not load users', 500));
+      await openMembers(userEvent.setup());
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not load users');
     });
 
     it('lists the members and announces an empty group', async () => {

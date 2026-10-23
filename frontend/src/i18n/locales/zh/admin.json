@@ -939,7 +939,8 @@
       "empty": "该用户组还没有成员。",
       "added": "已添加 {{name}}",
       "removed": "已移除 {{name}}",
-      "errorLoading": "无法加载成员：{{message}}"
+      "errorLoading": "无法加载成员：{{message}}",
+      "needsUserManagement": "添加成员需要用户管理权限。您仍可查看和移除成员。"
     },
     "picker": {
       "placeholder": "按用户名搜索",

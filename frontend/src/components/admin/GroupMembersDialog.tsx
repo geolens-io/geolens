@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { useUserNames } from '@/hooks/use-admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useGroupMembers,
   useAddGroupMember,
@@ -29,7 +30,10 @@ interface GroupMembersDialogProps {
 export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDialogProps) {
   const { t } = useTranslation('admin');
   const members = useGroupMembers(group.id);
-  const names = useUserNames();
+  // The names endpoint needs manage_users, which a multi-tenant operator
+  // managing groups through manage_tenants may not hold.
+  const canListUsers = usePermissions().can('manage_users');
+  const names = useUserNames({ enabled: canListUsers });
   const add = useAddGroupMember(group.id);
   const remove = useRemoveGroupMember(group.id);
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -40,7 +44,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
     () => (names.data ?? []).filter((u) => !memberIds.has(u.id)),
     [names.data, memberIds],
   );
-  const error = add.error ?? remove.error;
+  const error = add.error ?? remove.error ?? (canListUsers ? names.error : null);
 
   function announce(text: string) {
     setOutcome((prev) => ({ text, n: prev.n + 1 }));
@@ -74,8 +78,9 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
       <DialogContent
         className="sm:max-w-lg"
         onOpenAutoFocus={(event) => {
+          if (!pickerRef.current) return;
           event.preventDefault();
-          pickerRef.current?.focus();
+          pickerRef.current.focus();
         }}
       >
         <DialogHeader>
@@ -83,12 +88,16 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
           <DialogDescription>{t('groups.members.description')}</DialogDescription>
         </DialogHeader>
 
-        <UserPicker
-          ref={pickerRef}
-          label={t('groups.members.addLabel')}
-          users={candidates}
-          onSelect={handleAdd}
-        />
+        {canListUsers ? (
+          <UserPicker
+            ref={pickerRef}
+            label={t('groups.members.addLabel')}
+            users={candidates}
+            onSelect={handleAdd}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">{t('groups.members.needsUserManagement')}</p>
+        )}
 
         {error && (
           <p role="alert" className="text-sm text-destructive">

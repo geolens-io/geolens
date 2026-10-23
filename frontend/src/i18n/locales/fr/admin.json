@@ -939,7 +939,8 @@
       "empty": "Ce groupe n’a pas encore de membres.",
       "added": "{{name}} ajouté",
       "removed": "{{name}} retiré",
-      "errorLoading": "Impossible de charger les membres : {{message}}"
+      "errorLoading": "Impossible de charger les membres : {{message}}",
+      "needsUserManagement": "Ajouter des personnes nécessite l’autorisation de gérer les utilisateurs. Vous pouvez toujours voir et retirer des membres."
     },
     "picker": {
       "placeholder": "Rechercher par nom d’utilisateur",

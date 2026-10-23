@@ -939,7 +939,8 @@
       "empty": "Este grupo aún no tiene miembros.",
       "added": "{{name}} añadido",
       "removed": "{{name}} quitado",
-      "errorLoading": "No se pudieron cargar los miembros: {{message}}"
+      "errorLoading": "No se pudieron cargar los miembros: {{message}}",
+      "needsUserManagement": "Añadir personas requiere permiso de gestión de usuarios. Aún puede ver y quitar miembros."
     },
     "picker": {
       "placeholder": "Buscar por nombre de usuario",

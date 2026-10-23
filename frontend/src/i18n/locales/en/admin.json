@@ -939,7 +939,8 @@
       "empty": "This group has no members yet.",
       "added": "{{name}} added",
       "removed": "{{name}} removed",
-      "errorLoading": "Failed to load members: {{message}}"
+      "errorLoading": "Failed to load members: {{message}}",
+      "needsUserManagement": "Adding people needs user management permission. You can still see and remove members."
     },
     "picker": {
       "placeholder": "Search by username",
