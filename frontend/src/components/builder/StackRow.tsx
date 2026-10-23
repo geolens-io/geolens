@@ -409,6 +409,7 @@ export const StackRow = memo(function StackRow({
         ) : (
           <div className="min-w-0 flex items-center gap-1">
             <span
+              title={displayName}
               className="truncate text-sm min-w-0"
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -427,13 +428,13 @@ export const StackRow = memo(function StackRow({
                 <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
               </span>
             )}
-            {/* Categorical subtitle — inline like the badges so the
-                row height never changes; max-w-[45%] per the cap. */}
+            {/* Categorical subtitle, inline like the badges so the row
+                height never changes. It gives up its width before the name. */}
             {categoricalSummary && (
               <span
                 title={categoricalSummary}
                 data-testid="stack-row-categories"
-                className="min-w-0 max-w-[45%] truncate text-2xs text-muted-foreground"
+                className="min-w-0 max-w-[45%] shrink-[1000] truncate text-2xs text-muted-foreground"
               >
                 {categoricalSummary}
               </span>

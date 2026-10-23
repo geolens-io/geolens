@@ -145,6 +145,22 @@ describe('LayerEditorPanel', () => {
       expect(screen.getByTestId('layer-editor-header')).not.toHaveTextContent('Population');
     });
 
+    it('exposes the full layer name as the title tooltip', () => {
+      const layer = makeLayer({ display_name: 'Emergency Facilities Statewide Inventory' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+        />
+      );
+      expect(document.getElementById('layer-editor-title')).toHaveAttribute(
+        'title',
+        'Emergency Facilities Statewide Inventory',
+      );
+    });
+
     it('renders close button with aria-label="Close layer editor"', () => {
       render(
         <LayerEditorPanel

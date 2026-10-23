@@ -183,6 +183,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   const layerName = layer.display_name ?? layer.dataset_name;
   const isPureSettings = editorScene === 'settings';
+  const panelTitle = isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName;
   const isDefaultScene = editorScene === 'default' || editorScene === undefined;
 
   // Which tabs are available for this layer? Style is always present; Filter /
@@ -368,9 +369,10 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             <div className="flex items-center gap-2 min-w-0">
               <span
                 id="layer-editor-title"
+                title={panelTitle}
                 className="text-sm font-semibold truncate min-w-0"
               >
-                {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
+                {panelTitle}
               </span>
               {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (
                 <LayerEditorTypePill layer={layer} />
