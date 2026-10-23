@@ -47,6 +47,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
   }
 
   async function handleAdd(user: PickerUser) {
+    if (add.isPending) return;
     remove.reset();
     try {
       await add.mutateAsync(user.id);
@@ -70,7 +71,13 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          pickerRef.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('groups.members.title', { name: group.name })}</DialogTitle>
           <DialogDescription>{t('groups.members.description')}</DialogDescription>
@@ -81,7 +88,6 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
           label={t('groups.members.addLabel')}
           users={candidates}
           onSelect={handleAdd}
-          disabled={add.isPending || names.isLoading}
         />
 
         {error && (

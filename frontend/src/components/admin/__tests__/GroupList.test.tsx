@@ -148,6 +148,11 @@ describe('GroupList', () => {
       return opener;
     }
 
+    it('puts focus on the picker when the dialog opens', async () => {
+      await openMembers(userEvent.setup());
+      await waitFor(() => expect(screen.getByRole('combobox', { name: 'Add a person' })).toHaveFocus());
+    });
+
     it('lists the members and announces an empty group', async () => {
       api.listGroupMembers.mockResolvedValue([]);
       await openMembers(userEvent.setup());
@@ -161,7 +166,6 @@ describe('GroupList', () => {
       await screen.findByRole('list', { name: 'Members of Planning' });
 
       const picker = screen.getByRole('combobox', { name: 'Add a person' });
-      await waitFor(() => expect(picker).toBeEnabled());
       await user.click(picker);
       await user.keyboard('{ArrowDown}');
       expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['carol']);
@@ -177,8 +181,9 @@ describe('GroupList', () => {
       const user = userEvent.setup();
       await openMembers(user);
       const picker = screen.getByRole('combobox', { name: 'Add a person' });
-      await waitFor(() => expect(picker).toBeEnabled());
-      await user.type(picker, 'carol{Enter}');
+      await user.type(picker, 'carol');
+      await screen.findByRole('option', { name: 'carol' });
+      await user.keyboard('{Enter}');
 
       expect(await screen.findByRole('alert')).toHaveTextContent('would reach people who cannot see');
     });
