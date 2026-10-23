@@ -58,7 +58,11 @@ export function GroupNameDialog({ group, open, onOpenChange }: GroupNameDialogPr
             <Input
               id="group-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                // A refusal describes the name that was submitted, not this edit.
+                if (mutation.error) mutation.reset();
+              }}
               required
               maxLength={255}
               autoComplete="off"

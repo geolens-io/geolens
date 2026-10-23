@@ -96,6 +96,10 @@ describe('GroupList', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Group name'), 'x');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Group name')).not.toHaveAttribute('aria-invalid');
   });
 
   it('renames a group from the row menu', async () => {
@@ -249,6 +253,23 @@ describe('GroupList', () => {
 
       await waitFor(() => expect(api.removeGroupMember).toHaveBeenCalledWith('g1', 'u2'));
       await waitFor(() => expect(screen.getByRole('combobox', { name: 'Add a person' })).toHaveFocus());
+    });
+
+    it('closes the picker list on the first Escape and the dialog on the second', async () => {
+      const user = userEvent.setup();
+      const opener = await openMembers(user);
+      const picker = screen.getByRole('combobox', { name: 'Add a person' });
+      await waitFor(() => expect(picker).toHaveFocus());
+      await user.keyboard('{ArrowDown}');
+      expect(picker).toHaveAttribute('aria-expanded', 'true');
+
+      await user.keyboard('{Escape}');
+      expect(picker).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await waitFor(() => expect(opener).toHaveFocus());
     });
 
     it('returns focus to the Members button on Escape', async () => {

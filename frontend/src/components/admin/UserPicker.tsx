@@ -1,4 +1,4 @@
-import { forwardRef, useId, useMemo, useState } from 'react';
+import { forwardRef, useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,8 @@ interface UserPickerProps {
   users: PickerUser[];
   onSelect: (user: PickerUser) => void;
   disabled?: boolean;
+  /** Reports whether the list is open, so an enclosing dialog can leave Escape to it. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 const MAX_OPTIONS = 50;
@@ -26,7 +28,7 @@ const MAX_OPTIONS = 50;
  * the list before it can close an enclosing dialog.
  */
 export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function UserPicker(
-  { label, users, onSelect, disabled },
+  { label, users, onSelect, disabled, onOpenChange },
   ref,
 ) {
   const { t } = useTranslation('admin');
@@ -42,6 +44,8 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
     const found = needle ? users.filter((u) => u.username.toLowerCase().includes(needle)) : users;
     return found.slice(0, MAX_OPTIONS);
   }, [users, query]);
+
+  useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
 
   const expanded = open && matches.length > 0;
   const activeIndex = Math.min(active, Math.max(matches.length - 1, 0));

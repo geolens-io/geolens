@@ -41,6 +41,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
   const closeRef = useRef<HTMLButtonElement>(null);
   // Where focus goes once the removed row is gone: a member id, or null for Close.
   const focusAfterRefresh = useRef<string | null | undefined>(undefined);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [outcome, setOutcome] = useState({ text: '', n: 0 });
 
   const memberIds = useMemo(() => new Set((members.data ?? []).map((m) => m.id)), [members.data]);
@@ -96,6 +97,10 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-lg"
+        // Radix handles Escape on the document first; leave the first press to the picker's list.
+        onEscapeKeyDown={(event) => {
+          if (pickerOpen) event.preventDefault();
+        }}
         onOpenAutoFocus={(event) => {
           if (!pickerRef.current) return;
           event.preventDefault();
@@ -113,6 +118,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
             label={t('groups.members.addLabel')}
             users={candidates}
             onSelect={handleAdd}
+            onOpenChange={setPickerOpen}
           />
         ) : (
           <p className="text-sm text-muted-foreground">{t('groups.members.needsUserManagement')}</p>
