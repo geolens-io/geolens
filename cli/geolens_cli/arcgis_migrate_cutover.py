@@ -21,6 +21,7 @@ INVENTORY = "incomplete-inventory"
 ATTACHMENTS = "attachment-loss"
 USERS = "unresolved-users"
 CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS)
+ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
 
 
 def _covers_org(inventory: Mapping[str, Any]) -> bool:
@@ -119,6 +120,12 @@ def inventory_changes(
     if not org:
         return f"{unchecked}: the plan records no ArcGIS organization"
     try:
+        if not _org_admin(client.get_json("portals/self")):
+            return (
+                f"{unchecked}: the run's ArcGIS account isn't an organization "
+                f"administrator ({_plan.ORG_ADMIN}), so its search can miss items "
+                "not shared with it"
+            )
         page = client.get_json(
             "search",
             {
@@ -140,6 +147,18 @@ def inventory_changes(
             "inventory and plan again"
         )
     return None
+
+
+def _org_admin(info: Any) -> bool:
+    """Whether ``portals/self`` describes an org admin, by role or by the
+    privilege to view every item."""
+    user = info.get("user") if isinstance(info, dict) else None
+    if not isinstance(user, dict):
+        return False
+    privileges = user.get("privileges")
+    return user.get("role") == _plan.ORG_ADMIN or (
+        isinstance(privileges, list) and ADMIN_VIEW_ITEMS in privileges
+    )
 
 
 def _age(delta: timedelta) -> str:

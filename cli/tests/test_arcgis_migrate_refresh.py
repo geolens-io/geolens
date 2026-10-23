@@ -1255,14 +1255,20 @@ def test_a_later_run_reports_the_cutover_in_the_report(runner, plan_file, geolen
     assert "**Cut over** at" in report
 
 
+_ADMIN = {"user": {"username": "gis_admin", "role": "org_admin"}}
+
+
 class _SearchPortal:
-    def __init__(self, answer, token: str | None = "t") -> None:
+    def __init__(self, answer, token: str | None = "t", self_info=_ADMIN) -> None:
         self.answer = answer
         self.token = token
+        self.self_info = self_info
         self.asked: list[tuple[str, dict]] = []
 
     def get_json(self, path, params=None):
         self.asked.append((path, dict(params or {})))
+        if path == "portals/self":
+            return self.self_info
         if isinstance(self.answer, Exception):
             raise self.answer
         return self.answer
@@ -1302,7 +1308,7 @@ def test_cutover_asks_the_portal_for_items_changed_since_the_inventory(client, s
     else:
         assert says in reason and "10 days ago" in reason
     if isinstance(client, _SearchPortal) and client.token:
-        [(path, params)] = client.asked
+        [(_self, _), (path, params)] = client.asked
         assert path == "search" and params["q"] == "orgid:ExAmPlEoRg0123"
         assert params["sortField"] == "modified" and params["num"] == 1
 
@@ -1433,3 +1439,38 @@ def test_a_plan_carries_the_start_time_of_the_inventory_it_was_merged_from(
         newer,
     )
     assert merged["inventory"]["started_at"] == "2026-10-05T00:00:00Z"
+
+
+@pytest.mark.parametrize(
+    ("user", "searched"),
+    [
+        ({"username": "u", "role": "org_publisher"}, False),
+        (
+            {
+                "username": "u",
+                "role": "org_user",
+                "privileges": ["portal:user:joinGroup"],
+            },
+            False,
+        ),
+        (None, False),
+        (
+            {
+                "username": "u",
+                "role": "org_user",
+                "privileges": ["portal:admin:viewItems"],
+            },
+            True,
+        ),
+    ],
+)
+def test_the_freshness_search_needs_an_org_admin_account(user, searched):
+    client = _SearchPortal({"results": []}, self_info={"user": user} if user else {})
+
+    reason = cutover_mod.inventory_changes(client, _PLAN, _NOW)
+
+    assert [path for path, _ in client.asked][1:] == (["search"] if searched else [])
+    if searched:
+        assert reason is None
+    else:
+        assert "isn't an organization administrator (org_admin)" in reason
