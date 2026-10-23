@@ -1892,6 +1892,13 @@ class RefreshVerification(BaseModel):
     )
     accepted_blocked_run_id: uuid.UUID | None
     acceptance_consumed_by_run_id: uuid.UUID | None = None
+    data_revision: int | None = Field(
+        default=None,
+        description=(
+            "The dataset's data revision when this run checked its live table. "
+            "A run accepted after a live edit publishes over this revision."
+        ),
+    )
 
 
 class DatasetRefreshRunResponse(BaseModel):

@@ -17064,6 +17064,18 @@
               }
             ],
             "title": "Acceptance Consumed By Run Id"
+          },
+          "data_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dataset's data revision when this run checked its live table. A run accepted after a live edit publishes over this revision.",
+            "title": "Data Revision"
           }
         },
         "required": [

@@ -9961,6 +9961,12 @@ export type RefreshVerification = {
      * Acceptance Consumed By Run Id
      */
     acceptance_consumed_by_run_id?: string | null;
+    /**
+     * Data Revision
+     *
+     * The dataset's data revision when this run checked its live table. A run accepted after a live edit publishes over this revision.
+     */
+    data_revision?: number | null;
 };
 
 /**

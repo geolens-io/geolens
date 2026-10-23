@@ -78,6 +78,8 @@ class RefreshVerification:
             on its preview published: its commit carried the preview's fingerprint, or a person accepted a blocked run with
             the same changes.
         acceptance_consumed_by_run_id (None | Unset | UUID):
+        data_revision (int | None | Unset): The dataset's data revision when this run checked its live table. A run
+            accepted after a live edit publishes over this revision.
     """
 
     decision: RefreshVerificationDecision
@@ -100,6 +102,7 @@ class RefreshVerification:
         None | RefreshVerificationReviewAcknowledgedByType0 | Unset
     ) = UNSET
     acceptance_consumed_by_run_id: None | Unset | UUID = UNSET
+    data_revision: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,6 +207,12 @@ class RefreshVerification:
         else:
             acceptance_consumed_by_run_id = self.acceptance_consumed_by_run_id
 
+        data_revision: int | None | Unset
+        if isinstance(self.data_revision, Unset):
+            data_revision = UNSET
+        else:
+            data_revision = self.data_revision
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -237,6 +246,8 @@ class RefreshVerification:
             field_dict["review_acknowledged_by"] = review_acknowledged_by
         if acceptance_consumed_by_run_id is not UNSET:
             field_dict["acceptance_consumed_by_run_id"] = acceptance_consumed_by_run_id
+        if data_revision is not UNSET:
+            field_dict["data_revision"] = data_revision
 
         return field_dict
 
@@ -451,6 +462,15 @@ class RefreshVerification:
             d.pop("acceptance_consumed_by_run_id", UNSET)
         )
 
+        def _parse_data_revision(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        data_revision = _parse_data_revision(d.pop("data_revision", UNSET))
+
         refresh_verification = cls(
             decision=decision,
             source_binding=source_binding,
@@ -470,6 +490,7 @@ class RefreshVerification:
             geometry_contract=geometry_contract,
             review_acknowledged_by=review_acknowledged_by,
             acceptance_consumed_by_run_id=acceptance_consumed_by_run_id,
+            data_revision=data_revision,
         )
 
         refresh_verification.additional_properties = d

@@ -13614,6 +13614,11 @@ export interface components {
             accepted_blocked_run_id: string | null;
             /** Acceptance Consumed By Run Id */
             acceptance_consumed_by_run_id?: string | null;
+            /**
+             * Data Revision
+             * @description The dataset's data revision when this run checked its live table. A run accepted after a live edit publishes over this revision.
+             */
+            data_revision?: number | null;
         };
         /** RegisterRequest */
         RegisterRequest: {

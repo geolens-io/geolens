@@ -1421,6 +1421,7 @@ async def _seed_history(session, *, visibility: str = "public"):
             "review_reasons": [],
             "review_fingerprint": None,
             "accepted_blocked_run_id": None,
+            "data_revision": 3,
         },
     )
     await session.commit()
@@ -1462,6 +1463,8 @@ class TestRefreshRunListEndpoint:
         assert row["error_code"] == "service_refresh_failed"
         assert "parcels" in row["error_message"]
         assert row["verification"]["source_binding"]["url"].startswith("https://")
+        # The migration CLI reconciles an accepted run against this revision.
+        assert row["verification"]["data_revision"] == 3
 
     async def test_scheduled_history_exposes_only_safe_timing_metadata(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
