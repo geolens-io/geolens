@@ -40,6 +40,7 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
+from app.processing.ingest.source_value_labels import refresh_source_value_labels
 from app.processing.ingest.tasks_common import (
     SourceURLRefused,
     _append_job_warning,
@@ -1147,6 +1148,7 @@ class _ServiceReupload:
         # Whether the outbound fetch was reached, so a failure can date the
         # contact.
         self.contacted = False
+        self.field_labels: dict | None = None
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
         self.verification: dict | None = None
@@ -1177,6 +1179,7 @@ class _ServiceReupload:
 
     async def fetch(self) -> None:
         from app.platform.security import SSRFError, validate_url_for_ssrf
+        from app.processing.ingest import tasks_vector as _tv
         from app.processing.ingest.ogr import IngestionError, build_pg_conn_str
 
         self.source_url_value = _require_service_source_url(
@@ -1260,6 +1263,13 @@ class _ServiceReupload:
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
+        self.field_labels = (
+            await _tv._fetch_arcgis_field_labels(
+                self.source_url_value, self.layer_id, self.token
+            )
+            if self.service_type == "arcgis_featureserver"
+            else None
+        )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
@@ -1495,6 +1505,7 @@ class _ServiceReupload:
                 "auth_required": True if self.token else None,
             },
         )
+        await refresh_source_value_labels(session, dataset.id, self.field_labels)
         return Published(
             dataset_version_id=version.id,
             feature_count=self.measured_feature_count,

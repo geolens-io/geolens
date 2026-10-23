@@ -49,6 +49,7 @@ __all__ = [
     "build_arcgis_id_query_url",
     "enrich_arcgis_feature_counts",
     "fetch_arcgis_feature_count",
+    "fetch_arcgis_field_labels",
     "fetch_arcgis_id_plan",
     "fetch_arcgis_layer_preview",
     "fetch_arcgis_pagination_info",
@@ -930,6 +931,16 @@ async def fetch_arcgis_layer_meta(
 
     reject_unsupported_arcgis_type(meta)
     return meta
+
+
+async def fetch_arcgis_field_labels(
+    base: str, layer_id: int | str, client: httpx.AsyncClient, token: str | None = None
+) -> dict:
+    """The layer's published field labels, keyed by stored column name."""
+    meta = await fetch_arcgis_layer_meta(
+        base.rstrip("/"), str(layer_id).strip("/"), client, token
+    )
+    return arcgis_field_labels(meta)
 
 
 async def fetch_arcgis_layer_preview(

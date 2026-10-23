@@ -1209,6 +1209,10 @@ class AttributeMetadataResponse(BaseModel):
     example_values: list | None = Field(
         default=None, description="Sample values from the column"
     )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
+    )
     ordinal_position: int | None = Field(
         default=None, description="Column position in the table (1-based)"
     )
@@ -1309,6 +1313,10 @@ class SourceHealthResponse(BaseModel):
     )
 
 
+MAX_VALUE_LABELS = 5000
+MAX_VALUE_LABEL_LENGTH = 500
+
+
 class AttributeMetadataUpdate(BaseModel):
     title: str | None = Field(
         default=None, max_length=500, description="Human-friendly column display name"
@@ -1323,6 +1331,27 @@ class AttributeMetadataUpdate(BaseModel):
     domain_type: DOMAIN_TYPES | None = Field(
         default=None, description="Value domain: continuous, categorical, coded, etc."
     )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
+    )
+
+    @field_validator("value_labels")
+    @classmethod
+    def _bound_value_labels(cls, labels: dict[str, str] | None):
+        if labels is None:
+            return labels
+        if len(labels) > MAX_VALUE_LABELS:
+            raise ValueError(f"At most {MAX_VALUE_LABELS} value labels")
+        for code, label in labels.items():
+            if max(len(code), len(label)) > MAX_VALUE_LABEL_LENGTH:
+                raise ValueError(
+                    f"Codes and labels are at most {MAX_VALUE_LABEL_LENGTH} characters"
+                )
+            # JSONB rejects NUL.
+            if "\x00" in code or "\x00" in label:
+                raise ValueError("Codes and labels cannot contain NUL")
+        return labels
 
 
 class RelatedDatasetItem(BaseModel):

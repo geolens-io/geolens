@@ -1065,6 +1065,14 @@ export type AttributeMetadataResponse = {
      */
     example_values?: Array<unknown> | null;
     /**
+     * Value Labels
+     *
+     * Label for each stored code, keyed by the code as text.
+     */
+    value_labels?: {
+        [key: string]: string;
+    } | null;
+    /**
      * Ordinal Position
      *
      * Column position in the table (1-based)
@@ -1120,6 +1128,14 @@ export type AttributeMetadataUpdate = {
      * Value domain: continuous, categorical, coded, etc.
      */
     domain_type?: 'continuous' | 'discrete' | 'categorical' | 'coded' | 'codedValue' | 'boolean' | 'text' | 'date' | 'temporal' | 'geometry' | 'range' | null;
+    /**
+     * Value Labels
+     *
+     * Label for each stored code, keyed by the code as text.
+     */
+    value_labels?: {
+        [key: string]: string;
+    } | null;
 };
 
 /**

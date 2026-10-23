@@ -285,6 +285,7 @@ async def reset_attribute_endpoint(
                         "units",
                         "domain_type",
                         "semantic_role",
+                        "value_labels",
                         "example_values",
                         "user_modified_fields",
                     ],

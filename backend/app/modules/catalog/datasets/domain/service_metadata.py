@@ -467,7 +467,14 @@ async def update_attribute(
     if attr is None:
         raise ValueError("Attribute not found")
 
-    editable = {"title", "description", "units", "semantic_role", "domain_type"}
+    editable = {
+        "title",
+        "description",
+        "units",
+        "semantic_role",
+        "domain_type",
+        "value_labels",
+    }
     modified_fields = set(attr.user_modified_fields or [])
     for key, value in kwargs.items():
         if key in editable:
@@ -549,6 +556,7 @@ async def reset_attribute(
     attr.domain_type = port.infer_domain_type(attr.data_type or "")
     attr.units = port.infer_units(attr.field_name)
     attr.description = None
+    attr.value_labels = None
     attr.user_modified_fields = []
     attr.example_values = example_values
 

@@ -1,0 +1,241 @@
+"""ArcGIS coded-value domains become attribute value labels that a refresh keeps current."""
+
+from __future__ import annotations
+
+import uuid
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.catalog.datasets.domain.models import AttributeMetadata
+from app.modules.catalog.sources.field_labels import arcgis_field_labels
+from app.platform.jobs.models import IngestJob
+from app.processing.ingest import tasks_vector
+
+from tests.factories import get_user_id
+from tests.test_service_reupload_3d import _BASE, _WELLS, _refresh, _source
+
+pytestmark = pytest.mark.anyio
+
+
+def _layer(*coded: tuple[object, str]) -> dict:
+    return {
+        "fields": [
+            {
+                "name": "name",
+                "type": "esriFieldTypeString",
+                "domain": {
+                    "type": "codedValue",
+                    "name": "Status",
+                    "codedValues": [{"name": n, "code": c} for c, n in coded],
+                },
+            }
+        ]
+    }
+
+
+def test_a_coded_value_domain_gives_a_label_per_code_keyed_as_text() -> None:
+    meta = _layer((1, "Active"), (2.0, "Retired"), ("X", "Unknown"))
+    assert arcgis_field_labels(meta) == {
+        "name": {"value_labels": {"1": "Active", "2": "Retired", "X": "Unknown"}}
+    }
+
+
+def test_other_domains_and_malformed_entries_give_no_labels() -> None:
+    meta = {
+        "fields": [
+            {"name": "a", "domain": {"type": "range", "range": [0, 5]}},
+            {"name": "b", "domain": {"type": "codedValue", "codedValues": []}},
+            {
+                "name": "c",
+                "domain": {
+                    "type": "codedValue",
+                    "codedValues": [
+                        "x",
+                        {"code": True, "name": "yes"},
+                        {"code": 1},
+                        {"code": 2, "name": "  "},
+                        {"code": 3, "name": "ok\x00"},
+                        {"code": 3, "name": "duplicate"},
+                    ],
+                },
+            },
+        ]
+    }
+    assert arcgis_field_labels(meta) == {"c": {"value_labels": {"3": "ok"}}}
+
+
+async def test_a_failed_metadata_read_gives_none_not_an_error() -> None:
+    with patch(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
+        AsyncMock(side_effect=ValueError("boom")),
+    ):
+        assert await tasks_vector._fetch_arcgis_field_labels(_BASE, 0, None) is None
+    assert await tasks_vector._fetch_arcgis_field_labels(_BASE, None, None) is None
+
+
+async def _labels(session: AsyncSession, dataset_id) -> dict:
+    session.expire_all()
+    rows = await session.execute(
+        select(AttributeMetadata).where(AttributeMetadata.dataset_id == dataset_id)
+    )
+    return {row.field_name: row for row in rows.scalars().all()}
+
+
+async def _import(session, monkeypatch, field_labels) -> uuid.UUID:
+    admin_id = await get_user_id(session, "admin")
+    job = IngestJob(
+        source_filename="Wells",
+        source_url=_BASE,
+        source_layer="0",
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": f"Wells {uuid.uuid4().hex[:8]}",
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "geometry_type": "Point",
+            "field_labels": field_labels,
+        },
+    )
+    session.add(job)
+    await session.commit()
+    with _source(monkeypatch, _WELLS):
+        await tasks_vector.ingest_service.func(
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
+            source_url=_BASE,
+            source_layer="0",
+            user_id=str(admin_id),
+        )
+    await session.refresh(job)
+    assert job.status == "complete", job.error_message
+    return job.dataset_id
+
+
+async def test_an_import_stores_the_labels_and_leaves_other_fields_alone(
+    test_db_session, monkeypatch
+):
+    labels = arcgis_field_labels(_layer((1, "Active"), (2, "Retired")))
+    dataset_id = await _import(test_db_session, monkeypatch, labels)
+
+    attrs = await _labels(test_db_session, dataset_id)
+    assert attrs["name"].value_labels == {"1": "Active", "2": "Retired"}
+    assert attrs["name"].user_modified_fields == []
+    assert [a for k, a in attrs.items() if k != "name" and a.value_labels] == []
+
+
+async def test_a_refresh_updates_unedited_labels_and_keeps_edited_ones(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    labels = arcgis_field_labels(_layer((1, "Active")))
+    dataset_id = await _import(test_db_session, monkeypatch, labels)
+
+    with patch(
+        "app.processing.ingest.tasks_vector._fetch_arcgis_field_labels",
+        AsyncMock(return_value=arcgis_field_labels(_layer((1, "In service")))),
+    ):
+        await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+    attrs = await _labels(test_db_session, dataset_id)
+    assert attrs["name"].value_labels == {"1": "In service"}
+
+    attr = attrs["name"]
+    response = await client.patch(
+        f"/datasets/{dataset_id}/attributes/{attr.id}/",
+        json={"value_labels": {"1": "Mine"}},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 200, response.text
+    assert "value_labels" in response.json()["user_modified_fields"]
+
+    with patch(
+        "app.processing.ingest.tasks_vector._fetch_arcgis_field_labels",
+        AsyncMock(return_value=arcgis_field_labels(_layer((1, "Gone")))),
+    ):
+        await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+    attrs = await _labels(test_db_session, dataset_id)
+    assert attrs["name"].value_labels == {"1": "Mine"}
+
+
+async def test_a_refresh_drops_labels_the_source_no_longer_publishes(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    labels = arcgis_field_labels(_layer((1, "Active")))
+    dataset_id = await _import(test_db_session, monkeypatch, labels)
+
+    with patch(
+        "app.processing.ingest.tasks_vector._fetch_arcgis_field_labels",
+        AsyncMock(return_value={}),
+    ):
+        await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+
+    assert (await _labels(test_db_session, dataset_id))["name"].value_labels is None
+
+
+async def test_a_refresh_that_cannot_read_the_metadata_keeps_the_labels(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    labels = arcgis_field_labels(_layer((1, "Active")))
+    dataset_id = await _import(test_db_session, monkeypatch, labels)
+
+    with patch(
+        "app.processing.ingest.tasks_vector._fetch_arcgis_field_labels",
+        AsyncMock(return_value=None),
+    ):
+        await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _WELLS)
+
+    assert (await _labels(test_db_session, dataset_id))["name"].value_labels == {
+        "1": "Active"
+    }
+
+
+async def test_resetting_an_attribute_clears_its_labels_and_the_edit_mark(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    dataset_id = await _import(
+        test_db_session, monkeypatch, arcgis_field_labels(_layer((1, "Active")))
+    )
+    attr = (await _labels(test_db_session, dataset_id))["name"]
+    await client.patch(
+        f"/datasets/{dataset_id}/attributes/{attr.id}/",
+        json={"value_labels": {"1": "Mine"}},
+        headers=admin_auth_header,
+    )
+
+    response = await client.post(
+        f"/datasets/{dataset_id}/attributes/{attr.id}/reset/",
+        headers=admin_auth_header,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["value_labels"] is None
+    assert response.json()["user_modified_fields"] == []
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        {str(i): "x" for i in range(5001)},
+        {"1": "x" * 501},
+        {"1": "bad\x00"},
+        {"a" * 501: "x"},
+    ],
+)
+async def test_the_edit_endpoint_bounds_what_it_stores(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch, labels
+):
+    dataset_id = await _import(
+        test_db_session, monkeypatch, arcgis_field_labels(_layer((1, "Active")))
+    )
+    attr = (await _labels(test_db_session, dataset_id))["name"]
+
+    response = await client.patch(
+        f"/datasets/{dataset_id}/attributes/{attr.id}/",
+        json={"value_labels": labels},
+        headers=admin_auth_header,
+    )
+
+    assert response.status_code == 422

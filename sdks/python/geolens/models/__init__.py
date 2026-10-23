@@ -65,12 +65,18 @@ from .arc_gis_sign_in_request import ArcGISSignInRequest
 from .arc_gis_sign_in_response import ArcGISSignInResponse
 from .attribute_metadata_list_response import AttributeMetadataListResponse
 from .attribute_metadata_response import AttributeMetadataResponse
+from .attribute_metadata_response_value_labels_type_0 import (
+    AttributeMetadataResponseValueLabelsType0,
+)
 from .attribute_metadata_update import AttributeMetadataUpdate
 from .attribute_metadata_update_domain_type_type_0 import (
     AttributeMetadataUpdateDomainTypeType0,
 )
 from .attribute_metadata_update_semantic_role_type_0 import (
     AttributeMetadataUpdateSemanticRoleType0,
+)
+from .attribute_metadata_update_value_labels_type_0 import (
+    AttributeMetadataUpdateValueLabelsType0,
 )
 from .audit_log_list_response import AuditLogListResponse
 from .audit_log_response import AuditLogResponse
@@ -1019,9 +1025,11 @@ __all__ = (
     "ArcGISSignInResponse",
     "AttributeMetadataListResponse",
     "AttributeMetadataResponse",
+    "AttributeMetadataResponseValueLabelsType0",
     "AttributeMetadataUpdate",
     "AttributeMetadataUpdateDomainTypeType0",
     "AttributeMetadataUpdateSemanticRoleType0",
+    "AttributeMetadataUpdateValueLabelsType0",
     "AuditLogListResponse",
     "AuditLogResponse",
     "AuditLogResponseDetailsType0",

@@ -1197,7 +1197,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 564,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
@@ -1293,7 +1293,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1060,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1071,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1718,
@@ -1332,7 +1332,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
     # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1584,
+    "backend/app/processing/ingest/tasks_reupload.py": 1595,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1366,7 +1366,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1115,
+    "backend/app/processing/ingest/tasks_vector.py": 1144,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1572,
@@ -1386,7 +1386,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 695,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1876,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1905,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,

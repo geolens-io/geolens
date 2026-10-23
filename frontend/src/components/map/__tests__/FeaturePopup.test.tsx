@@ -418,3 +418,49 @@ describe('FeaturePopup — attribute titles', () => {
     expect(screen.getByText('Current label')).toBeInTheDocument();
   });
 });
+
+describe('FeaturePopup — coded values', () => {
+  const labelled = {
+    id: 'status',
+    dataset_id: 'ds-1',
+    field_name: 'status',
+    title: 'Status',
+    is_current: true,
+    value_labels: { '1': 'Active', '2': 'Retired' },
+  };
+
+  function renderStatus(status: unknown, attributes: unknown[] = [labelled]) {
+    mockUseAttributes.mockReturnValue({ data: { attributes, total: attributes.length } });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { status },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+  }
+
+  it('shows the label with the raw code kept in the row', () => {
+    renderStatus(1);
+    const row = screen.getByRole('button', { name: /Status/ });
+    expect(row).toHaveTextContent('StatusActive (1)');
+    expect(screen.getByText('(1)')).toHaveClass('group-focus-visible:opacity-100');
+  });
+
+  it('shows the raw value when the code has no label or the column has none', () => {
+    renderStatus(3);
+    expect(screen.getByRole('button', { name: /Status/ })).toHaveTextContent('Status3');
+  });
+
+  it('ignores labels on a column that is no longer current', () => {
+    renderStatus(1, [{ ...labelled, is_current: false }]);
+    expect(screen.queryByText('Active')).not.toBeInTheDocument();
+  });
+});

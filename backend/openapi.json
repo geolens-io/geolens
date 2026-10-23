@@ -1742,6 +1742,21 @@
             "description": "Sample values from the column",
             "title": "Example Values"
           },
+          "value_labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label for each stored code, keyed by the code as text.",
+            "title": "Value Labels"
+          },
           "ordinal_position": {
             "anyOf": [
               {
@@ -1881,6 +1896,21 @@
             ],
             "description": "Value domain: continuous, categorical, coded, etc.",
             "title": "Domain Type"
+          },
+          "value_labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label for each stored code, keyed by the code as text.",
+            "title": "Value Labels"
           }
         },
         "title": "AttributeMetadataUpdate",
