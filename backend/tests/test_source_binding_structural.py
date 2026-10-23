@@ -451,8 +451,9 @@ class _Names:
     (module, function, lambda, class, type parameters) as local, free, global
     or nonlocal. This maps the AST onto those scopes and resolves a name to the
     scope that binds it, so an alias of the stored dict or a mapping of column
-    keys is followed wherever Python would follow it. Comprehensions share
-    their enclosing scope, as ``symtable`` reports them since Python 3.12.
+    keys is followed wherever Python would follow it. List, set and dict
+    comprehensions share their enclosing scope (PEP 709); a generator
+    expression has its own, apart from its first iterable.
     """
 
     def __init__(self, module: _Module, tree: ast.AST, top: symtable.SymbolTable):
@@ -518,6 +519,14 @@ class _Names:
             enclosing = self._type_params(node, table, node.name.id)
             alias = self._table("type alias", node.name.id, node.lineno, enclosing)
             self._assign(node.value, alias)
+            return
+        if isinstance(node, ast.GeneratorExp):
+            first = node.generators[0]
+            self._assign(first.iter, table)
+            inner = self._table("function", "genexpr", node.lineno, table)
+            self._collect(first, inner)
+            for part in (node.elt, first.target, *first.ifs, *node.generators[1:]):
+                self._assign(part, inner)
             return
         if isinstance(node, ast.Name):
             self._table_of[id(node)] = table
@@ -1439,6 +1448,8 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "def outer(dataset):\n    [(ref := dataset.origin_ref) for _ in range(1)]\n"
         "    ref.update(token='x')",
         "class Holder:\n    ref = dataset.origin_ref\n    ref['token'] = 't'",
+        "def f(dataset):\n"
+        "    any(ref.update(token='x') for ref in [dataset.origin_ref])",
         # Type parameters: bounds and defaults run in scopes of their own.
         "alias = dataset.origin_ref\ndef f[T: alias.update(token='x')]():\n    pass",
         "alias = dataset.origin_ref\ndef f[T = alias.update(token='x')]():\n    pass",
@@ -1541,6 +1552,8 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "def outer(t):\n    changes = {'title': t}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
         # An alias inside a nested scope stays there.
+        "def f(dataset):\n    ref = {}\n"
+        "    any(True for ref in [dataset.origin_ref])\n    ref.update(title='x')",
         "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
         "        class Holder:\n            nonlocal ref\n"
         "            ref = dataset.origin_ref\n        return Holder\n"
