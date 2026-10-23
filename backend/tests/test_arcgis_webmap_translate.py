@@ -387,6 +387,25 @@ class TestUniqueValueRenderer:
         assert layer.style_config["categories"][0]["value"] == 0.10000000149011612
         assert layer.paint["fill-color"][3][2] == "0.10000000149011612"
 
+    @pytest.mark.parametrize("text", ["1e999", "-1e999"])
+    def test_a_single_value_beyond_binary64_stays_a_string(self, text: str) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "N",
+            "uniqueValueInfos": [
+                {"value": text, "symbol": _fill()},
+                {"value": "0.5", "symbol": _fill()},
+            ],
+        }
+        webmap = _with_renderer(renderer)
+        webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+            {"name": "N", "type": "esriFieldTypeSingle"}
+        ]
+        layer = _translate(webmap).layers[0]
+        assert [c["value"] for c in layer.style_config["categories"]] == [text, 0.5]
+        json.dumps(layer.style_config, allow_nan=False)
+        json.dumps(layer.paint, allow_nan=False)
+
     def test_a_large_integral_double_keeps_its_javascript_text(self) -> None:
         renderer = {
             "type": "uniqueValue",

@@ -7,6 +7,7 @@ Everything else keeps a default paint and is recorded in the loss report.
 
 from __future__ import annotations
 
+import math
 import struct
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -310,6 +311,8 @@ def _typed_value(value: Any, field_kind: str | None) -> str | int | float:
         try:
             number = struct.unpack("f", struct.pack("f", number))[0]
         except OverflowError:
+            return value
+        if not math.isfinite(number):
             return value
     elif Decimal(repr(number)) != exact:
         return value
