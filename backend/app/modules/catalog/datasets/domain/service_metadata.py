@@ -380,6 +380,10 @@ async def update_user_metadata(
     await lock_catalog_rows_for_write(
         session, dataset, with_raster_asset=touches_raster
     )
+    # Loaded before the lock: judge the row as committed. The flush keeps an
+    # ownership transfer this request already applied.
+    await session.flush()
+    await session.refresh(record, ["visibility", "record_status", "created_by"])
     await refuse_publish_key_widening(
         session, record.id, visibility=meta.visibility, record_status=meta.record_status
     )

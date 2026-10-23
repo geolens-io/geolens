@@ -91,8 +91,9 @@ async def set_dataset_groups(
     if wanted - usable:
         raise UnknownGroupsError(wanted - usable)
     await lock_dataset_rows_for_write(session, dataset)
-
     record = dataset.record
+    # Loaded before the lock: judge the row as committed, not as first read.
+    await session.refresh(record, ["visibility", "record_status", "created_by"])
     current = set(await session.scalars(granted))
     added, removed = wanted - current, current - wanted
     if added and not is_admin:

@@ -1200,7 +1200,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 584,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 588,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 577,

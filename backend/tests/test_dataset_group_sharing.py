@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -15,6 +16,14 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.schemas import DatasetMeta
+from app.modules.catalog.datasets.domain.service import (
+    get_dataset,
+    set_dataset_groups,
+    update_user_metadata,
+)
+from tests.alembic_helpers import fresh_query
 from tests.factories import create_user, get_user_id
 from tests.test_dataset_group_grants import _new_group
 from tests.test_tile_signature_revocation_1963 import _evict_tile_meta, _make_vector
@@ -209,13 +218,14 @@ async def test_only_the_owner_and_admins_see_the_groups_on_the_detail(
     assert [g["id"] for g in as_admin["groups"]] == [owned["mine"]]
 
 
-async def test_an_internal_dataset_keeps_its_audience(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
+@pytest.mark.parametrize("visibility", ["internal", "public"])
+async def test_an_internal_or_public_dataset_keeps_its_audience(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, visibility: str
 ):
     owner, owner_id = await create_user(client, admin_auth_header, "editor")
     dataset_id = (
         await _make_vector(
-            test_db_session, created_by=uuid.UUID(owner_id), visibility="internal"
+            test_db_session, created_by=uuid.UUID(owner_id), visibility=visibility
         )
     ).id
     group = await _new_group(client, admin_auth_header, [owner_id])
@@ -224,7 +234,7 @@ async def test_an_internal_dataset_keeps_its_audience(
     shared = await _share(client, dataset_id, [group], owner)
 
     assert shared.status_code == 200, shared.text
-    assert shared.json()["visibility"] == "internal"
+    assert shared.json()["visibility"] == visibility
     assert await _granted(test_db_session, dataset_id) == {group}
     assert await _version(test_db_session, dataset_id) == before
 
@@ -425,3 +435,112 @@ async def test_my_groups_lists_the_callers_groups_and_all_for_an_admin(
     assert [g["id"] for g in mine.json()["groups"]] == [owned["mine"]]
     assert mine.json()["total"] == 1
     assert everything.json()["total"] == admin_list.json()["total"] >= 2
+
+
+async def _stale_private_dataset(session, owner_id: str):
+    """A private dataset loaded into ``session``, then made internal by another
+    connection, as a write racing the caller's lock would."""
+    dataset_id = (
+        await _make_vector(
+            session, created_by=uuid.UUID(owner_id), visibility="private"
+        )
+    ).id
+    loaded = await get_dataset(session, dataset_id)
+    await session.commit()
+    await fresh_query(
+        "UPDATE catalog.records SET visibility = 'internal' WHERE id = :id",
+        {"id": loaded.record_id},
+    )
+    return loaded
+
+
+async def test_sharing_judges_the_visibility_committed_under_the_lock(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Read stale, the internal dataset would be judged private and narrowed
+    to restricted with no stranding or VRT check."""
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    group = await _new_group(client, admin_auth_header, [owner_id])
+    loaded = await _stale_private_dataset(test_db_session, owner_id)
+    owner = await test_db_session.get(User, uuid.UUID(owner_id))
+
+    await set_dataset_groups(
+        test_db_session, loaded, [uuid.UUID(group)], actor=owner, is_admin=False
+    )
+    await test_db_session.commit()
+
+    assert await _visibility(test_db_session, loaded.id) == "internal"
+
+
+async def test_a_metadata_patch_judges_the_visibility_committed_under_the_lock(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Read stale, narrowing the internal dataset to restricted would skip the
+    guard that protects viewers of the owner's internal map."""
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    loaded = await _stale_private_dataset(test_db_session, owner_id)
+    await _owners_internal_map(test_db_session, loaded.id, owner_id)
+
+    with pytest.raises(ValueError, match="shared maps"):
+        await update_user_metadata(
+            test_db_session,
+            loaded.id,
+            DatasetMeta(visibility="restricted"),
+            actor_id=uuid.UUID(owner_id),
+        )
+    await test_db_session.rollback()
+
+
+async def _mint_key(client: AsyncClient, headers: dict, scope: str) -> dict:
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": f"{scope} key", "scope": scope},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return {"X-Api-Key": resp.json()["key"]}
+
+
+async def test_only_a_full_key_may_share(client: AsyncClient, owned):
+    dataset_id = owned["dataset"]
+    bound = await client.post(
+        f"/datasets/{dataset_id}/api-keys",
+        json={
+            "name": "Webhook",
+            "scope": "dataset_write",
+            "expires_at": (datetime.now(UTC) + timedelta(days=30)).isoformat(),
+        },
+        headers=owned["owner"],
+    )
+    assert bound.status_code == 201, bound.text
+    keys = {
+        scope: await _mint_key(client, owned["owner"], scope)
+        for scope in ("read_only", "publish", "full")
+    }
+    keys["dataset_write"] = {"X-Api-Key": bound.json()["key"]}
+    body = [owned["mine"]]
+
+    status = {
+        scope: (await _share(client, dataset_id, body, headers)).status_code
+        for scope, headers in keys.items()
+    }
+
+    assert status == {
+        "read_only": 403,
+        "publish": 403,
+        "dataset_write": 401,
+        "full": 200,
+    }
+
+
+async def test_an_admins_publish_key_lists_only_the_admins_own_groups(
+    client: AsyncClient, admin_auth_header: dict, owned
+):
+    publish = await _mint_key(client, admin_auth_header, "publish")
+
+    as_key = await client.get("/groups/mine/", params={"limit": 200}, headers=publish)
+    as_admin = await client.get("/groups/mine/", headers=admin_auth_header)
+
+    assert as_key.status_code == 200, as_key.text
+    assert owned["other"] not in {g["id"] for g in as_key.json()["groups"]}
+    assert as_key.json()["total"] < as_admin.json()["total"]

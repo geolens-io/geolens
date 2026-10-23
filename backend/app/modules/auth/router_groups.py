@@ -11,6 +11,7 @@ from app.modules.auth import groups as group_service
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.permissions import get_user_roles
 from app.modules.auth.schemas import GroupRef, GroupRefListResponse
+from app.platform.request_credential import is_publish_key
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/groups", tags=["Groups"], responses=ERROR_RESPONSES_AUTH)
@@ -29,7 +30,8 @@ async def list_my_groups(
 
     That is the groups the caller belongs to, or every group for an admin.
     """
-    is_admin = "admin" in await get_user_roles(db, user)
+    # A publish key acts only on its owner's own objects, so it isn't admin.
+    is_admin = not is_publish_key(db) and "admin" in await get_user_roles(db, user)
     groups, total = await group_service.list_groups(
         db, skip=skip, limit=limit, member_id=None if is_admin else user.id
     )
