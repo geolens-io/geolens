@@ -7,8 +7,8 @@ from app.platform.column_names import stored_column_names
 _PG_IDENTIFIER_BYTES = 63
 _MAX_ALIAS = 500
 _MAX_DESCRIPTION = 2000
-_MAX_VALUE_LABELS = 5000
-_MAX_VALUE_LABEL = 500
+MAX_VALUE_LABELS = 5000
+MAX_VALUE_LABEL_LENGTH = 500
 
 
 def _clean(value: object, limit: int) -> str | None:
@@ -26,7 +26,7 @@ def _code_text(code: object) -> str | None:
         code = int(code)
     if isinstance(code, int):
         return str(code)
-    return _clean(code, _MAX_VALUE_LABEL)
+    return _clean(code, MAX_VALUE_LABEL_LENGTH)
 
 
 def _coded_value_labels(domain: object) -> dict[str, str] | None:
@@ -38,11 +38,11 @@ def _coded_value_labels(domain: object) -> dict[str, str] | None:
         if not isinstance(entry, dict):
             continue
         code = _code_text(entry.get("code"))
-        name = _clean(entry.get("name"), _MAX_VALUE_LABEL)
+        name = _clean(entry.get("name"), MAX_VALUE_LABEL_LENGTH)
         if code is None or name is None or code in labels:
             continue
         labels[code] = name
-        if len(labels) == _MAX_VALUE_LABELS:
+        if len(labels) == MAX_VALUE_LABELS:
             break
     return labels or None
 

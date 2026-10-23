@@ -477,18 +477,17 @@ export function AttributeTable({
 
         const cellValue = String(info.getValue() ?? '');
         const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), info.getValue());
-        // An editable cell shows the code beside its label on hover and focus,
-        // screen readers always read it; a read-only cell offers it in a tooltip.
-        const shown = codeLabel === undefined ? cellValue : (
-          <>
-            {codeLabel}{' '}
-            <span className="text-muted-foreground opacity-0 group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">
-              ({cellValue})
-            </span>
-          </>
-        );
-
         if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
+          // The code shows beside its label on hover and focus, and screen
+          // readers always read it.
+          const shown = codeLabel === undefined ? cellValue : (
+            <>
+              {codeLabel}{' '}
+              <span className="text-muted-foreground opacity-0 group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">
+                ({cellValue})
+              </span>
+            </>
+          );
           return (
             <button
               type="button"

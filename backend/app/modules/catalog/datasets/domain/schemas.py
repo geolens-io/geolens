@@ -16,6 +16,10 @@ from pydantic import (
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
+from app.modules.catalog.sources.field_labels import (
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+)
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
@@ -1311,10 +1315,6 @@ class SourceHealthResponse(BaseModel):
         default=None,
         description="When GeoLens last contacted this origin, success or failure.",
     )
-
-
-MAX_VALUE_LABELS = 5000
-MAX_VALUE_LABEL_LENGTH = 500
 
 
 class AttributeMetadataUpdate(BaseModel):
