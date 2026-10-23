@@ -95,16 +95,16 @@ _CORE_GUARDS = (
     # Batch sibling of check_dataset_access — same fail-closed
     # 404, one query for the whole set instead of one per id.
     "check_datasets_access_bulk",
+    "check_map_access",
+    "apply_map_visibility_filter",
 )
 
 # Domain guard helpers that wrap the core checks (or implement the
 # equivalent RBAC logic for their model). Their integrity is pinned by
 # test_delegated_guards_still_enforce_access below.
 _DELEGATED_GUARDS = (
-    # maps: app/modules/catalog/maps/{_router_helpers,service_crud,service_shared}.py
+    # maps: app/modules/catalog/maps/service_crud.py
     "check_map_ownership",
-    "_check_map_read_access",
-    "_apply_map_visibility_filter",
     # maps: app/modules/catalog/maps/service_layers.py — bulk variant of
     # check_dataset_access, kept in sync with can_access_dataset.
     "bulk_check_dataset_access",
@@ -133,7 +133,7 @@ _RAISING_GUARDS = frozenset(
         "check_dataset_write_access",
         "check_datasets_access_bulk",
         "check_map_ownership",
-        "_check_map_read_access",
+        "check_map_access",
         "_check_record_read_access",
         "_check_record_ownership",
         "_authorize_vector_tile_request",
@@ -149,7 +149,7 @@ _RAISING_GUARDS = frozenset(
 _VALUE_GUARDS = frozenset(
     {
         "apply_visibility_filter",
-        "_apply_map_visibility_filter",
+        "apply_map_visibility_filter",
         "bulk_check_dataset_access",
         "select_candidates",
     }
@@ -171,12 +171,7 @@ def _guard_objects() -> dict[str, Any]:
     not count. Fails loudly here if a sanctioned guard is renamed or moved.
     """
     from app.modules.catalog import authorization
-    from app.modules.catalog.maps import (
-        _router_helpers,
-        service_crud,
-        service_layers,
-        service_shared,
-    )
+    from app.modules.catalog.maps import service_crud, service_layers
     from app.modules.catalog.records import router as records_router
     from app.modules.catalog.search import service_candidates
     from app.processing.tiles import router as tiles_router
@@ -189,9 +184,9 @@ def _guard_objects() -> dict[str, Any]:
         "check_dataset_write_access": authorization.check_dataset_write_access,
         "check_datasets_access_bulk": authorization.check_datasets_access_bulk,
         "apply_visibility_filter": authorization.apply_visibility_filter,
+        "check_map_access": authorization.check_map_access,
+        "apply_map_visibility_filter": authorization.apply_map_visibility_filter,
         "check_map_ownership": service_crud.check_map_ownership,
-        "_check_map_read_access": _router_helpers._check_map_read_access,
-        "_apply_map_visibility_filter": service_shared._apply_map_visibility_filter,
         "bulk_check_dataset_access": service_layers.bulk_check_dataset_access,
         "_check_record_read_access": records_router._check_record_read_access,
         "_check_record_ownership": records_router._check_record_ownership,
@@ -249,10 +244,10 @@ ALLOWLIST: dict[str, str] = {
         "admin-gated (manage_settings); Dataset/Record select only labels audit rows"
     ),
     # Share-token capability route (crawler HTML card). Validates the token,
-    # then explicitly requires map.visibility == "public" before rendering any
-    # map details; non-public/expired links get an empty SPA-redirect shell.
+    # then requires a map anonymous callers may read before rendering any map
+    # details; other or expired links get an empty SPA-redirect shell.
     "app.modules.catalog.maps.router_sharing.shared_map_card_endpoint": (
-        "share-token capability route; hard-requires map.visibility == 'public'"
+        "share-token capability route; requires a map open to anonymous readers"
     ),
     # Duplicate-source existence check before creating an IngestJob. The
     # select is scoped ``Record.created_by == user.id`` — the caller can only
@@ -676,7 +671,7 @@ def _guard_creditable_call_ids(tree: ast.Module) -> set[int]:
     - calls in the analyzed function's own body (and at module level), and
     - calls in a FIRST-LEVEL nested def that the outer body provably
       invokes by simple name — the ``list_maps`` closure pattern
-      (``_apply_vis_filter`` wrapping ``_apply_map_visibility_filter``).
+      (``_apply_vis_filter`` wrapping ``apply_map_visibility_filter``).
       An async nested def's invocation must provably RUN the coroutine:
       directly awaited, or a direct argument of an awaited call (the STAC
       ``await asyncio.gather(_fetch_extents(), ...)`` idiom).
@@ -1732,7 +1727,8 @@ def test_delegated_guards_still_enforce_access() -> None:
     so hollowing out a helper fails here rather than silently weakening the
     main test.
     """
-    from app.modules.catalog.maps import _router_helpers, service_crud, service_shared
+    from app.modules.catalog import authorization
+    from app.modules.catalog.maps import service_crud
     from app.modules.catalog.records import router as records_router
 
     def _calls_in(fn: Any) -> set[str]:
@@ -1749,17 +1745,17 @@ def test_delegated_guards_still_enforce_access() -> None:
         records_router._check_record_ownership
     ), "records _check_record_ownership no longer calls _check_record_read_access"
 
-    map_read = _source_of(_router_helpers._check_map_read_access)
-    assert "visibility" in map_read and "404" in map_read, (
-        "maps _check_map_read_access no longer enforces visibility with a 404"
+    map_read = _source_of(authorization.check_map_access)
+    assert "_MAP_VISIBILITIES" in map_read and "404" in map_read, (
+        "check_map_access no longer enforces map visibility with a 404"
     )
     map_own = _source_of(service_crud.check_map_ownership)
     assert "created_by" in map_own and "admin" in map_own, (
         "maps check_map_ownership no longer enforces owner-or-admin"
     )
-    map_filter = _source_of(service_shared._apply_map_visibility_filter)
-    assert "visibility" in map_filter and "created_by" in map_filter, (
-        "maps _apply_map_visibility_filter no longer filters by visibility/ownership"
+    map_filter = _source_of(authorization.apply_map_visibility_filter)
+    assert "_MAP_VISIBILITIES" in map_filter and "created_by" in map_filter, (
+        "apply_map_visibility_filter no longer filters by visibility/ownership"
     )
 
     from app.modules.catalog.maps import service_layers

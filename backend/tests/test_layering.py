@@ -1428,8 +1428,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog probes.
     "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
-    # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1215,
+    # may see, share the permission extension's one filter; map reads share
+    # the one map guard beside it.
+    "backend/app/modules/catalog/authorization.py": 1264,
 }
 
 
@@ -1743,7 +1744,7 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "ai/chat_validation.py": {"app.modules.catalog.maps.filter_grammar"},
     "ai/router.py": {
         # Private cross-domain helpers. Needs behavior-level ProcessingPort methods
-        # (check_map_read_access, can_edit_map) before this edge can go.
+        # (check_map_access, can_edit_map) before this edge can go.
         "app.modules.catalog.maps._router_helpers",
         "app.modules.catalog.maps.models",
     },
@@ -2619,7 +2620,7 @@ def _private_module_import_edges() -> dict[str, set[str]]:
 _PRIVATE_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "backend/app/processing/ai/router.py": {
         "app.modules.catalog.maps._router_helpers._can_edit_map",
-        "app.modules.catalog.maps._router_helpers._check_map_read_access",
+        "app.modules.catalog.maps._router_helpers.check_map_access",
     },
 }
 

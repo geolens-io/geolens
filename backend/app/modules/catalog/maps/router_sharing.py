@@ -35,10 +35,10 @@ from app.modules.auth.dependencies import (
     reject_unresolvable_credentials,
     require_permission,
 )
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.authorization import ANONYMOUS_MAP_VISIBILITIES
+from app.modules.catalog.authorization import check_map_access, get_user_roles
 from app.modules.catalog.maps._router_helpers import (
     _build_frame_ancestors,
-    _check_map_read_access,
     _layers_from_tuples,
 )
 from app.modules.catalog.maps.schemas import (
@@ -92,7 +92,7 @@ async def shared_map_card_endpoint(
     map_obj = None
     if token_obj is not None and not isinstance(token_obj, str):
         map_obj = await get_map(db, token_obj.map_id)
-    if map_obj is None or map_obj.visibility != "public":
+    if map_obj is None or map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
         # "Copy Link" copies this /card URL — return 200 HTML
         # with a meta-refresh into the SPA shell (not bare 404 JSON) so it
         # lands on the same "link expired" page as /m/{token}.
@@ -211,7 +211,7 @@ async def visibility_check_endpoint(
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     await check_map_ownership(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id, user)
     return VisibilityCheckResponse(
@@ -270,7 +270,7 @@ async def export_map_style_endpoint(
     map_obj, layer_tuples, _, _ = await get_map_with_layers(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     layer_tuples = await filter_layer_rows_by_dataset_visibility(db, layer_tuples, user)
     layers = _layers_from_tuples(layer_tuples)
     style = build_maplibre_style(
@@ -334,7 +334,7 @@ async def share_map_endpoint(
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
     await check_map_ownership(map_obj, user, db)
-    if map_obj.visibility != "public":
+    if map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
         raise HTTPException(status_code=400, detail="Map must be public before sharing")
     # A new expiry on a live link could end it early. Locked first, as
     # create_share_token locks, so the check and the write see the same token.
