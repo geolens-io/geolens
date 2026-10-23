@@ -141,8 +141,12 @@ def inventory_changes(
     results = page.get("results") if isinstance(page, dict) else None
     if not isinstance(results, list):
         return f"{unchecked}: the portal's search answered without results"
-    newest = results[0].get("modified") if results else None
-    if isinstance(newest, int) and newest > read_at.timestamp() * 1000:
+    if not results:
+        return None
+    newest = results[0].get("modified") if isinstance(results[0], dict) else None
+    if not isinstance(newest, int) or isinstance(newest, bool):
+        return f"{unchecked}: the portal's newest item has no usable modified time"
+    if newest > read_at.timestamp() * 1000:
         return (
             f"portal items changed after the inventory was read {age} ago; run "
             "inventory and plan again"

@@ -1298,6 +1298,11 @@ _PLAN = {
         (None, "no ArcGIS credential"),
         (_SearchPortal(PortalError("boom", kind="server")), "couldn't check"),
         (_SearchPortal({"error": "nope"}), "couldn't check"),
+        (_SearchPortal({"results": [{}]}), "couldn't check"),
+        (_SearchPortal({"results": [{"modified": None}]}), "couldn't check"),
+        (_SearchPortal({"results": [{"modified": "1791000000000"}]}), "couldn't check"),
+        (_SearchPortal({"results": [{"modified": True}]}), "couldn't check"),
+        (_SearchPortal({"results": ["item"]}), "couldn't check"),
     ],
 )
 def test_cutover_asks_the_portal_for_items_changed_since_the_inventory(client, says):
