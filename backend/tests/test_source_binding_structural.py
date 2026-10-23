@@ -414,13 +414,53 @@ def _holds_stored(value: ast.AST, aliases: set[str]) -> bool:
 _NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
+def _header_nodes(node: ast.AST) -> list[ast.AST]:
+    """A nested definition's parts that run in the enclosing scope.
+
+    Decorators, defaults, annotations, class bases and keywords; only the body
+    belongs to the definition's own scope.
+    """
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *node.keywords]
+    args = node.args
+    parts = [*args.defaults, *(d for d in args.kw_defaults if d is not None)]
+    if isinstance(node, ast.Lambda):
+        return parts
+    params = [
+        *args.posonlyargs,
+        *args.args,
+        *args.kwonlyargs,
+        *([args.vararg] if args.vararg else []),
+        *([args.kwarg] if args.kwarg else []),
+    ]
+    return [
+        *node.decorator_list,
+        *parts,
+        *(a.annotation for a in params if a.annotation is not None),
+        *([node.returns] if node.returns else []),
+    ]
+
+
+def _body_nodes(scope: ast.AST) -> list[ast.AST]:
+    if isinstance(scope, ast.Lambda):
+        return [scope.body]
+    if isinstance(scope, (ast.Module, *_NESTED_SCOPES)):
+        return list(scope.body)
+    return list(ast.iter_child_nodes(scope))
+
+
 def _own_nodes(scope: ast.AST):
-    """The scope's nodes, without descending into nested functions or classes."""
-    stack = list(ast.iter_child_nodes(scope))
+    """The scope's own nodes: its body, and nested definitions' headers but not bodies.
+
+    A comprehension is walked through, so a walrus in one binds here (PEP 572).
+    """
+    stack = _body_nodes(scope)
     while stack:
         node = stack.pop()
         yield node
-        if not isinstance(node, _NESTED_SCOPES):
+        if isinstance(node, _NESTED_SCOPES):
+            stack.extend(_header_nodes(node))
+        else:
             stack.extend(ast.iter_child_nodes(node))
 
 
@@ -473,6 +513,7 @@ class _Scope:
         self.module = module
         self.scope = scope
         self.parent = parent
+        self.is_class = isinstance(scope, ast.ClassDef)
         self.root: _Scope = parent.root if parent else self
         # The class a method belongs to, and its first parameter (self/cls).
         self.class_name = class_name
@@ -803,23 +844,30 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
     module = _Module(tree)
 
     def visit(
-        node: ast.AST,
-        function: str | None,
-        scope: _Scope,
-        in_string: bool,
-        class_name: str | None = None,
+        node: ast.AST, function: str | None, scope: _Scope, in_string: bool
     ) -> None:
-        if isinstance(node, ast.ClassDef):
-            scope.class_aliases[node.name] = _class_aliases(
-                node, scope.stored_aliases()
-            )
-            for child in ast.iter_child_nodes(node):
-                visit(child, function, scope, in_string, node.name)
+        if isinstance(node, _NESTED_SCOPES):
+            # The header runs in the enclosing scope, the body in its own.
+            for header in _header_nodes(node):
+                visit(header, function, scope, in_string)
+            if isinstance(node, ast.ClassDef):
+                scope.class_aliases[node.name] = _class_aliases(
+                    node, scope.stored_aliases()
+                )
+                inner = _Scope(module, node, scope)
+            else:
+                if not isinstance(node, ast.Lambda):
+                    function = node.name
+                # A class body is not visible to the functions defined in it.
+                inner = _Scope(
+                    module,
+                    node,
+                    scope.parent if scope.is_class else scope,
+                    scope.scope.name if scope.is_class else None,
+                )
+            for child in _body_nodes(node):
+                visit(child, function, inner, in_string)
             return
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            function = node.name
-            scope = _Scope(module, node, scope, class_name)
-            class_name = None
         found.extend(
             (node.lineno, function, what) for what in _node_writes(node, scope)
         )
@@ -830,7 +878,7 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
                 found.append((node.lineno, function, "raw SQL writes the column"))
             in_string = True
         for child in ast.iter_child_nodes(node):
-            visit(child, function, scope, in_string, class_name)
+            visit(child, function, scope, in_string)
 
     visit(tree, None, _Scope(module, tree), False)
     return found
@@ -1419,6 +1467,25 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "    Holder.ref.update(token=t)",
         "def outer(dataset, t):\n    def touch():\n        ref['token'] = t\n"
         "    ref = dataset.origin_ref\n    touch()",
+        # Definition headers run in the enclosing scope, bodies in their own.
+        "f = lambda dataset: ((ref := dataset.origin_ref), ref.update(token='x'))",
+        "def outer(dataset):\n    def inner(x=(ref := dataset.origin_ref)):\n"
+        "        return x\n    ref.update(token='x')",
+        "def outer(dataset):\n    def inner(*, x=(ref := dataset.origin_ref)):\n"
+        "        return x\n    ref.update(token='x')",
+        "def outer(dataset):\n    @register((ref := dataset.origin_ref))\n"
+        "    def inner():\n        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    class Holder((ref := dataset.origin_ref).__class__):\n"
+        "        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    class Holder(meta=(ref := dataset.origin_ref)):\n"
+        "        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    f = lambda x=(ref := dataset.origin_ref): x\n"
+        "    ref.update(token='x')",
+        "def outer(dataset):\n    [(ref := dataset.origin_ref) for _ in range(1)]\n"
+        "    ref.update(token='x')",
+        "class Holder:\n    ref = dataset.origin_ref\n    ref['token'] = 't'",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def inner(ref=ref.update(token='x')):\n        return ref",
         "def outer(r):\n    changes = {'origin_ref': r}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
         "def outer(session, r):\n    q = session.query(Dataset)\n    def run():\n"
@@ -1480,6 +1547,8 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "def outer(t):\n    changes = {'title': t}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
         # An alias inside a nested scope stays there.
+        "class Holder:\n    ref = dataset.origin_ref\n    def touch(self):\n"
+        "        ref.update(title='x')",
         "def outer(dataset):\n    ref = {}\n    def inner():\n"
         "        ref = dataset.origin_ref\n        return ref\n"
         "    ref.update(title='x')\n    return inner",
