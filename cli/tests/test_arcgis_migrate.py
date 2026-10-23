@@ -827,6 +827,36 @@ def test_a_state_file_is_written_as_v2_and_v1_still_loads(
     assert _state(tmp_path)["schema_version"] == "2"
 
 
+def test_cutover_counts_an_item_whose_plan_owner_moved_to_another_user(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    _write_state(
+        tmp_path,
+        {L1: {"status": "done", "dataset_ids": [_created_id(L1)], "owner_id": ALICE}},
+    )
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1, target_owner="operator")]),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unresolved-users"]
+    [check] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
+    ]
+    assert check["items"] == [
+        {
+            "item": L1,
+            "reason": "its plan owner is now operator, who hasn't been given it",
+        }
+    ]
+
+
 def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     runner, tmp_path, geolens, handled
 ):

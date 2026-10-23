@@ -549,7 +549,16 @@ def mark_cutover(
     changed = (
         None if opts.dry_run else inventory_changes(portal, plan, datetime.now(tz=UTC))
     )
-    failing = failing_checks(plan, state, owners.unresolved, changed)
+    # An item whose plan now names another owner stays with the old one.
+    moved = [
+        {
+            "item": change["item"],
+            "reason": f"its plan owner is now {change['owner']}, who hasn't "
+            "been given it",
+        }
+        for change in owners.changed
+    ]
+    failing = failing_checks(plan, state, [*owners.unresolved, *moved], changed)
     accepted = [c["check"] for c in failing if c["check"] in opts.accept]
     refused = [c["check"] for c in failing if c["check"] not in opts.accept]
     marked = not refused and summary.stopped is None and not opts.dry_run

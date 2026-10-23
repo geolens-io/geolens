@@ -90,7 +90,7 @@ A migration ends with one last run after the portal stops changing, marked with 
    - `--accept-unfinished-items`: a plan item isn't done (failed, skipped, can't run yet or waits on another item), is unlisted (even a finished one, since a rerun doesn't bring it up to date) or isn't up to date (its refresh failed or stopped for review, or GeoLens changed it). Items set to `skip` and items gone from the portal don't count.
    - `--accept-incomplete-inventory`: the plan wasn't last merged from a complete `--scope org` inventory read by an organization administrator, or the portal has items of the organization changed since that inventory was read, so the plan may miss or misstate them. The run asks the portal with its ArcGIS credential, so pass one; without it, or when the portal can't answer, this check fails too.
    - `--accept-attachment-loss`: a migrated layer has attachments, or its service doesn't say. GeoLens doesn't import attachments yet.
-   - `--accept-unresolved-users`: an item still waits for its owner, or its plan owner doesn't name one GeoLens user.
+   - `--accept-unresolved-users`: an item still waits for its owner, its plan owner doesn't name one GeoLens user, or its plan now names another owner than the one it was given.
 5. Read `arcgis-migration-report.md`, which records the cutover and the losses you accepted, and keep it with the state file. Then retire the portal. A refresh after that fails with the service's error, and the datasets stay as they are.
 
 A refused cutover exits 1 and leaves the run unmarked; nothing it imported or refreshed is undone. `--cutover` runs the whole plan, so it can't be combined with `--only`.
