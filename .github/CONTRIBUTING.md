@@ -130,9 +130,9 @@ refactor: extract tile URL builder into shared utility
 
 Keep the subject line under 72 characters. Use the body for additional context when needed.
 
-## Developer Certificate of Origin
+## Licensing of contributions
 
-We use the [Developer Certificate of Origin](https://developercertificate.org) (DCO). Each commit must be signed off with `git commit -s`, which adds a `Signed-off-by: Name <email>` trailer. This certifies that you have the right to submit the contribution under the Apache 2.0 license.
+GeoLens is licensed under Apache-2.0. Under section 5 of the license, anything you submit for inclusion is licensed under the same terms unless you say otherwise. Only submit work you have the right to contribute. No sign-off or contributor agreement is needed.
 
 ## Pull Requests
 

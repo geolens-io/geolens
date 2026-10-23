@@ -147,6 +147,11 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs import ledger
+from app.platform.dataset_origin import PORTAL_LINK_KEYS
+from app.platform.portal_link import (
+    PortalLink,
+    resolve_portal_link,
+)
 from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
@@ -1040,7 +1045,17 @@ async def commit_import(
     # and more sharply: user_metadata is durable JSONB, so a nested
     # credential object would land there in full. mode="json" serializes
     # datetime fields (temporal_start/temporal_end) as ISO strings.
-    commit_metadata = commit.model_dump(exclude={"token", "auth"}, mode="json")
+    link = (
+        resolve_portal_link(commit.item_id, commit.portal_url)
+        if isinstance(commit, VectorCommitRequest)
+        else PortalLink.unsupported(request.item_id, request.portal_url)
+    )
+    commit_metadata = {
+        **commit.model_dump(
+            exclude={"token", "auth", "item_id", "portal_url"}, mode="json"
+        ),
+        **link.fields,
+    }
     if credential is not None:
         # Persist only the fact that retry needs fresh credentials. The
         # credential remains request-only and is never written to JSONB.
@@ -1065,6 +1080,7 @@ async def commit_import(
         job_id=job.id,
         status="pending",
         message="Import queued",
+        origin_link_loss=link.losses,
     )
 
 
@@ -1116,6 +1132,17 @@ async def commit_fan_out(
     await check_public_visibility_allowed(
         db, user, (job.user_metadata or {}).get("visibility")
     )
+
+    # A retry after an all-failed dispatch replaces the link a first attempt
+    # left on the restored parent rather than adding to it.
+    link = resolve_portal_link(request.item_id, request.portal_url)
+    kept = {
+        key: value
+        for key, value in (job.user_metadata or {}).items()
+        if key not in PORTAL_LINK_KEYS
+    }
+    if {**kept, **link.fields} != (job.user_metadata or {}):
+        job.user_metadata = {**kept, **link.fields}
 
     known_layer_names = known_layer_names_for(job)
 
@@ -1179,7 +1206,9 @@ async def commit_fan_out(
                 ),
             )
 
-    return FanOutCommitResponse(fan_out_id=job.id, results=results)
+    return FanOutCommitResponse(
+        fan_out_id=job.id, results=results, origin_link_loss=link.losses
+    )
 
 
 @router.post(

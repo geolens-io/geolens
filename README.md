@@ -348,7 +348,7 @@ sizes and options.
 ## Contributing
 
 Bug reports, fixes, translations and docs are welcome. [CONTRIBUTING](.github/CONTRIBUTING.md)
-covers setup, tests and DCO sign-off, and [ARCHITECTURE](.github/ARCHITECTURE.md) maps the code.
+covers setup and tests, and [ARCHITECTURE](.github/ARCHITECTURE.md) maps the code.
 The [QGIS plugin](https://github.com/geolens-io/qgis-geolens-plugin),
 [examples](https://github.com/geolens-io/geolens-examples) and
 [deployments](https://github.com/geolens-io/geolens-deployments) repositories take issues and pull

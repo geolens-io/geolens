@@ -626,6 +626,26 @@ def test_the_token_does_not_follow_a_probe_url_to_another_host(
     )
 
 
+def test_an_inventory_of_another_organization_is_refused(runner, plan_file, geolens):
+    plan = json.loads(plan_file.read_text())
+    plan["inventory"]["scope"]["org_id"] = "AnotherOrg000"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": secrets.token_urlsafe(16)},
+    )
+
+    assert result.exit_code == 2
+    assert "ArcGIS organization" in result.output
+    assert geolens.seen == []
+
+
 def test_a_plan_for_another_portal_than_its_inventory_is_refused(
     runner, plan_file, geolens
 ):

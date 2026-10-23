@@ -25,6 +25,16 @@ and releases use semantic versioning.
   the public API URL, raster tile URLs on the public app URL. They were root-relative paths
   (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
   Re-importing an exported style is unaffected.
+- `geolens arcgis plan` run against a directory that already holds a plan now
+  merges the new inventory into it instead of refusing. Values you edited
+  stay, values you left alone take the new defaults, new portal items are
+  added, and items gone from the portal are kept and marked `removed`, which
+  `migrate` doesn't run again. Only a complete `--scope org` inventory read by
+  an organization administrator marks items removed. The inventory now records
+  the signed-in account's portal role as `auth.role`. `--force` still replaces
+  the plan. Plans now use schema v2, which records each item's defaults;
+  `migrate` reads v1 and v2 plans, but a reader that validates against the v1
+  schema rejects a v2 plan.
 
 ### Added
 
@@ -102,6 +112,10 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
+  process, which exited at the limit and took its container down. As in
+  `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`
+  of 2 or more.
 - Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
   em dashes and accented names as garbled characters.
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a

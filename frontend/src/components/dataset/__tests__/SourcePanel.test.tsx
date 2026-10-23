@@ -666,6 +666,53 @@ describe('SourcePanel', () => {
     if (pointer) expect(screen.getByText(pointer)).toBeInTheDocument();
   });
 
+  describe('ArcGIS item link', () => {
+    const itemId = '0123456789abcdef0123456789abcdef';
+    const service = (extra: Record<string, unknown>) => makeDataset({
+      origin: 'service',
+      source_format: 'arcgis_featureserver',
+      origin_ref: { kind: 'service', service_type: 'arcgis_featureserver', url: 'https://services.arcgis.com/x/FeatureServer', ...extra },
+    });
+
+    it('links a service dataset to its portal item in a new tab', () => {
+      render(<SourcePanel dataset={service({ item_id: itemId, portal_url: 'https://org.maps.arcgis.com' })} />);
+
+      const link = screen.getByRole('link', { name: 'Open in ArcGIS opens in a new tab' });
+      expect(link).toHaveAttribute('href', `https://org.maps.arcgis.com/home/item.html?id=${itemId}`);
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+
+    it('links an uploaded file to its portal item', () => {
+      render(<SourcePanel dataset={makeDataset({
+        origin_ref: { kind: 'upload', filename: 'a.gpkg', item_id: itemId, portal_url: 'https://gis.example.org/portal/' },
+      })} />);
+
+      expect(screen.getByRole('link', { name: /Open in ArcGIS/ })).toHaveAttribute(
+        'href',
+        `https://gis.example.org/portal/home/item.html?id=${itemId}`,
+      );
+    });
+
+    it.each([
+      ['an insecure portal', { item_id: itemId, portal_url: 'http://org.maps.arcgis.com' }],
+      ['a script URL', { item_id: itemId, portal_url: 'javascript:alert(1)' }],
+      ['a malformed item id', { item_id: 'not-an-id', portal_url: 'https://org.maps.arcgis.com' }],
+      ['no portal URL', { item_id: itemId }],
+      ['no item id', { portal_url: 'https://org.maps.arcgis.com' }],
+    ])('shows no link for %s', (_name, extra) => {
+      render(<SourcePanel dataset={service(extra)} />);
+
+      expect(screen.queryByRole('link', { name: /Open in ArcGIS/ })).not.toBeInTheDocument();
+    });
+
+    it('shows no link when the reader was not sent the origin', () => {
+      render(<SourcePanel dataset={makeDataset({ origin: 'service', origin_ref: null })} />);
+
+      expect(screen.queryByRole('link', { name: /Open in ArcGIS/ })).not.toBeInTheDocument();
+    });
+  });
+
   it('shows only allowlisted, credential-free service pointer information', () => {
     const { container } = render(
       <SourcePanel

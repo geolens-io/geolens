@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.url_redaction import has_url_credentials
+from app.platform.portal_link import ITEM_ID_MAX_LENGTH, PORTAL_URL_MAX_LENGTH
 
 # ServiceAuthRequest lives in app.platform.service_auth because processing/
 # cannot import app.modules.catalog.* (test_layering) and needs it too.
@@ -185,6 +186,13 @@ class LayerInfo(BaseModel):
             "'unsupported_layer_type'."
         ),
     )
+    has_attachments: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the ArcGIS layer reports file attachments. Null when the "
+            "service does not say, and for other service types."
+        ),
+    )
     layer_id: int | str | None = Field(
         default=None, description="Numeric or string layer ID used by ArcGIS services."
     )
@@ -255,13 +263,33 @@ class ServicePreviewRequest(BaseModel):
         max_length=200,
         description="ArcGIS OID field name used for orderByFields during preview pagination.",
     )
-    # Auth stays LAST: the generated SDK positions fields by declaration
-    # order, so inserting it earlier would shift an existing positional
-    # caller's OID string into auth. Pinned by test_service_auth_contract_1746.
+    # The generated SDK positions fields by declaration order: `auth` keeps
+    # its slot, so a field added later goes after it and none before it.
+    # Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+    item_id: str | None = Field(
+        default=None,
+        max_length=ITEM_ID_MAX_LENGTH,
+        description=(
+            "ArcGIS portal item ID the layer was published from, at most 64 "
+            "characters (longer is refused with 422). Stored as provenance "
+            "when it is 32 hex characters, otherwise dropped and reported in "
+            "origin_link_loss. Dropped for a non-ArcGIS service type."
+        ),
+    )
+    portal_url: str | None = Field(
+        default=None,
+        max_length=PORTAL_URL_MAX_LENGTH,
+        description=(
+            "ArcGIS portal address for the item link, at most 2048 characters "
+            "(longer is refused with 422). Stored only when it is https and "
+            "shares a registrable domain with the service URL, otherwise "
+            "dropped and reported in origin_link_loss."
+        ),
+    )
 
 
 class ServicePreviewResponse(BaseModel):
@@ -284,6 +312,14 @@ class ServicePreviewResponse(BaseModel):
     )
     layer_name: str = Field(
         description="Layer name as it appears in the remote service."
+    )
+    origin_link_loss: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Reasons the item link was dropped: 'item_id_invalid', "
+            "'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when "
+            "nothing was dropped."
+        ),
     )
 
 

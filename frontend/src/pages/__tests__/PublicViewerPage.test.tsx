@@ -193,6 +193,106 @@ describe('PublicViewerPage', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
+  describe('embed legend default', () => {
+    const categorical = {
+      ...SHARED_MAP.layers[0],
+      geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['match', ['get', 'kind'], 'school', '#f472b6', '#cccccc'],
+      },
+      style_config: {
+        mode: 'categorical' as const,
+        column: 'kind',
+        categories: [{ value: 'school', label: 'School', color: '#f472b6' }],
+      },
+    };
+
+    function mapWith(layer: SharedMapResponse['layers'][number]) {
+      mockedUseSharedMap.mockReturnValue({
+        data: { ...SHARED_MAP, layers: [layer] },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as ReturnType<typeof useSharedMap>);
+    }
+
+    const clusterRamp = {
+      ...SHARED_MAP.layers[0],
+      style_config: {
+        render_mode: 'cluster' as const,
+        builder: {
+          clusterColorRamp: [
+            { count: 0, color: '#818cf8' },
+            { count: 25, color: '#6366f1' },
+            { count: 2500, color: '#4338ca' },
+          ],
+        },
+      },
+    };
+
+    async function renderEmbed(drawsAs: 'circle' | 'cluster', query = 'embed=true') {
+      renderPage(`/m/share-token?${query}`);
+      await screen.findByTestId('viewer-map');
+      act(() =>
+        viewerMapMock.props?.onDrawnChange?.(new Map([['shared-layer-1', { drawsAs }]])),
+      );
+    }
+
+    it('shows the legend in an embed when a visible layer is styled by category', async () => {
+      mapWith(categorical);
+      await renderEmbed('circle');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+      expect(mockedUseViewerLayers).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ showLegend: true }),
+      );
+    });
+
+    it('waits for what the map drew before opening the embed legend', async () => {
+      mapWith(categorical);
+      renderPage('/m/share-token?embed=true');
+      await screen.findByTestId('viewer-map');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('shows the legend in an embed when the only classes are cluster count colours', async () => {
+      mapWith(clusterRamp);
+      await renderEmbed('cluster');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden when a cluster fell back to plain points', async () => {
+      mapWith(clusterRamp);
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden for a single-colour layer', async () => {
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden when the category layer is hidden', async () => {
+      mapWith({ ...categorical, visible: false });
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('lets legend=false hide the embed legend', async () => {
+      mapWith(categorical);
+      await renderEmbed('circle', 'embed=true&legend=false');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+  });
+
   it('hands the legend what the viewer map reports drawing', async () => {
     renderPage();
     await screen.findByTestId('viewer-map');

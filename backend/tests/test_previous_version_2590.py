@@ -1550,6 +1550,44 @@ async def test_restoring_the_first_import_reinstates_its_source_and_crs(
         await _cleanup(session, dataset)
 
 
+async def test_replace_and_restore_keep_the_portal_item_link(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """The file swap and the restore each restamp the origin without dropping the item link."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    item = "b" * 32
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET source_filename = 'a.gpkg', "
+            "source_format = 'gpkg', original_srid = 2263, "
+            "origin_ref = CAST(:ref AS jsonb) WHERE id = :id"
+        ),
+        {
+            "ref": '{"kind": "upload", "filename": "a.gpkg", "item_id": "'
+            + item
+            + '"}',
+            "id": dataset.id,
+        },
+    )
+    await session.commit()
+    try:
+        await _replace(
+            session, dataset, admin_id, ["paris"], filename="b.geojson", srid=4326
+        )
+        replaced = await _source_row(session, dataset.id)
+        assert replaced.origin_ref["filename"] == "b.geojson"
+        assert replaced.origin_ref["item_id"] == item
+
+        await _restore(client, admin_auth_header, session, dataset, 1)
+
+        restored = await _source_row(session, dataset.id)
+        assert restored.origin_ref["filename"] == "a.gpkg"
+        assert restored.origin_ref["item_id"] == item
+    finally:
+        await _cleanup(session, dataset)
+
+
 async def test_restoring_a_replacement_reinstates_its_source_crs(
     client: AsyncClient, test_db_session, admin_auth_header
 ) -> None:

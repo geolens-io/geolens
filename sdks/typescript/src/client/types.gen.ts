@@ -2798,6 +2798,18 @@ export type CommitRequest = {
      * Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG, and cannot be combined with resampling, nodata_override, srid_override or a compression other than the default DEFLATE: each of those is applied by a conversion, so the commit is refused with a 422 naming the fields that clash.
      */
     strict_cog?: boolean;
+    /**
+     * Item Id
+     *
+     * Vector file only: ArcGIS portal item ID the file came from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.
+     */
+    item_id?: string | null;
+    /**
+     * Portal Url
+     *
+     * Vector file only: ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.
+     */
+    portal_url?: string | null;
 };
 
 /**
@@ -2822,6 +2834,12 @@ export type CommitResponse = {
      * Human-readable commit result.
      */
     message: string;
+    /**
+     * Origin Link Loss
+     *
+     * Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+     */
+    origin_link_loss?: Array<string>;
 };
 
 /**
@@ -5189,6 +5207,18 @@ export type FanOutCommitRequest = {
      * Layers to ingest as separate datasets. Maximum 50 per request.
      */
     layers: Array<FanOutLayerRequest>;
+    /**
+     * Item Id
+     *
+     * ArcGIS portal item ID the file came from. Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss.
+     */
+    item_id?: string | null;
+    /**
+     * Portal Url
+     *
+     * ArcGIS portal address for the item link. Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss.
+     */
+    portal_url?: string | null;
 };
 
 /**
@@ -5209,6 +5239,12 @@ export type FanOutCommitResponse = {
      * Per-layer outcomes in the same order as the request layers.
      */
     results: Array<FanOutLayerResult>;
+    /**
+     * Origin Link Loss
+     *
+     * Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+     */
+    origin_link_loss?: Array<string>;
 };
 
 /**
@@ -6112,6 +6148,12 @@ export type LayerInfo = {
      * False when the layer holds no features (ArcGIS composite, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.
      */
     importable?: boolean;
+    /**
+     * Has Attachments
+     *
+     * Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.
+     */
+    has_attachments?: boolean | null;
     /**
      * Layer Id
      *
@@ -10205,6 +10247,18 @@ export type ServicePreviewRequest = {
      * Structured credential for a protected service. Mutually exclusive with the token field.
      */
     auth?: ServiceAuthRequest | null;
+    /**
+     * Item Id
+     *
+     * ArcGIS portal item ID the layer was published from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss. Dropped for a non-ArcGIS service type.
+     */
+    item_id?: string | null;
+    /**
+     * Portal Url
+     *
+     * ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is https and shares a registrable domain with the service URL, otherwise dropped and reported in origin_link_loss.
+     */
+    portal_url?: string | null;
 };
 
 /**
@@ -10263,6 +10317,12 @@ export type ServicePreviewResponse = {
      * Layer name as it appears in the remote service.
      */
     layer_name: string;
+    /**
+     * Origin Link Loss
+     *
+     * Reasons the item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+     */
+    origin_link_loss?: Array<string>;
 };
 
 /**

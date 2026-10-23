@@ -139,11 +139,11 @@ Reviewers, including the Codex bot, treat these as P1:
 - A regression test that would still pass with the fix removed.
 - A user-facing string missing from any of the five locales.
 
-Don't flag DCO sign-off (the DCO workflow checks it), generated files (`frontend/src/types/api.generated.ts`, SDK output) unless their source is wrong, or formatting that ruff and ESLint own.
+Don't flag generated files (`frontend/src/types/api.generated.ts`, SDK output) unless their source is wrong, or formatting that ruff and ESLint own.
 
 ## Commits and Documentation
 
-Changes land through pull requests; `main` merges through a merge queue. Use scoped Conventional Commits and DCO sign-off (`git commit -s`). Follow `.github/PULL_REQUEST_TEMPLATE.md`: describe behavior, link issues, note schema/API/config impacts, list verification and include screenshots for UI work.
+Changes land through pull requests; `main` merges through a merge queue. Use scoped Conventional Commits. Follow `.github/PULL_REQUEST_TEMPLATE.md`: describe behavior, link issues, note schema/API/config impacts, list verification and include screenshots for UI work.
 
 Root docs: `README.md` (overview), `CONTEXT.md` (domain vocabulary), `EDITIONS.md` (open-core boundary), `EGRESS.md` (outbound connections), `CHANGELOG.md` (release notes), `UPGRADING.md`, `RUNBOOK.md` (recovery), `RELEASE.md` (version surfaces), `SUPPORT.md`, `TRADEMARKS.md` and `THIRD_PARTY_DATA.md` (sample-data attribution). Contributor docs: `.github/`; README images: `.github/assets/` (scenarios and provenance in its README); shared agent configuration: `docs/agents/`; architectural decisions: `docs/adr/`, created with the next ADR (ADR-002 predates it in `.github/`); product docs: docs.getgeolens.com; private notes: ignored `docs-internal/`. Keep `docs/` to agent configuration and ADRs, and don't duplicate product docs. New third-party sample data needs a `THIRD_PARTY_DATA.md` entry. Brand assets come from a tagged `geolens-io/branding` release; changes flow branding → this repo → marketing → docs.
 

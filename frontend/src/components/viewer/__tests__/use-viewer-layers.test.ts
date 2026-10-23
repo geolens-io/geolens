@@ -22,6 +22,19 @@ function layer(overrides: Partial<TestLayer> = {}): TestLayer {
 }
 
 describe('useViewerLayers', () => {
+  it('opens the legend when it is switched on after the first render', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    const { result, rerender } = renderHook(
+      ({ showLegend }) => useViewerLayers([layer()], { showLegend }),
+      { initialProps: { showLegend: false } },
+    );
+    expect(result.current.isLegendOpen).toBe(false);
+
+    rerender({ showLegend: true });
+
+    expect(result.current.isLegendOpen).toBe(true);
+  });
+
   it('tracks visibility by stable layer key instead of sort order', () => {
     const layers = [
       layer({ id: 'layer-a', dataset_id: 'dataset-a', sort_order: 0 }),

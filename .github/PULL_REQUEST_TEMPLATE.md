@@ -38,7 +38,6 @@ Closes #
 
 ## Checklist
 
-- [ ] Every commit is signed off (`git commit -s`, see the DCO section in CONTRIBUTING.md)
 - [ ] New user-facing strings are in all five locales (en, es, fr, de, zh)
 - [ ] No secrets or credentials in the diff
 - [ ] Release/docs deploys: ran `make deployed-surface-check` after the marketing/docs deploy and recorded the result in Testing

@@ -6,7 +6,9 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
+from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -23,10 +25,13 @@ class FanOutCommitResponse:
     Attributes:
         fan_out_id (UUID): The original job_id (parent). Use for client-side correlation.
         results (list[FanOutLayerResult]): Per-layer outcomes in the same order as the request layers.
+        origin_link_loss (list[str] | Unset): Reasons the ArcGIS item link was dropped: 'item_id_invalid',
+            'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
     """
 
     fan_out_id: UUID
     results: list[FanOutLayerResult]
+    origin_link_loss: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +42,10 @@ class FanOutCommitResponse:
             results_item = results_item_data.to_dict()
             results.append(results_item)
 
+        origin_link_loss: list[str] | Unset = UNSET
+        if not isinstance(self.origin_link_loss, Unset):
+            origin_link_loss = self.origin_link_loss
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -45,6 +54,8 @@ class FanOutCommitResponse:
                 "results": results,
             }
         )
+        if origin_link_loss is not UNSET:
+            field_dict["origin_link_loss"] = origin_link_loss
 
         return field_dict
 
@@ -62,9 +73,12 @@ class FanOutCommitResponse:
 
             results.append(results_item)
 
+        origin_link_loss = cast(list[str], d.pop("origin_link_loss", UNSET))
+
         fan_out_commit_response = cls(
             fan_out_id=fan_out_id,
             results=results,
+            origin_link_loss=origin_link_loss,
         )
 
         fan_out_commit_response.additional_properties = d

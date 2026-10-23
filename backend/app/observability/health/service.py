@@ -4,12 +4,13 @@ import asyncio
 import time
 import uuid
 from contextvars import ContextVar
-from typing import Any, Coroutine
+from typing import Any, Coroutine, NamedTuple
 
 import structlog
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from starlette.background import BackgroundTask
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -172,14 +173,28 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
 
 
 HEALTH_ALERT_COOLDOWN_SECS = 300
+# How long a failed delivery keeps the claim before any replica may retry.
+HEALTH_ALERT_RETRY_SECS = 60
 _HEALTH_ALERT_KEY = "health_alert:sent"
 _alert_claim_token: str | None = None
-# A recovery must not run between a claim's write and its token being stored.
+# Claim, release and a failed delivery's retry each read the key, then write it.
 _alert_claim_lock = asyncio.Lock()
 
 
-async def claim_health_alert(failing: list[str]) -> bool:
-    """True when this process should send the degraded-health alert.
+class HealthAlertClaim(NamedTuple):
+    """A claim to send the alert under.
+
+    ``shared`` is true when the claim holds a key every process sees (Redis
+    with its circuit closed), so another process can take over a failed send;
+    otherwise only the local cooldown throttles.
+    """
+
+    token: str
+    shared: bool = False
+
+
+async def claim_health_alert(failing: list[str]) -> HealthAlertClaim | None:
+    """The claim to send the degraded-health alert under, or None to stand down.
 
     With a shared cache (Redis) one replica wins the key per cooldown window,
     so the fleet sends a single alert; the key expires on its own. Only a
@@ -188,27 +203,30 @@ async def claim_health_alert(failing: list[str]) -> bool:
     Without a reachable Redis the claim is per-process.
     """
     global _alert_claim_token
+    token = uuid.uuid4().hex
     if "cache" in failing:
-        return True
+        return HealthAlertClaim(token)
 
     from app.platform.cache import get_cache
 
     cache = get_cache()
-    token = uuid.uuid4().hex
     try:
         async with asyncio.timeout(HEALTH_TIMEOUT), _alert_claim_lock:
+            # Stored before the write, so a write that commits after its reply
+            # timed out is still released on recovery.
+            _alert_claim_token = token
             if await cache.set_if_absent(
                 _HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_COOLDOWN_SECS
             ):
-                _alert_claim_token = token
-                return True
+                # A key in this process's own memory holds no other process back.
+                return HealthAlertClaim(token, shared=getattr(cache, "shared", False))
             # Remember the incident another replica claimed, so whichever
             # replica sees recovery can release it.
             _alert_claim_token = await cache.get(_HEALTH_ALERT_KEY)
-            return _alert_claim_token is None
+            return HealthAlertClaim(token) if _alert_claim_token is None else None
     except Exception as exc:  # broad: a cache fault or stall must not block the alert
         logger.warning("health_alert_claim_failed", error=str(exc))
-        return True
+        return HealthAlertClaim(token)
 
 
 async def release_health_alert() -> None:
@@ -229,3 +247,139 @@ async def release_health_alert() -> None:
                 await cache.delete(_HEALTH_ALERT_KEY)
     except Exception as exc:  # broad: recovery must not fail on a cache fault
         logger.warning("health_alert_release_failed", error=str(exc))
+
+
+async def retry_health_alert_later(token: str) -> None:
+    """Shorten *token*'s claim to the retry backoff after its delivery failed.
+
+    Only that claim: a newer incident's claim holds another token and stays.
+    """
+    from app.platform.cache import get_cache
+
+    try:
+        async with asyncio.timeout(HEALTH_TIMEOUT), _alert_claim_lock:
+            cache = get_cache()
+            if await cache.get(_HEALTH_ALERT_KEY) == token:
+                await cache.set(_HEALTH_ALERT_KEY, token, ttl=HEALTH_ALERT_RETRY_SECS)
+    except Exception as exc:  # broad: the key still expires with its cooldown
+        logger.warning("health_alert_retry_failed", error=str(exc))
+
+
+# None, not 0.0, means "alert at once": monotonic() can be under the cooldown
+# just after boot.
+_last_health_alert_at: float | None = None
+_last_health_status = "healthy"
+# monotonic() of this process's first degraded result in the current incident.
+_health_incident_started_at = 0.0
+# Probes can finish out of order; an older one never moves the alert state.
+_health_probe_seq = 0
+_health_applied_seq = 0
+# One probe at a time applies its result, its claim or release included.
+_health_state_lock = asyncio.Lock()
+
+
+def begin_health_probe() -> int:
+    """Number a ``/health`` probe before it runs, so results apply in order."""
+    global _health_probe_seq
+    _health_probe_seq += 1
+    return _health_probe_seq
+
+
+async def health_alert_after(seq: int, result: dict) -> BackgroundTask | None:
+    """Apply probe *seq*'s *result* to the alert state; the alert to send, if any.
+
+    The send runs after the response, so a slow channel never delays it. A
+    probe still waiting on the probes ahead after ``HEALTH_TIMEOUT`` changes
+    nothing and the next poll applies its result.
+    """
+    try:
+        async with asyncio.timeout(HEALTH_TIMEOUT):
+            await _health_state_lock.acquire()
+    except TimeoutError:
+        logger.warning("health_probe_result_dropped", probe=seq)
+        return None
+    try:
+        return await _apply_health_result(seq, result)
+    finally:
+        _health_state_lock.release()
+
+
+async def _apply_health_result(seq: int, result: dict) -> BackgroundTask | None:
+    global _health_applied_seq, _health_incident_started_at
+    global _last_health_alert_at, _last_health_status
+    if seq < _health_applied_seq:
+        return None
+    _health_applied_seq = seq
+    status = result.get("status", "healthy")
+    if status == "healthy":
+        if _last_health_status != "healthy":
+            await release_health_alert()
+        _last_health_status = "healthy"
+        _last_health_alert_at = None
+        return None
+
+    failing = [
+        name
+        for name, info in result.get("providers", {}).items()
+        if isinstance(info, dict) and info.get("status") != "ok"
+    ]
+    if _last_health_status == "healthy":
+        _last_health_alert_at = None
+        _health_incident_started_at = time.monotonic()
+    _last_health_status = status
+    if (
+        _last_health_alert_at is not None
+        and time.monotonic() - _last_health_alert_at < HEALTH_ALERT_COOLDOWN_SECS
+    ):
+        return None
+    # Only the winner arms its cooldown: the others keep asking, so any of
+    # them can retry once a failed delivery gives the key back.
+    claim = await claim_health_alert(failing)
+    if claim is None:
+        return None
+    _last_health_alert_at = sent_at = time.monotonic()
+    # Early retries end with the incident's first cooldown, so a channel that
+    # works gets a bounded number of repeats while another stays down.
+    retry = claim.shared and (
+        sent_at - _health_incident_started_at < HEALTH_ALERT_COOLDOWN_SECS
+    )
+    component = failing[0] if failing else "unknown"
+    return BackgroundTask(
+        _deliver_health_alert, claim.token, retry, sent_at, component, status
+    )
+
+
+async def _deliver_health_alert(
+    token: str, retry: bool, sent_at: float, component: str, status: str
+) -> None:
+    """Send one claimed alert; with *retry*, a failure on any channel sends it
+    to every channel again after the backoff.
+
+    Bound to its own claim token and send time, so a slow failure never
+    shortens a newer incident's claim or cooldown.
+    """
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    global _last_health_alert_at
+    delivery = await emit_event_safe(
+        event_key="health_alert",
+        build=lambda: build_event_notification(
+            "health_alert",
+            subject=f"GeoLens health degraded: {component}",
+            body=(
+                "The GeoLens health check reported a degraded status.\n\n"
+                f"Failing component: {component}"
+            ),
+            extra={"component": component, "status": status},
+        ),
+    )
+    if delivery or not retry:
+        return
+    await retry_health_alert_later(token)
+    if _last_health_alert_at == sent_at:
+        _last_health_alert_at = (
+            time.monotonic() - HEALTH_ALERT_COOLDOWN_SECS + HEALTH_ALERT_RETRY_SECS
+        )

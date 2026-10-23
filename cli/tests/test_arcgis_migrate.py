@@ -662,6 +662,288 @@ def test_an_owner_changed_after_import_is_reported_not_reimported(
     assert [s for s in geolens.seen if s.method == "PATCH"] == []
 
 
+@pytest.mark.parametrize("version", ["1", "2"])
+def test_v1_and_v2_plans_run_alike(runner, tmp_path, geolens, handled, version):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = {**_plan([_item(L1)]), "schema_version": version}
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+    assert payload["counts"] == {"done": 1}
+
+
+def test_a_rerun_leaves_what_a_removed_or_finished_item_migrated_alone(
+    runner, tmp_path, geolens, handled
+):
+    # L2 failed part way and is gone from the portal: rerunning it would
+    # reapply the plan's metadata and owner to datasets edited in GeoLens.
+    _write_state(
+        tmp_path,
+        {
+            L1: {"status": "done", "owner_id": ALICE, "dataset_ids": [_created_id(L1)]},
+            L2: {"status": "failed", "error": "boom", "dataset_ids": [_created_id(L2)]},
+        },
+    )
+    renamed = _item(L1)
+    renamed["target"]["title"] = "Renamed in the portal"
+    plan = {
+        **_plan([renamed, _item(L2, removed=True), _item(M1, removed=True)]),
+        "schema_version": "2",
+    }
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert handled == []
+    assert payload["items"] == []
+    assert [s for s in geolens.seen if s.method != "GET"] == []
+    state = _state(tmp_path)["items"]
+    assert state[L2]["dataset_ids"] == [_created_id(L2)]
+    assert M1 not in state
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    removed = {
+        f["item"]: f["text"] for f in report["follow_ups"] if f["kind"] == "removed"
+    }
+    assert removed == {
+        L2: "gone from the portal; what it migrated stays in GeoLens",
+        M1: "gone from the portal before it was migrated",
+    }
+    assert result.exit_code == 1  # L2 is still failed
+
+
+def _v2(items: list[dict], **kwargs: Any) -> dict:
+    return {**_plan(items, **kwargs), "schema_version": "2"}
+
+
+def _follow_ups(tmp_path: Path, kind: str) -> dict[str, str]:
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    return {f["item"]: f["text"] for f in report["follow_ups"] if f["kind"] == kind}
+
+
+def test_a_removed_dependency_that_never_migrated_holds_nothing_back(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L2))
+    plan = _v2([_item(L1, removed=True), _item(L2, depends_on=[L1])])
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L2]
+    assert payload["waiting"] == []
+    assert _follow_ups(tmp_path, "unresolved_dependency") == {
+        L2: f"depends on {L1}, gone from the portal before it was migrated"
+    }
+
+
+def test_an_unlisted_item_is_left_pending_not_failed(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L2))
+    plan = _v2([_item(L1, unlisted=True), _item(L2)])
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1
+    assert handled == [L2]
+    assert payload["unlisted"] == [L1]
+    assert payload["failed"] == []
+    assert _state(tmp_path)["items"].get(L1, {}).get("status", "pending") == "pending"
+    assert L1 in _follow_ups(tmp_path, "unlisted")
+
+
+def test_only_naming_a_removed_item_says_why(runner, tmp_path, geolens, handled):
+    result, _ = _run(runner, tmp_path, _v2([_item(L1, removed=True)]), "--only", L1)
+    assert result.exit_code == 2
+    assert "marked removed" in result.output + result.stderr
+    assert handled == []
+
+
+def test_a_removed_item_gets_no_run_or_owner_follow_ups(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    _write_state(tmp_path, {M1: {"status": "done", "owner_id": ALICE}})
+    plan = _v2(
+        [
+            _item(L1, "import_map", removed=True, depends_on=[L2]),
+            _item(L2, unlisted=True),
+            _item(M1, removed=True),
+        ],
+        owner_map={"agol_alice": "operator"},
+    )
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert payload["owner_changed"] == []
+    assert payload["not_available"] == []
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
+    assert kinds == {(L1, "removed"), (L2, "unlisted"), (M1, "removed")}
+    assert result.exit_code == 1  # L2 is left pending
+
+
+def test_an_unlisted_items_owner_is_not_checked(runner, tmp_path, geolens, handled):
+    _allow_transfers(geolens, _created_id(L2))
+    plan = _v2([_item(L1, unlisted=True, owner="agol_nobody"), _item(L2)])
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1, result.output
+    assert handled == [L2]
+    assert payload["unlisted"] == [L1]
+
+
+def test_only_does_not_reach_through_a_removed_dependency(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, removed=True, depends_on=[M1]),
+            _item(M1),
+        ]
+    )
+
+    result, _ = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+
+
+def test_a_cycle_through_a_removed_item_does_not_block_the_run(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L1))
+    plan = _v2([_item(L1, depends_on=[L2]), _item(L2, removed=True, depends_on=[L1])])
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+
+
+def test_an_unlisted_items_stale_dependencies_form_no_cycle(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(M1))
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, unlisted=True, depends_on=[L1]),
+            _item(M1),
+        ]
+    )
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert handled == [M1]
+    assert payload["unlisted"] == [L2]
+    assert payload["waiting"] == [{"item": L1, "waiting_on": [L2]}]
+    assert result.exit_code == 1
+
+
+def test_only_does_not_reach_through_an_unlisted_dependency(
+    runner, tmp_path, geolens, handled
+):
+    plan = _v2(
+        [
+            _item(L1, depends_on=[L2]),
+            _item(L2, unlisted=True, depends_on=[M1]),
+            _item(M1),
+        ]
+    )
+
+    result, payload = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert handled == []
+    assert payload["unlisted"] == [L2]
+    assert payload["waiting"] == [{"item": L1, "waiting_on": [L2]}]
+    assert result.exit_code == 1
+
+
+def test_an_unlisted_item_gets_only_its_unlisted_follow_up(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    missing = "ff" * 16
+    plan = _v2(
+        [
+            _item(L1, "import_map", unlisted=True, depends_on=[L2, missing]),
+            _item(L2, unlisted=True),
+        ]
+    )
+
+    _run(runner, tmp_path, plan)
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert {(f["item"], f["kind"]) for f in report["follow_ups"]} == {
+        (L1, "unlisted"),
+        (L2, "unlisted"),
+    }
+
+
+def test_a_dry_run_classifies_items_as_the_run_does(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    plan = _v2(
+        [
+            _item(L1, "import_map", unlisted=True),
+            _item(L2, "import_map"),
+            _item(M1, "skip", unlisted=True),
+            _item(S1, removed=True),
+        ]
+    )
+
+    _, dry = _run(runner, tmp_path, plan, "--dry-run")
+    _, run = _run(runner, tmp_path, plan)
+
+    for payload in (dry, run):
+        assert payload["unlisted"] == [L1]
+        assert payload["not_available"] == [L2]
+
+
+def test_a_dry_run_lists_unlisted_items(runner, tmp_path, geolens, handled):
+    result, payload = _run(
+        runner, tmp_path, _v2([_item(L1, unlisted=True)]), "--dry-run"
+    )
+    assert payload["unlisted"] == [L1]
+    assert result.exit_code == 1
+
+
+def test_a_removed_dependency_gets_one_note_and_none_on_removed_items(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    monkeypatch.delitem(migrate.HANDLERS, "import_map")
+    plan = _v2(
+        [
+            _item(L1, removed=True),
+            _item(M1, "import_map", depends_on=[L1]),
+            _item(L2, removed=True, depends_on=[L1]),
+        ]
+    )
+
+    _run(runner, tmp_path, plan)
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    notes = [
+        (f["item"], f["kind"], f["text"])
+        for f in report["follow_ups"]
+        if f["kind"] != "removed"
+    ]
+    assert notes == [
+        (M1, "not_available", "the import_map action can't run yet"),
+        (
+            M1,
+            "unresolved_dependency",
+            f"depends on {L1}, gone from the portal before it was migrated",
+        ),
+    ]
+
+
 def test_ids_a_handler_recorded_survive_its_failure(
     runner, tmp_path, geolens, monkeypatch
 ):

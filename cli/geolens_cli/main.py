@@ -2122,15 +2122,20 @@ def arcgis_plan(
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Replace a plan file that differs from this one"),
+        typer.Option(
+            "--force",
+            help="Replace an existing plan file instead of merging into it",
+        ),
     ] = False,
 ) -> None:
     """Turn an inventory into an editable migration plan.
 
     Writes arcgis-migration-plan.json (mode 0600) with a default action for
     every item, the owners, groups and basemaps to map, and the order items
-    depend on. Edit the file, then migrate from it. Nothing on the portal or
-    in GeoLens is read or changed.
+    depend on. Edit the file, then migrate from it. Run it again on a newer
+    inventory to merge that inventory into the plan: your edits stay, new
+    items get defaults, and items gone from the portal are marked removed.
+    Nothing on the portal or in GeoLens is read or changed.
     """
     state: AppState = ctx.obj
     code = _arcgis_plan.run_cli(

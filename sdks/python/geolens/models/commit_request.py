@@ -70,6 +70,12 @@ class CommitRequest:
                 and cannot be combined with resampling, nodata_override, srid_override or a compression other than the default
                 DEFLATE: each of those is applied by a conversion, so the commit is refused with a 422 naming the fields that
                 clash. Default: False.
+            item_id (None | str | Unset): Vector file only: ArcGIS portal item ID the file came from, at most 64 characters
+                (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported
+                in origin_link_loss; other import types report it as 'origin_link_unsupported'.
+            portal_url (None | str | Unset): Vector file only: ArcGIS portal address for the item link, at most 2048
+                characters (longer is refused with 422). Stored only when it is an https URL, otherwise dropped and reported in
+                origin_link_loss; other import types report it as 'origin_link_unsupported'.
     """
 
     title: str
@@ -88,6 +94,8 @@ class CommitRequest:
     geom_column: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     strict_cog: bool | Unset = False
+    item_id: None | str | Unset = UNSET
+    portal_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -185,6 +193,18 @@ class CommitRequest:
 
         strict_cog = self.strict_cog
 
+        item_id: None | str | Unset
+        if isinstance(self.item_id, Unset):
+            item_id = UNSET
+        else:
+            item_id = self.item_id
+
+        portal_url: None | str | Unset
+        if isinstance(self.portal_url, Unset):
+            portal_url = UNSET
+        else:
+            portal_url = self.portal_url
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -222,6 +242,10 @@ class CommitRequest:
             field_dict["auth"] = auth
         if strict_cog is not UNSET:
             field_dict["strict_cog"] = strict_cog
+        if item_id is not UNSET:
+            field_dict["item_id"] = item_id
+        if portal_url is not UNSET:
+            field_dict["portal_url"] = portal_url
 
         return field_dict
 
@@ -382,6 +406,24 @@ class CommitRequest:
 
         strict_cog = d.pop("strict_cog", UNSET)
 
+        def _parse_item_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        item_id = _parse_item_id(d.pop("item_id", UNSET))
+
+        def _parse_portal_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        portal_url = _parse_portal_url(d.pop("portal_url", UNSET))
+
         commit_request = cls(
             title=title,
             summary=summary,
@@ -399,6 +441,8 @@ class CommitRequest:
             geom_column=geom_column,
             auth=auth,
             strict_cog=strict_cog,
+            item_id=item_id,
+            portal_url=portal_url,
         )
 
         commit_request.additional_properties = d

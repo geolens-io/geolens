@@ -1801,11 +1801,18 @@ class TestServiceLayerIdentity:
 
     def test_a_second_name_key_is_still_refused(self) -> None:
         """Unification means one key; the allowlist must not have grown."""
-        # `auth_required` is in the set. It is not a second layer
-        # key — it says the last successful pull needed a service token — so
-        # the "one key addresses the layer" rule this test guards is intact.
+        # `auth_required` and the portal link keys are in the set. None is a
+        # second layer key, so the "one key addresses the layer" rule this
+        # test guards is intact.
         assert ORIGIN_REF_KEYS["service"] == frozenset(
-            {"service_type", "url", "layer_id", "auth_required"}
+            {
+                "service_type",
+                "url",
+                "layer_id",
+                "auth_required",
+                "item_id",
+                "portal_url",
+            }
         )
         for key in ("layer_name", "source_layer", "typename", "collection_id"):
             with pytest.raises(ValueError, match="rejects key"):

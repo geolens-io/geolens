@@ -1755,6 +1755,7 @@ async def _write_reupload_catalog(
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
     field_labels: dict | None,
+    job_id: uuid.UUID | None = None,
 ) -> tuple[Any, dict]:
     """Write what the installed table holds onto the catalog rows the caller holds.
 
@@ -1766,6 +1767,9 @@ async def _write_reupload_catalog(
     ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
+
+    ``job_id`` names the job that records ``origin_link_loss`` when the swap
+    moves a service dataset to a host its portal link no longer matches.
 
     Returns the ``DatasetVersion`` this swap produced, flushed so the run row
     can link to its id, and the schema diff the projection computed under the
@@ -1809,12 +1813,21 @@ async def _write_reupload_catalog(
     # ingest, so a service reupload stays a service origin and a file
     # reupload clears `origin_uri`.
     origin_kind = classify_origin(source_format)
-    set_dataset_origin(
+    link_losses = set_dataset_origin(
         dataset,
         origin_kind,
         uri=source_url,
         **(origin_ref or {}),
     )
+    if link_losses and job_id is not None:
+        from app.platform.jobs.models import IngestJob
+
+        job = await session.get(IngestJob, job_id)
+        if job is not None:
+            job.user_metadata = {
+                **(job.user_metadata or {}),
+                "origin_link_loss": link_losses,
+            }
     # The swap commit time, which is what migration 0036's backfill reads off
     # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
     # datetime rather than func.now(): a SQL expression leaves the attribute

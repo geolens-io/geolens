@@ -4692,6 +4692,32 @@
             "description": "Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG, and cannot be combined with resampling, nodata_override, srid_override or a compression other than the default DEFLATE: each of those is applied by a conversion, so the commit is refused with a 422 naming the fields that clash.",
             "title": "Strict Cog",
             "type": "boolean"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vector file only: ArcGIS portal item ID the file came from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.",
+            "title": "Item Id"
+          },
+          "portal_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vector file only: ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.",
+            "title": "Portal Url"
           }
         },
         "required": [
@@ -4717,6 +4743,14 @@
             "description": "Human-readable commit result.",
             "title": "Message",
             "type": "string"
+          },
+          "origin_link_loss": {
+            "description": "Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Origin Link Loss",
+            "type": "array"
           }
         },
         "required": [
@@ -8833,6 +8867,32 @@
             "minItems": 1,
             "title": "Layers",
             "type": "array"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS portal item ID the file came from. Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss.",
+            "title": "Item Id"
+          },
+          "portal_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS portal address for the item link. Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss.",
+            "title": "Portal Url"
           }
         },
         "required": [
@@ -8856,6 +8916,14 @@
               "$ref": "#/components/schemas/FanOutLayerResult"
             },
             "title": "Results",
+            "type": "array"
+          },
+          "origin_link_loss": {
+            "description": "Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Origin Link Loss",
             "type": "array"
           }
         },
@@ -10291,6 +10359,18 @@
             "description": "False when the layer holds no features (ArcGIS composite, raster and annotation layers) and a preview of it is refused with 'unsupported_layer_type'.",
             "title": "Importable",
             "type": "boolean"
+          },
+          "has_attachments": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.",
+            "title": "Has Attachments"
           },
           "layer_id": {
             "anyOf": [
@@ -17548,6 +17628,32 @@
               }
             ],
             "description": "Structured credential for a protected service. Mutually exclusive with the token field."
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS portal item ID the layer was published from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss. Dropped for a non-ArcGIS service type.",
+            "title": "Item Id"
+          },
+          "portal_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is https and shares a registrable domain with the service URL, otherwise dropped and reported in origin_link_loss.",
+            "title": "Portal Url"
           }
         },
         "required": [
@@ -17638,6 +17744,14 @@
             "description": "Layer name as it appears in the remote service.",
             "title": "Layer Name",
             "type": "string"
+          },
+          "origin_link_loss": {
+            "description": "Reasons the item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Origin Link Loss",
+            "type": "array"
           }
         },
         "required": [

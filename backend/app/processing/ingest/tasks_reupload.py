@@ -1505,6 +1505,7 @@ class _ServiceReupload:
                 "auth_required": True if self.token else None,
             },
             field_labels=self.field_labels,
+            job_id=self.job_uuid,
         )
         return Published(
             dataset_version_id=version.id,

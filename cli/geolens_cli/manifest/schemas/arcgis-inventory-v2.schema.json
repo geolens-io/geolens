@@ -61,7 +61,11 @@
       "required": ["mode", "user"],
       "properties": {
         "mode": {"enum": ["token", "generateToken", "anonymous"]},
-        "user": {"type": ["string", "null"]}
+        "user": {"type": ["string", "null"]},
+        "role": {
+          "description": "The signed-in account's portal role, such as org_admin; null when anonymous or not reported. Only an org_admin sees every group an item is shared with.",
+          "type": ["string", "null"]
+        }
       }
     },
     "scope": {

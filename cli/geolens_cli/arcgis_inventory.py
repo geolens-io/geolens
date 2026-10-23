@@ -1399,6 +1399,12 @@ def _signed_in_user(info: Mapping[str, Any]) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
+def _signed_in_role(info: Mapping[str, Any]) -> str | None:
+    user = info.get("user")
+    role = user.get("role") if isinstance(user, dict) else None
+    return role if isinstance(role, str) and role else None
+
+
 def _mark_not_fetched(inv: Inventory) -> None:
     for row in inv.items:
         if row["dependencies_status"] == "pending":
@@ -1455,7 +1461,7 @@ def run_inventory(
         )
     inv = Inventory(
         portal=portal,
-        auth={"mode": auth_mode, "user": username},
+        auth={"mode": auth_mode, "user": username, "role": _signed_in_role(info)},
         scope={
             "mode": scope,
             "owner": username if scope == "user" else None,

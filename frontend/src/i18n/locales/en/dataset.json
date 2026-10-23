@@ -790,6 +790,8 @@
       "vrt": "Composite",
       "unknown": "Not recorded"
     },
+    "openInArcgis": "Open in ArcGIS",
+    "opensInNewTab": "opens in a new tab",
     "pointer": {
       "filename": "Source filename",
       "fingerprint": "File fingerprint",
