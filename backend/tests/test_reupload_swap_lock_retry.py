@@ -95,6 +95,7 @@ def _make_dataset_stub(table_name: str):
         source_url=None,
         origin_ref=None,
         last_refreshed_at=None,
+        column_info=None,
     )
 
 
