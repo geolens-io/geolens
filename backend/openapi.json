@@ -32652,6 +32652,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The account can't be activated yet"
+          },
           "422": {
             "content": {
               "application/problem+json": {

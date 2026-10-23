@@ -17514,6 +17514,10 @@ export type VerifyEmailAuthVerifyEmailPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * The account can't be activated yet
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
