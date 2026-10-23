@@ -32,6 +32,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
 )
 from app.modules.catalog.datasets.domain.service_analysis import _json_safe
 from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
     Dataset,
     DatasetGrant,
     Record,
@@ -412,6 +413,28 @@ def _sorted_keyset(col: str, *, descending: bool) -> str:
     )
 
 
+async def _label_matched_codes(
+    db: AsyncSession, dataset_id: uuid.UUID, filters: dict[str, str]
+) -> dict[str, list[str]]:
+    """Per filtered column, the stored codes whose value label contains the term."""
+    result = await db.execute(
+        select(AttributeMetadata.field_name, AttributeMetadata.value_labels).where(
+            AttributeMetadata.dataset_id == dataset_id,
+            AttributeMetadata.is_current.is_(True),
+            AttributeMetadata.field_name.in_(list(filters)),
+            AttributeMetadata.value_labels.is_not(None),
+        )
+    )
+    return {
+        name: [
+            code
+            for code, label in labels.items()
+            if filters[name].casefold() in str(label).casefold()
+        ]
+        for name, labels in result.all()
+    }
+
+
 def _build_where_filters(
     filters: dict[str, str] | None,
     valid_columns: set[str],
@@ -419,10 +442,12 @@ def _build_where_filters(
     after_gid: int,
     limit: int,
     keyset: str,
+    label_codes: dict[str, list[str]],
 ) -> tuple[str, dict[str, object]]:
     """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
 
     ``keyset`` is the predicate selecting rows after ``after_gid``.
+    ``label_codes`` adds, per column, rows whose stored code is in the list.
     """
     where_clauses: list[str] = [f"({keyset})"]
     bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
@@ -433,10 +458,13 @@ def _build_where_filters(
             continue
         param_key = f"f_{col_name}"
         # Quoted, for the same reason as _build_select_cols.
-        where_clauses.append(
-            f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
-        )
+        as_text = f"CAST({_safe_column_ref(col_name)} AS text)"
+        clause = f"{as_text} ILIKE :{param_key}"
         bind_params[param_key] = f"%{search_term}%"
+        if codes := label_codes.get(col_name):
+            clause += f" OR {as_text} = ANY(CAST(:{param_key}_codes AS text[]))"
+            bind_params[f"{param_key}_codes"] = codes
+        where_clauses.append(f"({clause})")
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
 
@@ -451,6 +479,7 @@ async def _select_rows(
     limit: int,
     sort_col: str | None,
     descending: bool,
+    label_codes: dict[str, list[str]],
 ) -> list[dict]:
     """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
@@ -476,6 +505,7 @@ async def _select_rows(
         after_gid=after_gid,
         limit=limit,
         keyset=keyset,
+        label_codes=label_codes,
     )
     result = await db.execute(
         text(
@@ -499,6 +529,7 @@ async def get_dataset_rows(
     filters: dict[str, str] | None = None,
     sort: str | None = None,
     descending: bool = False,
+    dataset_id: uuid.UUID | None = None,
 ) -> tuple[list[dict], int, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
@@ -509,6 +540,8 @@ async def get_dataset_rows(
 
     ``filters`` is a dict of {column_name: search_term} for ILIKE filtering.
     Column names are validated against column_info to prevent injection.
+    With ``dataset_id``, a filter also matches rows whose code's value label
+    contains the term.
 
     ``sort`` orders by that column, then gid; ``after_gid`` is still the last
     row's gid, and a page after a since-deleted cursor row is empty. Raises
@@ -535,6 +568,11 @@ async def get_dataset_rows(
             raise InvalidSortColumn(sort)
         sort_col = _safe_column_ref(name)
 
+    label_codes = (
+        await _label_matched_codes(db, dataset_id, filters)
+        if dataset_id is not None and filters
+        else {}
+    )
     try:
         rows = await _select_rows(
             db,
@@ -546,6 +584,7 @@ async def get_dataset_rows(
             limit=limit,
             sort_col=sort_col,
             descending=descending,
+            label_codes=label_codes,
         )
 
         count_result = await db.execute(

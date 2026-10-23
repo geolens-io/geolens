@@ -83,4 +83,24 @@ describe('AttributeTable coded values', () => {
 
     expect(screen.getByRole('textbox', { name: 'Edit status for feature 1' })).toHaveValue('1');
   });
+
+  it('says no rows match when a filtered page comes back empty', async () => {
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds" valueLabels={LABELS} />);
+    vi.mocked(useDatasetRows).mockReturnValue({
+      data: {
+        columns: [{ name: 'status', type: 'integer' }],
+        rows: [],
+        next_cursor: null,
+        approximate_total: 0,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRows>);
+
+    await user.type(screen.getAllByRole('textbox', { name: /filter/i })[0], 'zzz');
+
+    expect(screen.getByText('No matching rows found.')).toBeInTheDocument();
+  });
 });

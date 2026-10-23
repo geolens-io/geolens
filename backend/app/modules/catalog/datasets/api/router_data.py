@@ -166,6 +166,7 @@ async def get_dataset_rows_endpoint(
             after_gid=after,
             column_info=dataset.column_info,
             filters=filters if filters else None,
+            dataset_id=dataset_id,
             sort=sort,
             descending=order == "desc",
         )
