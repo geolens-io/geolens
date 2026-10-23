@@ -1086,3 +1086,31 @@ def test_a_missing_bundle_that_cant_be_exported_again_blocks_cutover(
     [reason] = payload["not_up_to_date"][C3]
     assert reason.startswith("its bundle is missing")
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_partial_export_bundle_blocks_cutover(runner, tmp_path, geolens, install):
+    install(
+        {
+            f"content/items/{C3}/resources": _resources("a.bin", "b.bin"),
+            f"content/items/{C3}/resources/a.bin": b"x" * 600_000,
+            f"content/items/{C3}/resources/b.bin": b"y" * 600_000,
+        }
+    )
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    args = ("--token", TOKEN, "--export-cap-mb", "1")
+    _migrate(runner, plan_file, *args)
+    assert _state(plan_file)["items"][C3]["export"]["partial"] is True
+
+    result, payload = _migrate(runner, plan_file, *args, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    [found] = check["items"]
+    assert found["item"] == C3
+    assert found["reason"].startswith("its export bundle is missing files: ")

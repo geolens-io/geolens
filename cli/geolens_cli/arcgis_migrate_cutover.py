@@ -41,6 +41,17 @@ def _unfinished(plan: Mapping[str, Any], state: MigrationState) -> list[dict[str
             out.append({"item": item["id"], "reason": status})
         for reason in [*entry.left_behind, *entry.stale] if entry else []:
             out.append({"item": item["id"], "reason": reason})
+        export = (entry.export or {}) if entry else {}
+        if export.get("partial") or export.get("errors"):
+            missing = (
+                "; ".join(export.get("errors") or []) or "some files were left out"
+            )
+            out.append(
+                {
+                    "item": item["id"],
+                    "reason": f"its export bundle is missing files: {missing}",
+                }
+            )
     return out
 
 
