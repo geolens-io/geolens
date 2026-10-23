@@ -32,7 +32,9 @@ name groups, and roles stay permission tiers. Maps gain `restricted`.
   visible to its owner and admins. A restricted map left with no group
   becomes private, since a restricted map needs a group.
 - Sharing a map lists the layers the group can't see and offers to share the
-  owner's datasets too. Nothing is shared without that confirmation.
+  owner's datasets too. Nothing is shared without that confirmation. The
+  confirmation tells an owner that some member of a group they named can't
+  read a dataset they can read, and it discloses nothing else.
 - An ArcGIS migration run by an admin creates a GeoLens group for each mapped
   portal group and adds the members who resolve to GeoLens users. Its report
   lists members who don't resolve yet, and a rerun adds them once they do. A

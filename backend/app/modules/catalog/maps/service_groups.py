@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Literal
 
 from sqlalchemy import exists, select, update
 from sqlalchemy.orm import aliased
@@ -29,6 +31,12 @@ from app.modules.catalog.group_sharing import (
     write_group_grants,
 )
 from app.modules.catalog.maps.models import Map, MapGroupGrant
+from app.modules.catalog.maps.schemas import MapLayerAccessGap
+from app.modules.catalog.maps.service_group_gaps import (
+    LayersHiddenFromGroupsError,
+    layer_gaps,
+    share_layer_datasets,
+)
 from app.modules.catalog.maps.service_layers import lock_map_layers
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
@@ -38,6 +46,16 @@ RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricte
 
 class RestrictedWithoutGroupsError(ValueError):
     """A write asked for ``restricted`` on a map shared with no group."""
+
+
+@dataclass
+class MapShareResult:
+    previous: str | None
+    # Each dataset shared on the way, with its groups and visibility after.
+    shared_datasets: dict[uuid.UUID, tuple[list[uuid.UUID], str]] = field(
+        default_factory=dict
+    )
+    hidden_layers: list[MapLayerAccessGap] = field(default_factory=list)
 
 
 def _granted(map_id: uuid.UUID):
@@ -129,14 +147,21 @@ async def set_map_groups(
     *,
     actor: Identity,
     is_admin: bool,
-) -> str | None:
+    confirm: Literal["share_datasets", "map_only"] | None = None,
+) -> MapShareResult:
     """Share ``map_obj`` with exactly ``group_ids``.
 
-    Returns the map's previous visibility, or None when nothing changed.
-    Call after ``check_map_ownership``. Raises ``UnknownGroupsError`` for a
-    group that doesn't exist or belongs to another tenant, and
-    ``GroupNotJoinedError`` when a non-admin adds a group they aren't in.
-    Does not commit.
+    When the map ends restricted and groups that newly reach it can't read
+    some layers, nothing is written unless ``confirm`` says what to do:
+    ``share_datasets`` shares each dataset the caller may share with the
+    groups lacking it, ``map_only`` leaves those layers hidden.
+
+    The result's ``previous`` is the map's visibility before, or None when
+    nothing changed. Call after ``check_map_ownership``. Raises
+    ``UnknownGroupsError`` for a group that doesn't exist or belongs to
+    another tenant, ``GroupNotJoinedError`` when a non-admin adds a group
+    they aren't in, and ``LayersHiddenFromGroupsError`` for an unconfirmed
+    gap. Dataset shares raise as ``set_dataset_groups`` does. Does not commit.
     """
     wanted = set(group_ids)
     granted = _granted(map_obj.id)
@@ -154,7 +179,22 @@ async def set_map_groups(
     elif visibility == RESTRICTED_MAP_VISIBILITY and not wanted:
         visibility = "private"
     if not (added or removed) and visibility == previous:
-        return None
+        return MapShareResult(previous=None)
+
+    result = MapShareResult(previous=previous)
+    if visibility == RESTRICTED_MAP_VISIBILITY:
+        # Grants on an internal or public map are dormant until it narrows.
+        reaching = added if previous == RESTRICTED_MAP_VISIBILITY else wanted
+        gaps = await layer_gaps(session, map_obj.id, reaching, actor, is_admin)
+        if gaps and confirm is None:
+            raise LayersHiddenFromGroupsError(gaps)
+        if gaps and confirm == "share_datasets":
+            result.shared_datasets = await share_layer_datasets(
+                session, gaps, actor, is_admin
+            )
+            # Each shared dataset now grants exactly the groups it lacked.
+            gaps = [gap for gap in gaps if gap.dataset_id not in result.shared_datasets]
+        result.hidden_layers = gaps
 
     await write_group_grants(
         session,
@@ -169,4 +209,4 @@ async def set_map_groups(
     await session.flush()
     # Last: an embed token's revocation is cached outside this transaction.
     await _retire_links(session, map_obj.id, previous, visibility)
-    return previous
+    return result

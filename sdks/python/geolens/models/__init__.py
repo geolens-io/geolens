@@ -611,11 +611,13 @@ from .map_generate_request import MapGenerateRequest
 from .map_generate_response import MapGenerateResponse
 from .map_groups_response import MapGroupsResponse
 from .map_groups_update import MapGroupsUpdate
+from .map_groups_update_confirm_type_0 import MapGroupsUpdateConfirmType0
 from .map_history_event_response import MapHistoryEventResponse
 from .map_history_event_response_details import MapHistoryEventResponseDetails
 from .map_history_list_response import MapHistoryListResponse
 from .map_icon_list_response import MapIconListResponse
 from .map_icon_response import MapIconResponse
+from .map_layer_access_gap import MapLayerAccessGap
 from .map_layer_diff_request import MapLayerDiffRequest
 from .map_layer_input import MapLayerInput
 from .map_layer_input_label_config_type_0 import MapLayerInputLabelConfigType0
@@ -1434,11 +1436,13 @@ __all__ = (
     "MapGenerateResponse",
     "MapGroupsResponse",
     "MapGroupsUpdate",
+    "MapGroupsUpdateConfirmType0",
     "MapHistoryEventResponse",
     "MapHistoryEventResponseDetails",
     "MapHistoryListResponse",
     "MapIconListResponse",
     "MapIconResponse",
+    "MapLayerAccessGap",
     "MapLayerDiffRequest",
     "MapLayerInput",
     "MapLayerInputLabelConfigType0",

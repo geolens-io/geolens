@@ -4539,6 +4539,10 @@ export interface paths {
          *     read it; a restricted one left with no group becomes private. Internal
          *     and public maps keep their audience. Becoming restricted revokes the
          *     map's share link and embed tokens. 404 for an unknown group.
+         *
+         *     409 (`detail.code` `layers_hidden_from_groups`, the layers under
+         *     `detail.layers`) when new groups can't read some layers; see `confirm`.
+         *     A lock wait that times out also answers 409, without `detail.code`.
          */
         put: operations["set_map_groups_endpoint_maps__map_id__groups__put"];
         post?: never;
@@ -11445,6 +11449,16 @@ export interface components {
              * @description The sharing groups the map is shared with, by name.
              */
             groups: components["schemas"]["GroupRef"][];
+            /**
+             * Shared Dataset Ids
+             * @description Datasets this request shared with the map's new groups.
+             */
+            shared_dataset_ids?: string[];
+            /**
+             * Hidden Layers
+             * @description Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.
+             */
+            hidden_layers?: components["schemas"]["MapLayerAccessGap"][];
         };
         /** MapGroupsUpdate */
         MapGroupsUpdate: {
@@ -11453,6 +11467,11 @@ export interface components {
              * @description Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
              */
             group_ids: string[];
+            /**
+             * Confirm
+             * @description Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.
+             */
+            confirm?: ("share_datasets" | "map_only") | null;
         };
         /** MapHistoryEventResponse */
         MapHistoryEventResponse: {
@@ -11527,6 +11546,33 @@ export interface components {
              * @default false
              */
             builtin: boolean;
+        };
+        /** MapLayerAccessGap */
+        MapLayerAccessGap: {
+            /**
+             * Layer Id
+             * Format: uuid
+             */
+            layer_id: string;
+            /** Layer Title */
+            layer_title: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Dataset Title */
+            dataset_title: string;
+            /**
+             * Group Ids
+             * @description The map's new groups that have a member who can't read it.
+             */
+            group_ids: string[];
+            /**
+             * Can Share
+             * @description Whether `confirm: share_datasets` would share the dataset with those groups.
+             */
+            can_share: boolean;
         };
         /** MapLayerDiffRequest */
         MapLayerDiffRequest: {
@@ -39031,7 +39077,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Conflict — resource state prevents the operation */
+            /** @description Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`. */
             409: {
                 headers: {
                     [name: string]: unknown;

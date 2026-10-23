@@ -59,15 +59,21 @@ async def refuse_unjoined_groups(
     """Raise ``GroupNotJoinedError`` when a non-admin adds a group they aren't in."""
     if not added or is_admin:
         return
-    joined = set(
+    if added - await joined_groups(session, actor, added):
+        raise GroupNotJoinedError
+
+
+async def joined_groups(
+    session: AsyncSession, actor: Identity, group_ids: Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The groups of ``group_ids`` that ``actor`` belongs to."""
+    return set(
         await session.scalars(
             select(GroupMember.group_id)
             .where(GroupMember.user_id == actor.id)
-            .where(GroupMember.group_id.in_(added))
+            .where(GroupMember.group_id.in_(set(group_ids)))
         )
     )
-    if added - joined:
-        raise GroupNotJoinedError
 
 
 async def write_group_grants(

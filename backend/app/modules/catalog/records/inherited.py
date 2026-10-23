@@ -115,7 +115,7 @@ async def audience_exceeds_source(
     "would publishing this widen past the source?". An authority whose
     ``record_audience`` isn't trusted warns (over-warning is cheap here,
     since this gates dialog prose, not a result-set row). NULL handling
-    follows ``_stranded_viewer_exists`` in ``maps/service_public.py``: an
+    follows ``_lost_readers`` in ``maps/service_public.py``: an
     unclassifiable account warns too.
     """
     permission = get_permission_extension()

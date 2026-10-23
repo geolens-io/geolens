@@ -85,7 +85,12 @@ async def test_sharing_a_private_map_makes_it_restricted_and_back(
     unshared = await _share(client, map_id, [], {**owned["owner"], **OPT_IN})
 
     assert unshared.status_code == 200, unshared.text
-    assert unshared.json() == {"visibility": "private", "groups": []}
+    assert unshared.json() == {
+        "visibility": "private",
+        "groups": [],
+        "shared_dataset_ids": [],
+        "hidden_layers": [],
+    }
     assert await _stored(test_db_session, map_id) == "private"
     assert (await client.get(url, headers=owned["member"])).status_code == 404
 

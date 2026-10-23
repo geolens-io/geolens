@@ -19,6 +19,10 @@ from app.modules.catalog.maps.service_crud import (
     update_map,
 )
 from app.modules.catalog.maps.service_diff import apply_layer_diff
+from app.modules.catalog.maps.service_group_gaps import (
+    DatasetGroupNotJoinedError,
+    LayersHiddenFromGroupsError,
+)
 from app.modules.catalog.maps.service_groups import (
     map_groups,
     RestrictedWithoutGroupsError,
@@ -71,6 +75,8 @@ __all__ = [
     "LayerRow",
     "check_map_ownership",
     "map_groups",
+    "DatasetGroupNotJoinedError",
+    "LayersHiddenFromGroupsError",
     "RestrictedWithoutGroupsError",
     "set_map_groups",
     "unshare_group_maps",

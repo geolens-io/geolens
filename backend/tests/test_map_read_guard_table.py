@@ -535,7 +535,8 @@ async def test_stranded_shared_maps(
         )
         return {by_name[n] for n in names}
 
-    signed_in_audience = _audience("other")
+    # A restricted map is stranded when its group's members lose the layer.
+    signed_in_audience = _audience("other") | {"restricted"}
     anonymous_audience = _audience("anonymous")
     assert await stranded("public", "private") == signed_in_audience
     assert await stranded("public", "internal") == anonymous_audience

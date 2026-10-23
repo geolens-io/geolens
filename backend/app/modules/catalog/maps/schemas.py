@@ -3,7 +3,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import (
     AwareDatetime,
@@ -1055,6 +1055,32 @@ class MapGroupsUpdate(BaseModel):
             "admin any group."
         ),
     )
+    confirm: Literal["share_datasets", "map_only"] | None = Field(
+        default=None,
+        description=(
+            "Required when the map would become restricted with layers some "
+            "of its new groups can't read; without it the request answers 409 "
+            "and lists them. `share_datasets` also shares each such dataset "
+            "the caller may share with the groups that lack it; `map_only` "
+            "leaves those layers hidden from them."
+        ),
+    )
+
+
+class MapLayerAccessGap(BaseModel):
+    layer_id: uuid.UUID
+    layer_title: str
+    dataset_id: uuid.UUID
+    dataset_title: str
+    group_ids: list[uuid.UUID] = Field(
+        description="The map's new groups that have a member who can't read it."
+    )
+    can_share: bool = Field(
+        description=(
+            "Whether `confirm: share_datasets` would share the dataset with "
+            "those groups."
+        )
+    )
 
 
 class MapGroupsResponse(BaseModel):
@@ -1067,6 +1093,17 @@ class MapGroupsResponse(BaseModel):
     )
     groups: list[GroupRef] = Field(
         description="The sharing groups the map is shared with, by name."
+    )
+    shared_dataset_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Datasets this request shared with the map's new groups.",
+    )
+    hidden_layers: list[MapLayerAccessGap] = Field(
+        default_factory=list,
+        description=(
+            "Layers that some of the map's new groups still can't read; the "
+            "same shape a 409 lists under `detail.layers`."
+        ),
     )
 
 

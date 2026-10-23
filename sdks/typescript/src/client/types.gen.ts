@@ -7056,6 +7056,18 @@ export type MapGroupsResponse = {
      * The sharing groups the map is shared with, by name.
      */
     groups: Array<GroupRef>;
+    /**
+     * Shared Dataset Ids
+     *
+     * Datasets this request shared with the map's new groups.
+     */
+    shared_dataset_ids?: Array<string>;
+    /**
+     * Hidden Layers
+     *
+     * Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.
+     */
+    hidden_layers?: Array<MapLayerAccessGap>;
 };
 
 /**
@@ -7068,6 +7080,12 @@ export type MapGroupsUpdate = {
      * Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
      */
     group_ids: Array<string>;
+    /**
+     * Confirm
+     *
+     * Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.
+     */
+    confirm?: 'share_datasets' | 'map_only' | null;
 };
 
 /**
@@ -7190,6 +7208,40 @@ export type MapIconResponse = {
      * Builtin
      */
     builtin?: boolean;
+};
+
+/**
+ * MapLayerAccessGap
+ */
+export type MapLayerAccessGap = {
+    /**
+     * Layer Id
+     */
+    layer_id: string;
+    /**
+     * Layer Title
+     */
+    layer_title: string;
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * Dataset Title
+     */
+    dataset_title: string;
+    /**
+     * Group Ids
+     *
+     * The map's new groups that have a member who can't read it.
+     */
+    group_ids: Array<string>;
+    /**
+     * Can Share
+     *
+     * Whether `confirm: share_datasets` would share the dataset with those groups.
+     */
+    can_share: boolean;
 };
 
 /**
@@ -27820,7 +27872,7 @@ export type SetMapGroupsEndpointMapsMapIdGroupsPutErrors = {
      */
     404: ProblemDetail;
     /**
-     * Conflict — resource state prevents the operation
+     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`.
      */
     409: ProblemDetail;
     /**

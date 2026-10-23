@@ -1175,7 +1175,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 116,
+        "backend/app/modules/catalog/maps/service.py": 122,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 128,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1190,8 +1190,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_crud.py": 850,
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
-        # Shared-map audience decisions stay behind the permission extension seam.
-        "backend/app/modules/catalog/maps/service_public.py": 1018,
+        # Shared-map audience decisions stay behind the permission extension seam,
+        # restricted maps' group members included.
+        "backend/app/modules/catalog/maps/service_public.py": 1033,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1312,7 +1313,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1630,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1446,
+    "backend/app/modules/catalog/maps/schemas.py": 1483,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1433,9 +1434,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog probes.
     "backend/app/modules/catalog/features/service.py": 1643,
     # Dataset visibility, and the VRT member counts and extents each requester
-    # may see, share the permission extension's one filter; map reads, group
-    # grants included, share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1299,
+    # may see, and which groups can't read a dataset, share the permission
+    # extension's one audience; map reads share the one map guard beside it.
+    "backend/app/modules/catalog/authorization.py": 1338,
 }
 
 

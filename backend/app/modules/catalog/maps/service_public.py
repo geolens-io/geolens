@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    ColumnElement,
     Text,
     and_,
     any_,
     bindparam,
     cast,
     column,
+    exists,
     func,
     literal,
     nulls_last,
@@ -33,7 +35,9 @@ from app.core.text import escape_ilike
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
+    RESTRICTED_MAP_VISIBILITY,
     SIGNED_IN_MAP_VISIBILITIES,
+    map_group_member,
     answers_audience_questions,
     apply_map_visibility_filter,
     apply_visibility_filter,
@@ -46,7 +50,11 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     Record,
 )
-from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
+from app.modules.catalog.maps.models import (
+    Map,
+    MapLayer,
+    MapShareToken,
+)
 from app.modules.catalog.maps.sharing_policy import (
     ShareExpirationPresetDays,
     resolve_share_expiration as _resolve_share_expiration,
@@ -98,16 +106,16 @@ async def validate_public_visibility(
     return [row[0] for row in rows if row[1] in readable]
 
 
-async def _stranded_viewer_exists(
+async def _lost_readers(
     session: AsyncSession,
     before: RecordAudience,
     after: RecordAudience,
     regrant: Callable[[], Awaitable[object]] | None = None,
-) -> bool:
-    """Does a real account sit in the audience this change removes?
+) -> ColumnElement[bool]:
+    """A predicate over ``User``: an active account this change cuts out.
 
-    A narrower audience isn't someone losing access, so this asks whether
-    anyone stands in the cut part (both narrowing directions need that).
+    A narrower audience isn't someone losing access, so this names who stands
+    in the cut part (both narrowing directions need that).
 
     The before/after difference, not a hand-excluded named slice, makes
     exclusions follow the authority's policy rather than a hardcoded "admin"
@@ -123,18 +131,19 @@ async def _stranded_viewer_exists(
     ``regrant`` changes the dataset's grants between the two reads, so the
     readers before it are kept by id.
     """
-    active = (
-        select(User.id).where(User.is_active.is_(True)).where(User.status == "active")
-    )
+    active = and_(User.is_active.is_(True), User.status == "active")
     if regrant is None:
-        stmt = active.where(before.users.is_not(False))
+        kept = before.users.is_not(False)
     else:
-        readers = list(await session.scalars(active.where(before.users.is_not(False))))
+        readers = list(
+            await session.scalars(
+                select(User.id).where(active).where(before.users.is_not(False))
+            )
+        )
         await regrant()
         ids = bindparam("readers", readers, type_=ARRAY(PG_UUID(as_uuid=True)))
-        stmt = active.where(User.id == any_(ids))
-    stmt = stmt.where(after.users.is_not(True)).limit(1)
-    return (await session.execute(stmt)).scalar_one_or_none() is not None
+        kept = User.id == any_(ids)
+    return and_(active, kept, after.users.is_not(True))
 
 
 async def find_maps_broken_by_dataset_visibility(
@@ -149,7 +158,8 @@ async def find_maps_broken_by_dataset_visibility(
     regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> list[str]:
     """Names of the owner's shared maps that work at ``old_visibility`` and
-    would not at ``new_visibility``.
+    would not at ``new_visibility``. A restricted map counts when a member of
+    one of its groups would lose the layer.
 
     Only maps the dataset's owner (``owner_id``) created count, and only while
     the owner can read the dataset. Other users' maps lose the layer instead,
@@ -171,7 +181,9 @@ async def find_maps_broken_by_dataset_visibility(
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
         .where(Map.created_by == owner_id)
-        .where(Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES))
+        .where(
+            Map.visibility.in_((*SIGNED_IN_MAP_VISIBILITIES, RESTRICTED_MAP_VISIBILITY))
+        )
     )
     # A no-op change strands nobody for any authority, and a round-tripped
     # record resubmits the same visibility.
@@ -197,22 +209,25 @@ async def find_maps_broken_by_dataset_visibility(
         )
         # Asked per audience: a public map losing a public dataset strands
         # anonymous visitors even when an internal map's viewers all hold grants.
-        signed_in_stranded = await _stranded_viewer_exists(
-            session, before, after, regrant
-        )
+        lost = await _lost_readers(session, before, after, regrant)
+        signed_in_stranded = await session.scalar(select(exists().where(lost)))
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
         # Who a map reaches is core's rule, not the permission seam's, and a
         # private map reaches nobody beyond its owner, so it is never stranded.
         if signed_in_stranded:
-            audiences = SIGNED_IN_MAP_VISIBILITIES
+            member_lost = (
+                select(User.id).where(lost).where(map_group_member(Map.id, User.id))
+            ).exists()
+            reached = or_(
+                Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+                and_(Map.visibility == RESTRICTED_MAP_VISIBILITY, member_lost),
+            )
         elif anonymous_stranded:
-            audiences = ANONYMOUS_MAP_VISIBILITIES
+            reached = Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES)
         else:
             return []
-        stmt = stmt.where(audience_admits(before, owner_id))
-    else:
-        audiences = SIGNED_IN_MAP_VISIBILITIES
-    result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
+        stmt = stmt.where(audience_admits(before, owner_id)).where(reached)
+    result = await session.execute(stmt)
     return [row[0] for row in result.all()]
 
 

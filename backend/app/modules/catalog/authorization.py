@@ -1002,6 +1002,45 @@ async def vrt_member_ids(
     return list(rows.scalars())
 
 
+async def groups_lacking_datasets(
+    db: AsyncSession,
+    dataset_ids: Iterable[uuid.UUID],
+    group_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """For each dataset, the groups of ``group_ids`` with an active member who
+    can't read it.
+
+    Asked of the permission authority, as the shared-map guard asks it; an
+    authority that can't answer gets every group counted.
+    """
+    groups = set(group_ids)
+    queries = await _record_audience_queries(db, dataset_ids)
+    if not groups:
+        return {dataset_id: set() for dataset_id in queries}
+    permission = get_permission_extension()
+    if not answers_audience_questions(permission):
+        return {dataset_id: set(groups) for dataset_id in queries}
+
+    from app.modules.auth.models import GroupMember, User
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    lacking = {}
+    for dataset_id, (query, _) in queries.items():
+        audience = await permission.record_audience(query, User, grant_cls=DatasetGrant)
+        lacking[dataset_id] = set(
+            await db.scalars(
+                select(GroupMember.group_id)
+                .distinct()
+                .join(User, User.id == GroupMember.user_id)
+                .where(GroupMember.group_id.in_(groups))
+                .where(User.is_active.is_(True))
+                .where(User.status == "active")
+                .where(audience.users.is_not(True))
+            )
+        )
+    return lacking
+
+
 def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:
     """The audience question for a loaded dataset as it stands."""
     record = dataset.record
@@ -1230,16 +1269,18 @@ SIGNED_IN_MAP_VISIBILITIES = ("internal", "public")
 RESTRICTED_MAP_VISIBILITY = "restricted"
 
 
-def _map_group_member(map_id: Any, user_id: uuid.UUID) -> ColumnElement[bool]:
+def map_group_member(map_id: Any, user_id: Any) -> ColumnElement[bool]:
     """Whether ``user_id`` belongs to a group granted on ``map_id``."""
     from app.modules.auth.models import GroupMember
     from app.modules.catalog.maps.models import MapGroupGrant
 
-    return exists().where(
+    member = exists().where(
         MapGroupGrant.map_id == map_id,
         GroupMember.group_id == MapGroupGrant.group_id,
         GroupMember.user_id == user_id,
     )
+    # Explicit: auto-correlation reaches only the immediately enclosing select.
+    return member.correlate_except(MapGroupGrant, GroupMember)
 
 
 def apply_map_visibility_filter(
@@ -1258,7 +1299,7 @@ def apply_map_visibility_filter(
             Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
             and_(
                 Map.visibility == RESTRICTED_MAP_VISIBILITY,
-                _map_group_member(Map.id, user_id),
+                map_group_member(Map.id, user_id),
             ),
         )
     )
@@ -1282,9 +1323,7 @@ async def check_map_access(
             or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
             or (
                 map_obj.visibility == RESTRICTED_MAP_VISIBILITY
-                and bool(
-                    await db.scalar(select(_map_group_member(map_obj.id, user.id)))
-                )
+                and bool(await db.scalar(select(map_group_member(map_obj.id, user.id))))
             )
         )
     if not allowed:

@@ -11932,6 +11932,23 @@
             },
             "title": "Groups",
             "type": "array"
+          },
+          "shared_dataset_ids": {
+            "description": "Datasets this request shared with the map's new groups.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Shared Dataset Ids",
+            "type": "array"
+          },
+          "hidden_layers": {
+            "description": "Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.",
+            "items": {
+              "$ref": "#/components/schemas/MapLayerAccessGap"
+            },
+            "title": "Hidden Layers",
+            "type": "array"
           }
         },
         "required": [
@@ -11952,6 +11969,22 @@
             "maxItems": 100,
             "title": "Group Ids",
             "type": "array"
+          },
+          "confirm": {
+            "anyOf": [
+              {
+                "enum": [
+                  "share_datasets",
+                  "map_only"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.",
+            "title": "Confirm"
           }
         },
         "required": [
@@ -12151,6 +12184,52 @@
           "sprite_id"
         ],
         "title": "MapIconResponse",
+        "type": "object"
+      },
+      "MapLayerAccessGap": {
+        "properties": {
+          "layer_id": {
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "layer_title": {
+            "title": "Layer Title",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_title": {
+            "title": "Dataset Title",
+            "type": "string"
+          },
+          "group_ids": {
+            "description": "The map's new groups that have a member who can't read it.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "can_share": {
+            "description": "Whether `confirm: share_datasets` would share the dataset with those groups.",
+            "title": "Can Share",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer_id",
+          "layer_title",
+          "dataset_id",
+          "dataset_title",
+          "group_ids",
+          "can_share"
+        ],
+        "title": "MapLayerAccessGap",
         "type": "object"
       },
       "MapLayerDiffRequest": {
@@ -57070,7 +57149,7 @@
     },
     "/maps/{map_id}/groups/": {
       "put": {
-        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.",
+        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code`.",
         "operationId": "set_map_groups_endpoint_maps__map_id__groups__put",
         "parameters": [
           {
@@ -57153,7 +57232,7 @@
                 }
               }
             },
-            "description": "Conflict \u2014 resource state prevents the operation"
+            "description": "Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`."
           },
           "422": {
             "content": {

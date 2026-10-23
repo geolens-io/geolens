@@ -58,9 +58,10 @@ async def set_dataset_groups(
     actor: Identity,
     is_admin: bool,
     warnings_out: list[str] | None = None,
+    keep_current: bool = False,
 ) -> bool:
-    """Share ``dataset`` with exactly ``group_ids``; return whether anything
-    changed.
+    """Share ``dataset`` with exactly ``group_ids``, or with them besides its
+    current groups when ``keep_current``; return whether anything changed.
 
     Call after ``check_dataset_write_access``. Raises ``UnknownGroupsError``
     for a group that doesn't exist or belongs to another tenant,
@@ -80,6 +81,8 @@ async def set_dataset_groups(
     # Loaded before the lock: judge the row as committed, not as first read.
     await session.refresh(record, ["visibility", "record_status", "created_by"])
     current = set(await session.scalars(granted))
+    if keep_current:
+        wanted |= current
     added, removed = wanted - current, current - wanted
     await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
     visibility = record.visibility

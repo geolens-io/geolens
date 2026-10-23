@@ -4918,6 +4918,10 @@ export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOn
  * read it; a restricted one left with no group becomes private. Internal
  * and public maps keep their audience. Becoming restricted revokes the
  * map's share link and embed tokens. 404 for an unknown group.
+ *
+ * 409 (`detail.code` `layers_hidden_from_groups`, the layers under
+ * `detail.layers`) when new groups can't read some layers; see `confirm`.
+ * A lock wait that times out also answers 409, without `detail.code`.
  */
 export const setMapGroupsEndpointMapsMapIdGroupsPut = <ThrowOnError extends boolean = false>(options: Options<SetMapGroupsEndpointMapsMapIdGroupsPutData, ThrowOnError>): RequestResult<SetMapGroupsEndpointMapsMapIdGroupsPutResponses, SetMapGroupsEndpointMapsMapIdGroupsPutErrors, ThrowOnError> => (options.client ?? client).put<SetMapGroupsEndpointMapsMapIdGroupsPutResponses, SetMapGroupsEndpointMapsMapIdGroupsPutErrors, ThrowOnError>({
     security: [
