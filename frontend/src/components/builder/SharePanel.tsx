@@ -41,7 +41,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
+import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
@@ -980,6 +980,15 @@ export function ShareDialog({
 
   // Only the owner and admins receive the group list, and only they may change it.
   const canManageGroups = groups !== null;
+  // Layers the predicate above already lists are left to its stronger warning.
+  const groupHiddenIds = useLayersHiddenFromMapGroups(mapId, visibility as MapVisibility, groups);
+  const groupHiddenLayers = useMemo(
+    () =>
+      layers
+        .filter((layer) => groupHiddenIds.has(layer.id) && !isLayerHiddenFromMapAudience(layer, visibility as MapVisibility))
+        .map((layer) => layer.display_name ?? layer.dataset_name),
+    [layers, groupHiddenIds, visibility],
+  );
   const groupCount = groups?.length ?? 0;
   // The level the owner picked but the server has not confirmed. "Specific
   // groups" on a private map stays here until groups are saved; any change of
@@ -1345,6 +1354,15 @@ export function ShareDialog({
                   defaultValue: 'Hidden from viewers: {{layers}}. These layers\' datasets are private or unpublished, so they will not appear for anyone but you.',
                 })}
               </p>
+            </div>
+          )}
+          {groupHiddenLayers.length > 0 && (
+            <div
+              data-testid="share-group-hidden-warning"
+              className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+              <p>{t('share.groupHiddenWarning', { layers: groupHiddenLayers.join(', ') })}</p>
             </div>
           )}
 

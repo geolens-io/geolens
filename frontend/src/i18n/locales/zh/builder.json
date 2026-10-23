@@ -637,6 +637,7 @@
     "embedTokenInfo": "已包含非公开图层。嵌入地图访问令牌会自动处理访问权限。",
     "unsavedWarning": "未保存的更改仅存在于构建器预览中。请先保存，再复制链接或嵌入代码。",
     "audienceHiddenWarning": "对查看者隐藏：{{layers}}。这些图层的数据集对此地图的受众不可见，因此除您之外的其他人都无法看到它们。",
+    "groupHiddenWarning": "对此地图的部分用户组隐藏：{{layers}}。这些用户组中的部分成员无法读取这些图层的数据集，因此看不到这些图层。",
     "savingWarning": "正在保存更改。共享链接和嵌入代码将在保存完成后更新。",
     "saveFailedWarning": "保存失败。在您成功重试之前，共享链接和嵌入代码仍显示上次保存的地图。",
     "expirationLabel": "过期时间",

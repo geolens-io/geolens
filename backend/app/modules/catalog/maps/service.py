@@ -25,6 +25,7 @@ from app.modules.catalog.maps.service_group_gaps import (
 )
 from app.modules.catalog.maps.service_groups import (
     map_groups,
+    map_group_layer_gaps,
     RestrictedWithoutGroupsError,
     set_map_groups,
     unshare_group_maps,
@@ -75,6 +76,7 @@ __all__ = [
     "LayerRow",
     "check_map_ownership",
     "map_groups",
+    "map_group_layer_gaps",
     "DatasetGroupNotJoinedError",
     "LayersHiddenFromGroupsError",
     "RestrictedWithoutGroupsError",

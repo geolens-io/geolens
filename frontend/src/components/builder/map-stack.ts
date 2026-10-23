@@ -438,7 +438,8 @@ export function computeDisambiguationLabels(
  * whom an `internal` dataset serves, so such a layer isn't stranded there.
  * A `restricted` dataset is flagged on public and internal maps: it needs a
  * grant a generic member of the audience lacks. On a restricted map the client
- * can't see whether the dataset is shared with the map's groups, so it isn't.
+ * can't see whether the dataset is shared with the map's groups, so it isn't;
+ * `useLayersHiddenFromMapGroups` asks the server instead.
  */
 export function isLayerHiddenFromMapAudience(
   layer: Pick<MapLayerResponse, 'dataset_visibility' | 'dataset_status'>,

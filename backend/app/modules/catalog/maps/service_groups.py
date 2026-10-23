@@ -23,6 +23,7 @@ from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
     RESTRICTED_MAP_VISIBILITY,
+    answers_audience_questions,
 )
 from app.modules.catalog.group_sharing import (
     group_refs,
@@ -40,6 +41,7 @@ from app.modules.catalog.maps.service_group_gaps import (
 from app.modules.catalog.maps.service_layers import lock_map_layers
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
+from app.platform.extensions import get_permission_extension
 
 RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricted."
 
@@ -65,6 +67,20 @@ def _granted(map_id: uuid.UUID):
 async def map_groups(session: AsyncSession, map_id: uuid.UUID) -> list[GroupRef]:
     """The groups a map is shared with, by name."""
     return await group_refs(session, _granted(map_id))
+
+
+async def map_group_layer_gaps(
+    session: AsyncSession, map_obj: Map, actor: Identity, is_admin: bool
+) -> list[MapLayerAccessGap]:
+    """A restricted map's layers some of its groups can't read, among those
+    the caller reads. Empty for other maps and under an authority that can't
+    answer audience questions, which would have every layer count."""
+    if map_obj.visibility != RESTRICTED_MAP_VISIBILITY:
+        return []
+    if not answers_audience_questions(get_permission_extension()):
+        return []
+    groups = set(await session.scalars(_granted(map_obj.id)))
+    return await layer_gaps(session, map_obj.id, groups, actor, is_admin)
 
 
 async def _retire_links(

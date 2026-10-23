@@ -438,3 +438,68 @@ async def test_a_dataset_group_refusal_names_the_dataset(
     assert refused.json()["detail"] == (
         "You can share a dataset only with groups you belong to."
     )
+
+
+async def _hidden_from_groups(client: AsyncClient, map_id, headers):
+    """The layer ids the visibility check lists, and the response's text."""
+    resp = await client.get(f"/maps/{map_id}/visibility-check/", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return {gap["layer_id"] for gap in resp.json()["hidden_from_groups"]}, resp.text
+
+
+async def test_the_visibility_check_lists_what_a_restricted_maps_groups_cannot_read(
+    client: AsyncClient, world
+):
+    assert (await _hidden_from_groups(client, world["map"], world["owner"]))[0] == set()
+    shared = await _share_map(
+        client, world["map"], [world["g"]], world["owner"], "map_only"
+    )
+    assert shared.status_code == 200, shared.text
+
+    layers = world["layers"]
+    gaps, _ = await _hidden_from_groups(client, world["map"], world["owner"])
+    assert gaps == {
+        layers["private"],
+        layers["without_g"],
+        layers["theirs"],
+    }
+
+
+async def test_the_visibility_check_names_no_layer_the_caller_cannot_read(
+    client: AsyncClient, world
+):
+    datasets = world["datasets"]
+    await _share_dataset(client, datasets["theirs"], [], world["other"])
+    shared = await _share_map(
+        client, world["map"], [world["g"]], world["owner"], "map_only"
+    )
+    assert shared.status_code == 200, shared.text
+
+    gaps, text = await _hidden_from_groups(client, world["map"], world["owner"])
+
+    assert gaps == {world["layers"]["private"], world["layers"]["without_g"]}
+    assert str(datasets["theirs"]) not in text
+
+
+async def test_the_visibility_check_lists_nothing_under_an_authority_that_cannot_say(
+    client: AsyncClient, world, monkeypatch
+):
+    """An authority that can't answer audience questions would have every group
+    lack every layer; a warning built on that would flag the whole map."""
+    import app.platform.extensions as extensions
+    from app.platform.extensions.defaults_extensions import (
+        DefaultPermissionExtension,
+    )
+
+    class _Opaque(DefaultPermissionExtension):
+        # Overriding a read without record_audience makes the answer untrusted.
+        async def can_access_dataset(self, *args, **kwargs):
+            return await super().can_access_dataset(*args, **kwargs)
+
+    shared = await _share_map(
+        client, world["map"], [world["g"]], world["owner"], "map_only"
+    )
+    assert shared.status_code == 200, shared.text
+    monkeypatch.setitem(extensions._extensions, "permission", _Opaque())
+
+    assert (await _hidden_from_groups(client, world["map"], world["owner"]))[0] == set()

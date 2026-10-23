@@ -114,6 +114,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useRemoveLayer: () => ({}),
   useExportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useImportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useLayersHiddenFromMapGroups: () => new Set(),
 }));
 
 vi.mock('@/hooks/use-ai-availability', () => ({

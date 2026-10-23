@@ -21,7 +21,7 @@ class MapLayerAccessGap:
         layer_title (str):
         dataset_id (UUID):
         dataset_title (str):
-        group_ids (list[UUID]): The map's new groups that have a member who can't read it.
+        group_ids (list[UUID]): The map's groups that have a member who can't read it.
         can_share (bool): Whether `confirm: share_datasets` would share the dataset with those groups.
     """
 

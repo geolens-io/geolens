@@ -637,6 +637,7 @@
     "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
     "unsavedWarning": "Unsaved changes are only in the builder preview. Save before copying links or embeds.",
     "audienceHiddenWarning": "Hidden from viewers: {{layers}}. These layers' datasets are not visible to this map's audience, so they will not appear for anyone but you.",
+    "groupHiddenWarning": "Hidden from some of this map's groups: {{layers}}. Some of their members can't read these layers' datasets, so they won't see these layers.",
     "savingWarning": "Saving changes. Share links and embeds update after this save finishes.",
     "saveFailedWarning": "Save failed. Share links and embeds still show the last saved map until you retry successfully.",
     "expirationLabel": "Expiration",

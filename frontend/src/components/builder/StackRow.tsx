@@ -107,10 +107,9 @@ interface StackRowProps {
    * "Move out of group" gains a confirm.
    */
   dissolvesGroupName?: string | null;
-  // True when this layer's dataset would be silently filtered out
-  // for the map's audience (private/unpublished dataset on a public/shared
-  // map) — computed per-layer by UnifiedStackPanel via
-  // isLayerHiddenFromMapAudience.
+  // True when this layer's dataset would be silently filtered out for some of
+  // the map's audience. UnifiedStackPanel computes it from
+  // isLayerHiddenFromMapAudience and, on a restricted map, the server's answer.
   audienceHidden?: boolean;
   // True when this DEM has its 2D relief overlay turned off
   // (render_mode 'terrain') and is NOT the active 3D terrain source, so it

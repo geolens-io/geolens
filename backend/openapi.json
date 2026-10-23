@@ -12207,7 +12207,7 @@
             "type": "string"
           },
           "group_ids": {
-            "description": "The map's new groups that have a member who can't read it.",
+            "description": "The map's groups that have a member who can't read it.",
             "items": {
               "format": "uuid",
               "type": "string"
@@ -22770,6 +22770,14 @@
             "description": "True if any layer references a non-public dataset",
             "title": "Has Non Public",
             "type": "boolean"
+          },
+          "hidden_from_groups": {
+            "description": "On a restricted map, the layers some of its groups can't read, among those the caller reads. Empty on other maps, and when the permission authority can't say who reads a dataset.",
+            "items": {
+              "$ref": "#/components/schemas/MapLayerAccessGap"
+            },
+            "title": "Hidden From Groups",
+            "type": "array"
           }
         },
         "required": [
@@ -59448,7 +59456,7 @@
     },
     "/maps/{map_id}/visibility-check/": {
       "get": {
-        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nUnreadable maps answer 404 (existence-hiding); readable non-owners get 403.",
+        "description": "Check which layers a map's audience can't see. Informational only.\n\nOwner-or-admin, since the answer names datasets that read access alone\nmust not reveal. Unreadable maps answer 404; readable non-owners get 403.",
         "operationId": "visibility_check_endpoint_maps__map_id__visibility_check__get",
         "parameters": [
           {

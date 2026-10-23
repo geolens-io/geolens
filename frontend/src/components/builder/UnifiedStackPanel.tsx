@@ -58,6 +58,11 @@ interface UnifiedStackPanelProps {
    * MapBuilderPage (needs terrain_config).
    */
   drawsNothingLayerIds?: ReadonlySet<string>;
+  /**
+   * Ids of layers some of a restricted map's groups can't read, as the server
+   * answers it. They get the audience-hidden badge too.
+   */
+  groupHiddenLayerIds?: ReadonlySet<string>;
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
@@ -287,6 +292,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
   mapVisibility = 'private',
   drawsNothingLayerIds,
+  groupHiddenLayerIds,
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
@@ -465,10 +471,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const audienceHiddenLayerIds = useMemo(() => {
     const ids = new Set<string>();
     for (const layer of layers) {
-      if (isLayerHiddenFromMapAudience(layer, mapVisibility)) ids.add(layer.id);
+      if (isLayerHiddenFromMapAudience(layer, mapVisibility) || groupHiddenLayerIds?.has(layer.id)) {
+        ids.add(layer.id);
+      }
     }
     return ids;
-  }, [layers, mapVisibility]);
+  }, [layers, mapVisibility, groupHiddenLayerIds]);
 
   // SortableContext items: all layer ids plus the basemap-group id, so the user
   // can drag the basemap between 'top' and 'bottom'. Insert order matches the

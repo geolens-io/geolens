@@ -7233,7 +7233,7 @@ export type MapLayerAccessGap = {
     /**
      * Group Ids
      *
-     * The map's new groups that have a member who can't read it.
+     * The map's groups that have a member who can't read it.
      */
     group_ids: Array<string>;
     /**
@@ -13437,6 +13437,12 @@ export type VisibilityCheckResponse = {
      * True if any layer references a non-public dataset
      */
     has_non_public: boolean;
+    /**
+     * Hidden From Groups
+     *
+     * On a restricted map, the layers some of its groups can't read, among those the caller reads. Empty on other maps, and when the permission authority can't say who reads a dataset.
+     */
+    hidden_from_groups?: Array<MapLayerAccessGap>;
 };
 
 /**

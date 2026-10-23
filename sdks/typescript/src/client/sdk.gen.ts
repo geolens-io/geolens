@@ -5282,11 +5282,10 @@ export const uploadThumbnailMapsMapIdThumbnailPut = <ThrowOnError extends boolea
 /**
  * Visibility Check Endpoint
  *
- * Check if a map has non-public datasets. Informational only.
+ * Check which layers a map's audience can't see. Informational only.
  *
- * Owner-or-admin like the other sharing mutations: the response names
- * non-public dataset titles, which read access alone must not reveal.
- * Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+ * Owner-or-admin, since the answer names datasets that read access alone
+ * must not reveal. Unreadable maps answer 404; readable non-owners get 403.
  */
 export const visibilityCheckEndpointMapsMapIdVisibilityCheckGet = <ThrowOnError extends boolean = false>(options: Options<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetData, ThrowOnError>): RequestResult<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses, VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors, ThrowOnError> => (options.client ?? client).get<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses, VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors, ThrowOnError>({
     security: [

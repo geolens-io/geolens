@@ -66,7 +66,11 @@ async def test_owner_can_publish_a_map_with_a_layer_they_cannot_read(
 
     check = await client.get(f"/maps/{map_id}/visibility-check/", headers=owner)
     assert check.status_code == 200, check.text
-    assert check.json() == {"non_public_datasets": [], "has_non_public": False}
+    assert check.json() == {
+        "non_public_datasets": [],
+        "has_non_public": False,
+        "hidden_from_groups": [],
+    }
 
     published = await client.put(
         f"/maps/{map_id}", json={"visibility": "public"}, headers=owner

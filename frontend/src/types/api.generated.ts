@@ -4789,11 +4789,10 @@ export interface paths {
         };
         /**
          * Visibility Check Endpoint
-         * @description Check if a map has non-public datasets. Informational only.
+         * @description Check which layers a map's audience can't see. Informational only.
          *
-         *     Owner-or-admin like the other sharing mutations: the response names
-         *     non-public dataset titles, which read access alone must not reveal.
-         *     Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+         *     Owner-or-admin, since the answer names datasets that read access alone
+         *     must not reveal. Unreadable maps answer 404; readable non-owners get 403.
          */
         get: operations["visibility_check_endpoint_maps__map_id__visibility_check__get"];
         put?: never;
@@ -11565,7 +11564,7 @@ export interface components {
             dataset_title: string;
             /**
              * Group Ids
-             * @description The map's new groups that have a member who can't read it.
+             * @description The map's groups that have a member who can't read it.
              */
             group_ids: string[];
             /**
@@ -16291,6 +16290,11 @@ export interface components {
              * @description True if any layer references a non-public dataset
              */
             has_non_public: boolean;
+            /**
+             * Hidden From Groups
+             * @description On a restricted map, the layers some of its groups can't read, among those the caller reads. Empty on other maps, and when the permission authority can't say who reads a dataset.
+             */
+            hidden_from_groups?: components["schemas"]["MapLayerAccessGap"][];
         };
         /** VrtActiveGeneration */
         VrtActiveGeneration: {

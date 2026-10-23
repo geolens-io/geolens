@@ -104,11 +104,10 @@ def sync_detailed(
 ) -> Response[ProblemDetail | VisibilityCheckResponse]:
     """Visibility Check Endpoint
 
-     Check if a map has non-public datasets. Informational only.
+     Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -139,11 +138,10 @@ def sync(
 ) -> ProblemDetail | VisibilityCheckResponse | None:
     """Visibility Check Endpoint
 
-     Check if a map has non-public datasets. Informational only.
+     Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -169,11 +167,10 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | VisibilityCheckResponse]:
     """Visibility Check Endpoint
 
-     Check if a map has non-public datasets. Informational only.
+     Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -202,11 +199,10 @@ async def asyncio(
 ) -> ProblemDetail | VisibilityCheckResponse | None:
     """Visibility Check Endpoint
 
-     Check if a map has non-public datasets. Informational only.
+     Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
 
     Args:
         map_id (UUID):

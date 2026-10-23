@@ -1175,7 +1175,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 122,
+        "backend/app/modules/catalog/maps/service.py": 124,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 130,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1314,7 +1314,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1630,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1483,
+    "backend/app/modules/catalog/maps/schemas.py": 1491,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,

@@ -1073,7 +1073,7 @@ class MapLayerAccessGap(BaseModel):
     dataset_id: uuid.UUID
     dataset_title: str
     group_ids: list[uuid.UUID] = Field(
-        description="The map's new groups that have a member who can't read it."
+        description="The map's groups that have a member who can't read it."
     )
     can_share: bool = Field(
         description=(
@@ -1445,6 +1445,14 @@ class VisibilityCheckResponse(BaseModel):
     )
     has_non_public: bool = Field(
         description="True if any layer references a non-public dataset"
+    )
+    hidden_from_groups: list[MapLayerAccessGap] = Field(
+        default_factory=list,
+        description=(
+            "On a restricted map, the layers some of its groups can't read, "
+            "among those the caller reads. Empty on other maps, and when the "
+            "permission authority can't say who reads a dataset."
+        ),
     )
 
 

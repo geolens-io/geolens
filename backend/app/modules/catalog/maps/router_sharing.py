@@ -59,6 +59,7 @@ from app.modules.catalog.maps.service import (
     get_map_with_layers,
     get_shared_map,
     lock_map_layers,
+    map_group_layer_gaps,
     revoke_share_token_by_map,
     update_share_token,
     validate_public_visibility,
@@ -201,20 +202,21 @@ async def visibility_check_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> VisibilityCheckResponse:
-    """Check if a map has non-public datasets. Informational only.
+    """Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Unreadable maps answer 404 (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await check_map_ownership(map_obj, user, db)
+    roles = await check_map_ownership(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id, user)
+    gaps = await map_group_layer_gaps(db, map_obj, user, "admin" in roles)
     return VisibilityCheckResponse(
         non_public_datasets=non_public_names,
         has_non_public=len(non_public_names) > 0,
+        hidden_from_groups=gaps,
     )
 
 

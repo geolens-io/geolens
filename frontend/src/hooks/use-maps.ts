@@ -28,9 +28,10 @@ import {
   listMapIcons,
   uploadMapIcon,
   setMapGroups,
+  checkMapVisibility,
 } from '@/api/maps';
 import type { ShareExpirationInput } from '@/api/maps';
-import type { MapGroupsConfirm, MapResponse, MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility } from '@/types/api';
+import type { MapGroupsConfirm, MapResponse, MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility, VisibilityCheckResponse } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
@@ -61,6 +62,33 @@ export function useMaps(params: MapBrowseParams = {}) {
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
+}
+
+const NO_LAYER_IDS: ReadonlySet<string> = new Set();
+
+function gapLayerIds(check: VisibilityCheckResponse): ReadonlySet<string> {
+  return new Set((check.hidden_from_groups ?? []).map((gap) => gap.layer_id));
+}
+
+/**
+ * The layers of a restricted map that some of its groups can't read, as the
+ * server answers it. Only the owner and admins receive `groups`, and only
+ * they may ask.
+ */
+export function useLayersHiddenFromMapGroups(
+  mapId: string | undefined,
+  visibility: MapVisibility | undefined,
+  groups: readonly unknown[] | null | undefined,
+): ReadonlySet<string> {
+  const enabled = visibility === 'restricted' && groups != null;
+  const { data } = useQuery({
+    queryKey: queryKeys.maps.groupGaps(mapId),
+    queryFn: () => checkMapVisibility(mapId!),
+    enabled: enabled && !!mapId,
+    select: gapLayerIds,
+  });
+  // A disabled query still returns what it cached while the map was restricted.
+  return (enabled && data) || NO_LAYER_IDS;
 }
 
 export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: boolean }) {

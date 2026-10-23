@@ -81,7 +81,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { MapErrorBoundary, PanelErrorBoundary } from '@/components/error';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
-import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
+import { useMap, useAddLayer, useRemoveLayer, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -1415,6 +1415,8 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
+  const groupHiddenLayerIds = useLayersHiddenFromMapGroups(id, mapData?.visibility, mapData?.groups);
+
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
   let breadcrumbPresetName: string | undefined = undefined;
@@ -1772,6 +1774,7 @@ export function MapBuilderPage() {
               // Drives the per-layer "hidden from public viewers" badge.
               mapVisibility={mapData?.visibility}
               drawsNothingLayerIds={drawsNothingLayerIds}
+              groupHiddenLayerIds={groupHiddenLayerIds}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
               onToggleVisibility={handleRowToggleVisibility}

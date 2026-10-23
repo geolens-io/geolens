@@ -24,6 +24,7 @@ import {
   usePublishMap,
   useRevokeShareToken,
   useUpdateShareToken,
+  useLayersHiddenFromMapGroups,
 } from '@/hooks/use-maps';
 import { toast } from 'sonner';
 
@@ -65,6 +66,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useRevokeShareToken: vi.fn(),
   useMapShareToken: vi.fn(),
   useUpdateShareToken: vi.fn(),
+  useLayersHiddenFromMapGroups: vi.fn(),
 }));
 
 // SharePanel now reads the deployment's configured
@@ -92,6 +94,7 @@ const mockedUseCreateShareToken = vi.mocked(useCreateShareToken);
 const mockedUseRevokeShareToken = vi.mocked(useRevokeShareToken);
 const mockedUseMapShareToken = vi.mocked(useMapShareToken);
 const mockedUseUpdateShareToken = vi.mocked(useUpdateShareToken);
+const mockedUseLayersHiddenFromMapGroups = vi.mocked(useLayersHiddenFromMapGroups);
 const mockedUseCreateEmbedToken = vi.mocked(useCreateEmbedToken);
 const mockedUseMapEmbedTokens = vi.mocked(useMapEmbedTokens);
 const mockedUseUpdateEmbedToken = vi.mocked(useUpdateEmbedToken);
@@ -135,6 +138,7 @@ function setup({
   strictMode = false,
   groups,
   gateEmbedTokens = false,
+  groupHiddenIds = [],
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -175,6 +179,8 @@ function setup({
   groups?: ComponentProps<typeof ShareDialog>['groups'];
   /** Return no embed tokens unless the dialog asked for a map's list. */
   gateEmbedTokens?: boolean;
+  /** The layer ids the server says some of the map's groups can't read. */
+  groupHiddenIds?: string[];
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -195,6 +201,7 @@ function setup({
   });
 
   mockedUseCanSetPublicVisibility.mockReturnValue(canSetPublic);
+  mockedUseLayersHiddenFromMapGroups.mockReturnValue(new Set(groupHiddenIds));
 
   mockedUseTileConfig.mockReturnValue({
     data: {
@@ -2291,6 +2298,32 @@ describe('sharing a map with groups', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  const restrictedLayer = {
+    id: 'layer-1',
+    dataset_id: 'ds-1',
+    dataset_name: 'Parcels',
+    display_name: null,
+    dataset_visibility: 'restricted',
+    dataset_status: 'published',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+  const draftLayer = { ...restrictedLayer, id: 'layer-2', dataset_name: 'Draft roads', dataset_status: 'draft' };
+
+  it("warns about the layers some of a restricted map's groups can't read", () => {
+    setup({
+      visibility: 'restricted',
+      groups: [SURVEYORS],
+      hasShareToken: false,
+      layers: [restrictedLayer, draftLayer],
+      groupHiddenIds: ['layer-1', 'layer-2'],
+    });
+
+    const warning = screen.getByTestId('share-group-hidden-warning');
+    expect(warning).toHaveTextContent("Hidden from some of this map's groups: Parcels.");
+    expect(warning).not.toHaveTextContent('Draft roads');
+    expect(screen.getByTestId('share-audience-hidden-warning')).toHaveTextContent('Draft roads');
   });
 
   it('shows a restricted map with its level checked and its group editor', () => {

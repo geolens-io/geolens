@@ -17,13 +17,15 @@ vi.mock('@/api/maps', async (importOriginal) => {
     createMap: vi.fn(),
     publishMap: vi.fn(),
     setMapGroups: vi.fn(),
+    checkMapVisibility: vi.fn(),
   };
 });
 
 import { ApiError } from '@/api/client';
-import { listMaps, getMap, deleteMap, createMap, publishMap, setMapGroups } from '@/api/maps';
-import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap } from '@/hooks/use-maps';
+import { listMaps, getMap, deleteMap, createMap, publishMap, setMapGroups, checkMapVisibility } from '@/api/maps';
+import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { queryKeys } from '@/lib/query-keys';
+import type { MapVisibility } from '@/types/api';
 
 const mockListMaps = vi.mocked(listMaps);
 const mockGetMap = vi.mocked(getMap);
@@ -31,6 +33,7 @@ const mockDeleteMap = vi.mocked(deleteMap);
 const mockCreateMap = vi.mocked(createMap);
 const mockPublishMap = vi.mocked(publishMap);
 const mockSetMapGroups = vi.mocked(setMapGroups);
+const mockCheckMapVisibility = vi.mocked(checkMapVisibility);
 
 describe('useMaps', () => {
   beforeEach(() => {
@@ -265,7 +268,7 @@ describe('usePublishMap', () => {
 
     expect(mockSetMapGroups).toHaveBeenCalledWith('map-1', []);
     expect(mockPublishMap).not.toHaveBeenCalled();
-    expect(outcome).toEqual({ clearedGroups: true });
+    expect(outcome).toEqual({ clearedGroups: true, visibility: 'private' });
   });
 
   it('still sets the visibility when unsharing leaves the map somewhere else', async () => {
@@ -326,5 +329,68 @@ describe('usePublishMap', () => {
     });
 
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+});
+
+describe('useLayersHiddenFromMapGroups', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCheckMapVisibility.mockResolvedValue({
+      non_public_datasets: [],
+      has_non_public: false,
+      hidden_from_groups: [
+        {
+          layer_id: 'layer-1',
+          layer_title: 'Parcels',
+          dataset_id: 'ds-1',
+          dataset_title: 'Parcels',
+          group_ids: ['g-1'],
+          can_share: true,
+        },
+      ],
+    });
+  });
+
+  function renderGaps(visibility: MapVisibility, groups: { id: string }[] | null) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderHookWithWrapper(
+      (props: { visibility: MapVisibility; groups: { id: string }[] | null }) =>
+        useLayersHiddenFromMapGroups('map-1', props.visibility, props.groups),
+      {
+        initialProps: { visibility, groups },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+    return { qc, ...view };
+  }
+
+  it("names the layers the server says the map's groups can't read", async () => {
+    const { result } = renderGaps('restricted', [{ id: 'g-1' }]);
+
+    await waitFor(() => expect(result.current.has('layer-1')).toBe(true));
+    expect(result.current.has('layer-2')).toBe(false);
+    expect(mockCheckMapVisibility).toHaveBeenCalledWith('map-1');
+  });
+
+  it('asks again when the map is refetched, and forgets the answer once the map is not restricted', async () => {
+    const { qc, result, rerender } = renderGaps('restricted', [{ id: 'g-1' }]);
+    await waitFor(() => expect(result.current.size).toBe(1));
+
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: queryKeys.maps.detail('map-1') });
+    });
+    expect(mockCheckMapVisibility).toHaveBeenCalledTimes(2);
+
+    rerender({ visibility: 'internal', groups: [{ id: 'g-1' }] });
+    expect(result.current.size).toBe(0);
+  });
+
+  it("never asks for someone who doesn't receive the map's groups", () => {
+    const { result } = renderGaps('restricted', null);
+
+    expect(result.current.size).toBe(0);
+    expect(mockCheckMapVisibility).not.toHaveBeenCalled();
   });
 });

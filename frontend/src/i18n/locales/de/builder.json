@@ -637,6 +637,7 @@
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
     "audienceHiddenWarning": "Für Betrachter ausgeblendet: {{layers}}. Die Datensätze dieser Layer sind für das Publikum dieser Karte nicht sichtbar und daher nur für dich sichtbar.",
+    "groupHiddenWarning": "Für einige Gruppen dieser Karte ausgeblendet: {{layers}}. Einige ihrer Mitglieder können die Datensätze dieser Layer nicht lesen und sehen diese Layer daher nicht.",
     "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
     "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist.",
     "expirationLabel": "Ablaufdatum",
