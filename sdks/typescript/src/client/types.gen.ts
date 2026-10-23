@@ -3685,6 +3685,42 @@ export type DatasetDeleteRequest = {
 };
 
 /**
+ * DatasetGroupsResponse
+ */
+export type DatasetGroupsResponse = {
+    /**
+     * Visibility
+     *
+     * The dataset's visibility after the change: a private dataset shared with a group becomes restricted, and a restricted one left with no group or role grant becomes private.
+     */
+    visibility: string;
+    /**
+     * Groups
+     *
+     * The sharing groups the dataset is shared with, by name.
+     */
+    groups: Array<GroupRef>;
+    /**
+     * Metadata Warnings
+     *
+     * Advisory warnings, as on the metadata PATCH. The change has already applied.
+     */
+    metadata_warnings?: Array<string> | null;
+};
+
+/**
+ * DatasetGroupsUpdate
+ */
+export type DatasetGroupsUpdate = {
+    /**
+     * Group Ids
+     *
+     * Every group the dataset is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+     */
+    group_ids: Array<string>;
+};
+
+/**
  * DatasetListResponse
  */
 export type DatasetListResponse = {
@@ -4485,6 +4521,12 @@ export type DatasetResponse = {
      * The kept previous versions, newest first, each of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a dataset keeps. Set on the detail endpoint only; null elsewhere.
      */
     previous_versions?: Array<PreviousVersionResponse> | null;
+    /**
+     * Groups
+     *
+     * The sharing groups the dataset is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+     */
+    groups?: Array<GroupRef> | null;
 };
 
 /**
@@ -5844,6 +5886,42 @@ export type GroupMembersAdd = {
      * Users to add. Users already in the group are left as they are; if any id matches no user, none are added.
      */
     user_ids: Array<string>;
+};
+
+/**
+ * GroupRef
+ */
+export type GroupRef = {
+    /**
+     * Id
+     *
+     * Unique group identifier.
+     */
+    id: string;
+    /**
+     * Name
+     *
+     * Group name.
+     */
+    name: string;
+};
+
+/**
+ * GroupRefListResponse
+ */
+export type GroupRefListResponse = {
+    /**
+     * Groups
+     *
+     * Page of groups, by name.
+     */
+    groups: Array<GroupRef>;
+    /**
+     * Total
+     *
+     * Total number of groups (across all pages).
+     */
+    total: number;
 };
 
 /**
@@ -22553,6 +22631,68 @@ export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetRespon
     200: unknown;
 };
 
+export type SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutData = {
+    body: DatasetGroupsUpdate;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/groups/';
+};
+
+export type SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutError = SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutErrors[keyof SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutErrors];
+
+export type SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: DatasetGroupsResponse;
+};
+
+export type SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutResponse = SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutResponses[keyof SetDatasetGroupsEndpointDatasetsDatasetIdGroupsPutResponses];
+
 export type GetDatasetHistoryDatasetsDatasetIdHistoryGetData = {
     body?: never;
     path: {
@@ -24581,6 +24721,68 @@ export type GetVrtStatusDatasetsDatasetIdVrtStatusGetResponses = {
 };
 
 export type GetVrtStatusDatasetsDatasetIdVrtStatusGetResponse = GetVrtStatusDatasetsDatasetIdVrtStatusGetResponses[keyof GetVrtStatusDatasetsDatasetIdVrtStatusGetResponses];
+
+export type ListMyGroupsGroupsMineGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/groups/mine/';
+};
+
+export type ListMyGroupsGroupsMineGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListMyGroupsGroupsMineGetError = ListMyGroupsGroupsMineGetErrors[keyof ListMyGroupsGroupsMineGetErrors];
+
+export type ListMyGroupsGroupsMineGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: GroupRefListResponse;
+};
+
+export type ListMyGroupsGroupsMineGetResponse = ListMyGroupsGroupsMineGetResponses[keyof ListMyGroupsGroupsMineGetResponses];
 
 export type HealthHealthGetData = {
     body?: never;

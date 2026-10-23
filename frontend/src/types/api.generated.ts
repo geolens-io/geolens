@@ -2739,6 +2739,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Dataset Groups Endpoint
+         * @description Share a dataset with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private dataset shared with a group becomes restricted, and a restricted
+         *     one left with no group or role grant becomes private; internal and public
+         *     datasets keep their audience. 404 for an unknown group, and 422 when the
+         *     change would hide the dataset from viewers of the owner's shared maps or
+         *     let a VRT reach people who cannot see all of its sources.
+         */
+        put: operations["set_dataset_groups_endpoint_datasets__dataset_id__groups__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/history": {
         parameters: {
             query?: never;
@@ -3446,6 +3473,28 @@ export interface paths {
          * @description Return VRT dataset status, last generation time, source count, and per-source health.
          */
         get: operations["get_vrt_status_datasets__dataset_id__vrt_status__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/mine/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Groups
+         * @description List the sharing groups the caller may share with, by name.
+         *
+         *     That is the groups the caller belongs to, or every group for an admin.
+         */
+        get: operations["list_my_groups_groups_mine__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8845,6 +8894,32 @@ export interface components {
              */
             confirm_title: string;
         };
+        /** DatasetGroupsResponse */
+        DatasetGroupsResponse: {
+            /**
+             * Visibility
+             * @description The dataset's visibility after the change: a private dataset shared with a group becomes restricted, and a restricted one left with no group or role grant becomes private.
+             */
+            visibility: string;
+            /**
+             * Groups
+             * @description The sharing groups the dataset is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Metadata Warnings
+             * @description Advisory warnings, as on the metadata PATCH. The change has already applied.
+             */
+            metadata_warnings?: string[] | null;
+        };
+        /** DatasetGroupsUpdate */
+        DatasetGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the dataset is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+        };
         /** DatasetListResponse */
         DatasetListResponse: {
             /** Datasets */
@@ -9474,6 +9549,11 @@ export interface components {
              * @description The kept previous versions, newest first, each of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a dataset keeps. Set on the detail endpoint only; null elsewhere.
              */
             previous_versions?: components["schemas"]["PreviousVersionResponse"][] | null;
+            /**
+             * Groups
+             * @description The sharing groups the dataset is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
         };
         /**
          * DatasetRetention
@@ -10506,6 +10586,33 @@ export interface components {
              * @description Users to add. Users already in the group are left as they are; if any id matches no user, none are added.
              */
             user_ids: string[];
+        };
+        /** GroupRef */
+        GroupRef: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Unique group identifier.
+             */
+            id: string;
+            /**
+             * Name
+             * @description Group name.
+             */
+            name: string;
+        };
+        /** GroupRefListResponse */
+        GroupRefListResponse: {
+            /**
+             * Groups
+             * @description Page of groups, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Total
+             * @description Total number of groups (across all pages).
+             */
+            total: number;
         };
         /** GroupResponse */
         GroupResponse: {
@@ -30224,6 +30331,115 @@ export interface operations {
             };
         };
     };
+    set_dataset_groups_endpoint_datasets__dataset_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     get_dataset_history_datasets__dataset_id__history_get: {
         parameters: {
             query?: {
@@ -33471,6 +33687,103 @@ export interface operations {
             };
             /** @description Conflict — resource state prevents the operation */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_my_groups_groups_mine__get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupRefListResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

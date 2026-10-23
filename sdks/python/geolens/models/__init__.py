@@ -284,6 +284,8 @@ from .dataset_api_key_list_item import DatasetApiKeyListItem
 from .dataset_api_key_list_response import DatasetApiKeyListResponse
 from .dataset_chat_request import DatasetChatRequest
 from .dataset_delete_request import DatasetDeleteRequest
+from .dataset_groups_response import DatasetGroupsResponse
+from .dataset_groups_update import DatasetGroupsUpdate
 from .dataset_list_response import DatasetListResponse
 from .dataset_meta import DatasetMeta
 from .dataset_meta_visibility_type_0 import DatasetMetaVisibilityType0
@@ -500,6 +502,8 @@ from .group_by_result import GroupByResult
 from .group_list_response import GroupListResponse
 from .group_member_list_response import GroupMemberListResponse
 from .group_members_add import GroupMembersAdd
+from .group_ref import GroupRef
+from .group_ref_list_response import GroupRefListResponse
 from .group_response import GroupResponse
 from .group_value import GroupValue
 from .group_write import GroupWrite
@@ -1225,6 +1229,8 @@ __all__ = (
     "DatasetApiKeyListResponse",
     "DatasetChatRequest",
     "DatasetDeleteRequest",
+    "DatasetGroupsResponse",
+    "DatasetGroupsUpdate",
     "DatasetListResponse",
     "DatasetMeta",
     "DatasetMetaVisibilityType0",
@@ -1349,6 +1355,8 @@ __all__ = (
     "GroupListResponse",
     "GroupMemberListResponse",
     "GroupMembersAdd",
+    "GroupRef",
+    "GroupRefListResponse",
     "GroupResponse",
     "GroupValue",
     "GroupWrite",
