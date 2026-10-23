@@ -78,7 +78,7 @@ export function GroupList() {
             </TableHeader>
             <TableBody>
               {isLoading && !data ? (
-                <DataTableSkeleton columns={[{ width: 'w-32' }, { width: 'w-10' }, { width: 'w-20' }, { width: 'w-24' }]} />
+                <DataTableSkeleton columns={[{ width: 'w-32' }, { width: 'w-10' }, { width: 'w-20', cellClassName: 'hidden sm:table-cell' }, { width: 'w-24' }]} />
               ) : isEmpty ? (
                 <TableRow>
                   <TableCell colSpan={4}>

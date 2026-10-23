@@ -507,7 +507,7 @@ export function BulkReviewList({
                     />
                   )}
 
-                  {entry.status === 'commit-failed' && entry.error && (
+                  {isExpanded && entry.status === 'commit-failed' && entry.error && (
                     <div className="mt-2 space-y-1.5">
                       <p role="alert" className="text-sm text-destructive">{entry.error}</p>
                       <ReportProblemButton />
@@ -516,13 +516,15 @@ export function BulkReviewList({
                 </div>
               )}
 
-              {/* Non-expanded error. Guarded on `canExpand` (always false for
-                  upload-failed), not just `isExpanded`: `expandedId` seeds
-                  from entries[0], so when the FIRST — or sole — staged file
-                  fails upload, isExpanded is true for it despite canExpand
-                  being false, and `!isExpanded` alone hid the error and this
-                  CTA for exactly the single-file-upload-fails case. */}
-              {!(isExpanded && canExpand) && entry.status === 'upload-failed' && entry.error && (
+              {/* Error for a row whose details are not showing: collapsed
+                  commit-failed rows keep theirs `hidden`, so the alert lives
+                  here to be announced. The `canExpand` guard (always false for
+                  upload-failed) matters because `expandedId` seeds from
+                  entries[0]: a sole file failing upload is "expanded" yet has
+                  no details panel, and `!isExpanded` alone hid its error. */}
+              {!(isExpanded && canExpand) &&
+                (entry.status === 'upload-failed' || entry.status === 'commit-failed') &&
+                entry.error && (
                 <div className="space-y-1.5 px-4 pb-3">
                   <p role="alert" className="text-sm text-destructive">{entry.error}</p>
                   <ReportProblemButton />

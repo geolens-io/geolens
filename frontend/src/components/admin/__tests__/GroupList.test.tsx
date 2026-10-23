@@ -63,6 +63,15 @@ describe('GroupList', () => {
     expect(within(row).getByText('2 members')).toBeInTheDocument();
   });
 
+  it('hides the created placeholder below sm while loading, as the column header does', () => {
+    api.listGroups.mockReturnValue(new Promise(() => {}));
+    render(<GroupList />);
+    const cells = screen.getAllByRole('row')[1].querySelectorAll('td');
+    expect(cells).toHaveLength(4);
+    expect(cells[2]).toHaveClass('hidden', 'sm:table-cell');
+    expect(cells[1]).not.toHaveClass('hidden');
+  });
+
   it('shows an empty state with a create action', async () => {
     api.listGroups.mockResolvedValue(listOf());
     render(<GroupList />);

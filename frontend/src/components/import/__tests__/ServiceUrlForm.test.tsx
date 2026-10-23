@@ -860,4 +860,24 @@ describe('ServiceUrlForm portal URL guidance', () => {
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(field).toHaveAccessibleDescription('Plain HTTP is refused.');
   });
+  it.each([
+    ['a URL refusal', 400, false],
+    ['a credential refusal', 403, true],
+  ])('ties %s to the matching field only', async (_label, status, credential) => {
+    const user = userEvent.setup();
+    mockProbeService.mockRejectedValue(new ApiError('Probe refused.', status, null));
+    render(<ServiceUrlForm />);
+
+    await enterUrl(user, screen.getByPlaceholderText('serviceUrl.placeholder'), 'https://example.test/wfs');
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    await screen.findByRole('alert');
+    const urlField = screen.getByLabelText(/Service URL/);
+    const tokenField = screen.getByLabelText('Bearer token');
+    expect(urlField.hasAttribute('aria-invalid')).toBe(!credential);
+    expect(tokenField.hasAttribute('aria-invalid')).toBe(credential);
+    expect(tokenField.hasAttribute('aria-describedby')).toBe(credential);
+  });
 });

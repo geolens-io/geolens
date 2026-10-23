@@ -83,6 +83,10 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [previewData, setPreviewData] = useState<ServicePreviewResponse | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The probe's 403 is the only failure that blames the credential; matching
+  // on the message lets any later setError() clear it without extra resets.
+  const [credentialRefusal, setCredentialRefusal] = useState<string | null>(null);
+  const credentialInvalid = error !== null && error === credentialRefusal;
 
   // ArcGIS sign-in.
   const [arcgisAuthMethod, setArcgisAuthMethod] = useState<ArcgisAuthMethod>('none');
@@ -423,6 +427,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       setStep('layer-select');
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : t('serviceUrl.connectFailed');
+      setCredentialRefusal(err instanceof ApiError && err.status === 403 ? msg : null);
       setError(msg);
       setStep('idle');
       toast.error(msg);
@@ -804,8 +809,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             <input
               id="service-url"
               type="url"
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? 'service-url-error' : undefined}
+              aria-invalid={error && !credentialInvalid ? true : undefined}
+              aria-describedby={error && !credentialInvalid ? 'service-url-error' : undefined}
               placeholder={t('serviceUrl.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -892,8 +897,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   placeholder={t('serviceUrl.tokenPlaceholder')}
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby={error ? 'access-token-help service-url-error' : 'access-token-help'}
+                  aria-invalid={credentialInvalid ? true : undefined}
+                  aria-describedby={credentialInvalid ? 'access-token-help service-url-error' : 'access-token-help'}
                   className="font-mono text-sm"
                   // A request-only service token, not a login credential, and
                   // autocomplete="off" alone doesn't stop Chrome offering a saved
@@ -1081,8 +1086,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                 <Input
                   id="service-credential-token"
                   type="password"
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby={error ? 'service-url-error' : undefined}
+                  aria-invalid={credentialInvalid ? true : undefined}
+                  aria-describedby={credentialInvalid ? 'service-url-error' : undefined}
                   placeholder={t('serviceUrl.credentialTokenPlaceholder', {
                     defaultValue: 'Paste your bearer token',
                   })}
