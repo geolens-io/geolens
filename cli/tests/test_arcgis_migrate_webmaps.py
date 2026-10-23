@@ -435,3 +435,37 @@ def test_the_first_layer_of_a_duplicate_id_keeps_the_match():
     }
 
     assert match_datasets(ctx, webmap) == {"first": "ds-0"}
+
+
+def test_matches_stop_at_the_server_layer_cap():
+    ctx = SimpleNamespace(
+        aliases={},
+        items={"svc": _state_item(dataset_ids=["ds"], layer_datasets={"file": "ds"})},
+    )
+    webmap = {
+        "operationalLayers": [{"id": f"l{n}", "itemId": "svc"} for n in range(1500)]
+    }
+
+    matches = match_datasets(ctx, webmap)
+
+    assert len(matches) == 200 and "l199" in matches and "l200" not in matches
+
+
+def test_a_null_layer_does_not_end_its_group():
+    ctx = SimpleNamespace(
+        aliases={},
+        items={"svc": _state_item(dataset_ids=["ds"])},
+    )
+    webmap = {
+        "operationalLayers": [
+            {
+                "id": "g",
+                "layerType": "GroupLayer",
+                "layers": [None, {"id": "a", "itemId": "svc"}],
+            },
+            None,
+            {"id": "b", "itemId": "svc"},
+        ]
+    }
+
+    assert match_datasets(ctx, webmap) == {"a": "ds", "b": "ds"}

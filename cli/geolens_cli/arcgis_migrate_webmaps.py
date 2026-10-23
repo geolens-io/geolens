@@ -35,24 +35,28 @@ _ITEM_ID = re.compile(r"[0-9A-Za-z]{32}")
 _TRAILING_LAYER = re.compile(r"/(\d+)/?$")
 _MAX_NOTE_LAYERS = 5
 _TOKEN_STATUSES = (498, 499)
+# The server imports at most this many layers into a map and refuses a
+# request with over 1,000 matches, so matching stops at the smaller.
+_MAX_MATCHES = 200
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
     """Operational layers in the order the server reads them: depth first,
-    group members in place of their group."""
+    group members in place of their group. Entries that aren't objects are
+    skipped."""
     found: list[Mapping[str, Any]] = []
     stack = [iter(layers if isinstance(layers, list) else [])]
     while stack:
-        layer = next(stack[-1], None)
-        if layer is None:
-            stack.pop()
-        elif not isinstance(layer, dict):
-            continue
-        elif layer.get("layerType") == "GroupLayer":
-            members = layer.get("layers")
-            stack.append(iter(members if isinstance(members, list) else []))
-        else:
+        for layer in stack[-1]:
+            if not isinstance(layer, dict):
+                continue
+            if layer.get("layerType") == "GroupLayer":
+                members = layer.get("layers")
+                stack.append(iter(members if isinstance(members, list) else []))
+                break
             found.append(layer)
+        else:
+            stack.pop()
     return found
 
 
@@ -93,6 +97,8 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
         layer_id, item_id = layer.get("id"), layer.get("itemId")
         # The server keeps the first layer of an id, so a later one must not
         # take its match.
+        if len(matches) >= _MAX_MATCHES:
+            break
         if not isinstance(layer_id, str) or layer_id in seen:
             continue
         seen.add(layer_id)
