@@ -135,7 +135,8 @@
     "settingsAppearance": "Darstellung",
     "settingsInfrastructure": "Infrastruktur",
     "backToApp": "Zurück zur App",
-    "configOps": "Konfigurationsvorgänge"
+    "configOps": "Konfigurationsvorgänge",
+    "groups": "Gruppen"
   },
   "errors": {
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten",
@@ -368,7 +369,11 @@
     "retentionColumnNotTemporal": "Die Spalte {{column}} ist keine Datums- oder Zeitstempelspalte. Wählen Sie eine Datums- oder Zeitstempelspalte.",
     "retentionColumnInUse": "Die Aufbewahrung löscht Zeilen anhand der Spalte {{column}}. Schalten Sie die Aufbewahrung aus oder legen Sie sie auf eine andere Spalte, bevor Sie diese Spalte ändern oder einer anderen Spalte ihren Namen geben.",
     "retentionGidUnusable": "Die Aufbewahrung durchläuft die Tabelle über ihre ganzzahlige gid-Spalte, die diese Tabelle nicht mehr hat. Stellen Sie eine ganzzahlige gid-Spalte wieder her, um die Aufbewahrung zu nutzen.",
-    "retentionDeleteTrigger": "Die Aufbewahrung kann nicht auf einer Tabelle mit einem Lösch-Trigger laufen, weil der Trigger Zeilen behalten oder andere Zeilen ändern kann, wenn alte gelöscht werden. Entfernen Sie den Trigger, um die Aufbewahrung zu nutzen."
+    "retentionDeleteTrigger": "Die Aufbewahrung kann nicht auf einer Tabelle mit einem Lösch-Trigger laufen, weil der Trigger Zeilen behalten oder andere Zeilen ändern kann, wenn alte gelöscht werden. Entfernen Sie den Trigger, um die Aufbewahrung zu nutzen.",
+    "groupNotFound": "Gruppe nicht gefunden",
+    "groupMemberNotFound": "Diese Person ist kein Mitglied dieser Gruppe",
+    "groupNameTaken": "Eine Gruppe mit dem Namen „{{name}}“ existiert bereits",
+    "vrtAudienceExceedsSources": "Ein VRT-Datensatz wäre für Personen sichtbar, die nicht alle seine Quelldatensätze sehen können. Schränken Sie die Sichtbarkeit des VRT ein oder verwenden Sie Quellen, die seine Zielgruppe sehen kann."
   },
   "settings": {
     "apiKeys": {
@@ -725,7 +730,8 @@
     "adminSaml": "SAML-SSO-Konfiguration",
     "verifyEmail": "E-Mail bestätigen",
     "signingIn": "Anmeldung läuft",
-    "trustBrowser": "Diesen Browser merken"
+    "trustBrowser": "Diesen Browser merken",
+    "adminGroups": "Admin-Gruppen"
   },
   "sidebar": {
     "title": "Seitenleiste",

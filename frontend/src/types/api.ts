@@ -37,6 +37,10 @@ export type UserQuotaUsage = components['schemas']['UserQuotaUsage'];
 
 export type UserResponse = components['schemas']['UserResponse'];
 
+export type GroupResponse = components['schemas']['GroupResponse'];
+export type GroupListResponse = components['schemas']['GroupListResponse'];
+export type GroupMemberListResponse = components['schemas']['GroupMemberListResponse'];
+
 /** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */
 export type RasterBandInfo = components['schemas']['RasterBandInfo'];
 

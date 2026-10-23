@@ -135,7 +135,8 @@
     "settingsAppearance": "Appearance",
     "settingsInfrastructure": "Infrastructure",
     "configOps": "Config Operations",
-    "backToApp": "Back to App"
+    "backToApp": "Back to App",
+    "groups": "Groups"
   },
   "viewer": {
     "loading": "Loading map...",
@@ -499,7 +500,11 @@
     "retentionColumnNotTemporal": "The column {{column}} isn't a date or timestamp column. Choose a date or timestamp column.",
     "retentionColumnInUse": "Retention deletes rows by the column {{column}}. Turn retention off or move it to another column before you change that column or give another column its name.",
     "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention.",
-    "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention."
+    "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention.",
+    "groupNotFound": "Group not found",
+    "groupMemberNotFound": "That person is not a member of this group",
+    "groupNameTaken": "A group named \"{{name}}\" already exists",
+    "vrtAudienceExceedsSources": "A VRT dataset would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see."
   },
   "settings": {
     "apiKeys": {
@@ -750,7 +755,8 @@
     "adminSaml": "SAML SSO Configuration",
     "verifyEmail": "Verify email",
     "signingIn": "Signing in",
-    "trustBrowser": "Remember this browser"
+    "trustBrowser": "Remember this browser",
+    "adminGroups": "Admin Groups"
   },
   "sidebar": {
     "title": "Sidebar",

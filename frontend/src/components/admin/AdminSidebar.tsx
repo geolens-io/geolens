@@ -17,6 +17,7 @@ import {
 import {
   LayoutDashboard,
   Users,
+  UsersRound,
   Briefcase,
   ScrollText,
   Link2,
@@ -42,6 +43,7 @@ import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
+import { useGroupAdmin } from '@/hooks/use-admin-groups';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import type { Capability } from '@/lib/capabilities';
 
@@ -85,10 +87,13 @@ type OperationItem = {
   // (manage_tenants in multi-tenant mode), not raw manage_settings, so its
   // visibility must follow useSettingsAdmin() like the Settings group does.
   settingsGated?: boolean;
+  // Groups use manage_tenants in multi-tenant mode, like Settings.
+  groupsGated?: boolean;
 };
 
 const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users', capability: 'manage_users' },
+  { labelKey: 'adminNav.groups', to: '/admin/groups', icon: UsersRound, capability: 'manage_users', groupsGated: true },
   {
     labelKey: 'adminNav.jobs',
     to: '/admin/jobs',
@@ -160,6 +165,7 @@ export function AdminSidebar() {
   // flips to manage_tenants in multi-tenant mode — gate the Settings nav
   // group and its query on the mode-aware hook, not raw manage_settings.
   const canAdminSettings = useSettingsAdmin();
+  const canAdminGroups = useGroupAdmin();
   const { data: enterpriseTabsData } = useEnterpriseOnlyTabs({
     enabled: canAdminSettings,
   });
@@ -182,7 +188,7 @@ export function AdminSidebar() {
     : [];
   const visibleOperationsItems = operationsItems.filter(
     item =>
-      (item.settingsGated ? canAdminSettings : can(item.capability)) &&
+      (item.settingsGated ? canAdminSettings : item.groupsGated ? canAdminGroups : can(item.capability)) &&
       (!item.enterpriseOnly || isEnterprise),
   );
 

@@ -65,6 +65,9 @@ const AdminOverviewPage = lazy(loadAdminOverviewPage);
 const loadAdminUsersPage = () =>
   import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage }));
 const AdminUsersPage = lazy(loadAdminUsersPage);
+const loadAdminGroupsPage = () =>
+  import('./pages/admin/AdminGroupsPage').then(m => ({ default: m.AdminGroupsPage }));
+const AdminGroupsPage = lazy(loadAdminGroupsPage);
 const loadAdminJobsPage = () =>
   import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage }));
 const AdminJobsPage = lazy(loadAdminJobsPage);
@@ -164,6 +167,7 @@ export const appRoutes = (
             <Route element={<AdminCapabilityRoute capability="manage_users" />} handle={requires('capability')}>
               <Route path="admin/overview" element={<AdminOverviewPage />} handle={preload(loadAdminOverviewPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/users" element={<AdminUsersPage />} handle={preload(loadAdminUsersPage)} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/groups" element={<AdminGroupsPage />} handle={preload(loadAdminGroupsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/jobs" element={<AdminJobsPage />} handle={preload(loadAdminJobsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} handle={preload(loadAdminSharedMapsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>

@@ -892,5 +892,65 @@
   "sortable": {
     "sortAscending": "aufsteigend sortieren",
     "sortDescending": "absteigend sortieren"
+  },
+  "groups": {
+    "title": "Gruppen",
+    "listHeading": "Freigabegruppen",
+    "errorLoading": "Gruppen konnten nicht geladen werden: {{message}}",
+    "nameLabel": "Gruppenname",
+    "actionsFor": "Aktionen für Gruppe {{name}}",
+    "table": {
+      "name": "Name",
+      "members": "Mitglieder",
+      "created": "Erstellt",
+      "actions": "Aktionen",
+      "manageMembers": "Mitglieder",
+      "memberCount_one": "{{count}} Mitglied",
+      "memberCount_other": "{{count}} Mitglieder"
+    },
+    "empty": {
+      "title": "Noch keine Gruppen",
+      "hint": "Legen Sie eine Gruppe an, fügen Sie Personen hinzu und geben Sie Datensätze für sie frei."
+    },
+    "create": {
+      "button": "Gruppe erstellen",
+      "title": "Gruppe erstellen",
+      "description": "Mit Gruppen geben Sie eingeschränkte Datensätze für einen festgelegten Personenkreis frei."
+    },
+    "rename": {
+      "button": "Umbenennen",
+      "title": "Gruppe umbenennen",
+      "description": "Wählen Sie einen neuen Namen für {{name}}."
+    },
+    "delete": {
+      "title": "{{name}} löschen?",
+      "description_one": "Diese Gruppe hat {{count}} Mitglied. Es verliert sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze. Das lässt sich nicht rückgängig machen.",
+      "description_other": "Diese Gruppe hat {{count}} Mitglieder. Sie verlieren sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze. Das lässt sich nicht rückgängig machen.",
+      "deleting": "Wird gelöscht..."
+    },
+    "members": {
+      "title": "Mitglieder von {{name}}",
+      "description": "Personen in dieser Gruppe können die für sie freigegebenen Datensätze öffnen.",
+      "addLabel": "Person hinzufügen",
+      "listHeading_one": "{{count}} Mitglied",
+      "listHeading_other": "{{count}} Mitglieder",
+      "listLabel": "Mitglieder von {{name}}",
+      "removeLabel": "{{name}} aus {{group}} entfernen",
+      "empty": "Diese Gruppe hat noch keine Mitglieder.",
+      "added": "{{name}} hinzugefügt",
+      "removed": "{{name}} entfernt",
+      "errorLoading": "Mitglieder konnten nicht geladen werden: {{message}}"
+    },
+    "picker": {
+      "placeholder": "Nach Benutzernamen suchen",
+      "noMatches": "Keine passenden Personen",
+      "results_one": "{{count}} Person verfügbar",
+      "results_other": "{{count}} Personen verfügbar"
+    },
+    "toasts": {
+      "created": "Gruppe erstellt",
+      "renamed": "Gruppe umbenannt",
+      "deleted": "Gruppe gelöscht"
+    }
   }
 }

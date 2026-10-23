@@ -135,7 +135,8 @@
     "settingsAppearance": "外观",
     "settingsInfrastructure": "基础设施",
     "configOps": "配置操作",
-    "backToApp": "返回应用"
+    "backToApp": "返回应用",
+    "groups": "用户组"
   },
   "viewer": {
     "loading": "正在加载地图...",
@@ -499,7 +500,11 @@
     "retentionColumnNotTemporal": "列 {{column}} 不是日期或时间戳列。请选择日期或时间戳列。",
     "retentionColumnInUse": "保留期限按列 {{column}} 删除行。请先关闭保留期限或将其改用其他列，再更改该列或将其名称用于其他列。",
     "retentionGidUnusable": "保留期限按表的整数 gid 列逐批处理，而此表已不再有该列。请恢复整数 gid 列后再使用保留期限。",
-    "retentionDeleteTrigger": "保留期限无法在带有删除触发器的表上运行，因为触发器可能保留行，或在删除旧行时更改其他行。请移除该触发器后再使用保留期限。"
+    "retentionDeleteTrigger": "保留期限无法在带有删除触发器的表上运行，因为触发器可能保留行，或在删除旧行时更改其他行。请移除该触发器后再使用保留期限。",
+    "groupNotFound": "未找到用户组",
+    "groupMemberNotFound": "该用户不是此用户组的成员",
+    "groupNameTaken": "名为“{{name}}”的用户组已存在",
+    "vrtAudienceExceedsSources": "该 VRT 数据集会让无法查看其全部源数据集的人员看到它。请缩小该 VRT 的可见范围，或改用其受众可查看的源数据集。"
   },
   "settings": {
     "apiKeys": {
@@ -750,7 +755,8 @@
     "adminSaml": "SAML 单点登录配置",
     "verifyEmail": "验证电子邮箱",
     "signingIn": "正在登录",
-    "trustBrowser": "记住此浏览器"
+    "trustBrowser": "记住此浏览器",
+    "adminGroups": "用户组管理"
   },
   "sidebar": {
     "title": "侧边栏",

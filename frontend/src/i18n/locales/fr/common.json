@@ -135,7 +135,8 @@
     "settingsAppearance": "Apparence",
     "settingsInfrastructure": "Infrastructure",
     "backToApp": "Retour",
-    "configOps": "Opérations de config."
+    "configOps": "Opérations de config.",
+    "groups": "Groupes"
   },
   "errors": {
     "unexpected": "Une erreur inattendue s'est produite",
@@ -368,7 +369,11 @@
     "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage.",
     "retentionColumnInUse": "La rétention supprime les lignes selon la colonne {{column}}. Désactivez la rétention ou associez-la à une autre colonne avant de modifier cette colonne ou de donner son nom à une autre colonne.",
     "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention.",
-    "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention."
+    "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention.",
+    "groupNotFound": "Groupe introuvable",
+    "groupMemberNotFound": "Cette personne n’est pas membre de ce groupe",
+    "groupNameTaken": "Un groupe nommé « {{name}} » existe déjà",
+    "vrtAudienceExceedsSources": "Un jeu de données VRT serait accessible à des personnes qui ne voient pas tous ses jeux de données sources. Restreignez la visibilité du VRT ou utilisez des sources que son public peut voir."
   },
   "settings": {
     "apiKeys": {
@@ -725,7 +730,8 @@
     "adminSaml": "Configuration SSO SAML",
     "verifyEmail": "Vérifier l'e-mail",
     "signingIn": "Connexion en cours",
-    "trustBrowser": "Mémoriser ce navigateur"
+    "trustBrowser": "Mémoriser ce navigateur",
+    "adminGroups": "Groupes admin"
   },
   "sidebar": {
     "title": "Barre latérale",

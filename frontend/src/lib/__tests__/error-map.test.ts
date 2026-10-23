@@ -838,4 +838,16 @@ describe('describeUploadRefusal', () => {
 
     expect(translateApiErrorDetail(detail, 413)).not.toContain('{{');
   });
+
+  it.each([
+    [
+      "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.",
+      422,
+      'A VRT dataset would reach people',
+    ],
+    ["A group named 'Planning' already exists", 409, 'A group named "Planning" already exists'],
+    ['Group not found', 404, 'Group not found'],
+  ])('gives the group refusal %j a readable message', (detail, status, text) => {
+    expect(translateApiErrorDetail(detail, status)).toContain(text);
+  });
 });
