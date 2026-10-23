@@ -250,6 +250,7 @@ class TestUniqueValueRenderer:
         layer = result.layers[0]
         assert layer.style_config["mode"] == "categorical"
         assert layer.style_config["column"] == "KIND"
+        assert layer.style_config["ramp"] == "custom"
         assert layer.style_config["categories"] == [
             {"value": "a", "label": "Alpha", "color": "#ff0000"},
             {"value": "2", "label": "Two", "color": "#0000ff"},
@@ -354,6 +355,7 @@ class TestClassBreaksRenderer:
         assert layer.style_config["mode"] == "graduated"
         assert layer.style_config["breaks"] == [10.0, 100.0]
         assert layer.style_config["colors"] == ["#00ff00", "#ffff00", "#ff0000"]
+        assert layer.style_config["ramp"] == "custom"
         assert layer.paint["fill-color"] == [
             "case",
             ["==", ["get", "POP"], None],
@@ -432,6 +434,7 @@ class TestOtherRenderers:
         assert layer.style_config["render_mode"] == "heatmap"
         assert layer.style_config["builder"]["heatmap_weight_column"] == "W"
         assert layer.paint["heatmap-weight"] == ["get", "W"]
+        assert layer.paint["heatmap-radius"] == 10
         assert _kinds(result) == {"heatmap_ramp"}
 
     @pytest.mark.parametrize(

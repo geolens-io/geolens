@@ -331,7 +331,12 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
     ]
     config = _style_config(
         base,
-        {"mode": "categorical", "column": field_name, "categories": categories},
+        {
+            "mode": "categorical",
+            "column": field_name,
+            "categories": categories,
+            "ramp": "custom",
+        },
     )
     return Styled(_paint(base, expression, 1.0), config, base.kind)
 
@@ -462,6 +467,7 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
             "classCount": len(colors),
             "breaks": breaks,
             "colors": colors,
+            "ramp": "custom",
         },
     )
     return Styled(_paint(base, expression, 1.0), config, base.kind)
@@ -474,7 +480,7 @@ def _heatmap(r: dict, path: str, loss: LossReport) -> Styled:
         loss.add(path, "heatmap_ramp", "pixel intensity range not carried")
     radius = num(r.get("blurRadius"))
     paint: dict = {
-        "heatmap-radius": max(1.0, points_to_px(radius)) if radius else 30,
+        "heatmap-radius": max(1.0, radius) if radius else 30,
         "heatmap-weight": 1,
         "heatmap-intensity": 1,
         "heatmap-opacity": 0.8,
