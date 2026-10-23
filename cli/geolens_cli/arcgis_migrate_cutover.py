@@ -127,7 +127,14 @@ def inventory_changes(
     if not org:
         return f"{unchecked}: the plan records no ArcGIS organization"
     try:
-        if not _org_admin(client.get_json("portals/self")):
+        info = client.get_json("portals/self")
+        own = info.get("id") if isinstance(info, dict) else None
+        if own != org:
+            return (
+                f"{unchecked}: the run's ArcGIS account belongs to organization "
+                f"{own or 'unknown'}, not the plan's organization {org}"
+            )
+        if not _org_admin(info):
             return (
                 f"{unchecked}: the run's ArcGIS account isn't an organization "
                 f"administrator ({_plan.ORG_ADMIN}), so its search can miss items "

@@ -1316,7 +1316,8 @@ def test_a_later_run_reports_the_cutover_in_the_report(runner, plan_file, geolen
     assert "**Cut over** at" in report
 
 
-_ADMIN = {"user": {"username": "gis_admin", "role": "org_admin"}}
+_ORG = "ExAmPlEoRg0123"
+_ADMIN = {"id": _ORG, "user": {"username": "gis_admin", "role": "org_admin"}}
 
 
 class _SearchPortal:
@@ -1342,7 +1343,7 @@ _PLAN = {
         "started_at": _READ_AT,
         # Read for an hour: an item changed meanwhile is after the start.
         "generated_at": "2026-10-01T01:00:00Z",
-        "scope": {"mode": "org", "owner": None, "org_id": "ExAmPlEoRg0123"},
+        "scope": {"mode": "org", "owner": None, "org_id": _ORG},
     }
 }
 
@@ -1534,7 +1535,7 @@ def test_a_plan_carries_the_start_time_of_the_inventory_it_was_merged_from(
 def test_the_freshness_search_needs_an_org_admin_account(user, searched):
     client = _SearchPortal(
         {"results": [{"modified": 1759000000000}]},
-        self_info={"user": user} if user else {},
+        self_info={"id": _ORG, "user": user} if user else {"id": _ORG},
     )
 
     reason = cutover_mod.inventory_changes(client, _PLAN, _NOW)
@@ -1544,6 +1545,22 @@ def test_the_freshness_search_needs_an_org_admin_account(user, searched):
         assert reason is None
     else:
         assert "isn't an organization administrator (org_admin)" in reason
+
+
+@pytest.mark.parametrize("own", ["OtherOrg9876", None])
+def test_the_freshness_search_needs_an_account_of_the_plans_org(own):
+    client = _SearchPortal(
+        {"results": [{"modified": 1759000000000}]},
+        self_info={**_ADMIN, "id": own},
+    )
+
+    reason = cutover_mod.inventory_changes(client, _PLAN, _NOW)
+
+    assert [path for path, _ in client.asked] == ["portals/self"]
+    assert reason.endswith(
+        f"belongs to organization {own or 'unknown'}, not the plan's organization "
+        f"{_ORG}"
+    )
 
 
 @pytest.mark.parametrize("date", [None, "not a date"])
