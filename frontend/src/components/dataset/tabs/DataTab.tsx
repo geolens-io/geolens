@@ -1,7 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
+import { useAttributes } from '@/components/dataset/hooks/use-dataset';
+import { valueLabelsByField } from '@/lib/value-labels';
 import { Maximize2, Minimize2, AlignJustify, List } from 'lucide-react';
 
 interface DataTabProps {
@@ -34,6 +36,11 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   const [compact, setCompact] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const top = useDocumentTop(rootRef);
+  const { data: attributeList } = useAttributes(datasetId);
+  const valueLabels = useMemo(
+    () => valueLabelsByField(attributeList?.attributes),
+    [attributeList],
+  );
 
   const actions = (
     <>
@@ -79,6 +86,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
         datasetId={datasetId}
         canEdit={canEdit}
         compact={compact}
+        valueLabels={valueLabels}
         heading={
           <span role="heading" aria-level={2} className="text-sm font-medium">
             {t('page.attributeData')}

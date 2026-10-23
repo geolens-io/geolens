@@ -63,6 +63,13 @@ def _follow_ups(
                     "collections",
                     note + "; file its datasets into the target collections by hand",
                 )
+        if entry is not None and entry.loss_report_path:
+            add(
+                item["id"],
+                "web_map_losses",
+                "parts of the web map were not carried over; see "
+                + entry.loss_report_path,
+            )
         made = entry is not None and (entry.dataset_ids or entry.map_id)
         if item.get("removed"):
             add(

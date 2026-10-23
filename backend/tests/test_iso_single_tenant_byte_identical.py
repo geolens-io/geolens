@@ -42,6 +42,8 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 ]
 
 
@@ -116,7 +118,9 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.embed_tokens'::regclass,
                 'catalog.oauth_accounts'::regclass,
                 'catalog.audit_logs'::regclass,
-                'catalog.ingest_jobs'::regclass
+                'catalog.ingest_jobs'::regclass,
+                'catalog.groups'::regclass,
+                'catalog.group_members'::regclass
             ])
             ORDER BY relname
             """
@@ -148,7 +152,9 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.embed_tokens'::regclass,
                 'catalog.oauth_accounts'::regclass,
                 'catalog.audit_logs'::regclass,
-                'catalog.ingest_jobs'::regclass
+                'catalog.ingest_jobs'::regclass,
+                'catalog.groups'::regclass,
+                'catalog.group_members'::regclass
             ])
             ORDER BY relname
             """
@@ -285,6 +291,22 @@ class TestCatalogReadsNotBlockedByRls:
         normal, bypass = await self._table_row_counts("ingest_jobs")
         assert normal == bypass, (
             f"catalog.ingest_jobs: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_groups_read_not_blocked(self):
+        """Sharing groups stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("groups")
+        assert normal == bypass, (
+            f"catalog.groups: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_group_members_read_not_blocked(self):
+        """Group memberships stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("group_members")
+        assert normal == bypass, (
+            f"catalog.group_members: normal count={normal} != bypass "
             f"count={bypass}. RLS policy may be filtering rows in single_tenant."
         )
 

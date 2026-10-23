@@ -1,6 +1,21 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
+import math
+from decimal import Decimal
+from typing import Any
+
+import structlog
+
 from app.platform.column_names import stored_column_names
+from app.platform.value_labels import (
+    MAX_DATASET_VALUE_LABEL_BYTES,
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+    is_storable_text,
+    value_labels_bytes,
+)
+
+logger = structlog.get_logger()
 
 _PG_IDENTIFIER_BYTES = 63
 _MAX_ALIAS = 500
@@ -15,13 +30,63 @@ def _clean(value: object, limit: int) -> str | None:
     return text[:limit] if text else None
 
 
+def _float_code_text(code: float) -> str | None:
+    """The text JavaScript's ``String`` gives the number, or None where it differs.
+
+    The popup keys labels by that text. JavaScript writes fixed-point digits for
+    1e-6 <= |x| < 1e21, from the shortest round-trip digits that ``repr`` also
+    yields; outside that range, and for NaN and infinity, it writes an exponent
+    form or a word, so those get no label.
+    """
+    if not math.isfinite(code):
+        return None
+    if code == 0:
+        return "0"
+    if not 1e-6 <= abs(code) < 1e21:
+        return None
+    text = format(Decimal(repr(code)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _code_text(code: object) -> str | None:
+    if isinstance(code, bool):
+        return None
+    if isinstance(code, float):
+        return _float_code_text(code)
+    if isinstance(code, int):
+        return str(code)
+    # A code must match its feature value exactly, so one the store cannot keep
+    # as given is skipped, not rewritten.
+    if not isinstance(code, str) or len(code) > MAX_VALUE_LABEL_LENGTH:
+        return None
+    return code if is_storable_text(code) else None
+
+
+def _coded_value_labels(domain: object) -> dict[str, str] | None:
+    """Label per code of a ``codedValue`` domain, keyed by the code as text."""
+    if not isinstance(domain, dict) or domain.get("type") != "codedValue":
+        return None
+    labels: dict[str, str] = {}
+    for entry in domain.get("codedValues") or []:
+        if not isinstance(entry, dict):
+            continue
+        code = _code_text(entry.get("code"))
+        name = _clean(entry.get("name"), MAX_VALUE_LABEL_LENGTH)
+        if code is None or name is None or code in labels:
+            continue
+        labels[code] = name
+        if len(labels) == MAX_VALUE_LABELS:
+            break
+    return labels or None
+
+
 def _pg_truncated(column: str) -> str:
     """The identifier PostgreSQL keeps when a stored name exceeds its byte limit."""
     return column.encode()[:_PG_IDENTIFIER_BYTES].decode(errors="ignore")
 
 
-def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
-    """Per stored column name, the alias and description that add information.
+def arcgis_field_labels(meta: dict) -> dict[str, dict[str, Any]]:
+    """Per stored column name, the alias, description and code labels it publishes.
 
     Names are resolved over the whole field list, because a rename that
     collides with another column depends on the columns around it. An alias
@@ -36,16 +101,28 @@ def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
         and field.get("type") != "esriFieldTypeGeometry"
     ]
     stored = stored_column_names([field["name"] for field in fields])
-    labels: dict[str, dict[str, str]] = {}
+    labels: dict[str, dict[str, Any]] = {}
+    label_bytes = 0
+    dropped: list[str] = []
     for field, column in zip(fields, stored, strict=True):
         name = field["name"]
-        label: dict[str, str] = {}
+        label: dict[str, Any] = {}
         alias = _clean(field.get("alias"), _MAX_ALIAS)
         if alias is not None and alias != name:
             label["alias"] = alias
         description = _clean(field.get("description"), _MAX_DESCRIPTION)
         if description is not None:
             label["description"] = description
+        value_labels = _coded_value_labels(field.get("domain"))
+        if value_labels is not None:
+            size = value_labels_bytes(value_labels)
+            if not dropped and label_bytes + size <= MAX_DATASET_VALUE_LABEL_BYTES:
+                label_bytes += size
+                label["value_labels"] = value_labels
+            else:
+                dropped.append(field["name"])
         if label:
             labels[_pg_truncated(column)] = label
+    if dropped:
+        logger.warning("value_labels_over_dataset_budget", dropped_fields=dropped)
     return labels

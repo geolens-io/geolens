@@ -315,6 +315,7 @@
     "userNotFound": "Utilisateur introuvable",
     "apiKeyNotFound": "Clé API introuvable",
     "datasetKeyLimit": "Ce jeu de données a déjà 100 clés d'écriture actives. Révoquez-en une pour en créer une autre.",
+    "valueLabelsTooLarge": "Les libellés de valeurs de ce jeu de données dépassent la limite de 1 Mo. Supprimez-en pour en ajouter.",
     "accessDenied": "Accès refusé",
     "couldNotValidateCredentials": "Impossible de valider les identifiants",
     "inactiveUser": "Utilisateur inactif",

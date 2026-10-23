@@ -9,11 +9,14 @@ import { truncateGraphemes } from '@/lib/text';
 import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
 import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
 import { useAttributes } from '@/components/dataset/hooks/use-dataset';
+import { valueLabelFor, valueLabelsByField, type ValueLabels } from '@/lib/value-labels';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
-  columnInfo?: { name: string; type: string; title?: string }[] | null;
+  columnInfo?:
+    | { name: string; type: string; title?: string; value_labels?: Record<string, string> }[]
+    | null;
   /** Dataset whose attribute metadata supplies the row labels; without it
    *  every key is humanized. */
   datasetId?: string;
@@ -134,6 +137,17 @@ export function FeaturePopup({
       }
     }
     return titles;
+  }, [attributeList, columnInfoForTitles]);
+
+  const valueLabels = useMemo(() => {
+    // The attributes route is the live source. A capability-authorized viewer
+    // cannot read it, so column_info carries the labels for that case only.
+    if (attributeList) return valueLabelsByField(attributeList.attributes);
+    const labels = new Map<string, ValueLabels>();
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.value_labels) labels.set(column.name, column.value_labels);
+    }
+    return labels;
   }, [attributeList, columnInfoForTitles]);
 
   const properties = feature?.properties;
@@ -315,7 +329,11 @@ export function FeaturePopup({
                     </td>
                     <td className="py-1 text-xs text-foreground">
                       <span className="flex items-start gap-1">
-                        <ValueDisplay value={value} formatValue={formatValue} />
+                        <ValueDisplay
+                          value={value}
+                          formatValue={formatValue}
+                          labels={valueLabels.get(key)}
+                        />
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
                           {copiedKey === key ? (
                             <Check className="h-3 w-3 text-success" />
@@ -339,12 +357,27 @@ export function FeaturePopup({
 function ValueDisplay({
   value,
   formatValue,
+  labels,
 }: {
   value: unknown;
   formatValue: (v: unknown) => string;
+  labels?: ValueLabels;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation('builder');
+
+  const codeLabel = valueLabelFor(labels, value);
+  if (codeLabel !== undefined) {
+    return (
+      <span className="break-words">
+        {codeLabel}{' '}
+        {/* The code stays in the accessibility tree and shows on hover and row focus. */}
+        <span className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">
+          ({formatValue(value)})
+        </span>
+      </span>
+    );
+  }
 
   // YouTube embeds require allow-same-origin so the
   // player can load its own JS. This is intentionally laxer than the share-embed

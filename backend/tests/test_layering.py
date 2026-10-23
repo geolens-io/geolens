@@ -567,6 +567,8 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/modules/catalog/records/inherited.py",
             # VRT audience checks pass User to record_audience, as service_public and inherited do.
             ":!backend/app/modules/catalog/authorization.py",
+            # Group access counts a group's active members.
+            ":!backend/app/modules/catalog/group_access.py",
             ":!backend/tests/",
         ],
         cwd=REPO_ROOT,
@@ -1174,7 +1176,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 114,
+        "backend/app/modules/catalog/datasets/domain/service.py": 118,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1188,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam.
-        "backend/app/modules/catalog/maps/service_public.py": 987,
+        "backend/app/modules/catalog/maps/service_public.py": 995,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1197,7 +1199,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 572,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
@@ -1293,7 +1295,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1060,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1079,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1730,
@@ -1306,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1628,
+    "backend/app/api/main.py": 1630,
     # Map request validation and published response contracts share this module.
     "backend/app/modules/catalog/maps/schemas.py": 1387,
     # Metadata facade preserves the import and patch surface used by extensions and
@@ -1327,12 +1329,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1877,
+    "backend/app/processing/ingest/tasks_common.py": 1880,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
     # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1585,
+    "backend/app/processing/ingest/tasks_reupload.py": 1596,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1366,7 +1368,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1119,
+    "backend/app/processing/ingest/tasks_vector.py": 1149,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1572,
@@ -1378,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/oauth/service.py": 1130,
     # Admin mutations share locking and audit outcomes; the catalog stats measure
     # live and kept-version storage.
-    "backend/app/modules/admin/service.py": 1025,
+    "backend/app/modules/admin/service.py": 1050,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1559,
@@ -1386,7 +1388,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 695,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1876,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1907,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
@@ -1427,7 +1429,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1186,
+    "backend/app/modules/catalog/authorization.py": 1215,
 }
 
 

@@ -71,6 +71,8 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 ]
 
 

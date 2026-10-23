@@ -243,6 +243,10 @@ class GroupMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="CASCADE"), primary_key=True
     )
+    # Derived from the group by trigger, which also refuses another tenant's user.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

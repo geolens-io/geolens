@@ -28,6 +28,12 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('maps the value label budget refusal to a translated message', () => {
+    const detail = 'Value labels for this dataset are over the 1 MB limit.';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.valueLabelsTooLarge' });
+    expect(translateApiErrorDetail(detail, 422)).toContain('1 MB');
+  });
+
   it('tells an owner at the dataset key limit to revoke one first', () => {
     const detail = 'This dataset already has 100 active keys. Revoke one to create another.';
     expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.datasetKeyLimit' });

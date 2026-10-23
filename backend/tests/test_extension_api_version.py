@@ -130,11 +130,15 @@ class TestExtensionApiVersionConstant:
         that replaces the ``processing_port`` key without it fails every
         raster tile token.
 
+        v19 lets members of a sharing group granted on a ``restricted``
+        dataset read it. The ``permission`` methods keep their signatures, so
+        an overlay replacing that key must add the group branch itself.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 18
+        assert EXTENSION_API_VERSION == 19
 
 
 class TestCheckExtensionApiVersion:

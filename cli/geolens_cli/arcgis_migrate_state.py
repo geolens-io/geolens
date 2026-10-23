@@ -69,6 +69,9 @@ class ItemState:
     dataset_ids: list[str] = field(default_factory=list)
     record_ids: list[str] = field(default_factory=list)
     map_id: str | None = None
+    # ArcGIS operational layer id -> the map layer made for it, which a story
+    # map's conversion and a later re-translation locate layers by.
+    layer_ids: dict[str, str] = field(default_factory=dict)
     job_ids: list[str] = field(default_factory=list)
     # Service layer (its id, or its name) -> the dataset imported from it, so
     # a rerun never imports a layer twice, even after its dataset changed owner.
@@ -93,6 +96,8 @@ class ItemState:
     notes: list[str] = field(default_factory=list)
     error: str | None = None
     loss_report_path: str | None = None
+    # A web map's loss payload from the import until its report file is written.
+    pending_loss: dict[str, Any] | None = None
     # Hash of the summary a file written before the baseline wrote; read only
     # when a dataset has no baseline.
     metadata_hash: str | None = None

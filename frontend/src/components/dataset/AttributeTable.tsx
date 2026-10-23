@@ -41,6 +41,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
+import { valueLabelFor, type ValueLabels } from '@/lib/value-labels';
 import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -96,6 +97,8 @@ interface AttributeTableProps {
   heading?: ReactNode;
   /** Trailing toolbar controls, after the Columns menu. */
   actions?: ReactNode;
+  /** Code labels per column; a labelled cell shows its label and keeps the code reachable. */
+  valueLabels?: ReadonlyMap<string, ValueLabels>;
 }
 
 /** Postgres numeric types get a decimal input mode on touch keyboards. */
@@ -192,6 +195,7 @@ export function AttributeTable({
   compact = false,
   heading,
   actions,
+  valueLabels,
 }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
@@ -403,6 +407,7 @@ export function AttributeTable({
     isSaving: updateFeature.isPending,
     canEdit,
     compact,
+    valueLabels,
     onSave: handleCellSave,
   };
   const cellRenderRef = useRef(cellRenderState);
@@ -440,6 +445,7 @@ export function AttributeTable({
           isSaving,
           canEdit: cellsEditable,
           compact: isCompact,
+          valueLabels: labelsByColumn,
           onSave,
         } = cellRenderRef.current;
         const rowData = info.row.original;
@@ -470,17 +476,42 @@ export function AttributeTable({
         }
 
         const cellValue = String(info.getValue() ?? '');
-
+        const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), info.getValue());
         if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
+          // The code shows beside its label on hover and focus, and screen
+          // readers always read it.
+          const shown = codeLabel === undefined ? cellValue : (
+            <>
+              {codeLabel}{' '}
+              <span className="text-muted-foreground opacity-0 group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">
+                ({cellValue})
+              </span>
+            </>
+          );
           return (
             <button
               type="button"
               className="group/cell flex items-center gap-1 rounded-sm px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
-              <span className="truncate">{cellValue}</span>
+              <span className="truncate">{shown}</span>
               <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/cell:text-muted-foreground/50" />
             </button>
+          );
+        }
+
+        if (codeLabel !== undefined) {
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="block max-w-full truncate rounded-sm text-start">
+                  {codeLabel}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm break-all">
+                {cellValue}
+              </TooltipContent>
+            </Tooltip>
           );
         }
 

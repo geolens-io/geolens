@@ -2,9 +2,10 @@
 
 import asyncio
 import ipaddress
+import re
 import socket
 from types import ModuleType
-from urllib.parse import urlparse
+from urllib.parse import unquote, unquote_plus, urlparse
 
 import httpx
 import httpx2
@@ -16,6 +17,10 @@ PROBE_TIMEOUT = httpx.Timeout(connect=10.0, read=10.0, write=10.0, pool=10.0)
 
 class SSRFError(ValueError):
     """URL targets a private/internal network or uses a disallowed scheme."""
+
+
+class CredentialRedirectError(SSRFError):
+    """A redirect would carry a credential to a different origin."""
 
 
 class SSRFResolutionError(SSRFError):
@@ -132,10 +137,24 @@ _DEFAULT_PORTS = {"http": 80, "https": 443}
 # this one unless refused explicitly.
 _ALWAYS_CREDENTIAL_HEADERS = frozenset({"x-esri-authorization"})
 
-# Names the policy, never the header value: this reaches a response body, a
+# ArcGIS's query-string credential, matched by name in any case. httpx never
+# copies a query across a redirect, so it travels only if the Location names it.
+_CREDENTIAL_QUERY_PARAM = "token"
+# Each round must change the string; the ``+`` pass adds one more decode, so an
+# echo encoded up to five times is found.
+_MAX_DECODE_ROUNDS = 4
+# Request extensions, which httpx hands on to every redirect request. The first
+# holds each token the chain has carried, so a same-origin hop that moves one
+# out of ``token=`` can't launder it for the next hop.
+_CARRIED_TOKENS = "geolens_carried_query_tokens"
+# Set by a caller that put the credential into the URL itself: any cross-origin
+# hop is refused, as for a credential header.
+QUERY_CREDENTIAL = "geolens_query_credential"
+
+# Names the policy, never the credential: this reaches a response body, a
 # log line, and a job row.
 CROSS_ORIGIN_CREDENTIAL_POLICY = (
-    "Refusing to send a credential header to a different origin after a "
+    "Refusing to send a credential to a different origin after a "
     "redirect. Point the source at the address that answers directly, or ask "
     "the service operator why it redirects a credentialed request elsewhere."
 )
@@ -162,6 +181,45 @@ def same_origin(first: str, second: str) -> bool:
         return False
 
 
+def _carried_tokens(request: httpx.Request) -> set[str]:
+    """Every query-string token this redirect chain has carried, this hop's too."""
+    carried = request.extensions.setdefault(_CARRIED_TOKENS, set())
+    carried.update(
+        value.lower()
+        for name, value in request.url.params.multi_items()
+        if name.lower() == _CREDENTIAL_QUERY_PARAM and value
+    )
+    return carried
+
+
+def _names_query_credential(tokens: set[str], target: httpx.URL) -> bool:
+    """Whether *target* spells out one of *tokens*, which are lowercased.
+
+    Anywhere in the URL, at every percent-decoding depth up to the cap, with
+    ``+`` read both ways, and ignoring case, since httpx lowercases the host.
+    A match must not continue a run of letters or digits, Unicode ones included,
+    so a short token is not found inside an unrelated value (``a`` in ``sig=abc``).
+    """
+    if not tokens:
+        return False
+    spellings = [str(target)]
+    for _ in range(_MAX_DECODE_ROUNDS):
+        decoded = unquote(spellings[-1])
+        if decoded == spellings[-1]:
+            break
+        spellings.append(decoded)
+    spellings += [unquote_plus(spelled) for spelled in spellings]
+    # A match may not start on the hex digits of a %XX escape: they aren't
+    # content, and the next spelling holds what the escape encodes.
+    patterns = [
+        re.compile(rf"(?<![^\W_])(?!(?<=%)[0-9a-f]{{2}}){re.escape(token)}(?![^\W_])")
+        for token in tokens
+    ]
+    return any(
+        pattern.search(spelled.lower()) for pattern in patterns for spelled in spellings
+    )
+
+
 def _refuse_cross_origin_credential(
     response: httpx.Response, watched: frozenset[str]
 ) -> None:
@@ -170,9 +228,12 @@ def _refuse_cross_origin_credential(
     httpx strips `Authorization` on a cross-origin redirect but
     forwards any other header unchanged, so a caller-named key (`X-API-Key`,
     `Ocp-Apim-Subscription-Key`) follows a 302 to an origin that is public
-    and SSRF-valid but not the service it was issued to. Runs from the
-    response hook, before httpx follows the redirect, so the second request
-    is never issued.
+    and SSRF-valid but not the service it was issued to. A request marked
+    ``QUERY_CREDENTIAL`` is refused on any cross-origin hop too. Otherwise a
+    query-string ``token`` the chain carried is refused when the Location
+    spells it out, as a ``$request_uri`` rewrite does. Runs from the response
+    hook, before httpx follows the redirect, so the next request is never
+    issued.
     """
     if response.status_code not in _REDIRECT_STATUSES:
         return
@@ -180,12 +241,17 @@ def _refuse_cross_origin_credential(
     if not location:
         return
     request = response.request
+    tokens = _carried_tokens(request)
+    target = httpx.URL(response.url).join(location)
+    if _origin(target) == _origin(request.url):
+        return
     # Headers membership is case-insensitive: `X-API-Key` matches `x-api-key`.
-    if not any(name in request.headers for name in watched):
-        return
-    if _origin(httpx.URL(response.url).join(location)) == _origin(request.url):
-        return
-    raise SSRFError(CROSS_ORIGIN_CREDENTIAL_POLICY)
+    if (
+        any(name in request.headers for name in watched)
+        or request.extensions.get(QUERY_CREDENTIAL)
+        or _names_query_credential(tokens, target)
+    ):
+        raise CredentialRedirectError(CROSS_ORIGIN_CREDENTIAL_POLICY)
 
 
 async def _revalidate_redirect(response: httpx.Response) -> None:
@@ -196,7 +262,7 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
     not per-hop, so this hook closes the gap. Raising SSRFError here aborts
     further redirect-following.
 
-    It also refuses a hop carrying a credential header to a
+    It also refuses a hop carrying a credential to a
     different origin, checked first since it needs no DNS lookup and the
     Location may otherwise be a perfectly SSRF-valid public host.
     """
@@ -349,8 +415,11 @@ def make_safe_client(
 
     Pass ``credential_header`` when the request carries a
     service-chosen credential name, so a 302 can't carry it cross-origin;
-    ``X-Esri-Authorization`` is refused on a cross-origin hop whether or not it
-    was declared. A caller passing nothing gets only that fixed refusal.
+    ``X-Esri-Authorization`` is refused on a cross-origin hop whether or not
+    it was declared. ``token`` query values are carried across the whole
+    redirect chain, and a cross-origin hop whose target repeats any of them is
+    refused. A request marked ``QUERY_CREDENTIAL`` (see ``bounded_probe_read``)
+    is refused on any cross-origin hop.
     """
     return httpx.AsyncClient(
         timeout=timeout,

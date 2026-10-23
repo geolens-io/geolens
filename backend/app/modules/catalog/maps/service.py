@@ -6,7 +6,6 @@ embed-token, ProcessingPort, and test callers.
 """
 
 from app.modules.catalog.maps.service_crud import (
-    MapAssetPublication,
     check_map_ownership,
     create_map,
     delete_map,
@@ -16,7 +15,6 @@ from app.modules.catalog.maps.service_crud import (
     get_map_with_layers,
     list_maps,
     lock_map_for_asset_write,
-    map_asset_publication,
     new_map_asset_key,
     update_map,
 )
@@ -59,6 +57,8 @@ from app.modules.catalog.maps.service_shared import (
     get_dataset_meta,
     with_visible_vrt_extents,
 )
+from app.platform.storage.publication import AssetPublication as MapAssetPublication
+from app.platform.storage.publication import asset_publication as map_asset_publication
 
 __all__ = [
     "MapAssetPublication",

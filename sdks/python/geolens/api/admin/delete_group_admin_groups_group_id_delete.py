@@ -99,6 +99,8 @@ def sync_detailed(
 
      Delete a sharing group and all its memberships (admin only).
 
+    Its members lose the group's datasets at once, signed tile URLs included.
+
     Args:
         group_id (UUID):
 
@@ -130,6 +132,8 @@ def sync(
 
      Delete a sharing group and all its memberships (admin only).
 
+    Its members lose the group's datasets at once, signed tile URLs included.
+
     Args:
         group_id (UUID):
 
@@ -155,6 +159,8 @@ async def asyncio_detailed(
     """Delete Group
 
      Delete a sharing group and all its memberships (admin only).
+
+    Its members lose the group's datasets at once, signed tile URLs included.
 
     Args:
         group_id (UUID):
@@ -184,6 +190,8 @@ async def asyncio(
     """Delete Group
 
      Delete a sharing group and all its memberships (admin only).
+
+    Its members lose the group's datasets at once, signed tile URLs included.
 
     Args:
         group_id (UUID):

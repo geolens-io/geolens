@@ -810,6 +810,7 @@ class AttributeMetadata(Base):
     example_values: Mapped[list | None] = mapped_column(
         MutableList.as_mutable(JSONB), nullable=True
     )
+    value_labels: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ordinal_position: Mapped[int | None] = mapped_column(nullable=True)
     is_nullable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_current: Mapped[bool] = mapped_column(
@@ -838,6 +839,34 @@ class DatasetGrant(Base):
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.roles.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class DatasetGroupGrant(Base):
+    """A sharing group that may read a ``restricted`` dataset."""
+
+    __tablename__ = "dataset_group_grants"
+    __table_args__ = (
+        Index("ix_dataset_group_grants_group_id", "group_id"),
+        Index(
+            "ix_dataset_group_grants_granted_by",
+            "granted_by",
+            postgresql_where=text("granted_by IS NOT NULL"),
+        ),
+        {"schema": "catalog"},
+    )
+
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

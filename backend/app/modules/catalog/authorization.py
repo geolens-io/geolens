@@ -1069,6 +1069,35 @@ async def vrts_beyond_member_audience(
     return beyond
 
 
+async def vrt_links_beyond_audience(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
+) -> dict[tuple[uuid.UUID, uuid.UUID], str]:
+    """Each ``(vrt, member)`` link with either end in ``dataset_ids`` whose VRT
+    reaches past the member as the catalog stands now, mapped to the VRT's
+    title."""
+    wanted = bindparam("wanted", list(set(dataset_ids)), type_=ARRAY(Uuid))
+    links = _VRT_SOURCE_LINKS
+    rows = await db.execute(
+        select(links.c.vrt_dataset_id, links.c.source_dataset_id).where(
+            or_(
+                links.c.vrt_dataset_id == any_(wanted),
+                links.c.source_dataset_id == any_(wanted),
+            )
+        )
+    )
+    pairs = [tuple(row) for row in rows.all()]
+    queries = await _record_audience_queries(db, {i for pair in pairs for i in pair})
+    pairs = [pair for pair in pairs if pair[0] in queries and pair[1] in queries]
+    flags = await _audiences_exceeded(
+        db, [(queries[vrt][0], queries[member][0]) for vrt, member in pairs]
+    )
+    return {
+        pair: queries[pair[0]][1]
+        for pair, flag in zip(pairs, flags, strict=True)
+        if flag
+    }
+
+
 async def check_vrt_within_member_audience(
     db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
 ) -> None:

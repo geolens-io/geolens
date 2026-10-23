@@ -45,6 +45,7 @@ from .arcgis_migrate_export import (
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import import_layers
+from .arcgis_migrate_webmaps import import_map
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -97,7 +98,12 @@ _PORTAL_EXIT = {
 }
 EXIT_INTERRUPTED = 130
 # Actions that read the inventory and, for a non-public item, the portal.
-_PORTAL_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.EXPORT_ONLY)
+_PORTAL_ACTIONS = (
+    _plan.IMPORT_LAYERS,
+    _plan.IMPORT_FILE,
+    _plan.IMPORT_MAP,
+    _plan.EXPORT_ONLY,
+)
 
 
 class UsageError(Exception):
@@ -111,6 +117,7 @@ HANDLERS: dict[str, Handler] = {
     _plan.IMPORT_LAYERS: import_layers,
     _plan.IMPORT_FILE: import_file,
     _plan.EXPORT_ONLY: export_item,
+    _plan.IMPORT_MAP: import_map,
 }
 
 
@@ -780,6 +787,10 @@ def _portal_client(
             item["action"] == _plan.IMPORT_FILE
             and _resumes_without_download(state.items.get(item["id"]))
         )
+        and not (
+            item["action"] == _plan.IMPORT_MAP
+            and getattr(state.items.get(item["id"]), "map_id", None)
+        )
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
     supplied = bool(opts.token or opts.token_stdin or opts.username)
@@ -949,6 +960,8 @@ def _run(
         export_dir=state.path.parent / EXPORT_DIRNAME,
         export_cap=opts.export_cap_mb * 1024 * 1024,
         web_origin=_web_origin(instance),
+        basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
+        aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
         portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,
     )

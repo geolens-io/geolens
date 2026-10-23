@@ -492,6 +492,8 @@ def test_the_carve_out_is_a_named_method_and_route():
             ("POST", "/stac/search"),
             ("POST", "/jobs/status"),
             ("POST", "/jobs/status/"),
+            ("POST", "/datasets/{dataset_id}/aggregate"),
+            ("POST", "/datasets/{dataset_id}/aggregate/"),
         }
     )
     # Driven from the ROUTE TABLE rather than from a literal: this pair is

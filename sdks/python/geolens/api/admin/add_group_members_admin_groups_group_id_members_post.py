@@ -112,7 +112,8 @@ def sync_detailed(
      Add users to a sharing group (admin only).
 
     Users already in the group are skipped. If any id matches no user, the
-    request is 404 and nobody is added.
+    request is 404 and nobody is added. 422 when the new members' access to
+    the group's datasets would let a VRT reach past one of its sources.
 
     Args:
         group_id (UUID):
@@ -149,7 +150,8 @@ def sync(
      Add users to a sharing group (admin only).
 
     Users already in the group are skipped. If any id matches no user, the
-    request is 404 and nobody is added.
+    request is 404 and nobody is added. 422 when the new members' access to
+    the group's datasets would let a VRT reach past one of its sources.
 
     Args:
         group_id (UUID):
@@ -181,7 +183,8 @@ async def asyncio_detailed(
      Add users to a sharing group (admin only).
 
     Users already in the group are skipped. If any id matches no user, the
-    request is 404 and nobody is added.
+    request is 404 and nobody is added. 422 when the new members' access to
+    the group's datasets would let a VRT reach past one of its sources.
 
     Args:
         group_id (UUID):
@@ -216,7 +219,8 @@ async def asyncio(
      Add users to a sharing group (admin only).
 
     Users already in the group are skipped. If any id matches no user, the
-    request is 404 and nobody is added.
+    request is 404 and nobody is added. 422 when the new members' access to
+    the group's datasets would let a VRT reach past one of its sources.
 
     Args:
         group_id (UUID):

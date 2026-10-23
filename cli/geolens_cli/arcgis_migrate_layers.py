@@ -123,23 +123,55 @@ def _send(
     raise AssertionError("unreachable")
 
 
-def _title(base: str, layer: str | None) -> str:
+def _title(base: str, layer: str | None, layer_id: str | None = None) -> str:
     """The dataset title: the item's, then `` - <layer>`` for a service with
-    several layers, within GeoLens's title limit."""
+    several layers, within GeoLens's title limit. A layer whose title another
+    layer of the same service also takes carries `` (<layer id>)`` as well,
+    so the catalog can tell the two datasets apart."""
     if layer is None:
         return base[:MAX_TITLE]
-    suffix = f" - {layer}"[: MAX_TITLE // 2]
+    tag = f" ({layer_id})" if layer_id is not None else ""
+    suffix = f" - {layer}"[: MAX_TITLE // 2 - len(tag)] + tag
     return base[: MAX_TITLE - len(suffix)] + suffix
 
 
-def _layer_key(layer: Any) -> str:
+def _layer_id(layer: Any) -> str | None:
     layer_id = getattr(layer, "layer_id", None)
-    return str(layer_id) if isinstance(layer_id, int | str) else str(layer.name)
+    return str(layer_id) if isinstance(layer_id, int | str) else None
+
+
+def _layer_key(layer: Any) -> str:
+    return _layer_id(layer) or str(layer.name)
 
 
 def _layer_label(layer: Any) -> str:
     title = getattr(layer, "title", None)
     return title if isinstance(title, str) and title else str(layer.name)
+
+
+def _titles(base: str, layers: list[Any]) -> list[str]:
+    """The dataset title for each of a service's layers, in order.
+
+    Layers that would share a title get their layer id added, checked
+    against the final titles: a layer already named like another layer's
+    tagged title is tagged too, so every layer ends up told apart (layer
+    ids are unique within a service).
+    """
+    labels = [_layer_label(layer) if len(layers) > 1 else None for layer in layers]
+    titles = [_title(base, label) for label in labels]
+    tagged = [False] * len(layers)
+    while True:
+        shared = {title for title in titles if titles.count(title) > 1}
+        if not shared:
+            return titles
+        moved = False
+        for i, (layer, label) in enumerate(zip(layers, labels)):
+            if titles[i] in shared and not tagged[i]:
+                titles[i] = _title(base, label, _layer_id(layer))
+                tagged[i] = True
+                moved = True
+        if not moved:
+            return titles
 
 
 def _importable(layer: Any) -> str | None:
@@ -393,9 +425,9 @@ def import_layers(
         return ItemResult(notes=[*notes, "the service has no layer to import"])
 
     base = item["target"]["title"] or item["title"]
+    titles = _titles(base, wanted)
     found = 0
-    for layer in wanted:
-        title = _title(base, _layer_label(layer) if len(wanted) > 1 else None)
+    for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.

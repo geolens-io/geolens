@@ -37,6 +37,8 @@ _SHARED_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
 ]
 
 _TENANT_TABLES = [

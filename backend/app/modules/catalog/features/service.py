@@ -416,7 +416,7 @@ def number_matched_headers(total_is_estimate: bool) -> dict[str, str]:
     return {NUMBER_MATCHED_HEADER: "estimated"} if total_is_estimate else {}
 
 
-async def _planner_row_estimate(
+async def planner_row_estimate(
     db: AsyncSession, quoted_table: str, where_sql: str, binds: dict, apply_binds
 ) -> int:
     """The planner's row estimate for the filtered predicate, or 0.
@@ -458,7 +458,7 @@ async def _bounded_total(
     counted = int(capped_result.scalar_one())
     if counted <= _FILTERED_COUNT_CAP:
         return counted, False
-    estimate = await _planner_row_estimate(db, quoted, where_sql, binds, apply_binds)
+    estimate = await planner_row_estimate(db, quoted, where_sql, binds, apply_binds)
     return max(counted, estimate), True
 
 

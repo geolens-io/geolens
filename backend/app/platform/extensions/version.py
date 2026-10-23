@@ -147,7 +147,14 @@ logger = logging.getLogger(__name__)
 # method. The tile-token endpoints ask it for every mosaic they mint at once
 # and leave out a refused mosaic's bounds, so an overlay replacing the
 # ``processing_port`` slot without it fails every raster tile token.
-EXTENSION_API_VERSION: int = 18
+#
+# 18 -> 19: a ``restricted`` dataset is now also readable by members of the
+# sharing groups granted on it (``dataset_group_grants``). Same signatures, a
+# different policy: an overlay replacing the ``permission`` slot must add the
+# group branch to ``filter_visible``, ``can_access_dataset`` and
+# ``record_audience``, or it denies group members everything core says they
+# can read.
+EXTENSION_API_VERSION: int = 19
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

@@ -58,13 +58,13 @@ PREVIEW_FEATURE_CAP = 500
 LayerFilter = tuple[str, list[Any]]
 
 
-# Each AI preview may hold two connections, so cap each worker at one quarter
-# of its pool to reserve half for other traffic. External poolers hide their
-# capacity; use the default local-pool budget in that mode.
+# Previews may hold two connections each and dataset aggregates one, so a
+# quarter of the pool as slots for each leaves a quarter for other traffic.
+# External poolers hide their capacity; use the default budget in that mode.
 _EXTERNAL_POOLER_PREVIEW_BOUND = 3
 
 
-def _preview_bound() -> int:
+def preview_slot_bound() -> int:
     from app.core.config import settings
 
     if settings.db_use_external_pooler:
@@ -75,7 +75,7 @@ def _preview_bound() -> int:
     return max(1, (settings.db_pool_size + overflow) // 4)
 
 
-_MAX_CONCURRENT_PREVIEWS = _preview_bound()
+_MAX_CONCURRENT_PREVIEWS = preview_slot_bound()
 _preview_slots = asyncio.Semaphore(_MAX_CONCURRENT_PREVIEWS)
 _GEOJSON_PRECISION = 6
 
@@ -86,13 +86,15 @@ async def compile_layer_filter(
     cql2: dict[str, Any] | None,
     *,
     bind_prefix: str,
+    live_columns: list[dict] | None = None,
 ) -> LayerFilter | None:
     """Validate a layer's CQL2-JSON filter against its live columns and compile it.
 
     The parser, whitelist and literal type checks are the ones the OGC items
     ``filter`` parameter runs. Raises ValueError naming the problem when the
     filter is malformed, too large, or reads a column the table lacks. The
-    caller has already checked access to ``dataset``.
+    caller has already checked access to ``dataset``, and may pass the
+    table's ``live_columns`` when it has read them already.
     """
     if cql2 is None:
         return None
@@ -110,7 +112,10 @@ async def compile_layer_filter(
         raise ValueError("Invalid CQL2 expression: filter nests too deeply") from exc
     try:
         ast_root = parse_feature_cql2(filter_expr, "cql2-json")
-        live_columns = await get_catalog_port().get_column_info(db, dataset.table_name)
+        if live_columns is None:
+            live_columns = await get_catalog_port().get_column_info(
+                db, dataset.table_name
+            )
         queryables = feature_queryable_columns(live_columns, dataset.geometry_type)
         where_sql, binds = compile_feature_cql2_ast(
             ast_root, queryables, bind_prefix=bind_prefix

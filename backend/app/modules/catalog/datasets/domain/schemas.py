@@ -14,6 +14,11 @@ from pydantic import (
 )
 
 from app.core.url_redaction import has_url_credentials
+from app.platform.value_labels import (
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+    is_storable_text,
+)
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
@@ -1209,6 +1214,10 @@ class AttributeMetadataResponse(BaseModel):
     example_values: list | None = Field(
         default=None, description="Sample values from the column"
     )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
+    )
     ordinal_position: int | None = Field(
         default=None, description="Column position in the table (1-based)"
     )
@@ -1323,6 +1332,28 @@ class AttributeMetadataUpdate(BaseModel):
     domain_type: DOMAIN_TYPES | None = Field(
         default=None, description="Value domain: continuous, categorical, coded, etc."
     )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
+    )
+
+    @field_validator("value_labels")
+    @classmethod
+    def _bound_value_labels(cls, labels: dict[str, str] | None):
+        if labels is None:
+            return labels
+        if len(labels) > MAX_VALUE_LABELS:
+            raise ValueError(f"At most {MAX_VALUE_LABELS} value labels")
+        for code, label in labels.items():
+            if max(len(code), len(label)) > MAX_VALUE_LABEL_LENGTH:
+                raise ValueError(
+                    f"Codes and labels are at most {MAX_VALUE_LABEL_LENGTH} characters"
+                )
+            if not (is_storable_text(code) and is_storable_text(label)):
+                raise ValueError(
+                    "Codes and labels must be valid UTF-8 text without NUL"
+                )
+        return labels
 
 
 class RelatedDatasetItem(BaseModel):

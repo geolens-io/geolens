@@ -11,6 +11,9 @@ from app.modules.auth.router import router as auth_router
 from app.modules.catalog.collections.router import router as collections_crud_router
 from app.platform.config_ops.router import router as config_ops_router
 from app.modules.catalog.datasets.api.router import router as datasets_router
+from app.modules.catalog.datasets.api.router_aggregate import (
+    router as datasets_aggregate_router,
+)
 from app.modules.catalog.datasets.api.router_analysis import (
     router as datasets_analysis_router,
 )
@@ -102,6 +105,7 @@ api_router.include_router(manifest_router)
 api_router.include_router(datasets_export_router)
 api_router.include_router(datasets_router)
 api_router.include_router(datasets_analysis_router)
+api_router.include_router(datasets_aggregate_router)
 api_router.include_router(datasets_vrt_router)
 api_router.include_router(datasets_tiles3d_router)
 api_router.include_router(datasets_pointcloud_router)

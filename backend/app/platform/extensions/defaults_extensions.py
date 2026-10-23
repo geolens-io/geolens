@@ -82,7 +82,11 @@ class DefaultPermissionExtension:
         if grant_cls is not None:
             # Grants key catalog.datasets.id, not records.id —
             # route through Dataset.record_id so granted records resolve.
-            from app.modules.catalog.datasets.domain.models import Dataset
+            from app.modules.auth.models import GroupMember
+            from app.modules.catalog.datasets.domain.models import (
+                Dataset,
+                DatasetGroupGrant,
+            )
 
             conditions.append(
                 and_(
@@ -90,13 +94,25 @@ class DefaultPermissionExtension:
                     or_(
                         # Creator exemption — without it, a
                         # non-admin owner who restricts their own dataset
-                        # loses read access (grants have no write path).
+                        # loses read access.
                         record_cls.created_by == user.id,
                         record_cls.id.in_(
                             select(Dataset.record_id)
                             .join(grant_cls, grant_cls.dataset_id == Dataset.id)
                             .join(UserRole, grant_cls.role_id == UserRole.role_id)
                             .where(UserRole.user_id == user.id)
+                        ),
+                        record_cls.id.in_(
+                            select(Dataset.record_id)
+                            .join(
+                                DatasetGroupGrant,
+                                DatasetGroupGrant.dataset_id == Dataset.id,
+                            )
+                            .join(
+                                GroupMember,
+                                GroupMember.group_id == DatasetGroupGrant.group_id,
+                            )
+                            .where(GroupMember.user_id == user.id)
                         ),
                     ),
                 )
@@ -117,10 +133,13 @@ class DefaultPermissionExtension:
         *,
         user_roles,
     ):  # type: ignore[no-untyped-def]
-        from sqlalchemy import select
+        from sqlalchemy import exists, or_, select
 
-        from app.modules.auth.models import UserRole
-        from app.modules.catalog.datasets.domain.models import DatasetGrant
+        from app.modules.auth.models import GroupMember, UserRole
+        from app.modules.catalog.datasets.domain.models import (
+            DatasetGrant,
+            DatasetGroupGrant,
+        )
 
         record = dataset.record
 
@@ -141,17 +160,17 @@ class DefaultPermissionExtension:
             # admins, and grant holders"; the owner is never locked out.
             if record.created_by == user.id:
                 return True
-            grant_result = await db.execute(
-                select(DatasetGrant.dataset_id)
-                .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
-                .where(
-                    DatasetGrant.dataset_id == dataset_id,
-                    UserRole.user_id == user.id,
-                )
-                # Each granted role the user holds is its own row.
-                .limit(1)
+            by_role = exists().where(
+                DatasetGrant.role_id == UserRole.role_id,
+                DatasetGrant.dataset_id == dataset_id,
+                UserRole.user_id == user.id,
             )
-            return grant_result.scalar_one_or_none() is not None
+            by_group = exists().where(
+                DatasetGroupGrant.group_id == GroupMember.group_id,
+                DatasetGroupGrant.dataset_id == dataset_id,
+                GroupMember.user_id == user.id,
+            )
+            return bool(await db.scalar(select(or_(by_role, by_group))))
 
         if record.visibility == "internal":
             # Internal = any signed-in user, matching MapVisibility. Explicit
@@ -173,7 +192,8 @@ class DefaultPermissionExtension:
         """
         from sqlalchemy import and_, false, or_, select, true
 
-        from app.modules.auth.models import Role, UserRole
+        from app.modules.auth.models import GroupMember, Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
         from app.platform.extensions.protocols import RecordAudience
 
         # `filter_visible` returns the statement unchanged for an admin, so
@@ -195,15 +215,23 @@ class DefaultPermissionExtension:
         elif query.visibility == "private":
             reaches = is_owner
         elif query.visibility == "restricted" and grant_cls is not None:
-            # Creator exemption, then the grant — the same edge
-            # `filter_visible` walks (record -> dataset -> grant -> role ->
-            # user), traversed from the user end.
+            # Creator exemption, then the role and group grants — the same
+            # edges `filter_visible` walks (record -> dataset -> grant -> role
+            # or group -> user), traversed from the user end.
             reaches = or_(
                 is_owner,
                 user_cls.id.in_(
                     select(UserRole.user_id)
                     .join(grant_cls, grant_cls.role_id == UserRole.role_id)
                     .where(grant_cls.dataset_id == query.dataset_id)
+                ),
+                user_cls.id.in_(
+                    select(GroupMember.user_id)
+                    .join(
+                        DatasetGroupGrant,
+                        DatasetGroupGrant.group_id == GroupMember.group_id,
+                    )
+                    .where(DatasetGroupGrant.dataset_id == query.dataset_id)
                 ),
             )
         else:

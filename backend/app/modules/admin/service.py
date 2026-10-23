@@ -19,9 +19,13 @@ from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password_async
 from app.modules.auth.service import AuthService
+from app.modules.catalog.group_access import reactivate_member_access
 from app.core.identity import Identity
 from app.core.text import escape_ilike
-from app.platform.catalog_locks import bump_publication_versions_for_owner
+from app.platform.catalog_locks import (
+    bump_publication_versions_for_member,
+    bump_publication_versions_for_owner,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -174,12 +178,19 @@ class AdminService:
         return result.scalar() or 0
 
     @staticmethod
-    def _is_viable_admin(user: User) -> bool:
-        return (
-            user.status == "active"
-            and user.is_active
-            and "admin" in {role.name for role in user.roles}
-        )
+    def _is_active(user: User) -> bool:
+        return user.status == "active" and user.is_active
+
+    @classmethod
+    def _is_viable_admin(cls, user: User) -> bool:
+        return cls._is_active(user) and "admin" in {role.name for role in user.roles}
+
+    async def _retire_member_tiles(self, user: User) -> None:
+        """Retire tile URLs ``user`` signed through its groups, when it is
+        active and about to stop being so; an inactive account signed none
+        since it last left active."""
+        if self._is_active(user):
+            await bump_publication_versions_for_member(self.db, user.id)
 
     @staticmethod
     def _user_audit_snapshot(user: User) -> dict[str, Any]:
@@ -306,11 +317,17 @@ class AdminService:
 
         await self._ensure_not_last_admin(user, "deactivate", lock_held=True)
 
+        await self._retire_member_tiles(user)
         user.status = "deactivated"
         user.is_active = False
         await self.db.flush()
         await self.db.refresh(user)
         return user
+
+    async def _set_status(self, user: User, status: str) -> None:
+        user.status = status
+        user.is_active = status == "active"
+        await self.db.flush()
 
     async def reset_user_password(self, user_id: uuid.UUID, password: str) -> User:
         """Set another account's password, revoking its credentials.
@@ -399,16 +416,22 @@ class AdminService:
                 user.email_verified = email is not None
             user.email = email
 
-        if target_status is not None:
-            user.status = target_status
-            user.is_active = target_status == "active"
+        async def apply_status_and_role() -> None:
+            if target_status is not None:
+                await self._set_status(user, target_status)
+            if updates.role is not None:
+                await self._update_user_role(
+                    user, updates.role, lock_held=True, viability_checked=True
+                )
+            await self.db.flush()
 
-        if updates.role is not None:
-            await self._update_user_role(
-                user, updates.role, lock_held=True, viability_checked=True
-            )
-
-        await self.db.flush()
+        if target_status not in (None, "active"):
+            await self._retire_member_tiles(user)
+        if target_status == "active" and not self._is_active(user):
+            # Judged with the new role in place, since it may grant a source.
+            await reactivate_member_access(self.db, user_id, apply_status_and_role)
+        else:
+            await apply_status_and_role()
         await self.db.refresh(user, attribute_names=["roles"])
         after = self._user_audit_snapshot(user)
         return user, before, after
@@ -707,19 +730,20 @@ class AdminService:
                 "Pending user approval is no longer available"
             )
 
-        user.status = "active"
-        user.is_active = True
+        async def activate_with_role() -> None:
+            # A pending account should not normally own a role, but
+            # legacy/manual rows may. Replace the complete assignment so the
+            # approved role is the only authority the account receives.
+            await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+            self.db.add(UserRole(user_id=user.id, role_id=role.id))
+            await self._set_status(user, "active")
+
+        await reactivate_member_access(self.db, user.id, activate_with_role)
 
         # Approval assigns the account's authority, so bump key_epoch: a key
         # that existed while pending (legacy/manual rows) must not wake up with
         # the approved role's privileges. Race-free: the row is locked above.
         user.key_epoch += 1
-
-        # A pending account should not normally own a role, but legacy/manual
-        # rows may. Replace the complete assignment so the approved role is the
-        # only authority the newly active account receives.
-        await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
-        self.db.add(UserRole(user_id=user.id, role_id=role.id))
         await self.db.flush()
         await self.db.refresh(user, attribute_names=["roles"])
         return user
@@ -760,6 +784,7 @@ class AdminService:
         username = user.username
 
         await bump_publication_versions_for_owner(self.db, user_id)
+        await self._retire_member_tiles(user)
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
         await self.db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
 

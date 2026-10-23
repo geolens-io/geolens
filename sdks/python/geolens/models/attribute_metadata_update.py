@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -22,6 +22,11 @@ from ..models.attribute_metadata_update_semantic_role_type_0 import (
 )
 from typing import cast
 
+if TYPE_CHECKING:
+    from ..models.attribute_metadata_update_value_labels_type_0 import (
+        AttributeMetadataUpdateValueLabelsType0,
+    )
+
 
 T = TypeVar("T", bound="AttributeMetadataUpdate")
 
@@ -37,6 +42,8 @@ class AttributeMetadataUpdate:
             measure, etc.
         domain_type (AttributeMetadataUpdateDomainTypeType0 | None | Unset): Value domain: continuous, categorical,
             coded, etc.
+        value_labels (AttributeMetadataUpdateValueLabelsType0 | None | Unset): Label for each stored code, keyed by the
+            code as text.
     """
 
     title: None | str | Unset = UNSET
@@ -44,9 +51,14 @@ class AttributeMetadataUpdate:
     units: None | str | Unset = UNSET
     semantic_role: AttributeMetadataUpdateSemanticRoleType0 | None | Unset = UNSET
     domain_type: AttributeMetadataUpdateDomainTypeType0 | None | Unset = UNSET
+    value_labels: AttributeMetadataUpdateValueLabelsType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.attribute_metadata_update_value_labels_type_0 import (
+            AttributeMetadataUpdateValueLabelsType0,
+        )
+
         title: None | str | Unset
         if isinstance(self.title, Unset):
             title = UNSET
@@ -81,6 +93,14 @@ class AttributeMetadataUpdate:
         else:
             domain_type = self.domain_type
 
+        value_labels: dict[str, Any] | None | Unset
+        if isinstance(self.value_labels, Unset):
+            value_labels = UNSET
+        elif isinstance(self.value_labels, AttributeMetadataUpdateValueLabelsType0):
+            value_labels = self.value_labels.to_dict()
+        else:
+            value_labels = self.value_labels
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -94,11 +114,17 @@ class AttributeMetadataUpdate:
             field_dict["semantic_role"] = semantic_role
         if domain_type is not UNSET:
             field_dict["domain_type"] = domain_type
+        if value_labels is not UNSET:
+            field_dict["value_labels"] = value_labels
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.attribute_metadata_update_value_labels_type_0 import (
+            AttributeMetadataUpdateValueLabelsType0,
+        )
+
         d = dict(src_dict)
 
         def _parse_title(data: object) -> None | str | Unset:
@@ -170,12 +196,34 @@ class AttributeMetadataUpdate:
 
         domain_type = _parse_domain_type(d.pop("domain_type", UNSET))
 
+        def _parse_value_labels(
+            data: object,
+        ) -> AttributeMetadataUpdateValueLabelsType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                value_labels_type_0 = AttributeMetadataUpdateValueLabelsType0.from_dict(
+                    data
+                )
+
+                return value_labels_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AttributeMetadataUpdateValueLabelsType0 | None | Unset, data)
+
+        value_labels = _parse_value_labels(d.pop("value_labels", UNSET))
+
         attribute_metadata_update = cls(
             title=title,
             description=description,
             units=units,
             semantic_role=semantic_role,
             domain_type=domain_type,
+            value_labels=value_labels,
         )
 
         attribute_metadata_update.additional_properties = d

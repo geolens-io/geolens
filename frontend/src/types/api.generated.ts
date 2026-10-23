@@ -277,6 +277,8 @@ export interface paths {
         /**
          * Delete Group
          * @description Delete a sharing group and all its memberships (admin only).
+         *
+         *     Its members lose the group's datasets at once, signed tile URLs included.
          */
         delete: operations["delete_group_admin_groups__group_id__delete"];
         options?: never;
@@ -306,7 +308,8 @@ export interface paths {
          * @description Add users to a sharing group (admin only).
          *
          *     Users already in the group are skipped. If any id matches no user, the
-         *     request is 404 and nobody is added.
+         *     request is 404 and nobody is added. 422 when the new members' access to
+         *     the group's datasets would let a VRT reach past one of its sources.
          */
         post: operations["add_group_members_admin_groups__group_id__members__post"];
         delete?: never;
@@ -328,6 +331,8 @@ export interface paths {
         /**
          * Remove Group Member
          * @description Remove one user from a sharing group (admin only).
+         *
+         *     The user loses the group's datasets at once, signed tile URLs included.
          */
         delete: operations["remove_group_member_admin_groups__group_id__members__user_id__delete"];
         options?: never;
@@ -2040,6 +2045,40 @@ export interface paths {
          * @description Update user-editable dataset metadata.
          */
         patch: operations["update_dataset_metadata_datasets__dataset_id__patch"];
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/aggregate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aggregate Endpoint
+         * @description Compute one exact aggregate over a dataset's rows, for a widget.
+         *
+         *     Anonymous callers can read public, published datasets; ``X-Embed-Token``
+         *     authorizes datasets in the token's scope. Other datasets return 404.
+         *
+         *     With ``bbox``, a view the planner expects to hold more than 500,000 rows
+         *     is refused with 422 and the code ``too_wide`` rather than approximated. A
+         *     ``bbox`` that contains the whole dataset is answered as the whole layer.
+         *     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
+         *     ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+         *     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
+         *     (this caller already has two aggregates running) or ``query_at_capacity``.
+         *
+         *     Clients should keep at most two requests in flight per caller and retry a
+         *     429 after 200-400 ms with jitter.
+         */
+        post: operations["aggregate_endpoint_datasets__dataset_id__aggregate__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/datasets/{dataset_id}/analysis/materialize/": {
@@ -7011,6 +7050,13 @@ export interface components {
              */
             example_values?: unknown[] | null;
             /**
+             * Value Labels
+             * @description Label for each stored code, keyed by the code as text.
+             */
+            value_labels?: {
+                [key: string]: string;
+            } | null;
+            /**
              * Ordinal Position
              * @description Column position in the table (1-based)
              */
@@ -7052,6 +7098,13 @@ export interface components {
              * @description Value domain: continuous, categorical, coded, etc.
              */
             domain_type?: ("continuous" | "discrete" | "categorical" | "coded" | "codedValue" | "boolean" | "text" | "date" | "temporal" | "geometry" | "range") | null;
+            /**
+             * Value Labels
+             * @description Label for each stored code, keyed by the code as text.
+             */
+            value_labels?: {
+                [key: string]: string;
+            } | null;
         };
         /** AuditLogListResponse */
         AuditLogListResponse: {
@@ -8573,6 +8626,49 @@ export interface components {
             } | null;
             /** Sort Order */
             sort_order?: number | null;
+        };
+        /** CountRequest */
+        CountRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "count";
+        };
+        /** CountResponse */
+        CountResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "count";
+            result: components["schemas"]["CountResult"];
+        };
+        /** CountResult */
+        CountResult: {
+            /** Count */
+            count: number;
         };
         /** CreateEmptyDatasetRequest */
         CreateEmptyDatasetRequest: {
@@ -10314,6 +10410,69 @@ export interface components {
             /** Geometries */
             geometries: components["schemas"]["GeoJSONGeometry"][];
         };
+        /** GroupByRequest */
+        GroupByRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "group_by";
+            /** Group Column */
+            group_column: string;
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "avg" | "min" | "max";
+            /**
+             * Column
+             * @description The numeric column `stat` reads; omit for `count`.
+             */
+            column?: string | null;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
+        /** GroupByResponse */
+        GroupByResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "group_by";
+            result: components["schemas"]["GroupByResult"];
+        };
+        /** GroupByResult */
+        GroupByResult: {
+            /**
+             * Groups
+             * @description Largest value first.
+             */
+            groups: components["schemas"]["GroupValue"][];
+        };
         /** GroupListResponse */
         GroupListResponse: {
             /**
@@ -10379,6 +10538,19 @@ export interface components {
              */
             updated_at: string;
         };
+        /** GroupValue */
+        GroupValue: {
+            /**
+             * Key
+             * @description The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            key: string | number | boolean | null;
+            /**
+             * Value
+             * @description Exact for count, sum, min and max, as for a key; avg is a float.
+             */
+            value: number | string | null;
+        };
         /** GroupWrite */
         GroupWrite: {
             /**
@@ -10400,6 +10572,68 @@ export interface components {
             providers: {
                 [key: string]: components["schemas"]["ServiceHealth"];
             };
+        };
+        /** HistogramBin */
+        HistogramBin: {
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** Count */
+            count: number;
+        };
+        /** HistogramRequest */
+        HistogramRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "histogram";
+            /** Column */
+            column: string;
+            /**
+             * Bins
+             * @default 10
+             */
+            bins: number;
+        };
+        /** HistogramResponse */
+        HistogramResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "histogram";
+            result: components["schemas"]["HistogramResult"];
+        };
+        /** HistogramResult */
+        HistogramResult: {
+            /**
+             * Bins
+             * @description Equal-width bins over the finite values; empty with none.
+             */
+            bins: components["schemas"]["HistogramBin"][];
         };
         /**
          * ImportResult
@@ -15067,6 +15301,67 @@ export interface components {
             /** Total Affected */
             total_affected: number;
         };
+        /** StatsRequest */
+        StatsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "stats";
+            /** Column */
+            column: string;
+            /** Stats */
+            stats: ("count" | "sum" | "avg" | "min" | "max")[];
+        };
+        /** StatsResponse */
+        StatsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "stats";
+            result: components["schemas"]["StatsResult"];
+        };
+        /**
+         * StatsResult
+         * @description The requested statistics; one over no rows is null.
+         *
+         *     ``sum``, ``min`` and ``max`` are exact: a number when JSON can carry it
+         *     exactly, else text. ``avg`` is a float, or text for NaN and infinity.
+         */
+        StatsResult: {
+            /** Count */
+            count?: number | null;
+            /** Sum */
+            sum?: number | string | null;
+            /** Avg */
+            avg?: number | string | null;
+            /** Min */
+            min?: number | string | null;
+            /** Max */
+            max?: number | string | null;
+        };
         /**
          * StatusUpdate
          * @example {
@@ -15646,6 +15941,74 @@ export interface components {
             quality_score?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** ValueCount */
+        ValueCount: {
+            /**
+             * Value
+             * @description The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            value: string | number | boolean | null;
+            /** Count */
+            count: number;
+        };
+        /** ValueCountsRequest */
+        ValueCountsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "value_counts";
+            /** Column */
+            column: string;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
+        /** ValueCountsResponse */
+        ValueCountsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "value_counts";
+            result: components["schemas"]["ValueCountsResult"];
+        };
+        /** ValueCountsResult */
+        ValueCountsResult: {
+            /**
+             * Values
+             * @description Most frequent first.
+             */
+            values: components["schemas"]["ValueCount"][];
+            /**
+             * Other Count
+             * @description Rows whose value is not listed.
+             */
+            other_count: number;
         };
         /** VectorTileToken */
         VectorTileToken: {
@@ -22502,6 +22865,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description The account can't be activated yet */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -26137,6 +26509,109 @@ export interface operations {
             };
             /** @description Conflict — resource state prevents the operation */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    aggregate_endpoint_datasets__dataset_id__aggregate__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers). */
+                "X-Embed-Token"?: string | null;
+            };
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountRequest"] | components["schemas"]["StatsRequest"] | components["schemas"]["ValueCountsRequest"] | components["schemas"]["HistogramRequest"] | components["schemas"]["GroupByRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountResponse"] | components["schemas"]["StatsResponse"] | components["schemas"]["ValueCountsResponse"] | components["schemas"]["HistogramResponse"] | components["schemas"]["GroupByResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
