@@ -108,10 +108,9 @@ function escapeHtmlAttribute(value: string): string {
  * strips its own sandbox by reaching `parent.document`, which requires being
  * same-origin with its EMBEDDER. A third-party page embedding a GeoLens map
  * never is, so the pair cannot be used to escape from there; the warning
- * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx ships
- * the same pair for YouTube.) An iframe with no `sandbox` attribute, which most
- * embed snippets ship, additionally permits forms, popups, top-level
- * navigation, downloads and pointer lock.
+ * belongs to a FIRST-PARTY frame of your own origin. An iframe with no
+ * `sandbox` attribute, which most embed snippets ship, additionally permits
+ * forms, popups, top-level navigation, downloads and pointer lock.
  *
  * The cost: the frame regains the GeoLens origin, and with it the viewer's
  * persisted session. So embed mode is deliberately anonymous: `isEmbedViewer`
