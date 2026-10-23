@@ -96,14 +96,6 @@ def operator_wrote_last(
     return by is not None and str(by) == (operator or ctx.operator_id)
 
 
-def operator_or_nobody_wrote_last(ctx: MigrationContext, dataset: Any) -> bool:
-    """Whether *dataset*'s last writer is this run's operator or nobody.
-    GeoLens stamps the writer of every feature, column and metadata write, and
-    a fresh vector import leaves no writer."""
-    by = _value(getattr(dataset, "updated_by", None))
-    return by is None or str(by) == ctx.operator_id
-
-
 def _find_run(
     ctx: MigrationContext, dataset_id: str, marker: Mapping[str, Any], **kwargs: Any
 ) -> Any | None:

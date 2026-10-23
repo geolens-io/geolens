@@ -117,7 +117,9 @@ class FakeImport:
                     k: v
                     for k, v in body.items()
                     if k not in ("summary", "expected_updated_at")
-                }
+                },
+                # GeoLens stamps the writer.
+                updated_by=OPERATOR,
             )
             return self.dataset(dataset, body.get("owner_id", OPERATOR))
 
@@ -445,6 +447,19 @@ def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geo
         "visibility": "public",
         "expected_updated_at": "2026-10-01T00:00:00+00:00",
     }
+
+
+def test_a_reused_dataset_its_owner_edited_is_still_reused(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    earlier = dataset_id("earlier")
+    service.duplicates["Parcels"] = earlier
+    service.fields[earlier] = {"updated_by": "00000000-0000-0000-0000-0000000000a1"}
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "exists" and entry["reused"] == [earlier]
 
 
 def test_a_target_write_geolens_refuses_as_stale_fails_the_item(
@@ -1013,6 +1028,61 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
         "visibility": "public",
         "expected_updated_at": "2026-10-01T00:00:00+00:00",
     } in [s.json() for s in geolens.seen if s.method == "PATCH"]
+
+
+@pytest.mark.parametrize("edited", [True, False])
+def test_a_resumed_job_whose_dataset_was_edited_is_not_written(
+    runner, plan_file, geolens, edited
+):
+    import httpx
+
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    commit = service.commit
+
+    def commit_then_time_out(seen):
+        commit(seen, "Parcels")
+        raise httpx.ReadTimeout("no answer")
+
+    preview = service.preview
+
+    def preview_with_a_lost_commit(seen):
+        reply = preview(seen)
+        geolens.routes[f"POST /ingest/commit/{reply['job_id']}"] = commit_then_time_out
+        return reply
+
+    geolens.routes[PREVIEW] = preview_with_a_lost_commit
+    _migrate(runner, plan_file, "--only", A2)
+    parcels = dataset_id("Parcels")
+    # A fresh import leaves no writer; an admin's feature edit stamps theirs.
+    service.fields.setdefault(parcels, {}).update(
+        {"updated_by": "00000000-0000-0000-0000-0000000000a1", "data_revision": 1}
+        if edited
+        else {"updated_by": None}
+    )
+    [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
+    geolens.routes[PREVIEW] = preview
+    geolens.routes[f"POST /ingest/commit/{job}"] = lambda seen: commit(seen, "Parcels")
+    before = len(geolens.seen)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    entry = _state(plan_file)["items"][A2]
+    written = [
+        s
+        for s in geolens.seen[before:]
+        if s.method in ("PATCH", "POST") and parcels in s.url
+    ]
+    if edited:
+        assert result.exit_code == 1
+        assert entry["error"] == (
+            f"dataset {parcels} changed in GeoLens before its owner was handed "
+            "over; it was left as it is"
+        )
+        assert written == [] and entry["last_update"] == {}
+    else:
+        assert result.exit_code == 0, result.output
+        assert entry["status"] == "done"
+        assert written
 
 
 def test_a_recorded_job_geolens_no_longer_has_is_replaced(runner, plan_file, geolens):

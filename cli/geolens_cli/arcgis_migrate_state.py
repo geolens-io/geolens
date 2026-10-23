@@ -94,6 +94,9 @@ class ItemState:
     # Service layer (its id, or its name) -> the dataset imported from it, so
     # a rerun never imports a layer twice, even after its dataset changed owner.
     layer_datasets: dict[str, str] = field(default_factory=dict)
+    # Datasets GeoLens already held that the import reused, whose owner's
+    # edits from before the migration are taken as they are.
+    reused: list[str] = field(default_factory=list)
     # Layer -> its committed ingest job, until the job yields the dataset.
     layer_jobs: dict[str, str] = field(default_factory=dict)
     # The coordinate columns a CSV's pending upload job is committed with.

@@ -25,6 +25,8 @@ from .arcgis_migrate_session import (
     ItemResult,
     MigrationContext,
     StopRun,
+    changed_before_handover,
+    operator_or_nobody_wrote_last,
 )
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
@@ -316,6 +318,8 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
+        if existing not in entry.reused:
+            entry.reused.append(existing)
         _apply_target(ctx, entry, existing, title_visibility)
         entry.layer_datasets[key] = existing
         return True
@@ -341,7 +345,12 @@ def _apply_target(
 ) -> None:
     """Give a dataset GeoLens already held the plan's title and visibility,
     which a fresh import would have received at commit. A dataset an earlier
-    attempt handed to its owner, which has a recorded last update, is left."""
+    attempt handed to its owner, which has a recorded last update, is left.
+
+    One this command imported is refused when somebody else wrote it last, so
+    this write doesn't make their edit the operator's. A reused dataset
+    predates the migration, and its owner's edits are taken as they are.
+    """
     if dataset in entry.last_update:
         return
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
@@ -352,6 +361,8 @@ def _apply_target(
 
     try:
         read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
+        if dataset not in entry.reused and not operator_or_nobody_wrote_last(ctx, read):
+            raise changed_before_handover(dataset)
         ctx.geolens.write(
             patch_dataset.sync_detailed,
             during=f"the plan's title and visibility were written to dataset {dataset}",

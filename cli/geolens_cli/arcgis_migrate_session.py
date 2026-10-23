@@ -231,3 +231,20 @@ class MigrationContext:
     upload_limit: int | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+
+
+def operator_or_nobody_wrote_last(ctx: MigrationContext, dataset: Any) -> bool:
+    """Whether *dataset*'s last writer is this run's operator or nobody.
+    GeoLens stamps the writer of every feature, column and metadata write, and
+    a fresh vector import leaves no writer."""
+    from .refresh import _value
+
+    by = _value(getattr(dataset, "updated_by", None))
+    return by is None or str(by) == ctx.operator_id
+
+
+def changed_before_handover(dataset_id: str) -> ItemFailed:
+    return ItemFailed(
+        f"dataset {dataset_id} changed in GeoLens before its owner was handed "
+        "over; it was left as it is"
+    )

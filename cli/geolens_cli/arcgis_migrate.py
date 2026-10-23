@@ -57,7 +57,6 @@ from .arcgis_migrate_refresh import (
     refresh_file,
     refresh_layers,
     snapshot,
-    operator_or_nobody_wrote_last,
 )
 from .arcgis_migrate_webmaps import get_map, import_map, refresh_map
 from .arcgis_migrate_session import (
@@ -68,6 +67,8 @@ from .arcgis_migrate_session import (
     MigrationContext,
     PortalAuth,
     StopRun,
+    changed_before_handover,
+    operator_or_nobody_wrote_last,
 )
 from .arcgis_migrate_state import (
     FAILED,
@@ -616,13 +617,6 @@ def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
     )
 
 
-def _changed_before_handover(dataset_id: str) -> ItemFailed:
-    return ItemFailed(
-        f"dataset {dataset_id} changed in GeoLens before its owner was handed "
-        "over; it was left as it is"
-    )
-
-
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
     """Each dataset's data revision as the import left it, read before this
     command writes to it; one somebody else wrote last is refused, so their
@@ -631,7 +625,7 @@ def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
     for dataset_id in dataset_ids:
         read = get_dataset(ctx, dataset_id)
         if not operator_or_nobody_wrote_last(ctx, read):
-            raise _changed_before_handover(dataset_id)
+            raise changed_before_handover(dataset_id)
         revisions[dataset_id] = snapshot(read)["data_revision"]
     return revisions
 
@@ -662,7 +656,7 @@ def transfer(
         elif not operator_or_nobody_wrote_last(ctx, read) or snapshot(read)[
             "data_revision"
         ] != revisions.get(dataset_id):
-            raise _changed_before_handover(dataset_id)
+            raise changed_before_handover(dataset_id)
         record(
             entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, read)
         )
