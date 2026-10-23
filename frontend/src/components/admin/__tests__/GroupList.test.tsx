@@ -102,6 +102,37 @@ describe('GroupList', () => {
     expect(screen.getByLabelText('Group name')).not.toHaveAttribute('aria-invalid');
   });
 
+  it('steps back one page, not to the start, after deleting the only group on a later page', async () => {
+    const many = (n: number, offset: number) =>
+      Array.from({ length: n }, (_, i) => ({ ...GROUP, id: `g${offset + i}`, name: `Group ${offset + i}` }));
+    let deleted = false;
+    api.listGroups.mockImplementation(async ({ skip = 0 } = {}) => {
+      // 41 groups, then 40 after the delete of the only one on page 3.
+      const total = deleted ? 40 : 41;
+      const page = skip / 20;
+      const n = Math.max(Math.min(20, total - skip), 0);
+      await new Promise((r) => setTimeout(r, 20));
+      return { groups: many(n, page * 20), total };
+    });
+    api.deleteGroup.mockImplementation(async () => {
+      deleted = true;
+    });
+    const user = userEvent.setup();
+    render(<GroupList />);
+    await screen.findByRole('cell', { name: 'Group 0' });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByRole('cell', { name: 'Group 20' });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(await screen.findByRole('button', { name: 'Actions for group Group 40' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByRole('cell', { name: 'Group 20' })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.getByRole('cell', { name: 'Group 20' })).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: 'Group 0' })).not.toBeInTheDocument();
+  });
+
   it('renames a group from the row menu', async () => {
     api.renameGroup.mockResolvedValue({ ...GROUP, name: 'Planning team' });
     const user = userEvent.setup();
@@ -201,6 +232,17 @@ describe('GroupList', () => {
       await waitFor(() =>
         expect(document.activeElement?.closest('[data-slot="dialog-footer"]')).toHaveTextContent('Close'),
       );
+    });
+
+    it('offers no candidates, and shows the error, while the member list has not loaded', async () => {
+      api.listGroupMembers.mockRejectedValue(new ApiError('Could not load members', 500));
+      const user = userEvent.setup();
+      await openMembers(user);
+      expect(await screen.findByText(/Could not load members/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('combobox', { name: 'Add a person' }));
+      await user.keyboard('{ArrowDown}');
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
     });
 
     it('shows the error when the user names request fails', async () => {

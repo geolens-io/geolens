@@ -45,9 +45,11 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
   const [outcome, setOutcome] = useState({ text: '', n: 0 });
 
   const memberIds = useMemo(() => new Set((members.data ?? []).map((m) => m.id)), [members.data]);
+  // Until the member list has loaded, nobody can be ruled out, and an add of
+  // someone already in the group would be skipped by the server yet announced.
   const candidates = useMemo(
-    () => (names.data ?? []).filter((u) => !memberIds.has(u.id)),
-    [names.data, memberIds],
+    () => (members.data ? (names.data ?? []).filter((u) => !memberIds.has(u.id)) : []),
+    [names.data, members.data, memberIds],
   );
   const error = add.error ?? remove.error ?? (canListUsers ? names.error : null);
 

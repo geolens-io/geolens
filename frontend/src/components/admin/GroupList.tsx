@@ -33,15 +33,17 @@ export function GroupList() {
   const [deleting, setDeleting] = useState<GroupResponse | null>(null);
   const [managing, setManaging] = useState<GroupResponse | null>(null);
 
-  const { data, isLoading, isFetching, error, refetch } = useGroupList({
+  const { data, isLoading, isFetching, isPlaceholderData, error, refetch } = useGroupList({
     skip: page * PAGE_SIZE,
     limit: PAGE_SIZE,
   });
 
-  // Deleting the last group on a page leaves that page empty.
+  // Deleting the last group on a page leaves that page empty. A placeholder
+  // is the previous page's data, which would step back again before the
+  // earlier page has loaded.
   useEffect(() => {
-    if (page > 0 && data && data.groups.length === 0) setPage(page - 1);
-  }, [page, data]);
+    if (page > 0 && data && !isPlaceholderData && data.groups.length === 0) setPage(page - 1);
+  }, [page, data, isPlaceholderData]);
 
   if (error) {
     return <ErrorState message={t('groups.errorLoading', { message: error.message })} onRetry={() => refetch()} />;
