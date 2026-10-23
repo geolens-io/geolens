@@ -339,16 +339,23 @@ def _commit_body(title: str, visibility: str) -> Any:
 def _apply_target(ctx: MigrationContext, dataset: str, target: Any) -> None:
     """Give a dataset GeoLens already held the plan's title and visibility,
     which a fresh import would have received at commit."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch_dataset,
     )
     from geolens.models.dataset_meta import DatasetMeta
 
     try:
-        ctx.geolens.call(
+        read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
+        ctx.geolens.write(
             patch_dataset.sync_detailed,
+            during=f"the plan's title and visibility were written to dataset {dataset}",
             dataset_id=UUID(dataset),
-            body=DatasetMeta(title=target.title, visibility=target.visibility),
+            body=DatasetMeta(
+                title=target.title,
+                visibility=target.visibility,
+                expected_updated_at=read.updated_at,
+            ),
         )
     except GeoLensError as exc:
         raise ItemFailed(

@@ -193,15 +193,6 @@ def _decide(
     return "keep", False
 
 
-class MetadataRaced(ItemFailed):
-    """GeoLens refused a metadata write because the dataset changed after it
-    was read."""
-
-
-def _code(detail: Any) -> Any:
-    return detail.get("code") if isinstance(detail, Mapping) else None
-
-
 def apply_item_metadata(
     ctx: MigrationContext,
     item: Mapping[str, Any],
@@ -257,19 +248,12 @@ def apply_item_metadata(
             baseline.setdefault("keywords", [])
             if meta:
                 meta["expected_updated_at"] = current.updated_at.isoformat()
-                try:
-                    ctx.geolens.call(
-                        patch.sync_detailed,
-                        dataset_id=UUID(dataset_id),
-                        body=DatasetMeta.from_dict(meta),
-                    )
-                except GeoLensError as exc:
-                    if exc.status == 409 and _code(exc.detail) == "stale_write":
-                        raise MetadataRaced(
-                            "changed in GeoLens while its metadata was written; "
-                            "it was left as it is"
-                        ) from None
-                    raise
+                ctx.geolens.write(
+                    patch.sync_detailed,
+                    during="its metadata was written",
+                    dataset_id=UUID(dataset_id),
+                    body=DatasetMeta.from_dict(meta),
+                )
             record_ids.append(str(current.record_id))
             entry.metadata_baseline[dataset_id] = baseline
         # Saved once every dataset is written and before the keywords, which

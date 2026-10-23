@@ -113,7 +113,11 @@ class FakeImport:
             if "summary" in body:
                 self.summaries[dataset] = body["summary"]
             self.fields.setdefault(dataset, {}).update(
-                {k: v for k, v in body.items() if k != "summary"}
+                {
+                    k: v
+                    for k, v in body.items()
+                    if k not in ("summary", "expected_updated_at")
+                }
             )
             return self.dataset(dataset, body.get("owner_id", OPERATOR))
 
@@ -436,7 +440,38 @@ def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geo
     assert entry["dataset_ids"] == [dataset_id("earlier")]
     assert service.bodies("POST /ingest/commit/") == []
     patches = [s.json() for s in geolens.seen if s.method == "PATCH"]
-    assert patches[0] == {"title": "Parcels (public view)", "visibility": "public"}
+    assert patches[0] == {
+        "title": "Parcels (public view)",
+        "visibility": "public",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
+    }
+
+
+def test_a_target_write_geolens_refuses_as_stale_fails_the_item(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    service.duplicates["Parcels"] = dataset_id("earlier")
+    serve = service._serve_dataset
+
+    def serve_stale(dataset: str) -> None:
+        serve(dataset)
+        geolens.routes[f"PATCH /datasets/{dataset}"] = (
+            409,
+            _problem(409, {"code": "stale_write", "message": "changed"}),
+        )
+
+    service._serve_dataset = serve_stale
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed"
+    assert entry["error"] == (
+        "changed in GeoLens while the plan's title and visibility were written to "
+        f"dataset {dataset_id('earlier')}; it was left as it is"
+    )
 
 
 def test_a_failed_job_fails_the_item_with_its_error(runner, plan_file, geolens):
@@ -973,9 +1008,11 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     entry = _state(plan_file)["items"][A2]
     assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
     assert entry["layer_jobs"] == {}
-    assert {"title": "Parcels (public view)", "visibility": "public"} in [
-        s.json() for s in geolens.seen if s.method == "PATCH"
-    ]
+    assert {
+        "title": "Parcels (public view)",
+        "visibility": "public",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
+    } in [s.json() for s in geolens.seen if s.method == "PATCH"]
 
 
 def test_a_recorded_job_geolens_no_longer_has_is_replaced(runner, plan_file, geolens):
@@ -1173,7 +1210,11 @@ def test_a_rerun_gives_layers_imported_earlier_the_edited_target(
     assert patches == [
         (
             dataset_id("Parcels"),
-            {"title": "Parcels (public view) - Parcels", "visibility": "private"},
+            {
+                "title": "Parcels (public view) - Parcels",
+                "visibility": "private",
+                "expected_updated_at": "2026-10-01T00:00:00+00:00",
+            },
         )
     ]
     # The failed job is committed again (refused as already processed), then

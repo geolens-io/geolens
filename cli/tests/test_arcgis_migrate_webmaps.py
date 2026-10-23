@@ -75,6 +75,7 @@ def _services(geolens) -> None:
     geolens.routes["PATCH /maps/" + MAP_ID] = lambda seen: _map(
         seen.json().get("owner_id", OPERATOR)
     )
+    geolens.routes["GET /maps/" + MAP_ID] = _map()
 
 
 def _sent(geolens) -> list[Any]:

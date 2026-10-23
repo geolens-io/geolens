@@ -47,6 +47,10 @@ class ItemFailed(Exception):
     """An item could not be migrated; the message goes to the state file."""
 
 
+class WriteRaced(ItemFailed):
+    """GeoLens refused a write because its object changed after it was read."""
+
+
 class StopRun(Exception):
     """The run can't continue (for example, the ArcGIS token can no longer be
     renewed); the item fails with this message and later items wait for a
@@ -86,6 +90,24 @@ class GeoLens:
         self._sleep = sleep
         self.client = sdk.client
         redact.add(getattr(sdk.client, "token", None))
+
+    def write(self, fn: Callable[..., Any], *, during: str, **kwargs: Any) -> Any:
+        """``call`` for a write whose body names the ``expected_updated_at`` it
+        read; GeoLens refusing it as stale raises ``WriteRaced``, which says
+        the object changed *during* the write."""
+        try:
+            return self.call(fn, **kwargs)
+        except GeoLensError as exc:
+            detail = exc.detail
+            if (
+                exc.status == 409
+                and isinstance(detail, Mapping)
+                and detail.get("code") == "stale_write"
+            ):
+                raise WriteRaced(
+                    f"changed in GeoLens while {during}; it was left as it is"
+                ) from None
+            raise
 
     def call(
         self, fn: Callable[..., Any], *, expected: int = 200, **kwargs: Any

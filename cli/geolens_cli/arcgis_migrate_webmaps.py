@@ -16,12 +16,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from . import arcgis_report as _report
 from ._sdk_helpers import long_request_timeout
 from .arcgis_migrate_export import _modified, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_session import (
+    GeoLens,
     GeoLensError,
     ItemFailed,
     ItemResult,
@@ -163,6 +165,12 @@ def _read_modified(ctx: MigrationContext, item_id: str) -> int | None:
     except PortalError as exc:
         _stop_if_token_refused(exc)
         return None
+
+
+def get_map(geolens: GeoLens, map_id: str) -> Any:
+    from geolens.api.maps import get_map_endpoint_maps_map_id_get as get
+
+    return geolens.call(get.sync_detailed, map_id=UUID(map_id))
 
 
 def refresh_map(

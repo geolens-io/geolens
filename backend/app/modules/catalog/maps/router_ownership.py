@@ -1,6 +1,7 @@
 """Admin-only ownership transfer for saved maps."""
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,9 +21,11 @@ from app.modules.catalog.maps.service import (
     check_map_ownership,
     get_map,
     get_map_with_layers,
+    lock_map_layers,
     with_visible_vrt_extents,
 )
 from app.modules.catalog.ownership import require_transfer_admin, transfer_map_owner
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
@@ -35,6 +38,14 @@ class MapPatch(BaseModel):
 
     owner_id: uuid.UUID = Field(
         description="Admin only: transfer the map to this active user."
+    )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
     )
 
 
@@ -55,6 +66,10 @@ async def patch_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
     owner_id = require_transfer_admin(await get_user_roles(db, user), body.owner_id)
+    if body.expected_updated_at is not None:
+        await lock_map_layers(db, map_id)
+        await db.refresh(map_obj, ["updated_at"])
+        refuse_stale_write(map_obj.updated_at, body.expected_updated_at)
     await transfer_map_owner(
         db,
         map_obj,

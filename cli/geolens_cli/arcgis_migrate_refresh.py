@@ -24,7 +24,7 @@ from uuid import UUID
 
 from . import replace as _replace
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
-from .arcgis_item_metadata import MetadataRaced, apply_item_metadata
+from .arcgis_item_metadata import apply_item_metadata
 from .arcgis_migrate_files import (
     EXTENSIONS,
     JOB_KEY,
@@ -513,10 +513,7 @@ def _bring_one(
         )
     record(entry, dataset_id, published)
     ctx.save()
-    try:
-        apply_item_metadata(ctx, item, entry, [dataset_id])
-    except MetadataRaced as exc:
-        return str(exc)
+    apply_item_metadata(ctx, item, entry, [dataset_id])
     after = get_dataset(ctx, dataset_id)
     if not _published_unchanged(ctx, after, marker):
         return "changed in GeoLens while its metadata was written; it was left as it is"
@@ -563,10 +560,11 @@ def _apply_visibility(
     record(
         entry,
         dataset_id,
-        ctx.geolens.call(
+        ctx.geolens.write(
             patch.sync_detailed,
+            during="its visibility was written",
             dataset_id=UUID(dataset_id),
-            body=DatasetMeta(visibility=wanted),
+            body=DatasetMeta(visibility=wanted, expected_updated_at=dataset.updated_at),
         ),
     )
     entry.visibility[dataset_id] = wanted

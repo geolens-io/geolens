@@ -58,7 +58,7 @@ from .arcgis_migrate_refresh import (
     refresh_file,
     refresh_layers,
 )
-from .arcgis_migrate_webmaps import import_map, refresh_map
+from .arcgis_migrate_webmaps import get_map, import_map, refresh_map
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -581,17 +581,24 @@ def mark_cutover(
     }
 
 
-def transfer_dataset(geolens: GeoLens, dataset_id: str, owner: Owner) -> Any:
-    """Hand one dataset to *owner*; the dataset as the transfer left it."""
+def transfer_dataset(
+    geolens: GeoLens, dataset_id: str, owner: Owner, read: Any = None
+) -> Any:
+    """Hand one dataset to *owner* unless it changed since *read*, the dataset
+    as last read (read now when None); the dataset as the transfer left it."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch_dataset,
     )
     from geolens.models.dataset_meta import DatasetMeta
 
-    return geolens.call(
+    if read is None:
+        read = geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+    return geolens.write(
         patch_dataset.sync_detailed,
+        during=f"dataset {dataset_id} was handed over",
         dataset_id=UUID(dataset_id),
-        body=DatasetMeta(owner_id=UUID(owner.id)),
+        body=DatasetMeta(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
     )
 
 
@@ -599,10 +606,12 @@ def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
     from geolens.api.maps import patch_map_endpoint_maps_map_id_patch as patch_map
     from geolens.models.map_patch import MapPatch
 
-    geolens.call(
+    read = get_map(geolens, map_id)
+    geolens.write(
         patch_map.sync_detailed,
+        during=f"map {map_id} was handed over",
         map_id=UUID(map_id),
-        body=MapPatch(owner_id=UUID(owner.id)),
+        body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
     )
 
 
@@ -696,7 +705,9 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
         reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
         if reason:
             raise ItemFailed(f"dataset {dataset_id} was {reason}")
-        record(entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner))
+        record(
+            entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, dataset)
+        )
         ctx.save()
     if entry.map_id:
         _transfer_map(ctx.geolens, entry.map_id, owner)

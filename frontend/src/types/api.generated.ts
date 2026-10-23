@@ -11628,6 +11628,11 @@ export interface components {
              * @description Admin only: transfer the map to this active user.
              */
             owner_id: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** MapResponse */
         MapResponse: {

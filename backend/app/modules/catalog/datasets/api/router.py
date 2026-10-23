@@ -77,6 +77,7 @@ from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.catalog.ownership import (
     require_transfer_admin,
     transfer_dataset_owner,
@@ -360,26 +361,11 @@ async def get_quicklook(
 async def _refuse_stale_write(
     db: AsyncSession, dataset, meta: DatasetMetaUpdate
 ) -> None:
-    """409 ``stale_write`` when the dataset changed after the caller read it.
-
-    Compared with the catalog rows locked, so no write lands between the
-    check and this request's own.
-    """
     await lock_catalog_rows_for_write(
         db, dataset, with_raster_asset="is_dem" in meta.model_fields_set
     )
     await db.refresh(dataset.record, ["updated_at"])
-    if dataset.record.updated_at != meta.expected_updated_at:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "stale_write",
-                "message": (
-                    "This dataset changed after it was read, so nothing was "
-                    "written. Read it again and retry."
-                ),
-            },
-        )
+    refuse_stale_write(dataset.record.updated_at, meta.expected_updated_at)
 
 
 @router.patch("/{dataset_id}", response_model=DatasetResponse)

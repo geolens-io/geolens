@@ -498,10 +498,40 @@ def test_a_visibility_narrowed_in_the_portal_is_applied_on_a_rerun(
         for s in geolens.seen[before:]
         if s.method == "PATCH" and "visibility" in s.json()
     ]
-    assert sent == [{"visibility": "private"}]
+    assert sent == [
+        {"visibility": "private", "expected_updated_at": "2026-10-01T00:00:00+00:00"}
+    ]
     assert service.fields[PARCELS]["visibility"] == "private"
     assert _state(plan_file)["items"][A2]["visibility"] == {PARCELS: "private"}
     assert payload["cutover"]["marked"] is True
+
+
+def _stale(seen):
+    detail = {"code": "stale_write", "message": "changed"}
+    return (409, layers._problem(409, detail))
+
+
+def test_a_visibility_write_geolens_refuses_as_stale_is_reported_not_recorded(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    _set_visibility(plan_file, A2, "private")
+    recorded = _state(plan_file)["items"][A2]["last_update"]
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = _stale
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][A2]
+    assert reason.endswith(
+        "changed in GeoLens while its visibility was written; it was left as it is"
+    )
+    entry = _state(plan_file)["items"][A2]
+    assert entry["visibility"] == {PARCELS: "public"}
+    assert entry["last_update"] == recorded
 
 
 @pytest.mark.parametrize(
@@ -1019,8 +1049,7 @@ def test_a_metadata_write_geolens_refuses_as_stale_keeps_the_published_record(
 
     def stale(seen):
         sent.append(seen.json())
-        detail = {"code": "stale_write", "message": "changed"}
-        return (409, layers._problem(409, detail))
+        return _stale(seen)
 
     geolens.routes[f"PATCH /datasets/{PARCELS}"] = stale
 
