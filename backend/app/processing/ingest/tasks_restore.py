@@ -151,6 +151,7 @@ class _RestorePreviousVersion:
         )
 
     async def write(self, session, dataset) -> Published:
+        """Restored columns keep their version's source names and measured metadata."""
         from app.platform.audit import AuditEvent, audit_emit
         from app.platform.extensions import get_processing_port
 

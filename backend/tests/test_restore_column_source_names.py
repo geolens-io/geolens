@@ -61,6 +61,7 @@ pytestmark = pytest.mark.anyio
 async def test_restore_uses_the_kept_versions_source_names(
     source_present, kept_columns, expected
 ):
+    """Kept names match by column name; absent names never fall back to live names."""
     source = SimpleNamespace(
         column_info=kept_columns,
         kept_refreshed_at=None,
@@ -130,6 +131,7 @@ _ORIGINAL_COLUMNS = [
 
 
 async def _version_columns(session, dataset_id, number):
+    """A fresh query returns the requested version's stored column metadata."""
     session.expire_all()
     return await session.scalar(
         select(DatasetVersion.column_info).where(
@@ -140,12 +142,14 @@ async def _version_columns(session, dataset_id, number):
 
 
 async def _response_names(client, headers, dataset):
+    """A successful dataset detail response exposes each column's source name."""
     response = await client.get(f"/api/datasets/{dataset.id}", headers=headers)
     assert response.status_code == 200, response.text
     return {c["name"]: c["source_name"] for c in response.json()["column_info"]}
 
 
 async def _replace_dropping_column(session, dataset, admin_id):
+    """A reviewed reupload removes the dropped column and changes Name to name."""
     unknown = geometry_contract(geometry_types=None, srid=None, is_3d=None, n_dims=None)
     reviewed = review_fingerprint(
         review_subject(
@@ -157,6 +161,7 @@ async def _replace_dropping_column(session, dataset, admin_id):
     )
 
     async def queue_reviewed(*args, metadata, **kwargs):
+        """Queued replacement metadata carries the destructive-change review."""
         return await _queue(
             *args, metadata={**metadata, "review_fingerprint": reviewed}, **kwargs
         )
@@ -170,6 +175,7 @@ async def _replace_dropping_column(session, dataset, admin_id):
 async def test_reupload_then_restore_keeps_each_versions_own_names(
     client, admin_auth_header, test_db_session, legacy_route, existing
 ):
+    """Both restore routes recover kept names after a case change and column drop."""
     session = test_db_session
     admin_id, dataset = await _seed(session)
     try:
@@ -236,6 +242,7 @@ async def test_reupload_then_restore_keeps_each_versions_own_names(
 async def test_a_legacy_kept_version_has_no_invented_names(
     client, admin_auth_header, test_db_session, legacy_route
 ):
+    """Both restore routes leave names unknown when the kept snapshot is null."""
     session = test_db_session
     admin_id, dataset = await _seed(session)
     try:

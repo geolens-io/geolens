@@ -17,6 +17,7 @@ _LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
 def upgrade() -> None:
+    """Version history gains a nullable column metadata snapshot."""
     op.execute(_LOCK_TIMEOUT)
     op.execute(
         "ALTER TABLE catalog.dataset_versions "
@@ -25,5 +26,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Version history drops its column metadata snapshot."""
     op.execute(_LOCK_TIMEOUT)
     op.drop_column("dataset_versions", "column_info", schema="catalog")
