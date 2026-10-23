@@ -149,6 +149,14 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- `geolens arcgis migrate` leaves a web map alone that was given to another
+  owner in GeoLens while it waited for its planned owner, and reports a
+  migrated map whose owner changed after the handover. It matches web map
+  layers the way the server translator does: an unsupported layer no longer
+  reserves its id, and layers the server drops no longer count toward the
+  layer cap. A rerun adopts a refresh that GeoLens accepted but whose answer
+  was lost, and the refresh a person accepts after it stopped for review,
+  instead of reporting the dataset as changed in GeoLens.
 - The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
   process, which exited at the limit and took its container down. As in
   `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`

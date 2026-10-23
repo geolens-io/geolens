@@ -913,6 +913,47 @@ def test_a_waiting_item_changed_in_geolens_is_not_handed_over(
     assert entry["owner_id"] == NEW and entry["owner_pending"] is None
 
 
+def test_a_waiting_map_given_to_someone_else_in_geolens_is_not_handed_over(
+    runner, tmp_path, geolens, handled
+):
+    map_id = _created_id(M1)
+    _allow_transfers(geolens, map_ids=(map_id,))
+    plan = _plan([_item(M1, "import_map")], owner_map={"agol_alice": "newbie"})
+    _run(runner, tmp_path, plan, "--unmapped-owner", "operator")
+    # An administrator gives the map to alice, which moves its timestamp.
+    geolens.routes[f"GET /maps/{map_id}"] = {
+        **_map(map_id, ALICE),
+        "updated_at": "2026-10-05T00:00:00Z",
+    }
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1
+    assert _owner_patches(geolens) == [OPERATOR]
+    [failed] = payload["handover_failed"]
+    assert f"map {map_id} was changed in GeoLens since the last run" in failed
+    entry = _state(tmp_path)["items"][M1]
+    assert entry["owner_id"] == OPERATOR and entry["owner_pending"]
+
+
+def test_a_waiting_map_nobody_touched_is_handed_over(
+    runner, tmp_path, geolens, handled
+):
+    map_id = _created_id(M1)
+    _allow_transfers(geolens, map_ids=(map_id,))
+    plan = _plan([_item(M1, "import_map")], owner_map={"agol_alice": "newbie"})
+    _run(runner, tmp_path, plan, "--unmapped-owner", "operator")
+    assert _state(tmp_path)["items"][M1]["map_snapshot"]["owner"] == OPERATOR
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [OPERATOR, NEW]
+    assert _state(tmp_path)["items"][M1]["map_snapshot"]["owner"] == NEW
+
+
 @pytest.mark.parametrize(
     ("owner", "reason"),
     [

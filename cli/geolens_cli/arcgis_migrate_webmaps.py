@@ -38,9 +38,11 @@ _ITEM_ID = re.compile(r"[0-9A-Za-z]{32}")
 _TRAILING_LAYER = re.compile(r"/(\d+)/?$")
 _MAX_NOTE_LAYERS = 5
 _TOKEN_STATUSES = (498, 499)
-# The server imports at most this many layers into a map and refuses a
-# request with over 1,000 matches, so matching stops at the smaller.
-_MAX_MATCHES = 200
+# The server refuses a request with over 1,000 matches. It applies its own
+# per-map layer limit after validating each layer, so it chooses among them.
+_MAX_MATCHES = 1000
+# The layer types the server translates; its translator is the source.
+_FEATURE_LAYER_TYPES = ("ArcGISFeatureLayer", "FeatureLayer")
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
@@ -61,6 +63,20 @@ def _walk(layers: Any) -> list[Mapping[str, Any]]:
         else:
             stack.pop()
     return found
+
+
+def _translatable(layer: Mapping[str, Any]) -> bool:
+    """Whether the server translates *layer* rather than dropping it as an
+    unsupported type, before it looks at the layer's id."""
+    if layer.get("featureCollection") is not None:
+        return False
+    layer_type = layer.get("layerType")
+    if isinstance(layer_type, str) and layer_type in _FEATURE_LAYER_TYPES:
+        return True
+    url = layer.get("url")
+    return (
+        layer_type is None and isinstance(url, str) and "/FeatureServer" in url[:2000]
+    )
 
 
 def _dataset_for(
@@ -98,10 +114,12 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
     seen: set[str] = set()
     for layer in _walk(webmap.get("operationalLayers")):
         layer_id, item_id = layer.get("id"), layer.get("itemId")
-        # The server keeps the first layer of an id, so a later one must not
-        # take its match.
         if len(matches) >= _MAX_MATCHES:
             break
+        # An unsupported layer is dropped before its id is reserved, and the
+        # server keeps the first supported layer of an id.
+        if not _translatable(layer):
+            continue
         if not isinstance(layer_id, str) or layer_id in seen:
             continue
         seen.add(layer_id)
@@ -177,8 +195,9 @@ def _map_problem(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> str | None:
     """Why the GeoLens map recorded for the item doesn't stand as migrated:
-    gone, unreadable, or with a visibility other than the plan's. A map isn't
-    updated by a rerun, so a difference is reported for the operator."""
+    gone, unreadable, owned by someone else than it was handed to, or with a
+    visibility other than the plan's. A map
+    isn't updated by a rerun, so a difference is reported for the operator."""
     gone = "the migrated map is gone from GeoLens"
     if not entry.map_id:
         return gone
@@ -190,6 +209,11 @@ def _map_problem(
         if exc.status == 404:
             return gone
         return f"reading the migrated map from GeoLens failed, {exc}"
+    if entry.owner_id and str(found.created_by) != entry.owner_id:
+        return (
+            "the GeoLens map's owner changed in GeoLens since this command handed "
+            "it over; check who should own it"
+        )
     wanted = item["target"]["visibility"]
     current = getattr(found.visibility, "value", found.visibility)
     if current != wanted:

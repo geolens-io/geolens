@@ -1264,6 +1264,19 @@ class TestBoundedWork:
         assert result.layer_sources == ["a"]
         assert result.loss.summary["duplicate_layer_id"] == 1
 
+    @pytest.mark.parametrize(
+        "case",
+        json.loads((FIXTURES / "layer_eligibility.json").read_text()),
+        ids=lambda case: case["name"],
+    )
+    def test_layer_eligibility_matches_the_cli_fixture(self, case: dict) -> None:
+        # The CLI's migrate command reads this file to match layers the same way.
+        webmap = {"operationalLayers": [{"id": "a", **case["layer"]}]}
+        result = _translate(webmap, {"a": uuid.uuid4()})
+        assert ("unsupported_layer_type" not in result.loss.summary) is case[
+            "translated"
+        ]
+
 
 class TestHugeIntegers:
     def test_a_huge_size_keeps_the_layer_and_only_loses_the_value(self) -> None:

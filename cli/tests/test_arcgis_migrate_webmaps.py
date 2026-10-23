@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +13,7 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_webmaps as webmaps
 from geolens_cli.arcgis_migrate_state import ItemState
-from geolens_cli.arcgis_migrate_webmaps import match_datasets
+from geolens_cli.arcgis_migrate_webmaps import _translatable, match_datasets
 
 from .arcgis_fake import A1, A2, B1, FakePortal, item_data_path, portal_routes
 from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
@@ -224,25 +225,82 @@ def test_layers_match_the_dataset_of_their_service_layer():
     base = "https://h/arcgis/rest/services/S/FeatureServer"
     webmap = {
         "operationalLayers": [
-            {"id": "l1", "itemId": "svc", "url": f"{base}/1"},
-            {"id": "l0", "itemId": "svc", "url": f"{base}/0?token=x"},
-            {"id": "other_index", "itemId": "solo", "url": f"{base}/7"},
-            {"id": "s3", "itemId": "sparse", "url": f"{base}/3"},
-            {"id": "s1", "itemId": "sparse", "url": f"{base}/1"},
-            {"id": "bad_url", "itemId": "svc", "url": "http://["},
-            {"id": "f", "itemId": "file"},
-            {"id": "file0", "itemId": "file", "url": f"{base}/0"},
-            {"id": "file1", "itemId": "file", "url": f"{base}/1"},
-            {"id": "multi0", "itemId": "multi", "url": f"{base}/0"},
-            {"id": "partial0", "itemId": "partial", "url": f"{base}/0"},
-            {"id": "ambiguous", "itemId": "many"},
-            {"id": "failed", "itemId": "failed"},
-            {"id": "unknown", "itemId": "other"},
-            {"id": "noitem", "url": f"{base}/0"},
+            {
+                "layerType": "FeatureLayer",
+                "id": "l1",
+                "itemId": "svc",
+                "url": f"{base}/1",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "l0",
+                "itemId": "svc",
+                "url": f"{base}/0?token=x",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "other_index",
+                "itemId": "solo",
+                "url": f"{base}/7",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "s3",
+                "itemId": "sparse",
+                "url": f"{base}/3",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "s1",
+                "itemId": "sparse",
+                "url": f"{base}/1",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "bad_url",
+                "itemId": "svc",
+                "url": "http://[",
+            },
+            {"layerType": "FeatureLayer", "id": "f", "itemId": "file"},
+            {
+                "layerType": "FeatureLayer",
+                "id": "file0",
+                "itemId": "file",
+                "url": f"{base}/0",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "file1",
+                "itemId": "file",
+                "url": f"{base}/1",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "multi0",
+                "itemId": "multi",
+                "url": f"{base}/0",
+            },
+            {
+                "layerType": "FeatureLayer",
+                "id": "partial0",
+                "itemId": "partial",
+                "url": f"{base}/0",
+            },
+            {"layerType": "FeatureLayer", "id": "ambiguous", "itemId": "many"},
+            {"layerType": "FeatureLayer", "id": "failed", "itemId": "failed"},
+            {"layerType": "FeatureLayer", "id": "unknown", "itemId": "other"},
+            {"layerType": "FeatureLayer", "id": "noitem", "url": f"{base}/0"},
             {
                 "id": "group",
                 "layerType": "GroupLayer",
-                "layers": [{"id": "inner", "itemId": "svc", "url": f"{base}/0"}],
+                "layers": [
+                    {
+                        "layerType": "FeatureLayer",
+                        "id": "inner",
+                        "itemId": "svc",
+                        "url": f"{base}/0",
+                    }
+                ],
             },
         ]
     }
@@ -414,8 +472,13 @@ def test_a_views_layer_index_is_never_read_as_the_parents():
     base = "https://h/arcgis/rest/services/V/FeatureServer"
     webmap = {
         "operationalLayers": [
-            {"id": "indexed", "itemId": "view", "url": f"{base}/0"},
-            {"id": "plain", "itemId": "solo_view"},
+            {
+                "layerType": "FeatureLayer",
+                "id": "indexed",
+                "itemId": "view",
+                "url": f"{base}/0",
+            },
+            {"layerType": "FeatureLayer", "id": "plain", "itemId": "solo_view"},
         ]
     }
 
@@ -430,32 +493,91 @@ def test_the_first_layer_of_a_duplicate_id_keeps_the_match():
     base = "https://h/arcgis/rest/services/S/FeatureServer"
     webmap = {
         "operationalLayers": [
-            {"id": "dup", "itemId": "other"},
-            {"id": "dup", "itemId": "svc", "url": f"{base}/0"},
+            {"layerType": "FeatureLayer", "id": "dup", "itemId": "other"},
+            {
+                "layerType": "FeatureLayer",
+                "id": "dup",
+                "itemId": "svc",
+                "url": f"{base}/0",
+            },
             {
                 "id": "grp",
                 "layerType": "GroupLayer",
-                "layers": [{"id": "first", "itemId": "svc", "url": f"{base}/0"}],
+                "layers": [
+                    {
+                        "layerType": "FeatureLayer",
+                        "id": "first",
+                        "itemId": "svc",
+                        "url": f"{base}/0",
+                    }
+                ],
             },
-            {"id": "first", "itemId": "other"},
+            {"layerType": "FeatureLayer", "id": "first", "itemId": "other"},
         ]
     }
 
     assert match_datasets(ctx, webmap) == {"first": "ds-0"}
 
 
-def test_matches_stop_at_the_server_layer_cap():
+def test_matches_are_capped_at_the_request_limit_not_the_map_limit():
     ctx = SimpleNamespace(
         aliases={},
         items={"svc": _state_item(dataset_ids=["ds"], layer_datasets={"file": "ds"})},
     )
     webmap = {
-        "operationalLayers": [{"id": f"l{n}", "itemId": "svc"} for n in range(1500)]
+        "operationalLayers": [
+            {"layerType": "FeatureLayer", "id": f"l{n}", "itemId": "svc"}
+            for n in range(1500)
+        ]
     }
 
     matches = match_datasets(ctx, webmap)
 
-    assert len(matches) == 200 and "l199" in matches and "l200" not in matches
+    assert len(matches) == 1000 and "l999" in matches and "l1000" not in matches
+
+
+def test_dropped_layers_do_not_use_up_the_cap():
+    ctx = SimpleNamespace(aliases={}, items={"svc": _state_item(dataset_ids=["ds"])})
+    webmap = {
+        "operationalLayers": [
+            {"layerType": "VectorTileLayer", "id": f"t{n}", "itemId": "svc"}
+            for n in range(1200)
+        ]
+        + [{"layerType": "FeatureLayer", "id": "late", "itemId": "svc"}]
+    }
+
+    assert match_datasets(ctx, webmap) == {"late": "ds"}
+
+
+def test_an_unsupported_layer_does_not_reserve_its_id():
+    ctx = SimpleNamespace(
+        aliases={},
+        items={
+            "tiles": _state_item(dataset_ids=["ds-tiles"]),
+            "feat": _state_item(dataset_ids=["ds-feat"]),
+        },
+    )
+    webmap = {
+        "operationalLayers": [
+            {"layerType": "VectorTileLayer", "id": "shared", "itemId": "tiles"},
+            {"layerType": "FeatureLayer", "id": "shared", "itemId": "feat"},
+        ]
+    }
+
+    assert match_datasets(ctx, webmap) == {"shared": "ds-feat"}
+
+
+_ELIGIBILITY = json.loads(
+    (
+        Path(__file__).parents[2]
+        / "backend/tests/fixtures/arcgis_webmaps/layer_eligibility.json"
+    ).read_text()
+)
+
+
+@pytest.mark.parametrize("case", _ELIGIBILITY, ids=lambda case: case["name"])
+def test_layer_eligibility_agrees_with_the_server_translator(case):
+    assert _translatable(case["layer"]) is case["translated"]
 
 
 def test_a_null_layer_does_not_end_its_group():
@@ -468,10 +590,13 @@ def test_a_null_layer_does_not_end_its_group():
             {
                 "id": "g",
                 "layerType": "GroupLayer",
-                "layers": [None, {"id": "a", "itemId": "svc"}],
+                "layers": [
+                    None,
+                    {"layerType": "FeatureLayer", "id": "a", "itemId": "svc"},
+                ],
             },
             None,
-            {"id": "b", "itemId": "svc"},
+            {"layerType": "FeatureLayer", "id": "b", "itemId": "svc"},
         ]
     }
 
@@ -549,6 +674,24 @@ def test_a_migrated_map_gone_from_geolens_blocks_cutover(
     assert result.exit_code == 1
     assert payload["not_up_to_date"][B1] == ["the migrated map is gone from GeoLens"]
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_migrated_map_given_to_someone_else_blocks_cutover(
+    runner, plan_file, geolens
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    _only_the_map(plan_file)
+    token = secrets.token_urlsafe(16)
+    _migrate(runner, plan_file, "--token", token)
+    owner = _state(plan_file)["items"][B1]["owner_id"]
+    geolens.routes["GET /maps/" + MAP_ID] = _map("00000000-0000-0000-0000-0000000000f9")
+
+    result, payload = _migrate(runner, plan_file, "--token", token, "--cutover")
+
+    assert owner and result.exit_code == 1
+    [reason] = payload["not_up_to_date"][B1]
+    assert "map's owner changed in GeoLens" in reason
 
 
 def test_a_migrated_map_shared_differently_than_the_plan_blocks_cutover(

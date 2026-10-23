@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
+import httpx
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate_mod
@@ -426,6 +427,105 @@ def test_a_refresh_another_admin_started_is_taken_as_this_commands_own(
     assert result.exit_code == (0 if adopted else 1), result.output
 
 
+def _lose_the_answer(geolens, refresh: FakeRefresh) -> None:
+    """GeoLens accepts the refresh and the response never arrives."""
+
+    def lost(seen):
+        refresh.refresh(PARCELS, seen)
+        raise httpx.ReadTimeout("timed out")
+
+    geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = lost
+
+
+def test_a_refresh_whose_answer_was_lost_is_adopted_on_the_next_run(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    refresh.extra = {"triggered_by": layers.OPERATOR}
+    _lose_the_answer(geolens, refresh)
+
+    first, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert first.exit_code != 0 and len(refresh.bodies) == 1
+    [marker] = _state(plan_file)["items"][A2]["refreshing"].values()
+    assert marker["pending"] == 0
+    refresh.allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert _state(plan_file)["items"][A2]["refreshing"] == {}
+
+
+def test_a_lost_request_that_never_landed_starts_again(runner, plan_file, geolens):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    refresh.extra = {"triggered_by": layers.OPERATOR}
+
+    def down(seen):
+        raise httpx.ConnectError("down")
+
+    geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = down
+    first, _ = _migrate(runner, plan_file, "--only", A2)
+    assert first.exit_code != 0 and refresh.bodies == []
+    refresh.allow(PARCELS)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(refresh.bodies) == 1
+
+
+def test_two_runs_started_after_a_lost_request_are_reported(runner, plan_file, geolens):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    refresh.extra = {"triggered_by": layers.OPERATOR}
+    _lose_the_answer(geolens, refresh)
+    _migrate(runner, plan_file, "--only", A2)
+    refresh.runs[PARCELS].insert(
+        0, _run(PARCELS, _uuid("7e", "01"), "succeeded", triggered_by=layers.OPERATOR)
+    )
+    refresh.allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert "more than one refresh was started" in payload["not_up_to_date"][A2][0]
+    assert len(refresh.bodies) == 1
+
+
+def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service, outcome="blocked").allow(PARCELS)
+    refresh.extra = {"verification": {"review_reasons": ["live_data_changed"]}}
+    _migrate(runner, plan_file, "--only", A2)
+    [blocked] = refresh.runs[PARCELS]
+    # `geolens refresh --accept-blocked-run` starts a successor that publishes.
+    refresh.runs[PARCELS].insert(
+        0,
+        _run(
+            PARCELS,
+            _uuid("8e", "01"),
+            "succeeded",
+            triggered_by=ALICE,
+            verification={"accepted_blocked_run_id": blocked["id"]},
+        ),
+    )
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "updated_by": ALICE}
+    )
+    refresh.outcome = "succeeded"
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+
+
 def test_a_rerun_writes_the_portals_new_item_metadata(runner, tmp_path, geolens):
     plan_file = _write_plan(tmp_path, rows={A2: {"snippet": "Old summary"}})
     service = _migrated(runner, plan_file, geolens)
@@ -688,7 +788,9 @@ def test_an_edit_made_while_a_refresh_is_refused_stays_protected(
     assert _patches_since(geolens, before) == []
     entry = _state(plan_file)["items"][A2]
     assert entry["last_update"][PARCELS]["data_revision"] == 0
-    assert entry["refreshing"] == {}
+    # A run held for review stays tied to the migration, for its acceptance.
+    held = [marker["blocked"] for marker in entry["refreshing"].values()]
+    assert held == ([] if outcome == "failed" else [refresh.runs[PARCELS][0]["id"]])
 
     refresh.outcome = "succeeded"
     result, payload = _migrate(runner, plan_file, "--only", A2)
@@ -921,6 +1023,7 @@ def test_a_stopped_refresh_ends_the_pass_and_marks_no_cutover(
     service.fields.setdefault(PARCELS, {}).update(
         {"origin_ref": {"url": _service_url(plan_file, A1)}}
     )
+    FakeRefresh(geolens, service).allow(PARCELS)
     geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = (
         503,
         {

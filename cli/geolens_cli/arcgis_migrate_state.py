@@ -132,9 +132,13 @@ class ItemState:
     # Dataset -> its GeoLens updated_at, feature count and data revision when
     # this command last left it, so a rerun can tell a change made since.
     last_update: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Dataset -> the refresh run ({"run": id}) or replacement upload job
-    # ({"job": id}) a run started, with the data revision it was sent with,
-    # until its outcome is settled.
+    # The migrated map's owner and updated_at as this command last left it,
+    # so a deferred handover leaves a map somebody changed since.
+    map_snapshot: dict[str, str] | None = None
+    # Dataset -> the refresh run ({"run": id}), replacement upload job
+    # ({"job": id}), refresh request not yet answered ({"pending": run total})
+    # or run held for review ({"blocked": id}), with the data revision it was
+    # sent with, until its outcome is settled.
     refreshing: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Imported service layer -> whether the probe reported attachments (None:
     # it didn't say); None until the service is probed by this version.

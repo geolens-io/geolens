@@ -604,17 +604,29 @@ def transfer_dataset(
     )
 
 
-def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
+def _map_state(found: Any) -> dict[str, str]:
+    return {"owner": str(found.created_by), "updated_at": found.updated_at.isoformat()}
+
+
+def _transfer_map(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
+    """Hand the item's map to *owner*, unless somebody changed it in GeoLens
+    since this command left it; the map as the transfer left it is recorded."""
     from geolens.api.maps import patch_map_endpoint_maps_map_id_patch as patch_map
     from geolens.models.map_patch import MapPatch
 
+    map_id = entry.map_id or ""
     read = get_map(geolens, map_id)
-    geolens.write(
-        patch_map.sync_detailed,
-        during=f"map {map_id} was handed over",
-        map_id=UUID(map_id),
-        body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
-    )
+    seen = entry.map_snapshot
+    if seen is None or _map_state(read) == seen:
+        read = geolens.write(
+            patch_map.sync_detailed,
+            during=f"map {map_id} was handed over",
+            map_id=UUID(map_id),
+            body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
+        )
+    elif str(read.created_by) != owner.id:
+        raise ItemFailed(f"map {map_id} was changed in GeoLens since the last run")
+    entry.map_snapshot = _map_state(read)
 
 
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
@@ -662,7 +674,7 @@ def transfer(
         )
         ctx.save()
     if entry.map_id:
-        _transfer_map(ctx.geolens, entry.map_id, owner)
+        _transfer_map(ctx.geolens, entry, owner)
 
 
 @dataclass
@@ -755,7 +767,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
         )
         ctx.save()
     if entry.map_id:
-        _transfer_map(ctx.geolens, entry.map_id, owner)
+        _transfer_map(ctx.geolens, entry, owner)
     entry.owner_id = owner.id
 
 
