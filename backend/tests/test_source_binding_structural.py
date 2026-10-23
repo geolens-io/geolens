@@ -475,6 +475,76 @@ def _target_names(target: ast.AST):
         yield from _target_names(target.value)
 
 
+def _declared_in(scope: ast.AST, kind: type) -> set[str]:
+    return {
+        name
+        for node in _own_nodes(scope)
+        if isinstance(node, kind)
+        for name in node.names
+    }
+
+
+def _bound_names(scope: ast.AST) -> set[str]:
+    """Every name the scope binds itself, before ``nonlocal``/``global``."""
+    names = {
+        name
+        for node in _own_nodes(scope)
+        if not isinstance(node, ast.comprehension)
+        for target, _ in _bindings_at(node)
+        for name in _target_names(target)
+    }
+    args = getattr(scope, "args", None)
+    if args is not None:
+        names.update(
+            a.arg
+            for a in [
+                *args.posonlyargs,
+                *args.args,
+                *args.kwonlyargs,
+                *([args.vararg] if args.vararg else []),
+                *([args.kwarg] if args.kwarg else []),
+            ]
+        )
+    names.update(
+        n.name
+        for n in _own_nodes(scope)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    )
+    return names
+
+
+def _resolving_scopes(scope: ast.AST, name: str, *, root: bool):
+    """Nested scopes in which ``name`` means ``scope``'s own binding of it.
+
+    A nested function that binds the name shadows it for everything inside,
+    except a ``global`` declaration, which reaches the module. A method skips
+    its class body, as Python resolves it.
+    """
+
+    def walk(node: ast.AST, shadowed: bool):
+        for child in _own_nodes(node):
+            if not isinstance(child, _NESTED_SCOPES):
+                continue
+            if isinstance(child, ast.ClassDef):
+                if not shadowed and name not in _bound_names(child):
+                    yield child
+                yield from walk(child, shadowed)
+                continue
+            if name in _declared_in(child, ast.Global):
+                here = root
+            elif name in _declared_in(child, ast.Nonlocal):
+                # A shadowing function in between stops the walk before here.
+                here = not root
+            else:
+                here = not shadowed and name not in _bound_names(child)
+            if here:
+                yield child
+            if here or root:
+                yield from walk(child, shadowed or not here)
+
+    yield from walk(scope, False)
+
+
 def _class_aliases(cls: ast.ClassDef, inherited: frozenset[str]) -> frozenset[str]:
     """Class attributes the class body binds to the stored dict."""
     pairs = [
@@ -526,40 +596,17 @@ class _Scope:
         )
 
     def _declared(self, kind: type) -> set[str]:
-        return {
-            name
-            for node in _own_nodes(self.scope)
-            if isinstance(node, kind)
-            for name in node.names
-        }
+        return _declared_in(self.scope, kind)
 
     def local_names(self) -> set[str]:
         """Names this scope binds itself, which shadow the enclosing ones."""
-        names = {
-            name
-            for node in _own_nodes(self.scope)
-            if not isinstance(node, ast.comprehension)
-            for target, _ in _bindings_at(node)
-            for name in _target_names(target)
-        }
-        args = getattr(self.scope, "args", None)
-        if args is not None:
-            names.update(
-                a.arg
-                for a in [
-                    *args.posonlyargs,
-                    *args.args,
-                    *args.kwonlyargs,
-                    *([args.vararg] if args.vararg else []),
-                    *([args.kwarg] if args.kwarg else []),
-                ]
-            )
-        names.update(
-            n.name
-            for n in _own_nodes(self.scope)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-        )
-        return names - self._declared(ast.Nonlocal)
+        return _bound_names(self.scope) - self._declared(ast.Nonlocal)
+
+    def _name_nodes(self, name: str):
+        """This scope's nodes, and those of nested scopes where ``name`` is this scope's."""
+        yield from _own_nodes(self.scope)
+        for nested in _resolving_scopes(self.scope, name, root=self.parent is None):
+            yield from _own_nodes(nested)
 
     def binds(self, name: str) -> bool:
         return name in self.local_names()
@@ -587,7 +634,7 @@ class _Scope:
         return found
 
     def _assignments(self, name: str):
-        for node in _own_nodes(self.scope):
+        for node in self._name_nodes(name):
             if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
                 targets = (
                     node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -604,7 +651,7 @@ class _Scope:
         found: list[str] = []
         for value in self._assignments(name):
             found.extend(self.mentions(value, follow=False))
-        for node in _own_nodes(self.scope):
+        for node in self._name_nodes(name):
             if (
                 isinstance(node, ast.Subscript)
                 and isinstance(node.ctx, ast.Store)
@@ -668,31 +715,23 @@ class _Scope:
     def _rebound_by_nested(self) -> list[tuple[str, ast.AST]]:
         """Bindings nested functions make to this scope's own names.
 
-        Through ``nonlocal`` for a function's names, through ``global`` for
-        the module's.
+        Through ``nonlocal`` for a function's names and ``global`` for the
+        module's, unless a function in between binds the name itself.
         """
-        declared_as = ast.Nonlocal if self.parent is not None else ast.Global
-        own = self.local_names() if self.parent is not None else None
+        root = self.parent is None
         pairs = []
         for node in ast.walk(self.scope):
             if node is self.scope or not isinstance(
                 node, (ast.FunctionDef, ast.AsyncFunctionDef)
             ):
                 continue
-            declared = {
-                name
-                for statement in _own_nodes(node)
-                if isinstance(statement, declared_as)
-                for name in statement.names
-            }
-            if own is not None:
-                declared &= own
-            pairs.extend(
-                (name, value)
-                for target, bound in _bindings(node)
-                for name, value in _name_pairs(target, bound)
-                if name in declared
-            )
+            declared = _declared_in(node, ast.Global if root else ast.Nonlocal)
+            for target, bound in _bindings(node):
+                for name, value in _name_pairs(target, bound):
+                    if name in declared and node in set(
+                        _resolving_scopes(self.scope, name, root=root)
+                    ):
+                        pairs.append((name, value))
         return pairs
 
     def stored_dict(self, node: ast.AST) -> str | None:
@@ -1484,6 +1523,26 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "def outer(dataset):\n    [(ref := dataset.origin_ref) for _ in range(1)]\n"
         "    ref.update(token='x')",
         "class Holder:\n    ref = dataset.origin_ref\n    ref['token'] = 't'",
+        # Nested scopes writing to a name the enclosing scope owns.
+        "def outer(r):\n    changes = {}\n    def fill():\n"
+        "        changes['origin_ref'] = r\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r):\n    changes = {}\n    def fill():\n"
+        "        changes.update(origin_ref=r)\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r):\n    changes = {}\n    def fill():\n        nonlocal changes\n"
+        "        changes = {'origin_ref': r}\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "ref = None\ndef outer():\n    ref = {}\n    def bind(dataset):\n"
+        "        global ref\n        ref = dataset.origin_ref\n"
+        "def touch(t):\n    ref['token'] = t",
+        "changes = {}\ndef fill(r):\n    global changes\n"
+        "    changes = {'origin_uri': r}\ndef write():\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        def inner():\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        inner()\n"
+        "        ref.update(title='x')\n    return middle",
         "def outer(dataset):\n    ref = dataset.origin_ref\n"
         "    def inner(ref=ref.update(token='x')):\n        return ref",
         "def outer(r):\n    changes = {'origin_ref': r}\n    def run():\n"
@@ -1547,6 +1606,13 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "def outer(t):\n    changes = {'title': t}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
         # An alias inside a nested scope stays there.
+        "def outer(r):\n    changes = {}\n    def fill():\n        changes = {}\n"
+        "        changes['origin_ref'] = r\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        def inner():\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        inner()\n        return ref\n"
+        "    ref.update(title='x')\n    return middle",
         "class Holder:\n    ref = dataset.origin_ref\n    def touch(self):\n"
         "        ref.update(title='x')",
         "def outer(dataset):\n    ref = {}\n    def inner():\n"
