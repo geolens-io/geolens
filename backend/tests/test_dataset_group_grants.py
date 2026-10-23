@@ -501,3 +501,47 @@ async def test_activating_into_a_role_that_reads_the_source_is_admitted(
 
     assert activated.status_code == 200, activated.text
     assert activated.json()["status"] == "active"
+
+
+async def test_an_untrusted_audience_authority_refuses_an_add_over_a_vrt_link(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """An authority that overrides reads but not ``record_audience`` can't say
+    whether a VRT reaches past its source, so an add over a VRT link is refused."""
+    from app.platform import extensions
+    from app.platform.extensions import DefaultPermissionExtension
+
+    class _OwnReads(DefaultPermissionExtension):
+        def filter_visible(self, *args, **kwargs):
+            return super().filter_visible(*args, **kwargs)
+
+    _, joiner_id = await create_user(client, admin_auth_header, "viewer")
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await _create_raster_dataset(
+        test_db_session, created_by=admin_id, visibility="internal"
+    )
+    vrt = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="restricted"
+    )
+    await _link_source(test_db_session, vrt, source, 0)
+    vrt_group = await _new_group(client, admin_auth_header, [])
+    await _grant(test_db_session, vrt, vrt_group)
+    plain = await _create_raster_dataset(
+        test_db_session, created_by=admin_id, visibility="restricted"
+    )
+    plain_group = await _new_group(client, admin_auth_header, [])
+    await _grant(test_db_session, plain, plain_group)
+    monkeypatch.setitem(extensions._extensions, "permission", _OwnReads())
+
+    async def add(group_id):
+        return await client.post(
+            f"/admin/groups/{group_id}/members/",
+            json={"user_ids": [joiner_id]},
+            headers=admin_auth_header,
+        )
+
+    over_vrt = await add(vrt_group)
+    over_plain = await add(plain_group)
+
+    assert over_vrt.status_code == 422, over_vrt.text
+    assert over_plain.status_code == 200, over_plain.text

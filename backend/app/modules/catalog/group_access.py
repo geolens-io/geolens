@@ -20,9 +20,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import Group, GroupMember, User
-from app.modules.catalog.authorization import vrt_links_beyond_audience
+from app.modules.catalog.authorization import (
+    VRT_AUDIENCE_EXCEEDS_SOURCES,
+    answers_audience_questions,
+    vrt_links_beyond_audience,
+)
 from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
 from app.platform.catalog_locks import bump_publication_versions
+from app.platform.extensions import get_permission_extension
 
 T = TypeVar("T")
 
@@ -52,10 +57,14 @@ async def change_group_access(
         return await change()
 
     active_before = await _active_member_count(db, group_id)
+
+    async def widened() -> bool:
+        return await _active_member_count(db, group_id) > active_before
+
     if narrowing:
         result = await change()
     else:
-        result = await _admit_widening(db, granted, change)
+        result = await _admit_widening(db, granted, change, widened)
     # Each change only adds or only removes, so the count shows whether it
     # granted or revoked anything.
     if await _active_member_count(db, group_id) != active_before:
@@ -101,19 +110,42 @@ async def reactivate_member_access(
     )
     if not granted:
         return await change()
-    return await _admit_widening(db, granted, change)
+
+    async def widened() -> bool:
+        return bool(
+            await db.scalar(
+                select(User.is_active.is_(True) & (User.status == "active")).where(
+                    User.id == user_id
+                )
+            )
+        )
+
+    return await _admit_widening(db, granted, change, widened)
 
 
 async def _admit_widening(
     db: AsyncSession,
     granted: list[uuid.UUID],
     change: Callable[[], Awaitable[T]],
+    widened: Callable[[], Awaitable[bool]],
 ) -> T:
     """Run ``change``; raise 422 if it makes a VRT linked to ``granted`` newly
-    reach past one of its members."""
+    reach past one of its members.
+
+    ``widened`` says, after ``change``, whether it added an active reader.
+    """
     exceeded_before = await vrt_links_beyond_audience(db, granted)
     result = await change()
     exceeded_after = await vrt_links_beyond_audience(db, granted)
+    if not answers_audience_questions(get_permission_extension()):
+        # Such an authority has every link counted as exceeded, so nothing is
+        # ever newly exceeded; refuse any real widening over a VRT link.
+        if exceeded_after and await widened():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=VRT_AUDIENCE_EXCEEDS_SOURCES,
+            )
+        return result
     newly = sorted(
         {title for pair, title in exceeded_after.items() if pair not in exceeded_before}
     )
