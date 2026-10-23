@@ -45,6 +45,29 @@ def test_a_coded_value_domain_gives_a_label_per_code_keyed_as_text() -> None:
     }
 
 
+def test_float_codes_are_keyed_as_javascript_writes_them() -> None:
+    meta = _layer(
+        (2.5, "Two and a half"),
+        (-0.25, "Negative"),
+        (3.0, "Three"),
+        (1e16, "Big"),
+        (1e-7, "Exponent"),
+        (1.5e300, "Huge"),
+        (float("nan"), "NaN"),
+        (float("inf"), "Infinity"),
+    )
+    assert arcgis_field_labels(meta) == {
+        "name": {
+            "value_labels": {
+                "2.5": "Two and a half",
+                "-0.25": "Negative",
+                "3": "Three",
+                "10000000000000000": "Big",
+            }
+        }
+    }
+
+
 def test_string_codes_are_kept_exactly_and_unstorable_ones_are_skipped() -> None:
     meta = _layer(
         (" A", "Padded"),

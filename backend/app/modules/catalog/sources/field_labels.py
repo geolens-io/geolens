@@ -1,5 +1,6 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
+import math
 from typing import Any
 
 from app.platform.column_names import stored_column_names
@@ -19,11 +20,23 @@ def _clean(value: object, limit: int) -> str | None:
     return text[:limit] if text else None
 
 
+def _float_code_text(code: float) -> str | None:
+    """The text JavaScript's ``String`` gives the number, or None where it differs.
+
+    The popup keys labels by that text. Python and JavaScript agree on plain
+    decimals but not on exponent forms, so those, NaN and infinity get no label.
+    """
+    if not math.isfinite(code):
+        return None
+    text = str(int(code)) if code.is_integer() and abs(code) < 1e21 else repr(code)
+    return None if "e" in text else text
+
+
 def _code_text(code: object) -> str | None:
     if isinstance(code, bool):
         return None
-    if isinstance(code, float) and code.is_integer():
-        code = int(code)
+    if isinstance(code, float):
+        return _float_code_text(code)
     if isinstance(code, int):
         return str(code)
     # A code must match its feature value exactly, so one the store cannot keep
