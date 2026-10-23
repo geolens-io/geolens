@@ -64,6 +64,7 @@ from app.core.db.tenant_session import (
 from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
 from app.core.url_redaction import redact_url_credentials
+from app.modules.admin.router_groups import router as groups_router
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.binary_response import binary_response
 from app.platform.extensions import get_catalog_port
@@ -96,6 +97,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 router.include_router(operations_router)
+router.include_router(groups_router)
 
 require_ai_status_reader = require_mode_permission(
     single_tenant="manage_users", multi_tenant="manage_tenants"

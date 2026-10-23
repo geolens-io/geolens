@@ -60,6 +60,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "feature.insert",
         "feature.replace",
         "feature.update",
+        "group.add_members",
+        "group.create",
+        "group.delete",
+        "group.remove_member",
+        "group.rename",
         # User-requested cancel of a pending/running ingest job (imports,
         # refreshes, analysis, embedding backfill). Emitted by the cancel
         # endpoint in platform/jobs/router.py.
