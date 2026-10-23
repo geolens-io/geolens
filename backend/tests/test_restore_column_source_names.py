@@ -32,8 +32,18 @@ pytestmark = pytest.mark.anyio
         (
             True,
             [
-                {"name": "dropped", "type": "integer", "source_name": "Dropped"},
-                {"name": "name", "type": "text", "source_name": "Name"},
+                {
+                    "name": "dropped",
+                    "type": "text",
+                    "ordinal_position": 40,
+                    "source_name": "Dropped",
+                },
+                {
+                    "name": "name",
+                    "type": "integer",
+                    "ordinal_position": 50,
+                    "source_name": "Name",
+                },
             ],
             {"name": "Name", "dropped": "Dropped", "elev": None},
         ),
@@ -99,13 +109,18 @@ async def test_restore_uses_the_kept_versions_source_names(
         await strategy.write(session, dataset)
 
     assert {c["name"]: c.get("source_name") for c in dataset.column_info} == expected
-    assert dataset.column_info[0]["ordinal_position"] == 4
     version = next(
         call.args[0]
         for call in session.add.call_args_list
         if isinstance(call.args[0], DatasetVersion)
     )
     assert version.column_info == dataset.column_info
+    for columns in (dataset.column_info, version.column_info):
+        assert {c["name"]: (c["type"], c["ordinal_position"]) for c in columns} == {
+            "name": ("text", 4),
+            "dropped": ("integer", 5),
+            "elev": ("double precision", 6),
+        }
 
 
 _ORIGINAL_COLUMNS = [
