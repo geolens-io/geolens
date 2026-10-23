@@ -79,6 +79,10 @@ def _job_sort_columns() -> dict[str, Any]:
     }
 
 
+class AdminNotFoundError(ValueError):
+    """A user or role the request names does not exist."""
+
+
 class PendingUserMutationError(ValueError):
     """Raised when generic user PATCH attempts an approval-only mutation."""
 
@@ -230,7 +234,7 @@ class AdminService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise ValueError("User not found")
+            raise AdminNotFoundError("User not found")
         return user
 
     async def _ensure_unique_user_field(
@@ -278,7 +282,7 @@ class AdminService:
         role_result = await self.db.execute(select(Role).where(Role.name == role_name))
         role = role_result.scalar_one_or_none()
         if role is None:
-            raise ValueError(f"Role '{role_name}' not found")
+            raise AdminNotFoundError(f"Role '{role_name}' not found")
 
         user = User(
             username=username,
@@ -458,7 +462,7 @@ class AdminService:
         )
         new_role = role_result.scalar_one_or_none()
         if new_role is None:
-            raise ValueError(f"Role '{new_role_name}' not found")
+            raise AdminNotFoundError(f"Role '{new_role_name}' not found")
 
         # An idempotent resubmission of the user's current role (e.g. a
         # reconciliation-tool PATCH) is not a security event: skip the
@@ -546,7 +550,7 @@ class AdminService:
         """Convert a SAML-authenticated user to local-password.
 
         In one (uncommitted) transaction:
-          1. Load the user; raise ValueError("User not found") if absent.
+          1. Load the user; raise AdminNotFoundError("User not found") if absent.
           2. Validate user.auth_provider == "oauth"; otherwise raise ValueError
              (router maps to 422).
           3. Find a SAML linkage (oauth_accounts joined to oauth_providers where
@@ -572,7 +576,7 @@ class AdminService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise ValueError("User not found")
+            raise AdminNotFoundError("User not found")
 
         if user.auth_provider != "oauth":
             raise ValueError(
@@ -700,7 +704,7 @@ class AdminService:
         result = await self.db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user is None:
-            raise ValueError("User not found")
+            raise AdminNotFoundError("User not found")
         return user
 
     async def approve_user(self, user_id: uuid.UUID, role_name: str) -> User:
@@ -717,14 +721,14 @@ class AdminService:
         role_result = await self.db.execute(select(Role).where(Role.name == role_name))
         role = role_result.scalar_one_or_none()
         if role is None:
-            raise ValueError(f"Role '{role_name}' not found")
+            raise AdminNotFoundError(f"Role '{role_name}' not found")
 
         result = await self.db.execute(
             select(User).where(User.id == user_id).with_for_update()
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise ValueError("User not found")
+            raise AdminNotFoundError("User not found")
         if user.status != "pending":
             raise PendingUserTransitionConflict(
                 "Pending user approval is no longer available"
@@ -759,7 +763,7 @@ class AdminService:
         )
         user = result.scalar_one_or_none()
         if user is None:
-            raise ValueError("User not found")
+            raise AdminNotFoundError("User not found")
         if user.status != "pending":
             raise PendingUserTransitionConflict(
                 "Pending user rejection is no longer available"

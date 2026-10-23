@@ -38,6 +38,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import (
+    AdminNotFoundError,
     AdminService,
     PendingUserMutationError,
     PendingUserTransitionConflict,
@@ -159,12 +160,11 @@ def _refuse_backfill_in_flight(
 def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     """Map a service-layer ValueError to an HTTPException.
 
-    'not found' messages map to 404; everything else uses default_status.
+    AdminNotFoundError maps to 404; everything else uses default_status.
     """
-    detail = str(exc)
-    if "not found" in detail.lower():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
-    raise HTTPException(status_code=default_status, detail=detail)
+    if isinstance(exc, AdminNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    raise HTTPException(status_code=default_status, detail=str(exc))
 
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
