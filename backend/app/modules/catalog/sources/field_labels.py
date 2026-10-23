@@ -1,6 +1,7 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
 import math
+from decimal import Decimal
 from typing import Any
 
 from app.platform.column_names import stored_column_names
@@ -23,13 +24,19 @@ def _clean(value: object, limit: int) -> str | None:
 def _float_code_text(code: float) -> str | None:
     """The text JavaScript's ``String`` gives the number, or None where it differs.
 
-    The popup keys labels by that text. Python and JavaScript agree on plain
-    decimals but not on exponent forms, so those, NaN and infinity get no label.
+    The popup keys labels by that text. JavaScript writes fixed-point digits for
+    1e-6 <= |x| < 1e21, from the shortest round-trip digits that ``repr`` also
+    yields; outside that range, and for NaN and infinity, it writes an exponent
+    form or a word, so those get no label.
     """
     if not math.isfinite(code):
         return None
-    text = str(int(code)) if code.is_integer() and abs(code) < 1e21 else repr(code)
-    return None if "e" in text else text
+    if code == 0:
+        return "0"
+    if not 1e-6 <= abs(code) < 1e21:
+        return None
+    text = format(Decimal(repr(code)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def _code_text(code: object) -> str | None:
