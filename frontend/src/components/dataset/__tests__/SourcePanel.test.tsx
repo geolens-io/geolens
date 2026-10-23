@@ -744,7 +744,7 @@ describe('SourcePanel', () => {
         'The source refused the request because it requires credentials this dataset does not carry.',
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText('Drift detected')).toBeInTheDocument();
+    expect(screen.getByText('Columns changed at last refresh')).toBeInTheDocument();
     expect(screen.getByText('Overdue')).toBeInTheDocument();
     expect(container.innerHTML).not.toContain('password');
     expect(container.innerHTML).not.toContain('token=');

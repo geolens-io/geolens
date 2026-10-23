@@ -509,7 +509,7 @@ export function BulkReviewList({
 
                   {entry.status === 'commit-failed' && entry.error && (
                     <div className="mt-2 space-y-1.5">
-                      <p className="text-sm text-destructive">{entry.error}</p>
+                      <p role="alert" className="text-sm text-destructive">{entry.error}</p>
                       <ReportProblemButton />
                     </div>
                   )}
@@ -524,7 +524,7 @@ export function BulkReviewList({
                   CTA for exactly the single-file-upload-fails case. */}
               {!(isExpanded && canExpand) && entry.status === 'upload-failed' && entry.error && (
                 <div className="space-y-1.5 px-4 pb-3">
-                  <p className="text-sm text-destructive">{entry.error}</p>
+                  <p role="alert" className="text-sm text-destructive">{entry.error}</p>
                   <ReportProblemButton />
                 </div>
               )}

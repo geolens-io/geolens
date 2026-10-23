@@ -472,6 +472,7 @@
     "stagingFileUnavailable": "Staging file no longer available. Please re-upload.",
     "serviceRequiresAuth": "This service requires authentication. Provide an access token and try again.",
     "couldNotReachService": "Could not reach the service. Check the URL and try again.",
+    "serviceNotRecognized": "Couldn't detect the service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features.",
     "serviceTimeout": "Service didn't respond in time. Check the URL and try again.",
     "remoteServiceError": "Remote service returned an error",
     "aiSummaryFailed": "Failed to generate summary",

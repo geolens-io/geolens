@@ -146,7 +146,7 @@
     "tilesetSubtext": "GeoLens vérifie chaque archive et lit son tileset.json avant tout stockage."
   },
   "stac": {
-    "label": "URL de l'API STAC; collez le point d'accès racine du catalogue",
+    "label": "URL de l'API STAC · collez le point d'accès racine du catalogue",
     "connect": "Connecter",
     "connecting": "Connexion au catalogue STAC...",
     "searching": "Recherche d'éléments...",
@@ -169,7 +169,7 @@
     "failureUnknown": "Erreur inconnue",
     "importMore": "Importer davantage",
     "backToResults": "Retour aux résultats",
-    "catalogConnected": "Catalogue STAC; connecté",
+    "catalogConnected": "Catalogue STAC · connecté",
     "clear": "Effacer",
     "collectionsAvailable_one": "{{count}} collection disponible",
     "collectionsAvailable_other": "{{count}} collections disponibles",
@@ -262,7 +262,7 @@
     "connectFailed": "Échec de la connexion au service",
     "previewFailed": "Échec de l'aperçu de la couche",
     "commitFailed": "Échec du lancement de l'importation",
-    "detectedLabel": "URL de service; détectée",
+    "detectedLabel": "URL de service · détectée",
     "clear": "Effacer",
     "layersAvailable_one": "{{count}} calque disponible",
     "layersAvailable_other": "{{count}} calques disponibles",
@@ -294,7 +294,7 @@
     "arcgisTokenExpiredMidImport": "Votre connexion ArcGIS a expiré pendant que cette fenêtre était ouverte. Revenez en arrière et reconnectez-vous pour continuer."
   },
   "urlImport": {
-    "label": "URL de fichier; récupérée côté serveur",
+    "label": "URL de fichier · récupérée côté serveur",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Récupérer →",
     "fetching": "Téléchargement du fichier...",
@@ -333,6 +333,7 @@
     },
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
+    "visibilityInternal": "Interne",
     "visibilityPublic": "Publique",
     "registering": "Enregistrement...",
     "registerButton_one": "Enregistrer {{count}} table",
@@ -400,6 +401,7 @@
     "descriptionPlaceholder": "Description facultative",
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
+    "visibilityInternal": "Interne",
     "visibilityPublic": "Publique",
     "crsLabel": "Remplacement du SCR",
     "crsPlaceholderDetected": "Laissez vide pour utiliser le SCR détecté ({{crs}})",

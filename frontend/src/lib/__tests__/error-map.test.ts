@@ -349,6 +349,15 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.couldNotReachService' });
   });
 
+  it('maps the unrecognized-service probe refusal to its own key', () => {
+    expect(
+      classifyApiError(
+        "Couldn't detect service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features",
+        400,
+      ),
+    ).toEqual({ key: 'errors.serviceNotRecognized' });
+  });
+
   it('falls back the ArcGIS sign-in rate limit to the generic 429 key, unmapped by code', () => {
     // rate_limited carries no dedicated entry: the object branch falls
     // through to its message, which in turn falls through to the generic

@@ -856,7 +856,7 @@
       },
       "drift": {
         "none": "Aucune évolution",
-        "drifted": "Évolution détectée",
+        "drifted": "Colonnes modifiées à la dernière actualisation",
         "unknown": "Non comparé"
       }
     },

@@ -162,7 +162,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
       return (
         <Card>
           <CardContent className="space-y-3 py-6">
-            <p className="text-sm text-destructive">{msg}</p>
+            <p role="alert" className="text-sm text-destructive">{msg}</p>
             <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
               {isFetching ? t('jobProgress.retrying') : t('jobProgress.retryStatus')}
             </Button>
@@ -174,7 +174,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     return (
       <Card>
         <CardContent className="space-y-3 py-6">
-          <p className="text-sm text-destructive">{msg}</p>
+          <p role="alert" className="text-sm text-destructive">{msg}</p>
           <Button variant="outline" onClick={onReset}>
             {t('jobProgress.startOver')}
           </Button>
@@ -316,7 +316,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
         {job.status === 'failed' && (
           <div className="space-y-3">
             {job.error_message && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {describeFailureReason(
                   job.error_message,
                   t('common:errors.internalFailureReason'),

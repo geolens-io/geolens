@@ -472,6 +472,7 @@
     "stagingFileUnavailable": "暂存文件已不可用。请重新上传。",
     "serviceRequiresAuth": "此服务需要身份验证。请提供访问令牌后重试。",
     "couldNotReachService": "无法连接该服务。请检查 URL 后重试。",
+    "serviceNotRecognized": "无法识别服务类型。支持：WFS、ArcGIS Feature Service 和 OGC API Features。",
     "serviceTimeout": "服务未及时响应。请检查 URL 后重试。",
     "remoteServiceError": "远程服务返回了错误",
     "aiSummaryFailed": "生成摘要失败",

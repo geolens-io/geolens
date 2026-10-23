@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router';
 import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { PublicMapViewerPage } from '../PublicMapViewerPage';
 import { useMap } from '@/hooks/use-maps';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
@@ -153,6 +154,13 @@ describe('PublicMapViewerPage', () => {
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
+  });
+
+  it('titles the page with the loaded map name', async () => {
+    renderPage();
+    await screen.findByTestId('viewer-map');
+
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Public map');
   });
 
   it('hands the legend what the viewer map reports drawing', async () => {

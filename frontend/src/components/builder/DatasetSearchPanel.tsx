@@ -376,10 +376,14 @@ export function DatasetSearchPanel({
             size="sm"
             className="h-7 gap-1 px-2 text-xs"
             onClick={() => onDuplicateRendering(layer.id)}
+            aria-label={t('search.anotherRenderingNamed', {
+              name: record.properties.title,
+              defaultValue: 'Add another rendering: {{name}}',
+            })}
             disabled={isAdding}
           >
             <Repeat2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('search.anotherRendering', { defaultValue: 'another rendering' })}
+            {t('search.anotherRendering', { defaultValue: 'Add another rendering' })}
           </Button>
         </div>
       );

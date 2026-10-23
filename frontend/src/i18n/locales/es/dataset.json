@@ -856,7 +856,7 @@
       },
       "drift": {
         "none": "Sin cambios",
-        "drifted": "Cambios detectados",
+        "drifted": "Columnas modificadas en la última actualización",
         "unknown": "Sin comparar"
       }
     },

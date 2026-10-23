@@ -502,7 +502,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
             </Select>
           </div>
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
           defaultName={previewData.source_filename ?? fp?.layer_name ?? ''}
           detectedCrs={raster ? previewData.crs_epsg : (fp?.crs ?? null)}
@@ -550,6 +550,8 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     );
   }
 
+  const urlFieldError = !jobId && error ? error : null;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       {/* A transient preview failure keeps
@@ -561,7 +563,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
           session, so only the preview re-runs). */}
       {jobId && (
         <div className="mb-4 space-y-3 rounded-lg border border-border bg-surface-1 p-3.5">
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={handleRetryPreview}>
               {t('urlImport.retryPreview')}
@@ -596,6 +598,8 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
             <input
               id="file-url-input"
               type="url"
+              aria-invalid={urlFieldError ? true : undefined}
+              aria-describedby={urlFieldError ? 'file-url-error' : undefined}
               placeholder={t('urlImport.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -636,14 +640,21 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
             disabled={!!jobId}
+            aria-describedby="url-filename-help"
             className="font-mono text-sm"
           />
-          <p className="text-xs text-muted-foreground">{t('urlImport.filenameHelpText')}</p>
+          <p id="url-filename-help" className="text-xs text-muted-foreground">
+            {t('urlImport.filenameHelpText')}
+          </p>
         </div>
 
         {/* A lingering job's error already renders in the recovery panel
             above; avoid showing it twice. */}
-        {!jobId && error && <p className="text-sm text-destructive">{error}</p>}
+        {urlFieldError && (
+          <p id="file-url-error" role="alert" className="text-sm text-destructive">
+            {urlFieldError}
+          </p>
+        )}
       </form>
     </div>
   );

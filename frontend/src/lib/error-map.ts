@@ -70,8 +70,11 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   // token is the fix.
   'This service requires authentication. Provide a valid ArcGIS token and try again.':
     'errors.serviceRequiresAuth',
+  'Decoding the point cloud failed unexpectedly.': 'errors.uploadError',
   'Could not reach the service. Check the URL and try again.':
     'errors.couldNotReachService',
+  "Couldn't detect service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features":
+    'errors.serviceNotRecognized',
   "Service didn't respond in time. Check the URL and try again.":
     'errors.serviceTimeout',
   'Remote service returned an error': 'errors.remoteServiceError',

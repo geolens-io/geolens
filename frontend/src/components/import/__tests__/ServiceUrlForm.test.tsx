@@ -845,4 +845,19 @@ describe('ServiceUrlForm portal URL guidance', () => {
     expect(screen.getByRole('button', { name: 'Probe →' })).toBeDisabled();
     expect(mockProbeService).not.toHaveBeenCalled();
   });
+  it('announces a probe failure and ties it to the URL field', async () => {
+    const user = userEvent.setup();
+    mockProbeService.mockRejectedValue(new ApiError('Plain HTTP is refused.', 400, null));
+    render(<ServiceUrlForm />);
+
+    const input = screen.getByLabelText(/Service URL/);
+    await user.type(input, 'http://example.test/wfs');
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Plain HTTP is refused.');
+    const field = screen.getByLabelText(/Service URL/);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('Plain HTTP is refused.');
+  });
 });

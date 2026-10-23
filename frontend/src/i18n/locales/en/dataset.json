@@ -818,7 +818,7 @@
       },
       "drift": {
         "none": "No drift",
-        "drifted": "Drift detected",
+        "drifted": "Columns changed at last refresh",
         "unknown": "Not compared"
       }
     },

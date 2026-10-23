@@ -36,8 +36,8 @@ interface ImportMetadataFormProps {
   } | null;
 }
 
-// No `restricted` — see RegisterForm. Visibility is
-// private/public at import time, and the dataset Access tab owns changing it.
+// No `restricted`, as in RegisterForm. Import offers private, internal and
+// public; group sharing belongs to the dataset Access tab.
 // Radix Select cannot hold an empty-string value. Real columns are prefixed so
 // no source field name can equal the "no column" placeholder.
 const NO_COLUMN = 'none';
@@ -46,6 +46,7 @@ const decodeColumn = (value: string) => (value.startsWith('col:') ? value.slice(
 
 const VISIBILITY_OPTIONS = [
   { value: 'private', labelKey: 'metadata.visibilityPrivate' },
+  { value: 'internal', labelKey: 'metadata.visibilityInternal' },
   { value: 'public', labelKey: 'metadata.visibilityPublic' },
 ];
 

@@ -121,7 +121,7 @@ const freshnessClasses: Record<SourceFreshness, string> = {
 
 const driftClasses: Record<SchemaDriftStatus, string> = {
   none: semanticBadgeColors.success,
-  drifted: semanticBadgeColors.destructive,
+  drifted: semanticBadgeColors.warning,
   unknown: 'border-border bg-muted text-muted-foreground',
 };
 

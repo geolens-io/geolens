@@ -6,7 +6,7 @@ import { describeFailureReason } from '@/lib/failure-reason';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
-import { formatDate } from '@/lib/format';
+import { formatDateTimeSmart } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { jobStatusColors, semanticBadgeColors } from '@/lib/status-colors';
 import type { AdminJobResponse } from '@/types/api';
@@ -441,7 +441,7 @@ export function JobList() {
                           </Button>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {formatDate(job.created_at)}
+                          {formatDateTimeSmart(job.created_at)}
                         </TableCell>
                         <TableCell>
                           {job.username ?? '-'}

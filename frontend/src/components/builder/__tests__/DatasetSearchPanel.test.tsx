@@ -221,7 +221,7 @@ describe('DatasetSearchPanel', () => {
     expect(roadsRow).not.toBeNull();
     expect(within(roadsRow as HTMLElement).getByText('Added')).toBeInTheDocument();
 
-    fireEvent.click(within(roadsRow as HTMLElement).getByRole('button', { name: 'another rendering' }));
+    fireEvent.click(within(roadsRow as HTMLElement).getByRole('button', { name: 'Add another rendering: Roads' }));
     expect(onDuplicateRendering).toHaveBeenCalledWith('roads-layer');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add to map: Population' }));

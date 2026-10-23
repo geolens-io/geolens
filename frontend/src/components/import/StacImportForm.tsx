@@ -958,7 +958,7 @@ export function StacImportForm() {
           </div>
 
           {error && (
-            <p className="border-t border-border px-5 py-3 text-sm text-destructive">{error}</p>
+            <p role="alert" className="border-t border-border px-5 py-3 text-sm text-destructive">{error}</p>
           )}
         </div>
       </div>
@@ -1348,7 +1348,7 @@ export function StacImportForm() {
           )}
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </form>
     </div>
   );

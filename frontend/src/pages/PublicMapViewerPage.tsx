@@ -68,9 +68,8 @@ export function PublicMapViewerPage() {
 function PublicMapViewer() {
   const { t } = useTranslation('common');
   const { id } = useParams<{ id: string }>();
-  useDocumentTitle(t('common:pageTitle.map'));
-
   const { data, isLoading, isError, error } = useMap(id);
+  useDocumentTitle(data?.name ?? t('common:pageTitle.map'));
 
   const layers = useMemo(
     () => (data?.layers ?? []).map(toSharedLayer),

@@ -169,7 +169,7 @@
     "tilesetSubtext": "GeoLens checks each archive and reads its tileset.json before anything is stored."
   },
   "stac": {
-    "label": "STAC API URL; paste the catalog root endpoint",
+    "label": "STAC API URL · paste the catalog root endpoint",
     "connect": "Connect",
     "connecting": "Connecting to STAC catalog...",
     "searching": "Searching items...",
@@ -192,7 +192,7 @@
     "failureUnknown": "Unknown error",
     "importMore": "Import more",
     "backToResults": "Back to results",
-    "catalogConnected": "STAC Catalog; connected",
+    "catalogConnected": "STAC Catalog · connected",
     "clear": "Clear",
     "collectionsAvailable_one": "{{count}} collection available",
     "collectionsAvailable_other": "{{count}} collections available",
@@ -263,7 +263,7 @@
     "label": "Service URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint",
     "arcgisPortalUrlHint": "This looks like an ArcGIS organization or portal page, not a layer. Open the layer's item page, copy its REST URL (it ends in /FeatureServer/0 or /MapServer/0) and paste that here. Protected layers ask for sign-in after you paste the layer URL.",
-    "detectedLabel": "Service URL; detected",
+    "detectedLabel": "Service URL · detected",
     "clear": "Clear",
     "layersAvailable_one": "{{count}} layer available",
     "layersAvailable_other": "{{count}} layers available",
@@ -317,7 +317,7 @@
     "arcgisTokenExpiredMidImport": "Your ArcGIS sign-in expired while this was open. Go back and sign in again to continue."
   },
   "urlImport": {
-    "label": "File URL; fetched server-side",
+    "label": "File URL · fetched server-side",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Fetch →",
     "fetching": "Downloading file...",
@@ -402,6 +402,7 @@
     },
     "visibilityLabel": "Visibility",
     "visibilityPrivate": "Private",
+    "visibilityInternal": "Internal",
     "visibilityPublic": "Public",
     "registering": "Registering...",
     "registerButton_one": "Register {{count}} Table",
@@ -470,6 +471,7 @@
     "descriptionPlaceholder": "Optional description",
     "visibilityLabel": "Visibility",
     "visibilityPrivate": "Private",
+    "visibilityInternal": "Internal",
     "visibilityPublic": "Public",
     "crsLabel": "CRS Override",
     "crsPlaceholderDetected": "Leave blank to use detected CRS ({{crs}})",

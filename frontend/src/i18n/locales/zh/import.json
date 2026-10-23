@@ -169,7 +169,7 @@
     "tilesetSubtext": "GeoLens 会在存储前检查每个压缩包并读取其 tileset.json。"
   },
   "stac": {
-    "label": "STAC API URL；粘贴目录根端点",
+    "label": "STAC API URL · 粘贴目录根端点",
     "connect": "连接",
     "connecting": "正在连接 STAC 目录...",
     "searching": "正在搜索条目...",
@@ -192,7 +192,7 @@
     "failureUnknown": "未知错误",
     "importMore": "导入更多",
     "backToResults": "返回结果列表",
-    "catalogConnected": "STAC 目录；已连接",
+    "catalogConnected": "STAC 目录 · 已连接",
     "clear": "清空",
     "collectionsAvailable_one": "{{count}} 个可用集合",
     "collectionsAvailable_other": "{{count}} 个可用集合",
@@ -263,7 +263,7 @@
     "label": "服务 URL",
     "placeholder": "https://example.com/wfs、ArcGIS 要素服务或 OGC API 端点",
     "arcgisPortalUrlHint": "这看起来是 ArcGIS 组织或门户页面，而不是图层。请打开图层的项目页面，复制其 REST URL（以 /FeatureServer/0 或 /MapServer/0 结尾）并粘贴到此处。受保护的图层会在粘贴图层 URL 后要求登录。",
-    "detectedLabel": "服务 URL；已检测到",
+    "detectedLabel": "服务 URL · 已检测到",
     "clear": "清空",
     "layersAvailable_one": "{{count}} 个可用图层",
     "layersAvailable_other": "{{count}} 个可用图层",
@@ -317,7 +317,7 @@
     "arcgisTokenExpiredMidImport": "在打开此页面期间，您的 ArcGIS 登录已过期。请返回并重新登录以继续。"
   },
   "urlImport": {
-    "label": "文件 URL；由服务器端抓取",
+    "label": "文件 URL · 由服务器端抓取",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "抓取 →",
     "fetching": "正在下载文件...",
@@ -402,6 +402,7 @@
     },
     "visibilityLabel": "可见性",
     "visibilityPrivate": "私有",
+    "visibilityInternal": "内部",
     "visibilityPublic": "公开",
     "registering": "正在注册...",
     "registerButton_one": "注册 {{count}} 张表",
@@ -470,6 +471,7 @@
     "descriptionPlaceholder": "可选描述",
     "visibilityLabel": "可见性",
     "visibilityPrivate": "私有",
+    "visibilityInternal": "内部",
     "visibilityPublic": "公开",
     "crsLabel": "CRS 覆盖",
     "crsPlaceholderDetected": "留空以使用检测到的 CRS（{{crs}}）",

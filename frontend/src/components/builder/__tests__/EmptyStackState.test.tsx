@@ -296,4 +296,10 @@ describe('EmptyStackState', () => {
     expect(module.eyebrowClassName).toContain('font-semibold');
     expect(module.eyebrowClassName).toContain('tracking-wide');
   });
+
+  it('tells the user Enter runs the search and ties the hint to the input', () => {
+    render(<EmptyStackState onOpenAddData={vi.fn()} onAddDataset={vi.fn()} />);
+
+    expect(screen.getByRole('searchbox')).toHaveAccessibleDescription('Press Enter to search');
+  });
 });

@@ -146,7 +146,7 @@
     "tilesetSubtext": "GeoLens comprueba cada archivo y lee su tileset.json antes de almacenar nada."
   },
   "stac": {
-    "label": "URL de API STAC; pegue el endpoint raíz del catálogo",
+    "label": "URL de API STAC · pegue el endpoint raíz del catálogo",
     "connect": "Conectar",
     "connecting": "Conectando al catálogo STAC...",
     "searching": "Buscando elementos...",
@@ -169,7 +169,7 @@
     "failureUnknown": "Error desconocido",
     "importMore": "Importar más",
     "backToResults": "Volver a los resultados",
-    "catalogConnected": "Catálogo STAC; conectado",
+    "catalogConnected": "Catálogo STAC · conectado",
     "clear": "Borrar",
     "collectionsAvailable_one": "{{count}} colección disponible",
     "collectionsAvailable_other": "{{count}} colecciones disponibles",
@@ -262,7 +262,7 @@
     "connectFailed": "Error al conectar con el servicio",
     "previewFailed": "Error al previsualizar la capa",
     "commitFailed": "Error al iniciar la importación",
-    "detectedLabel": "URL de servicio; detectada",
+    "detectedLabel": "URL de servicio · detectada",
     "clear": "Borrar",
     "layersAvailable_one": "{{count}} capa disponible",
     "layersAvailable_other": "{{count}} capas disponibles",
@@ -294,7 +294,7 @@
     "arcgisTokenExpiredMidImport": "Su sesión de ArcGIS caducó mientras esto estaba abierto. Vuelva atrás e inicie sesión de nuevo para continuar."
   },
   "urlImport": {
-    "label": "URL de archivo; descargada en el servidor",
+    "label": "URL de archivo · descargada en el servidor",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Obtener →",
     "fetching": "Descargando archivo...",
@@ -333,6 +333,7 @@
     },
     "visibilityLabel": "Visibilidad",
     "visibilityPrivate": "Privado",
+    "visibilityInternal": "Interno",
     "visibilityPublic": "Público",
     "registering": "Registrando...",
     "registerButton_one": "Registrar {{count}} tabla",
@@ -400,6 +401,7 @@
     "descriptionPlaceholder": "Descripción opcional",
     "visibilityLabel": "Visibilidad",
     "visibilityPrivate": "Privado",
+    "visibilityInternal": "Interno",
     "visibilityPublic": "Público",
     "crsLabel": "Anulación de CRS",
     "crsPlaceholderDetected": "Deje en blanco para usar el CRS detectado ({{crs}})",

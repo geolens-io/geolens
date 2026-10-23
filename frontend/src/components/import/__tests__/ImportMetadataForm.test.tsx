@@ -2,6 +2,12 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ImportMetadataForm } from '../ImportMetadataForm';
 
+const settings = vi.hoisted(() => ({ canSetPublic: true }));
+
+vi.mock('@/hooks/use-settings', () => ({
+  useCanSetPublicVisibility: () => settings.canSetPublic,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -594,6 +600,50 @@ describe('ImportMetadataForm', () => {
 
       await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
       expect(onCommit).toHaveBeenCalledWith(attempted);
+    });
+  });
+
+  describe('visibility choices', () => {
+    beforeEach(() => {
+      settings.canSetPublic = true;
+    });
+
+    async function openVisibility(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByLabelText('metadata.visibilityLabel'));
+      return screen.findAllByRole('option');
+    }
+
+    it('offers private, internal and public in that order', async () => {
+      render(<ImportMetadataForm {...defaultProps} />);
+      const options = await openVisibility(userEvent.setup());
+
+      expect(options.map((o) => o.textContent)).toEqual([
+        'metadata.visibilityPrivate',
+        'metadata.visibilityInternal',
+        'metadata.visibilityPublic',
+      ]);
+    });
+
+    it('keeps internal when public is restricted', async () => {
+      settings.canSetPublic = false;
+      render(<ImportMetadataForm {...defaultProps} />);
+      const options = await openVisibility(userEvent.setup());
+
+      expect(options.map((o) => o.textContent)).toEqual([
+        'metadata.visibilityPrivate',
+        'metadata.visibilityInternal',
+      ]);
+    });
+
+    it('sends the internal choice with the commit request', async () => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      render(<ImportMetadataForm {...defaultProps} onCommit={onCommit} />);
+      await openVisibility(user);
+      await user.click(screen.getByRole('option', { name: 'metadata.visibilityInternal' }));
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'internal' }));
     });
   });
 });

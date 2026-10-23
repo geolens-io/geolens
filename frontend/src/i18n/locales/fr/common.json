@@ -339,6 +339,7 @@
     "stagingFileUnavailable": "Le fichier temporaire n'est plus disponible. Veuillez le télécharger à nouveau.",
     "serviceRequiresAuth": "Ce service nécessite une authentification. Fournissez un jeton d'accès et réessayez.",
     "couldNotReachService": "Impossible de joindre le service. Vérifiez l'URL et réessayez.",
+    "serviceNotRecognized": "Impossible de détecter le type de service. Pris en charge : WFS, ArcGIS Feature Service et OGC API Features.",
     "serviceTimeout": "Le service n'a pas répondu à temps. Vérifiez l'URL et réessayez.",
     "remoteServiceError": "Le service distant a renvoyé une erreur",
     "aiSummaryFailed": "Échec de la génération du résumé",

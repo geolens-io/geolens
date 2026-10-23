@@ -72,7 +72,7 @@ export function GroupList() {
               <TableRow>
                 <TableHead>{t('groups.table.name')}</TableHead>
                 <TableHead>{t('groups.table.members')}</TableHead>
-                <TableHead>{t('groups.table.created')}</TableHead>
+                <TableHead className="hidden sm:table-cell">{t('groups.table.created')}</TableHead>
                 <TableHead>{t('groups.table.actions')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -100,9 +100,9 @@ export function GroupList() {
               ) : (
                 (data?.groups ?? []).map((group) => (
                   <TableRow key={group.id}>
-                    <TableCell className="font-medium">{group.name}</TableCell>
+                    <TableCell className="whitespace-normal break-words font-medium sm:whitespace-nowrap">{group.name}</TableCell>
                     <TableCell>{t('groups.table.memberCount', { count: group.member_count })}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(group.created_at)}</TableCell>
+                    <TableCell className="hidden text-muted-foreground sm:table-cell">{formatDate(group.created_at)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Button
@@ -111,8 +111,8 @@ export function GroupList() {
                           aria-label={t('groups.members.title', { name: group.name })}
                           onClick={() => setManaging(group)}
                         >
-                          <UserRoundCog className="me-2 h-4 w-4" aria-hidden="true" />
-                          {t('groups.table.manageMembers')}
+                          <UserRoundCog className="h-4 w-4 sm:me-2" aria-hidden="true" />
+                          <span className="hidden sm:inline">{t('groups.table.manageMembers')}</span>
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
