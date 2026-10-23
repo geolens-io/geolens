@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import struct
 import uuid
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -419,12 +421,25 @@ def _sorted_keyset(col: str, *, descending: bool) -> str:
 _NUMBER_TYPES = {"double precision", "real", "numeric"}
 
 
-def _is_number_text(code: str) -> bool:
-    """Whether PostgreSQL reads *code* as the finite number Python does."""
+def _is_number_text(code: str, col_type: str) -> bool:
+    """Whether PostgreSQL reads *code* as a finite *col_type* value, so the
+    cast can't fail the request."""
     try:
-        return "_" not in code and math.isfinite(float(code))
-    except ValueError:
+        exact = Decimal(code)
+    except InvalidOperation:
         return False
+    if "_" in code or not exact.is_finite():
+        return False
+    if col_type == "numeric":
+        return -16383 < exact.adjusted() < 131072
+    # float4in and float8in refuse overflow and a nonzero value that rounds to 0.
+    number = float(exact)
+    if col_type == "real" and math.isfinite(number):
+        try:
+            number = struct.unpack("f", struct.pack("f", number))[0]
+        except OverflowError:
+            return False
+    return math.isfinite(number) and (number != 0 or exact == 0)
 
 
 async def _label_matched_codes(
@@ -478,7 +493,7 @@ def _build_where_filters(
         if codes := label_codes.get(col_name):
             lhs, codes_ref = as_text, f"CAST(:fc_{col_name} AS text[])"
             if (col_type := column_types[col_name]) in _NUMBER_TYPES:
-                codes = [code for code in codes if _is_number_text(code)]
+                codes = [code for code in codes if _is_number_text(code, col_type)]
                 lhs = _safe_column_ref(col_name)
                 codes_ref = f"CAST({codes_ref} AS {col_type}[])"
             clause += f" OR {lhs} = ANY({codes_ref})"

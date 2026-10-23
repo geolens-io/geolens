@@ -26,7 +26,7 @@ async def coded_dataset(test_db_session):
     table = f"test_rows_label_{uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
         text(
-            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, kind integer, kind_codes text, depth double precision, name text)"
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, kind integer, kind_codes text, depth double precision, ratio real, name text)"
         )
     )
     for kind, name in ROWS:
@@ -38,7 +38,8 @@ async def coded_dataset(test_db_session):
     # PostgreSQL reads 1e16 back as "1e+16"; its label key has every digit.
     await test_db_session.execute(
         text(
-            f"UPDATE data.{table} SET depth = CASE WHEN gid = 1 THEN 1e16 ELSE 0.5 END"
+            f"UPDATE data.{table} SET depth = CASE WHEN gid = 1 THEN 1e16 ELSE 0.5 END,"
+            " ratio = CASE WHEN gid = 1 THEN 0.5 ELSE 0.25 END"
         )
     )
     admin_id = await get_user_id(test_db_session, "admin")
@@ -53,6 +54,7 @@ async def coded_dataset(test_db_session):
             {"name": "kind", "type": "integer"},
             {"name": "kind_codes", "type": "text"},
             {"name": "depth", "type": "double precision"},
+            {"name": "ratio", "type": "real"},
             {"name": "name", "type": "text"},
         ],
     )
@@ -70,6 +72,15 @@ async def coded_dataset(test_db_session):
             field_name="depth",
             data_type="double precision",
             value_labels={"10000000000000000": "Deep", "n/a": "Deep, unknown"},
+        )
+    )
+    test_db_session.add(
+        AttributeMetadata(
+            dataset_id=ds.id,
+            field_name="ratio",
+            data_type="real",
+            # 1e40 overflows real, so casting it would fail the request.
+            value_labels={"0.5": "Half", "1e40": "Huge ratio"},
         )
     )
     await test_db_session.commit()
@@ -100,6 +111,8 @@ async def coded_dataset(test_db_session):
         ("name", "OR", ["north"]),
         # Matched as a number; the code that isn't one is dropped, not an error.
         ("depth", "deep", ["north"]),
+        ("ratio", "half", ["north"]),
+        ("ratio", "huge", []),
     ],
 )
 async def test_rows_filter_matches_codes_and_their_labels(

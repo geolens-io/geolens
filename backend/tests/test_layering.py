@@ -1203,7 +1203,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 588,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort, keyset and label-filter SQL share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 635,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 650,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
