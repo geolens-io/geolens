@@ -1,12 +1,12 @@
 """Group membership changes that move who may read the group's datasets.
 
-Adding or removing a member, or deleting a group, changes the audience of
-every dataset granted to the group without writing the dataset. Outstanding
-tile signatures are retired either way. A widening, which includes a
-member's account becoming active again, may not let a VRT newly reach past
-one of its members; a narrowing is a revocation and is never
-refused, so a VRT it leaves reaching past a member stops serving tiles and a
-map stops showing the layer to whoever lost it.
+Adding or removing a member, or deleting a group, can change the audience of
+every dataset granted to the group without writing the dataset. When the
+group's active members change, outstanding tile signatures are retired. A
+widening, which includes a member's account becoming active again, may not
+let a VRT newly reach past one of its members; a narrowing is a revocation
+and is never refused, so a VRT it leaves reaching past a member stops serving
+tiles and a map stops showing the layer to whoever lost it.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import Group, GroupMember
+from app.modules.auth.models import Group, GroupMember, User
 from app.modules.catalog.authorization import vrt_links_beyond_audience
 from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
 from app.platform.catalog_locks import bump_publication_versions
@@ -51,12 +51,27 @@ async def change_group_access(
     if not granted:
         return await change()
 
+    active_before = await _active_member_count(db, group_id)
     if narrowing:
         result = await change()
     else:
         result = await _admit_widening(db, granted, change)
-    await bump_publication_versions(db, granted)
+    # Each change only adds or only removes, so the count shows whether it
+    # granted or revoked anything.
+    if await _active_member_count(db, group_id) != active_before:
+        await bump_publication_versions(db, granted)
     return result
+
+
+async def _active_member_count(db: AsyncSession, group_id: uuid.UUID) -> int:
+    return await db.scalar(
+        select(func.count())
+        .select_from(GroupMember)
+        .join(User, User.id == GroupMember.user_id)
+        .where(GroupMember.group_id == group_id)
+        .where(User.status == "active")
+        .where(User.is_active.is_(True))
+    )
 
 
 async def reactivate_member_access(

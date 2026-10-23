@@ -254,6 +254,41 @@ async def test_adding_a_member_grants_reads_and_rolls_the_publication_version(
     assert await test_db_session.scalar(version) == (before or 0) + 1
 
 
+@pytest.mark.parametrize("change", ["noop_add", "inactive_add", "inactive_remove"])
+async def test_a_change_that_moves_no_active_member_keeps_signed_tiles(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    shared: _Shared,
+    test_db_session,
+    change: str,
+):
+    members_url = f"/admin/groups/{shared.group_id}/members/"
+    inactive = shared.outsider_id if change == "inactive_add" else shared.member_id
+    if change != "noop_add":
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.users SET status = 'deactivated', is_active = false "
+                "WHERE id = :id"
+            ),
+            {"id": inactive},
+        )
+        await test_db_session.commit()
+    version = select(Dataset.publication_version).where(Dataset.id == shared.dataset.id)
+    before = await test_db_session.scalar(version)
+
+    if change == "inactive_remove":
+        resp = await client.delete(
+            f"{members_url}{shared.member_id}", headers=admin_auth_header
+        )
+    else:
+        resp = await client.post(
+            members_url, json={"user_ids": [inactive]}, headers=admin_auth_header
+        )
+
+    assert resp.status_code in (200, 204), resp.text
+    assert await test_db_session.scalar(version) == before
+
+
 async def _team_map_shows(client, session, shared: _Shared) -> tuple[str, bool]:
     """Put the dataset on an internal map its owner made; return the map id
     and whether the member sees the layer."""
