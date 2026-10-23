@@ -149,6 +149,7 @@ v6, Tailwind, and shadcn/ui primitives in `components/ui/`.
 | Touch the public map viewer | `frontend/src/components/viewer/` |
 | Add an admin setting | `backend/app/modules/settings/` + `frontend/src/components/admin/settings/` |
 | Add optional runtime behavior | Extend a Protocol in `backend/app/platform/extensions/`; keep core behavior in default implementations |
+| Change what a dataset records about its source | `backend/app/platform/dataset_origin.py`, the only writer of the source binding (`origin_uri`, `origin_ref`) |
 | Add a DB column or table | New migration in `backend/alembic/versions/` + the domain's `models.py`; apply with `alembic upgrade heads` |
 | Add UI text | The component + **all 5** `frontend/src/i18n/locales/` files |
 

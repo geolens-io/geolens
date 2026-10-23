@@ -537,7 +537,7 @@ class _StacRefresh:
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = _binding(dataset)
-        self.origin_ref = dataset.origin_ref
+        self.stored_ref = dataset.origin_ref
         self.dataset_id = dataset.id
 
     async def fetch(self) -> None:
@@ -550,7 +550,7 @@ class _StacRefresh:
             self.asset_href,
             self.asset_key,
             self.catalog_url,
-        ) = _stac_pointers(self.origin_ref)
+        ) = _stac_pointers(self.stored_ref)
         # Redeemed after the claim, so a delivery that loses it spends nothing.
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)

@@ -226,6 +226,16 @@ class TestOperations:
             {"lower": 0.0, "upper": 1e308, "count": 5},
         ]
 
+    def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
+        low, high = 0.3, 0.30000000000000004
+
+        result = aggregate._histogram([(low, high, 1, 2), (low, high, 10, 3)], 10)
+
+        edges = [result.bins[0].lower] + [b.upper for b in result.bins]
+        assert edges == sorted(edges)
+        assert (edges[0], edges[-1]) == (low, high)
+        assert sum(b.count for b in result.bins) == 5
+
     async def test_double_values_keep_every_stored_digit(
         self, client: AsyncClient, test_db_session, points
     ):

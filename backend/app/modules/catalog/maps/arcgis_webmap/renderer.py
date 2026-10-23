@@ -7,7 +7,9 @@ Everything else keeps a default paint and is recorded in the loss report.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.modules.catalog.maps.arcgis_webmap.keys import (
@@ -268,7 +270,59 @@ def _report_class_differences(
         )
 
 
-def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
+def _js_string(value: str | int | float) -> str:
+    """The text MapLibre's ``to-string`` gives a value, which the paint ``match`` keys on."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) or (value.is_integer() and abs(value) < 2**53):
+        return str(int(value))
+    text = repr(value)
+    if "e" not in text:
+        return text.removesuffix(".0")
+    if 1e-6 <= abs(value) < 1e21:
+        return format(Decimal(text), "f")
+    mantissa, _, exponent = text.partition("e")
+    return f"{mantissa}e{exponent[0]}{exponent[1:].lstrip('0')}"
+
+
+def _typed_value(value: Any, field_kind: str | None) -> str | int | float:
+    """A category value as the column stores it; ArcGIS writes numbers as strings.
+
+    A number is used only when it survives the round trip, so values past 2**53
+    stay distinct strings.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return str(value)
+    if not isinstance(value, str) or field_kind is None:
+        return value
+    try:
+        exact = Decimal(value)
+    except InvalidOperation:
+        return value
+    if not exact.is_finite():
+        return value
+    if field_kind == "integer":
+        if exact.copy_abs() < 2**53 and exact == exact.to_integral_value():
+            return int(exact)
+        return value
+    number = float(exact)
+    if field_kind == "single":
+        try:
+            number = struct.unpack("f", struct.pack("f", number))[0]
+        except OverflowError:
+            return value
+    elif Decimal(repr(number)) != exact:
+        return value
+    return int(number) if number.is_integer() and abs(number) < 2**53 else number
+
+
+def _categorical(
+    r: dict,
+    path: str,
+    loss: LossReport,
+    hint: str | None,
+    numeric_fields: dict[str, str] | None = None,
+) -> Styled:
     field_name = r.get("field1")
     infos = _l(r.get("uniqueValueInfos"))
     classes, dropped = _classes(
@@ -298,31 +352,34 @@ def _categorical(r: dict, path: str, loss: LossReport, hint: str | None) -> Styl
         base, [sym for _, sym in classes] + [default_sym], path, loss
     )
     categories: list[dict] = []
+    pairs: list[str] = []
     seen: set[str] = set()
     for info, sym in classes:
         value = info.get("value")
         key = None if value is None else str(value)
-        if key is None or key in seen or len(categories) >= MAX_CLASSES:
+        if key is None or len(categories) >= MAX_CLASSES:
             dropped += 1
             continue
-        seen.add(key)
+        typed = _typed_value(value, (numeric_fields or {}).get(field_name))
+        paint_key = _js_string(typed)
+        if paint_key in seen:
+            dropped += 1
+            continue
+        seen.add(paint_key)
         label = info.get("label")
         categories.append(
             {
-                "value": key,
+                "value": typed,
                 "label": label if isinstance(label, str) and label else key,
                 "color": _class_color(sym),
-                "paint_color": _css_color(sym),
             }
         )
+        pairs += [paint_key, _css_color(sym)]
     if dropped:
         loss.add(path, "renderer_class_dropped", f"{dropped} classes")
     if not categories:
         return _simple(base, hint)
 
-    pairs = [item for c in categories for item in (c["value"], c["paint_color"])]
-    for category in categories:
-        del category["paint_color"]
     expression = [
         "case",
         ["==", ["get", field_name], None],
@@ -376,6 +433,55 @@ def _single_class(field_name: str, only: tuple, base: _Symbol, fallback: str) ->
     return Styled(_paint(base, expression, 1.0), _style_config(base), base.kind)
 
 
+def _tighten_separators(label: str) -> str:
+    """``label`` without whitespace next to ``-``, ``<`` or ``<=``, in one pass."""
+    out: list[str] = []
+    i = 0
+    while i < len(label):
+        if not label[i].isspace():
+            out.append(label[i])
+            i += 1
+            continue
+        j = i
+        while j < len(label) and label[j].isspace():
+            j += 1
+        after_separator = bool(out) and (
+            out[-1] in "<-" or (out[-1] == "=" and len(out) > 1 and out[-2] == "<")
+        )
+        if not after_separator and not (j < len(label) and label[j] in "<-"):
+            out.append(label[i:j])
+        i = j
+    return "".join(out)
+
+
+def _authored_break_labels(classes: list, renderer_min: float | None) -> int:
+    """Class-break labels that differ from the range ArcGIS generates for the class."""
+    ordered = sorted(
+        (
+            (num(info.get("classMaxValue")), num(info.get("classMinValue")), info)
+            for info, _ in classes
+        ),
+        key=lambda item: (item[0] is None, item[0] or 0.0),
+    )
+    authored = 0
+    previous = renderer_min
+    for index, (high, low, info) in enumerate(ordered):
+        label = info.get("label")
+        low = previous if low is None else low
+        previous = high
+        if not isinstance(label, str) or not label.strip():
+            continue
+        generated = set()
+        if high is not None:
+            if index == 0:
+                generated = {f"<{high:g}", f"<={high:g}"}
+            if low is not None:
+                generated.add(f"{low:g}-{high:g}")
+        if _tighten_separators(label.strip()) not in generated:
+            authored += 1
+    return authored
+
+
 def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
     field_name = r.get("field")
     classes, skipped = _classes(
@@ -418,12 +524,7 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         else None
     )
     fallback = _css_color(default) if default else HIDDEN_COLOR
-    authored = sum(
-        1
-        for info, _ in classes
-        if isinstance(info.get("label"), str)
-        and any(c.isalpha() for c in info["label"])
-    )
+    authored = _authored_break_labels(classes, num(r.get("minValue")))
     _report_labels(path, loss, authored, r.get("defaultLabel") if default else None)
     _report_class_differences(
         base, [sym for _, _, sym in usable] + [default], path, loss
@@ -442,7 +543,7 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         field_name,
         breaks,
         paint_colors,
-        _css_color(default) if default else HIDDEN_COLOR,
+        fallback,
     )
     loss.add(
         path,
@@ -468,6 +569,7 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
             "breaks": breaks,
             "colors": colors,
             "ramp": "custom",
+            "nullColor": fallback,
         },
     )
     return Styled(_paint(base, expression, 1.0), config, base.kind)
@@ -495,7 +597,11 @@ def _heatmap(r: dict, path: str, loss: LossReport) -> Styled:
 
 
 def translate_renderer(
-    renderer: Any, path: str, loss: LossReport, geometry_type: Any = None
+    renderer: Any,
+    path: str,
+    loss: LossReport,
+    geometry_type: Any = None,
+    numeric_fields: dict[str, str] | None = None,
 ) -> Styled:
     """Paint and style for a layer's renderer; empty when GeoLens defaults apply."""
     hint = geometry_kind(geometry_type)
@@ -516,7 +622,7 @@ def translate_renderer(
         _report_labels(path, loss, default_label=r.get("label"))
         return _simple(_symbol(r.get("symbol"), f"{path}.symbol", loss), hint)
     if kind == "uniqueValue":
-        return _categorical(r, path, loss, hint)
+        return _categorical(r, path, loss, hint, numeric_fields)
     if kind == "classBreaks":
         return _graduated(r, path, loss, hint)
     if kind == "heatmap":

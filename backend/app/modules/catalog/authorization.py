@@ -1,8 +1,9 @@
-"""Dataset visibility enforcement.
+"""Dataset and map visibility enforcement.
 
 All dataset access paths use these shared functions:
 DatasetVisibility, apply_visibility_filter(), get_user_roles(),
-check_dataset_access().
+check_dataset_access(). Map reads use check_map_access() and
+apply_map_visibility_filter().
 """
 
 import enum
@@ -11,6 +12,7 @@ from dataclasses import replace
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import (
     ColumnElement,
@@ -60,6 +62,7 @@ from app.platform.extensions import (
     get_permission_extension,
 )
 
+logger = structlog.stdlib.get_logger(__name__)
 
 # catalog.vrt_source_links, whose ORM class belongs to processing.
 _VRT_SOURCE_LINKS = table(
@@ -1218,3 +1221,55 @@ async def _owner_vrt_ids(
         .where(Record.created_by.in_(owners))
     )
     return list(rows.scalars())
+
+
+# Map visibilities open to a caller who neither owns the map nor is an admin.
+ANONYMOUS_MAP_VISIBILITIES = ("public",)
+SIGNED_IN_MAP_VISIBILITIES = ("internal", "public")
+
+
+def apply_map_visibility_filter(
+    stmt: Select[Any], user_id: uuid.UUID | None, is_admin: bool
+) -> Select[Any]:
+    """Limit a Map query to the maps a caller may read; ``user_id`` None is anonymous."""
+    from app.modules.catalog.maps.models import Map
+
+    if is_admin:
+        return stmt
+    if user_id is None:
+        return stmt.where(Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES))
+    return stmt.where(
+        or_(
+            Map.created_by == user_id,
+            Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+        )
+    )
+
+
+async def check_map_access(
+    db: AsyncSession, map_obj: Any, user: Identity | None
+) -> set[str]:
+    """Raise 404 unless ``user`` (None for anonymous) may read ``map_obj``.
+
+    Returns the caller's roles (empty for anonymous), as the dataset guards do.
+    """
+    if user is None:
+        roles: set[str] = set()
+        allowed = map_obj.visibility in ANONYMOUS_MAP_VISIBILITIES
+    else:
+        roles = await get_user_roles(db, user)
+        allowed = (
+            "admin" in roles
+            or map_obj.created_by == user.id
+            or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
+        )
+    if not allowed:
+        logger.warning(
+            "map_read_denied map_id=%s user_id=%s",
+            map_obj.id,
+            user.id if user is not None else "anon",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
+        )
+    return roles

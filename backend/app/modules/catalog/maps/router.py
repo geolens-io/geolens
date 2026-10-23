@@ -29,6 +29,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
+    check_map_access,
     check_public_visibility_allowed,
     get_user_roles,
     visible_vrt_extents,
@@ -106,7 +107,6 @@ from app.modules.catalog.maps._router_helpers import (
     _readable_terrain,
     _can_edit_map,
     _is_map_owner_or_admin,
-    _check_map_read_access,
     _layer_history_name,
     _layer_patch_history_actions,
     _layer_rows_by_id,
@@ -353,17 +353,17 @@ async def import_map_style_endpoint(
     await db.commit()
 
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
-        db,
-        map_obj.id,
+        db, map_obj.id
     )
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     assert map_obj is not None
     return MapStyleImportResponse(
-        map=_build_map_response(
+        map=await _visible_map_response(
+            db,
             map_obj,
-            layers,
-            forked_from_name=forked_name,
-            created_by_username=owner_username,
+            layer_tuples,
+            user,
+            forked_name,
+            owner_username,
             include_notes=True,
         ),
         summary=imported.summary,
@@ -392,7 +392,7 @@ async def get_map_endpoint(
             detail="Map not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     return await _visible_map_response(
         db,
         map_obj,
@@ -421,7 +421,7 @@ async def get_map_access_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     return MapAccessResponse(
         can_view=True,
         can_edit=await _can_edit_map(map_obj, user, db),
@@ -1104,7 +1104,7 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(
@@ -1264,7 +1264,7 @@ async def get_og_image(
             detail="OG image not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(

@@ -50,6 +50,17 @@ dataset's size per dataset. Set **Previous versions kept per dataset** to 1
 under Settings > Storage, or send `{"settings": {"previous_versions_kept": 1}}`
 to `PUT /settings/` as an admin, to keep the earlier behaviour.
 
+GeoLens no longer sends a service credential (an ArcGIS token, a username and
+password, or an API key) to a plain `http://` service address. Probing,
+previewing, importing and refreshing such a service with a credential now
+fails with `credential_over_http`, and that includes refreshes of datasets you
+imported earlier. Move the service to `https://` where you can. For intranet
+services without TLS, list their hosts in `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`
+in `.env` (comma-separated, `host` or `host:port`) and restart `api` and
+`worker`. Deployments that don't use the bundled Compose files, such as Helm
+charts and the cloud templates, must pass the variable to both the api and
+worker containers.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.

@@ -470,6 +470,8 @@ export interface StyleConfig {
   categories?: { value: string | number | null; label?: string; color: string }[];
   breaks?: number[];
   colors?: string[];
+  /** Colour of features whose classified value is null (graduated colour mode). */
+  nullColor?: string;
   /** Styling target — defaults to 'color' when absent for backward compatibility */
   target?: 'color' | 'radius' | 'width';
   /** Per-class size values for graduated size mode (parallel to colors) */

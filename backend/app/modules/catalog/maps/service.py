@@ -48,7 +48,6 @@ from app.modules.catalog.maps.service_public import (
 from app.modules.catalog.maps.service_shared import (
     DatasetMeta,
     LayerRow,
-    _apply_map_visibility_filter,
     _fetch_layer_rows_ordered,
     _infer_layer_type,
     _resolve_save_response_metadata,
@@ -101,7 +100,6 @@ __all__ = [
     "_resolve_save_response_metadata",
     "filter_layer_rows_by_dataset_visibility",
     "terrain_dataset_ids_visible_to",
-    "_apply_map_visibility_filter",
     "_infer_layer_type",
     "_validate_share_token",
     "with_visible_vrt_extents",

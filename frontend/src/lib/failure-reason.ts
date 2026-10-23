@@ -20,6 +20,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   backfill_settle_failed: 'errors.jobFailureBackfillSettleFailed',
   backfill_start_failed: 'errors.jobFailureBackfillStartFailed',
   backfill_worker_shutdown: 'errors.jobFailureBackfillWorkerShutdown',
+  credential_over_http: 'errors.jobFailureCredentialOverHttp',
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   missing_crs: 'errors.jobFailureMissingCrs',

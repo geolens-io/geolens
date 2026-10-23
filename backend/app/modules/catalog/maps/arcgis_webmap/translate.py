@@ -230,12 +230,55 @@ def _filter(definition: dict, path: str, loss: LossReport) -> list | None:
     return translated
 
 
+_NUMERIC_FIELD_KINDS = {
+    "esriFieldTypeSmallInteger": "integer",
+    "esriFieldTypeInteger": "integer",
+    "esriFieldTypeBigInteger": "integer",
+    "esriFieldTypeOID": "integer",
+    "esriFieldTypeSingle": "single",
+    "esriFieldTypeDouble": "float",
+}
+
+
+_NUMERIC_COLUMN_KINDS = {
+    "smallint": "integer",
+    "integer": "integer",
+    "bigint": "integer",
+    "numeric": "float",
+    "real": "single",
+    "double precision": "float",
+}
+
+
+def _numeric_fields(
+    definition: dict, columns: Sequence[Mapping[str, Any]] | None
+) -> dict[str, str]:
+    """Numeric kind by field name; the web map's field types win over the dataset's."""
+    kinds = {
+        column["name"]: _NUMERIC_COLUMN_KINDS[column["type"]]
+        for column in columns or ()
+        if isinstance(column.get("name"), str)
+        and column.get("type") in _NUMERIC_COLUMN_KINDS
+    }
+    kinds.update(
+        {
+            field["name"]: _NUMERIC_FIELD_KINDS[field["type"]]
+            for field in _l(definition.get("fields"))
+            if isinstance(field, dict)
+            and isinstance(field.get("name"), str)
+            and field.get("type") in _NUMERIC_FIELD_KINDS
+        }
+    )
+    return kinds
+
+
 def _layer_input(
     layer: dict,
     path: str,
     dataset_id: uuid.UUID,
     group: _Group | None,
     loss: LossReport,
+    columns: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict:
     definition = _d(layer.get("layerDefinition"))
     drawing = _d(definition.get("drawingInfo"))
@@ -251,6 +294,7 @@ def _layer_input(
         f"{path}.layerDefinition.drawingInfo.renderer",
         loss,
         definition.get("geometryType"),
+        _numeric_fields(definition, columns),
     )
 
     style_config = styled.style_config
@@ -380,6 +424,7 @@ def _add_layer(
     path: str,
     dataset_id: uuid.UUID,
     group: _Group | None,
+    columns: Sequence[Mapping[str, Any]] | None,
 ) -> None:
     scratch = LossReport()
     ref = UnmatchedLayer(
@@ -389,7 +434,7 @@ def _add_layer(
         "invalid",
     )
     try:
-        data = _layer_input(layer, path, dataset_id, group, scratch)
+        data = _layer_input(layer, path, dataset_id, group, scratch, columns)
         built = MapLayerInput.model_validate(
             {**data, "sort_order": min(len(result.layers), 32767)}
         )
@@ -412,6 +457,7 @@ def translate_webmap(
     dataset_matches: Mapping[str, uuid.UUID],
     basemap_map: Mapping[str, str],
     available_basemaps: Sequence[str],
+    dataset_columns: Mapping[uuid.UUID, Sequence[Mapping[str, Any]]] | None = None,
 ) -> Translation:
     """Translate ``webmap``; unknown or malformed parts become loss items."""
     result = Translation(name=(name or "").strip()[:255] or DEFAULT_MAP_NAME)
@@ -443,7 +489,14 @@ def translate_webmap(
         elif len(result.layers) >= _MAX_LAYERS_PER_MAP:
             loss.add(path, "layer_cap", title)
         else:
-            _add_layer(result, layer, path, dataset_id, group)
+            _add_layer(
+                result,
+                layer,
+                path,
+                dataset_id,
+                group,
+                (dataset_columns or {}).get(dataset_id),
+            )
 
     result.basemap_style = _basemap(webmap, basemap_map, available_basemaps, loss)
     report_unknown_keys([webmap], WEBMAP_KEYS, "webmap", loss)

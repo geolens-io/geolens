@@ -32,7 +32,10 @@ from app.core.tile_scope import tile_template_query
 from app.core.text import escape_ilike
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
+    SIGNED_IN_MAP_VISIBILITIES,
     answers_audience_questions,
+    apply_map_visibility_filter,
     apply_visibility_filter,
     audience_admits,
     visible_extent_column,
@@ -54,7 +57,6 @@ from app.modules.catalog.maps.service_layers import (
     lock_maps_for_admin_write,
 )
 from app.modules.catalog.maps.service_shared import (
-    _apply_map_visibility_filter,
     _extract_dem_vertical_units,
     readable_dataset_ids,
 )
@@ -94,12 +96,6 @@ async def validate_public_visibility(
     rows = (await session.execute(stmt)).all()
     readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
     return [row[0] for row in rows if row[1] in readable]
-
-
-# The two shared audiences. A private map has no audience beyond
-# owner/grantees, so it can never be stranded. Who a map reaches is core's own
-# rule, not the permission seam's, so an overlay can't narrow this.
-_SHARED_MAP_AUDIENCES = ("public", "internal")
 
 
 async def _stranded_viewer_exists(
@@ -175,7 +171,7 @@ async def find_maps_broken_by_dataset_visibility(
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
         .where(Map.created_by == owner_id)
-        .where(Map.visibility.in_(_SHARED_MAP_AUDIENCES))
+        .where(Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES))
     )
     # A no-op change strands nobody for any authority, and a round-tripped
     # record resubmits the same visibility.
@@ -205,16 +201,17 @@ async def find_maps_broken_by_dataset_visibility(
             session, before, after, regrant
         )
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
-        audiences = [
-            visibility
-            for visibility in _SHARED_MAP_AUDIENCES
-            if signed_in_stranded or (visibility == "public" and anonymous_stranded)
-        ]
-        if not audiences:
+        # Who a map reaches is core's rule, not the permission seam's, and a
+        # private map reaches nobody beyond its owner, so it is never stranded.
+        if signed_in_stranded:
+            audiences = SIGNED_IN_MAP_VISIBILITIES
+        elif anonymous_stranded:
+            audiences = ANONYMOUS_MAP_VISIBILITIES
+        else:
             return []
         stmt = stmt.where(audience_admits(before, owner_id))
     else:
-        audiences = list(_SHARED_MAP_AUDIENCES)
+        audiences = SIGNED_IN_MAP_VISIBILITIES
     result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
     return [row[0] for row in result.all()]
 
@@ -237,7 +234,7 @@ async def create_share_token(
     )
     if visibility is None or visible_creator_id is None:
         raise ValueError("Map not found")
-    if visibility != "public":
+    if visibility not in ANONYMOUS_MAP_VISIBILITIES:
         raise ValueError("Map must be public before sharing")
 
     existing = await session.execute(
@@ -602,9 +599,10 @@ async def get_shared_map(
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
-        .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
+        .where(MapLayer.map_id == token_obj.map_id)
         .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
     )
+    base_stmt = apply_map_visibility_filter(base_stmt, None, False)
     stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)
     layer_rows = list(layer_result.all())
@@ -626,7 +624,7 @@ async def get_shared_map(
         # Missing, not public, or no visible layers: a map-only check tells
         # "not found" from "empty".
         map_obj = await get_map(session, token_obj.map_id)
-        if map_obj is None or map_obj.visibility != "public":
+        if map_obj is None or map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
             return None
         # No visible layers means no dataset id is authorized, so the terrain
         # binding goes too.
@@ -818,7 +816,9 @@ async def list_share_tokens(
 
     # Scope to published maps; the status filter narrows on the joined
     # share-link state.
-    conditions: list[ColumnElement[bool]] = [Map.visibility == "public"]
+    conditions: list[ColumnElement[bool]] = [
+        Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES)
+    ]
     if search:
         # lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
         conditions.append(
@@ -959,7 +959,7 @@ async def get_maps_for_dataset(
     )
 
     # Same RBAC filter as list_maps.
-    stmt = _apply_map_visibility_filter(stmt, user_id, is_admin)
+    stmt = apply_map_visibility_filter(stmt, user_id, is_admin)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await session.execute(count_stmt)).scalar() or 0

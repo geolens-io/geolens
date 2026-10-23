@@ -281,6 +281,7 @@ export function buildGraduatedExpression(
   column: string,
   breaks: number[],
   colors: string[],
+  nullColor = '#cccccc',
 ): unknown[] {
   if (colors.length !== breaks.length + 1) {
     throw new Error(
@@ -292,7 +293,7 @@ export function buildGraduatedExpression(
   for (let i = 0; i < breaks.length; i++) {
     step.push(breaks[i], colors[i + 1]);
   }
-  return ['case', ['==', ['get', column], null], '#cccccc', step];
+  return ['case', ['==', ['get', column], null], nullColor, step];
 }
 
 /** Paint property name for coloring based on geometry type. */

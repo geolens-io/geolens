@@ -162,6 +162,7 @@ from app.processing.raster.validation import validate_sources_async
 from app.platform.service_auth import (
     credential_or_422,
     service_credential_from_request,
+    credential_over_http_or_422,
 )
 from app.platform.storage import get_storage
 from app.platform.upload_filenames import (
@@ -1035,6 +1036,7 @@ async def commit_import(
         service_credential_from_request(getattr(commit, "auth", None), token),
         service_format=job_service_format(job),
     )
+    credential_over_http_or_422(job.source_url, credential)
 
     # Judge the credential and the store before the write below:
     # `service_auth_required` is a one-way door (`_replay_capability` refuses

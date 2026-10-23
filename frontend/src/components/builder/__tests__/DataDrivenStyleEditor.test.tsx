@@ -690,6 +690,71 @@ describe('DataDrivenStyleEditor', () => {
       expect((newConfig as StyleConfig).colors![0]).toBe('#ff0000');
       expect((newConfig as StyleConfig).colors!.slice(1)).toEqual(colors.slice(1));
     });
+
+    it('keeps the saved null colour when a class colour changes', async () => {
+      const breaks = equalIntervalBreaks(0, 100, 3);
+      const colors = getRampColors('YlOrRd', 3);
+      const config: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'custom',
+        method: 'manual',
+        classCount: 3,
+        breaks,
+        colors,
+        nullColor: 'rgba(0,0,0,0)',
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({ min: 0, max: 100, count: 100, mean: 50, quantiles: [] }) as unknown as ReturnType<
+          typeof useColumnStats
+        >,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('population') } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getAllByTestId('hex-color-picker')[0]);
+
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled(), { timeout: 1000 });
+      const [, newConfig, newPaint] = onStyleConfigChange.mock.calls[0];
+      expect((newConfig as StyleConfig).nullColor).toBe('rgba(0,0,0,0)');
+      expect((newPaint as Record<string, unknown[]>)['fill-color'][2]).toBe('rgba(0,0,0,0)');
+    });
+  });
+
+  describe('imported numeric categories', () => {
+    it('leaves a config with typed numeric categories alone on open', async () => {
+      const values = [1, 2, 3];
+      const config: StyleConfig = {
+        mode: 'categorical',
+        column: 'population',
+        ramp: 'custom',
+        categories: [
+          { value: 1, color: '#ff0000' },
+          { value: 2, color: '#00ff00' },
+          { value: 3, color: '#0000ff' },
+        ],
+      };
+      mockUseColumnValues.mockReturnValue(hookData({ values, count: values.length }));
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('population') } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('target selector', () => {

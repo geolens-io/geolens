@@ -20,10 +20,17 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
-from app.platform.egress_proxy import service_egress_proxy
+from app.platform.egress_proxy import (
+    gdal_source_url,
+    pinned_origin,
+    service_egress_proxy,
+)
 from app.platform.gdal_argv import reject_option_like_layer_name
 from app.platform.gdal_env import gdal_service_safe_env
-from app.platform.service_auth import credential_input_rejection
+from app.platform.service_auth import (
+    credential_input_rejection,
+    refuse_credential_over_http,
+)
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.platform.service_items import (
@@ -199,6 +206,7 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
+        refuse_credential_over_http(base_url, token)
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
         # Omitting outFields returns only the display field, dropping every
@@ -272,6 +280,7 @@ async def run_service_preview(
     columns, sample_rows.
     """
     reject_option_like_layer_name(layer_name)
+    refuse_credential_over_http(gdal_source_url(gdal_source), credential)
     empty_fallback: dict = {
         "srid": None,
         "geometry_type": None,
@@ -326,7 +335,10 @@ async def run_service_preview(
         # never add it. The proxy checks and pins every connection ogrinfo
         # opens, redirect hops included. SERVICE variant: this branch reads
         # WFS/OAPIF, which the vector variant skips.
-        async with service_egress_proxy(idle_seconds=_HTTP_TIMEOUT_SECONDS) as egress:
+        async with service_egress_proxy(
+            idle_seconds=_HTTP_TIMEOUT_SECONDS,
+            origin=pinned_origin(gdal_source, credential=credential is not None),
+        ) as egress:
             env = gdal_service_safe_env(egress)
             pair: tuple[str, str] | None = None
             if credential is not None and (
@@ -416,11 +428,9 @@ async def run_service_preview(
                 os.chmod(header_file_path, 0o600)
                 env["GDAL_HTTP_HEADER_FILE"] = header_file_path
                 env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
-                # GDAL forwards non-Authorization headers verbatim across
-                # hosts, so a service-chosen API key is redirect-exposed here
-                # and can't be protected from inside (AGENTS.md Rule 2).
-                # IF_SAME_HOST not NO: a same-host canonical redirect (e.g. a
-                # trailing slash) must keep the credential or the service 401s.
+                # Other header names would follow a redirect to any host; the
+                # proxy's origin pin refuses those. IF_SAME_HOST, not NO: a
+                # same-host redirect (a trailing slash) must keep the credential.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
             # Computed here so it accounts for budget already spent (page
@@ -486,6 +496,11 @@ async def run_service_preview(
             returncode=proc.returncode,
             stderr=safe_error_msg,
         )
+        if egress.left_origin:
+            raise IngestionError(
+                "the source service redirected to another address, and GeoLens "
+                "does not send a credential anywhere but the service's own address"
+            )
         if egress.refused:
             raise IngestionError(
                 "the source service pointed to an address this server does not "

@@ -756,6 +756,31 @@ describe('SourceRefreshAction', () => {
   // "Signed in" state before an assertion ever sees it).
   const FAR_FUTURE_EXPIRY = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
+  it('explains a refused http credential without pointing at a URL field', async () => {
+    mutateAsync.mockRejectedValue(
+      new ApiError('credential_over_http', 422, {
+        code: 'credential_over_http',
+        message: 'raw diagnostic text, never rendered',
+        field: 'url',
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+      />,
+    );
+
+    await openDialog(user);
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    expect(
+      await screen.findByText(/Re-import the data from the service's https:\/\/ address/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
+  });
+
   describe('service_token_required credential prompt', () => {
     it('keeps the dialog open on the 422 and never echoes the raw response text into the DOM', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());

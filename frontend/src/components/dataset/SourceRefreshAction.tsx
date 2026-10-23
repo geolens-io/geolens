@@ -222,6 +222,11 @@ export function SourceRefreshAction({
           setServiceTokenRequired(true);
           return;
         }
+        // The shared copy points at a URL field this dialog doesn't have.
+        if (body?.code === 'credential_over_http') {
+          setError(t('common:errors.credentialOverHttpRefresh'));
+          return;
+        }
       }
       setError(err instanceof Error ? err.message : t('sourcePanel.refresh.errors.unknown'));
     }

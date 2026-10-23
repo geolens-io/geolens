@@ -414,6 +414,19 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
+  it('maps credential_over_http to its own key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'credential_over_http',
+          message: 'This service address uses plain HTTP.',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.credentialOverHttp' });
+  });
+
   // The sixth and
   // final caller-facing code (backend/app/modules/catalog/sources/
   // arcgis_signin.py, HOST_INVALID), a 422 for a portal hostname that

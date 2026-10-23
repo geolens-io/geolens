@@ -307,7 +307,7 @@ async def _validate_chat_layers(
     from app.modules.catalog.maps.models import Map as MapORM
     from app.modules.catalog.maps._router_helpers import (
         _can_edit_map,
-        _check_map_read_access,
+        check_map_access,
     )
 
     try:
@@ -326,7 +326,7 @@ async def _validate_chat_layers(
     # Gate on VIEW access, not ownership: a non-viewer gets 404 (no existence
     # oracle), same as a missing map. can_edit selects the AI tool set so a
     # viewer can ask questions but cannot use the AI to edit.
-    await _check_map_read_access(map_row, user, db)
+    await check_map_access(db, map_row, user)
     can_edit = await _can_edit_map(map_row, user, db)
     basemap_style = getattr(map_row, "basemap_style", None)
 

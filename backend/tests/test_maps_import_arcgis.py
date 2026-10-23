@@ -163,6 +163,39 @@ class TestDryRun:
         assert await _owned_maps(client, headers) == before
 
 
+class TestCategoryTyping:
+    async def test_a_dataset_column_types_categories_the_web_map_does_not_declare(
+        self, client: AsyncClient, test_db_session, editor
+    ) -> None:
+        headers, editor_id = editor
+        ds = await create_dataset(
+            test_db_session,
+            created_by=editor_id,
+            column_info=[{"name": "CODE", "type": "integer"}],
+        )
+        webmap = _webmap("a")
+        webmap["operationalLayers"][0]["layerDefinition"]["drawingInfo"]["renderer"] = {
+            "type": "uniqueValue",
+            "field1": "CODE",
+            "uniqueValueInfos": [
+                {
+                    "value": "1",
+                    "symbol": {"type": "esriSFS", "color": [255, 0, 0, 255]},
+                },
+                {
+                    "value": "2",
+                    "symbol": {"type": "esriSFS", "color": [0, 0, 255, 255]},
+                },
+            ],
+        }
+
+        resp = await client.post(URL, json=_body(webmap, {"a": ds.id}), headers=headers)
+
+        assert resp.status_code == 201, resp.text
+        layer = resp.json()["map"]["layers"][0]
+        assert [c["value"] for c in layer["style_config"]["categories"]] == [1, 2]
+
+
 class TestDatasetAccess:
     """A caller must never get a map that references a dataset they can't read."""
 
