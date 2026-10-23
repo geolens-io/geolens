@@ -575,6 +575,22 @@ def test_a_lost_request_with_a_page_of_runs_since_is_reported(
     assert len(refresh.bodies) == 1
 
 
+def test_a_blocked_run_nobody_accepted_keeps_its_marker(runner, plan_file, geolens):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service, outcome="blocked").allow(PARCELS)
+    refresh.extra = {"verification": {"review_reasons": ["schema_changed"]}}
+    _migrate(runner, plan_file, "--only", A2)
+    [blocked] = refresh.runs[PARCELS]
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert f"--accept-blocked-run {blocked['id']}" in payload["not_up_to_date"][A2][0]
+    assert len(refresh.bodies) == 1
+    [marker] = _state(plan_file)["items"][A2]["refreshing"].values()
+    assert marker["blocked"] == blocked["id"]
+
+
 @pytest.mark.parametrize("edited_after", [False, True])
 def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
     runner, plan_file, geolens, edited_after
@@ -881,7 +897,9 @@ def test_an_edit_made_while_a_refresh_is_refused_stays_protected(
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
     assert len(refresh.bodies) == 1
-    assert "changed in GeoLens since the last run" in payload["not_up_to_date"][A2][0]
+    # A held run is named until someone accepts it.
+    reason = "changed in GeoLens" if outcome == "failed" else "--accept-blocked-run"
+    assert reason in payload["not_up_to_date"][A2][0]
 
 
 def test_a_dataset_edited_right_after_its_refresh_published_is_not_recorded(

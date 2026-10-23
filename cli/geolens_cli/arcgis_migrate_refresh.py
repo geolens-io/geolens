@@ -227,6 +227,12 @@ def changed_in_geolens(
         entry.refreshing[dataset_id] = marker
         ctx.save()
         run = _find_run(ctx, dataset_id, marker)
+    if run is None and marker and "blocked" in marker:
+        # A new refresh would replace the run the acceptance has to name.
+        return (
+            "its refresh stopped for review and hasn't been accepted. Accept with: "
+            f"geolens refresh {dataset_id} --accept-blocked-run {marker['blocked']}"
+        )
     if run is not None:
         if str(run.status) not in _ENDED:
             return "a refresh an earlier run started is still running"
