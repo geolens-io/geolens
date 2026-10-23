@@ -461,6 +461,8 @@ async def _label_matched_codes(
             if isinstance(label, str) and filters[name].casefold() in label.casefold()
         ]
         for name, labels in result.all()
+        # Cleared labels are stored as JSON null, which IS NOT NULL lets through.
+        if isinstance(labels, dict)
     }
 
 

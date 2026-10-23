@@ -83,6 +83,12 @@ async def coded_dataset(test_db_session):
             value_labels={"0.5": "Half", "1e40": "Huge ratio"},
         )
     )
+    # Labels cleared from a column are stored as JSON null.
+    test_db_session.add(
+        AttributeMetadata(
+            dataset_id=ds.id, field_name="name", data_type="text", value_labels=None
+        )
+    )
     await test_db_session.commit()
 
     yield ds
