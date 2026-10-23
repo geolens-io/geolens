@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { setDatasetGroups } from '@/api/datasets';
 import { listMyGroups } from '@/api/groups';
 import { ApiError } from '@/api/client';
@@ -11,6 +12,7 @@ vi.mock('@/api/datasets', async (importOriginal) => ({
   setDatasetGroups: vi.fn(),
 }));
 vi.mock('@/api/groups', () => ({ listMyGroups: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }));
 
 const mockSet = vi.mocked(setDatasetGroups);
 const mockMine = vi.mocked(listMyGroups);
@@ -56,6 +58,16 @@ describe('DatasetGroupShare', () => {
     await waitFor(() => expect(mockSet).toHaveBeenCalledWith('ds-1', ['g-1']));
     expect(await screen.findByText('Groups saved. This dataset is now Restricted.')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Add a group' })).toHaveFocus();
+  });
+
+  it('shows the inherited-keyword warning the save returns', async () => {
+    const warning = 'Inherited keywords are now visible to people who cannot read the source.';
+    mockSet.mockResolvedValue({ visibility: 'restricted', groups: [SURVEYORS], metadata_warnings: [warning] });
+    const user = setup();
+    await pick(user, 'Surveyors');
+    await user.click(screen.getByRole('button', { name: 'Save groups' }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(warning));
   });
 
   it('unshares with an empty list and says the dataset becomes private', async () => {

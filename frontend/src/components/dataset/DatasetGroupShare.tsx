@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useMyGroups, useSetDatasetGroups } from '@/components/dataset/hooks/use-dataset';
 import { UserPicker, type PickerUser } from '@/components/admin/UserPicker';
 import { Button } from '@/components/ui/button';
@@ -72,6 +73,7 @@ export function DatasetGroupShare({ datasetId, visibility, groups: current }: Da
         onSuccess: (result) => {
           setDraft(null);
           announce(t('groupShare.saved', { visibility: getVisibilityLabel(t, result.visibility) }));
+          if (result.metadata_warnings?.length) toast.warning(result.metadata_warnings[0]);
           pickerRef.current?.focus();
         },
       },
