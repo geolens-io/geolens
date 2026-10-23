@@ -28,7 +28,7 @@ from .arcgis_migrate_session import (
     MigrationContext,
     StopRun,
 )
-from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
 from .arcgis_portal import PortalError, redact_json, sanitize_url
 
 LOSS_DIRNAME = "webmap-loss"
@@ -182,12 +182,13 @@ def refresh_map(
         return [f"reading the web map to check it for changes failed, {exc}"]
     if modified is None:
         return ["the portal doesn't say when the web map last changed"]
-    if entry.portal_modified is None:
+    recorded = whole_number(entry.portal_modified)
+    if recorded is None:
         return [
             "the state doesn't record when the web map was read for its import, so "
             "a change since can't be ruled out; compare the GeoLens map by hand"
         ]
-    if modified > entry.portal_modified:
+    if modified > recorded:
         return [
             "the web map changed in the portal since it was migrated; web maps "
             "aren't translated again, so update the GeoLens map by hand"

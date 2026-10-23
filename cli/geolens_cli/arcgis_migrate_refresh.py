@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable, Iterable, Mapping
-from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -46,7 +45,7 @@ from .arcgis_migrate_layers import (
     importable_layers,
 )
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
-from .arcgis_migrate_state import ItemState
+from .arcgis_migrate_state import ItemState, aware_time, whole_number
 from .refresh import (
     RefreshPollResult,
     _value,
@@ -141,13 +140,12 @@ def _published_unchanged(
     the admin who started it (by default this run's) wrote it last, and its
     data revision and owner are the ones the run was sent with. A marker from
     before the owner was recorded skips the owner."""
-    expected = marker.get("revision")
-    owner = marker.get("owner")
+    expected = whole_number(marker.get("revision"))
     return (
         expected is not None
         and _revision(dataset) == expected
         and _operator_wrote_last(ctx, dataset, marker.get("by"))
-        and (owner is None or _owner(dataset) == owner)
+        and ("owner" not in marker or _owner(dataset) == marker["owner"])
     )
 
 
@@ -182,11 +180,11 @@ def changed_in_geolens(
             return None
     seen = entry.last_update.get(dataset_id)
     if seen is None:
-        finished = entry.finished_at
+        finished = aware_time(entry.finished_at)
         if (
-            finished
+            finished is not None
             and _operator_wrote_last(ctx, dataset)
-            and dataset.updated_at <= datetime.fromisoformat(finished)
+            and dataset.updated_at <= finished
         ):
             return None
         return "changed in GeoLens since it was migrated"
@@ -324,6 +322,8 @@ def refresh_layers(
     # A state file from before the URL was recorded adopts the one that
     # answered, so a later change of service is refused like any other.
     entry.service_url = row["url"]
+    if not probe.layers and entry.layer_datasets:
+        return ["couldn't check the service's layers: its probe listed none"]
     flags = attachment_flags(probe.layers)
     entry.attachments = {key: flags.get(key) for key in entry.layer_datasets}
     ctx.save()
@@ -452,6 +452,8 @@ def refresh_file(
             partial(_start_replace, ctx, entry, path=path, layers_seen=layers_seen),
         )
     known = {_layer_name(key) for key in entry.layer_datasets if key != JOB_KEY}
+    if known and not layers_seen and not problems:
+        return ["couldn't check the file's layers: its previews listed none"]
     # Only a multi-layer file's previews list its layers.
     added = sorted(layers_seen - known) if known else []
     return [

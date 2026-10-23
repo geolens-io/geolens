@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 from . import arcgis_report as _report
 from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
-from .arcgis_migrate_state import FAILED, ItemState, MigrationState
+from .arcgis_migrate_state import FAILED, ItemState, MigrationState, whole_number
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
@@ -418,8 +418,7 @@ def export_item(
 
 
 def _modified(item: Any) -> int | None:
-    value = item.get("modified") if isinstance(item, dict) else None
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    return whole_number(item.get("modified") if isinstance(item, dict) else None)
 
 
 def refresh_export(
@@ -446,8 +445,8 @@ def refresh_export(
             "may be out of date"
         ]
     present = _bundle_in_place(ctx, item, entry)
-    recorded = (entry.export or {}).get("modified")
-    if present and isinstance(recorded, int) and modified <= recorded:
+    recorded = whole_number((entry.export or {}).get("modified"))
+    if present and recorded is not None and modified <= recorded:
         return []
     why = (
         "changed in the portal since it was exported"
@@ -474,6 +473,7 @@ def _bundle_in_place(
         ctx.export_dir is None
         or not _ITEM_ID.fullmatch(item["id"])
         or not isinstance(files, dict)
+        or not files
     ):
         return False
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]

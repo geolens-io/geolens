@@ -62,6 +62,21 @@ class StateError(Exception):
     """The state file can't be read, or belongs to another portal."""
 
 
+def whole_number(value: Any) -> int | None:
+    """*value* when it is an int, and not a bool, else None."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def aware_time(value: Any) -> datetime | None:
+    """*value* as a timezone-aware datetime when it is an ISO time with an
+    offset, else None."""
+    try:
+        when = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return when if when is not None and when.tzinfo is not None else None
+
+
 def _now() -> str:
     return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 

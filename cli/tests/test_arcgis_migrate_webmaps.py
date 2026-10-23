@@ -515,3 +515,22 @@ def test_a_migrated_web_map_changed_in_the_portal_is_reported_at_cutover(
         reason
     )
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize("recorded", [True, "1790000000000", 1.5])
+def test_an_unusable_recorded_map_time_is_reported(
+    runner, plan_file, geolens, portal, recorded
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    token = secrets.token_urlsafe(16)
+    _migrate(runner, plan_file, "--only", B1, "--token", token)
+    path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(path.read_text())
+    state["items"][B1]["portal_modified"] = recorded
+    path.write_text(json.dumps(state))
+
+    result, payload = _migrate(runner, plan_file, "--only", B1, "--token", token)
+
+    assert result.exit_code == 1
+    assert "doesn't record" in payload["not_up_to_date"][B1][0]

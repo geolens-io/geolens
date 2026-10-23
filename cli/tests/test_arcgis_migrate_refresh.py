@@ -1293,7 +1293,8 @@ _PLAN = {
         # Changed while the inventory ran, after its start, before its end.
         (_SearchPortal({"results": [{"modified": 1790815000000}]}), "changed after"),
         (_SearchPortal({"results": [{"modified": 1759000000000}]}), None),
-        (_SearchPortal({"results": []}), None),
+        # An organization the plan came from has items; none is no answer.
+        (_SearchPortal({"results": []}), "found no items of the organization"),
         (_SearchPortal({"results": []}, token=None), "no ArcGIS credential"),
         (None, "no ArcGIS credential"),
         (_SearchPortal(PortalError("boom", kind="server")), "couldn't check"),
@@ -1470,7 +1471,10 @@ def test_a_plan_carries_the_start_time_of_the_inventory_it_was_merged_from(
     ],
 )
 def test_the_freshness_search_needs_an_org_admin_account(user, searched):
-    client = _SearchPortal({"results": []}, self_info={"user": user} if user else {})
+    client = _SearchPortal(
+        {"results": [{"modified": 1759000000000}]},
+        self_info={"user": user} if user else {},
+    )
 
     reason = cutover_mod.inventory_changes(client, _PLAN, _NOW)
 
@@ -1503,3 +1507,122 @@ def test_the_inventory_start_is_the_portals_clock_not_the_hosts():
 
     assert report["started_at"] == "2026-09-30T23:00:00Z"
     assert report["started_at_local"] == "2026-09-30T23:00:05Z"
+
+
+# Fail closed: a check that can't read what it compares refuses.
+
+
+@pytest.mark.parametrize("started_at", ["yesterday", "2026-10-01T00:00:00", 17])
+def test_an_unusable_inventory_start_refuses_the_freshness_check(started_at):
+    plan = {"inventory": {**_PLAN["inventory"], "started_at": started_at}}
+    client = _SearchPortal({"results": [{"modified": 1759000000000}]})
+
+    reason = cutover_mod.inventory_changes(client, plan, _NOW)
+
+    assert "records no start time" in reason and client.asked == []
+
+
+def test_a_probe_that_lists_no_layers_is_not_taken_as_unchanged(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers.clear()
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][A2] == [
+        "couldn't check the service's layers: its probe listed none"
+    ]
+    assert refresh.bodies == []
+
+
+@pytest.mark.parametrize("finished_at", [None, "not a time", "2026-10-02T12:00:00"])
+def test_an_unusable_finish_time_in_an_old_state_is_not_trusted(
+    runner, plan_file, geolens, finished_at
+):
+    service = _migrated(runner, plan_file, geolens)
+    _edit_state(plan_file, A2, last_update={}, finished_at=finished_at)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert refresh.bodies == []
+    assert (
+        "changed in GeoLens since it was migrated" in (payload["not_up_to_date"][A2][0])
+    )
+
+
+@pytest.mark.parametrize(
+    ("marker", "fields"),
+    [
+        # A bool is not a revision, though True == 1.
+        ({"revision": True}, {"data_revision": 1}),
+        # An owner recorded as none must still be none.
+        ({"revision": 0, "owner": None}, {}),
+    ],
+)
+def test_a_recovered_run_is_adopted_only_on_a_matching_record(
+    runner, plan_file, geolens, marker, fields
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    run_id = _uuid("5e", "88")
+    refresh.runs[PARCELS] = [_run(PARCELS, run_id, "succeeded")]
+    _edit_state(
+        plan_file,
+        A2,
+        refreshing={PARCELS: {"run": run_id, "by": layers.OPERATOR, **marker}},
+    )
+    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER, **fields})
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert refresh.bodies == []
+    assert "changed in GeoLens" in payload["not_up_to_date"][A2][0]
+
+
+def test_a_multi_layer_file_whose_previews_list_no_layers_is_reported(
+    runner, tmp_path, geolens, portal
+):
+    files.FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = files._plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+    assert result.exit_code == 0, result.output
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    for n, dataset in enumerate(datasets):
+        job = _uuid("0c", f"{n:02d}")
+        geolens.routes.update(
+            {
+                f"POST /datasets/{dataset}/reupload": (
+                    201,
+                    {"job_id": job, "message": "ok", "status": "pending"},
+                ),
+                f"POST /datasets/{dataset}/reupload/{job}/preview": _preview(job),
+                f"POST /datasets/{dataset}/reupload/{job}/commit": (
+                    202,
+                    {"job_id": job, "status": "pending", "message": "queued"},
+                ),
+                f"GET /datasets/{dataset}/refresh-runs": {
+                    "runs": [
+                        _run(
+                            dataset,
+                            _uuid("5e", f"{n:02d}"),
+                            "succeeded",
+                            ingest_job_id=job,
+                        )
+                    ],
+                    "total": 1,
+                },
+            }
+        )
+
+    result, payload = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][D3] == [
+        "couldn't check the file's layers: its previews listed none"
+    ]

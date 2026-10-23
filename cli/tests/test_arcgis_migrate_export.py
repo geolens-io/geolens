@@ -1194,3 +1194,23 @@ def test_a_bundle_missing_a_file_that_cant_be_exported_again_blocks_cutover(
     [reason] = payload["not_up_to_date"][C3]
     assert reason.startswith("its bundle is missing")
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_bundle_recorded_with_no_files_is_exported_again(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    # An empty folder matches an empty record, but proves nothing was saved.
+    shutil.rmtree(folder)
+    folder.mkdir()
+    state = _state(plan_file)
+    state["items"][C3]["export"]["files"] = {}
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{C3}/data"))
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads + 1
+    assert (folder / "item.json").exists()
