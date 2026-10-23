@@ -340,8 +340,11 @@ class _Module:
 
 
 def _bindings(scope: ast.AST):
-    """``(target, value)`` for every way the scope binds a name to a value."""
-    for node in ast.walk(scope):
+    """``(target, value)`` for every way the scope itself binds a name to a value.
+
+    Nested functions, lambdas and classes bind in their own scopes.
+    """
+    for node in _own_nodes(scope):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 yield target, node.value
@@ -435,11 +438,7 @@ def _target_names(target: ast.AST):
 def _class_aliases(cls: ast.ClassDef, inherited: frozenset[str]) -> frozenset[str]:
     """Class attributes the class body binds to the stored dict."""
     pairs = [
-        pair
-        for node in cls.body
-        if not isinstance(node, _NESTED_SCOPES)
-        for target, value in _bindings(node)
-        for pair in _name_pairs(target, value)
+        pair for target, value in _bindings(cls) for pair in _name_pairs(target, value)
     ]
     bound = {name for name, _ in pairs}
     return _alias_fixpoint(pairs, set(inherited) - bound) & bound
@@ -547,7 +546,7 @@ class _Scope:
         return found
 
     def _assignments(self, name: str):
-        for node in ast.walk(self.scope):
+        for node in _own_nodes(self.scope):
             if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
                 targets = (
                     node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -564,7 +563,7 @@ class _Scope:
         found: list[str] = []
         for value in self._assignments(name):
             found.extend(self.mentions(value, follow=False))
-        for node in ast.walk(self.scope):
+        for node in _own_nodes(self.scope):
             if (
                 isinstance(node, ast.Subscript)
                 and isinstance(node.ctx, ast.Store)
@@ -621,8 +620,39 @@ class _Scope:
                 for target, value in _bindings(self.scope)
                 for pair in _name_pairs(target, value)
             ]
+            pairs += self._rebound_by_nested()
             self._stored_aliases = _alias_fixpoint(pairs, inherited)
         return self._stored_aliases
+
+    def _rebound_by_nested(self) -> list[tuple[str, ast.AST]]:
+        """Bindings nested functions make to this scope's own names.
+
+        Through ``nonlocal`` for a function's names, through ``global`` for
+        the module's.
+        """
+        declared_as = ast.Nonlocal if self.parent is not None else ast.Global
+        own = self.local_names() if self.parent is not None else None
+        pairs = []
+        for node in ast.walk(self.scope):
+            if node is self.scope or not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            declared = {
+                name
+                for statement in _own_nodes(node)
+                if isinstance(statement, declared_as)
+                for name in statement.names
+            }
+            if own is not None:
+                declared &= own
+            pairs.extend(
+                (name, value)
+                for target, bound in _bindings(node)
+                for name, value in _name_pairs(target, bound)
+                if name in declared
+            )
+        return pairs
 
     def stored_dict(self, node: ast.AST) -> str | None:
         """What a reference to the stored dict is called, if the node is one."""
@@ -1449,6 +1479,21 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "        self.ref['token'] = t",
         "def outer(t):\n    changes = {'title': t}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
+        # An alias inside a nested scope stays there.
+        "def outer(dataset):\n    ref = {}\n    def inner():\n"
+        "        ref = dataset.origin_ref\n        return ref\n"
+        "    ref.update(title='x')\n    return inner",
+        "def outer(dataset):\n    ref = {}\n"
+        "    peek = lambda: (ref := dataset.origin_ref)\n"
+        "    ref.update(title='x')\n    return peek",
+        "def outer(dataset):\n    ref = {}\n    class Holder:\n"
+        "        ref = dataset.origin_ref\n    ref.update(title='x')\n    return Holder",
+        "def outer(r, t):\n    changes = {'title': t}\n    def inner():\n"
+        "        changes = {'origin_ref': r}\n        return changes\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r, t):\n    changes = {'title': t}\n    def inner():\n"
+        "        changes = {}\n        changes['origin_ref'] = r\n        return changes\n"
+        "    return update(Dataset).values(**changes)",
         "frame.to_sql('dataset_stats', engine)",
         "await conn.copy_records_to_table('datasets', records=rows, "
         "columns=['id', 'title'])",
