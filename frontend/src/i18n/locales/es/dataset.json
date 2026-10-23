@@ -169,7 +169,7 @@
     "visibilityPublic": "Público",
     "visibilityPrivate": "Privado",
     "visibilityRestricted": "Restringido",
-    "visibilityHelp": "Privado = solo el propietario y los administradores. Restringido = el propietario, los administradores y los miembros de los grupos con los que se comparte. Interno = cualquier usuario con sesión en GeoLens. Público = visible para todos, incluidos los visitantes sin sesión iniciada.",
+    "visibilityHelp": "Privado = solo el propietario y los administradores. Restringido = el propietario, los administradores y cualquier persona de los grupos o roles con los que se comparte. Interno = cualquier usuario con sesión en GeoLens. Público = visible para todos, incluidos los visitantes sin sesión iniciada.",
     "visibilityUpdated": "Visibilidad actualizada",
     "visibilityFailed": "No se pudo cambiar la visibilidad",
     "license": "Licencia",
