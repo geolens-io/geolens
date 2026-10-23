@@ -319,8 +319,10 @@ class TestUniqueValueRenderer:
         values = [c["value"] for c in layer.style_config["categories"]]
         assert values == [0.1, 2.5, 0.30000000000000004, "0.1000000000000000001"]
 
+    # The web map may also call the field a double; the column's kind still wins.
+    @pytest.mark.parametrize("web_map_type", [None, "esriFieldTypeDouble"])
     def test_a_numeric_column_category_matches_the_distinct_values_conversion(
-        self,
+        self, web_map_type
     ) -> None:
         text = "0.1000000000000000001"
         renderer = {
@@ -328,9 +330,14 @@ class TestUniqueValueRenderer:
             "field1": "RATE",
             "uniqueValueInfos": [{"value": text, "symbol": _fill()}],
         }
+        webmap = _with_renderer(renderer)
+        if web_map_type:
+            webmap["operationalLayers"][0]["layerDefinition"]["fields"] = [
+                {"name": "RATE", "type": web_map_type}
+            ]
         dataset_id = uuid.uuid4()
         layer = _translate(
-            _with_renderer(renderer),
+            webmap,
             matches={"L1": dataset_id},
             dataset_columns={dataset_id: [{"name": "RATE", "type": "numeric"}]},
         ).layers[0]

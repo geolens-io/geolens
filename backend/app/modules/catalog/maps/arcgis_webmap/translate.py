@@ -253,7 +253,8 @@ _NUMERIC_COLUMN_KINDS = {
 def _numeric_fields(
     definition: dict, columns: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, str]:
-    """Numeric kind by field name; the web map's field types win over the dataset's."""
+    """Numeric kind by field name; the web map's field types win over the
+    dataset's, except on a numeric column, whose values read back as decimals."""
     kinds = {
         column["name"]: _NUMERIC_COLUMN_KINDS[column["type"]]
         for column in columns or ()
@@ -267,6 +268,7 @@ def _numeric_fields(
             if isinstance(field, dict)
             and isinstance(field.get("name"), str)
             and field.get("type") in _NUMERIC_FIELD_KINDS
+            and kinds.get(field["name"]) != "numeric"
         }
     )
     return kinds
