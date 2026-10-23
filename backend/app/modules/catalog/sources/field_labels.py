@@ -26,7 +26,15 @@ def _code_text(code: object) -> str | None:
         code = int(code)
     if isinstance(code, int):
         return str(code)
-    return _clean(code, MAX_VALUE_LABEL_LENGTH)
+    # A code must match its feature value exactly, so one the store cannot keep
+    # as given is skipped, not rewritten.
+    if not isinstance(code, str) or len(code) > MAX_VALUE_LABEL_LENGTH:
+        return None
+    try:
+        code.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    return None if "\x00" in code else code
 
 
 def _coded_value_labels(domain: object) -> dict[str, str] | None:

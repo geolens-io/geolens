@@ -1268,7 +1268,7 @@ class _ServiceReupload:
                 self.source_url_value, self.layer_id, self.token
             )
             if self.service_type == "arcgis_featureserver"
-            else None
+            else {}
         )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
