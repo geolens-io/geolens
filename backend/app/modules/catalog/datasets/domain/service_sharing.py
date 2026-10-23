@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.models import Group, GroupMember
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     check_vrt_audiences_after_change,
     lock_dataset_rows_for_write,
@@ -44,25 +45,15 @@ class GroupNotJoinedError(PermissionError):
 
 async def dataset_groups(
     session: AsyncSession, dataset_id: uuid.UUID
-) -> list[tuple[uuid.UUID, str]]:
-    """The groups a dataset is shared with, as ``(id, name)`` by name."""
+) -> list[GroupRef]:
+    """The groups a dataset is shared with, by name."""
     rows = await session.execute(
         select(Group.id, Group.name)
         .join(DatasetGroupGrant, DatasetGroupGrant.group_id == Group.id)
         .where(DatasetGroupGrant.dataset_id == dataset_id)
         .order_by(Group.name, Group.id)
     )
-    return [(row.id, row.name) for row in rows.all()]
-
-
-def _visibility_with_groups(
-    visibility: str, has_groups: bool, has_role_grants: bool
-) -> str:
-    if visibility == "private" and has_groups:
-        return "restricted"
-    if visibility == "restricted" and not has_groups and not has_role_grants:
-        return "private"
-    return visibility
+    return [GroupRef(id=row.id, name=row.name) for row in rows.all()]
 
 
 async def set_dataset_groups(
@@ -114,14 +105,13 @@ async def set_dataset_groups(
         )
         if added - joined:
             raise GroupNotJoinedError
-    has_role_grants = bool(
-        await session.scalar(
-            select(exists().where(DatasetGrant.dataset_id == dataset.id))
-        )
-    )
-    visibility = _visibility_with_groups(
-        record.visibility, bool(wanted), has_role_grants
-    )
+    visibility = record.visibility
+    if visibility == "private" and wanted:
+        visibility = "restricted"
+    elif visibility == "restricted" and not wanted:
+        role_granted = select(exists().where(DatasetGrant.dataset_id == dataset.id))
+        if not await session.scalar(role_granted):
+            visibility = "private"
     if not (added or removed) and visibility == record.visibility:
         return False
 

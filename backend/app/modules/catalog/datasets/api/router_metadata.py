@@ -24,7 +24,6 @@ from app.modules.auth.dependencies import (
     get_optional_user,
     require_permission,
 )
-from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     can_view_dataset_provenance,
     check_dataset_access,
@@ -48,8 +47,12 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetVersionResponse,
 )
 from app.modules.catalog.datasets.domain.service import (
+    GroupNotJoinedError,
+    UnknownGroupsError,
+    dataset_groups,
     get_dataset,
     get_dataset_versions,
+    set_dataset_groups,
 )
 from app.core.dependencies import get_db
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -664,13 +667,6 @@ async def set_dataset_groups_endpoint(
     change would hide the dataset from viewers of the owner's shared maps or
     let a VRT reach people who cannot see all of its sources.
     """
-    from app.modules.catalog.datasets.domain.service import (
-        GroupNotJoinedError,
-        UnknownGroupsError,
-        dataset_groups,
-        set_dataset_groups,
-    )
-
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -726,6 +722,6 @@ async def set_dataset_groups_endpoint(
         await invalidate_catalog_cache()
     return DatasetGroupsResponse(
         visibility=visibility,
-        groups=[GroupRef(id=group_id, name=name) for group_id, name in groups],
+        groups=groups,
         metadata_warnings=warnings or None,
     )

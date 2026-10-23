@@ -165,9 +165,9 @@ async def find_maps_broken_by_dataset_visibility(
     unpublished record needs no special case: a draft's audience is owner and
     admins both before and after, so nobody is stranded.
 
-    ``regrant``, when given, changes the dataset's grants as well; it runs
-    exactly once, between reading who could read before and after, and does
-    not commit.
+    ``regrant``, when given, changes the dataset's grants as well. It runs at
+    most once, between reading who could read before and after; a caller
+    runs it if this didn't.
     """
     stmt = (
         select(Map.name)
@@ -185,8 +185,6 @@ async def find_maps_broken_by_dataset_visibility(
         or owner_id is None
         or (await session.execute(stmt.limit(1))).first() is None
     ):
-        if regrant is not None:
-            await regrant()
         return []
     permission = get_permission_extension()
     if answers_audience_questions(permission):
@@ -216,8 +214,6 @@ async def find_maps_broken_by_dataset_visibility(
             return []
         stmt = stmt.where(audience_admits(before, owner_id))
     else:
-        if regrant is not None:
-            await regrant()
         audiences = list(_SHARED_MAP_AUDIENCES)
     result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
     return [row[0] for row in result.all()]

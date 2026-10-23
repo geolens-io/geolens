@@ -29,12 +29,10 @@ async def list_my_groups(
 
     That is the groups the caller belongs to, or every group for an admin.
     """
-    if "admin" in await get_user_roles(db, user):
-        groups, total = await group_service.list_groups(db, skip=skip, limit=limit)
-    else:
-        groups, total = await group_service.list_groups_of_member(
-            db, user.id, skip=skip, limit=limit
-        )
+    is_admin = "admin" in await get_user_roles(db, user)
+    groups, total = await group_service.list_groups(
+        db, skip=skip, limit=limit, member_id=None if is_admin else user.id
+    )
     return GroupRefListResponse(
         groups=[GroupRef(id=group.id, name=group.name) for group in groups],
         total=total,

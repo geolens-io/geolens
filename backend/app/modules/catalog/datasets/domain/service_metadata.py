@@ -230,6 +230,12 @@ async def _apply_visibility_change(
         find_maps_broken_by_dataset_visibility,
     )
 
+    pending = [regrant] if regrant is not None else []
+
+    async def regrant_once() -> None:
+        while pending:
+            await pending.pop()()
+
     broken_maps = await find_maps_broken_by_dataset_visibility(
         session,
         dataset_id,
@@ -238,13 +244,14 @@ async def _apply_visibility_change(
         record_status=record.record_status,
         record_id=record.id,
         owner_id=record.created_by,
-        regrant=regrant,
+        regrant=regrant_once if pending else None,
     )
     if broken_maps:
         raise ValueError(
             "Cannot restrict visibility: dataset is used in shared maps: "
             f"{', '.join(broken_maps)}"
         )
+    await regrant_once()
     if new_visibility == record.visibility and regrant is None:
         return True
     record.visibility = new_visibility
