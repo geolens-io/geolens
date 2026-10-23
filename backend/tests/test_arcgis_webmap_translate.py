@@ -385,6 +385,21 @@ class TestClassBreaksRenderer:
             "class_range",
         }
 
+    @pytest.mark.parametrize(
+        "maxima", [[10], [10, 10]], ids=["one class", "equal maxima"]
+    )
+    def test_a_single_class_is_reported_as_not_editable(self, maxima: list) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "POP",
+            "classBreakInfos": [
+                {"classMaxValue": m, "symbol": _fill()} for m in maxima
+            ],
+        }
+        result = _translate(_with_renderer(renderer))
+        assert "class_single" in _kinds(result)
+        assert result.layers[0].style_config.get("mode") != "graduated"
+
     def test_contiguous_classes_report_no_gap(self) -> None:
         renderer = {
             "type": "classBreaks",

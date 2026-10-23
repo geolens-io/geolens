@@ -424,6 +424,11 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         base, [sym for _, _, sym in usable] + [default], path, loss
     )
     if len(usable) < 2:
+        loss.add(
+            path,
+            "class_single",
+            "one class is drawn as a fixed rule, not as editable class breaks",
+        )
         return _single_class(field_name, usable[0], base, fallback)
     colors = [_class_color(s) for _, _, s in usable]
     paint_colors = [_css_color(s) for _, _, s in usable]
