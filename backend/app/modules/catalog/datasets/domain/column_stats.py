@@ -102,6 +102,26 @@ def value_expr(col_q: str, data_type: str) -> str:
     return col_q
 
 
+def group_key_sql(col_q: str, data_type: str) -> tuple[str, str]:
+    """What a column groups on, and its returned key over the grouped ``_g._k``.
+
+    A timestamptz groups on its value and is written afterwards in UTC text
+    with the full year, since the tile text folds every year past 9999 into
+    ``infinity``. Other types group on their JSON-ready form.
+    """
+    if data_type != "timestamp with time zone":
+        return value_expr(col_q, data_type), "_g._k"
+    utc = "(_g._k AT TIME ZONE 'UTC')"
+    far_future = (
+        f"to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS')"
+        f" || rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00'"
+    )
+    return col_q, (
+        f"CASE WHEN isfinite(_g._k) AND {utc} >= '10000-01-01' THEN {far_future}"
+        f" ELSE {utc_timestamptz_text('_g._k')} END"
+    )
+
+
 async def get_distinct_values(
     session: AsyncSession,
     table_name: str,
@@ -135,14 +155,16 @@ async def get_distinct_values(
             "AND column_name = :c"
         ).bindparams(schema=_current_data_schema(), t=table_name, c=column_name)
     )
-    expr = value_expr(col_q, type_result.scalar_one_or_none() or "")
+    group, key = group_key_sql(col_q, type_result.scalar_one_or_none() or "")
 
     sql = text(
         # codeql[py/sql-injection]
-        f"SELECT DISTINCT {expr} AS val "
+        f"SELECT {key} AS val FROM ("
+        f"SELECT DISTINCT {group} AS _k "
         f"FROM {table_ref} "
         f"WHERE {col_q} IS NOT NULL "
-        f"ORDER BY val LIMIT :limit"
+        f"ORDER BY _k LIMIT :limit"
+        f") AS _g ORDER BY _g._k"
     ).bindparams(limit=limit)
 
     result = await session.execute(sql)

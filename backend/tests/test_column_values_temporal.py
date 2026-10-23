@@ -67,3 +67,28 @@ async def test_values_serialize_in_tile_form(
 def test_datetime_would_not_serialize():
     with pytest.raises(ValueError):
         ColumnValuesResponse(values=[datetime.datetime.now()], count=1)
+
+
+async def test_far_future_timestamps_and_infinity_stay_distinct(test_db_session):
+    table = f"test_colvals_far_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, tz timestamptz)")
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (tz) VALUES "
+            "('10000-01-01 00:00:00+00'), ('10001-06-01 12:30:00+00'), ('infinity')"
+        )
+    )
+    await test_db_session.commit()
+    try:
+        values = await get_distinct_values(test_db_session, table, "tz")
+    finally:
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()
+
+    assert values == [
+        "10000-01-01T00:00:00+00:00",
+        "10001-06-01T12:30:00+00:00",
+        "infinity",
+    ]

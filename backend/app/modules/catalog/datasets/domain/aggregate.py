@@ -29,7 +29,7 @@ from app.modules.catalog.datasets.domain.column_stats import (
     _NUMERIC_TYPES,
     _json_number,
     _sql_quote_ident,
-    value_expr,
+    group_key_sql,
 )
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import (
@@ -52,7 +52,6 @@ from app.platform.cache import (
 from app.platform.extensions import get_catalog_port
 from app.platform.sandbox.executor import execute_safe
 from app.platform.sandbox.schemas import SandboxError
-from app.platform.timestamptz_text import utc_timestamptz_text
 
 # A 500k-row view took 0.4-0.7 s per aggregate on a 2M-row point table in a
 # laptop's Docker PostgreSQL, well inside the timeout. Raise it once a
@@ -346,24 +345,8 @@ def _view_predicates(bbox: Sequence[float] | None, *, covered: bool) -> list[str
 
 
 def _key_sql(column: str, data_type: str) -> tuple[str, str]:
-    """What a category groups on, and its returned key over the grouped ``_g._k``.
-
-    A timestamptz groups on its value and is written afterwards in UTC text
-    with the full year, since the tile text folds every year past 9999 into
-    ``infinity``. Other types group on their JSON-ready form.
-    """
-    quoted = _sql_quote_ident(column)
-    if data_type != "timestamp with time zone":
-        return value_expr(quoted, data_type), "_g._k"
-    utc = "(_g._k AT TIME ZONE 'UTC')"
-    far_future = (
-        f"to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS')"
-        f" || rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00'"
-    )
-    return quoted, (
-        f"CASE WHEN isfinite(_g._k) AND {utc} >= '10000-01-01' THEN {far_future}"
-        f" ELSE {utc_timestamptz_text('_g._k')} END"
-    )
+    """What a category groups on, and its returned key over the grouped ``_g._k``."""
+    return group_key_sql(_sql_quote_ident(column), data_type)
 
 
 def _stat_sql(stat: str, column: str, data_type: str) -> str:
