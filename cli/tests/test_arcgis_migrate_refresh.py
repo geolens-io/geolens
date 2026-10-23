@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
+from geolens_cli import arcgis_migrate as migrate_mod
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
 from geolens_cli import arcgis_migrate_refresh as refresh_mod
+from geolens_cli.arcgis_portal import PortalError
 
 from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_layers as layers
@@ -1180,3 +1183,77 @@ def test_a_later_run_reports_the_cutover_in_the_report(runner, plan_file, geolen
 
     report = (plan_file.parent / "arcgis-migration-report.md").read_text()
     assert "**Cut over** at" in report
+
+
+class _SearchPortal:
+    def __init__(self, answer, token: str | None = "t") -> None:
+        self.answer = answer
+        self.token = token
+        self.asked: list[tuple[str, dict]] = []
+
+    def get_json(self, path, params=None):
+        self.asked.append((path, dict(params or {})))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+_READ_AT = "2026-10-01T00:00:00Z"
+_NOW = datetime(2026, 10, 11, tzinfo=UTC)
+_PLAN = {
+    "inventory": {
+        "generated_at": _READ_AT,
+        "scope": {"mode": "org", "owner": None, "org_id": "ExAmPlEoRg0123"},
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("client", "says"),
+    [
+        (_SearchPortal({"results": [{"modified": 1791000000000}]}), "changed after"),
+        (_SearchPortal({"results": [{"modified": 1759000000000}]}), None),
+        (_SearchPortal({"results": []}), None),
+        (_SearchPortal({"results": []}, token=None), "no ArcGIS credential"),
+        (None, "no ArcGIS credential"),
+        (_SearchPortal(PortalError("boom", kind="server")), "couldn't check"),
+        (_SearchPortal({"error": "nope"}), "couldn't check"),
+    ],
+)
+def test_cutover_asks_the_portal_for_items_changed_since_the_inventory(client, says):
+    reason = cutover_mod.inventory_changes(client, _PLAN, _NOW)
+
+    if says is None:
+        assert reason is None
+    else:
+        assert says in reason and "10 days ago" in reason
+    if isinstance(client, _SearchPortal) and client.token:
+        [(path, params)] = client.asked
+        assert path == "search" and params["q"] == "orgid:ExAmPlEoRg0123"
+        assert params["sortField"] == "modified" and params["num"] == 1
+
+
+def test_a_portal_changed_since_the_inventory_refuses_cutover(
+    runner, plan_file, geolens, monkeypatch
+):
+    _edit_plan(plan_file, (A2,))
+    FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    seen = []
+
+    def changed(client, plan, now):
+        seen.append(client)
+        return "portal items changed after the inventory was read 3 days ago"
+
+    monkeypatch.setattr(migrate_mod, "inventory_changes", changed)
+    token = secrets.token_urlsafe(16)
+
+    result, payload = _migrate(runner, plan_file, "--cutover", "--token", token)
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["incomplete-inventory"]
+    [check] = payload["cutover"]["checks"]
+    assert "3 days ago" in check["items"][0]["reason"]
+    # The search goes out with the run's credential, though no item needs it.
+    [client] = seen
+    assert client.token == token
+    assert _state(plan_file)["cutover"] is None

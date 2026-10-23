@@ -9,9 +9,11 @@ accepted with its ``--accept-<check>`` flag.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import arcgis_plan as _plan
+from .arcgis_portal import PortalClient, PortalError
 from .arcgis_migrate_state import FINISHED, ItemState, MigrationState
 
 UNFINISHED = "unfinished-items"
@@ -94,24 +96,73 @@ def _users(
     return out
 
 
+def inventory_changes(
+    client: PortalClient | None, plan: Mapping[str, Any], now: datetime
+) -> str | None:
+    """Why the plan's inventory may be out of date, or None: the portal has an
+    item of the organization changed after the inventory was read, or the
+    portal couldn't be asked."""
+    inventory = plan["inventory"]
+    read_at = datetime.fromisoformat(inventory["generated_at"])
+    age = _age(now - read_at)
+    org = (inventory.get("scope") or {}).get("org_id")
+    unchecked = f"couldn't check the portal for items changed since the inventory was read {age} ago"
+    if client is None or not client.token:
+        return f"{unchecked}: the run has no ArcGIS credential"
+    if not org:
+        return f"{unchecked}: the plan records no ArcGIS organization"
+    try:
+        page = client.get_json(
+            "search",
+            {
+                "q": f"orgid:{org}",
+                "sortField": "modified",
+                "sortOrder": "desc",
+                "num": 1,
+            },
+        )
+    except PortalError as exc:
+        return f"{unchecked}: {exc}"
+    results = page.get("results") if isinstance(page, dict) else None
+    if not isinstance(results, list):
+        return f"{unchecked}: the portal's search answered without results"
+    newest = results[0].get("modified") if results else None
+    if isinstance(newest, int) and newest > read_at.timestamp() * 1000:
+        return (
+            f"portal items changed after the inventory was read {age} ago; run "
+            "inventory and plan again"
+        )
+    return None
+
+
+def _age(delta: timedelta) -> str:
+    days = delta.days
+    if days >= 1:
+        return f"{days} day{'s' if days != 1 else ''}"
+    hours = max(int(delta.total_seconds() // 3600), 0)
+    return f"{hours} hour{'s' if hours != 1 else ''}"
+
+
+def _inventory(plan: Mapping[str, Any], changed: str | None) -> list[dict[str, str]]:
+    if not _covers_org(plan["inventory"]):
+        changed = (
+            "the plan was last merged from an inventory that isn't a complete "
+            "--scope org one read by an organization administrator, so portal "
+            "items may be missing from it"
+        )
+    return [{"item": "-", "reason": changed}] if changed else []
+
+
 def failing_checks(
     plan: Mapping[str, Any],
     state: MigrationState,
     unresolved: Sequence[Mapping[str, str]] = (),
+    inventory_changed: str | None = None,
 ) -> list[dict[str, Any]]:
     """Every check that fails as of *state*, with the items it names."""
     found = {
         UNFINISHED: _unfinished(plan, state),
-        INVENTORY: []
-        if _covers_org(plan["inventory"])
-        else [
-            {
-                "item": "-",
-                "reason": "the plan was last merged from an inventory that isn't a "
-                "complete --scope org one read by an organization administrator, "
-                "so portal items may be missing from it",
-            }
-        ],
+        INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
         USERS: _users(plan, state, unresolved),
     }

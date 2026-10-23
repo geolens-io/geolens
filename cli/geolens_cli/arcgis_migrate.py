@@ -18,6 +18,7 @@ import heapq
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -44,7 +45,7 @@ from .arcgis_migrate_export import (
     refresh_export,
     write_index,
 )
-from .arcgis_migrate_cutover import failing_checks
+from .arcgis_migrate_cutover import failing_checks, inventory_changes
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import import_layers
@@ -537,12 +538,18 @@ def mark_cutover(
     state: MigrationState,
     owners: Owners,
     summary: RunSummary,
+    portal: PortalClient | None = None,
 ) -> dict[str, Any] | None:
     """With --cutover, the checks that fail and whether the run is marked as
-    the final one: only when it finished and every failing check is accepted."""
+    the final one: only when it finished and every failing check is accepted.
+    Outside a dry run the portal is asked whether anything changed since the
+    plan's inventory was read."""
     if not opts.cutover:
         return None
-    failing = failing_checks(plan, state, owners.unresolved)
+    changed = (
+        None if opts.dry_run else inventory_changes(portal, plan, datetime.now(tz=UTC))
+    )
+    failing = failing_checks(plan, state, owners.unresolved, changed)
     accepted = [c["check"] for c in failing if c["check"] in opts.accept]
     refused = [c["check"] for c in failing if c["check"] not in opts.accept]
     marked = not refused and summary.stopped is None and not opts.dry_run
@@ -1089,7 +1096,8 @@ def _portal_client(
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
     supplied = bool(opts.token or opts.token_stdin or opts.username)
-    if not private and not (files and supplied):
+    # The cutover searches the organization, which takes a credential.
+    if not private and not ((files or opts.cutover) and supplied):
         # A public data file is still downloaded from the portal, anonymously
         # unless the operator gave a credential (a portal can require one for
         # public sharing).
@@ -1283,5 +1291,5 @@ def _run(
         owners,
         summary,
         redact,
-        mark_cutover(opts, plan, state, owners, summary),
+        mark_cutover(opts, plan, state, owners, summary, auth.client if auth else None),
     )
