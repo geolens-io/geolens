@@ -119,12 +119,16 @@ def _find_run(
             return None
 
 
-def _accepted_run(run: Any) -> str | None:
-    """The blocked run whose acceptance *run* carries out."""
+def _verification(run: Any) -> dict:
     found = _value(getattr(run, "verification", None))
     if hasattr(found, "to_dict"):
         found = found.to_dict()
-    accepted = found.get("accepted_blocked_run_id") if isinstance(found, dict) else None
+    return found if isinstance(found, dict) else {}
+
+
+def _accepted_run(run: Any) -> str | None:
+    """The blocked run whose acceptance *run* carries out."""
+    accepted = _verification(run).get("accepted_blocked_run_id")
     return None if accepted is None else str(accepted)
 
 
@@ -219,8 +223,12 @@ def changed_in_geolens(
         if str(run.status) not in _ENDED:
             return "a refresh an earlier run started is still running"
         if "blocked" in marker:
-            # The accepted successor is started by whoever accepted the run.
+            # The accepted successor is started by whoever accepted the run, and
+            # publishes over the live revision it found.
+            found = whole_number(_verification(run).get("data_revision"))
             marker = {**marker, "by": str(_value(run.triggered_by))}
+            if found is not None:
+                marker["revision"] = found
         # The admin who started the run, who may not be this run's operator.
         if str(run.status) == "succeeded" and _published_unchanged(
             ctx, dataset, marker

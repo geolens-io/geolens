@@ -544,8 +544,9 @@ def test_a_lost_request_with_a_page_of_runs_since_is_reported(
     assert len(refresh.bodies) == 1
 
 
+@pytest.mark.parametrize("edited_after", [False, True])
 def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
-    runner, plan_file, geolens
+    runner, plan_file, geolens, edited_after
 ):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service, outcome="blocked").allow(PARCELS)
@@ -560,18 +561,23 @@ def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
             _uuid("8e", "01"),
             "succeeded",
             triggered_by=ALICE,
-            verification={"accepted_blocked_run_id": blocked["id"]},
+            # It publishes over the live edit that blocked the first run.
+            verification={"accepted_blocked_run_id": blocked["id"], "data_revision": 1},
         ),
     )
     service.fields.setdefault(PARCELS, {}).update(
-        {"updated_at": LATER, "updated_by": ALICE}
+        {
+            "updated_at": LATER,
+            "updated_by": ALICE,
+            "data_revision": 2 if edited_after else 1,
+        }
     )
     refresh.outcome = "succeeded"
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
-    assert result.exit_code == 0, result.output
-    assert payload["not_up_to_date"] == {}
+    assert result.exit_code == (1 if edited_after else 0), result.output
+    assert bool(payload["not_up_to_date"]) is edited_after
 
 
 def test_a_rerun_writes_the_portals_new_item_metadata(runner, tmp_path, geolens):
@@ -1121,8 +1127,13 @@ def test_a_layer_added_to_a_migrated_multi_layer_file_is_reported_and_blocks_cut
                 ),
                 f"POST /datasets/{dataset}/reupload/{job}/preview": preview,
                 f"POST /datasets/{dataset}/reupload/{job}/commit": (
-                    lambda seen, d=dataset, j=job: committed.append(d)
-                    or (202, {"job_id": j, "status": "pending", "message": "queued"})
+                    lambda seen, d=dataset, j=job: (
+                        committed.append(d)
+                        or (
+                            202,
+                            {"job_id": j, "status": "pending", "message": "queued"},
+                        )
+                    )
                 ),
                 f"GET /datasets/{dataset}/refresh-runs": {
                     "runs": [
