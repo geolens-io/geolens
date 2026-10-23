@@ -270,6 +270,25 @@ class TestOlderInstancesUpgradeOnReadAndOnWrite:
         assert saved[0]["v"] == 1
         assert saved[0]["config"] == {"column": "pop", "bins": 7}
 
+    def test_a_stored_item_whose_upgrader_raises_is_set_aside(
+        self, histogram_v0: dict[str, Any]
+    ) -> None:
+        del histogram_v0["config"]["buckets"]
+        before = copy.deepcopy(histogram_v0)
+
+        read = read_stored([histogram_v0], "dashboard")
+
+        assert read.widgets == []
+        assert [item.raw for item in read.unreadable] == [before]
+
+    def test_a_sent_item_whose_upgrader_raises_is_a_validation_error(
+        self, histogram_v0: dict[str, Any]
+    ) -> None:
+        del histogram_v0["config"]["buckets"]
+
+        with pytest.raises(ValidationError, match="could not be upgraded"):
+            _dashboard([histogram_v0])
+
     def test_an_upgrade_that_fails_validation_keeps_the_original(
         self, histogram_v0: dict[str, Any]
     ) -> None:

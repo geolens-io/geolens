@@ -158,8 +158,12 @@ def upgrade(raw: Any) -> Any:
         step = UPGRADERS.get((kind, v))
         if step is None:
             return raw
+        try:
+            upgraded = {**step(upgraded), "v": v + 1}
+        except Exception as exc:  # broad: upgraders run on arbitrary stored JSON
+            # A ValueError here becomes a ValidationError: set aside on read, 422 on write.
+            raise ValueError(f"{kind} v{v} could not be upgraded") from exc
         v += 1
-        upgraded = {**step(upgraded), "v": v}
     return upgraded
 
 
