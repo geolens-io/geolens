@@ -391,19 +391,23 @@ _DROPS_AZURE_MIRROR = re.compile(
 
 def test_every_runner_apt_retry_falls_back_from_the_azure_mirror():
     """A trickling azure.archive.ubuntu.com mirror stalls every attempt on it,
-    so each runner-level apt retry loop drops it before retrying."""
+    so each runner-level apt or Playwright `--with-deps` retry loop drops it."""
     checked, offenders = [], []
-    for job_name, job in _workflow(CI)["jobs"].items():
-        for step in job.get("steps", []):
-            code = _without_comment_lines(step.get("run") or "")
-            attempts = _FOR_LOOP_ATTEMPTS.search(code)
-            if not attempts or len(attempts.group(1).split()) < 2:
-                continue
-            if not _RUNNER_APT_GET.search(code):
-                continue
-            label = f"{job_name}: {step.get('name', '<unnamed>')}"
-            checked.append(label)
-            if not _DROPS_AZURE_MIRROR.search(code):
-                offenders.append(label)
+    for path in (CI, PROD_SMOKE):
+        for job_name, job in _workflow(path)["jobs"].items():
+            for step in job.get("steps", []):
+                code = _without_comment_lines(step.get("run") or "")
+                attempts = _FOR_LOOP_ATTEMPTS.search(code)
+                if not attempts or len(attempts.group(1).split()) < 2:
+                    continue
+                installs_with_apt = _RUNNER_APT_GET.search(code) or (
+                    _PLAYWRIGHT_INSTALL.search(code) and "--with-deps" in code
+                )
+                if not installs_with_apt:
+                    continue
+                label = f"{path.name} {job_name}: {step.get('name', '<unnamed>')}"
+                checked.append(label)
+                if not _DROPS_AZURE_MIRROR.search(code):
+                    offenders.append(label)
     assert checked, "found no runner-level apt retry loop to check"
     assert not offenders, f"apt retry loops that keep the Azure mirror: {offenders}"
