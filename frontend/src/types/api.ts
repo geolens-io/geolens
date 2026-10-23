@@ -621,7 +621,14 @@ export type SharedLayerResponse = Omit<
   'column_info' | 'filter' | 'label_config' | 'style_config' | 'layer_type' | 'dataset_record_type'
 > & {
   column_info?:
-    | { name: string; type: string; title?: string; semantic_role?: string | null; domain_type?: string | null }[]
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+        domain_type?: string | null;
+      }[]
     | null;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;

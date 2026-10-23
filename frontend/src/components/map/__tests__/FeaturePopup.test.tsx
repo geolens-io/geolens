@@ -459,6 +459,55 @@ describe('FeaturePopup — coded values', () => {
     expect(screen.getByRole('button', { name: /Status/ })).toHaveTextContent('Status3');
   });
 
+  it('shows labels carried in column_info when the attributes call returns nothing', () => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [
+              { name: 'status', type: 'integer', value_labels: { '1': 'Active' } },
+            ],
+            properties: { status: 1 },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Status/ })).toHaveTextContent('StatusActive (1)');
+  });
+
+  it('prefers the live attribute labels over the ones in column_info', () => {
+    mockUseAttributes.mockReturnValue({
+      data: { attributes: [{ ...labelled, value_labels: { '1': 'Live' } }], total: 1 },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [
+              { name: 'status', type: 'integer', value_labels: { '1': 'Stale' } },
+            ],
+            properties: { status: 1 },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Live', { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText('Stale', { exact: false })).not.toBeInTheDocument();
+  });
+
   it('ignores labels on a column that is no longer current', () => {
     renderStatus(1, [{ ...labelled, is_current: false }]);
     expect(screen.queryByText('Active')).not.toBeInTheDocument();

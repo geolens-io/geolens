@@ -14,7 +14,9 @@ import { valueLabelFor, valueLabelsByField, type ValueLabels } from '@/lib/value
 export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
-  columnInfo?: { name: string; type: string; title?: string }[] | null;
+  columnInfo?:
+    | { name: string; type: string; title?: string; value_labels?: Record<string, string> }[]
+    | null;
   /** Dataset whose attribute metadata supplies the row labels; without it
    *  every key is humanized. */
   datasetId?: string;
@@ -137,10 +139,16 @@ export function FeaturePopup({
     return titles;
   }, [attributeList, columnInfoForTitles]);
 
-  const valueLabels = useMemo(
-    () => valueLabelsByField(attributeList?.attributes),
-    [attributeList],
-  );
+  const valueLabels = useMemo(() => {
+    // The attributes route is the live source. A capability-authorized viewer
+    // cannot read it, so column_info carries the labels for that case only.
+    if (attributeList) return valueLabelsByField(attributeList.attributes);
+    const labels = new Map<string, ValueLabels>();
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.value_labels) labels.set(column.name, column.value_labels);
+    }
+    return labels;
+  }, [attributeList, columnInfoForTitles]);
 
   const properties = feature?.properties;
   const columnInfo = feature?.columnInfo;
