@@ -270,6 +270,7 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
     if name in _SETTERS and len(call.args) >= 2 and _names_a_column(call.args[1]):
         return [f"{name}(..., {call.args[1].value!r}, ...)"]
     keyword_values = [kw.value for kw in call.keywords]
+    keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
     if name in module.dataset_names:
         columns = scope.call_mentions(call, [*call.args, *keyword_values])
     elif module.is_builder(call):
@@ -279,10 +280,11 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
         if name == "values" and not call.args and not call.keywords:
             return []
         columns = scope.call_mentions(call, [*call.args, *keyword_values])
-        if name == "from_select" and call.args:
+        if name == "from_select":
+            listed = call.args[0] if call.args else keywords.get("names")
             columns.extend(
                 element.value if _names_a_column(element) else element.attr
-                for element in getattr(call.args[0], "elts", [])
+                for element in getattr(listed, "elts", [])
                 if _names_a_column(element) or module.column_ref(element)
             )
     elif (
@@ -293,7 +295,6 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
         # Query.update(), the legacy ORM bulk update.
         columns = scope.call_mentions(call, [*call.args, *keyword_values])
     elif isinstance(func, ast.Attribute) and name == "execute":
-        keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
         statement = call.args[0] if call.args else keywords.get("statement")
         if statement is None or not module.binds_a_write(statement):
             return []
@@ -447,6 +448,8 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "WHERE id = :i')",
         "text('UPDATE catalog.datasets SET (\"origin_uri\") = ROW(:u)')",
         "insert(Record).from_select(['id', 'origin_ref'], query)",
+        "stmt = insert(Dataset)\nstmt.from_select(['id', 'origin_ref'], query)",
+        "insert(Dataset).from_select(names=['id', 'origin_uri'], select=query)",
         # Upserts.
         "insert(Dataset).values(id=i).on_conflict_do_update("
         "index_elements=['id'], set_={'origin_ref': ref})",
