@@ -522,6 +522,54 @@ def test_a_dataset_changed_before_its_first_transfer_is_not_handed_over(
     assert entry["last_update"] == {} and entry["owner_id"] is None
 
 
+def test_a_dataset_edited_before_the_post_import_read_is_not_handed_over(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id = _created_id(L1)
+    _allow_transfers(geolens, dataset_id)
+    imported = _dataset(dataset_id, OPERATOR)
+    reads = []
+
+    def read(seen):
+        # Alice's feature edit lands before the first read; the metadata write
+        # then makes the operator the last writer.
+        reads.append(seen)
+        writer = ALICE if len(reads) == 1 else OPERATOR
+        return {**imported, "updated_by": writer, "data_revision": 1}
+
+    geolens.routes[f"GET /datasets/{dataset_id}"] = read
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 1
+    entry = _state(tmp_path)["items"][L1]
+    assert entry["error"] == (
+        f"dataset {dataset_id} changed in GeoLens before its owner was handed "
+        "over; it was left as it is"
+    )
+    assert [s for s in geolens.seen if s.method == "PATCH"] == []
+    assert entry["last_update"] == {}
+
+
+def test_a_fresh_import_nobody_has_written_is_handed_over(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id = _created_id(L1)
+    _allow_transfers(geolens, dataset_id)
+    geolens.routes[f"GET /datasets/{dataset_id}"] = {
+        **_dataset(dataset_id, OPERATOR),
+        "updated_by": None,
+        "data_revision": 0,
+    }
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+
+    assert result.exit_code == 0, result.output
+    assert [s.json()["owner_id"] for s in geolens.seen if s.method == "PATCH"] == [
+        ALICE
+    ]
+
+
 def test_the_baseline_is_the_transfers_answer_not_a_later_read(
     runner, tmp_path, geolens, handled
 ):

@@ -53,11 +53,11 @@ from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
     get_dataset,
-    operator_wrote_last,
     record,
     refresh_file,
     refresh_layers,
     snapshot,
+    operator_or_nobody_wrote_last,
 )
 from .arcgis_migrate_webmaps import get_map, import_map, refresh_map
 from .arcgis_migrate_session import (
@@ -616,6 +616,26 @@ def _transfer_map(geolens: GeoLens, map_id: str, owner: Owner) -> None:
     )
 
 
+def _changed_before_handover(dataset_id: str) -> ItemFailed:
+    return ItemFailed(
+        f"dataset {dataset_id} changed in GeoLens before its owner was handed "
+        "over; it was left as it is"
+    )
+
+
+def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
+    """Each dataset's data revision as the import left it, read before this
+    command writes to it; one somebody else wrote last is refused, so their
+    edit isn't taken as the import's."""
+    revisions = {}
+    for dataset_id in dataset_ids:
+        read = get_dataset(ctx, dataset_id)
+        if not operator_or_nobody_wrote_last(ctx, read):
+            raise _changed_before_handover(dataset_id)
+        revisions[dataset_id] = snapshot(read)["data_revision"]
+    return revisions
+
+
 def transfer(
     ctx: MigrationContext,
     entry: ItemState,
@@ -626,10 +646,10 @@ def transfer(
     recording and saving each dataset's transfer answer as its baseline as it
     lands, so a later failure keeps the transfers made before it.
 
-    A dataset this import has not handed over goes only while the operator
-    wrote it last and its data revision is still the one in *revisions*. One an
-    earlier attempt handed over is left with an owner it already has, and
-    otherwise moves only while it is as that transfer left it.
+    A dataset this import has not handed over goes only while the operator or
+    nobody wrote it last and its data revision is still the one in
+    *revisions*. One an earlier attempt handed over is left with an owner it
+    already has, and otherwise moves only while it is as that transfer left it.
     """
     for dataset_id in entry.dataset_ids:
         read = get_dataset(ctx, dataset_id)
@@ -639,13 +659,10 @@ def transfer(
             reason = changed_in_geolens(ctx, entry, dataset_id, read)
             if reason:
                 raise ItemFailed(f"dataset {dataset_id} was {reason}")
-        elif not operator_wrote_last(ctx, read) or snapshot(read)[
+        elif not operator_or_nobody_wrote_last(ctx, read) or snapshot(read)[
             "data_revision"
         ] != revisions.get(dataset_id):
-            raise ItemFailed(
-                f"dataset {dataset_id} changed in GeoLens before its owner was "
-                "handed over; it was left as it is"
-            )
+            raise _changed_before_handover(dataset_id)
         record(
             entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, read)
         )
@@ -696,9 +713,7 @@ def _migrate_one(
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
             fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
-            revisions = {
-                d: snapshot(get_dataset(ctx, d))["data_revision"] for d in fresh
-            }
+            revisions = _import_revisions(ctx, fresh)
             entry.visibility = dict.fromkeys(
                 entry.dataset_ids, item["target"]["visibility"]
             )
