@@ -8,8 +8,8 @@ invariant 4) and clear the stored probe verdict. This walks every module under
 - ORM attributes: assignment, ``del``, item writes, ``|=`` and mutating methods
   on the stored dict (reached as ``x.origin_ref``, ``getattr(x, "origin_ref")``
   or an alias of either, bound by assignment, annotation, walrus, unpacking,
-  ``for``, ``with`` or another alias, in this scope or any enclosing one: a
-  nested function or lambda, ``nonlocal``/``global``, a module-level alias, or
+  ``for``, ``with``, a parameter default or another alias, wherever Python's
+  own scope rules (``symtable``) say the name refers to that binding, including
   a class attribute read as ``Class.attr``, ``self.attr`` or ``cls.attr``; and
   through ``dict.update`` or ``operator.setitem``), ``setattr``/``set_attribute``/``set_committed_value``/
   ``__setattr__`` by name, and ``__dict__``/``vars()`` items.
@@ -60,7 +60,9 @@ beside the setter.
 
 import ast
 import re
-from collections import Counter
+import symtable
+import textwrap
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 
 import pytest
@@ -339,36 +341,17 @@ class _Module:
         return False
 
 
-def _bindings(scope: ast.AST):
-    """``(target, value)`` for every way the scope itself binds a name to a value.
-
-    Nested functions, lambdas and classes bind in their own scopes.
-    """
-    for node in _own_nodes(scope):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                yield target, node.value
-        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value:
-            yield node.target, node.value
-        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
-            if isinstance(node.iter, (ast.Tuple, ast.List, ast.Set)):
-                for element in node.iter.elts:
-                    yield node.target, element
-        elif isinstance(node, (ast.With, ast.AsyncWith)):
-            for item in node.items:
-                if item.optional_vars is not None:
-                    yield item.optional_vars, item.context_expr
-
-
-def _bindings_at(node: ast.AST):
-    """``(target, value)`` for the bindings this one node makes."""
+def _value_bindings(node: ast.AST):
+    """``(target, value)`` for the bindings one node makes with a known value."""
     if isinstance(node, ast.Assign):
         for target in node.targets:
             yield target, node.value
-    elif isinstance(node, (ast.AnnAssign, ast.NamedExpr, ast.AugAssign)):
+    elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value:
         yield node.target, node.value
     elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
-        yield node.target, node.iter
+        if isinstance(node.iter, (ast.Tuple, ast.List, ast.Set)):
+            for element in node.iter.elts:
+                yield node.target, element
     elif isinstance(node, (ast.With, ast.AsyncWith)):
         for item in node.items:
             if item.optional_vars is not None:
@@ -376,9 +359,9 @@ def _bindings_at(node: ast.AST):
 
 
 def _name_pairs(target: ast.AST, value: ast.AST):
-    """``(name, value)`` a binding gives each plain name, unpacking literals."""
+    """``(name node, value)`` a binding gives each plain name, unpacking literals."""
     if isinstance(target, ast.Name):
-        yield target.id, value
+        yield target, value
     elif (
         isinstance(target, (ast.Tuple, ast.List))
         and isinstance(value, (ast.Tuple, ast.List))
@@ -389,36 +372,37 @@ def _name_pairs(target: ast.AST, value: ast.AST):
             yield from _name_pairs(inner_target, inner_value)
 
 
-def _holds_stored(value: ast.AST, aliases: set[str]) -> bool:
+def _holds_stored(value: ast.AST, is_alias) -> bool:
     """Whether the expression evaluates to the stored dict itself, not a copy."""
     if _reads_stored(value):
         return True
     if isinstance(value, ast.Name):
-        return value.id in aliases
+        return is_alias(value)
     if isinstance(value, ast.BoolOp):
-        return any(_holds_stored(part, aliases) for part in value.values)
+        return any(_holds_stored(part, is_alias) for part in value.values)
     if isinstance(value, ast.IfExp):
-        return _holds_stored(value.body, aliases) or _holds_stored(
-            value.orelse, aliases
+        return _holds_stored(value.body, is_alias) or _holds_stored(
+            value.orelse, is_alias
         )
     if isinstance(value, ast.NamedExpr):
-        return _holds_stored(value.value, aliases)
+        return _holds_stored(value.value, is_alias)
     return (
         isinstance(value, ast.Call)
         and _terminal_name(value.func) == "nullcontext"
         and bool(value.args)
-        and _holds_stored(value.args[0], aliases)
+        and _holds_stored(value.args[0], is_alias)
     )
 
 
-_NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
 def _header_nodes(node: ast.AST) -> list[ast.AST]:
-    """A nested definition's parts that run in the enclosing scope.
+    """A definition's parts that run in the enclosing scope.
 
     Decorators, defaults, annotations, class bases and keywords; only the body
-    belongs to the definition's own scope.
+    belongs to the definition's own scope. Type parameters have scopes of
+    their own.
     """
     if isinstance(node, ast.ClassDef):
         return [*node.decorator_list, *node.bases, *node.keywords]
@@ -426,190 +410,205 @@ def _header_nodes(node: ast.AST) -> list[ast.AST]:
     parts = [*args.defaults, *(d for d in args.kw_defaults if d is not None)]
     if isinstance(node, ast.Lambda):
         return parts
-    params = [
+    return [
+        *node.decorator_list,
+        *parts,
+        *(a.annotation for a in _params(node) if a.annotation is not None),
+        *([node.returns] if node.returns else []),
+    ]
+
+
+def _params(node: ast.AST) -> list[ast.arg]:
+    args = node.args
+    return [
         *args.posonlyargs,
         *args.args,
         *args.kwonlyargs,
         *([args.vararg] if args.vararg else []),
         *([args.kwarg] if args.kwarg else []),
     ]
-    return [
-        *node.decorator_list,
-        *parts,
-        *(a.annotation for a in params if a.annotation is not None),
-        *([node.returns] if node.returns else []),
-    ]
 
 
-def _body_nodes(scope: ast.AST) -> list[ast.AST]:
-    if isinstance(scope, ast.Lambda):
-        return [scope.body]
-    if isinstance(scope, (ast.Module, *_NESTED_SCOPES)):
-        return list(scope.body)
-    return list(ast.iter_child_nodes(scope))
+def _defaults(node: ast.AST):
+    """``(parameter, default)`` for each parameter that has one."""
+    args = node.args
+    positional = [*args.posonlyargs, *args.args]
+    yield from zip(positional[len(positional) - len(args.defaults) :], args.defaults)
+    for param, default in zip(args.kwonlyargs, args.kw_defaults):
+        if default is not None:
+            yield param, default
 
 
-def _own_nodes(scope: ast.AST):
-    """The scope's own nodes: its body, and nested definitions' headers but not bodies.
-
-    A comprehension is walked through, so a walrus in one binds here (PEP 572).
-    """
-    stack = _body_nodes(scope)
-    while stack:
-        node = stack.pop()
-        yield node
-        if isinstance(node, _NESTED_SCOPES):
-            stack.extend(_header_nodes(node))
-        else:
-            stack.extend(ast.iter_child_nodes(node))
+def _kind(table: symtable.SymbolTable) -> str:
+    kind = table.get_type()
+    return getattr(kind, "value", kind)
 
 
-def _target_names(target: ast.AST):
-    """Names a binding target binds; ``x[k] = v`` and ``x.a = v`` bind none."""
-    if isinstance(target, ast.Name):
-        yield target.id
-    elif isinstance(target, (ast.Tuple, ast.List)):
-        for element in target.elts:
-            yield from _target_names(element)
-    elif isinstance(target, ast.Starred):
-        yield from _target_names(target.value)
+class _Names:
+    """Which binding each name in a module refers to, by Python's own scope rules.
 
-
-def _declared_in(scope: ast.AST, kind: type) -> set[str]:
-    return {
-        name
-        for node in _own_nodes(scope)
-        if isinstance(node, kind)
-        for name in node.names
-    }
-
-
-def _bound_names(scope: ast.AST) -> set[str]:
-    """Every name the scope binds itself, before ``nonlocal``/``global``."""
-    names = {
-        name
-        for node in _own_nodes(scope)
-        if not isinstance(node, ast.comprehension)
-        for target, _ in _bindings_at(node)
-        for name in _target_names(target)
-    }
-    args = getattr(scope, "args", None)
-    if args is not None:
-        names.update(
-            a.arg
-            for a in [
-                *args.posonlyargs,
-                *args.args,
-                *args.kwonlyargs,
-                *([args.vararg] if args.vararg else []),
-                *([args.kwarg] if args.kwarg else []),
-            ]
-        )
-    names.update(
-        n.name
-        for n in _own_nodes(scope)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    )
-    return names
-
-
-def _resolving_scopes(scope: ast.AST, name: str, *, root: bool):
-    """Nested scopes in which ``name`` means ``scope``'s own binding of it.
-
-    A nested function that binds the name shadows it for everything inside,
-    except a ``global`` declaration, which reaches the module. A method skips
-    its class body, as Python resolves it.
+    The standard library's ``symtable`` classifies every name in every scope
+    (module, function, lambda, class, type parameters) as local, free, global
+    or nonlocal. This maps the AST onto those scopes and resolves a name to the
+    scope that binds it, so an alias of the stored dict or a mapping of column
+    keys is followed wherever Python would follow it. Comprehensions share
+    their enclosing scope, as ``symtable`` reports them since Python 3.12.
     """
 
-    def walk(node: ast.AST, shadowed: bool):
-        for child in _own_nodes(node):
-            if not isinstance(child, _NESTED_SCOPES):
-                continue
-            if isinstance(child, ast.ClassDef):
-                if not shadowed and name not in _bound_names(child):
-                    yield child
-                yield from walk(child, shadowed)
-                continue
-            if name in _declared_in(child, ast.Global):
-                here = root
-            elif name in _declared_in(child, ast.Nonlocal):
-                # A shadowing function in between stops the walk before here.
-                here = not root
-            else:
-                here = not shadowed and name not in _bound_names(child)
-            if here:
-                yield child
-            if here or root:
-                yield from walk(child, shadowed or not here)
-
-    yield from walk(scope, False)
-
-
-def _class_aliases(cls: ast.ClassDef, inherited: frozenset[str]) -> frozenset[str]:
-    """Class attributes the class body binds to the stored dict."""
-    pairs = [
-        pair for target, value in _bindings(cls) for pair in _name_pairs(target, value)
-    ]
-    bound = {name for name, _ in pairs}
-    return _alias_fixpoint(pairs, set(inherited) - bound) & bound
-
-
-def _alias_fixpoint(pairs, names: set[str]) -> frozenset[str]:
-    grew = True
-    while grew:
-        grew = False
-        for name, value in pairs:
-            if name not in names and _holds_stored(value, names):
-                names.add(name)
-                grew = True
-    return frozenset(names)
-
-
-class _Scope:
-    """One function's (or the module's) names, inside the scopes enclosing it.
-
-    A free name resolves through the enclosing scopes, so an alias of the
-    stored dict or a mapping of column keys made outside a nested function
-    counts inside it. ``global`` names resolve at module level.
-    """
-
-    def __init__(
-        self,
-        module: _Module,
-        scope: ast.AST,
-        parent: "_Scope | None" = None,
-        class_name: str | None = None,
-    ) -> None:
+    def __init__(self, module: _Module, tree: ast.AST, top: symtable.SymbolTable):
         self.module = module
-        self.scope = scope
-        self.parent = parent
-        self.is_class = isinstance(scope, ast.ClassDef)
-        self.root: _Scope = parent.root if parent else self
-        # The class a method belongs to, and its first parameter (self/cls).
-        self.class_name = class_name
-        args = getattr(scope, "args", None)
-        positional = [*args.posonlyargs, *args.args] if args else []
-        self.receiver = positional[0].arg if class_name and positional else None
-        self._stored_aliases: frozenset[str] | None = None
-        self.class_aliases: dict[str, frozenset[str]] = (
-            parent.class_aliases if parent else {}
-        )
+        self.top = top
+        self._parent: dict[int, symtable.SymbolTable | None] = {}
+        self._by_id: dict[int, symtable.SymbolTable] = {}
+        self._tables: dict[tuple[str, str, int], deque] = defaultdict(deque)
 
-    def _declared(self, kind: type) -> set[str]:
-        return _declared_in(self.scope, kind)
+        def index(table, parent) -> None:
+            self._parent[table.get_id()] = parent
+            self._by_id[table.get_id()] = table
+            key = (_kind(table), table.get_name(), table.get_lineno())
+            self._tables[key].append(table)
+            for child in table.get_children():
+                index(child, table)
 
-    def local_names(self) -> set[str]:
-        """Names this scope binds itself, which shadow the enclosing ones."""
-        return _bound_names(self.scope) - self._declared(ast.Nonlocal)
+        index(top, None)
+        self._table_of: dict[int, symtable.SymbolTable] = {}
+        # A method's table id -> (its class's name, its first parameter).
+        self._methods: dict[int, tuple[str, str]] = {}
+        self._values: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._mapping_values: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._items: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._calls: dict[tuple, list[ast.Call]] = defaultdict(list)
+        self._assign(tree, top)
+        self.aliases = self._alias_keys()
+        self.class_aliases: dict[str, set[str]] = defaultdict(set)
+        for table_id, name in self.aliases:
+            table = self._by_id[table_id]
+            if _kind(table) == "class":
+                self.class_aliases[table.get_name()].add(name)
 
-    def _name_nodes(self, name: str):
-        """This scope's nodes, and those of nested scopes where ``name`` is this scope's."""
-        yield from _own_nodes(self.scope)
-        for nested in _resolving_scopes(self.scope, name, root=self.parent is None):
-            yield from _own_nodes(nested)
+    def _table(self, kind: str, name: str, line: int, fallback):
+        tables = self._tables.get((kind, name, line))
+        return tables.popleft() if tables else fallback
 
-    def binds(self, name: str) -> bool:
-        return name in self.local_names()
+    def _assign(self, node: ast.AST, table: symtable.SymbolTable) -> None:
+        """Record the scope of every name under ``node``, and what each binds."""
+        if isinstance(node, _DEFINITIONS):
+            for header in _header_nodes(node):
+                self._assign(header, table)
+            enclosing = self._type_params(node, table)
+            if isinstance(node, ast.ClassDef):
+                inner = self._table("class", node.name, node.lineno, enclosing)
+            else:
+                name = "lambda" if isinstance(node, ast.Lambda) else node.name
+                inner = self._table("function", name, node.lineno, enclosing)
+                positional = [*node.args.posonlyargs, *node.args.args]
+                if _kind(table) == "class" and positional:
+                    self._methods[inner.get_id()] = (
+                        table.get_name(),
+                        positional[0].arg,
+                    )
+                for param, default in _defaults(node):
+                    self._values[self._key(param.arg, inner)].append(default)
+            body = [node.body] if isinstance(node, ast.Lambda) else node.body
+            for child in body:
+                self._assign(child, inner)
+            return
+        if isinstance(node, getattr(ast, "TypeAlias", ())):
+            self._assign(node.name, table)
+            enclosing = self._type_params(node, table, node.name.id)
+            alias = self._table("type alias", node.name.id, node.lineno, enclosing)
+            self._assign(node.value, alias)
+            return
+        if isinstance(node, ast.Name):
+            self._table_of[id(node)] = table
+        self._collect(node, table)
+        for child in ast.iter_child_nodes(node):
+            self._assign(child, table)
+
+    def _type_params(self, node: ast.AST, table, name: str | None = None):
+        """The type-parameter scope a generic definition opens, with its bounds."""
+        params = getattr(node, "type_params", None)
+        if not params:
+            return table
+        scope = self._table("type parameters", name or node.name, node.lineno, table)
+        for param in params:
+            variable = self._table("type variable", param.name, param.lineno, scope)
+            for part in (
+                getattr(param, "bound", None),
+                getattr(param, "default_value", None),
+            ):
+                if part is not None:
+                    self._assign(part, variable)
+        return scope
+
+    def _collect(self, node: ast.AST, table) -> None:
+        for target, value in _value_bindings(node):
+            for name, bound in _name_pairs(target, value):
+                key = self._key(name.id, table)
+                self._values[key].append(bound)
+                self._mapping_values[key].append(bound)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            self._mapping_values[self._key(node.target.id, table)].append(node.value)
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and isinstance(node.value, ast.Name)
+        ):
+            self._items[self._key(node.value.id, table)].append(node.slice)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        ):
+            self._calls[self._key(node.func.value.id, table)].append(node)
+
+    def _symbol(self, table, name: str):
+        try:
+            return table.lookup(name)
+        except KeyError:
+            return None
+
+    def owner(self, name: str, table) -> symtable.SymbolTable:
+        """The scope whose binding ``name`` refers to, seen from ``table``."""
+        symbol = self._symbol(table, name)
+        if symbol is not None:
+            if symbol.is_local() and not symbol.is_free():
+                return table
+            if symbol.is_global():
+                return self.top
+        # Free or nonlocal: the nearest enclosing function-like scope binding
+        # it. A class body is skipped, as Python skips it.
+        enclosing = self._parent.get(table.get_id())
+        while enclosing is not None:
+            if _kind(enclosing) != "class":
+                found = self._symbol(enclosing, name)
+                if found is not None and found.is_local() and not found.is_free():
+                    return enclosing
+            enclosing = self._parent.get(enclosing.get_id())
+        return self.top
+
+    def _key(self, name: str, table) -> tuple[int, str]:
+        return (self.owner(name, table).get_id(), name)
+
+    def key_of(self, node: ast.Name) -> tuple[int, str]:
+        return self._key(node.id, self._table_of.get(id(node), self.top))
+
+    def _alias_keys(self) -> set[tuple[int, str]]:
+        aliases: set[tuple[int, str]] = set()
+
+        def is_alias(node: ast.Name) -> bool:
+            return self.key_of(node) in aliases
+
+        grew = True
+        while grew:
+            grew = False
+            for key, values in self._values.items():
+                if key not in aliases and any(
+                    _holds_stored(v, is_alias) for v in values
+                ):
+                    aliases.add(key)
+                    grew = True
+        return aliases
 
     def _key_column(self, key: ast.AST | None) -> str | None:
         if key is None:
@@ -630,122 +629,51 @@ class _Scope:
                 if column := self._key_column(inner.elts[0]):
                     found.append(column)
             elif follow and isinstance(inner, ast.Name):
-                found.extend(self.assigned(inner.id))
+                found.extend(self.assigned(inner))
         return found
 
-    def _assignments(self, name: str):
-        for node in self._name_nodes(name):
-            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-                targets = (
-                    node.targets if isinstance(node, ast.Assign) else [node.target]
-                )
-                if node.value is not None and any(
-                    isinstance(t, ast.Name) and t.id == name for t in targets
-                ):
-                    yield node.value
-
-    def assigned(self, name: str) -> list[str]:
-        """Columns a mapping gets as keys in this scope, or where it is bound."""
-        if self.parent is not None and not self.binds(name):
-            return self.parent.assigned(name)
+    def assigned(self, name: ast.Name) -> list[str]:
+        """Columns the mapping a name refers to gets as keys, wherever it is filled."""
+        key = self.key_of(name)
         found: list[str] = []
-        for value in self._assignments(name):
+        for value in self._mapping_values.get(key, []):
             found.extend(self.mentions(value, follow=False))
-        for node in self._name_nodes(name):
-            if (
-                isinstance(node, ast.Subscript)
-                and isinstance(node.ctx, ast.Store)
-                and isinstance(node.value, ast.Name)
-                and node.value.id == name
-                and (column := self._key_column(node.slice))
-            ):
-                found.append(column)
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == name
-            ):
-                if node.func.attr == "update":
-                    found.extend(kw.arg for kw in node.keywords if kw.arg in COLUMNS)
-                    for arg in node.args:
-                        found.extend(self.mentions(arg, follow=False))
-                elif node.func.attr in {"setdefault", "__setitem__"} and node.args:
-                    if column := self._key_column(node.args[0]):
-                        found.append(column)
+        found.extend(c for k in self._items.get(key, []) if (c := self._key_column(k)))
+        for call in self._calls.get(key, []):
+            if call.func.attr == "update":
+                found.extend(kw.arg for kw in call.keywords if kw.arg in COLUMNS)
+                for arg in call.args:
+                    found.extend(self.mentions(arg, follow=False))
+            elif call.func.attr in {"setdefault", "__setitem__"} and call.args:
+                if column := self._key_column(call.args[0]):
+                    found.append(column)
         return found
 
-    def is_query(self, name: str) -> bool:
-        """Whether a name holds an ORM ``Query``, here or where it is bound."""
-        if self.parent is not None and not self.binds(name):
-            return self.parent.is_query(name)
+    def is_query(self, name: ast.Name) -> bool:
+        """Whether a name holds an ORM ``Query``."""
         return any(
             isinstance(value, ast.Call)
             and any(
                 _terminal_name(r.func) == "query" for r in [value, *_receivers(value)]
             )
-            for value in self._assignments(name)
+            for value in self._values.get(self.key_of(name), [])
         )
-
-    def stored_aliases(self) -> frozenset[str]:
-        """Names bound to a stored ``origin_ref``/``origin_uri`` value here.
-
-        Through any binding (assignment, annotated assignment, walrus,
-        unpacking, a ``for`` over a literal, ``with ... as``), through other
-        aliases until none is new, and through enclosing scopes for a name
-        this scope doesn't bind itself (or declares ``nonlocal``/``global``).
-        """
-        if self._stored_aliases is None:
-            inherited: set[str] = set()
-            if self.parent is not None:
-                local = self.local_names()
-                inherited = set(self.parent.stored_aliases()) - local
-                inherited |= set(self.root.stored_aliases()) & self._declared(
-                    ast.Global
-                )
-            pairs = [
-                pair
-                for target, value in _bindings(self.scope)
-                for pair in _name_pairs(target, value)
-            ]
-            pairs += self._rebound_by_nested()
-            self._stored_aliases = _alias_fixpoint(pairs, inherited)
-        return self._stored_aliases
-
-    def _rebound_by_nested(self) -> list[tuple[str, ast.AST]]:
-        """Bindings nested functions make to this scope's own names.
-
-        Through ``nonlocal`` for a function's names and ``global`` for the
-        module's, unless a function in between binds the name itself.
-        """
-        root = self.parent is None
-        pairs = []
-        for node in ast.walk(self.scope):
-            if node is self.scope or not isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ):
-                continue
-            declared = _declared_in(node, ast.Global if root else ast.Nonlocal)
-            for target, bound in _bindings(node):
-                for name, value in _name_pairs(target, bound):
-                    if name in declared and node in set(
-                        _resolving_scopes(self.scope, name, root=root)
-                    ):
-                        pairs.append((name, value))
-        return pairs
 
     def stored_dict(self, node: ast.AST) -> str | None:
         """What a reference to the stored dict is called, if the node is one."""
         if column := _reads_stored(node):
             return column
-        if isinstance(node, ast.Name) and node.id in self.stored_aliases():
+        if isinstance(node, ast.Name) and self.key_of(node) in self.aliases:
             return f"the origin pointer through {node.id}"
-        # A class attribute aliasing it, read as Class.attr or self.attr.
+        # A class attribute aliasing it, read as Class.attr, self.attr or cls.attr.
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            owner = node.value.id
-            if owner == self.receiver:
-                owner = self.class_name
-            if node.attr in self.class_aliases.get(owner, frozenset()):
+            holder = node.value
+            owner = holder.id
+            table = self.owner(holder.id, self._table_of.get(id(holder), self.top))
+            method = self._methods.get(table.get_id())
+            if method is not None and holder.id == method[1]:
+                owner = method[0]
+            if node.attr in self.class_aliases.get(owner, set()):
                 return f"the origin pointer through {owner}.{node.attr}"
         return None
 
@@ -756,7 +684,7 @@ class _Scope:
         return found
 
 
-def _mutated_dict(call: ast.Call, scope: _Scope) -> str | None:
+def _mutated_dict(call: ast.Call, scope: _Names) -> str | None:
     """The stored column a dict-mutating call changes in place, if any."""
     func = call.func
     name = _terminal_name(func)
@@ -793,7 +721,7 @@ def _table_load_writes(call: ast.Call, name: str) -> list[str]:
     return []
 
 
-def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
+def _call_writes(call: ast.Call, scope: _Names) -> list[str]:
     module = scope.module
     func = call.func
     name = _terminal_name(func)
@@ -830,7 +758,7 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
         and name == "update"
         and (
             any(_terminal_name(r.func) == "query" for r in _receivers(call))
-            or (isinstance(func.value, ast.Name) and scope.is_query(func.value.id))
+            or (isinstance(func.value, ast.Name) and scope.is_query(func.value))
         )
     ):
         # Query.update(), the legacy ORM bulk update.
@@ -850,7 +778,7 @@ def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
     return [f"passes {column} to {name}()" for column in columns]
 
 
-def _node_writes(node: ast.AST, scope: _Scope) -> list[str]:
+def _node_writes(node: ast.AST, scope: _Names) -> list[str]:
     stored = isinstance(getattr(node, "ctx", None), (ast.Store, ast.Del))
     if stored and _is_column(node):
         return [f"writes .{node.attr}"]
@@ -878,48 +806,36 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
 
     Each is ``(line, enclosing function or None, description)``.
     """
-    found: list[tuple[int, str | None, str]] = []
+    offset = 0
+    try:
+        top = symtable.symtable(source, "<gate>", "exec")
+    except SyntaxError:
+        # A fragment such as a top-level await: read it as a function body.
+        source = "async def _fragment():\n" + textwrap.indent(source, "    ")
+        top = symtable.symtable(source, "<gate>", "exec")
+        offset = 1
     tree = ast.parse(source)
-    module = _Module(tree)
+    names = _Names(_Module(tree), tree, top)
+    found: list[tuple[int, str | None, str]] = []
 
-    def visit(
-        node: ast.AST, function: str | None, scope: _Scope, in_string: bool
-    ) -> None:
-        if isinstance(node, _NESTED_SCOPES):
-            # The header runs in the enclosing scope, the body in its own.
-            for header in _header_nodes(node):
-                visit(header, function, scope, in_string)
-            if isinstance(node, ast.ClassDef):
-                scope.class_aliases[node.name] = _class_aliases(
-                    node, scope.stored_aliases()
-                )
-                inner = _Scope(module, node, scope)
-            else:
-                if not isinstance(node, ast.Lambda):
-                    function = node.name
-                # A class body is not visible to the functions defined in it.
-                inner = _Scope(
-                    module,
-                    node,
-                    scope.parent if scope.is_class else scope,
-                    scope.scope.name if scope.is_class else None,
-                )
-            for child in _body_nodes(node):
-                visit(child, function, inner, in_string)
-            return
+    def visit(node: ast.AST, function: str | None, in_string: bool) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = None if node.name == "_fragment" and offset else node.name
         found.extend(
-            (node.lineno, function, what) for what in _node_writes(node, scope)
+            (node.lineno - offset, function, what) for what in _node_writes(node, names)
         )
         # The outermost literal string expression is matched as one text.
         text = None if in_string else _string_text(node)
         if text is not None:
             if _is_sql_write(text):
-                found.append((node.lineno, function, "raw SQL writes the column"))
+                found.append(
+                    (node.lineno - offset, function, "raw SQL writes the column")
+                )
             in_string = True
         for child in ast.iter_child_nodes(node):
-            visit(child, function, scope, in_string)
+            visit(child, function, in_string)
 
-    visit(tree, None, _Scope(module, tree), False)
+    visit(tree, None, False)
     return found
 
 
@@ -1523,6 +1439,25 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "def outer(dataset):\n    [(ref := dataset.origin_ref) for _ in range(1)]\n"
         "    ref.update(token='x')",
         "class Holder:\n    ref = dataset.origin_ref\n    ref['token'] = 't'",
+        # Type parameters: bounds and defaults run in scopes of their own.
+        "alias = dataset.origin_ref\ndef f[T: alias.update(token='x')]():\n    pass",
+        "alias = dataset.origin_ref\ndef f[T = alias.update(token='x')]():\n    pass",
+        "alias = dataset.origin_ref\nclass K[T: alias.update(token='x')]:\n    pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[T: ref.update(token='x')]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    def middle():\n"
+        "        def inner():\n            ref.update(token='x')\n"
+        "        return ref, inner\n    return middle",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    class Holder:\n"
+        "        ref = {}\n        def touch(self):\n"
+        "            ref.update(token='x')\n    return Holder",
+        # Class bodies rebinding an enclosing or module name.
+        "def outer(dataset):\n    ref = {}\n    class Holder:\n        nonlocal ref\n"
+        "        ref = dataset.origin_ref\n    ref.update(token='x')",
+        "ref = {}\nclass Holder:\n    global ref\n    ref = dataset.origin_ref\n"
+        "ref.update(token='x')",
+        # A default value aliasing it, mutated through the parameter.
+        "def touch(ref=dataset.origin_ref):\n    ref['token'] = 'x'",
         # Nested scopes writing to a name the enclosing scope owns.
         "def outer(r):\n    changes = {}\n    def fill():\n"
         "        changes['origin_ref'] = r\n    fill()\n"
@@ -1606,6 +1541,12 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "def outer(t):\n    changes = {'title': t}\n    def run():\n"
         "        return update(Dataset).values(**changes)\n    return run()",
         # An alias inside a nested scope stays there.
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        class Holder:\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        return Holder\n"
+        "    ref.update(title='x')\n    return middle",
+        "alias = {}\ndef f[alias](x: alias):\n    alias = dataset.origin_ref\n"
+        "    return x\nalias.update(title='x')",
         "def outer(r):\n    changes = {}\n    def fill():\n        changes = {}\n"
         "        changes['origin_ref'] = r\n    fill()\n"
         "    return update(Dataset).values(**changes)",
