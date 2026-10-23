@@ -345,6 +345,10 @@ def _start_refresh(
             expected=202,
         )
     except GeoLensError as exc:
+        if exc.status >= 500:
+            # A gateway can answer 5xx after GeoLens queued the run, so the
+            # marker stays for the next run to adopt it.
+            return f"the refresh got no usable answer, {exc}"
         return _settle_unrecorded(
             ctx, entry, dataset_id, f"GeoLens refused the refresh, {exc}"
         )

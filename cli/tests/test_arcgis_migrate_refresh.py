@@ -459,6 +459,29 @@ def test_a_refresh_whose_answer_was_lost_is_adopted_on_the_next_run(
     assert _state(plan_file)["items"][A2]["refreshing"] == {}
 
 
+def test_a_refresh_answered_by_a_gateway_error_is_adopted_on_the_next_run(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    refresh.extra = {"triggered_by": layers.OPERATOR}
+
+    def queued_then_bad_gateway(seen):
+        refresh.refresh(PARCELS, seen)
+        return (502, {"detail": "Bad Gateway"})
+
+    geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = queued_then_bad_gateway
+    first, _ = _migrate(runner, plan_file, "--only", A2)
+    assert first.exit_code != 0 and len(refresh.bodies) == 1
+    refresh.allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert _state(plan_file)["items"][A2]["refreshing"] == {}
+
+
 def test_a_lost_request_that_never_landed_starts_again(runner, plan_file, geolens):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
