@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
@@ -96,6 +96,10 @@ function tokenMap(layer: SyncLayerInput) {
 }
 
 describe('syncLayersToMap cluster rendering', () => {
+  beforeEach(() => {
+    vi.mocked(buildClusterTileUrl).mockClear();
+  });
+
   it('creates a clustered GeoJSON source and stable cluster companion layers when bounded data exists', () => {
     const map = makeMockMap();
     const layer = makeLayer({
@@ -226,9 +230,14 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBe(
+      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
         exposed && compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
       );
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
     });
   });
 
@@ -255,7 +264,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    const filter = vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter;
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    const filter = vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter;
     if (compatible) expect(filter).toBeDefined();
     else expect(filter).toBeUndefined();
   });
@@ -283,7 +293,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBe(
+      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
         exposed && compatible ? JSON.stringify({ op: '>=', args: [{ property: 'score' }, 5] }) : undefined,
       );
     });
@@ -299,7 +310,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
     expect(map.setFilter).toHaveBeenCalledWith(
       'layer-cluster-1',
       ['all', ['!', ['has', 'point_count']], layer.filter],
@@ -323,7 +335,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeDefined();
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeDefined();
   });
 
   it.each(['in', 'not-in'] as const)('omits the whole server filter for a mismatched %s list entry', (operator) => {
@@ -337,7 +350,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
   });
 
   it.each([
@@ -351,7 +365,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
   });
 
   it('types temporal literals in the server-cluster filter from the layer column types', () => {
@@ -364,7 +379,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    const options = vi.mocked(buildClusterTileUrl).mock.lastCall?.[4];
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    const options = vi.mocked(buildClusterTileUrl).mock.calls[0][4];
     expect(JSON.parse(options?.filter ?? 'null')).toEqual({
       op: '>=',
       args: [{ property: 'seen' }, { date: '2004-01-01' }],
@@ -381,7 +397,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
   });
 
   it('drops points with a missing value for a less-than comparison, as the layer filter does', () => {
@@ -394,7 +411,8 @@ describe('syncLayersToMap cluster rendering', () => {
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
     // The layer's sanitized filter gives a missing value a high fallback, so it fails `<`.
-    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter ?? 'null')).toEqual({
+    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter ?? 'null')).toEqual({
       op: '<',
       args: [{ property: 'score' }, 5],
     });
