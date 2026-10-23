@@ -196,6 +196,8 @@ export interface SyncLayerInput {
   feature_count?: number | null;
   /** Column types, so a server-clustered layer's filter is converted with typed literals. */
   dataset_column_info?: { name: string; type?: string | null }[] | null;
+  /** Explicit tile attribute allowlist; null/absent permits all queryable columns. */
+  dataset_tile_columns?: string[] | null;
   /** Source-id dedupe: consumed by `getSourceIdForLayer` to
    *  keep non-vector layers (raster/hillshade) on a per-layer source key. */
   layer_type?: string | null;
@@ -251,6 +253,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
     dataset_column_info: layer.dataset_column_info,
+    dataset_tile_columns: layer.dataset_tile_columns,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
     tile_version: layer.tile_version,

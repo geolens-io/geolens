@@ -6,6 +6,7 @@ import {
   validateRawFilter,
   FilterValidationError,
   maplibreFilterToCql2,
+  isCql2LiteralCompatible,
   utcTimestampText,
 } from '../maplibre-filter-utils';
 
@@ -146,6 +147,18 @@ describe('validateRawFilter', () => {
   });
 });
 
+describe('isCql2LiteralCompatible', () => {
+  it.each([
+    ['non-scalar', {}, undefined, false],
+    ['non-finite', Infinity, undefined, false],
+    ['invalid date', 'last week', 'date', false],
+    ['valid date', '2024-01-01', 'date', true],
+    ['untyped scalar', '5', undefined, true],
+  ] as const)('checks %s', (_label, value, pgType, compatible) => {
+    expect(isCql2LiteralCompatible(value, pgType)).toBe(compatible);
+  });
+});
+
 describe('maplibreFilterToCql2', () => {
   const p = (field: string) => ({ property: field });
   const isNull = (field: string) => ({ op: 'isNull', args: [p(field)] });
@@ -269,6 +282,9 @@ describe('maplibreFilterToCql2', () => {
         ['>=', ['get', 'atz'], '2024-11-03T05:30:00+00:00'],
         { op: '>=', args: [p('atz'), { timestamp: '2024-11-03T05:30:00Z' }] },
       ],
+      // Scalar compatibility for cluster tiles must not narrow shared analysis conversion.
+      [['==', ['get', 'pop'], '5'], { op: '=', args: [p('pop'), '5'] }],
+      [['==', ['get', 'Zone'], 5], { op: '=', args: [p('Zone'), 5] }],
       [['==', ['get', 'pop'], 5], { op: '=', args: [p('pop'), 5] }],
       [['has', 'seen'], { op: 'not', args: [isNull('seen')] }],
       // A column the layer does not list is sent untyped; the server decides.

@@ -177,6 +177,15 @@ describe('describeLayers', () => {
   });
 });
 
+describe('toSyncInput tile columns', () => {
+  it.each([[undefined], [null], [[]], [['seen']]])('carries the tile allowlist %j', (tileColumns) => {
+    const metadata = { dataset_tile_columns: tileColumns };
+    const layer = savedLayer(metadata);
+
+    expect(toSyncInput(layer)).toHaveProperty('dataset_tile_columns', tileColumns);
+  });
+});
+
 describe('toSyncInput column types', () => {
   it('carries the layer column types so a server-clustered filter is typed', () => {
     const columns = [{ name: 'seen', type: 'date' }];

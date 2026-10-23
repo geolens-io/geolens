@@ -457,6 +457,18 @@ function isCql2Scalar(value: unknown): value is string | number | boolean {
   );
 }
 
+/** Check scalar types using the converter's temporal/UUID literal rules too. */
+export function isCql2LiteralCompatible(value: unknown, pgType: string | undefined): boolean {
+  if (!isCql2Scalar(value) || cql2Literal(value, pgType) === null) return false;
+  if (CQL2_STRING_TYPES.has(pgType ?? '')) return typeof value === 'string';
+  if (['smallint', 'integer', 'bigint'].includes(pgType ?? '')) {
+    return typeof value === 'number' && Number.isInteger(value);
+  }
+  if (['real', 'double precision', 'numeric'].includes(pgType ?? '')) return typeof value === 'number';
+  if (pgType === 'boolean') return typeof value === 'boolean';
+  return true;
+}
+
 const cql2Property = (field: string) => ({ property: field });
 const cql2IsNull = (field: string): Cql2Expression => ({
   op: 'isNull',

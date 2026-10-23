@@ -2432,6 +2432,33 @@ class TestMapLayers:
         assert data["opacity"] == 1.0
         assert "id" in data
 
+    @pytest.mark.parametrize("tile_columns", [None, [], ["name"]])
+    async def test_layer_response_carries_dataset_tile_columns(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        tile_columns,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        ds.tile_columns = tile_columns
+        await test_db_session.commit()
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        added = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert added.status_code == 201, added.text
+        assert added.json()["dataset_tile_columns"] == tile_columns
+
+        loaded = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["layers"][0]["dataset_tile_columns"] == tile_columns
+
     @pytest.mark.parametrize("paint", MALFORMED_STOPS_PAINTS)
     async def test_add_layer_rejects_malformed_stops(
         self,

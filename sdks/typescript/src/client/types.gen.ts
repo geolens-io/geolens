@@ -7388,6 +7388,12 @@ export type MapLayerResponse = {
         [key: string]: unknown;
     }> | null;
     /**
+     * Dataset Tile Columns
+     *
+     * Dataset tile attribute allowlist, used to check cluster filters; null allows all queryable columns, [] exposes none.
+     */
+    dataset_tile_columns?: Array<string> | null;
+    /**
      * Dataset Feature Count
      */
     dataset_feature_count?: number | null;

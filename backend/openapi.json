@@ -12525,6 +12525,21 @@
             ],
             "title": "Dataset Column Info"
           },
+          "dataset_tile_columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset tile attribute allowlist, used to check cluster filters; null allows all queryable columns, [] exposes none.",
+            "title": "Dataset Tile Columns"
+          },
           "dataset_feature_count": {
             "anyOf": [
               {

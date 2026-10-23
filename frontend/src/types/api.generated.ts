@@ -11658,6 +11658,11 @@ export interface components {
             dataset_column_info?: {
                 [key: string]: unknown;
             }[] | null;
+            /**
+             * Dataset Tile Columns
+             * @description Dataset tile attribute allowlist, used to check cluster filters; null allows all queryable columns, [] exposes none.
+             */
+            dataset_tile_columns?: string[] | null;
             /** Dataset Feature Count */
             dataset_feature_count?: number | null;
             /** Dataset Sample Values */

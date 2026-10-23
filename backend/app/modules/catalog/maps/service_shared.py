@@ -55,6 +55,7 @@ class DatasetMeta(NamedTuple):
     # The record's required credit line, for the viewer's
     # attribution control.
     attribution: str | None
+    tile_columns: list[str] | None = None
 
 
 class LayerRow(NamedTuple):
@@ -83,6 +84,7 @@ class LayerRow(NamedTuple):
     visibility: str | None = None  # Dataset visibility for audience-badge
     record_status: str | None = None
     attribution: str | None = None  # Required credit line
+    tile_columns: list[str] | None = None
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -126,6 +128,7 @@ async def get_dataset_meta(
             Record.visibility,
             Record.record_status,
             Record.attribution,
+            Dataset.tile_columns,
         )
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
@@ -152,6 +155,7 @@ async def get_dataset_meta(
         visibility=row[14],
         record_status=row[15],
         attribution=row[16],
+        tile_columns=row[17],
     )
 
 
@@ -261,6 +265,7 @@ async def _fetch_layer_rows_ordered(
             Record.visibility,
             Record.record_status,
             Record.attribution,
+            Dataset.tile_columns,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -291,6 +296,7 @@ async def _fetch_layer_rows_ordered(
             visibility=row[15],
             record_status=row[16],
             attribution=row[17],
+            tile_columns=row[18],
         )
         for row in result.all()
     ]

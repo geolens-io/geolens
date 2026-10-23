@@ -918,6 +918,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     table_name: str
     extent: object
     column_info: list | None
+    tile_columns: list[str] | None
     feature_count: int | None
     sample_values: dict | None
     record_type: str | None
@@ -940,6 +941,13 @@ class MapLayerResponse(BaseModel):
     dataset_table_name: str
     dataset_extent_bbox: list[float] | None
     dataset_column_info: list[dict] | None = None
+    dataset_tile_columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Dataset tile attribute allowlist, used to check cluster filters; "
+            "null allows all queryable columns, [] exposes none."
+        ),
+    )
     dataset_feature_count: int | None = None
     dataset_sample_values: dict | None = None
     display_name: str | None = None

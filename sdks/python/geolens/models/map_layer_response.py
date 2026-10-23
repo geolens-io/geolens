@@ -48,6 +48,8 @@ class MapLayerResponse:
         paint (MapLayerResponsePaint):
         layout (MapLayerResponseLayout):
         dataset_column_info (list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset):
+        dataset_tile_columns (list[str] | None | Unset): Dataset tile attribute allowlist, used to check cluster
+            filters; null allows all queryable columns, [] exposes none.
         dataset_feature_count (int | None | Unset):
         dataset_sample_values (MapLayerResponseDatasetSampleValuesType0 | None | Unset):
         display_name (None | str | Unset):
@@ -83,6 +85,7 @@ class MapLayerResponse:
     dataset_column_info: (
         list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset
     ) = UNSET
+    dataset_tile_columns: list[str] | None | Unset = UNSET
     dataset_feature_count: int | None | Unset = UNSET
     dataset_sample_values: MapLayerResponseDatasetSampleValuesType0 | None | Unset = (
         UNSET
@@ -159,6 +162,15 @@ class MapLayerResponse:
 
         else:
             dataset_column_info = self.dataset_column_info
+
+        dataset_tile_columns: list[str] | None | Unset
+        if isinstance(self.dataset_tile_columns, Unset):
+            dataset_tile_columns = UNSET
+        elif isinstance(self.dataset_tile_columns, list):
+            dataset_tile_columns = self.dataset_tile_columns
+
+        else:
+            dataset_tile_columns = self.dataset_tile_columns
 
         dataset_feature_count: int | None | Unset
         if isinstance(self.dataset_feature_count, Unset):
@@ -298,6 +310,8 @@ class MapLayerResponse:
         )
         if dataset_column_info is not UNSET:
             field_dict["dataset_column_info"] = dataset_column_info
+        if dataset_tile_columns is not UNSET:
+            field_dict["dataset_tile_columns"] = dataset_tile_columns
         if dataset_feature_count is not UNSET:
             field_dict["dataset_feature_count"] = dataset_feature_count
         if dataset_sample_values is not UNSET:
@@ -430,6 +444,25 @@ class MapLayerResponse:
 
         dataset_column_info = _parse_dataset_column_info(
             d.pop("dataset_column_info", UNSET)
+        )
+
+        def _parse_dataset_tile_columns(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                dataset_tile_columns_type_0 = cast(list[str], data)
+
+                return dataset_tile_columns_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        dataset_tile_columns = _parse_dataset_tile_columns(
+            d.pop("dataset_tile_columns", UNSET)
         )
 
         def _parse_dataset_feature_count(data: object) -> int | None | Unset:
@@ -664,6 +697,7 @@ class MapLayerResponse:
             paint=paint,
             layout=layout,
             dataset_column_info=dataset_column_info,
+            dataset_tile_columns=dataset_tile_columns,
             dataset_feature_count=dataset_feature_count,
             dataset_sample_values=dataset_sample_values,
             display_name=display_name,

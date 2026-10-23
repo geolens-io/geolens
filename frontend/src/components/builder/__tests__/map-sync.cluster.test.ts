@@ -203,6 +203,157 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  describe.each([
+    ['absent allowlist', undefined, true],
+    ['null allowlist', null, true],
+    ['included property', ['pop'], true],
+    ['excluded property', ['other'], false],
+    ['empty allowlist', [], false],
+  ] as const)('server filter with %s', (_label, tileColumns, exposed) => {
+    it.each([
+      ['known integer mismatch', [{ name: 'pop', type: 'integer' }], '5', false],
+      ['unlisted column mismatch', [{ name: 'other', type: 'integer' }], '5', true],
+      ['valid integer', [{ name: 'pop', type: 'integer' }], 5, true],
+    ] as const)('%s', (_case, columns, value, compatible) => {
+      const map = makeMockMap();
+      const metadata = { dataset_tile_columns: tileColumns == null ? tileColumns : [...tileColumns] };
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['==', ['get', 'pop'], value] as SyncLayerInput['filter'],
+        dataset_column_info: [...columns],
+        ...metadata,
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBe(
+        exposed && compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
+      );
+    });
+  });
+
+  it.each([
+    ['text', 5, false],
+    ['integer', '5', false],
+    ['integer', 5.5, false],
+    ['numeric', '5', false],
+    ['boolean', 'true', false],
+    ['text', '5', true],
+    ['integer', 5, true],
+    ['numeric', 5.5, true],
+    ['boolean', true, true],
+    ['uuid', '6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11', true],
+    ['timestamp without time zone', '2024-01-01 12:00:00', true],
+    ['timestamp with time zone', '2024-01-01T12:00:00+00:00', true],
+  ] as const)('checks a %s literal %j before sending the server filter', (type, value, compatible) => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['==', ['get', 'value'], value] as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'value', type }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    const filter = vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter;
+    if (compatible) expect(filter).toBeDefined();
+    else expect(filter).toBeUndefined();
+  });
+
+  describe.each([
+    ['absent allowlist', undefined, true],
+    ['null allowlist', null, true],
+    ['included property', ['score'], true],
+    ['excluded property', ['other'], false],
+    ['empty allowlist', [], false],
+  ] as const)('to-number server filter with %s', (_label, tileColumns, exposed) => {
+    it.each([
+      ['text', false],
+      ['integer', true],
+      [undefined, true],
+    ] as const)('checks to-number against column type %s', (type, compatible) => {
+      const map = makeMockMap();
+      const metadata = { dataset_tile_columns: tileColumns == null ? tileColumns : [...tileColumns] };
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['>=', ['to-number', ['get', 'score'], 0], 5] as SyncLayerInput['filter'],
+        dataset_column_info: type ? [{ name: 'score', type }] : [],
+        ...metadata,
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBe(
+        exposed && compatible ? JSON.stringify({ op: '>=', args: [{ property: 'score' }, 5] }) : undefined,
+      );
+    });
+  });
+
+  it('keeps the layer filter on loose points when the server filter is omitted', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['==', ['get', 'pop'], '5'] as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'integer' }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(map.setFilter).toHaveBeenCalledWith(
+      'layer-cluster-1',
+      ['all', ['!', ['has', 'point_count']], layer.filter],
+    );
+  });
+
+  it.each([
+    ['existence', ['has', 'pop']],
+    ['null comparison', ['==', ['get', 'pop'], null]],
+    ['membership', ['in', ['get', 'pop'], ['literal', [5, 6]]]],
+    ['negative membership', ['!', ['in', ['get', 'pop'], ['literal', [5, 6]]]]],
+    ['any combination', ['any', ['==', ['get', 'pop'], 5], ['has', 'pop']]],
+  ])('sends a valid %s filter on an exposed known column', (_label, filter) => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: filter as unknown as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'INTEGER' }],
+      dataset_tile_columns: ['pop'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeDefined();
+  });
+
+  it.each(['in', 'not-in'] as const)('omits the whole server filter for a mismatched %s list entry', (operator) => {
+    const map = makeMockMap();
+    const membership = ['in', ['get', 'pop'], ['literal', [5, '6']]];
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['all', ['has', 'kind'], operator === 'in' ? membership : ['!', membership]] as unknown as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'integer' }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+  });
+
+  it.each([
+    ['has', 'pop'],
+    ['==', ['get', 'pop'], null],
+    ['all', ['has', 'kind'], ['==', ['get', 'pop'], 5]],
+  ])('omits server filters reading an excluded property: %j', (...filter) => {
+    const map = makeMockMap();
+    const metadata = { dataset_tile_columns: ['kind'] };
+    const layer = makeLayer({ feature_count: 20_000, filter: filter as SyncLayerInput['filter'], ...metadata });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+  });
+
   it('types temporal literals in the server-cluster filter from the layer column types', () => {
     const map = makeMockMap();
     const layer = makeLayer({
