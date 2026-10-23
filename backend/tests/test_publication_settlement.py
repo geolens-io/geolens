@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import ExitStack
+from functools import partial
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -865,3 +866,41 @@ async def test_a_failure_after_a_rebind_leaves_the_new_binding_undated(
 
     async with db_module.async_session() as session:
         assert (await session.get(Dataset, dataset.id)).last_checked_at is None
+
+
+async def _rebind_elsewhere(dataset: Dataset) -> None:
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        elsewhere = "https://services.example.test/elsewhere"
+        set_dataset_origin(
+            row, "service", uri=elsewhere, **{**_BINDING, "url": elsewhere}
+        )
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("before", "during", "stamped"),
+    [(False, False, True), (True, False, False), (False, True, False)],
+    ids=["as_fetched", "rebound_before_the_attempt", "rebound_during_fetch"],
+)
+async def test_a_held_back_refresh_dates_only_the_binding_it_fetched(
+    test_db_session, before: bool, during: bool, stamped: bool
+):
+    """A blocked refresh dates contact and drift only while the dataset is bound to what it fetched."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    if before:
+        await _rebind_elsewhere(dataset)
+
+    await _reupload(
+        dataset,
+        job,
+        admin_id,
+        expected=None,
+        during=partial(_rebind_elsewhere, dataset) if during else None,
+    )
+
+    assert (await _run(job.id)).status == "blocked"
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+    assert (row.last_checked_at is not None) is stamped
+    assert (row.schema_drift_status is not None) is stamped

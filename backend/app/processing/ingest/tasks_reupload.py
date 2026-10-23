@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import partial, wraps
 
 import structlog
-from sqlalchemy import exists, select, text
+from sqlalchemy import exists, select, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
@@ -21,6 +21,7 @@ from app.platform.dataset_origin import (
     bound_pointer,
     classify_origin,
     service_layer_identity,
+    still_bound,
 )
 from app.processing.raster.cog import sha256_file
 
@@ -1442,11 +1443,18 @@ class _ServiceReupload:
     async def _hold_back(
         self, session, *, dataset, rejected: bool, error_code: str, message: str
     ) -> None:
-        # A re-upload may have fetched another source than the stored one.
-        if self.is_refresh:
-            dataset.last_checked_at = datetime.now(timezone.utc)
-            dataset.schema_drift_status = drift_status_from_diff(
-                self.measured_schema_diff
+        # Both describe the origin this attempt fetched, so they land only while
+        # the dataset is still bound to it; a re-upload may fetch another source.
+        if self.is_refresh and self.contacted:
+            await session.execute(
+                update(type(dataset))
+                .where(still_bound(type(dataset), dataset.id, self.bound))
+                .values(
+                    last_checked_at=datetime.now(timezone.utc),
+                    schema_drift_status=drift_status_from_diff(
+                        self.measured_schema_diff
+                    ),
+                )
             )
         if rejected:
             await record_refresh_failure(
