@@ -151,6 +151,8 @@ and releases use semantic versioning.
 
 - Restoring a retained dataset version preserves its columns' source field
   names, including columns dropped or spelled differently in a later upload.
+  In-place column edits refresh the live version's snapshot, so renames keep
+  their source names and re-added columns do not inherit a removed column's.
   Versions retained before this change still report unknown source names.
 - The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
   process, which exited at the limit and took its container down. As in
