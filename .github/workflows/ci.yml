@@ -769,6 +769,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -1535,6 +1537,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -2709,6 +2713,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
