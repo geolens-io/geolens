@@ -93,6 +93,7 @@ from app.modules.catalog.features.schemas import (
 from app.modules.catalog.features.service import (
     Bounds,
     FeatureBatchError,
+    FeatureNotFoundError,
     MissingFeaturesError,
     UnwritablePropertyError,
     delete_feature,
@@ -573,10 +574,8 @@ async def _settle_repeat(
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
-    except ValueError as exc:
-        if "not found" in str(exc).lower():
-            raise _feature_gone() from exc
-        raise
+    except FeatureNotFoundError as exc:
+        raise _feature_gone() from exc
     return _Repeat(
         written.feature,
         written.prior_bounds,
@@ -1370,12 +1369,12 @@ async def replace_single_feature(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1486,12 +1485,12 @@ async def patch_single_feature(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1601,12 +1600,12 @@ async def delete_single_feature(
         # The DELETE returns the envelope it removed, so the
         # metadata refresh reasons about the version actually deleted.
         prior_bounds = await delete_feature(db, dataset.table_name, gid)
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

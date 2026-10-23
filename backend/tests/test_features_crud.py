@@ -509,6 +509,34 @@ class TestUpdateFeature:
             original_coords, abs=0.0001
         )
 
+    @pytest.mark.parametrize("method", ["patch", "put"])
+    async def test_unknown_property_naming_not_found_is_a_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        method: str,
+    ):
+        """A validation message that happens to say "not found" is not a 404."""
+        create_resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {"name": "A"}},
+            headers=admin_auth_header,
+        )
+        gid = create_resp.json()["id"]
+
+        resp = await getattr(client, method)(
+            f"/datasets/{test_layer.id}/features/{gid}",
+            json={
+                "geometry": POINT_GEOJSON,
+                "properties": {"not found": "x"},
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 400, resp.text
+        assert "Unknown property columns" in resp.json()["detail"]
+
     async def test_update_feature_viewer_forbidden(
         self,
         client: AsyncClient,

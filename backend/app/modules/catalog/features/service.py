@@ -162,6 +162,10 @@ class UnwritablePropertyError(ValueError):
     """
 
 
+class FeatureNotFoundError(ValueError):
+    """The addressed feature row does not exist."""
+
+
 def is_writable_feature_column(name: str) -> bool:
     """Whether the feature write path can address a column by this name.
 
@@ -1154,7 +1158,7 @@ async def replace_feature(
     result = await db.execute(text(sql).bindparams(**params))
     prior = result.first()
     if prior is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
@@ -1214,7 +1218,7 @@ async def update_feature(
     result = await db.execute(text(sql).bindparams(**params))
     prior = result.first()
     if prior is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
@@ -1244,7 +1248,7 @@ async def delete_feature(
     )
     row = result.first()
     if row is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
     return _prior_bounds_from_row(row)
 
 
