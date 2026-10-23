@@ -82,4 +82,22 @@ describe('UserPicker', () => {
     await user.click(screen.getByRole('option', { name: 'bob' }));
     expect(onSelect).toHaveBeenCalledWith(USERS[1]);
   });
+
+  it('keeps the query and list, and reports busy, when a pick arrives while busy', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<UserPicker label="Add a person" users={USERS} onSelect={onSelect} busy />);
+    const input = screen.getByRole('combobox');
+    await user.type(input, 'ali');
+    expect(input).toHaveAttribute('aria-busy', 'true');
+
+    await user.click(screen.getByRole('option', { name: 'alicia' }));
+    await user.keyboard('{Enter}');
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(input).toHaveValue('ali');
+    expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(input).toHaveFocus();
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-disabled', 'true');
+  });
 });

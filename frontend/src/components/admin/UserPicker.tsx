@@ -16,6 +16,8 @@ interface UserPickerProps {
   users: PickerUser[];
   onSelect: (user: PickerUser) => void;
   disabled?: boolean;
+  /** Ignores picks but, unlike `disabled`, keeps focus, the query and the list, so a pick made meanwhile doesn't look accepted. */
+  busy?: boolean;
   /** Reports whether the list is open, so an enclosing dialog can leave Escape to it. */
   onOpenChange?: (open: boolean) => void;
 }
@@ -28,7 +30,7 @@ const MAX_OPTIONS = 50;
  * the list before it can close an enclosing dialog.
  */
 export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function UserPicker(
-  { label, users, onSelect, disabled, onOpenChange },
+  { label, users, onSelect, disabled, busy, onOpenChange },
   ref,
 ) {
   const { t } = useTranslation('admin');
@@ -52,6 +54,7 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
   const optionId = (index: number) => `${baseId}-option-${index}`;
 
   function select(user: PickerUser) {
+    if (busy) return;
     onSelect(user);
     setQuery('');
     setActive(0);
@@ -101,6 +104,7 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={expanded}
+          aria-busy={busy || undefined}
           aria-controls={listId}
           aria-activedescendant={expanded ? optionId(activeIndex) : undefined}
           autoComplete="off"
@@ -129,11 +133,12 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
               id={optionId(index)}
               role="option"
               aria-selected={index === activeIndex}
+              aria-disabled={busy || undefined}
               // Keeps focus in the input so the click isn't preceded by a blur that closes the list.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => select(user)}
               className={cn(
-                'cursor-pointer rounded-sm px-2 py-1.5 text-sm',
+                'cursor-pointer rounded-sm px-2 py-1.5 text-sm aria-disabled:cursor-progress aria-disabled:opacity-60',
                 index === activeIndex && 'bg-accent text-accent-foreground',
               )}
             >

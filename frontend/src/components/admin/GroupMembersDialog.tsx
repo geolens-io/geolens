@@ -67,7 +67,6 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
   }
 
   async function handleAdd(user: PickerUser) {
-    if (add.isPending) return;
     remove.reset();
     try {
       await add.mutateAsync(user.id);
@@ -120,6 +119,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
             label={t('groups.members.addLabel')}
             users={candidates}
             onSelect={handleAdd}
+            busy={add.isPending}
             onOpenChange={setPickerOpen}
           />
         ) : (
