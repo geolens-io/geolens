@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { useUserNames } from '@/hooks/use-admin';
@@ -37,6 +37,10 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
   const add = useAddGroupMember(group.id);
   const remove = useRemoveGroupMember(group.id);
   const pickerRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes once the removed row is gone: a member id, or null for Close.
+  const focusAfterRefresh = useRef<string | null | undefined>(undefined);
   const [outcome, setOutcome] = useState({ text: '', n: 0 });
 
   const memberIds = useMemo(() => new Set((members.data ?? []).map((m) => m.id)), [members.data]);
@@ -45,6 +49,15 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
     [names.data, memberIds],
   );
   const error = add.error ?? remove.error ?? (canListUsers ? names.error : null);
+
+  useEffect(() => {
+    const target = focusAfterRefresh.current;
+    if (target === undefined) return;
+    focusAfterRefresh.current = undefined;
+    const button =
+      target === null ? closeRef.current : listRef.current?.querySelector<HTMLElement>(`[data-remove-id="${target}"]`);
+    button?.focus();
+  }, [members.data]);
 
   function announce(text: string) {
     setOutcome((prev) => ({ text, n: prev.n + 1 }));
@@ -66,8 +79,14 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
     try {
       await remove.mutateAsync(user.id);
       announce(t('groups.members.removed', { name: user.username }));
-      // The removed row's button is gone; the picker is the stable place to land.
-      pickerRef.current?.focus();
+      // The removed row's button is gone; land on the picker, or without one
+      // on a neighbouring row once the list refreshes.
+      if (pickerRef.current) pickerRef.current.focus();
+      else {
+        const rows = members.data ?? [];
+        const index = rows.findIndex((m) => m.id === user.id);
+        focusAfterRefresh.current = (rows[index + 1] ?? rows[index - 1])?.id ?? null;
+      }
     } catch {
       // error displayed inline
     }
@@ -118,7 +137,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
               {t('groups.members.errorLoading', { message: members.error.message })}
             </p>
           ) : members.data && members.data.length > 0 ? (
-            <ul aria-label={t('groups.members.listLabel', { name: group.name })} className="max-h-64 divide-y overflow-auto rounded-md border">
+            <ul ref={listRef} aria-label={t('groups.members.listLabel', { name: group.name })} className="max-h-64 divide-y overflow-auto rounded-md border">
               {members.data.map((member) => (
                 <li key={member.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
                   <span>{member.username}</span>
@@ -126,6 +145,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
                     variant="ghost"
                     size="sm"
                     disabled={remove.isPending}
+                    data-remove-id={member.id}
                     aria-label={t('groups.members.removeLabel', { name: member.username, group: group.name })}
                     onClick={() => handleRemove(member)}
                   >
@@ -144,7 +164,7 @@ export function GroupMembersDialog({ group, open, onOpenChange }: GroupMembersDi
         <LiveAnnouncement text={outcome.text} trigger={String(outcome.n)} />
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button ref={closeRef} variant="outline" onClick={() => onOpenChange(false)}>
             {t('common:close')}
           </Button>
         </DialogFooter>

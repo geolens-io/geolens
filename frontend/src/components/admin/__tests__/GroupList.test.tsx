@@ -177,6 +177,28 @@ describe('GroupList', () => {
       await waitFor(() => expect(api.removeGroupMember).toHaveBeenCalledWith('g1', 'u2'));
     });
 
+    it('without the picker, moves focus to the next member, then to Close when none is left', async () => {
+      permissions.manageUsers = false;
+      api.removeGroupMember.mockResolvedValue(undefined);
+      api.listGroupMembers
+        .mockResolvedValueOnce([
+          { id: 'u1', username: 'alice' },
+          { id: 'u2', username: 'bob' },
+        ])
+        .mockResolvedValueOnce([{ id: 'u2', username: 'bob' }])
+        .mockResolvedValue([]);
+      const user = userEvent.setup();
+      await openMembers(user);
+
+      await user.click(await screen.findByRole('button', { name: 'Remove alice from Planning' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Remove bob from Planning' })).toHaveFocus());
+
+      await user.click(screen.getByRole('button', { name: 'Remove bob from Planning' }));
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[data-slot="dialog-footer"]')).toHaveTextContent('Close'),
+      );
+    });
+
     it('shows the error when the user names request fails', async () => {
       api.listUserNames.mockRejectedValue(new ApiError('Could not load users', 500));
       await openMembers(userEvent.setup());
