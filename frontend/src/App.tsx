@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet, useLocation } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute } from '@/components/auth/AdminRoute';
+import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute, AdminGroupsRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -167,12 +167,14 @@ export const appRoutes = (
             <Route element={<AdminCapabilityRoute capability="manage_users" />} handle={requires('capability')}>
               <Route path="admin/overview" element={<AdminOverviewPage />} handle={preload(loadAdminOverviewPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/users" element={<AdminUsersPage />} handle={preload(loadAdminUsersPage)} errorElement={<RouteErrorBoundary />} />
-              <Route path="admin/groups" element={<AdminGroupsPage />} handle={preload(loadAdminGroupsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/jobs" element={<AdminJobsPage />} handle={preload(loadAdminJobsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} handle={preload(loadAdminSharedMapsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
+            </Route>
+            <Route element={<AdminGroupsRoute />} handle={requires('capability')}>
+              <Route path="admin/groups" element={<AdminGroupsPage />} handle={preload(loadAdminGroupsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* The settings and config-ops APIs flip to manage_tenants in
                 multi-tenant mode, so these routes gate mode-aware; plain

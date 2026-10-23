@@ -57,14 +57,13 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     switch (event.key) {
       case 'ArrowDown':
-        event.preventDefault();
-        if (!open) setOpen(true);
-        else setActive((activeIndex + 1) % Math.max(matches.length, 1));
-        break;
       case 'ArrowUp':
         event.preventDefault();
         if (!open) setOpen(true);
-        else setActive((activeIndex - 1 + matches.length) % Math.max(matches.length, 1));
+        else if (matches.length > 0) {
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          setActive((activeIndex + step + matches.length) % matches.length);
+        }
         break;
       case 'Enter':
         if (expanded) {

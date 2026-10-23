@@ -2,8 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { queryKeys } from '@/lib/query-keys';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useEdition } from '@/hooks/use-edition';
+import { useModeAwareCapability } from '@/hooks/use-settings-admin';
 import {
   listGroups,
   createGroup,
@@ -17,10 +16,7 @@ import {
 // Mirrors require_group_admin in backend/app/modules/admin/router_groups.py:
 // manage_users in single-tenant deployments, manage_tenants in multi-tenant.
 export function useGroupAdmin(): boolean {
-  const { can } = usePermissions();
-  const { isMultiTenant, isResolved } = useEdition();
-  if (!isResolved) return false;
-  return isMultiTenant ? can('manage_tenants') : can('manage_users');
+  return useModeAwareCapability('manage_users');
 }
 
 export function useGroupList(params: { skip: number; limit: number }) {
@@ -39,44 +35,39 @@ export function useGroupMembers(groupId: string) {
   });
 }
 
+type GroupToast = 'created' | 'renamed' | 'deleted';
+
 // Mutation errors stay on the mutation so the open dialog can show the
 // server's reason next to the field that caused it.
-export function useCreateGroup() {
+function useGroupMutation<V>(mutationFn: (variables: V) => Promise<unknown>, toastKey: GroupToast) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => createGroup(name),
+    mutationFn,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allGroups });
-      toast.success(i18n.t('admin:groups.toasts.created'));
+      toast.success(i18n.t(`admin:groups.toasts.${toastKey}`));
     },
   });
+}
+
+export function useCreateGroup() {
+  return useGroupMutation((name: string) => createGroup(name), 'created');
 }
 
 export function useRenameGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ groupId, name }: { groupId: string; name: string }) => renameGroup(groupId, name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.admin.allGroups });
-      toast.success(i18n.t('admin:groups.toasts.renamed'));
-    },
-  });
+  return useGroupMutation(
+    ({ groupId, name }: { groupId: string; name: string }) => renameGroup(groupId, name),
+    'renamed',
+  );
 }
 
 export function useDeleteGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (groupId: string) => deleteGroup(groupId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.admin.allGroups });
-      toast.success(i18n.t('admin:groups.toasts.deleted'));
-    },
-  });
+  return useGroupMutation((groupId: string) => deleteGroup(groupId), 'deleted');
 }
 
-function invalidateMembership(qc: ReturnType<typeof useQueryClient>, groupId: string) {
-  qc.invalidateQueries({ queryKey: queryKeys.admin.groupMembers(groupId) });
-  // The list shows each group's member count.
+// Member lists nest under allGroups, so one invalidation also refreshes the
+// member counts the list shows.
+function invalidateMembership(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: queryKeys.admin.allGroups });
 }
 
@@ -84,7 +75,7 @@ export function useAddGroupMember(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => addGroupMembers(groupId, [userId]),
-    onSuccess: () => invalidateMembership(qc, groupId),
+    onSuccess: () => invalidateMembership(qc),
   });
 }
 
@@ -92,6 +83,6 @@ export function useRemoveGroupMember(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => removeGroupMember(groupId, userId),
-    onSuccess: () => invalidateMembership(qc, groupId),
+    onSuccess: () => invalidateMembership(qc),
   });
 }

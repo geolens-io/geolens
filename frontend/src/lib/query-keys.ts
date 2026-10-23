@@ -128,7 +128,7 @@ export const queryKeys = {
     userNames: ['admin', 'users', 'names'] as const,
     groups: (skip: number, limit: number) => ['admin', 'groups', skip, limit] as const,
     allGroups: ['admin', 'groups'] as const,
-    groupMembers: (groupId: string) => ['admin', 'group-members', groupId] as const,
+    groupMembers: (groupId: string) => ['admin', 'groups', 'members', groupId] as const,
     allUsers: ['admin', 'users'] as const,
     auditLogs: (params: Record<string, unknown>) => ['admin', 'audit-logs', params] as const,
     jobs: (params: Record<string, unknown>) => ['admin', 'jobs', params] as const,
