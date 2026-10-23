@@ -90,7 +90,9 @@ class FakeImport:
         self.previews += 1
         job = _uuid("0b", f"{name}{self.previews:02d}")
         error = self.job_errors.get(name)
-        self.fake.routes[f"POST /ingest/commit/{job}"] = self.commit
+        self.fake.routes[f"POST /ingest/commit/{job}"] = (
+            lambda seen, n=name: self.commit(seen, n)
+        )
         self.fake.routes[f"GET /jobs/{job}"] = (
             lambda _seen, n=name, j=job, e=error: self.job(j, n, e)
         )
@@ -159,7 +161,7 @@ class FakeImport:
             **self.fields.get(dataset, {}),
         }
 
-    def commit(self, seen):
+    def commit(self, seen, name: str):
         refused = self._refused(seen)
         if refused:
             return refused
@@ -167,6 +169,10 @@ class FakeImport:
         if job in self.committed:
             return (400, _problem(400, "Job already processed"))
         self.committed.add(job)
+        # The dataset the job makes takes the commit's visibility.
+        self.fields.setdefault(dataset_id(name), {})["visibility"] = seen.json()[
+            "visibility"
+        ]
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def job(self, job_id: str, name: str, error: str | None) -> dict:
@@ -943,7 +949,7 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     commit = service.commit
 
     def commit_then_time_out(seen):
-        commit(seen)
+        commit(seen, "Parcels")
         raise httpx.ReadTimeout("no answer")
 
     preview = service.preview
@@ -959,7 +965,7 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
 
     geolens.routes[PREVIEW] = preview
-    geolens.routes[f"POST /ingest/commit/{job}"] = commit
+    geolens.routes[f"POST /ingest/commit/{job}"] = lambda seen: commit(seen, "Parcels")
     result, _ = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 0, result.output

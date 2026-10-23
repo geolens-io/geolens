@@ -489,6 +489,9 @@ def _bring_one(
     reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
     if reason:
         return f"{reason}; it was left as it is"
+    problem = _apply_visibility(ctx, item, entry, dataset_id, dataset)
+    if problem:
+        return problem
     problem = start(dataset_id, dataset, revision)
     if problem:
         return problem
@@ -513,6 +516,55 @@ def _bring_one(
     if not _published_unchanged(ctx, after, marker):
         return "changed in GeoLens while its metadata was written; it was left as it is"
     record(entry, dataset_id, after)
+    ctx.save()
+    return None
+
+
+def _apply_visibility(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+) -> str | None:
+    """Give the dataset the plan's visibility when the portal's sharing moved
+    it since the import; why it can't, or None.
+
+    A visibility changed in GeoLens since this command set it is kept and
+    reported, and so is a difference a state file without the record can't
+    tell the origin of.
+    """
+    from geolens.api.datasets import (
+        update_dataset_metadata_datasets_dataset_id_patch as patch,
+    )
+    from geolens.models.dataset_meta import DatasetMeta
+
+    wanted = item["target"]["visibility"]
+    applied = entry.visibility.get(dataset_id)
+    current = _value(dataset.visibility)
+    if current == wanted:
+        entry.visibility[dataset_id] = wanted
+        return None
+    if applied is None:
+        return (
+            f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
+            "the state doesn't say which changed; set it by hand"
+        )
+    if current != applied:
+        return (
+            f"its visibility was changed to {current} in GeoLens, and the plan now "
+            f"says {wanted}; it was left as it is"
+        )
+    record(
+        entry,
+        dataset_id,
+        ctx.geolens.call(
+            patch.sync_detailed,
+            dataset_id=UUID(dataset_id),
+            body=DatasetMeta(visibility=wanted),
+        ),
+    )
+    entry.visibility[dataset_id] = wanted
     ctx.save()
     return None
 

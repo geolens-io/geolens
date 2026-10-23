@@ -193,7 +193,9 @@ def test_a_rerun_refreshes_a_migrated_service_and_records_its_last_update(
 def test_a_private_service_is_refreshed_with_the_token(runner, plan_file, geolens):
     token = secrets.token_urlsafe(16)
     service = _migrated(runner, plan_file, geolens, A1, "--token", token)
-    service.fields[PARCELS] = {"origin_ref": {"url": _service_url(plan_file, A1)}}
+    service.fields.setdefault(PARCELS, {}).update(
+        {"origin_ref": {"url": _service_url(plan_file, A1)}}
+    )
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
 
     result, _ = _migrate(runner, plan_file, "--only", A1, "--token", token)
@@ -210,9 +212,9 @@ def test_the_token_is_not_sent_to_a_stored_source_on_another_host(
 ):
     token = secrets.token_urlsafe(16)
     service = _migrated(runner, plan_file, geolens, A1, "--token", token)
-    service.fields[PARCELS] = {
-        "origin_ref": {"url": "https://elsewhere.example.org/arcgis/rest/services/P"}
-    }
+    service.fields.setdefault(PARCELS, {}).update(
+        {"origin_ref": {"url": "https://elsewhere.example.org/arcgis/rest/services/P"}}
+    )
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
 
     result, payload = _migrate(runner, plan_file, "--only", A1, "--token", token)
@@ -274,7 +276,9 @@ def test_a_state_without_last_updates_trusts_only_the_operators_last_write(
 ):
     service = _migrated(runner, plan_file, geolens)
     _edit_state(plan_file, A2, last_update={}, finished_at="2026-10-02T12:00:00Z")
-    service.fields[PARCELS] = {"updated_at": updated_at, "updated_by": updated_by}
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": updated_at, "updated_by": updated_by}
+    )
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
@@ -342,7 +346,7 @@ def test_a_refresh_still_running_at_the_deadline_is_picked_up_by_the_next_run(
     assert entry["last_update"][PARCELS]["updated_at"].startswith("2026-10-01")
 
     run.update(status="succeeded", finished_at=LATER)
-    service.fields[PARCELS] = {"updated_at": LATER, **after}
+    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER, **after})
     refresh.outcome = "succeeded"
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
@@ -362,7 +366,7 @@ def test_a_refresh_an_earlier_run_left_is_found_behind_newer_runs(
     _migrate(runner, plan_file, "--only", A2)
     [run] = refresh.runs[PARCELS]
     run.update(status="succeeded", finished_at=LATER)
-    service.fields[PARCELS] = {"updated_at": LATER}
+    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER})
     newer = [
         _run(PARCELS, _uuid("6e", f"{n:02d}"), "failed", trigger="scheduled")
         for n in range(60)
@@ -387,7 +391,7 @@ def test_a_recovered_refresh_is_recorded_before_the_next_one_starts(
     _migrate(runner, plan_file, "--only", A2)
     [run] = refresh.runs[PARCELS]
     run.update(status="succeeded", finished_at=LATER)
-    service.fields[PARCELS] = {"updated_at": LATER}
+    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER})
 
     refresh.outcome = "failed"
     result, _ = _migrate(runner, plan_file, "--only", A2)
@@ -412,7 +416,9 @@ def test_a_refresh_another_admin_started_is_taken_as_this_commands_own(
     refresh.runs[PARCELS] = [_run(PARCELS, run_id, "succeeded")]
     marker = {"run": run_id, "revision": 0, **({"by": by} if by else {})}
     _edit_state(plan_file, A2, refreshing={PARCELS: marker})
-    service.fields[PARCELS] = {"updated_at": LATER, "updated_by": ALICE}
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "updated_by": ALICE}
+    )
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
@@ -463,6 +469,63 @@ def test_a_summary_cleared_in_the_portal_is_cleared_unless_edited_in_geolens(
     else:
         assert service.summaries[PARCELS] is None
         assert entry["metadata_baseline"][PARCELS]["summary"] == ""
+
+
+def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == item_id:
+            item["target"]["visibility"] = visibility
+    plan_file.write_text(json.dumps(plan))
+
+
+def test_a_visibility_narrowed_in_the_portal_is_applied_on_a_rerun(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    assert service.fields[PARCELS]["visibility"] == "public"
+    FakeRefresh(geolens, service).allow(PARCELS)
+    _set_visibility(plan_file, A2, "private")
+    before = len(geolens.seen)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 0, result.output
+    sent = [
+        s.json()
+        for s in geolens.seen[before:]
+        if s.method == "PATCH" and "visibility" in s.json()
+    ]
+    assert sent == [{"visibility": "private"}]
+    assert service.fields[PARCELS]["visibility"] == "private"
+    assert _state(plan_file)["items"][A2]["visibility"] == {PARCELS: "private"}
+    assert payload["cutover"]["marked"] is True
+
+
+@pytest.mark.parametrize(
+    ("recorded", "says"),
+    [("public", "was changed to internal in GeoLens"), (None, "doesn't say")],
+)
+def test_a_visibility_the_rerun_cant_attribute_is_reported_not_applied(
+    runner, plan_file, geolens, recorded, says
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.fields[PARCELS]["visibility"] = "internal"
+    _edit_state(plan_file, A2, visibility={PARCELS: recorded} if recorded else {})
+    _set_visibility(plan_file, A2, "private")
+    before = len(geolens.seen)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert says in payload["not_up_to_date"][A2][0]
+    assert not [s for s in geolens.seen[before:] if s.method == "PATCH"]
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
 
 
 def test_a_data_file_is_downloaded_again_and_replaced(
@@ -770,10 +833,17 @@ def test_a_stopped_refresh_ends_the_pass_and_marks_no_cutover(
 ):
     token = secrets.token_urlsafe(16)
     _edit_plan(plan_file, (A1, A2))
+    # Both items share the Parcels dataset; give them one visibility.
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        item["target"]["visibility"] = "internal"
+    plan_file.write_text(json.dumps(plan))
     service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
     result, _ = _migrate(runner, plan_file, "--token", token)
     assert result.exit_code == 0, result.output
-    service.fields[PARCELS] = {"origin_ref": {"url": _service_url(plan_file, A1)}}
+    service.fields.setdefault(PARCELS, {}).update(
+        {"origin_ref": {"url": _service_url(plan_file, A1)}}
+    )
     geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = (
         503,
         {
@@ -901,7 +971,7 @@ def test_a_file_dataset_rebound_to_a_service_is_not_replaced(
 def test_a_geolens_without_data_revisions_gets_no_refresh(runner, plan_file, geolens):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
-    service.fields[PARCELS] = {"data_revision": None}
+    service.fields.setdefault(PARCELS, {}).update({"data_revision": None})
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 

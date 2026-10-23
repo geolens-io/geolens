@@ -86,6 +86,9 @@ class FakeFiles:
             return (400, _problem(400, "Job already processed"))
         self.commits[job] = seen.json()
         self.helper._serve_dataset(dataset_id(job))
+        self.helper.fields.setdefault(dataset_id(job), {})["visibility"] = seen.json()[
+            "visibility"
+        ]
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def fan_out(self, job: str, seen):

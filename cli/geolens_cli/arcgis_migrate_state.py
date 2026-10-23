@@ -118,6 +118,9 @@ class ItemState:
     # What of the item GeoLens doesn't import, such as a service's raster
     # layers; cutover counts each as a loss.
     left_behind: list[str] = field(default_factory=list)
+    # Dataset -> the visibility this command last gave it, so a rerun can
+    # tell a portal sharing change from an edit made in GeoLens.
+    visibility: dict[str, str] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None

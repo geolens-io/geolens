@@ -637,6 +637,9 @@ def _migrate_one(
         entry.notes = [state.clean(note) for note in result.notes]
         state.save()
         if owner is not None:
+            entry.visibility = dict.fromkeys(
+                entry.dataset_ids, item["target"]["visibility"]
+            )
             apply_item_metadata(ctx, item, entry)
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
