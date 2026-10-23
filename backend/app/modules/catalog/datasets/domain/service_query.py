@@ -462,8 +462,8 @@ def _build_where_filters(
         clause = f"{as_text} ILIKE :{param_key}"
         bind_params[param_key] = f"%{search_term}%"
         if codes := label_codes.get(col_name):
-            clause += f" OR {as_text} = ANY(CAST(:{param_key}_codes AS text[]))"
-            bind_params[f"{param_key}_codes"] = codes
+            clause += f" OR {as_text} = ANY(CAST(:fc_{col_name} AS text[]))"
+            bind_params[f"fc_{col_name}"] = codes
         where_clauses.append(f"({clause})")
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
