@@ -28,6 +28,7 @@ from app.modules.catalog.sources.layer_types import (
 )
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.security import SSRFError, same_origin
+from app.platform.service_auth import refuse_token_over_http
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     OGC_JSON_ACCEPT,
@@ -409,12 +410,14 @@ async def read_arcgis_json(
       ``_is_web_tier_refusal`` (same origin, no redirect, only those two
       statuses); a second 401 propagates.
 
-    Raises whatever ``bounded_probe_read`` raises, plus ``ValueError`` from
+    Raises ``TokenOverHttpError`` before any request when a token would go
+    over http, whatever ``bounded_probe_read`` raises, ``ValueError`` from
     ``json.loads``; a depth-bomb ``RecursionError`` surfaces as
     ``EndpointCheckFailedError`` via ``_arcgis_parsed_json``.
     """
     headers, query_token = arcgis_request_auth(token, current_version=current_version)
     requested_url = build_url(query_token)
+    refuse_token_over_http(requested_url, token)
     try:
         body, _ = await bounded_probe_read(
             client,

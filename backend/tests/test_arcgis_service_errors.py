@@ -14,7 +14,9 @@ import pytest
 
 from app.core.service_tokens import register_credential_secret
 from app.modules.catalog.sources.preview import build_gdal_source
+from app.modules.catalog.sources import preview
 from app.platform import egress_proxy, security
+from app.processing.ingest import arcgis_errors
 from app.processing.ingest.arcgis_errors import MAX_DETAIL_CHARS, arcgis_error_detail
 from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
 
@@ -190,6 +192,10 @@ def loopback_service_host(monkeypatch) -> None:
 
     monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve_all)
     monkeypatch.setattr(security, "_resolve_and_validate", resolve_one)
+    # The fixture serves plain http; the refusal of a token over http has
+    # its own tests in test_token_over_http.py.
+    for module in (preview, arcgis_errors):
+        monkeypatch.setattr(module, "refuse_token_over_http", lambda url, token: None)
 
 
 @needs_ogr

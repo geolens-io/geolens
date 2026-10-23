@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -282,6 +283,42 @@ def url_query_token(credential: ServiceCredential | None) -> str | None:
     if credential is None or credential.method != CredentialMethod.BEARER:
         return None
     return credential.token
+
+
+TOKEN_OVER_HTTP_CODE = "token_over_http"
+
+TOKEN_OVER_HTTP_POLICY = (
+    "This service address uses plain HTTP, and GeoLens won't send a token "
+    "over an unencrypted connection. Use the service's https:// address."
+)
+
+
+class TokenOverHttpError(CodedValueError):
+    """A token was about to be sent to an address that isn't https."""
+
+    field = "url"
+
+    def __init__(self) -> None:
+        super().__init__(TOKEN_OVER_HTTP_CODE, TOKEN_OVER_HTTP_POLICY)
+
+
+def refuse_token_over_http(url: str, token: str | None) -> None:
+    """Raise :class:`TokenOverHttpError` when *token* would go to *url* unencrypted."""
+    if token and urlsplit(url).scheme.lower() != "https":
+        raise TokenOverHttpError
+
+
+def token_over_http_or_422(
+    url: str | None, credential: ServiceCredential | None
+) -> None:
+    """A door's 422 ``token_over_http`` for a bearer token bound for *url* over http."""
+    try:
+        refuse_token_over_http(url or "", url_query_token(credential))
+    except TokenOverHttpError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": exc.code, "message": exc.message, "field": exc.field},
+        ) from None
 
 
 def custom_credential_header_name(

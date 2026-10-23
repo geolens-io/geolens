@@ -15,6 +15,7 @@ from app.core.url_redaction import (
 )
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.security import make_safe_client
+from app.platform.service_auth import refuse_token_over_http
 from app.platform.service_endpoints import DEFAULT_CHECK_TIMEOUT, OGC_JSON_ACCEPT
 
 # GDAL reads an ArcGIS error envelope as a broken feature collection and drops
@@ -83,6 +84,7 @@ async def fetch_arcgis_error_detail(gdal_source: str, token: str | None) -> str 
     """
     _, _, url = gdal_source.partition(":")
     try:
+        refuse_token_over_http(url, token)
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
             async with make_safe_client(timeout=DEFAULT_CHECK_TIMEOUT) as client:
                 body, _ = await bounded_probe_read(

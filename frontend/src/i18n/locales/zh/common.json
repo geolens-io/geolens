@@ -339,6 +339,7 @@
     "arcgisSigninInProgress": "此账户的另一个登录流程正在进行中。请稍后重试。",
     "arcgisPortalNotHttps": "该门户或其指向的令牌服务未使用 HTTPS。GeoLens 不会通过明文 HTTP 发送密码；请使用 https:// 的门户 URL。",
     "arcgisPortalHostInvalid": "该门户地址不是可用的主机名。请检查 URL，例如 https://your-org.maps.arcgis.com。",
+    "tokenOverHttp": "该服务地址使用明文 HTTP，GeoLens 不会向其发送令牌。请使用该服务的 https:// 地址。",
     "refreshServiceTokenRequired": "此数据集的数据源需要服务凭据才能刷新。请在下方提供一个以继续。",
     "refreshSourceUrlBlocked": "此数据集存储的数据源 URL 未通过安全检查，无法自动刷新。请联系管理员。",
     "reuploadGeometryLoss": "此替换文件不含几何图形，而该数据集存储几何图形，因此未做任何更改。请将该文件作为新数据集导入。",

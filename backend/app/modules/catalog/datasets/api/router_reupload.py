@@ -86,6 +86,7 @@ from app.modules.catalog.sources.preview import build_gdal_source, run_service_p
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
     credential_or_422,
+    token_over_http_or_422,
     url_query_token,
     wire_credential,
 )
@@ -567,6 +568,7 @@ async def reupload_service_preview(
         service_credential_from_request(request.auth, request.token),
         service_format=_service_format(request.service_type),
     )
+    token_over_http_or_422(request.url, credential)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -1159,6 +1161,7 @@ async def reupload_commit(
     # check. Placed ahead of every write so a bad credential never takes
     # the one-active-run slot from a refresh that can.
     service_token = wire_credential(credential, service_format=_job_service_format(job))
+    token_over_http_or_422(job.source_url, credential)
 
     # Merge commit request params into user_metadata, preserving existing
     # keys. token + layer_name stay request-only (layer_name goes into the

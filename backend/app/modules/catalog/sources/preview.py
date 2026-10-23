@@ -23,7 +23,10 @@ from app.platform.extensions import get_catalog_port
 from app.platform.egress_proxy import pinned_origin, service_egress_proxy
 from app.platform.gdal_argv import reject_option_like_layer_name
 from app.platform.gdal_env import gdal_service_safe_env
-from app.platform.service_auth import credential_input_rejection
+from app.platform.service_auth import (
+    credential_input_rejection,
+    refuse_token_over_http,
+)
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.platform.service_items import (
@@ -199,6 +202,7 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
+        refuse_token_over_http(base_url, token)
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
         # Omitting outFields returns only the display field, dropping every

@@ -52,7 +52,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.service_auth import wire_credential
+from app.platform.service_auth import token_over_http_or_422, wire_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
@@ -1058,6 +1058,7 @@ async def refresh_dataset(
     # a URL to validate outside the reservation window. The binding the
     # worker actually gets is read again below, after the reservation.
     candidate = _resolve_service_origin(dataset)
+    token_over_http_or_422(candidate.base_url, credential)
 
     # Rule 2: the URL is ours, but "ours" isn't a safety property -- it
     # was a client's when ingest stored it, and DNS moves. Revalidating

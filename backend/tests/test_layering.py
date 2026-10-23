@@ -1293,10 +1293,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1079,
-    # Source API router debt; split discovery, preview and dispatch endpoints before
-    # raising.
-    "backend/app/modules/catalog/sources/router.py": 1730,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1082,
+    # Source API router debt; each credential door judges its URL's scheme in
+    # place. Split discovery, preview and dispatch endpoints before raising further.
+    "backend/app/modules/catalog/sources/router.py": 1733,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1312,10 +1312,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
-    # Ingest API router debt; split upload, import and registration endpoints before
-    # raising further. Each upload door branches once per 3D upload kind: a 3D
+    # Ingest API router debt, including the commit door's token scheme check; split
+    # upload, import and registration endpoints before raising further. Each upload door branches once per 3D upload kind: a 3D
     # Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1688,
+    "backend/app/processing/ingest/router.py": 1690,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1364,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1365,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1357,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1670,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1673,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.

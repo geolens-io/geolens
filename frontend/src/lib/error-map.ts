@@ -596,6 +596,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
     }
+    if (value.code === 'token_over_http') {
+      return { key: 'errors.tokenOverHttp' };
+    }
     // arcgis_portal_host_invalid (sources/arcgis_signin.py HOST_INVALID): a 422 for
     // a portal hostname that can't be canonicalized; same shape as above.
     if (value.code === 'arcgis_portal_host_invalid') {
