@@ -1188,7 +1188,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam.
-        "backend/app/modules/catalog/maps/service_public.py": 987,
+        "backend/app/modules/catalog/maps/service_public.py": 995,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.

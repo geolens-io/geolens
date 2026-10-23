@@ -646,6 +646,45 @@ class TestSharedMapValueLabels:
             "title": "Status",
         }
 
+    async def test_the_exposed_pair_filter_uses_a_constant_number_of_parameters(
+        self, test_db_session
+    ):
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        from app.modules.catalog.maps.service_public import (
+            _attribute_display_by_dataset,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        test_db_session.add(
+            AttributeMetadata(
+                dataset_id=ds.id, field_name="status", value_labels={"1": "Active"}
+            )
+        )
+        await test_db_session.commit()
+        exposed = {ds.id: {"status"}} | {
+            uuid.uuid4(): {f"col_{i}" for i in range(10)} for _ in range(300)
+        }
+        counts: list[int] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "attribute_metadata" in statement:
+                counts.append(len(parameters))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            display = await _attribute_display_by_dataset(test_db_session, exposed)
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert display == {ds.id: {"status": {"value_labels": {"1": "Active"}}}}
+        assert len(counts) == 2
+        assert max(counts) <= 4
+
     def test_the_layer_budget_is_64_kb(self):
         from app.modules.catalog.maps.service_public import (
             SHARED_VALUE_LABELS_MAX_BYTES,

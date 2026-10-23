@@ -7,7 +7,19 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Text, and_, cast, func, nulls_last, or_, select, tuple_
+from sqlalchemy import (
+    Text,
+    and_,
+    cast,
+    column,
+    func,
+    literal,
+    nulls_last,
+    or_,
+    select,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -311,6 +323,22 @@ async def _validate_share_token(
 SHARED_VALUE_LABELS_MAX_BYTES = 64 * 1024
 
 
+def _exposed_pairs(pairs: list[tuple[uuid.UUID, str]]):
+    """The (dataset, field) pairs as one relation, from two array parameters.
+
+    Two bind parameters whatever the number of pairs, so a map with many wide
+    layers stays under the driver's parameter limit.
+    """
+    return (
+        func.unnest(
+            literal([dataset_id for dataset_id, _ in pairs], ARRAY(PG_UUID)),
+            literal([name for _, name in pairs], ARRAY(Text)),
+        )
+        .table_valued(column("dataset_id", PG_UUID), column("field_name", Text))
+        .render_derived()
+    )
+
+
 async def _attribute_display_by_dataset(
     session: AsyncSession, exposed: dict[uuid.UUID, set[str]]
 ) -> dict[uuid.UUID, dict[str, dict]]:
@@ -326,8 +354,10 @@ async def _attribute_display_by_dataset(
     ]
     if not pairs:
         return {}
+    exposed_pairs = _exposed_pairs(pairs)
     in_scope = (
-        tuple_(AttributeMetadata.dataset_id, AttributeMetadata.field_name).in_(pairs),
+        AttributeMetadata.dataset_id == exposed_pairs.c.dataset_id,
+        AttributeMetadata.field_name == exposed_pairs.c.field_name,
         AttributeMetadata.is_current.is_(True),
     )
     rows = await session.execute(
@@ -366,15 +396,15 @@ async def _attribute_display_by_dataset(
         if label_bytes[pair[0]] <= SHARED_VALUE_LABELS_MAX_BYTES
     ]
     if within_budget:
+        readable = _exposed_pairs(within_budget)
         label_rows = await session.execute(
             select(
                 AttributeMetadata.dataset_id,
                 AttributeMetadata.field_name,
                 AttributeMetadata.value_labels,
             ).where(
-                tuple_(AttributeMetadata.dataset_id, AttributeMetadata.field_name).in_(
-                    within_budget
-                ),
+                AttributeMetadata.dataset_id == readable.c.dataset_id,
+                AttributeMetadata.field_name == readable.c.field_name,
                 AttributeMetadata.is_current.is_(True),
                 AttributeMetadata.value_labels.is_not(None),
             )
