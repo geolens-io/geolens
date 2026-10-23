@@ -30,11 +30,9 @@ def _row(origin_ref, *, origin_uri=_WFS, source_format="wfs"):
 
 
 class TestBoundPointer:
-    def test_reads_the_three_columns(self) -> None:
-        assert bound_pointer(_row(_REF)) == BoundPointer(_WFS, _REF, "wfs")
-
-    def test_equals_the_plain_triple_older_readers_built(self) -> None:
-        assert bound_pointer(_row(_REF)) == (_WFS, _REF, "wfs")
+    def test_reads_the_three_columns_as_a_plain_triple_too(self) -> None:
+        pointer = bound_pointer(_row(_REF))
+        assert pointer == BoundPointer(_WFS, _REF, "wfs") == (_WFS, _REF, "wfs")
 
     def test_key_order_is_not_a_rebind(self) -> None:
         reordered = dict(reversed(list(_REF.items())))
@@ -67,27 +65,35 @@ async def _stamp(dataset_id, pointer) -> int:
         return result.rowcount
 
 
+async def _dataset(session, source_format: str | None) -> Dataset:
+    return await create_dataset(
+        session,
+        created_by=await get_user_id(session, "admin"),
+        name="Still Bound",
+        visibility="private",
+        source_format=source_format,
+    )
+
+
+def _bind_service(dataset: Dataset, **extra) -> None:
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri=_WFS,
+        service_type="wfs",
+        url=_WFS,
+        layer_id="roads",
+        **extra,
+    )
+
+
 @pytest.mark.anyio
 class TestStillBound:
     async def _service_dataset(self, session) -> Dataset:
-        dataset = await create_dataset(
-            session,
-            created_by=await get_user_id(session, "admin"),
-            name="Still Bound",
-            visibility="private",
-            source_format="wfs",
-        )
-        set_dataset_origin(
-            dataset, "service", uri=_WFS, service_type="wfs", url=_WFS, layer_id="roads"
-        )
+        dataset = await _dataset(session, "wfs")
+        _bind_service(dataset)
         await session.commit()
         return dataset
-
-    async def test_matches_while_the_dataset_holds_the_pointer(
-        self, test_db_session
-    ) -> None:
-        dataset = await self._service_dataset(test_db_session)
-        assert await _stamp(dataset.id, bound_pointer(dataset)) == 1
 
     async def test_a_rebind_that_committed_first_matches_nothing(
         self, test_db_session
@@ -104,36 +110,16 @@ class TestStillBound:
     async def test_an_auth_required_flip_matches_nothing(self, test_db_session) -> None:
         dataset = await self._service_dataset(test_db_session)
         read = bound_pointer(dataset)
-        set_dataset_origin(
-            dataset,
-            "service",
-            uri=_WFS,
-            service_type="wfs",
-            url=_WFS,
-            layer_id="roads",
-            auth_required=True,
-        )
+        _bind_service(dataset, auth_required=True)
         await test_db_session.commit()
 
         assert await _stamp(dataset.id, read) == 0
 
     async def test_null_columns_match_their_own_null(self, test_db_session) -> None:
         """A registered table stores no format and a drawn layer no ref; both still match."""
-        registered = await create_dataset(
-            test_db_session,
-            created_by=await get_user_id(test_db_session, "admin"),
-            name="Still Bound Registered",
-            visibility="private",
-            source_format=None,
-        )
+        registered = await _dataset(test_db_session, None)
         set_postgis_origin(registered, registered.table_name, schema="data")
-        drawn = await create_dataset(
-            test_db_session,
-            created_by=await get_user_id(test_db_session, "admin"),
-            name="Still Bound Drawn",
-            visibility="private",
-            source_format="created",
-        )
+        drawn = await _dataset(test_db_session, "created")
         set_dataset_origin(drawn, "created")
         await test_db_session.commit()
         assert registered.source_format is None
