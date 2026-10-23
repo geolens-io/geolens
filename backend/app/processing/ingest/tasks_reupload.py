@@ -40,7 +40,6 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
-from app.processing.ingest.source_value_labels import refresh_source_value_labels
 from app.processing.ingest.tasks_common import (
     SourceURLRefused,
     _append_job_warning,
@@ -617,6 +616,7 @@ class _FileReupload:
             # The new bytes came from a file, so the binding says upload, even
             # when the dataset was a registered table or service.
             origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
+            field_labels={},
         )
         # A manifest re-apply lands here carrying the manifest's current
         # attribution, which replaces the old credit.
@@ -1504,8 +1504,8 @@ class _ServiceReupload:
                 "layer_id": self.source_binding["layer_id"],
                 "auth_required": True if self.token else None,
             },
+            field_labels=self.field_labels,
         )
-        await refresh_source_value_labels(session, dataset.id, self.field_labels)
         return Published(
             dataset_version_id=version.id,
             feature_count=self.measured_feature_count,

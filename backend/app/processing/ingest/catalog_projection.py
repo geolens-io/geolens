@@ -146,13 +146,19 @@ def schema_diff(dataset: Any, measurement: Measurement) -> dict:
 
 
 async def project(
-    session: AsyncSession, dataset: Any, measurement: Measurement
+    session: AsyncSession,
+    dataset: Any,
+    measurement: Measurement,
+    *,
+    field_labels: dict | None,
 ) -> dict:
     """Write ``measurement`` onto ``dataset`` and its record; return the schema diff.
 
     The caller holds the job row and the catalog rows, in the order
     ``lock_catalog_rows`` takes them. The diff compares the measurement with the
-    stored values it replaces, read under that lock. A record type without a
+    stored values it replaces, read under that lock. ``field_labels`` is what
+    the source publishes for the columns now (empty when it publishes none),
+    and unedited code labels follow it; None leaves them as they are. A record type without a
     feature table, or an unscored measurement, is refused before anything is
     written.
     """
@@ -167,6 +173,7 @@ async def project(
 
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import refresh_attribute_metadata
+    from app.processing.ingest.source_value_labels import refresh_source_value_labels
 
     await session.refresh(dataset, ["column_info", "feature_count", "geometry_type"])
     diff = schema_diff(dataset, measurement)
@@ -198,6 +205,7 @@ async def project(
         geometry_type=geometry_type,
         sample_values=measurement.sample_values,
     )
+    await refresh_source_value_labels(session, dataset.id, field_labels)
     await _retire_geometry_attribute_row(
         session, dataset.id, geometry_type=geometry_type
     )
