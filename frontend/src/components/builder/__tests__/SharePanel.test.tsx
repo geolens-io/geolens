@@ -27,7 +27,7 @@ import {
 } from '@/hooks/use-maps';
 import { toast } from 'sonner';
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
@@ -766,6 +766,20 @@ describe('#1831 publish blocked by non-public datasets', () => {
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId('share-publish-blocked-error')).toBeInTheDocument();
+  });
+
+  it('says a map shared with groups stays restricted when Private is picked', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockResolvedValue({ visibility: 'restricted' });
+    setup({ visibility: 'internal', publishMapFn, hasShareToken: false });
+
+    await user.click(screen.getByRole('radio', { name: /only you/i }));
+
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'private' }));
+    expect(toast.warning).toHaveBeenCalledWith(
+      'This map is still shared with groups, so only you, admins and those groups can open it',
+    );
+    expect(toast.success).not.toHaveBeenCalledWith('Map is now private');
   });
 
   it('test_publish_success_does_not_show_the_refusal_message', async () => {

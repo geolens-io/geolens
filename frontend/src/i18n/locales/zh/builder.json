@@ -886,6 +886,7 @@
     "exportSuccess": "地图已导出为 PNG",
     "mapNowPublic": "地图现已公开",
     "mapNowPrivate": "地图现已设为私有",
+    "mapStillRestricted": "此地图仍与群组共享，因此只有您、管理员和这些群组可以打开它",
     "mapNowInternal": "地图现在对团队成员可见",
     "visibilityFailed": "更新可见性失败",
     "shareLinkCopied": "共享链接已复制",

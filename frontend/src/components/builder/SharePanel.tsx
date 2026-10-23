@@ -1128,16 +1128,20 @@ export function ShareDialog({
     // stale once it lands (a mapId change instead remounts the dialog).
     const requestId = ++publishRequestId.current;
     try {
-      await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
+      const updated = await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
       if (!isMountedRef.current || publishRequestId.current !== requestId) return;
-      if (newVisibility === 'public') {
+      // A map still shared with groups stays restricted when Private is picked.
+      const effective = updated?.visibility ?? newVisibility;
+      if (effective === 'public') {
         toast.success(t('toasts.mapNowPublic'));
-      } else if (newVisibility === 'internal') {
+      } else if (effective === 'internal') {
         toast.success(t('toasts.mapNowInternal'));
+      } else if (effective === 'restricted') {
+        toast.warning(t('toasts.mapStillRestricted'));
       } else {
         toast.success(t('toasts.mapNowPrivate'));
       }
-      if (newVisibility !== 'public') {
+      if (effective !== 'public') {
         tokens.clearSharedState();
       }
     } catch (err) {

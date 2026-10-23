@@ -886,6 +886,7 @@
     "exportSuccess": "Mapa exportado como PNG",
     "mapNowPublic": "El mapa ahora es público",
     "mapNowPrivate": "El mapa ahora es privado",
+    "mapStillRestricted": "Este mapa sigue compartido con grupos, así que solo tú, los administradores y esos grupos pueden abrirlo",
     "mapNowInternal": "El mapa ahora es visible para los miembros del equipo",
     "visibilityFailed": "Error al actualizar la visibilidad",
     "shareLinkCopied": "Enlace copiado",

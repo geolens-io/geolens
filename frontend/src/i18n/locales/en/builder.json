@@ -886,6 +886,7 @@
     "exportSuccess": "Map exported as PNG",
     "mapNowPublic": "Map is now public",
     "mapNowPrivate": "Map is now private",
+    "mapStillRestricted": "This map is still shared with groups, so only you, admins and those groups can open it",
     "mapNowInternal": "Map is now visible to team members",
     "visibilityFailed": "Failed to update visibility",
     "shareLinkCopied": "Share link copied",
