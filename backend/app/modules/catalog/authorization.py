@@ -8,7 +8,7 @@ check_dataset_access().
 import enum
 import uuid
 from dataclasses import replace
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -1143,6 +1143,7 @@ async def check_vrt_audiences_after_change(
     visibility: str | None = None,
     record_status: str | None = None,
     owner_id: uuid.UUID | None = None,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> None:
     """Raise 422 when a new visibility, status or owner (None keeps the current
     one) would make a VRT reach past a member it doesn't reach past now.
@@ -1152,6 +1153,8 @@ async def check_vrt_audiences_after_change(
     shared-owner exemption the transfer moves; other users' VRTs stop serving
     tiles instead of refusing a change.
     Only a newly exceeded member is refused, so a VRT can always narrow.
+    ``regrant``, when given, changes the dataset's grants; it runs once,
+    between the two measurements, and does not commit.
     """
     record = dataset.record
     before = dataset_audience_query(dataset)
@@ -1161,7 +1164,7 @@ async def check_vrt_audiences_after_change(
         record_status=record_status or before.record_status,
         owner_id=owner_id or before.owner_id,
     )
-    if after == before:
+    if after == before and regrant is None:
         return
     is_vrt = record.record_type == "vrt_dataset"
     if is_vrt:
@@ -1178,6 +1181,8 @@ async def check_vrt_audiences_after_change(
         linked = await _record_audience_queries(db, vrt_ids)
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
     then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
+    if regrant is not None:
+        await regrant()
     now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
     newly = sorted(
         pair[2]

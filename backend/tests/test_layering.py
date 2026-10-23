@@ -607,7 +607,7 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     pattern = (
         r"from app\.modules\.catalog\.datasets\.domain\."
         r"(service_(analysis|create|query|lifecycle|metadata|relationships"
-        r"|previous_version)"
+        r"|previous_version|sharing)"
         r"|_sql_safety)"
     )
 
@@ -626,6 +626,7 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
         "backend/app/modules/catalog/datasets/domain/service_metadata.py",
         "backend/app/modules/catalog/datasets/domain/service_relationships.py",
         "backend/app/modules/catalog/datasets/domain/service_previous_version.py",
+        "backend/app/modules/catalog/datasets/domain/service_sharing.py",
         "backend/app/modules/catalog/datasets/domain/_sql_safety.py",
     }
 
@@ -1176,7 +1177,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 118,
+        "backend/app/modules/catalog/datasets/domain/service.py": 128,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1190,7 +1191,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam.
-        "backend/app/modules/catalog/maps/service_public.py": 995,
+        "backend/app/modules/catalog/maps/service_public.py": 1022,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1199,10 +1200,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 572,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 577,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort and keyset SQL share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 573,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 581,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
@@ -1388,7 +1389,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 695,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1907,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1946,
+    # Records, datasets and their grant, translation and attribute children map
+    # one catalog schema.
+    "backend/app/modules/catalog/datasets/domain/models.py": 1003,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
@@ -1429,7 +1433,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1639,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1215,
+    "backend/app/modules/catalog/authorization.py": 1220,
 }
 
 

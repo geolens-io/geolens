@@ -53,6 +53,7 @@ RLS_TABLES: tuple[str, ...] = (
     "ingest_jobs",
     "groups",
     "group_members",
+    "dataset_group_grants",
 )
 
 #: Policy names for the complete current tenant boundary.

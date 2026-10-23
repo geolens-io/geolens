@@ -21,6 +21,7 @@ from app.platform.value_labels import (
 )
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
@@ -667,8 +668,46 @@ class DatasetResponse(BaseModel):
             "the detail endpoint only; null elsewhere."
         ),
     )
+    groups: list[GroupRef] | None = Field(
+        default=None,
+        description=(
+            "The sharing groups the dataset is shared with, by name. Set on "
+            "the detail endpoint for the owner and admins only; null elsewhere."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DatasetGroupsUpdate(BaseModel):
+    group_ids: list[uuid.UUID] = Field(
+        max_length=100,
+        description=(
+            "Every group the dataset is shared with afterwards; an empty list "
+            "unshares it. An owner may add only groups they belong to, and an "
+            "admin any group."
+        ),
+    )
+
+
+class DatasetGroupsResponse(BaseModel):
+    visibility: str = Field(
+        description=(
+            "The dataset's visibility after the change: a private dataset "
+            "shared with a group becomes restricted, and a restricted one "
+            "left with no group or role grant becomes private."
+        )
+    )
+    groups: list[GroupRef] = Field(
+        description="The sharing groups the dataset is shared with, by name."
+    )
+    metadata_warnings: list[str] | None = Field(
+        default=None,
+        description=(
+            "Advisory warnings, as on the metadata PATCH. The change has "
+            "already applied."
+        ),
+    )
 
 
 class StatusUpdateResponse(BaseModel):

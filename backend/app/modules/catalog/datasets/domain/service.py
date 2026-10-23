@@ -58,6 +58,12 @@ from app.modules.catalog.datasets.domain.service_query import (
     list_datasets,
     sortable_columns,
 )
+from app.modules.catalog.datasets.domain.service_sharing import (
+    GroupNotJoinedError,
+    UnknownGroupsError,
+    dataset_groups,
+    set_dataset_groups,
+)
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
     create_relationship,
@@ -75,6 +81,7 @@ __all__ = [
     "reap_managed_storage",
     "DatasetTitleMismatchError",
     "DependentVrtError",
+    "GroupNotJoinedError",
     "InvalidSortColumn",
     "PREVIEW_FEATURE_CAP",
     "PreviousVersionRefused",
@@ -86,6 +93,7 @@ __all__ = [
     "create_dataset",
     "create_empty_dataset",
     "create_relationship",
+    "dataset_groups",
     "defer_metadata_embedding",
     "delete_dataset",
     "delete_relationship",
@@ -110,8 +118,10 @@ __all__ = [
     "validate_relationship_columns",
     "reset_attribute",
     "sample_example_values",
+    "set_dataset_groups",
     "resolve_source_feature_count",
     "run_analysis_preview",
+    "UnknownGroupsError",
     "update_attribute",
     "ValueLabelsOverBudget",
     "update_user_metadata",

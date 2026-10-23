@@ -164,6 +164,7 @@ _TENANT_SCOPED_CATALOG_TABLES = (
     "audit_logs",
     "oauth_accounts",
     "group_members",
+    "dataset_group_grants",
     "groups",
 )
 

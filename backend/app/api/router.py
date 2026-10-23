@@ -8,6 +8,7 @@ from app.processing.ai.router import router as ai_router
 from app.modules.audit.router import audit_datasets_router, router as audit_router
 from app.modules.auth.oauth.router import router as oauth_router
 from app.modules.auth.router import router as auth_router
+from app.modules.auth.router_groups import router as groups_router
 from app.modules.catalog.collections.router import router as collections_crud_router
 from app.platform.config_ops.router import router as config_ops_router
 from app.modules.catalog.datasets.api.router import router as datasets_router
@@ -94,6 +95,7 @@ api_router = APIRouter()
 # OGC discovery must stay first because it owns the root landing paths.
 api_router.include_router(ogc_router)
 api_router.include_router(auth_router)
+api_router.include_router(groups_router)
 api_router.include_router(admin_router)
 api_router.include_router(audit_router)
 api_router.include_router(audit_datasets_router)

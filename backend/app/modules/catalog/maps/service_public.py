@@ -3,6 +3,7 @@
 import hashlib
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     Text,
     and_,
+    any_,
+    bindparam,
     cast,
     column,
     func,
@@ -103,6 +106,7 @@ async def _stranded_viewer_exists(
     session: AsyncSession,
     before: RecordAudience,
     after: RecordAudience,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> bool:
     """Does a real account sit in the audience this change removes?
 
@@ -119,15 +123,21 @@ async def _stranded_viewer_exists(
 
     ``IS NOT false``/``IS NOT true``: a NULL in a WHERE would silently drop
     accounts the authority can't classify.
+
+    ``regrant`` changes the dataset's grants between the two reads, so the
+    readers before it are kept by id.
     """
-    stmt = (
-        select(User.id)
-        .where(User.is_active.is_(True))
-        .where(User.status == "active")
-        .where(before.users.is_not(False))
-        .where(after.users.is_not(True))
-        .limit(1)
+    active = (
+        select(User.id).where(User.is_active.is_(True)).where(User.status == "active")
     )
+    if regrant is None:
+        stmt = active.where(before.users.is_not(False))
+    else:
+        readers = list(await session.scalars(active.where(before.users.is_not(False))))
+        await regrant()
+        ids = bindparam("readers", readers, type_=ARRAY(PG_UUID(as_uuid=True)))
+        stmt = active.where(User.id == any_(ids))
+    stmt = stmt.where(after.users.is_not(True)).limit(1)
     return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
@@ -140,6 +150,7 @@ async def find_maps_broken_by_dataset_visibility(
     record_status: str,
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> list[str]:
     """Names of the owner's shared maps that work at ``old_visibility`` and
     would not at ``new_visibility``.
@@ -153,18 +164,30 @@ async def find_maps_broken_by_dataset_visibility(
     (:func:`answers_audience_questions`) gets all of the owner's shared maps. An
     unpublished record needs no special case: a draft's audience is owner and
     admins both before and after, so nobody is stranded.
+
+    ``regrant``, when given, changes the dataset's grants as well; it runs
+    exactly once, between reading who could read before and after, and does
+    not commit.
     """
-    # A no-op change strands nobody for any authority, and a round-tripped
-    # record resubmits the same visibility.
-    if old_visibility == new_visibility or owner_id is None:
-        return []
     stmt = (
         select(Map.name)
         .select_from(MapLayer)
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
         .where(Map.created_by == owner_id)
+        .where(Map.visibility.in_(_SHARED_MAP_AUDIENCES))
     )
+    # A no-op change strands nobody for any authority, and a round-tripped
+    # record resubmits the same visibility.
+    unchanged = old_visibility == new_visibility and regrant is None
+    if (
+        unchanged
+        or owner_id is None
+        or (await session.execute(stmt.limit(1))).first() is None
+    ):
+        if regrant is not None:
+            await regrant()
+        return []
     permission = get_permission_extension()
     if answers_audience_questions(permission):
         query = RecordAudienceQuery(
@@ -180,7 +203,9 @@ async def find_maps_broken_by_dataset_visibility(
         )
         # Asked per audience: a public map losing a public dataset strands
         # anonymous visitors even when an internal map's viewers all hold grants.
-        signed_in_stranded = await _stranded_viewer_exists(session, before, after)
+        signed_in_stranded = await _stranded_viewer_exists(
+            session, before, after, regrant
+        )
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
         audiences = [
             visibility
@@ -191,6 +216,8 @@ async def find_maps_broken_by_dataset_visibility(
             return []
         stmt = stmt.where(audience_admits(before, owner_id))
     else:
+        if regrant is not None:
+            await regrant()
         audiences = list(_SHARED_MAP_AUDIENCES)
     result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
     return [row[0] for row in result.all()]

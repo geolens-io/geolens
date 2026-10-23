@@ -281,6 +281,8 @@ async def get_dataset_detail(
         visible_lineage_summary,
     )
 
+    # Owner-or-admin only, like the sharing groups below.
+    can_view_provenance = can_view_dataset_provenance(dataset.record, user, user_roles)
     response = dataset_to_response(
         dataset,
         collections=collections_data,
@@ -302,12 +304,20 @@ async def get_dataset_detail(
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
-        # Owner-or-admin only; every other accessible-dataset
-        # reader (named or anonymous) gets origin_uri/origin_ref nulled.
-        can_view_provenance=can_view_dataset_provenance(
-            dataset.record, user, user_roles
-        ),
+        # Every other accessible-dataset reader (named or anonymous) gets
+        # origin_uri/origin_ref nulled.
+        can_view_provenance=can_view_provenance,
     )
+    if response is not None and can_view_provenance:
+        from app.modules.auth.schemas import GroupRef
+        from app.modules.catalog.datasets.domain.service_sharing import (
+            dataset_groups,
+        )
+
+        response.groups = [
+            GroupRef(id=group_id, name=name)
+            for group_id, name in await dataset_groups(db, dataset.id)
+        ]
     # Genericity probe (helpers.py) keeps all draw modes.
     if response is not None and dataset.source_format == "created":
         response.has_generic_geometry = await dataset_geom_is_generic(

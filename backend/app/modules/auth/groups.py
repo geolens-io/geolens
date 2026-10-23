@@ -69,6 +69,24 @@ async def list_groups(
     return list(groups), total
 
 
+async def list_groups_of_member(
+    db: AsyncSession, user_id: uuid.UUID, *, skip: int, limit: int
+) -> tuple[list[Group], int]:
+    """The groups ``user_id`` belongs to, by name, and their total."""
+    joined = select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+    total = (
+        await db.execute(select(func.count()).select_from(joined.subquery()))
+    ).scalar_one()
+    groups = await db.scalars(
+        select(Group)
+        .where(Group.id.in_(joined))
+        .order_by(Group.name, Group.id)
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(groups), total
+
+
 async def create_group(db: AsyncSession, name: str) -> Group:
     """Add a group; a duplicate name raises ``IntegrityError`` at flush."""
     group = Group(name=name)

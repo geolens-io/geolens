@@ -80,6 +80,13 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "migration import, not a desktop publish",
     ),
+    **dict.fromkeys(
+        [
+            ("PUT", "/datasets/{dataset_id}/groups"),
+            ("PUT", "/datasets/{dataset_id}/groups/"),
+        ],
+        "widens who reads a dataset, which a publish key may not",
+    ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
     ("PUT", "/maps/{map_id}"): (
         "replaces a map's layers and settings in place, with no earlier "

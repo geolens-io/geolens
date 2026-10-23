@@ -53,11 +53,12 @@ _RLS_TABLES = [
     "ingest_jobs",
     "groups",
     "group_members",
+    "dataset_group_grants",
 ]
 
 _POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
 # Boundary tables a downgrade below 0006 removes outright.
-_CREATED_AFTER_0005 = {"groups", "group_members"}
+_CREATED_AFTER_0005 = {"groups", "group_members", "dataset_group_grants"}
 
 
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
@@ -85,7 +86,8 @@ async def _get_rls_state() -> dict[str, dict[str, bool]]:
                 to_regclass('catalog.audit_logs'),
                 to_regclass('catalog.ingest_jobs'),
                 to_regclass('catalog.groups'),
-                to_regclass('catalog.group_members')
+                to_regclass('catalog.group_members'),
+                to_regclass('catalog.dataset_group_grants')
             ]
         )
         ORDER BY relname

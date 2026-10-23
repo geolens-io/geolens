@@ -24,6 +24,7 @@ from app.modules.auth.dependencies import (
     get_optional_user,
     require_permission,
 )
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     can_view_dataset_provenance,
     check_dataset_access,
@@ -37,6 +38,8 @@ from app.modules.catalog.datasets.domain.schemas import (
     AttributeMetadataUpdate,
     ColumnStatsResponse,
     ColumnValuesResponse,
+    DatasetGroupsResponse,
+    DatasetGroupsUpdate,
     DatasetRelationshipCreate,
     DatasetRelationshipListResponse,
     DatasetRelationshipResponse,
@@ -49,6 +52,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset_versions,
 )
 from app.core.dependencies import get_db
+from app.platform.cache.tiles import invalidate_catalog_cache
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
@@ -632,3 +636,96 @@ async def get_feature_related_records(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return DatasetRowsResponse(**result)
+
+
+@router.put(
+    "/{dataset_id}/groups",
+    response_model=DatasetGroupsResponse,
+    include_in_schema=False,
+)
+@router.put(
+    "/{dataset_id}/groups/",
+    response_model=DatasetGroupsResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
+async def set_dataset_groups_endpoint(
+    dataset_id: uuid.UUID,
+    body: DatasetGroupsUpdate,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> DatasetGroupsResponse:
+    """Share a dataset with exactly these sharing groups (owner or admin).
+
+    An owner may add only groups they belong to (403); an admin may add any.
+    A private dataset shared with a group becomes restricted, and a restricted
+    one left with no group or role grant becomes private; internal and public
+    datasets keep their audience. 404 for an unknown group, and 422 when the
+    change would hide the dataset from viewers of the owner's shared maps or
+    let a VRT reach people who cannot see all of its sources.
+    """
+    from app.modules.catalog.datasets.domain.service import (
+        GroupNotJoinedError,
+        UnknownGroupsError,
+        dataset_groups,
+        set_dataset_groups,
+    )
+
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
+    warnings: list[str] = []
+    try:
+        changed = await set_dataset_groups(
+            db,
+            dataset,
+            body.group_ids,
+            actor=user,
+            is_admin="admin" in user_roles,
+            warnings_out=warnings,
+        )
+    except UnknownGroupsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": "Group not found",
+                "group_ids": [str(group_id) for group_id in exc.group_ids],
+            },
+        )
+    except GroupNotJoinedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can share a dataset only with groups you belong to.",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
+    visibility = dataset.record.visibility
+    if changed:
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="metadata.edit",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                details={
+                    "group_ids": sorted(str(group_id) for group_id in body.group_ids),
+                    "visibility": visibility,
+                },
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
+    groups = await dataset_groups(db, dataset_id)
+    await db.commit()
+    if changed:
+        await invalidate_catalog_cache()
+    return DatasetGroupsResponse(
+        visibility=visibility,
+        groups=[GroupRef(id=group_id, name=name) for group_id, name in groups],
+        metadata_warnings=warnings or None,
+    )
