@@ -27,9 +27,10 @@ import {
   importMapStyleJson,
   listMapIcons,
   uploadMapIcon,
+  setMapGroups,
 } from '@/api/maps';
 import type { ShareExpirationInput } from '@/api/maps';
-import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility } from '@/types/api';
+import type { MapGroupsConfirm, MapResponse, MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
@@ -270,8 +271,16 @@ export function useMapShareToken(mapId: string | undefined) {
 export function usePublishMap() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, visibility }: { id: string; visibility: MapVisibility }) =>
-      publishMap(id, visibility),
+    // A map with groups cannot go private directly (the server keeps it
+    // restricted), so "private" unshares it first.
+    mutationFn: async ({ id, visibility }: { id: string; visibility: MapVisibility }) => {
+      const hasGroups = Boolean(qc.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.groups?.length);
+      const clearedGroups = visibility === 'private' && hasGroups;
+      if (clearedGroups && (await setMapGroups(id, [])).visibility === visibility) {
+        return { clearedGroups, visibility };
+      }
+      return { clearedGroups, visibility: (await publishMap(id, visibility)).visibility };
+    },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
@@ -282,6 +291,24 @@ export function usePublishMap() {
     onError: (err) => {
       if (nonPublicDatasetsFromError(err)) return;
       toast.error(i18n.t('builder:toasts.visibilityFailed'));
+    },
+  });
+}
+
+export function useSetMapGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mapId, groupIds, confirm }: { mapId: string; groupIds: string[]; confirm?: MapGroupsConfirm }) =>
+      setMapGroups(mapId, groupIds, confirm),
+    onSuccess: (data, variables) => {
+      // Sharing the layers' datasets changes those datasets too.
+      for (const datasetId of data.shared_dataset_ids ?? []) {
+        qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+      }
+      if (data.shared_dataset_ids?.length) invalidateDatasetMapLists(qc);
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateMapHistory(qc, variables.mapId);
     },
   });
 }

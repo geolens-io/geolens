@@ -376,7 +376,9 @@
     "retentionGidUnusable": "Die Aufbewahrung durchläuft die Tabelle über ihre ganzzahlige gid-Spalte, die diese Tabelle nicht mehr hat. Stellen Sie eine ganzzahlige gid-Spalte wieder her, um die Aufbewahrung zu nutzen.",
     "retentionDeleteTrigger": "Die Aufbewahrung kann nicht auf einer Tabelle mit einem Lösch-Trigger laufen, weil der Trigger Zeilen behalten oder andere Zeilen ändern kann, wenn alte gelöscht werden. Entfernen Sie den Trigger, um die Aufbewahrung zu nutzen.",
     "groupNotFound": "Gruppe nicht gefunden",
-    "groupNotJoined": "Sie können einen Datensatz nur mit Gruppen teilen, denen Sie angehören.",
+    "groupNotJoined": "Sie können nur mit Gruppen teilen, denen Sie angehören.",
+    "mapRestrictedNeedsGroups": "Teilen Sie die Karte mit einer Gruppe, bevor Sie sie einschränken.",
+    "mapChangeInProgress": "Eine andere Änderung an dieser Karte läuft gerade. Versuchen Sie es gleich noch einmal.",
     "groupMemberNotFound": "Diese Person ist kein Mitglied dieser Gruppe",
     "groupNameTaken": "Eine Gruppe mit dem Namen „{{name}}“ existiert bereits",
     "vrtAudienceExceedsSources": "Ein VRT-Datensatz wäre für Personen sichtbar, die nicht alle seine Quelldatensätze sehen können. Schränken Sie die Sichtbarkeit des VRT ein oder verwenden Sie Quellen, die seine Zielgruppe sehen kann."

@@ -29,6 +29,21 @@ import { toast } from 'sonner';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
+vi.mock('@/components/builder/MapGroupShare', () => ({
+  MapGroupShare: ({ visibility, hasLinks, focusOnOpen, onSaved }: { visibility: string; hasLinks: boolean; focusOnOpen?: boolean; onSaved?: (v: string) => void }) => (
+    <div
+      data-testid="map-group-share"
+      data-visibility={visibility}
+      data-has-links={String(hasLinks)}
+      data-auto-focus={String(Boolean(focusOnOpen))}
+    >
+      <button type="button" onClick={() => onSaved?.('private')}>
+        stub cleared
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
 }));
@@ -118,6 +133,8 @@ function setup({
   lockOriginsAfterCreate = null,
   mapId = 'map-1',
   strictMode = false,
+  groups,
+  gateEmbedTokens = false,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -154,6 +171,10 @@ function setup({
   /** Renders under React.StrictMode, which double-invokes effect setup and
    *  cleanup on mount — the app's real runtime configuration in dev. */
   strictMode?: boolean;
+  /** The group list the server sends to the owner and admins; omitted for anyone else. */
+  groups?: ComponentProps<typeof ShareDialog>['groups'];
+  /** Return no embed tokens unless the dialog asked for a map's list. */
+  gateEmbedTokens?: boolean;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -228,7 +249,9 @@ function setup({
     use_count: 0,
     created_at: '2026-05-01T00:00:00Z',
   });
-  mockedUseMapEmbedTokens.mockImplementation((() => {
+  mockedUseMapEmbedTokens.mockImplementation(((id?: string) => {
+    // Mirrors the real query, which fetches nothing without a map id.
+    if (gateEmbedTokens && !id) return { data: undefined, isLoading: false, isError: false };
     if (lockOriginsAfterCreate && embedTokenCreated) {
       return {
         data: { tokens: [embedTokenRow(lockOriginsAfterCreate)], total: 1 },
@@ -274,6 +297,7 @@ function setup({
       key={mapId}
       mapId={mapId}
       visibility={visibility}
+      groups={groups}
       open
       onOpenChange={vi.fn()}
       hasUnsavedChanges={hasUnsavedChanges}
@@ -2259,5 +2283,110 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
         `${PUBLIC_HOST}/api/maps/shared/share-token/card`,
       );
     });
+  });
+});
+
+describe('sharing a map with groups', () => {
+  const SURVEYORS = { id: 'g-1', name: 'Surveyors' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows a restricted map with its level checked and its group editor', () => {
+    setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false });
+
+    expect(screen.getByRole('radio', { name: /^Specific groups/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('map-group-share')).toHaveAttribute('data-visibility', 'restricted');
+  });
+
+  it('opens the group editor on a private map without changing visibility', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({ visibility: 'private', groups: [], hasShareToken: false });
+    expect(screen.queryByTestId('map-group-share')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /^Specific groups/ }));
+
+    expect(screen.getByTestId('map-group-share')).toHaveAttribute('data-auto-focus', 'true');
+    expect(screen.getByRole('radio', { name: /^Specific groups/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveAttribute('aria-checked', 'false');
+    expect(publishMapFn).not.toHaveBeenCalled();
+  });
+
+  it('follows a save that leaves the map private: level, announcement and focus', async () => {
+    const user = userEvent.setup();
+    const view = setup({ visibility: 'private', groups: [], hasShareToken: false });
+    await user.click(screen.getByRole('radio', { name: /^Specific groups/ }));
+    // The map went restricted, then its last group was removed.
+    view.rerender(
+      <ShareDialog key="map-1" mapId="map-1" visibility="restricted" groups={[SURVEYORS]} open onOpenChange={vi.fn()} />,
+    );
+    view.rerender(
+      <ShareDialog key="map-1" mapId="map-1" visibility="private" groups={[]} open onOpenChange={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /^Specific groups/ })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByTestId('map-group-share')).not.toBeInTheDocument();
+  });
+
+  it('announces a save that leaves the map private and focuses the checked level', async () => {
+    const user = userEvent.setup();
+    setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false });
+
+    await user.click(screen.getByRole('button', { name: 'stub cleared' }));
+
+    expect(await screen.findByText('Groups removed. Only you and admins can open this map.')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveFocus();
+  });
+
+  it('unshares when Only you is chosen on a restricted map and says members lose access', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockResolvedValue({ clearedGroups: true });
+    setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false, publishMapFn });
+    expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveTextContent(
+      'Members of its groups lose access',
+    );
+
+    await user.click(screen.getByRole('radio', { name: /^Only you/ }));
+
+    await waitFor(() =>
+      expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'private' }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      'Map is now private. Members of its groups no longer have access.',
+    );
+  });
+
+  it.each([
+    ['an embed token and no share link', { forceActiveEmbedToken: true }, 'true'],
+    ['neither a share link nor an embed token', {}, 'false'],
+  ])('reports links for a private map with %s', async (_label, extra, expected) => {
+    const user = userEvent.setup();
+    setup({ visibility: 'private', groups: [], hasShareToken: false, gateEmbedTokens: true, ...extra });
+    await user.click(screen.getByRole('radio', { name: /^Specific groups/ }));
+    expect(screen.getByTestId('map-group-share')).toHaveAttribute('data-has-links', expected);
+  });
+
+  it('keeps editing groups on an internal map but offers Specific groups only once some exist', () => {
+    setup({ visibility: 'internal', groups: [], hasShareToken: false });
+
+    expect(screen.getByTestId('map-group-share')).toHaveAttribute('data-visibility', 'internal');
+    expect(screen.getByRole('radio', { name: /^Specific groups/ })).toBeDisabled();
+  });
+
+  it('shows a non-owner the level checked but no group editor', () => {
+    setup({ visibility: 'restricted', hasShareToken: false });
+
+    expect(screen.queryByTestId('map-group-share')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /^Specific groups/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('hides the level from a non-owner on a map that is not restricted', () => {
+    setup({ visibility: 'internal', hasShareToken: false });
+
+    expect(screen.queryByRole('radio', { name: /^Specific groups/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('map-group-share')).not.toBeInTheDocument();
   });
 });

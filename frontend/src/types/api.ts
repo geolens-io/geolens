@@ -41,6 +41,9 @@ export type GroupResponse = components['schemas']['GroupResponse'];
 export type GroupListResponse = components['schemas']['GroupListResponse'];
 export type GroupRef = components['schemas']['GroupRef'];
 export type GroupRefListResponse = components['schemas']['GroupRefListResponse'];
+export type MapGroupsResponse = components['schemas']['MapGroupsResponse'];
+export type MapLayerAccessGap = components['schemas']['MapLayerAccessGap'];
+export type MapGroupsConfirm = NonNullable<components['schemas']['MapGroupsUpdate']['confirm']>;
 export type DatasetGroupsResponse = components['schemas']['DatasetGroupsResponse'];
 export type GroupMemberListResponse = components['schemas']['GroupMemberListResponse'];
 

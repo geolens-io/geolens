@@ -102,7 +102,7 @@ describe('DatasetGroupShare', () => {
     [
       '403',
       'You can share a dataset only with groups you belong to.',
-      'Could not save groups: You can share a dataset only with groups you belong to.',
+      'Could not save groups: You can share only with groups you belong to.',
     ],
     [
       '422',

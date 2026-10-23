@@ -2,6 +2,9 @@ import { apiFetch, ApiError, authenticatedRawFetch } from './client';
 import type {
   MapResponse,
   MapVisibility,
+  MapGroupsResponse,
+  MapGroupsConfirm,
+  MapLayerAccessGap,
   DuplicateMapResponse,
   MapListResponse,
   MapCreateRequest,
@@ -266,6 +269,33 @@ export async function uploadMapIcon(file: File): Promise<MapIconResponse> {
     method: 'POST',
     body: formData,
   });
+}
+
+/**
+ * Share a map with exactly these groups; an empty list unshares it. Without
+ * `confirm`, the server answers 409 when some layer is unreadable by a group
+ * that would newly reach the map (see `layersHiddenFromGroups`).
+ */
+export async function setMapGroups(
+  id: string,
+  groupIds: string[],
+  confirm?: MapGroupsConfirm,
+): Promise<MapGroupsResponse> {
+  return apiFetch<MapGroupsResponse>(`/maps/${encodeURIComponent(id)}/groups/`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_ids: groupIds, ...(confirm && { confirm }) }),
+  });
+}
+
+/** The layers a 409 from `setMapGroups` lists, or undefined for any other failure. */
+export function layersHiddenFromGroups(err: unknown): MapLayerAccessGap[] | undefined {
+  if (!(err instanceof ApiError) || err.status !== 409 || !err.body || typeof err.body !== 'object') {
+    return undefined;
+  }
+  const detail = err.body as { code?: unknown; layers?: unknown };
+  return detail.code === 'layers_hidden_from_groups' && Array.isArray(detail.layers)
+    ? (detail.layers as MapLayerAccessGap[])
+    : undefined;
 }
 
 export async function publishMap(id: string, visibility: MapVisibility): Promise<MapResponse> {

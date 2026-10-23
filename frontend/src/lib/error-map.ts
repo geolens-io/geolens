@@ -33,7 +33,10 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Layer not found': 'errors.layerNotFound',
   'User not found': 'errors.userNotFound',
   'Group not found': 'errors.groupNotFound',
+  'Another change to this map is in progress. Retry shortly.': 'errors.mapChangeInProgress',
+  'Share the map with a group before making it restricted.': 'errors.mapRestrictedNeedsGroups',
   'You can share a dataset only with groups you belong to.': 'errors.groupNotJoined',
+  'You can share a map only with groups you belong to.': 'errors.groupNotJoined',
   'User is not a member of this group': 'errors.groupMemberNotFound',
   "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.":
     'errors.vrtAudienceExceedsSources',

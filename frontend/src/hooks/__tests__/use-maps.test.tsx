@@ -16,11 +16,12 @@ vi.mock('@/api/maps', async (importOriginal) => {
     deleteMap: vi.fn(),
     createMap: vi.fn(),
     publishMap: vi.fn(),
+    setMapGroups: vi.fn(),
   };
 });
 
 import { ApiError } from '@/api/client';
-import { listMaps, getMap, deleteMap, createMap, publishMap } from '@/api/maps';
+import { listMaps, getMap, deleteMap, createMap, publishMap, setMapGroups } from '@/api/maps';
 import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap } from '@/hooks/use-maps';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -29,6 +30,7 @@ const mockGetMap = vi.mocked(getMap);
 const mockDeleteMap = vi.mocked(deleteMap);
 const mockCreateMap = vi.mocked(createMap);
 const mockPublishMap = vi.mocked(publishMap);
+const mockSetMapGroups = vi.mocked(setMapGroups);
 
 describe('useMaps', () => {
   beforeEach(() => {
@@ -245,6 +247,53 @@ describe('usePublishMap', () => {
       <QueryClientProvider client={qc}>{children}</QueryClientProvider>
     );
   }
+
+  function seedGroups(qc: QueryClient, groups: { id: string; name: string }[]) {
+    qc.setQueryData(queryKeys.maps.detail('map-1'), { id: 'map-1', groups });
+  }
+
+  it('unshares a map with groups first, and skips the visibility PUT once it is private', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'private', groups: [] });
+    const qc = makeQc();
+    seedGroups(qc, [{ id: 'g-1', name: 'Surveyors' }]);
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.mutateAsync({ id: 'map-1', visibility: 'private' });
+    });
+
+    expect(mockSetMapGroups).toHaveBeenCalledWith('map-1', []);
+    expect(mockPublishMap).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ clearedGroups: true });
+  });
+
+  it('still sets the visibility when unsharing leaves the map somewhere else', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'internal', groups: [] });
+    mockPublishMap.mockResolvedValueOnce({} as never);
+    const qc = makeQc();
+    seedGroups(qc, [{ id: 'g-1', name: 'Surveyors' }]);
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'map-1', visibility: 'private' });
+    });
+
+    expect(mockPublishMap).toHaveBeenCalledWith('map-1', 'private');
+  });
+
+  it('leaves groups alone for a map without any', async () => {
+    mockPublishMap.mockResolvedValueOnce({} as never);
+    const qc = makeQc();
+    seedGroups(qc, []);
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'map-1', visibility: 'private' });
+    });
+
+    expect(mockSetMapGroups).not.toHaveBeenCalled();
+  });
 
   it('fires the generic toast on an ordinary failure', async () => {
     mockPublishMap.mockRejectedValueOnce(new ApiError('Internal Server Error', 500));

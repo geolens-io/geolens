@@ -26,7 +26,6 @@ import {
   type DatasetRowsSort,
 } from '@/api/datasets';
 import { cancelJob } from '@/api/ingest';
-import { listMyGroups } from '@/api/groups';
 import type {
   CreateDatasetRequest,
   DatasetOrigin,
@@ -111,15 +110,6 @@ export function useUpdateDataset() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
       if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
     },
-  });
-}
-
-export function useMyGroups(enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.groups.mine,
-    queryFn: listMyGroups,
-    enabled,
-    staleTime: 60_000,
   });
 }
 
