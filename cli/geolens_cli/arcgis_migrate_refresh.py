@@ -152,8 +152,14 @@ def _adopt_pending(
     means the request never landed. Why it can't be settled, or None."""
     before = whole_number(marker.get("pending")) or 0
     page = _run_page(ctx, dataset_id, 0, RUN_PAGE)
+    added = max(page.total - before, 0)
+    if added > len(page.runs):
+        return (
+            "more refreshes were started since a request whose answer was lost "
+            "than one page of history shows, so the one it sent can't be found"
+        )
     # Newest first, so the runs added since the request are the first.
-    started = page.runs[: max(page.total - before, 0)]
+    started = page.runs[:added]
     ours = [run for run in started if str(_value(run.triggered_by)) == marker.get("by")]
     if len(ours) > 1:
         return (

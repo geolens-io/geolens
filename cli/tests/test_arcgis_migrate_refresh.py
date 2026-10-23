@@ -496,6 +496,31 @@ def test_two_runs_started_after_a_lost_request_are_reported(runner, plan_file, g
     assert len(refresh.bodies) == 1
 
 
+def test_a_lost_request_with_a_page_of_runs_since_is_reported(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    refresh.extra = {"triggered_by": layers.OPERATOR}
+    _lose_the_answer(geolens, refresh)
+    _migrate(runner, plan_file, "--only", A2)
+    # The lost run is 51st; the newest page holds one other run by the operator.
+    for n in range(49):
+        refresh.runs[PARCELS].insert(
+            0, _run(PARCELS, _uuid("7e", f"{n:02d}"), "succeeded", triggered_by=ALICE)
+        )
+    refresh.runs[PARCELS].insert(
+        0, _run(PARCELS, _uuid("7f", "01"), "succeeded", triggered_by=layers.OPERATOR)
+    )
+    refresh.allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert "more refreshes were started" in payload["not_up_to_date"][A2][0]
+    assert len(refresh.bodies) == 1
+
+
 def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
     runner, plan_file, geolens
 ):
