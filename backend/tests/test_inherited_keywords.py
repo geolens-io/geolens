@@ -260,6 +260,41 @@ class TestDisclosureWarning:
         await test_db_session.commit()
         assert warnings == []
 
+    async def test_warning_fires_when_reads_and_audience_may_disagree(
+        self, test_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ):
+        """An authority that widens reads but borrows the community audience
+        can't vouch for the source covering everyone, so it warns."""
+        from app.modules.catalog.records import inherited
+        from app.platform.extensions import DefaultPermissionExtension
+
+        class _WidensReadsOnly(DefaultPermissionExtension):
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt
+
+        monkeypatch.setattr(
+            inherited, "get_permission_extension", lambda: _WidensReadsOnly()
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        _, derived, _, _ = await _derived_pair(
+            test_db_session,
+            admin_id,
+            source_visibility="public",
+            derived_visibility="internal",
+        )
+        warnings: list[str] = []
+        await update_user_metadata(
+            test_db_session,
+            derived.id,
+            DatasetMeta(visibility="public"),
+            actor=await _user_row(test_db_session, admin_id),
+            warnings_out=warnings,
+        )
+        await test_db_session.commit()
+        assert len(warnings) == 1
+
     async def test_no_warning_on_non_audience_edit(self, test_db_session: AsyncSession):
         """A title edit never asks the audience question, gap or no gap."""
         admin_id = await get_user_id(test_db_session, "admin")

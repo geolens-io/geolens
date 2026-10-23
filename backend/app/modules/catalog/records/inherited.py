@@ -20,7 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import get_user_roles, visible_derived_from
+from app.modules.catalog.authorization import (
+    answers_audience_questions,
+    get_user_roles,
+    visible_derived_from,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -108,14 +112,14 @@ async def audience_exceeds_source(
     """Can anyone read ``record`` who cannot read its source?
 
     ``visibility``/``record_status`` let a caller ask the counterfactual:
-    "would publishing this widen past the source?". An authority without
-    ``record_audience`` can't answer, so it warns (over-warning is cheap here,
+    "would publishing this widen past the source?". An authority whose
+    ``record_audience`` isn't trusted warns (over-warning is cheap here,
     since this gates dialog prose, not a result-set row). NULL handling
     follows ``_stranded_viewer_exists`` in ``maps/service_public.py``: an
     unclassifiable account warns too.
     """
     permission = get_permission_extension()
-    if getattr(type(permission), "record_audience", None) is None:
+    if not answers_audience_questions(permission):
         return True
     derived_audience = await permission.record_audience(
         RecordAudienceQuery(
