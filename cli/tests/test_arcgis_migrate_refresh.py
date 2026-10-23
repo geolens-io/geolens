@@ -604,6 +604,53 @@ def test_a_data_file_is_downloaded_again_and_replaced(
     assert _state(plan_file)["items"][D3]["refreshing"] == {}
 
 
+def test_a_data_file_whose_visibility_this_run_changed_is_still_replaced(
+    runner, tmp_path, geolens, portal
+):
+    imported = files.FakeFiles(geolens)
+    plan_file = files._plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    [dataset] = _state(plan_file)["items"][D3]["dataset_ids"]
+    _set_visibility(plan_file, D3, "private")
+    job = _uuid("0c", "01")
+    commits = []
+    patch = geolens.routes[f"PATCH /datasets/{dataset}"]
+
+    def patch_moving_updated_at(seen):
+        imported.helper.fields.setdefault(dataset, {}).update(
+            {"updated_at": "2026-10-02T00:00:00Z", "updated_by": layers.OPERATOR}
+        )
+        return patch(seen)
+
+    geolens.routes.update(
+        {
+            f"PATCH /datasets/{dataset}": patch_moving_updated_at,
+            f"POST /datasets/{dataset}/reupload": (
+                201,
+                {"job_id": job, "message": "ok", "status": "pending"},
+            ),
+            f"POST /datasets/{dataset}/reupload/{job}/preview": _preview(job),
+            f"POST /datasets/{dataset}/reupload/{job}/commit": lambda seen: (
+                commits.append(seen.json())
+                or (202, {"job_id": job, "status": "pending", "message": "queued"})
+            ),
+            f"GET /datasets/{dataset}/refresh-runs": {
+                "runs": [
+                    _run(dataset, _uuid("5e", "01"), "succeeded", ingest_job_id=job)
+                ],
+                "total": 1,
+            },
+        }
+    )
+
+    result, payload = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert len(commits) == 1
+    assert _state(plan_file)["items"][D3]["visibility"] == {dataset: "private"}
+
+
 class EditDuring(FakeRefresh):
     """Alice edits *victim* when the refresh of *trigger* is requested."""
 

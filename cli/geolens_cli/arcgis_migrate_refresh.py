@@ -491,7 +491,7 @@ def _bring_one(
     reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
     if reason:
         return f"{reason}; it was left as it is"
-    problem = _apply_visibility(ctx, item, entry, dataset_id, dataset)
+    problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
     if problem:
         return problem
     problem = start(dataset_id, dataset, revision)
@@ -528,9 +528,10 @@ def _apply_visibility(
     entry: ItemState,
     dataset_id: str,
     dataset: Any,
-) -> str | None:
+) -> tuple[str | None, Any]:
     """Give the dataset the plan's visibility when the portal's sharing moved
-    it since the import; why it can't, or None.
+    it since the import; why it can't, or None, and the dataset as this left
+    it.
 
     A visibility changed in GeoLens since this command set it is kept and
     reported, and so is a difference a state file without the record can't
@@ -546,30 +547,27 @@ def _apply_visibility(
     current = _value(dataset.visibility)
     if current == wanted:
         entry.visibility[dataset_id] = wanted
-        return None
+        return None, dataset
     if applied is None:
         return (
             f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
             "the state doesn't say which changed; set it by hand"
-        )
+        ), dataset
     if current != applied:
         return (
             f"its visibility was changed to {current} in GeoLens, and the plan now "
             f"says {wanted}; it was left as it is"
-        )
-    record(
-        entry,
-        dataset_id,
-        ctx.geolens.write(
-            patch.sync_detailed,
-            during="its visibility was written",
-            dataset_id=UUID(dataset_id),
-            body=DatasetMeta(visibility=wanted, expected_updated_at=dataset.updated_at),
-        ),
+        ), dataset
+    written = ctx.geolens.write(
+        patch.sync_detailed,
+        during="its visibility was written",
+        dataset_id=UUID(dataset_id),
+        body=DatasetMeta(visibility=wanted, expected_updated_at=dataset.updated_at),
     )
+    record(entry, dataset_id, written)
     entry.visibility[dataset_id] = wanted
     ctx.save()
-    return None
+    return None, written
 
 
 def _settle_unrecorded(
