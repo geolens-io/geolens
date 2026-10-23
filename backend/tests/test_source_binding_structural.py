@@ -34,18 +34,24 @@ invariant 4) and clear the stored probe verdict. This walks every module under
 Inside the owner module, each write is counted by the function it sits in, so
 a second write site, or a write outside the setter, fails too.
 
-Behind those rules sits a backstop: any string outside the owner module that
-names a column (f-strings and ``+`` concatenations read as one text,
-docstrings aside) fails unless its file and innermost function or class are in
-``LITERAL_ALLOWLIST``. A dynamic write needs the column's name as text or an
-attribute store, so the specific rules give the clearer message and the
-backstop catches what they miss. An allowlist entry that no longer matches a
+Behind those rules sits a backstop: outside the owner module, any name for a
+column fails unless its file and innermost function or class are in
+``NAME_ALLOWLIST``. That is a string naming one (f-strings and ``+``
+concatenations read as one text, docstrings aside), a keyword argument named
+after one, or a column attribute used other than as a value: as a dict key, in a
+pair handed to ``values``/``ordered_values``, or as the receiver of any method
+but the stored dict's reads and SQLAlchemy's comparisons. A write needs one of
+those or an attribute store, so the specific rules give the clearer message and
+the backstop catches what they miss. An allowlist entry that no longer matches a
 site fails, so the list only shrinks.
 
-Out of reach: a column name built at runtime from pieces that never spell it,
-an alias of the stored dict kept on an attribute or in a container, SQL in
-database functions and triggers, migrations (outside ``backend/app/``), and
-``source_format``, which several publication paths write beside the setter.
+Out of reach: a column name built at runtime from pieces that never spell it
+(``getattr``/``setattr`` with a computed name, a mapping built by ``zip`` or a
+comprehension), and the stored dict passed on as a value (an argument, an
+attribute, a container) and changed in place where the column is not named.
+Not in scope: SQL in database functions and triggers, migrations (outside
+``backend/app/``), and ``source_format``, which several publication paths write
+beside the setter.
 """
 
 import ast
@@ -290,12 +296,12 @@ class _Module:
     def column_ref(self, node: ast.AST) -> str | None:
         """The column a model or table reference names.
 
-        ``Dataset.origin_ref``, ``t.c.origin_uri``, ``t.c["origin_ref"]``,
+        ``Dataset.origin_ref``, ``t.c.origin_uri``, ``t.columns.origin_ref``, ``t.c["origin_ref"]``,
         ``t.columns["origin_ref"]`` or ``column("origin_ref")``.
         """
         if _is_column(node):
             base = _terminal_name(node.value)
-            if base in self.dataset_names or base == "c":
+            if base in self.dataset_names or base in {"c", "columns"}:
                 return node.attr
         elif isinstance(node, ast.Subscript) and _names_a_column(node.slice):
             if _terminal_name(node.value) in {"c", "columns"}:
@@ -588,12 +594,34 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
     return found
 
 
-# The backstop: any string literal naming a column. A dynamic write needs either
-# an attribute store, caught above, or the column's name as text.
+# The backstop: any name for a column outside the binding module. A write needs
+# the column's name as text, as a keyword or as an attribute used for something
+# other than reading it.
 _LITERAL = re.compile(r"\borigin_(?:ref|uri)\b")
-# Sites outside the binding module whose literals name a column, by file and
-# innermost function or class, each with why it is not a write.
-LITERAL_ALLOWLIST: dict[tuple[str, str], str] = {
+# Calls on a column attribute that only read it: the stored dict's read methods
+# and SQLAlchemy's comparison operators.
+_READ_CALLS = frozenset(
+    {
+        "get",
+        "keys",
+        "values",
+        "items",
+        "copy",
+        "is_",
+        "is_not",
+        "isnot",
+        "is_distinct_from",
+        "is_not_distinct_from",
+        "in_",
+        "not_in",
+        "notin_",
+        "has_key",
+        "label",
+    }
+)
+# Sites outside the binding module that name a column, by file and innermost
+# function or class, each with why it is not a write.
+NAME_ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "app/modules/catalog/datasets/api/router_refresh.py",
         "_dispatch_postgis_refresh",
@@ -607,6 +635,10 @@ LITERAL_ALLOWLIST: dict[tuple[str, str], str] = {
         "refresh_dataset",
     ): "db.refresh() reloads the columns after the run is reserved",
     (
+        "app/modules/catalog/datasets/domain/helpers.py",
+        "dataset_to_response",
+    ): "builds the API response from the stored columns",
+    (
         "app/modules/catalog/datasets/domain/models.py",
         "Dataset",
     ): "index definitions over the columns",
@@ -618,16 +650,63 @@ LITERAL_ALLOWLIST: dict[tuple[str, str], str] = {
         "app/processing/ingest/previous_version.py",
         "<module>",
     ): "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
+    (
+        "app/processing/ingest/tasks_reupload.py",
+        "write",
+    ): "hands the new ref to _write_reupload_catalog, which stamps it through "
+    "set_dataset_origin",
+    (
+        "app/processing/ingest/tasks_vector.py",
+        "ingest_file",
+    ): "the ref captured at import, stamped through set_dataset_origin at commit",
+    (
+        "app/processing/ingest/tasks_vector.py",
+        "ingest_service",
+    ): "the ref captured at import, stamped through set_dataset_origin at commit",
 }
 
 
-def literal_mentions(source: str) -> list[tuple[int, str]]:
-    """``(line, site)`` of every string expression naming a column, docstrings aside.
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {
+        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+    }
 
-    The site is the innermost function or class, or ``<module>``. An f-string or
-    a ``+`` of strings is read as one text.
+
+def _attribute_use(node: ast.Attribute, parents: dict[ast.AST, ast.AST]) -> str | None:
+    """How a Load of ``x.origin_ref`` is used, when it is not a plain read."""
+    parent = parents.get(node)
+    if isinstance(parent, ast.Dict) and node in parent.keys:
+        return "a dict key"
+    if isinstance(parent, ast.Tuple):
+        call = parents.get(parent)
+        if isinstance(call, ast.Call) and _terminal_name(call.func) in {
+            "values",
+            "ordered_values",
+        }:
+            return f"a pair handed to {_terminal_name(call.func)}()"
+    if isinstance(parent, ast.Attribute):
+        called = isinstance(parents.get(parent), ast.Call) and (
+            parents[parent].func is parent
+        )
+        if called and parent.attr not in _READ_CALLS:
+            return f"the receiver of .{parent.attr}()"
+        if not called and (
+            parent.attr in _DICT_MUTATORS or parent.attr.startswith("__")
+        ):
+            return f"the owner of .{parent.attr}"
+    return None
+
+
+def name_mentions(source: str) -> list[tuple[int, str, str]]:
+    """``(line, site, how)`` of every name for a column outside a plain read.
+
+    A string naming one (an f-string or a ``+`` of strings read as one text,
+    docstrings aside), a keyword argument named after one, and a column attribute
+    used other than as a value. The site is the innermost function or class, or
+    ``<module>``.
     """
     tree = ast.parse(source)
+    parents = _parents(tree)
     docstrings = {
         id(node.body[0].value)
         for node in ast.walk(tree)
@@ -638,7 +717,7 @@ def literal_mentions(source: str) -> list[tuple[int, str]]:
         and isinstance(node.body[0], ast.Expr)
         and isinstance(node.body[0].value, ast.Constant)
     }
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str, str]] = []
 
     def visit(node: ast.AST, site: str, in_string: bool) -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -646,8 +725,17 @@ def literal_mentions(source: str) -> list[tuple[int, str]]:
         text = None if in_string or id(node) in docstrings else _string_text(node)
         if text is not None:
             if _LITERAL.search(text.lower()):
-                found.append((node.lineno, site))
+                found.append((node.lineno, site, "a string naming a column"))
             in_string = True
+        if isinstance(node, ast.keyword) and node.arg in COLUMNS:
+            found.append((node.value.lineno, site, f"the keyword {node.arg}="))
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in COLUMNS
+            and isinstance(node.ctx, ast.Load)
+            and (use := _attribute_use(node, parents))
+        ):
+            found.append((node.lineno, site, f".{node.attr} as {use}"))
         for child in ast.iter_child_nodes(node):
             visit(child, site, in_string)
 
@@ -659,8 +747,8 @@ def unlisted_mentions(
     rel: str, source: str, allowlist: dict[tuple[str, str], str]
 ) -> list[str]:
     return [
-        f"{rel}:{line} in {site}"
-        for line, site in literal_mentions(source)
+        f"{rel}:{line} in {site}: {how}"
+        for line, site, how in name_mentions(source)
         if (rel, site) not in allowlist
     ]
 
@@ -692,17 +780,18 @@ def test_only_the_binding_module_writes_origin_columns() -> None:
     )
 
 
-def test_no_string_literal_outside_the_binding_module_names_a_column() -> None:
+def test_no_name_for_a_column_outside_the_binding_module() -> None:
     unlisted = [
         mention
         for rel, source in _app_sources()
         if "origin_" in source.lower()
-        for mention in unlisted_mentions(rel, source, LITERAL_ALLOWLIST)
+        for mention in unlisted_mentions(rel, source, NAME_ALLOWLIST)
     ]
     assert not unlisted, (
-        "A string naming origin_ref/origin_uri outside the binding module can "
-        "write them by name. Write through set_dataset_origin, or add the site to "
-        "LITERAL_ALLOWLIST with why it is no write:\n" + "\n".join(unlisted)
+        "Outside the binding module, a string, keyword or attribute naming "
+        "origin_ref/origin_uri can write them. Write through set_dataset_origin, "
+        "or add the site to NAME_ALLOWLIST with why it is no write:\n"
+        + "\n".join(unlisted)
     )
 
 
@@ -711,9 +800,13 @@ def test_every_allowlisted_site_still_names_a_column() -> None:
         (rel, site)
         for rel, source in _app_sources()
         if "origin_" in source.lower()
-        for _, site in literal_mentions(source)
+        for _, site, _ in name_mentions(source)
     }
-    assert set(LITERAL_ALLOWLIST) <= seen, sorted(set(LITERAL_ALLOWLIST) - seen)
+    assert set(NAME_ALLOWLIST) <= seen, sorted(set(NAME_ALLOWLIST) - seen)
+
+
+def _sites(source: str) -> list[tuple[int, str]]:
+    return [(line, site) for line, site, _ in name_mentions(source)]
 
 
 def test_the_backstop_catches_a_name_only_it_sees() -> None:
@@ -723,19 +816,63 @@ def test_the_backstop_catches_a_name_only_it_sees() -> None:
         "    setattr(obj, COLUMN, value)\n"
     )
     assert binding_writes(source) == []
-    assert literal_mentions(source) == [(1, "<module>")]
-    assert literal_mentions("NAME = 'origin_' + 'uri'") == [(1, "<module>")]
-    assert literal_mentions("KEY = f'{prefix}.origin_uri'") == [(1, "<module>")]
+    assert _sites(source) == [(1, "<module>")]
+    assert _sites("NAME = 'origin_' + 'uri'") == [(1, "<module>")]
+    assert _sites("KEY = f'{prefix}.origin_uri'") == [(1, "<module>")]
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "dataset.__dict__.update(origin_ref=ref)",
+        "vars(dataset).update(origin_uri=uri)",
+        "helper(dataset, origin_ref=ref)",
+        "update(Dataset).values({Dataset.__table__.columns.origin_ref: ref})",
+        "update(Dataset).ordered_values((Dataset.__table__.columns.origin_uri, u))",
+        "Dataset.origin_ref.__set__(dataset, ref)",
+        "dataset.origin_ref.setdefault('token', t)",
+        "Dataset.origin_uri.__delete__(dataset)",
+        "write = dataset.origin_ref.update",
+    ],
+)
+def test_the_backstop_catches_an_identifier_write(snippet: str) -> None:
+    assert name_mentions(snippet), snippet
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "ref = dataset.origin_ref",
+        "same = dataset.origin_uri == uri",
+        "where(Dataset.origin_uri.is_(None))",
+        "where(Dataset.origin_ref.is_not_distinct_from(ref))",
+        "probe(dataset.origin_ref, dataset.origin_uri)",
+        "url = dataset.origin_ref.get('url')",
+        "list(dataset.origin_ref.keys()), dataset.origin_ref.items()",
+        "snapshot = dataset.origin_ref.copy()",
+        "url = dataset.origin_ref['url']",
+        "pointer = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)",
+        "Dataset.origin_ref['url'].astext == base_url",
+        "f'{dataset.origin_uri}'",
+    ],
+)
+def test_the_backstop_leaves_a_plain_read_alone(snippet: str) -> None:
+    assert name_mentions(snippet) == [], snippet
 
 
 def test_an_allowlist_entry_clears_only_its_own_site() -> None:
-    source = "def keys():\n    return ['origin_ref']\n\ndef other():\n    return 'origin_uri'\n"
+    source = (
+        "def keys():\n    return ['origin_ref']\n\n"
+        "def other(dataset, ref):\n    helper(dataset, origin_uri=ref)\n"
+    )
     assert unlisted_mentions("app/x.py", source, {}) == [
-        "app/x.py:2 in keys",
-        "app/x.py:5 in other",
+        "app/x.py:2 in keys: a string naming a column",
+        "app/x.py:5 in other: the keyword origin_uri=",
     ]
     listed = {("app/x.py", "keys"): "a test"}
-    assert unlisted_mentions("app/x.py", source, listed) == ["app/x.py:5 in other"]
+    assert unlisted_mentions("app/x.py", source, listed) == [
+        "app/x.py:5 in other: the keyword origin_uri="
+    ]
 
 
 def test_the_backstop_leaves_docstrings_and_other_names_alone() -> None:
@@ -745,7 +882,7 @@ def test_the_backstop_leaves_docstrings_and_other_names_alone() -> None:
         '    """Also origin_uri."""\n'
         "    return 'ix_datasets_origin_uri', 'origin_ref_snapshot'\n"
     )
-    assert literal_mentions(source) == []
+    assert name_mentions(source) == []
 
 
 def test_the_owner_module_writes_only_inside_its_setter() -> None:
