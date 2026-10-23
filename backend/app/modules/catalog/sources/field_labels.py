@@ -1,6 +1,5 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
-import json
 import math
 from decimal import Decimal
 from typing import Any
@@ -8,22 +7,18 @@ from typing import Any
 import structlog
 
 from app.platform.column_names import stored_column_names
+from app.platform.value_labels import (
+    MAX_DATASET_VALUE_LABEL_BYTES,
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+    value_labels_bytes,
+)
 
 logger = structlog.get_logger()
 
 _PG_IDENTIFIER_BYTES = 63
 _MAX_ALIAS = 500
 _MAX_DESCRIPTION = 2000
-MAX_VALUE_LABELS = 5000
-MAX_VALUE_LABEL_LENGTH = 500
-# Across one dataset's columns. The per-field caps alone allow megabytes per
-# column, and the attributes list returns every column's labels.
-MAX_DATASET_VALUE_LABEL_BYTES = 1024 * 1024
-
-
-def value_labels_bytes(labels: dict[str, str] | None) -> int:
-    """Size of the labels as the budget counts it: their JSON text in UTF-8."""
-    return len(json.dumps(labels, ensure_ascii=False).encode()) if labels else 0
 
 
 def _clean(value: object, limit: int) -> str | None:

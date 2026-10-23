@@ -6,7 +6,7 @@ from sqlalchemy import Text, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import AttributeMetadata
-from app.modules.catalog.sources.field_labels import (
+from app.platform.value_labels import (
     MAX_DATASET_VALUE_LABEL_BYTES,
     value_labels_bytes,
 )
@@ -28,7 +28,6 @@ async def refuse_value_labels_over_budget(
         ).where(
             AttributeMetadata.dataset_id == attr.dataset_id,
             AttributeMetadata.id != attr.id,
-            AttributeMetadata.is_current.is_(True),
             AttributeMetadata.value_labels.is_not(None),
         )
     )

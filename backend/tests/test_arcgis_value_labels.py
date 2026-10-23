@@ -394,3 +394,75 @@ async def test_a_patch_that_passes_the_dataset_budget_is_refused(
     assert (await _labels(test_db_session, dataset_id))[
         other.field_name
     ].value_labels is None
+
+
+async def test_a_refresh_fits_source_labels_into_what_edited_labels_leave(
+    test_db_session, monkeypatch
+):
+    from app.processing.ingest import source_value_labels
+    from app.platform.value_labels import value_labels_bytes
+    from tests.test_attribute_metadata import _create_dataset_with_attributes
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
+    dataset_id = ds.id
+    edited = {str(i): "e" * 20 for i in range(10)}
+    big = {str(i): "s" * 20 for i in range(10)}
+    small = {"1": "s"}
+    attrs = await _labels(test_db_session, dataset_id)
+    attrs["name"].value_labels = edited
+    attrs["name"].user_modified_fields = ["value_labels"]
+    await test_db_session.commit()
+    monkeypatch.setattr(
+        source_value_labels,
+        "MAX_DATASET_VALUE_LABEL_BYTES",
+        value_labels_bytes(edited) + value_labels_bytes(big) + 5,
+    )
+
+    await source_value_labels.refresh_source_value_labels(
+        test_db_session,
+        dataset_id,
+        {
+            "name": {"value_labels": big},
+            "pop_2020": {"value_labels": big},
+            "area_sqkm": {"value_labels": big},
+            "created_date": {"value_labels": small},
+        },
+    )
+    await test_db_session.commit()
+
+    stored = await _labels(test_db_session, dataset_id)
+    assert stored["name"].value_labels == edited
+    assert stored["pop_2020"].value_labels == big
+    # area_sqkm does not fit, so the smaller column after it is dropped too.
+    assert stored["area_sqkm"].value_labels is None
+    assert stored["created_date"].value_labels is None
+
+
+async def test_retired_attributes_count_toward_the_dataset_budget(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    from app.modules.catalog.datasets.domain import value_label_budget
+
+    dataset_id = await _import(
+        test_db_session, monkeypatch, arcgis_field_labels(_layer((1, "Active")))
+    )
+    attrs = await _labels(test_db_session, dataset_id)
+    big = {str(i): "x" * 20 for i in range(10)}
+    attrs["name"].value_labels = big
+    attrs["name"].is_current = False
+    other = next(a for k, a in attrs.items() if k != "name")
+    await test_db_session.commit()
+    monkeypatch.setattr(
+        value_label_budget,
+        "MAX_DATASET_VALUE_LABEL_BYTES",
+        2 * value_label_budget.value_labels_bytes(big) - 1,
+    )
+
+    refused = await client.patch(
+        f"/datasets/{dataset_id}/attributes/{other.id}/",
+        json={"value_labels": big},
+        headers=admin_auth_header,
+    )
+
+    assert refused.status_code == 422
