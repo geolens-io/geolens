@@ -1,18 +1,31 @@
-"""Only ``platform/dataset_origin.py`` writes a dataset's source binding columns.
+"""Only ``platform/dataset_origin.py`` writes a dataset's origin pointer.
 
-``origin_uri`` and ``origin_ref`` change together with ``source_format``, through
-``set_dataset_origin``/``set_postgis_origin``, which run ``build_origin_ref``'s
-allowlist (ADR-002 invariant 4) and clear the stored probe verdict. This walks
-every module under ``backend/app/`` and fails on any other write it can see:
-an attribute assignment or delete, an item write or mutating method on the
-stored dict, ``setattr`` by name, the columns as keywords or dict keys of an
-ORM constructor or SQL write, and raw SQL that sets or inserts them.
+``origin_uri`` and ``origin_ref`` change only through ``set_dataset_origin`` and
+``set_postgis_origin``, which run ``build_origin_ref``'s allowlist (ADR-002
+invariant 4) and clear the stored probe verdict. This walks every module under
+``backend/app/`` and fails on any other write it can see:
+
+- ORM attributes: assignment, ``del``, item writes and mutating methods on the
+  stored dict, ``setattr``/``set_attribute``/``set_committed_value`` by name,
+  and ``__dict__``/``vars()`` items.
+- The model's constructor (under any alias), with the columns as keywords or as
+  keys of a ``**`` mapping.
+- SQLAlchemy statements: ``update``/``insert`` (bare, through ``sa``, a dialect
+  module or an import alias, or a table's own ``update()``/``insert()``) and the
+  methods that name written columns (``values``, ``ordered_values``,
+  ``on_conflict_do_update``, ``on_duplicate_key_update``, ``from_select``), the
+  legacy ``Query.update()``, ``bulk_*_mappings`` and ``execute()`` parameters.
+  Columns count as keywords, ``dict(...)`` keywords, string keys, model or
+  ``table.c`` attribute keys, and ``(column, value)`` pairs; a mapping passed by
+  local name is followed to the keys it gets in the same function.
+- Raw SQL text that sets the columns or inserts them into ``datasets``.
 
 Inside the owner module, each write is counted by the function it sits in, so
 a second write site, or a write outside the setter, fails too.
 
-A write through ``**kwargs`` or a name computed at runtime leaves no lexical
-trace, so it is out of reach here.
+Out of reach: names and SQL built at runtime (string formatting, a computed
+attribute name), a mapping that arrives as a parameter or from another module,
+and ``source_format``, which several publication paths write beside the setter.
 """
 
 import ast
@@ -38,12 +51,25 @@ COLUMNS = frozenset({"origin_ref", "origin_uri"})
 _DICT_MUTATORS = frozenset(
     {"update", "pop", "popitem", "setdefault", "clear", "__setitem__", "__delitem__"}
 )
-# SQLAlchemy's statement builders, called as functions or through the module.
+# SQLAlchemy's statement builders, called bare, through the module, or through
+# a dialect module (postgresql.insert).
 _STATEMENTS = frozenset({"update", "insert"})
-_SQLALCHEMY_MODULES = frozenset({"sa", "sqlalchemy"})
-# Methods whose arguments become row values. A dict's own ``values()`` and
-# ``update()`` are not here: ``payload.update({"origin_ref": ...})`` writes no row.
-_ROW_METHODS = frozenset({"values", "bulk_insert_mappings", "bulk_update_mappings"})
+_SQLALCHEMY_MODULES = frozenset({"sa", "sqlalchemy", "postgresql", "mysql", "sqlite"})
+# Methods whose arguments name the columns a statement writes. None of them is
+# a dict method, except ``values`` called with arguments, which a dict never is.
+_WRITE_METHODS = frozenset(
+    {
+        "values",
+        "ordered_values",
+        "on_conflict_do_update",
+        "on_duplicate_key_update",
+        "from_select",
+        "bulk_insert_mappings",
+        "bulk_update_mappings",
+    }
+)
+# Calls that set an attribute named by a string argument.
+_SETTERS = frozenset({"setattr", "set_attribute", "set_committed_value"})
 _SQL_WRITE = re.compile(
     r"\bSET\b(?:(?!\bWHERE\b)[^;])*?\borigin_(?:ref|uri)\"?"
     # A JSON subscript or path between the column and ``=`` still writes it.
@@ -67,28 +93,14 @@ def _is_column(node: ast.expr) -> bool:
     return isinstance(node, ast.Attribute) and node.attr in COLUMNS
 
 
-def _dict_column_keys(node: ast.AST, dataset_names: frozenset[str]):
-    """Column keys of the dicts under ``node``: ``"origin_ref"`` or ``Dataset.origin_ref``."""
-    for inner in ast.walk(node):
-        if isinstance(inner, ast.Dict):
-            for key in inner.keys:
-                if isinstance(key, ast.Constant) and key.value in COLUMNS:
-                    yield key.value
-                elif _is_column(key) and _terminal_name(key.value) in dataset_names:
-                    yield key.attr
+def _names_a_column(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value in COLUMNS
 
 
 def _may_write(source: str) -> bool:
     """Whether the text names a column at all, in any case, so it is worth parsing."""
     lowered = source.lower()
     return any(column in lowered for column in COLUMNS)
-
-
-def _is_statement_builder(func: ast.expr) -> bool:
-    return _terminal_name(func) in _STATEMENTS and (
-        isinstance(func, ast.Name)
-        or (isinstance(func.value, ast.Name) and func.value.id in _SQLALCHEMY_MODULES)
-    )
 
 
 def _is_sql_write(text: object) -> bool:
@@ -99,107 +111,219 @@ def _is_sql_write(text: object) -> bool:
     )
 
 
-def _binds_a_write(statement: ast.expr) -> bool:
-    """Whether execute()'s parameters are row values: the statement writes, or is unknown.
-
-    A statement passed by name can't be read here, so its parameters are checked.
-    """
-    if isinstance(statement, (ast.Name, ast.Attribute)):
-        return True
-    return any(
-        (isinstance(node, ast.Call) and _is_statement_builder(node.func))
-        or (isinstance(node, ast.Constant) and _is_sql_write(node.value))
-        for node in ast.walk(statement)
-    )
+def _receivers(call: ast.Call):
+    """The calls a method chain is built on, nearest first."""
+    node = call.func
+    while isinstance(node, (ast.Attribute, ast.Call)):
+        if isinstance(node, ast.Call):
+            yield node
+            node = node.func
+        else:
+            node = node.value
 
 
-def _dataset_names(tree: ast.AST) -> frozenset[str]:
-    """Names this module binds to the Dataset model, for spotting its constructor.
+class _Module:
+    """One module's names for the model and the statement builders."""
 
-    ``Dataset`` itself, an import of it under another name, and a name assigned
-    from the processing port's ``get_dataset_orm_class()``.
-    """
-    names = {"Dataset"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            names.update(
-                alias.asname for alias in node.names if alias.name == "Dataset"
-            )
-        elif (
-            isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Call)
-            and _terminal_name(node.value.func) == "get_dataset_orm_class"
-        ):
-            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
-    names.discard(None)
-    return frozenset(names)
+    def __init__(self, tree: ast.AST) -> None:
+        dataset_names = {"Dataset"}
+        statement_names = set(_STATEMENTS)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "Dataset":
+                        dataset_names.add(alias.asname or alias.name)
+                    if alias.name in _STATEMENTS and (node.module or "").startswith(
+                        "sqlalchemy"
+                    ):
+                        statement_names.add(alias.asname or alias.name)
+            elif (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Call)
+                and _terminal_name(node.value.func) == "get_dataset_orm_class"
+            ):
+                dataset_names.update(
+                    t.id for t in node.targets if isinstance(t, ast.Name)
+                )
+        self.dataset_names = frozenset(dataset_names)
+        self.statement_names = frozenset(statement_names)
+
+    def is_builder(self, call: ast.Call) -> bool:
+        """``update(...)``/``insert(...)``, or a table's own ``update()``/``insert()``."""
+        func = call.func
+        if isinstance(func, ast.Name):
+            return func.id in self.statement_names
+        if not isinstance(func, ast.Attribute) or func.attr not in _STATEMENTS:
+            return False
+        if _terminal_name(func.value) in _SQLALCHEMY_MODULES:
+            return True
+        # Table.update()/insert() take no arguments; dict.update() with none
+        # writes nothing, so reading it as a table is harmless.
+        return not call.args and not call.keywords
+
+    def column_ref(self, node: ast.AST) -> str | None:
+        """The column a model or table attribute names: ``Dataset.origin_ref``, ``t.c.origin_uri``."""
+        if not _is_column(node):
+            return None
+        base = node.value
+        if _terminal_name(base) in self.dataset_names or _terminal_name(base) == "c":
+            return node.attr
+        return None
+
+    def binds_a_write(self, statement: ast.expr) -> bool:
+        """Whether execute()'s parameters are row values: the statement writes, or is unknown.
+
+        A statement passed by name can't be read here, so its parameters are checked.
+        """
+        if isinstance(statement, (ast.Name, ast.Attribute)):
+            return True
+        return any(
+            (isinstance(node, ast.Call) and self.is_builder(node))
+            or (isinstance(node, ast.Constant) and _is_sql_write(node.value))
+            for node in ast.walk(statement)
+        )
 
 
-def _call_writes(call: ast.Call, dataset_names: frozenset[str]) -> list[str]:
+class _Scope:
+    """Column mentions in a write's arguments, following local names one level."""
+
+    def __init__(self, module: _Module, scope: ast.AST) -> None:
+        self.module = module
+        self.scope = scope
+
+    def mentions(self, node: ast.AST, *, follow: bool = True) -> list[str]:
+        found: list[str] = []
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Dict):
+                for key in inner.keys:
+                    if _names_a_column(key):
+                        found.append(key.value)
+                    elif ref := self.module.column_ref(key):
+                        found.append(ref)
+            elif isinstance(inner, ast.Call) and _terminal_name(inner.func) == "dict":
+                found.extend(kw.arg for kw in inner.keywords if kw.arg in COLUMNS)
+            elif isinstance(inner, ast.Tuple) and inner.elts:
+                # ordered_values() takes (column, value) pairs.
+                first = inner.elts[0]
+                if _names_a_column(first):
+                    found.append(first.value)
+                elif ref := self.module.column_ref(first):
+                    found.append(ref)
+            elif follow and isinstance(inner, ast.Name):
+                found.extend(self.assigned(inner.id))
+        return found
+
+    def assigned(self, name: str) -> list[str]:
+        """Columns a local mapping gets as keys anywhere in this scope."""
+        found: list[str] = []
+        for node in ast.walk(self.scope):
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                if node.value is not None and any(
+                    isinstance(t, ast.Name) and t.id == name for t in targets
+                ):
+                    found.extend(self.mentions(node.value, follow=False))
+            elif (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Store)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == name
+            ):
+                if _names_a_column(node.slice):
+                    found.append(node.slice.value)
+                elif ref := self.module.column_ref(node.slice):
+                    found.append(ref)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == name
+            ):
+                if node.func.attr == "update":
+                    found.extend(kw.arg for kw in node.keywords if kw.arg in COLUMNS)
+                    for arg in node.args:
+                        found.extend(self.mentions(arg, follow=False))
+                elif node.func.attr in {"setdefault", "__setitem__"} and node.args:
+                    if _names_a_column(node.args[0]):
+                        found.append(node.args[0].value)
+        return found
+
+    def call_mentions(self, call: ast.Call, args: list[ast.expr]) -> list[str]:
+        found = [kw.arg for kw in call.keywords if kw.arg in COLUMNS]
+        for arg in args:
+            found.extend(self.mentions(arg))
+        return found
+
+
+def _call_writes(call: ast.Call, scope: _Scope) -> list[str]:
+    module = scope.module
     func = call.func
+    name = _terminal_name(func)
     if (
         isinstance(func, ast.Attribute)
         and func.attr in _DICT_MUTATORS
         and _is_column(func.value)
     ):
         return [f"mutates .{func.value.attr} with .{func.attr}()"]
-    if (
-        _terminal_name(func) == "setattr"
-        and len(call.args) >= 2
-        and isinstance(call.args[1], ast.Constant)
-        and call.args[1].value in COLUMNS
-    ):
-        return [f"setattr(..., {call.args[1].value!r}, ...)"]
-    name = _terminal_name(func)
-    if name in dataset_names or _is_statement_builder(func):
-        args = call.args
+    if name in _SETTERS and len(call.args) >= 2 and _names_a_column(call.args[1]):
+        return [f"{name}(..., {call.args[1].value!r}, ...)"]
+    keyword_values = [kw.value for kw in call.keywords]
+    if name in module.dataset_names:
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
+    elif module.is_builder(call):
+        # The table is the argument; a legacy values= keyword holds the row.
+        columns = scope.call_mentions(call, keyword_values)
+    elif isinstance(func, ast.Attribute) and name in _WRITE_METHODS:
+        if name == "values" and not call.args and not call.keywords:
+            return []
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
+        if name == "from_select" and call.args:
+            columns.extend(
+                element.value if _names_a_column(element) else element.attr
+                for element in getattr(call.args[0], "elts", [])
+                if _names_a_column(element) or module.column_ref(element)
+            )
     elif (
         isinstance(func, ast.Attribute)
-        and name == "from_select"
-        and isinstance(func.value, ast.Call)
-        and _is_statement_builder(func.value.func)
-        and func.value.args
-        and _terminal_name(func.value.args[0]) in dataset_names
+        and name == "update"
+        and any(_terminal_name(r.func) == "query" for r in _receivers(call))
     ):
-        # The first argument names the columns the select fills.
-        columns = call.args[0] if call.args else None
-        named = [
-            element.value if isinstance(element, ast.Constant) else element.attr
-            for element in getattr(columns, "elts", [])
-            if (isinstance(element, ast.Constant) and element.value in COLUMNS)
-            or (_is_column(element) and _terminal_name(element.value) in dataset_names)
-        ]
-        return [f"fills {column} from a select" for column in named]
-    elif isinstance(func, ast.Attribute) and name in _ROW_METHODS:
-        args = call.args
+        # Query.update(), the legacy ORM bulk update.
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
     elif isinstance(func, ast.Attribute) and name == "execute":
         keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
         statement = call.args[0] if call.args else keywords.get("statement")
-        if statement is None or not _binds_a_write(statement):
+        if statement is None or not module.binds_a_write(statement):
             return []
         # The statement is checked as its own call; the rest are bind parameters.
-        args = [*call.args[1:], *([keywords["params"]] if "params" in keywords else [])]
+        params = [
+            *call.args[1:],
+            *([keywords["params"]] if "params" in keywords else []),
+        ]
+        columns = [c for arg in params for c in scope.mentions(arg)]
     else:
         return []
-    found = [
-        f"passes {kw.arg}= to {name}()" for kw in call.keywords if kw.arg in COLUMNS
-    ]
-    for arg in [*args, *(kw.value for kw in call.keywords if kw.arg is None)]:
-        found.extend(
-            f"passes a {key!r} key to {name}()"
-            for key in _dict_column_keys(arg, dataset_names)
-        )
-    return found
+    return [f"passes {column} to {name}()" for column in columns]
 
 
-def _node_writes(node: ast.AST, dataset_names: frozenset[str]) -> list[str]:
+def _node_writes(node: ast.AST, scope: _Scope) -> list[str]:
     stored = isinstance(getattr(node, "ctx", None), (ast.Store, ast.Del))
     if stored and _is_column(node):
         return [f"writes .{node.attr}"]
-    if stored and isinstance(node, ast.Subscript) and _is_column(node.value):
-        return [f"writes an item of .{node.value.attr}"]
+    if stored and isinstance(node, ast.Subscript):
+        if _is_column(node.value):
+            return [f"writes an item of .{node.value.attr}"]
+        # obj.__dict__["origin_ref"] or vars(obj)["origin_ref"]
+        holder = node.value
+        if _names_a_column(node.slice) and (
+            _terminal_name(holder) == "__dict__"
+            or (isinstance(holder, ast.Call) and _terminal_name(holder.func) == "vars")
+        ):
+            return [f"writes {node.slice.value} through __dict__"]
     if isinstance(node, ast.Call):
-        return _call_writes(node, dataset_names)
+        return _call_writes(node, scope)
     if isinstance(node, ast.Constant) and _is_sql_write(node.value):
         return ["raw SQL writes the column"]
     return []
@@ -212,18 +336,19 @@ def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
     """
     found: list[tuple[int, str | None, str]] = []
     tree = ast.parse(source)
-    dataset_names = _dataset_names(tree)
+    module = _Module(tree)
 
-    def visit(node: ast.AST, function: str | None) -> None:
+    def visit(node: ast.AST, function: str | None, scope: _Scope) -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             function = node.name
+            scope = _Scope(module, node)
         found.extend(
-            (node.lineno, function, what) for what in _node_writes(node, dataset_names)
+            (node.lineno, function, what) for what in _node_writes(node, scope)
         )
         for child in ast.iter_child_nodes(node):
-            visit(child, function)
+            visit(child, function, scope)
 
-    visit(tree, None)
+    visit(tree, None, _Scope(module, tree))
     return found
 
 
@@ -321,6 +446,45 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "text('UPDATE catalog.datasets SET (title, origin_ref) = (:t, :r) "
         "WHERE id = :i')",
         "text('UPDATE catalog.datasets SET (\"origin_uri\") = ROW(:u)')",
+        "insert(Record).from_select(['id', 'origin_ref'], query)",
+        # Upserts.
+        "insert(Dataset).values(id=i).on_conflict_do_update("
+        "index_elements=['id'], set_={'origin_ref': ref})",
+        "from sqlalchemy.dialects.postgresql import insert as pg_insert\n"
+        "pg_insert(Dataset).values(id=i).on_conflict_do_update("
+        "index_elements=['id'], set_=dict(origin_ref=ref))",
+        "def f(i):\n    stmt = insert(Dataset).values(id=i)\n"
+        "    return stmt.on_conflict_do_update(index_elements=['id'], "
+        "set_={Dataset.origin_uri: stmt.excluded.origin_uri})",
+        "postgresql.insert(Dataset).on_conflict_do_update(set_={'origin_uri': u})",
+        "mysql_insert(Dataset).on_duplicate_key_update(origin_ref=ref)",
+        "from sqlalchemy.dialects.postgresql import insert as pg_insert\n"
+        "session.execute(pg_insert(Dataset), [{'origin_ref': ref}])",
+        "session.execute(postgresql.insert(Dataset), [{'origin_uri': u}])",
+        # Mappings passed by name.
+        "def f(ref):\n    changes = {'origin_ref': ref}\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(u):\n    changes = {}\n    changes['origin_uri'] = u\n"
+        "    return update(Dataset).values(changes)",
+        "def f(ref):\n    changes = {'title': 't'}\n"
+        "    changes.update(origin_ref=ref)\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(u):\n    fields = dict(origin_uri=u)\n    return Dataset(**fields)",
+        "def f(session, r):\n    rows = [{'id': 1, 'origin_ref': r}]\n"
+        "    session.bulk_update_mappings(Dataset, rows)",
+        # Tables, ordered values and the legacy Query API.
+        "session.execute(Dataset.__table__.update(), [{'origin_ref': ref}])",
+        "session.execute(metadata.tables['catalog.datasets'].insert(), "
+        "[{'origin_uri': u}])",
+        "sa.update(table).values({table.c.origin_ref: ref})",
+        "update(Dataset).ordered_values((Dataset.origin_ref, ref), ('title', t))",
+        "update(Dataset).ordered_values(('origin_uri', u))",
+        "session.query(Dataset).filter(Dataset.id == i).update({'origin_ref': ref})",
+        # Attribute writes by name.
+        "set_attribute(dataset, 'origin_ref', ref)",
+        "set_committed_value(dataset, 'origin_uri', u)",
+        "dataset.__dict__['origin_ref'] = ref",
+        "vars(dataset)['origin_uri'] = u",
     ],
 )
 def test_the_scan_sees_a_write(snippet: str) -> None:
@@ -342,7 +506,16 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
         "session.execute(select(Dataset.origin_ref))",
         "update(Dataset).values({Dataset.title: title})",
         "update(Record).values({Record.origin_ref: ref})",
-        "insert(Record).from_select(['id', 'origin_ref'], query)",
+        "insert(DatasetAsset).values(key=k).on_conflict_do_update("
+        "constraint='uq', set_={'href': stmt.excluded.href})",
+        "def f(t):\n    changes = {'title': t}\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(payload, ref):\n    payload['origin_ref'] = ref\n    return payload",
+        "session.query(Dataset).filter(Dataset.origin_ref.is_(None))"
+        ".update({'title': t})",
+        "update(Dataset).where(Dataset.origin_ref == ref).values(title=t)",
+        "vars(dataset)['title'] = t",
+        "setattr(dataset, 'title', t)",
         "insert(Dataset).from_select(['id', 'title'], query)",
         "text('UPDATE catalog.datasets SET (title, summary) = (:t, :s) "
         "WHERE origin_ref = :r')",
@@ -365,6 +538,37 @@ def test_the_scan_sees_a_write(snippet: str) -> None:
 )
 def test_the_scan_leaves_a_read_alone(snippet: str) -> None:
     assert binding_writes(snippet) == [], snippet
+
+
+def test_only_the_dataset_model_maps_the_columns() -> None:
+    """A write that names the columns can only target catalog.datasets, so the scan needn't resolve the table."""
+    mapped = set()
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if not _may_write(source):
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if (
+                        isinstance(item, ast.AnnAssign)
+                        and isinstance(item.target, ast.Name)
+                        and item.target.id in COLUMNS
+                        and isinstance(item.value, ast.Call)
+                        and _terminal_name(item.value.func)
+                        in {"mapped_column", "Column"}
+                    ):
+                        mapped.add(
+                            (path.relative_to(BACKEND_ROOT).as_posix(), node.name)
+                        )
+            elif (
+                isinstance(node, ast.Call)
+                and _terminal_name(node.func) == "Column"
+                and node.args
+                and _names_a_column(node.args[0])
+            ):
+                mapped.add((path.relative_to(BACKEND_ROOT).as_posix(), "Column"))
+    assert mapped == {("app/modules/catalog/datasets/domain/models.py", "Dataset")}
 
 
 def test_a_module_naming_a_column_only_in_upper_case_is_still_scanned() -> None:
