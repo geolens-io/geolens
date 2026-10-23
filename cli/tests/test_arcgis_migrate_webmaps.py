@@ -75,7 +75,13 @@ def _services(geolens) -> None:
     geolens.routes["PATCH /maps/" + MAP_ID] = lambda seen: _map(
         seen.json().get("owner_id", OPERATOR)
     )
-    geolens.routes["GET /maps/" + MAP_ID] = _map()
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **_map(),
+        # The map keeps the visibility its import asked for.
+        "visibility": ([s.json() for s in _sent(geolens)] or [{}])[-1].get(
+            "visibility", "private"
+        ),
+    }
 
 
 def _sent(geolens) -> list[Any]:
@@ -543,6 +549,35 @@ def test_a_migrated_map_gone_from_geolens_blocks_cutover(
     assert result.exit_code == 1
     assert payload["not_up_to_date"][B1] == ["the migrated map is gone from GeoLens"]
     assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_migrated_map_shared_differently_than_the_plan_blocks_cutover(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    _only_the_map(plan_file)
+    token = secrets.token_urlsafe(16)
+    _migrate(runner, plan_file, "--token", token)
+    modified = _state(plan_file)["items"][B1]["portal_modified"]
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["visibility"] = "private"
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /maps/" + MAP_ID] = {**_map(), "visibility": "public"}
+    before = len(geolens.seen)
+
+    result, payload = _migrate(runner, plan_file, "--token", token, "--cutover")
+
+    assert portal.routes[f"content/items/{B1}"]["modified"] == modified
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][B1] == [
+        "the plan gives the web map visibility private but the GeoLens map is "
+        "public; set it by hand or rerun with the plan matching"
+    ]
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    assert not [s for s in geolens.seen[before:] if s.method in ("PATCH", "PUT")]
 
 
 @pytest.mark.parametrize("recorded", [True, "1790000000000", 1.5])

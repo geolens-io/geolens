@@ -173,19 +173,30 @@ def get_map(geolens: GeoLens, map_id: str) -> Any:
     return geolens.call(get.sync_detailed, map_id=UUID(map_id))
 
 
-def _map_gone(ctx: MigrationContext, entry: ItemState) -> str | None:
-    """Why the GeoLens map recorded for the item can't be found, or None."""
+def _map_problem(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> str | None:
+    """Why the GeoLens map recorded for the item doesn't stand as migrated:
+    gone, unreadable, or with a visibility other than the plan's. A map isn't
+    updated by a rerun, so a difference is reported for the operator."""
     gone = "the migrated map is gone from GeoLens"
     if not entry.map_id:
         return gone
     try:
-        get_map(ctx.geolens, entry.map_id)
+        found = get_map(ctx.geolens, entry.map_id)
     except ValueError:
         return gone
     except GeoLensError as exc:
         if exc.status == 404:
             return gone
         return f"reading the migrated map from GeoLens failed, {exc}"
+    wanted = item["target"]["visibility"]
+    current = getattr(found.visibility, "value", found.visibility)
+    if current != wanted:
+        return (
+            f"the plan gives the web map visibility {wanted} but the GeoLens map "
+            f"is {current}; set it by hand or rerun with the plan matching"
+        )
     return None
 
 
@@ -193,12 +204,12 @@ def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
     """Why a migrated web map may not match its portal item: gone from
-    GeoLens, changed in the portal since it was read for the import, or with
-    no way to tell. A web map isn't translated again; the operator updates the
-    GeoLens map."""
-    gone = _map_gone(ctx, entry)
-    if gone:
-        return [gone]
+    GeoLens, shared differently than the plan says, changed in the portal
+    since it was read for the import, or with no way to tell. A web map isn't
+    translated again; the operator updates the GeoLens map."""
+    problem = _map_problem(ctx, item, entry)
+    if problem:
+        return [problem]
     if ctx.portal is None:
         return [
             "the run can't read this web map from the portal to check it for changes"
