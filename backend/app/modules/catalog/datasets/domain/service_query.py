@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -413,6 +414,19 @@ def _sorted_keyset(col: str, *, descending: bool) -> str:
     )
 
 
+# A number's text form needn't be its label key (1e16 reads back as "1e+16",
+# numeric 1.50 as "1.50"), so codes on these types compare as numbers.
+_NUMBER_TYPES = {"double precision", "real", "numeric"}
+
+
+def _is_number_text(code: str) -> bool:
+    """Whether PostgreSQL reads *code* as the finite number Python does."""
+    try:
+        return "_" not in code and math.isfinite(float(code))
+    except ValueError:
+        return False
+
+
 async def _label_matched_codes(
     db: AsyncSession, dataset_id: uuid.UUID, filters: dict[str, str]
 ) -> dict[str, list[str]]:
@@ -437,7 +451,7 @@ async def _label_matched_codes(
 
 def _build_where_filters(
     filters: dict[str, str] | None,
-    valid_columns: set[str],
+    column_types: dict[str, str],
     *,
     after_gid: int,
     limit: int,
@@ -454,7 +468,7 @@ def _build_where_filters(
     for col_name, search_term in (filters or {}).items():
         if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
-        if col_name not in valid_columns:
+        if col_name not in column_types:
             continue
         param_key = f"f_{col_name}"
         # Quoted, for the same reason as _build_select_cols.
@@ -462,7 +476,12 @@ def _build_where_filters(
         clause = f"{as_text} ILIKE :{param_key}"
         bind_params[param_key] = f"%{search_term}%"
         if codes := label_codes.get(col_name):
-            clause += f" OR {as_text} = ANY(CAST(:fc_{col_name} AS text[]))"
+            lhs, codes_ref = as_text, f"CAST(:fc_{col_name} AS text[])"
+            if (col_type := column_types[col_name]) in _NUMBER_TYPES:
+                codes = [code for code in codes if _is_number_text(code)]
+                lhs = _safe_column_ref(col_name)
+                codes_ref = f"CAST({codes_ref} AS {col_type}[])"
+            clause += f" OR {lhs} = ANY({codes_ref})"
             bind_params[f"fc_{col_name}"] = codes
         where_clauses.append(f"({clause})")
     return " WHERE " + " AND ".join(where_clauses), bind_params
@@ -501,7 +520,7 @@ async def _select_rows(
             keyset = _sorted_keyset(sort_col, descending=descending)
     where_sql, bind_params = _build_where_filters(
         filters,
-        valid_columns={c["name"] for c in cols},
+        column_types={c["name"]: c.get("type", "") for c in cols},
         after_gid=after_gid,
         limit=limit,
         keyset=keyset,

@@ -26,7 +26,7 @@ async def coded_dataset(test_db_session):
     table = f"test_rows_label_{uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
         text(
-            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, kind integer, kind_codes text, name text)"
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, kind integer, kind_codes text, depth double precision, name text)"
         )
     )
     for kind, name in ROWS:
@@ -35,6 +35,12 @@ async def coded_dataset(test_db_session):
                 f"INSERT INTO data.{table} (kind, kind_codes, name) VALUES (:k, :c, :n)"
             ).bindparams(k=kind, c=f"c-{name}", n=name)
         )
+    # PostgreSQL reads 1e16 back as "1e+16"; its label key has every digit.
+    await test_db_session.execute(
+        text(
+            f"UPDATE data.{table} SET depth = CASE WHEN gid = 1 THEN 1e16 ELSE 0.5 END"
+        )
+    )
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(
         test_db_session,
@@ -46,6 +52,7 @@ async def coded_dataset(test_db_session):
             {"name": "gid", "type": "integer"},
             {"name": "kind", "type": "integer"},
             {"name": "kind_codes", "type": "text"},
+            {"name": "depth", "type": "double precision"},
             {"name": "name", "type": "text"},
         ],
     )
@@ -55,6 +62,14 @@ async def coded_dataset(test_db_session):
             field_name="kind",
             data_type="integer",
             value_labels=LABELS,
+        )
+    )
+    test_db_session.add(
+        AttributeMetadata(
+            dataset_id=ds.id,
+            field_name="depth",
+            data_type="double precision",
+            value_labels={"10000000000000000": "Deep", "n/a": "Deep, unknown"},
         )
     )
     await test_db_session.commit()
@@ -83,6 +98,8 @@ async def coded_dataset(test_db_session):
         # Another column's labels never match.
         ("name", "shelter", []),
         ("name", "OR", ["north"]),
+        # Matched as a number; the code that isn't one is dropped, not an error.
+        ("depth", "deep", ["north"]),
     ],
 )
 async def test_rows_filter_matches_codes_and_their_labels(
