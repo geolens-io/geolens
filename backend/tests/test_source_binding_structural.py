@@ -35,16 +35,17 @@ invariant 4) and clear the stored probe verdict. This walks every module under
 Inside the owner module, each write is counted by the function it sits in, so
 a second write site, or a write outside the setter, fails too.
 
-Behind those rules sits a backstop: outside the owner module, any name for a
-column fails unless its file and innermost function or class are in
-``NAME_ALLOWLIST``. That is a string naming one (f-strings and ``+``
-concatenations read as one text, docstrings aside), a keyword argument named
-after one, or a column attribute used other than as a value: as a dict key, in a
-pair handed to ``values``/``ordered_values``, or as the receiver of any method
-but the stored dict's reads and SQLAlchemy's comparisons. A write needs one of
-those or an attribute store, so the specific rules give the clearer message and
-the backstop catches what they miss. An allowlist entry that no longer matches a
-site fails, so the list only shrinks.
+Behind those rules sits a backstop over every module, the owner included: any
+name for a column fails unless ``NAME_ALLOWLIST`` records its site (file and
+dotted path of enclosing classes and functions) and how many mentions the site
+has. A name is a string naming one (f-strings and ``+`` concatenations read as
+one text, docstrings aside), a keyword argument named after one, or a column
+attribute used other than as a value: as a dict key, in a pair handed to
+``values``/``ordered_values``, or as the receiver of any method but the stored
+dict's reads and SQLAlchemy's comparisons. A write needs one of those or an
+attribute store, so the specific rules give the clearer message and the
+backstop catches what they miss. A site with more mentions than recorded fails,
+and so does one with fewer, so the list only shrinks.
 
 Out of reach: a column name built at runtime from pieces that never spell it
 (``getattr``/``setattr`` with a computed name, a mapping built by ``zip`` or a
@@ -102,7 +103,9 @@ _KEY_KEYWORDS = frozenset({"key", "name"})
 # Bulk loaders that take a table name and, optionally, the columns they fill.
 _TABLE_LOADERS = frozenset({"copy_records_to_table", "copy_to_table", "to_sql"})
 # Calls that set an attribute named by a string argument.
-_SETTERS = frozenset({"setattr", "set_attribute", "set_committed_value", "__setattr__"})
+_SETTERS = frozenset(
+    {"setattr", "set_attribute", "set_committed_value", "__setattr__", "delattr"}
+)
 
 # Raw SQL is matched after comments and double quotes are dropped, case is
 # lowered and whitespace is collapsed, so any identifier quoting matches.
@@ -684,50 +687,61 @@ _READ_CALLS = frozenset(
         "label",
     }
 )
-# Sites outside the binding module that name a column, by file and innermost
-# function or class, each with why it is not a write.
-NAME_ALLOWLIST: dict[tuple[str, str], str] = {
+# Every site that names a column, the binding module's included, by file and
+# dotted path, with how many mentions it has and why none is a write. The binding
+# module's setter writes through attribute stores, which OWNER_WRITES counts.
+NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     (
         "app/modules/catalog/datasets/api/router_refresh.py",
         "_dispatch_postgis_refresh",
-    ): "db.refresh() reloads the columns after the run is reserved",
-    (
-        "app/modules/catalog/datasets/api/router_refresh.py",
-        "_dispatch_stac_refresh",
-    ): "db.refresh() reloads the columns after the run is reserved",
-    (
-        "app/modules/catalog/datasets/api/router_refresh.py",
-        "refresh_dataset",
-    ): "db.refresh() reloads the columns after the run is reserved",
-    (
-        "app/modules/catalog/datasets/domain/helpers.py",
-        "dataset_to_response",
-    ): "builds the API response from the stored columns",
-    (
-        "app/modules/catalog/datasets/domain/models.py",
-        "Dataset",
-    ): "index definitions over the columns",
-    (
-        "app/modules/catalog/datasets/domain/schemas.py",
-        "DatasetResponse",
-    ): "the response field's description",
-    (
-        "app/processing/ingest/previous_version.py",
-        "<module>",
-    ): "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
-    (
-        "app/processing/ingest/tasks_reupload.py",
-        "write",
-    ): "hands the new ref to _write_reupload_catalog, which stamps it through "
-    "set_dataset_origin",
-    (
-        "app/processing/ingest/tasks_vector.py",
-        "ingest_file",
-    ): "the ref captured at import, stamped through set_dataset_origin at commit",
-    (
-        "app/processing/ingest/tasks_vector.py",
-        "ingest_service",
-    ): "the ref captured at import, stamped through set_dataset_origin at commit",
+    ): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/api/router_refresh.py", "_dispatch_stac_refresh"): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/api/router_refresh.py", "refresh_dataset"): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/domain/helpers.py", "dataset_to_response"): (
+        2,
+        "builds the API response from the stored columns",
+    ),
+    ("app/modules/catalog/datasets/domain/models.py", "Dataset"): (
+        6,
+        "index definitions over the columns",
+    ),
+    ("app/modules/catalog/datasets/domain/schemas.py", "DatasetResponse"): (
+        1,
+        "the response field's description",
+    ),
+    ("app/platform/dataset_origin.py", "build_origin_ref"): (
+        1,
+        "the allowlist's refusal message names the column",
+    ),
+    ("app/processing/ingest/previous_version.py", "<module>"): (
+        1,
+        "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
+    ),
+    ("app/processing/ingest/tasks_reupload.py", "_FileReupload.write"): (
+        1,
+        "hands the upload ref to _write_reupload_catalog, which stamps it through set_dataset_origin",
+    ),
+    ("app/processing/ingest/tasks_reupload.py", "_ServiceReupload.write"): (
+        1,
+        "hands the service ref to _write_reupload_catalog, which stamps it through set_dataset_origin",
+    ),
+    ("app/processing/ingest/tasks_vector.py", "ingest_file"): (
+        1,
+        "the ref captured at import, stamped through set_dataset_origin at commit",
+    ),
+    ("app/processing/ingest/tasks_vector.py", "ingest_service"): (
+        1,
+        "the ref captured at import, stamped through set_dataset_origin at commit",
+    ),
 }
 
 
@@ -767,8 +781,8 @@ def name_mentions(source: str) -> list[tuple[int, str, str]]:
 
     A string naming one (an f-string or a ``+`` of strings read as one text,
     docstrings aside), a keyword argument named after one, and a column attribute
-    used other than as a value. The site is the innermost function or class, or
-    ``<module>``.
+    used other than as a value. The site is the dotted path of enclosing classes
+    and functions (``Strategy.write``), or ``<module>``.
     """
     tree = ast.parse(source)
     parents = _parents(tree)
@@ -786,7 +800,7 @@ def name_mentions(source: str) -> list[tuple[int, str, str]]:
 
     def visit(node: ast.AST, site: str, in_string: bool) -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            site = node.name
+            site = node.name if site == "<module>" else f"{site}.{node.name}"
         text = None if in_string or id(node) in docstrings else _string_text(node)
         if text is not None:
             if _LITERAL.search(text.lower()):
@@ -808,20 +822,34 @@ def name_mentions(source: str) -> list[tuple[int, str, str]]:
     return found
 
 
-def unlisted_mentions(
-    rel: str, source: str, allowlist: dict[tuple[str, str], str]
+def site_problems(
+    rel: str, source: str, allowlist: dict[tuple[str, str], tuple[int, str]]
 ) -> list[str]:
-    return [
-        f"{rel}:{line} in {site}: {how}"
-        for line, site, how in name_mentions(source)
-        if (rel, site) not in allowlist
-    ]
+    """Sites in one file whose mentions exceed, or fall short of, the allowlist."""
+    by_site: dict[str, list[str]] = {}
+    for line, site, how in name_mentions(source):
+        by_site.setdefault(site, []).append(f"{rel}:{line}: {how}")
+    problems = []
+    for site, mentions in by_site.items():
+        allowed = allowlist.get((rel, site), (0, ""))[0]
+        if len(mentions) > allowed:
+            problems.append(
+                f"{rel} {site}: {len(mentions)} mention(s), {allowed} allowed\n  "
+                + "\n  ".join(mentions)
+            )
+    for (listed_rel, site), (allowed, _) in allowlist.items():
+        if listed_rel == rel and len(by_site.get(site, [])) < allowed:
+            problems.append(
+                f"{rel} {site}: {len(by_site.get(site, []))} mention(s), "
+                f"{allowed} allowed; lower the entry"
+            )
+    return problems
 
 
-def _app_sources():
+def _app_sources(*, owner: bool = False):
     for path in sorted(APP_ROOT.rglob("*.py")):
         rel = path.relative_to(BACKEND_ROOT).as_posix()
-        if rel != OWNER:
+        if owner or rel != OWNER:
             yield rel, path.read_text(encoding="utf-8")
 
 
@@ -845,29 +873,29 @@ def test_only_the_binding_module_writes_origin_columns() -> None:
     )
 
 
-def test_no_name_for_a_column_outside_the_binding_module() -> None:
-    unlisted = [
-        mention
-        for rel, source in _app_sources()
-        if "origin_" in source.lower()
-        for mention in unlisted_mentions(rel, source, NAME_ALLOWLIST)
+def tree_problems(
+    sources: dict[str, str], allowlist: dict[tuple[str, str], tuple[int, str]]
+) -> list[str]:
+    """Every site in the tree that breaks the allowlist, and entries for missing files."""
+    listed_files = {rel for rel, _ in allowlist}
+    problems = [
+        problem
+        for rel, source in sources.items()
+        if "origin_" in source.lower() or rel in listed_files
+        for problem in site_problems(rel, source, allowlist)
     ]
-    assert not unlisted, (
-        "Outside the binding module, a string, keyword or attribute naming "
-        "origin_ref/origin_uri can write them. Write through set_dataset_origin, "
-        "or add the site to NAME_ALLOWLIST with why it is no write:\n"
-        + "\n".join(unlisted)
+    problems += [f"{rel}: no such file" for rel in sorted(listed_files - set(sources))]
+    return problems
+
+
+def test_every_name_for_a_column_is_at_an_allowlisted_site() -> None:
+    """The binding module too: only its recorded functions may name a column."""
+    problems = tree_problems(dict(_app_sources(owner=True)), NAME_ALLOWLIST)
+    assert not problems, (
+        "A string, keyword or attribute naming origin_ref/origin_uri can write "
+        "them. Write through set_dataset_origin, or record the site in "
+        "NAME_ALLOWLIST with its count and why it is no write:\n" + "\n".join(problems)
     )
-
-
-def test_every_allowlisted_site_still_names_a_column() -> None:
-    seen = {
-        (rel, site)
-        for rel, source in _app_sources()
-        if "origin_" in source.lower()
-        for _, site, _ in name_mentions(source)
-    }
-    assert set(NAME_ALLOWLIST) <= seen, sorted(set(NAME_ALLOWLIST) - seen)
 
 
 def _sites(source: str) -> list[tuple[int, str]]:
@@ -930,14 +958,61 @@ def test_an_allowlist_entry_clears_only_its_own_site() -> None:
         "def keys():\n    return ['origin_ref']\n\n"
         "def other(dataset, ref):\n    helper(dataset, origin_uri=ref)\n"
     )
-    assert unlisted_mentions("app/x.py", source, {}) == [
-        "app/x.py:2 in keys: a string naming a column",
-        "app/x.py:5 in other: the keyword origin_uri=",
-    ]
-    listed = {("app/x.py", "keys"): "a test"}
-    assert unlisted_mentions("app/x.py", source, listed) == [
-        "app/x.py:5 in other: the keyword origin_uri="
-    ]
+    assert len(site_problems("app/x.py", source, {})) == 2
+    listed = {("app/x.py", "keys"): (1, "a test")}
+    problems = site_problems("app/x.py", source, listed)
+    assert [p.split(":")[0] for p in problems] == ["app/x.py other"]
+
+
+def test_same_named_methods_in_two_classes_are_separate_sites() -> None:
+    source = (
+        "class Upload:\n    def write(self, ref):\n        stamp(origin_ref=ref)\n\n"
+        "class Service:\n    def write(self, ref):\n        stamp(origin_ref=ref)\n"
+    )
+    assert _sites(source) == [(3, "Upload.write"), (7, "Service.write")]
+    listed = {("app/x.py", "Upload.write"): (1, "a test")}
+    problems = site_problems("app/x.py", source, listed)
+    assert [p.split(":")[0] for p in problems] == ["app/x.py Service.write"]
+
+
+def test_a_second_mention_in_an_allowlisted_method_fails() -> None:
+    rel = "app/processing/ingest/tasks_reupload.py"
+    source = (BACKEND_ROOT / rel).read_text(encoding="utf-8")
+    anchor = (
+        '            origin_ref={"filename": self.source_filename, '
+        '"file_hash": self.file_hash},\n'
+    )
+    assert source.count(anchor) == 1
+    extra = source.replace(anchor, anchor + "            origin_uri=None,\n")
+    assert site_problems(rel, source, NAME_ALLOWLIST) == []
+    problems = site_problems(rel, extra, NAME_ALLOWLIST)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{rel} _FileReupload.write: 2 mention(s), 1 allowed")
+
+
+def test_an_allowlisted_site_is_held_to_its_count() -> None:
+    one = "def write(ref):\n    stamp(origin_ref=ref)\n"
+    two = one + "    keep(origin_uri=ref)\n"
+    listed = {("app/x.py", "write"): (1, "a test")}
+    assert site_problems("app/x.py", one, listed) == []
+    assert "2 mention(s), 1 allowed" in site_problems("app/x.py", two, listed)[0]
+    stale = {("app/x.py", "write"): (2, "a test")}
+    assert "lower the entry" in site_problems("app/x.py", one, stale)[0]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    dataset.__dict__.update(origin_ref=ref)",
+        "    delattr(dataset, 'origin_uri')",
+        "    Dataset.origin_ref.__set__(dataset, ref)",
+    ],
+)
+def test_a_new_owner_function_that_names_a_column_fails(body: str) -> None:
+    sources = dict(_app_sources(owner=True))
+    sources[OWNER] += f"\n\ndef _sneak(dataset, ref):\n{body}\n"
+    problems = tree_problems(sources, NAME_ALLOWLIST)
+    assert [p.split(":")[0] for p in problems] == [f"{OWNER} _sneak"]
 
 
 def test_the_backstop_leaves_docstrings_and_other_names_alone() -> None:
@@ -1118,6 +1193,7 @@ def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
         "set_attribute(dataset, 'origin_ref', ref)",
         "set_committed_value(dataset, 'origin_uri', u)",
         "set_attribute(instance=dataset, key='origin_ref', value=ref)",
+        "delattr(dataset, 'origin_uri')",
         "text('INSERT INTO ONLY catalog.datasets VALUES (:a, :b)')",
         "dataset.__dict__['origin_ref'] = ref",
         "dataset.__setattr__('origin_ref', ref)",
