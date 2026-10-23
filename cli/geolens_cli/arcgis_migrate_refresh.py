@@ -105,13 +105,8 @@ def _find_run(
     while True:
         page = _run_page(ctx, dataset_id, skip, RUN_PAGE, **kwargs)
         for run in page.runs:
-            if (
-                str(run.id) == marker.get("run")
-                or (
-                    marker.get("job")
-                    and str(_value(run.ingest_job_id)) == marker["job"]
-                )
-                or (marker.get("blocked") and _accepted_run(run) == marker["blocked"])
+            if str(run.id) == marker.get("run") or (
+                marker.get("job") and str(_value(run.ingest_job_id)) == marker["job"]
             ):
                 return run
         skip += len(page.runs)
@@ -126,10 +121,28 @@ def _verification(run: Any) -> dict:
     return found if isinstance(found, dict) else {}
 
 
-def _accepted_run(run: Any) -> str | None:
-    """The blocked run whose acceptance *run* carries out."""
-    accepted = _verification(run).get("accepted_blocked_run_id")
-    return None if accepted is None else str(accepted)
+def _acceptance_outcome(
+    ctx: MigrationContext, dataset_id: str, blocked_id: str
+) -> tuple[Any | None, str]:
+    """The run carrying out the acceptance of blocked run *blocked_id*, through
+    successors that were blocked again and accepted in turn, and the last
+    blocked run of that chain. No run while that one awaits acceptance."""
+    held, seen = blocked_id, set()
+    while held not in seen:
+        seen.add(held)
+        run = _find_run(ctx, dataset_id, {"run": held})
+        taken = (
+            None
+            if run is None
+            else _verification(run).get("acceptance_consumed_by_run_id")
+        )
+        if taken is None:
+            return None, held
+        run = _find_run(ctx, dataset_id, {"run": str(taken)})
+        if run is None or str(run.status) != "blocked":
+            return run, held
+        held = str(run.id)
+    return None, held
 
 
 def _run_page(
@@ -200,6 +213,37 @@ def _owner(dataset: Any) -> str | None:
     return None if owner is None else str(owner)
 
 
+def _marker_run(
+    ctx: MigrationContext, entry: ItemState, dataset_id: str, marker: dict
+) -> tuple[Any | None, dict, str | None]:
+    """The run *marker* answers to, a blocked one followed to the run carrying
+    out its acceptance; the marker as saved; and, while the last blocked run
+    awaits acceptance, why the dataset must be left alone."""
+    if "blocked" not in marker:
+        run = _find_run(ctx, dataset_id, marker)
+        if run is None or str(run.status) != "blocked":
+            return run, marker, None
+        # Blocked after the run that sent it stopped watching.
+        marker = {k: v for k, v in marker.items() if k not in ("run", "job")}
+        marker["blocked"] = str(run.id)
+    run, held = _acceptance_outcome(ctx, dataset_id, marker["blocked"])
+    marker = {**marker, "blocked": held}
+    if entry.refreshing.get(dataset_id) != marker:
+        entry.refreshing[dataset_id] = marker
+        ctx.save()
+    if run is not None:
+        return run, marker, None
+    # A new refresh would replace the run the acceptance has to name.
+    return (
+        None,
+        marker,
+        (
+            "its refresh stopped for review and hasn't been accepted. Accept "
+            f"with: geolens refresh {dataset_id} --accept-blocked-run {held}"
+        ),
+    )
+
+
 def changed_in_geolens(
     ctx: MigrationContext, entry: ItemState, dataset_id: str, dataset: Any
 ) -> str | None:
@@ -218,21 +262,11 @@ def changed_in_geolens(
         if unsettled:
             return unsettled
         marker = entry.refreshing.get(dataset_id)
-    run = _find_run(ctx, dataset_id, marker) if marker else None
-    if run is not None and str(run.status) == "blocked" and "blocked" not in marker:
-        # Blocked after the run that sent it stopped watching: keep it as
-        # _wait_for_run would have, and look for the successor that accepted it.
-        marker = {k: v for k, v in marker.items() if k not in ("run", "job")}
-        marker["blocked"] = str(run.id)
-        entry.refreshing[dataset_id] = marker
-        ctx.save()
-        run = _find_run(ctx, dataset_id, marker)
-    if run is None and marker and "blocked" in marker:
-        # A new refresh would replace the run the acceptance has to name.
-        return (
-            "its refresh stopped for review and hasn't been accepted. Accept with: "
-            f"geolens refresh {dataset_id} --accept-blocked-run {marker['blocked']}"
-        )
+    run = None
+    if marker:
+        run, marker, held = _marker_run(ctx, entry, dataset_id, marker)
+        if held:
+            return held
     if run is not None:
         if str(run.status) not in _ENDED:
             return "a refresh an earlier run started is still running"

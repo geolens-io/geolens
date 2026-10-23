@@ -402,6 +402,7 @@ def test_a_run_blocked_after_polling_ended_follows_its_accepted_successor(
             verification={"accepted_blocked_run_id": run["id"], "data_revision": 1},
         ),
     )
+    run["verification"] = {"acceptance_consumed_by_run_id": _uuid("8e", "02")}
     service.fields.setdefault(PARCELS, {}).update(
         {"updated_at": LATER, "updated_by": ALICE, "data_revision": 1}
     )
@@ -575,6 +576,44 @@ def test_a_lost_request_with_a_page_of_runs_since_is_reported(
     assert len(refresh.bodies) == 1
 
 
+def test_an_acceptance_blocked_again_is_followed_to_the_run_that_published(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service, outcome="blocked").allow(PARCELS)
+    refresh.extra = {"verification": {"review_reasons": ["live_data_changed"]}}
+    _migrate(runner, plan_file, "--only", A2)
+    [first] = refresh.runs[PARCELS]
+    again = _run(
+        PARCELS, _uuid("8e", "01"), "blocked", triggered_by=ALICE, verification={}
+    )
+    first["verification"]["acceptance_consumed_by_run_id"] = again["id"]
+    refresh.runs[PARCELS].insert(0, again)
+
+    held, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert held.exit_code == 1
+    assert f"--accept-blocked-run {again['id']}" in payload["not_up_to_date"][A2][0]
+    published = _run(
+        PARCELS,
+        _uuid("8e", "02"),
+        "succeeded",
+        triggered_by=ALICE,
+        verification={"accepted_blocked_run_id": again["id"], "data_revision": 1},
+    )
+    again["verification"]["acceptance_consumed_by_run_id"] = published["id"]
+    refresh.runs[PARCELS].insert(0, published)
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "updated_by": ALICE, "data_revision": 1}
+    )
+    refresh.outcome = "succeeded"
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+
+
 def test_a_blocked_run_nobody_accepted_keeps_its_marker(runner, plan_file, geolens):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service, outcome="blocked").allow(PARCELS)
@@ -612,6 +651,7 @@ def test_a_blocked_run_the_operator_accepts_is_recorded_as_the_migrations(
             verification={"accepted_blocked_run_id": blocked["id"], "data_revision": 1},
         ),
     )
+    blocked["verification"]["acceptance_consumed_by_run_id"] = _uuid("8e", "01")
     service.fields.setdefault(PARCELS, {}).update(
         {
             "updated_at": LATER,
