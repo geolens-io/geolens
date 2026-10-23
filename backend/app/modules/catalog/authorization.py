@@ -1243,22 +1243,28 @@ def apply_map_visibility_filter(
 
 async def check_map_access(
     db: AsyncSession, map_obj: Any, user: Identity | None
-) -> None:
-    """Raise 404 unless ``user`` (None for anonymous) may read ``map_obj``."""
+) -> set[str]:
+    """Raise 404 unless ``user`` (None for anonymous) may read ``map_obj``.
+
+    Returns the caller's roles (empty for anonymous), as the dataset guards do.
+    """
     if user is None:
-        if map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
-            logger.warning("map_read_denied map_id=%s user=anon", map_obj.id)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
-            )
-        return
-    is_admin = "admin" in await get_user_roles(db, user)
-    if not (
-        is_admin
-        or map_obj.created_by == user.id
-        or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
-    ):
-        logger.warning("map_read_denied map_id=%s user_id=%s", map_obj.id, user.id)
+        roles: set[str] = set()
+        allowed = map_obj.visibility in ANONYMOUS_MAP_VISIBILITIES
+    else:
+        roles = await get_user_roles(db, user)
+        allowed = (
+            "admin" in roles
+            or map_obj.created_by == user.id
+            or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
+        )
+    if not allowed:
+        logger.warning(
+            "map_read_denied map_id=%s user_id=%s",
+            map_obj.id,
+            user.id if user is not None else "anon",
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
         )
+    return roles

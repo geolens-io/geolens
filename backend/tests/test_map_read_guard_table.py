@@ -27,6 +27,7 @@ from sqlalchemy import select, update
 from app.core import public_urls
 from app.core.config import settings
 from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps import service_public
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.service import (
@@ -36,7 +37,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.embed_tokens.service import create_embed_token
 from app.processing.ai import router as ai_router
 
-from tests.factories import create_dataset, create_user
+from tests.factories import create_dataset, create_user, get_user_id
 
 pytestmark = pytest.mark.anyio
 
@@ -53,6 +54,10 @@ SHARE_LINK_VISIBILITIES = {"public"}
 
 def _reads(visibility: str, caller: str) -> bool:
     return caller in READERS[visibility]
+
+
+def _audience(caller: str) -> set[str]:
+    return {v for v in VISIBILITIES if _reads(v, caller)}
 
 
 def _table(fn) -> dict[tuple[str, str], object]:
@@ -85,11 +90,7 @@ async def _world(
     """One editor-owned map per visibility, plus an unrelated signed-in editor."""
     owner_headers, owner_id = await create_user(client, admin_headers, "editor")
     other_headers, other_id = await create_user(client, admin_headers, "editor")
-    admin_id = (
-        await session.execute(
-            select(User.id).where(User.username == settings.geolens_admin_username)
-        )
-    ).scalar_one()
+    admin_id = await get_user_id(session, settings.geolens_admin_username)
     dataset_id = None
     if with_layer:
         dataset = await create_dataset(
@@ -169,22 +170,13 @@ async def test_map_detail_and_access(client, admin_auth_header, test_db_session)
     world = await _world(client, admin_auth_header, test_db_session)
     expected = _table(lambda v, c: 200 if _reads(v, c) else 404)
 
-    async def detail(map_id, headers):
-        return (await client.get(f"/maps/{map_id}", headers=headers)).status_code
+    for path in ("", "/access/", "/style.json"):
 
-    async def access(map_id, headers):
-        return (
-            await client.get(f"/maps/{map_id}/access/", headers=headers)
-        ).status_code
+        async def read(map_id, headers, path=path):
+            resp = await client.get(f"/maps/{map_id}{path}", headers=headers)
+            return resp.status_code
 
-    async def style(map_id, headers):
-        return (
-            await client.get(f"/maps/{map_id}/style.json", headers=headers)
-        ).status_code
-
-    assert await _observe(world, detail) == expected
-    assert await _observe(world, access) == expected
-    assert await _observe(world, style) == expected
+        assert await _observe(world, read) == expected, path
 
 
 async def test_stored_images(client, admin_auth_header, test_db_session):
@@ -218,7 +210,7 @@ async def test_map_list(client, admin_auth_header, test_db_session):
         assert resp.status_code == 200, resp.text
         observed[caller] = {by_id[m["id"]] for m in resp.json()["maps"]}
 
-    assert observed == {c: {v for v in VISIBILITIES if _reads(v, c)} for c in CALLERS}
+    assert observed == {c: _audience(c) for c in CALLERS}
 
 
 async def test_dataset_map_list(client, admin_auth_header, test_db_session):
@@ -237,7 +229,7 @@ async def test_dataset_map_list(client, admin_auth_header, test_db_session):
             by_id[m["id"]] for m in resp.json()["maps"] if m["id"] in by_id
         }
 
-    assert observed == {c: {v for v in VISIBILITIES if _reads(v, c)} for c in CALLERS}
+    assert observed == {c: _audience(c) for c in CALLERS}
 
 
 async def test_duplicate(client, admin_auth_header, test_db_session):
@@ -386,9 +378,7 @@ async def test_shared_views(client, admin_auth_header, test_db_session, with_lay
     for v in VISIBILITIES:
         share, embed = links[v]
         for c in callers:
-            headers = (
-                {"X-Embed-Token": embed} if c == "embed" else dict(world.headers[c])
-            )
+            headers = {"X-Embed-Token": embed} if c == "embed" else world.headers[c]
             view = await client.get(f"/maps/shared/{share}", headers=headers)
             card = await client.get(f"/maps/shared/{share}/card", headers=headers)
             has_tags = re.search(r'property="og:title"', card.text) is not None
@@ -419,8 +409,6 @@ async def test_stranded_shared_maps(
     """Which of the owner's maps a dataset narrowing would strand."""
     world = await _world(client, admin_auth_header, test_db_session, with_layer=True)
     dataset_id = uuid.UUID(world.dataset_id)
-    from app.modules.catalog.datasets.domain.models import Dataset
-
     record_id = (
         await test_db_session.execute(
             select(Dataset.record_id).where(Dataset.id == dataset_id)
@@ -440,8 +428,8 @@ async def test_stranded_shared_maps(
         )
         return {by_name[n] for n in names}
 
-    signed_in_audience = {v for v in VISIBILITIES if "other" in READERS[v]}
-    anonymous_audience = {v for v in VISIBILITIES if "anonymous" in READERS[v]}
+    signed_in_audience = _audience("other")
+    anonymous_audience = _audience("anonymous")
     assert await stranded("public", "private") == signed_in_audience
     assert await stranded("public", "internal") == anonymous_audience
     assert await stranded("internal", "private") == signed_in_audience

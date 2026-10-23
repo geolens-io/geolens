@@ -1430,7 +1430,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter; map reads share
     # the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1264,
+    "backend/app/modules/catalog/authorization.py": 1270,
 }
 
 

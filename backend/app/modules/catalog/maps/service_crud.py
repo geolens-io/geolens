@@ -562,8 +562,7 @@ async def duplicate_map(
     if source is None:
         raise ValueError(f"Map {map_id} not found")
 
-    await check_map_access(session, source, user)
-    user_roles = await get_user_roles(session, user)
+    user_roles = await check_map_access(session, source, user)
 
     fork_name = await _generate_fork_name(session, source.name, user.id)
 
