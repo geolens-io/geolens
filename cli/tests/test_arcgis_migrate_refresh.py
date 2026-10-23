@@ -1327,3 +1327,72 @@ def test_a_portal_changed_since_the_inventory_refuses_cutover(
     [client] = seen
     assert client.token == token
     assert _state(plan_file)["cutover"] is None
+
+
+def _set_row(plan_file: Path, item_id: str, **row) -> None:
+    path = plan_file.parent / "arcgis-inventory.json"
+    inventory = json.loads(path.read_text())
+    for found in inventory["items"]:
+        if found["id"] == item_id:
+            found.update(row)
+    path.write_text(json.dumps(inventory))
+
+
+def _refused_for(payload, item_id: str, says: str) -> None:
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    assert any(
+        found["item"] == item_id and says in found["reason"] for found in check["items"]
+    ), check
+
+
+@pytest.mark.parametrize(
+    ("damage", "says"),
+    [("deleted", "deleted in GeoLens"), ("no_url", "no service URL")],
+)
+def test_a_service_item_cutover_cant_bring_up_to_date_is_refused(
+    runner, plan_file, geolens, damage, says
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    if damage == "deleted":
+        geolens.routes.pop(f"GET /datasets/{PARCELS}")
+    else:
+        _set_row(plan_file, A2, url=None)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert says in payload["not_up_to_date"][A2][0]
+    _refused_for(payload, A2, says)
+
+
+@pytest.mark.parametrize(
+    ("damage", "says"),
+    [("gone", "not in the inventory"), ("too_big", "over the instance's upload limit")],
+)
+def test_a_file_item_cutover_cant_bring_up_to_date_is_refused(
+    runner, tmp_path, geolens, portal, damage, says
+):
+    files.FakeFiles(geolens)
+    plan_file = files._plan(tmp_path)
+    _edit_plan(plan_file, (D3,))
+    result, _ = _migrate(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    if damage == "gone":
+        _set_row(plan_file, D3, type="Shapefile Package")
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] == D3:
+                item["type"] = "Shapefile Package"
+        plan_file.write_text(json.dumps(plan))
+    else:
+        _set_row(plan_file, D3, size_bytes=10**12)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert says in payload["not_up_to_date"][D3][0]
+    _refused_for(payload, D3, says)

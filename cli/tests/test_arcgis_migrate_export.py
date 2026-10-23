@@ -1114,3 +1114,36 @@ def test_a_partial_export_bundle_blocks_cutover(runner, tmp_path, geolens, insta
     [found] = check["items"]
     assert found["item"] == C3
     assert found["reason"].startswith("its export bundle is missing files: ")
+
+
+def test_an_export_with_no_portal_connection_is_reported():
+    from types import SimpleNamespace
+
+    from geolens_cli.arcgis_migrate_export import refresh_export
+    from geolens_cli.arcgis_migrate_state import ItemState
+
+    ctx = SimpleNamespace(portal=None)
+    item = {"id": C3, "type": "Dashboard"}
+
+    assert refresh_export(ctx, item, ItemState(status="done")) == [
+        "the run can't read this item from the portal to check it for changes"
+    ]
+
+
+def test_an_export_whose_change_time_cant_be_read_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    portal.routes[f"content/items/{C3}"] = {"id": C3, "title": "no date"}
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert "doesn't say when the item last changed" in reason
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
