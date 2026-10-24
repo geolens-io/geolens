@@ -385,7 +385,21 @@ and releases use semantic versioning.
 - The builder's layer stack and layer editor show a layer's full name on hover,
   and a category summary next to the name gives up its width first. (#3369)
 - `EGRESS.md` lists the call that ArcGIS sign-in makes to the portal a user
-  names. (#3364)
+  names, and GitHub sign-in's calls to `github.com` and `api.github.com`.
+  (#3208, #3364)
+- The restore steps in `RUNBOOK.md` stop the backup service before you pick a
+  dump. It takes a dump each time it starts and keeps only the newest per day,
+  so a restart mid-restore replaced that day's good dump with the broken state.
+  (#3208)
+- Both Compose files now pass `INGEST_JOBS_RETENTION_DAYS` and `ENV_ONLY_CONFIG`
+  from `.env` to the worker, which reads both but never received them. (#3211)
+- The small-DEM warning and the terrain tip in map settings no longer suggest
+  draping a small DEM over a global one, which a map with one terrain source
+  can't do. A showcase "The Matterhorn in 3D" map seeded before its camera was
+  framed now opens on the Matterhorn instead of the whole world. (#3210)
+- The AI chat logs a warning when it can't read the daily token cap partway
+  through a stream. It still fails open there; the cap at the start of each
+  request fails closed. (#3233)
 
 ### Security
 
@@ -400,10 +414,12 @@ and releases use semantic versioning.
   `?token=` is refused on a cross-origin hop that repeats the token. (#3298)
 - Pillow is raised to 13.0.0, which fixes eight CVEs, and certifi to 2026.10.19.
   (#3216)
+- The `fflate` copy that loaders.gl pins in the frontend is raised to 0.7.5,
+  which fixes an endless loop on a malformed ZIP64 archive. (#3324)
 
 ### Upgrade notes
 
-- Migrations 0087 to 0093 run on upgrade. 0087 widens the API key scope check
+- Migrations 0087 to 0094 run on upgrade. 0087 widens the API key scope check
   for Publish keys. 0088 moves each dataset's one kept previous version onto its
   version row and drops the four `datasets.previous_version_*` columns; its
   downgrade refuses while any dataset keeps more than one version. 0089, 0091,
@@ -411,8 +427,9 @@ and releases use semantic versioning.
   stay dormant on a single-organization install; 0091 and 0092 refuse to upgrade
   when a group member or grant pairs rows from different tenants. 0090 adds
   `attribute_metadata.value_labels`. 0093 allows `restricted` map visibility; its
-  downgrade turns restricted maps private. (#3230, #3281, #3306, #3314, #3315,
-  #3337, #3354)
+  downgrade turns restricted maps private. 0094 adds a nullable
+  `dataset_versions.column_info`. (#3230, #3281, #3306, #3314, #3315, #3337,
+  #3350, #3354)
 - Overlay authors: `EXTENSION_API_VERSION` is now 19. The permission methods
   keep their signatures, but `restricted` now also admits members of a group
   granted on the dataset. An extension that implements the `permission` slot
