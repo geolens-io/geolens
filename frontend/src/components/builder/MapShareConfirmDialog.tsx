@@ -43,6 +43,7 @@ export function MapShareConfirmDialog({
   return (
     <AlertDialog open onOpenChange={(open) => !open && !pending && onCancel()}>
       <AlertDialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           onCloseFocus();

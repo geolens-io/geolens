@@ -154,6 +154,12 @@ describe('MapGroupShare', () => {
       return { ...view, dialog };
     }
 
+    it('bounds the confirmation to the viewport so its buttons stay reachable', async () => {
+      const { dialog } = await openConfirm();
+      expect(dialog.className).toEqual(expect.stringContaining('max-h-[calc(100dvh-2rem)]'));
+      expect(dialog.className).toEqual(expect.stringContaining('overflow-y-auto'));
+    });
+
     it('lists each layer with its dataset and the groups that cannot read it, saving nothing yet', async () => {
       const { dialog } = await openConfirm();
 
