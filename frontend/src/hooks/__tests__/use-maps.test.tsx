@@ -302,10 +302,26 @@ describe('usePublishMap', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.maps.detail('map-1') });
   });
 
-  it('leaves groups alone for a map without any', async () => {
-    mockPublishMap.mockResolvedValueOnce({} as never);
+  it('unshares on a private pick even when the cached map lists no groups', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'private', groups: [] });
     const qc = makeQc();
     seedGroups(qc, []);
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.mutateAsync({ id: 'map-1', visibility: 'private' });
+    });
+
+    expect(mockSetMapGroups).toHaveBeenCalledWith('map-1', []);
+    expect(mockPublishMap).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ clearedGroups: false, visibility: 'private' });
+  });
+
+  it('leaves groups alone for a caller the server sends no group list', async () => {
+    mockPublishMap.mockResolvedValueOnce({} as never);
+    const qc = makeQc();
+    qc.setQueryData(queryKeys.maps.detail('map-1'), { id: 'map-1' });
     const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
 
     await act(async () => {

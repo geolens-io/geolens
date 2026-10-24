@@ -324,12 +324,14 @@ export function usePublishMap(mapId?: string) {
   return useMutation({
     mutationKey: mapAudienceMutationKey,
     scope: mapAudienceScope(mapId),
-    // A map with groups cannot go private directly (the server keeps it
-    // restricted), so "private" unshares it first.
+    // A map with groups stays restricted when set private, so a caller who is
+    // sent the group list unshares first, even when the cached list is empty:
+    // it may predate a grant, and with no groups the call changes nothing.
     mutationFn: async ({ id, visibility }: { id: string; visibility: MapVisibility }) => {
-      const hasGroups = Boolean(qc.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.groups?.length);
-      const clearedGroups = visibility === 'private' && hasGroups;
-      if (clearedGroups) {
+      const cachedGroups = qc.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.groups;
+      const unshare = visibility === 'private' && Array.isArray(cachedGroups);
+      const clearedGroups = unshare && cachedGroups.length > 0;
+      if (unshare) {
         const unshared = await setMapGroups(id, []);
         await applyMapAudience(qc, id, { visibility: unshared.visibility as MapVisibility, groups: unshared.groups });
         if (unshared.visibility === visibility) return { clearedGroups, visibility };
