@@ -3228,6 +3228,7 @@ export interface paths {
          *     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
          *     fetch the next page, with or without ``sort``.
          *     Supports column filtering via query params: ``filter[column_name]=value``.
+         *     An optional CQL2-JSON ``filter`` expression ANDs with them.
          */
         get: operations["get_dataset_rows_endpoint_datasets__dataset_id__rows__get"];
         put?: never;
@@ -32706,6 +32707,8 @@ export interface operations {
                 sort?: string | null;
                 /** @description Sort direction; applies only with `sort`. */
                 order?: "asc" | "desc";
+                /** @description Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400. */
+                filter?: string | null;
             };
             header?: never;
             path: {

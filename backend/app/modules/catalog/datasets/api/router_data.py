@@ -1,5 +1,6 @@
 """Dataset data access endpoints: rows, validate, related, maps, and publication status."""
 
+import json
 import uuid
 from typing import Literal
 
@@ -46,6 +47,7 @@ from app.modules.catalog.records.inherited import (
 from app.modules.catalog.features.service import current_table_oid
 from app.modules.catalog.datasets.domain.service import (
     InvalidSortColumn,
+    compile_layer_filter,
     get_dataset,
     get_dataset_rows,
     get_related_datasets,
@@ -126,6 +128,15 @@ async def get_dataset_rows_endpoint(
     order: Literal["asc", "desc"] = Query(
         "asc", description="Sort direction; applies only with `sort`."
     ),
+    filter: str | None = Query(
+        None,
+        description=(
+            "Optional CQL2-JSON filter expression (as the OGC items route's"
+            " ``filter-lang=cql2-json``). ANDs with the ``filter[column]``"
+            " ILIKE filters; malformed expressions and unknown columns"
+            " return 400."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
@@ -134,6 +145,7 @@ async def get_dataset_rows_endpoint(
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -148,6 +160,30 @@ async def get_dataset_rows_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This dataset has no data table",
         )
+
+    # Compiled after the access guard, so a filter's validity never leaks a
+    # dataset's existence or column set to a caller who cannot read it. The
+    # helpers are the OGC items route's: a parse/compile failure is the
+    # caller's bug and 400s before any row query runs.
+    cql2_filter: tuple[str, list] | None = None
+    if filter is not None:
+        try:
+            parsed = json.loads(filter)
+            # A present-but-null body is a malformed expression, not an
+            # absent one: None is compile_layer_filter's "no filter" input.
+            if parsed is None:
+                raise ValueError("filter must be a CQL2-JSON expression, not null")
+            cql2_filter = await compile_layer_filter(
+                db, dataset, parsed, bind_prefix="cql2_rows"
+            )
+        except (ValueError, RecursionError) as exc:
+            # RecursionError is no ValueError: a body nested past the JSON
+            # parser's own depth limit is the caller's bug all the same, and
+            # must not surface as a 500.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid filter parameters: {exc}",
+            ) from exc
 
     filters: dict[str, str] = {}
     for key, value in request.query_params.items():
@@ -171,6 +207,7 @@ async def get_dataset_rows_endpoint(
             dataset_id=dataset_id,
             sort=sort,
             descending=order == "desc",
+            cql2_filter=cql2_filter,
         )
     except InvalidSortColumn:
         raise HTTPException(

@@ -24,6 +24,7 @@ def _get_kwargs(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -44,6 +45,13 @@ def _get_kwargs(
         json_order = order
 
     params["order"] = json_order
+
+    json_filter_: None | str | Unset
+    if isinstance(filter_, Unset):
+        json_filter_ = UNSET
+    else:
+        json_filter_ = filter_
+    params["filter"] = json_filter_
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -136,6 +144,7 @@ def sync_detailed(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
@@ -144,6 +153,7 @@ def sync_detailed(
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
 
     Args:
         dataset_id (UUID):
@@ -153,6 +163,9 @@ def sync_detailed(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -168,6 +181,7 @@ def sync_detailed(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
     )
 
     response = client.get_httpx_client().request(
@@ -185,6 +199,7 @@ def sync(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
@@ -193,6 +208,7 @@ def sync(
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
 
     Args:
         dataset_id (UUID):
@@ -202,6 +218,9 @@ def sync(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -218,6 +237,7 @@ def sync(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
     ).parsed
 
 
@@ -229,6 +249,7 @@ async def asyncio_detailed(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
@@ -237,6 +258,7 @@ async def asyncio_detailed(
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
 
     Args:
         dataset_id (UUID):
@@ -246,6 +268,9 @@ async def asyncio_detailed(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -261,6 +286,7 @@ async def asyncio_detailed(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -276,6 +302,7 @@ async def asyncio(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
@@ -284,6 +311,7 @@ async def asyncio(
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
 
     Args:
         dataset_id (UUID):
@@ -293,6 +321,9 @@ async def asyncio(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -310,5 +341,6 @@ async def asyncio(
             after=after,
             sort=sort,
             order=order,
+            filter_=filter_,
         )
     ).parsed

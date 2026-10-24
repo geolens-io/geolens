@@ -1379,6 +1379,7 @@
     "kebabGroupTrigger": "Opciones de grupo para {{name}}",
     "kebabZoomToLayer": "Acercar a la capa",
     "kebabAnalyzeLayer": "Analizar esta capa",
+    "kebabAttributeTable": "Abrir tabla de atributos",
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
     "kebabPasteStyleHint": "Copia primero un estilo de una capa compatible",
@@ -1456,9 +1457,16 @@
     "newGroupItem": "Nuevo grupo…",
     "toggleExpand": "Alternar grupo de carpetas"
   },
+  "attributeTableDrawer": {
+    "description": "Tabla de atributos de {{name}}",
+    "filterUnsupported": "No se pudo aplicar el filtro de la capa; se muestran todas las filas.",
+    "resizeHandle": "Redimensionar la tabla de atributos",
+    "close": "Cerrar la tabla de atributos"
+  },
   "layerEditor": {
     "close": "Cerrar editor de capa",
     "tabsLabel": "Pestañas del editor de capa",
+    "openAttributeTable": "Abrir tabla de atributos",
     "section": {
       "renderAs": "Renderizar como",
       "appearance": "Apariencia",

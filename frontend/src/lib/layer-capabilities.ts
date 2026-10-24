@@ -84,3 +84,33 @@ export function getLayerCapabilities(
     iconVariant,
   };
 }
+
+// Record types the rows endpoint refuses (no PostGIS feature table behind
+// them): raster family plus the stored-file datasets. Mirrors the backend's
+// capabilities().feature_table — a denylist so a record type arriving without
+// the field on an older server keeps the action, like isAnalysableLayer.
+const NO_DATA_TABLE_RECORD_TYPES = new Set([
+  'raster_dataset',
+  'vrt_dataset',
+  'tiles3d_dataset',
+  'pointcloud_dataset',
+]);
+
+/**
+ * True when a layer can open the read-only attribute table drawer: a dataset
+ * backed layer whose record type carries a feature table AND that renders as
+ * a vector layer (add_layer lets the caller's layer_type override the
+ * dataset-derived one, so the record type alone does not say what the layer
+ * draws). Excludes the raster family, terrain (DEM), the stored-file
+ * datasets, folder-group rows, basemaps (own rows, no kebab) and unsaved
+ * previews (own row type).
+ */
+export function canOpenAttributeTable(layer: MapLayerResponse): boolean {
+  return (
+    !isFolderGroupLayer(layer) &&
+    !!layer.dataset_id &&
+    !layer.is_dem &&
+    layer.layer_type !== 'raster_geolens' &&
+    !NO_DATA_TABLE_RECORD_TYPES.has((layer.dataset_record_type ?? '').toLowerCase())
+  );
+}

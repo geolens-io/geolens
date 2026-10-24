@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- `GET /datasets/{id}/rows/` takes an optional CQL2-JSON `filter` parameter,
+  compiled with the same helpers the OGC items route uses and combined with the
+  column filters, sort and keyset paging. A malformed filter or one naming an
+  unknown column returns 400. The map builder uses it to open a read-only
+  attribute table for a layer, with the layer's filter applied and a clicked
+  row found on the map.
+
 ## [1.27.1] - 2026-10-24
 
 Upgrade from 1.26 straight to 1.27.1 rather than 1.27.0. An instance already

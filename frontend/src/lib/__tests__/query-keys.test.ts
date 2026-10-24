@@ -32,10 +32,13 @@ describe('queryKeys factory', () => {
     });
 
     it('rows includes all params', () => {
-      expect(queryKeys.datasets.rows('abc', 50, 0)).toEqual(['dataset-rows', 'abc', 50, 0, undefined, undefined]);
+      expect(queryKeys.datasets.rows('abc', 50, 0)).toEqual(['dataset-rows', 'abc', 50, 0, undefined, undefined, undefined]);
       const filters = { name: 'x' };
       const sort = { column: 'name', desc: true };
-      expect(queryKeys.datasets.rows('abc', 50, 0, filters, sort)).toEqual(['dataset-rows', 'abc', 50, 0, filters, sort]);
+      expect(queryKeys.datasets.rows('abc', 50, 0, filters, sort)).toEqual(['dataset-rows', 'abc', 50, 0, filters, sort, undefined]);
+      // The CQL2 filter is part of the cache identity: a drawer sending the
+      // layer's filter must never hit an unfiltered cached page.
+      expect(queryKeys.datasets.rows('abc', 50, 0, filters, sort, 'cql2')).toEqual(['dataset-rows', 'abc', 50, 0, filters, sort, 'cql2']);
     });
 
     it('history includes skip and limit', () => {

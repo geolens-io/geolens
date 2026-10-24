@@ -80,10 +80,11 @@ export function useDatasetRows(
   cursor: number,
   filters?: Record<string, string>,
   sort?: DatasetRowsSort,
+  cql2Filter?: string,
 ) {
   return useQuery({
-    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort),
-    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort }),
+    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort, cql2Filter),
+    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort, cql2Filter }),
     enabled: !!id,
     placeholderData: keepPreviousData,
     staleTime: 60_000,

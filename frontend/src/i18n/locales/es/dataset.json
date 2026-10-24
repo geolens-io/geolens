@@ -231,6 +231,7 @@
     "cellEditorLabel": "Editar {{column}} del elemento {{gid}}",
     "selectPage": "Seleccionar todas las filas de esta página",
     "selectRow": "Seleccionar fila {{gid}}",
+    "rowActionLabel": "Mostrar la fila {{gid}} en el mapa",
     "deleteRows_one": "Eliminar {{formattedCount}} fila",
     "deleteRows_many": "Eliminar {{formattedCount}} filas",
     "deleteRows_other": "Eliminar {{formattedCount}} filas",
