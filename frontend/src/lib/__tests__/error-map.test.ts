@@ -721,6 +721,24 @@ describe('API error localization boundary', () => {
     ).toContain('Flood Risk');
   });
 
+  it('surfaces the maps an unpublish would strand', () => {
+    expect(
+      classifyApiError(
+        'Cannot unpublish: dataset is used in shared maps: Flood Risk, Parcels 2026',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetUnpublishBlockedByMaps',
+      values: { maps: 'Flood Risk, Parcels 2026' },
+    });
+    expect(
+      translateApiErrorDetail(
+        'Cannot unpublish: dataset is used in shared maps: Flood Risk',
+        422,
+      ),
+    ).toContain('Flood Risk');
+  });
+
   // `MapCreate.name` is length-bounded and NFC-normalized,
   // nothing more, so a newline in a map name is valid input. Without the `s`
   // flag `.` stopped at it and the whole list fell back to the generic 422 —

@@ -320,6 +320,7 @@
     "sharedQueryBusy": "分析预览和 AI 对话共用数据查询通道，一次只能运行一个查询，且当前已有查询正在运行。请等待其完成后再试。",
     "analysisVectorRequired": "分析需要矢量数据集——此图层不是矢量数据集。",
     "analysisMaskPolygonRequired": "裁剪掩膜必须是多边形图层。",
+    "datasetUnpublishBlockedByMaps": "这些地图正将该数据集共享给取消发布后将失去访问权的受众：{{maps}}。请移除其中的图层，或先收窄这些地图的共享范围。",
     "datasetVisibilityBlockedByMaps": "这些地图正将该数据集共享给即将失去访问权的受众：{{maps}}。请移除其中的图层，或先收窄这些地图的共享范围。",
     "workflowTransitionDeniedNoneAllowed": "在发布工作流中，此数据集不能从“{{from}}”转为“{{to}}”，且您没有其他可用步骤。请联系具备所需角色的审核人或管理员。",
     "workflowTransitionDenied": "在发布工作流中，此数据集不能从“{{from}}”转为“{{to}}”。您当前可执行的步骤：{{allowed}}。",

@@ -52,6 +52,7 @@ from app.modules.catalog.authorization import (
     visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.helpers import (
+    DatasetNotFoundError,
     WorkflowTransitionDenied,
     dataset_to_response,
     _load_actor_identities,
@@ -446,16 +447,15 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=e.detail,
         )
+    except DatasetNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
     except ValueError as e:
-        msg = str(e)
-        if "not found" in msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Dataset not found",
-            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=msg,
+            detail=str(e),
         )
     # A transfer has its own audit row, so a body naming only owner_id is
     # not also a metadata edit.

@@ -189,6 +189,7 @@
     "sharedQueryBusy": "Analysevorschauen und der KI-Chat teilen sich eine Datenabfrage, und eine läuft bereits. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut.",
     "analysisVectorRequired": "Die Analyse benötigt einen Vektordatensatz – diese Ebene ist keiner.",
     "analysisMaskPolygonRequired": "Die Zuschneidemaske muss eine Polygon-Ebene sein.",
+    "datasetUnpublishBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde, wenn seine Veröffentlichung aufgehoben wird: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
     "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
     "workflowTransitionDeniedNoneAllowed": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln, und für Sie ist kein anderer Schritt offen. Wenden Sie sich an eine Prüfperson oder einen Administrator mit der nötigen Rolle.",
     "workflowTransitionDenied": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln. Für Sie offene Schritte von hier aus: {{allowed}}.",

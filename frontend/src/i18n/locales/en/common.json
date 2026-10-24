@@ -320,6 +320,7 @@
     "sharedQueryBusy": "Analysis previews and AI chat share one data query at a time, and one is already running. Wait for it to finish and try again.",
     "analysisVectorRequired": "Analysis needs a vector dataset — this layer is not one.",
     "analysisMaskPolygonRequired": "The clip mask must be a polygon layer.",
+    "datasetUnpublishBlockedByMaps": "These maps share the dataset with an audience that would lose it if it were unpublished: {{maps}}. Remove the layer there, or narrow those maps first.",
     "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",
     "workflowTransitionDeniedNoneAllowed": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow, and no other step is open to you. Ask a reviewer or an administrator with the required role.",
     "workflowTransitionDenied": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow. Steps open to you from here: {{allowed}}.",

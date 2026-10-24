@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
@@ -1726,17 +1726,17 @@ class TestDuplicateMap:
 
         created = await _create_map(client, admin_auth_header, "Draft Layer Map")
         map_id = created["id"]
-        await client.put(
-            f"/maps/{map_id}",
-            json={"visibility": "public"},
-            headers=admin_auth_header,
-        )
         add_resp = await client.post(
             f"/maps/{map_id}/layers",
             json={"dataset_id": str(draft_ds.id)},
             headers=admin_auth_header,
         )
         assert add_resp.status_code == 201, add_resp.text
+        # Publishing refuses a draft layer; this state predates that check.
+        await test_db_session.execute(
+            update(Map).where(Map.id == uuid.UUID(map_id)).values(visibility="public")
+        )
+        await test_db_session.commit()
 
         resp = await client.post(
             f"/maps/{map_id}/duplicate/", headers=viewer_auth_header

@@ -17,7 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.authorization import check_vrt_audiences_after_change
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
-from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
+from app.modules.catalog.datasets.domain.helpers import (
+    DatasetNotFoundError,
+    WorkflowTransitionDenied,
+)
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -211,6 +214,43 @@ def _apply_tile_columns(dataset: Dataset, meta: "DatasetMeta") -> bool:
     return True
 
 
+async def refuse_stranding_shared_maps(
+    session: AsyncSession,
+    record: Any,
+    dataset_id: uuid.UUID,
+    *,
+    visibility: str | None = None,
+    record_status: str | None = None,
+    regrant: Callable[[], Awaitable[object]] | None = None,
+) -> None:
+    """Raise ValueError when moving the record to ``visibility`` and
+    ``record_status`` (None keeps the current one) strands one of the owner's
+    shared maps. ``regrant`` changes the grants between the two audience reads.
+    """
+    from app.modules.catalog.maps.service import (
+        find_maps_broken_by_dataset_visibility,
+    )
+
+    new_status = record_status or record.record_status
+    broken_maps = await find_maps_broken_by_dataset_visibility(
+        session,
+        dataset_id,
+        old_visibility=record.visibility,
+        new_visibility=visibility or record.visibility,
+        record_status=record.record_status,
+        new_record_status=new_status,
+        record_id=record.id,
+        owner_id=record.created_by,
+        regrant=regrant,
+    )
+    if broken_maps:
+        unpublishes = record.record_status == "published" and new_status != "published"
+        action = "unpublish" if unpublishes else "restrict visibility"
+        raise ValueError(
+            f"Cannot {action}: dataset is used in shared maps: {', '.join(broken_maps)}"
+        )
+
+
 async def _apply_visibility_change(
     session: AsyncSession,
     record: Any,
@@ -218,39 +258,31 @@ async def _apply_visibility_change(
     dataset_id: uuid.UUID,
     new_visibility: str,
     regrant: Callable[[], Awaitable[object]] | None = None,
+    *,
+    new_status: str | None = None,
 ) -> bool:
     """Set record.visibility unless it strands one of the owner's shared maps.
 
     The helper compares the before and after audiences so internal-map
     viewers are protected as well as public-map viewers. ``regrant`` changes
     the dataset's grants in the same step, which moves its audience even when
-    the visibility stays.
+    the visibility stays. ``new_status`` is the status the same edit moves to,
+    so the check judges the combined result.
     """
-    from app.modules.catalog.maps.service import (
-        find_maps_broken_by_dataset_visibility,
-    )
-
     pending = [regrant] if regrant is not None else []
 
     async def regrant_once() -> None:
         while pending:
             await pending.pop()()
 
-    broken_maps = await find_maps_broken_by_dataset_visibility(
+    await refuse_stranding_shared_maps(
         session,
+        record,
         dataset_id,
-        old_visibility=record.visibility,
-        new_visibility=new_visibility,
-        record_status=record.record_status,
-        record_id=record.id,
-        owner_id=record.created_by,
+        visibility=new_visibility,
+        record_status=new_status,
         regrant=regrant_once if pending else None,
     )
-    if broken_maps:
-        raise ValueError(
-            "Cannot restrict visibility: dataset is used in shared maps: "
-            f"{', '.join(broken_maps)}"
-        )
     await regrant_once()
     if new_visibility == record.visibility and regrant is None:
         return True
@@ -352,7 +384,7 @@ async def update_user_metadata(
     """Update user-editable fields including extended metadata.
 
     Accepts a DatasetMeta Pydantic model. Only updates fields that are
-    explicitly set. Raises ValueError if dataset not found.
+    explicitly set. Raises DatasetNotFoundError if dataset not found.
     Does not commit; caller controls transaction scope.
 
     ``actor`` defaults to the identity ``actor_id`` names, since a workflow
@@ -362,7 +394,7 @@ async def update_user_metadata(
     """
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
-        raise ValueError(f"Dataset {dataset_id} not found.")
+        raise DatasetNotFoundError(f"Dataset {dataset_id} not found.")
     if actor is None and actor_id is not None:
         from app.modules.catalog.datasets.domain.helpers import _load_actor_identities
 
@@ -412,8 +444,17 @@ async def update_user_metadata(
     if meta.visibility is not None:
         mutated_flags.append(
             await _apply_visibility_change(
-                session, record, dataset, dataset_id, meta.visibility
+                session,
+                record,
+                dataset,
+                dataset_id,
+                meta.visibility,
+                new_status=meta.record_status,
             )
+        )
+    elif meta.record_status is not None:
+        await refuse_stranding_shared_maps(
+            session, record, dataset_id, record_status=meta.record_status
         )
     if meta.record_status is not None:
         mutated_flags.append(

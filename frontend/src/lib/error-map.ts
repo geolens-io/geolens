@@ -430,12 +430,14 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // because a map name may contain a newline; `$` is dropped so a trailing
   // newline can't truncate the list.
   const strandedMaps = message.match(
-    /^Cannot restrict visibility: dataset is used in shared maps:\s*([\s\S]+)/i,
+    /^Cannot (?:restrict visibility|(unpublish)): dataset is used in shared maps:\s*([\s\S]+)/i,
   );
   if (strandedMaps) {
     return {
-      key: 'errors.datasetVisibilityBlockedByMaps',
-      values: { maps: strandedMaps[1] },
+      key: strandedMaps[1]
+        ? 'errors.datasetUnpublishBlockedByMaps'
+        : 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: strandedMaps[2] },
     };
   }
 

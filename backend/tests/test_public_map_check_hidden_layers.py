@@ -136,6 +136,36 @@ async def test_public_map_check_still_counts_datasets_the_caller_can_read(
     assert hidden_title in as_admin.text
 
 
+async def test_a_public_draft_layer_blocks_publishing_the_map(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    draft_title = f"Draft {uuid.uuid4().hex[:8]}"
+    draft = await create_dataset(
+        test_db_session,
+        created_by=uuid.UUID(owner_id),
+        name=draft_title,
+        record_status="draft",
+    )
+    await test_db_session.commit()
+    created = await client.post(
+        "/maps/", json={"name": f"Owner {uuid.uuid4().hex[:6]}"}, headers=owner
+    )
+    map_id = created.json()["id"]
+    added = await client.post(
+        f"/maps/{map_id}/layers", json={"dataset_id": str(draft.id)}, headers=owner
+    )
+    assert added.status_code == 201, added.text
+
+    check = await client.get(f"/maps/{map_id}/visibility-check/", headers=owner)
+    assert check.json()["non_public_datasets"] == [draft_title]
+    refused = await client.put(
+        f"/maps/{map_id}", json={"visibility": "public"}, headers=owner
+    )
+    assert refused.status_code == 400, refused.text
+    assert draft_title in refused.text
+
+
 async def _layer_rows(session, map_id: str) -> list[tuple]:
     """(layer id, dataset id, table name, title) for each stored layer."""
     session.expire_all()

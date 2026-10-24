@@ -1177,7 +1177,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 122,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 128,
+        "backend/app/modules/catalog/datasets/domain/service.py": 130,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1192,7 +1192,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members included.
-        "backend/app/modules/catalog/maps/service_public.py": 1033,
+        "backend/app/modules/catalog/maps/service_public.py": 1043,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1201,7 +1201,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 588,
+        # A metadata edit judges its visibility and status change as one move.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
         # Internal pointer reads sit beside the detail query that shares them, and
         # the row browser's sort, keyset and label-filter SQL share its column projection.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 652,

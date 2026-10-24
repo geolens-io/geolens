@@ -99,7 +99,7 @@ async def validate_public_visibility(
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id == map_id)
-        .where(Record.visibility != "public")
+        .where(or_(Record.visibility != "public", Record.record_status != "published"))
     )
     rows = (await session.execute(stmt)).all()
     readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
@@ -153,13 +153,15 @@ async def find_maps_broken_by_dataset_visibility(
     old_visibility: str,
     new_visibility: str,
     record_status: str,
+    new_record_status: str | None = None,
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
     regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> list[str]:
     """Names of the owner's shared maps that work at ``old_visibility`` and
-    would not at ``new_visibility``. A restricted map counts when a member of
-    one of its groups would lose the layer.
+    ``record_status`` and would not at ``new_visibility`` and
+    ``new_record_status`` (default: unchanged). A restricted map counts when a
+    member of one of its groups would lose the layer.
 
     Only maps the dataset's owner (``owner_id``) created count, and only while
     the owner can read the dataset. Other users' maps lose the layer instead,
@@ -167,9 +169,8 @@ async def find_maps_broken_by_dataset_visibility(
 
     The audiences come from the permission authority, so an overlay's own
     policy decides who would be stranded. An authority that can't answer
-    (:func:`answers_audience_questions`) gets all of the owner's shared maps. An
-    unpublished record needs no special case: a draft's audience is owner and
-    admins both before and after, so nobody is stranded.
+    (:func:`answers_audience_questions`) gets all of the owner's shared maps,
+    unless only the status of an unpublished record changes.
 
     ``regrant``, when given, changes the dataset's grants as well. It runs at
     most once, between reading who could read before and after; a caller
@@ -185,17 +186,24 @@ async def find_maps_broken_by_dataset_visibility(
             Map.visibility.in_((*SIGNED_IN_MAP_VISIBILITIES, RESTRICTED_MAP_VISIBILITY))
         )
     )
+    new_record_status = new_record_status or record_status
+    permission = get_permission_extension()
+    answers = answers_audience_questions(permission)
     # A no-op change strands nobody for any authority, and a round-tripped
-    # record resubmits the same visibility.
-    unchanged = old_visibility == new_visibility and regrant is None
+    # record resubmits the same visibility. Without an answer, only a status
+    # change that leaves published is taken to narrow.
+    same_grants = old_visibility == new_visibility and regrant is None
+    strands_nobody = same_grants and (
+        record_status == new_record_status
+        or (not answers and record_status != "published")
+    )
     if (
-        unchanged
+        strands_nobody
         or owner_id is None
         or (await session.execute(stmt.limit(1))).first() is None
     ):
         return []
-    permission = get_permission_extension()
-    if answers_audience_questions(permission):
+    if answers:
         query = RecordAudienceQuery(
             dataset_id=dataset_id,
             record_id=record_id,
@@ -205,7 +213,9 @@ async def find_maps_broken_by_dataset_visibility(
         )
         before = await permission.record_audience(query, User, grant_cls=DatasetGrant)
         after = await permission.record_audience(
-            replace(query, visibility=new_visibility), User, grant_cls=DatasetGrant
+            replace(query, visibility=new_visibility, record_status=new_record_status),
+            User,
+            grant_cls=DatasetGrant,
         )
         # Asked per audience: a public map losing a public dataset strands
         # anonymous visitors even when an internal map's viewers all hold grants.

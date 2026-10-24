@@ -495,13 +495,19 @@ class TestResponseShape:
         assert [x["dataset_id"] for x in data["map"]["layers"]] == [str(second.id)]
         assert data["layer_ids"] == {"b": data["map"]["layers"][0]["id"]}
 
-    async def test_a_dry_run_gets_the_same_400_for_a_public_map_with_a_private_dataset(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, editor
+    @pytest.mark.parametrize(
+        "hidden", [{"visibility": "private"}, {"record_status": "draft"}]
+    )
+    async def test_a_dry_run_gets_the_same_400_for_a_public_map_with_a_hidden_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        editor,
+        hidden: dict,
     ) -> None:
         _, editor_id = editor
-        private = await create_dataset(
-            test_db_session, created_by=editor_id, visibility="private"
-        )
+        private = await create_dataset(test_db_session, created_by=editor_id, **hidden)
         body = _body(_webmap("a"), {"a": private.id}, visibility="public")
         real = await client.post(URL, json=body, headers=admin_auth_header)
         dry = await client.post(

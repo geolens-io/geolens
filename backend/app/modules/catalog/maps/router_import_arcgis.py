@@ -129,6 +129,7 @@ async def import_arcgis_webmap_endpoint(
                 datasets[layer.dataset_id].record.title
                 for layer in translation.layers
                 if datasets[layer.dataset_id].record.visibility != "public"
+                or datasets[layer.dataset_id].record.record_status != "published"
             )
         return ArcgisWebmapImportResponse(
             map=None,

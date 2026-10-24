@@ -358,6 +358,10 @@ async def dataset_geom_is_generic(db, table_name: str) -> bool:
     return col_type is not None and col_type.strip().upper() == "GEOMETRY"
 
 
+class DatasetNotFoundError(LookupError):
+    """The dataset to update no longer exists."""
+
+
 class WorkflowTransitionDenied(ValueError):
     """A refused publication stage change, with the stages as fields.
 

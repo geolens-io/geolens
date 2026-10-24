@@ -49,6 +49,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
     get_dataset_rows,
     get_related_datasets,
+    refuse_stranding_shared_maps,
     sortable_columns,
 )
 from app.core.dependencies import get_db
@@ -350,6 +351,20 @@ async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> 
     await bump_publication_version_on(db, dataset)
 
 
+async def _refuse_stranding(
+    db: AsyncSession, dataset: DatasetModel, target: str
+) -> None:
+    """422 when moving to ``target`` strands one of the owner's shared maps."""
+    try:
+        await refuse_stranding_shared_maps(
+            db, dataset.record, dataset.id, record_status=target
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+
 async def _require_publishable(db: AsyncSession, dataset: DatasetModel) -> None:
     """Refuse a transition into published while the metadata requirement is unmet.
 
@@ -418,6 +433,7 @@ async def update_publication_status(
             detail=WorkflowTransitionDenied(current, target, allowed).detail,
         )
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
+    await _refuse_stranding(db, dataset, target)
 
     # The transition rolls the signed-scope counter, so this handler dirties the
     # datasets row too and must take both in house order: after the workflow
@@ -521,6 +537,7 @@ async def set_target_status(
     enters_published = any(next_status == "published" for next_status, _ in chain)
 
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
+    await _refuse_stranding(db, dataset, target)
 
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)
