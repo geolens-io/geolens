@@ -88,6 +88,11 @@ Revoke them too before you start an older image against the newer schema with
 `GEOLENS_API_RUN_MIGRATIONS=false`: an older image doesn't know the Publish
 scope and treats those keys as full-access keys.
 
+The downgrade of `0088_dataset_kept_versions` stops while any dataset keeps more
+than one previous version. The downgrade of the `restricted` map visibility
+migration turns restricted maps private, and the downgrade of
+`0089_sharing_groups` drops every sharing group and membership.
+
 ## Backups and disaster recovery
 
 The `backup` service runs by default. The

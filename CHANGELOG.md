@@ -7,97 +7,40 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-### Changed
-
-- GeoLens no longer sends a service credential (token, username and password,
-  or API key) to a plain `http://` service address. Probe, preview, import,
-  re-upload and refresh requests that would do so, STAC requests included,
-  answer 422 `credential_over_http`. A scheduled refresh of such a source fails
-  with that code where an extension supplies its credential resolver. List intranet hosts without TLS in the new
-  `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS` setting to keep using them; see
-  `UPGRADING.md`.
-- New API keys start with `glk_` and are 47 characters long, so a pasted key is
-  recognisable to secret scanners, and the server redacts a `glk_` value
-  wherever it appears in its logs. Keys created earlier keep working. A new
-  key's fingerprint shows `glk_` and the next eight characters plus the last
-  four.
-- Map label fonts are bundled with the frontend, so labels on blank and raster
-  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
-  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
-  instance's `/fonts/` path, using the public app URL, or the host the request
-  reached while that URL is still a loopback default such as
-  `http://localhost:8080`. An install that serves the API from its own origin
-  needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
-- `GET /maps/{map_id}/style.json` now writes absolute URLs: vector tile and sprite URLs on
-  the public API URL, raster tile URLs on the public app URL. They were root-relative paths
-  (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
-  Re-importing an exported style is unaffected.
-- `geolens arcgis plan` run against a directory that already holds a plan now
-  merges the new inventory into it instead of refusing. Values you edited
-  stay, values you left alone take the new defaults, new portal items are
-  added, and items gone from the portal are kept and marked `removed`, which
-  `migrate` doesn't run again. Only a complete `--scope org` inventory read by
-  an organization administrator marks items removed. The inventory now records
-  the signed-in account's portal role as `auth.role`. `--force` still replaces
-  the plan. Plans now use schema v2, which records each item's defaults;
-  `migrate` reads v1 and v2 plans, but a reader that validates against the v1
-  schema rejects a v2 plan.
-- A rerun of `geolens arcgis migrate` now brings the items it migrated before
-  up to date: it refreshes each service item's datasets with the run's ArcGIS
-  credential, downloads each data file again and replaces its datasets,
-  exports an archive-only item again when the portal changed it, and writes
-  the item metadata again. A refresh that stops for review is reported
-  with the command that accepts it and is never accepted for you. A dataset
-  changed in GeoLens since the last run is reported and left alone, and each
-  request carries the data revision the CLI recorded. Private items need an
-  ArcGIS credential on every rerun, and the run exits 1 while any migrated
-  item isn't up to date. Its state file is now version 2, which an earlier CLI
-  refuses to read.
-- `GET /datasets/{id}` returns `data_revision` to the dataset's owner and
-  admins (null for other readers). It counts writes to the dataset's features
-  and columns. `POST /datasets/{id}/refresh` (service datasets) and
-  `POST /datasets/{id}/reupload/{job_id}/commit` take an optional
-  `expected_data_revision`; when it isn't the revision the run compares with,
-  the run stops for review with `live_data_changed` instead of publishing. A
-  refresh of anything but a service dataset answers 422 when it is set, and it
-  can't be combined with `accept_blocked_run_id`.
-- With `--unmapped-owner`, an item whose plan owner isn't a GeoLens user yet,
-  is inactive or has a role that can't receive it goes to that owner for now
-  instead of stopping the run, and a later run hands it over. A name that
-  matches no user was refused before.
+## [1.27.0] - 2026-10-24
 
 ### Added
 
-- `geolens arcgis migrate --cutover` marks the final run of a migration. It
-  refuses while plan items aren't done or up to date, while the plan wasn't
-  last merged from a complete `--scope org` inventory read by an organization
-  administrator, while a migrated layer has (or may have) attachments, and
-  while an item's owner doesn't resolve, unless each loss is accepted with
-  `--accept-unfinished-items`, `--accept-incomplete-inventory`,
-  `--accept-attachment-loss` or `--accept-unresolved-users`.
-- A vector dataset's OGC collection document (`GET /collections/{id}`) now has a
-  `rel: "tiles"` link to its vector tile template, with `type`
-  `application/vnd.mapbox-vector-tile` and `templated: true`. The tile token
-  response (`GET /tiles/token/{id}/`) for a vector dataset also returns
-  `tile_url_template`, a signed template relative to the API root.
-- `POST /jobs/status/` reports the status of up to 100 import jobs in one
-  request, with the held refresh run for a replacement under review. Ids that
-  don't exist and jobs you may not read both come back as `not_found`. API
-  keys limited to read-only can call it.
-- A request that sends an API key in the `X-Api-Key` header can be read from
-  any origin, so a browser app, a desktop app's web view or a notebook can call
-  your instance with a pasted key and no `CORS_ALLOWED_ORIGINS` entry. Such a
-  response carries `Access-Control-Allow-Origin: *` without
-  `Access-Control-Allow-Credentials`, and only on routes that check the key; an
-  invalid key's `401` is readable too. Cookies sent with the request are
-  ignored. The sign-in, registration and session routes under `/api/auth/`,
-  which read no key, refuse a keyed preflight. A
-  request that also carries `Authorization`, an embed token, or `?api_key=` or
-  `?embed_token=` in the URL keeps the old rule. A keyed answer lists
-  `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
-  `Origin`, and a keyed request refused by the rate or body-size limit gets a
-  readable `429` or `413`. This changes the CORS contract: a keyed request
-  from an origin outside the allowlist used to get no CORS headers at all.
+- Sharing groups. Administrators create groups and manage their members under
+  Admin > Groups, or through `/admin/groups/` (list, create, rename, delete,
+  and add or remove members; names are unique). Owners and admins can share a
+  dataset with groups from its Access tab or with `PUT /datasets/{id}/groups/`,
+  and share a map from the builder's Share dialog ("Specific groups") or with
+  `PUT /maps/{id}/groups/`. Both routes take `{"group_ids": [...]}`, up to 100,
+  and set the full list. An owner can add only groups they belong to (403
+  otherwise); an admin can add any group. `GET /groups/mine/` lists the
+  caller's groups, and dataset and map detail return `groups` to the owner and
+  admins only.
+  A private dataset or map shared with a group becomes `restricted`: its owner,
+  admins and the groups' members can read it, and a non-member still gets 404.
+  A restricted item left with no group becomes private again. Internal and
+  public items keep their audience and keep their groups stored. Every surface
+  that checks dataset access admits group members, including OGC API, STAC,
+  DCAT, search and tiles.
+  Changes that would take access away from someone are refused with 422: adding
+  a member, reactivating an account or sharing a dataset when a VRT would then
+  reach someone who can't read one of its sources, and narrowing, unsharing or
+  unpublishing a dataset when an internal, public or restricted map of the
+  owner would lose a layer for its audience. The unpublish refusal reads
+  `Cannot unpublish: dataset is used in shared maps: <names>` on the metadata
+  PATCH and on `PATCH /datasets/{id}/status/` and `/target-status/`.
+  Sharing a map with groups that can't read some of its layers answers 409 with
+  `detail.code` `layers_hidden_from_groups`; repeat the request with `confirm:
+  "share_datasets"` to share those datasets too, or `"map_only"` to share the
+  map alone, and the web app asks which. Becoming restricted retires signed
+  tile URLs and revokes a map's share link and embed tokens. The map contract
+  changes are listed under Changed. (#3306, #3315, #3332, #3337, #3344,
+  #3353, #3354, #3355, #3377, #3378)
 - API keys can be created with a Publish scope, in Settings > API keys or with
   `scope: "publish"` on `POST /auth/api-keys` and `POST /admin/api-keys`. A
   publish key can read, upload and import, apply manifests, edit dataset
@@ -114,85 +57,372 @@ and releases use semantic versioning.
   unpublished public dataset can't be published. Making data public takes a
   signed-in user or a full key. Its refusals are `403` with
   `detail.code == "api_key_scope"`. Downgrading past this release's migration
-  needs every publish key revoked first (see `UPGRADING.md`).
-- Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
-  the public app URL that opens from another machine, and `viewer_url`, the map's page in
-  the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.
-- `GET /capabilities/` describes the server for desktop and script clients:
-  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
-  upload limits and the caller's permissions and API key scope when the request
-  carries credentials.
-- Each column in a dataset's `column_info` now carries `source_name`, the field
-  name in the file it was imported from (for example `POP 2020` for the stored
-  `pop 2020`). It is `null` for datasets imported before this release and for
-  columns that could not be matched. Re-uploading a file fills it in.
-- The web app serves the license notices for the code it bundles at
-  `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
+  needs every publish key revoked first (see `UPGRADING.md`). (#3230)
 - A dataset now keeps its last three previous versions instead of one. An
   administrator sets the number under Settings, Storage
   (`previous_versions_kept`, 1 to 50). Lowering it drops the oldest versions at
   each dataset's next replacement or restore. The dataset detail lists them in
-  `previous_versions`, newest first. `POST
-  /datasets/{id}/previous-versions/{version_number}/restore` restores any of
-  them, and `DELETE /datasets/{id}/previous-versions/{version_number}` deletes
-  one. The admin stats report their size in `previous_versions_bytes`, and
+  `previous_versions`, newest first, and the version history offers Restore on
+  each one. `POST /datasets/{id}/previous-versions/{version_number}/restore`
+  restores any of them, and `DELETE
+  /datasets/{id}/previous-versions/{version_number}` deletes one. The admin
+  stats report their size in `previous_versions_bytes`, and
   `total_storage_bytes` now counts them. Three kept versions take up to three
   times a replaced dataset's size; set the limit to 1 to keep the earlier
-  behaviour.
+  behaviour. (#3281, #3282)
+- `POST /datasets/{id}/aggregate/` returns exact summaries of a layer's rows
+  for widgets: `count`, `stats` (count, sum, avg, min, max of a numeric
+  column), `value_counts`, `histogram` and `group_by`, over the whole layer or
+  the current map view (`bbox`), with an optional CQL2-JSON `filter` checked as
+  the OGC items `filter` is. Read-only and publish API keys can call it.
+  (#3316)
+- ArcGIS fields with a coded-value domain keep their labels. A status stored as
+  1, 2, 3 reads "Active" and "Retired" in the feature popup and the Data tab.
+  Labels sit in `attribute_metadata.value_labels` (the attribute PATCH accepts
+  them); a refresh or re-upload follows the source's domains unless the owner
+  edited the labels. The Data tab's column filter matches a label as well as
+  the stored code, so `filter[column]` on `GET /datasets/{id}/rows/` finds
+  rows by the text people see. (#3314, #3357)
+- A dataset imported from ArcGIS keeps a link to its portal item. Service
+  previews and vector file commits take optional `item_id` and `portal_url`,
+  and the Source tab shows an "Open in ArcGIS" link to owners and admins. A
+  bad value is dropped and reported in `origin_link_loss`; the import doesn't
+  fail on it. (#3305)
+- The ArcGIS service probe reports `has_attachments` per layer and table
+  (`LayerInfo.has_attachments`, null when unknown). It costs one extra request
+  to the service per probe. (#3299)
+- `POST /maps/import/arcgis-webmap/` translates an ArcGIS web map into a new
+  GeoLens map and returns the map, a loss report with stable codes and the
+  layers it could not match. Simple, unique-value, class-breaks and heatmap
+  renderers, scale ranges, definition expressions, labels, popups, groups, the
+  basemap and the initial view are translated; the rest is listed as losses.
+  It needs edit rights on the datasets it names and refuses publish keys and
+  `restricted` visibility. (#3303)
+- `geolens arcgis migrate <plan>` carries out a migration plan written by
+  `geolens arcgis plan`. It runs the plan's items in dependency order, keeps
+  progress in `arcgis-migration-state.json` beside the plan (mode 0600) so a
+  rerun resumes, and maps ArcGIS owners to GeoLens users. It imports the
+  layers and tables of service items (credential options `--token`,
+  `--token-stdin`, `--username`, `--password-stdin`, `--allow-insecure-http`
+  and `--trust-service-host`), data file items (CSV, GeoJSON, Shapefile and
+  File Geodatabase, within the instance's upload limit) and web maps. It
+  writes each item's summary, credits, license and organization onto its
+  datasets as plain text, files datasets into collections named after the
+  ArcGIS folder (`defaults.collection_from`), and saves an export bundle under
+  `export/` for items GeoLens can't host, such as dashboards and StoryMaps
+  (`--export-cap-mb`, default 200). After each run it writes
+  `arcgis-migration-report.md` and `.json`, and failures show under `--quiet`.
+  A retry keeps item metadata that someone edited in GeoLens. (#3244, #3253,
+  #3258, #3275, #3279, #3280, #3284, #3285, #3320)
+- `geolens arcgis migrate --cutover` marks the final run of a migration. It
+  refuses while plan items aren't done or up to date, while the plan wasn't
+  last merged from a complete `--scope org` inventory read by an organization
+  administrator, while a migrated layer has (or may have) attachments, and
+  while an item's owner doesn't resolve, unless each loss is accepted with
+  `--accept-unfinished-items`, `--accept-incomplete-inventory`,
+  `--accept-attachment-loss` or `--accept-unresolved-users`. (#3319)
+- A vector dataset's OGC collection document (`GET /collections/{id}`) now has a
+  `rel: "tiles"` link to its vector tile template, with `type`
+  `application/vnd.mapbox-vector-tile` and `templated: true`. The tile token
+  response (`GET /tiles/token/{id}/`) for a vector dataset also returns
+  `tile_url_template`, a signed template relative to the API root. (#3241)
+- `GET /tiles/clusters/{table_path}/{z}/{x}/{y}.pbf` takes an optional
+  `filter` (CQL2-JSON over the dataset's attribute columns). The builder and
+  viewer send the layer filter, so cluster bubbles on layers over 5,000 points
+  count only the points the filter keeps. A geometry predicate or an unknown
+  column answers 400. (#3243)
+- A 3D Tiles dataset's page draws the tileset, and a COPC dataset's page draws
+  its points. Both load their code on demand from the app's own origin and send
+  the access token only to the dataset's own `/api/datasets/{id}/tiles3d/` and
+  `/copc/` paths. Tilesets with content types the viewer can't draw keep the
+  footprint-only page. (#3239, #3250)
+- Ask AI can change how a layer is drawn, such as a heatmap, clusters or arrows,
+  with a new `set_render_as` action. `ChatAction` gains `set_render_as` and the
+  optional fields `render_as` and `height_column`. Modes the layer's geometry
+  doesn't offer are refused. (#3190)
+- `POST /jobs/status/` reports the status of up to 100 import jobs in one
+  request, with the held refresh run for a replacement under review. Ids that
+  don't exist and jobs you may not read both come back as `not_found`. API
+  keys limited to read-only can call it. (#3225)
+- A request that sends an API key in the `X-Api-Key` header can be read from
+  any origin, so a browser app, a desktop app's web view or a notebook can call
+  your instance with a pasted key and no `CORS_ALLOWED_ORIGINS` entry. Such a
+  response carries `Access-Control-Allow-Origin: *` without
+  `Access-Control-Allow-Credentials`, and only on routes that check the key; an
+  invalid key's `401` is readable too. Cookies sent with the request are
+  ignored. The sign-in, registration and session routes under `/api/auth/`,
+  which read no key, refuse a keyed preflight. A
+  request that also carries `Authorization`, an embed token, or `?api_key=` or
+  `?embed_token=` in the URL keeps the old rule. A keyed answer lists
+  `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
+  `Origin`, and a keyed request refused by the rate or body-size limit gets a
+  readable `429` or `413`. This changes the CORS contract: a keyed request
+  from an origin outside the allowlist used to get no CORS headers at all.
+  (#3248)
+- Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
+  the public app URL that opens from another machine, and `viewer_url`, the map's page in
+  the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.
+  (#3246)
+- `GET /capabilities/` describes the server for desktop and script clients:
+  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
+  upload limits and the caller's permissions and API key scope when the request
+  carries credentials. (#3219)
+- Each column in a dataset's `column_info` now carries `source_name`, the field
+  name in the file it was imported from (for example `POP 2020` for the stored
+  `pop 2020`). It is `null` for datasets imported before this release and for
+  columns that could not be matched. Re-uploading a file fills it in. (#3223)
+- The web app serves the license notices for the code it bundles at
+  `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
+  (#3273)
+- The site banner accepts `[label](https://example.org/path)`, which renders the
+  label as a link. Only `https://` targets become links. (#3231)
+
+### Changed
+
+- Maps have a fourth visibility, `restricted`: a private map shared with one or
+  more sharing groups. Older clients reject a visibility value they don't know,
+  so for one minor release a map response names `restricted` only to clients
+  that send the request header `X-GeoLens-Map-Visibility: restricted`, and
+  every map-returning endpoint answers with `Vary: X-GeoLens-Map-Visibility`.
+  Other clients read a restricted map as `private`, and their
+  `visibility=private` list filter also finds restricted maps. Writing `private`
+  to a map that has groups keeps it restricted, so a client that reads it as
+  private can't remove its groups by accident; remove them with `PUT
+  /maps/{id}/groups/`. The web app, CLI, MCP server and both SDKs send the
+  header. In the release after next, every client will see `restricted`. The
+  CORS allow-lists carry the header. `PUT /maps/{id}` with `visibility:
+  restricted` and no group answers 422. (#3354)
+- Map write and management routes (`PUT`, `DELETE` and `PATCH /maps/{id}`,
+  layer writes, history, share link, embed tokens, thumbnails and the rest)
+  answer 404 instead of 403 for a map the caller can't read, so they no longer
+  reveal that it exists. A caller who can read the map but doesn't own it still
+  gets 403. A map's `forked_from_name` is sent only to callers who can read the
+  source map; others get null and keep `forked_from_id`. Share links stay
+  public-only, so the shared view, card and link preview answer 404 for a
+  restricted map. (#3354)
+- `GET /jobs/{id}`, `POST /jobs/{id}/retry` and `POST /jobs/{id}/cancel`
+  answer 404 `Job not found` instead of 403 for another user's job the caller
+  may not read or act on, so a job id no longer reveals that the job exists.
+  `POST /jobs/status/` already reported such jobs as `not_found`. (#3349)
+- Narrowing a dataset, removing one of its groups or unpublishing it is refused
+  with 422 when an internal, public or restricted map of the owner would lose
+  the layer for its audience. Restricted maps are counted now; internal and
+  public maps were before. (#3355, #3378)
+- Making a map public, adding a layer to a public map and importing an ArcGIS
+  web map as public answer 400 for an unpublished dataset the caller can read,
+  as they already did for a private one. `GET /maps/{id}/visibility-check/`
+  lists it, and the share dialog asks for the dataset to be made public and
+  published. (#3378)
+- GeoLens no longer sends a service credential (token, username and password,
+  or API key) to a plain `http://` service address. Probe, preview, import,
+  re-upload and refresh requests that would do so, STAC requests included,
+  answer 422 `credential_over_http`. A scheduled refresh of such a source fails
+  with that code where an extension supplies its credential resolver. List intranet hosts without TLS in the new
+  `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS` setting to keep using them; see
+  `UPGRADING.md`. (#3330)
+- New API keys start with `glk_` and are 47 characters long, so a pasted key is
+  recognisable to secret scanners, and the server redacts a `glk_` value
+  wherever it appears in its logs. Keys created earlier keep working. A new
+  key's fingerprint shows `glk_` and the next eight characters plus the last
+  four. (#3251)
+- Map label fonts are bundled with the frontend, so labels on blank and raster
+  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
+  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
+  instance's `/fonts/` path, using the public app URL, or the host the request
+  reached while that URL is still a loopback default such as
+  `http://localhost:8080`. An install that serves the API from its own origin
+  needs `PUBLIC_APP_URL` set for exported styles to find the fonts. The
+  frontend image grows by 4.1 MB. (#3212)
+- `GET /maps/{map_id}/style.json` now writes absolute URLs: vector tile and sprite URLs on
+  the public API URL, raster tile URLs on the public app URL. They were root-relative paths
+  (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
+  Re-importing an exported style is unaffected. (#3247)
+- `geolens arcgis plan` run against a directory that already holds a plan now
+  merges the new inventory into it instead of refusing. Values you edited
+  stay, values you left alone take the new defaults, new portal items are
+  added, and items gone from the portal are kept and marked `removed`, which
+  `migrate` doesn't run again. Only a complete `--scope org` inventory read by
+  an organization administrator marks items removed; any other inventory marks
+  missing items `unlisted`, which stay pending and make `migrate` exit 1 until
+  a merge lists them again or you set them to `skip`. The inventory now
+  records the signed-in account's portal role as `auth.role`. `--force` still
+  replaces the plan. Plans now use schema v2, which records each item's
+  defaults; `migrate` reads v1 and v2 plans, but a reader that validates
+  against the v1 schema rejects a v2 plan. (#3304)
+- A rerun of `geolens arcgis migrate` now brings the items it migrated before
+  up to date: it refreshes each service item's datasets with the run's ArcGIS
+  credential, downloads each data file again and replaces its datasets,
+  exports an archive-only item again when the portal changed it, and writes
+  the item metadata again. A refresh that stops for review is reported
+  with the command that accepts it and is never accepted for you. A dataset
+  changed in GeoLens since the last run is reported and left alone, and each
+  request carries the data revision the CLI recorded. Private items need an
+  ArcGIS credential on every rerun, and the run exits 1 while any migrated
+  item isn't up to date. Its state file is now version 2, which an earlier CLI
+  refuses to read. (#3319)
+- `GET /datasets/{id}` returns `data_revision` to the dataset's owner and
+  admins (null for other readers). It counts writes to the dataset's features
+  and columns. `POST /datasets/{id}/refresh` (service datasets) and
+  `POST /datasets/{id}/reupload/{job_id}/commit` take an optional
+  `expected_data_revision`; when it isn't the revision the run compares with,
+  the run stops for review with `live_data_changed` instead of publishing. A
+  refresh of anything but a service dataset answers 422 when it is set, and it
+  can't be combined with `accept_blocked_run_id`. `PATCH /datasets/{id}` and
+  `PATCH /maps/{id}` take an optional `expected_updated_at`; when the object's
+  `updated_at` differs, nothing is written and the answer is 409 with
+  `detail.code` `stale_write`. (#3319)
+- With `--unmapped-owner`, an item whose plan owner isn't a GeoLens user yet,
+  is inactive or has a role that can't receive it goes to that owner for now
+  instead of stopping the run, and a later run hands it over. A name that
+  matches no user was refused before. (#3319)
+- Import and Register offer Internal between Private and Public, so a dataset
+  can be shared with the whole team when it is imported. Private stays the
+  default. (#3358)
+- The embed legend opens by default when a layer draws colour classes, so
+  category colours have a text key. `legend=true|false` still overrides, and the
+  legend stays closed in embeds narrower than 500px. (#3300)
+- Ask AI builds ramp colours with the style editor's ramps and no longer offers
+  Cividis or PuOr, which the editor doesn't have. It no longer applies edits the
+  builder ignores, such as `fill-extrusion-*` paint, and refuses a data-driven
+  fill on an outline-only polygon, where it used to report them as done. (#3235)
+- Feature `PUT`, `PATCH` and `DELETE` answer 404 only for a missing feature. A
+  validation error whose text contains "not found", such as an unknown property
+  named `not found`, now answers 400 instead of 404. (#3365)
 
 ### Deprecated
 
 - `POST /datasets/{id}/previous-version/restore`, `DELETE
   /datasets/{id}/previous-version` and the dataset detail's `previous_version`
   field act on the newest kept version only. They keep working through the next
-  minor release; use the `previous-versions` routes and field instead.
+  minor release; use the `previous-versions` routes and field instead. (#3281)
 
 ### Fixed
 
-- `geolens arcgis migrate` leaves a web map alone that was given to another
-  owner in GeoLens while it waited for its planned owner, and reports a
-  migrated map whose owner changed after the handover. It matches web map
-  layers the way the server translator does: an unsupported layer no longer
-  reserves its id, and layers the server drops no longer count toward the
-  layer cap. A rerun adopts a refresh that GeoLens accepted but whose answer
-  was lost, and the refresh a person accepts after it stopped for review,
-  instead of reporting the dataset as changed in GeoLens.
 - Restoring a retained dataset version preserves its columns' source field
   names, including columns dropped or spelled differently in a later upload.
   In-place column edits refresh the live version's snapshot, so renames keep
   their source names and re-added columns do not inherit a removed column's.
   Versions retained before this change still report unknown source names.
+  (#3350)
 - The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
   process, which exited at the limit and took its container down. As in
   `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`
-  of 2 or more.
+  of 2 or more. (#3309)
+- The api and worker start behind PgBouncer in transaction mode with
+  `DB_USE_EXTERNAL_POOLER=true`. The job queue no longer sends its search path in
+  the `options` startup parameter, which PgBouncer rejects; it sets it inside each
+  transaction instead. (#3276)
+- `PENDING_JOB_TIMEOUT_SECONDS`, `STAGING_ORPHAN_MIN_AGE_SECONDS` and the three
+  `ANALYSIS_*` timeout and memory settings set in `.env` now reach the
+  containers under both Compose files. They were ignored before. Defaults are
+  unchanged. (#3209)
+- `/health/ready` on the api and worker uses its own database connection, so an
+  exhausted request pool no longer makes every replica unready at once. A log
+  level changed in the admin UI reaches every replica within about 30 seconds,
+  and a degraded-health alert goes out once per window across replicas. An alert
+  that a channel failed to deliver is sent again after 60 seconds. (#3215, #3302)
 - Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
-  em dashes and accented names as garbled characters.
+  em dashes and accented names as garbled characters. (#3273)
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a
   single feature, now answer 400 for anything but CRS84 (its `http://` and `https://`
   URIs or `[OGC:CRS84]`). They were ignored before, so `crs=EPSG:3857` returned
   CRS84 coordinates without saying so. `filter-crs` accepts the same spellings.
-
-### Fixed
-
+  (#3245)
+- Importing world data no longer warns that the source's coordinates are wrong
+  when only the poles were trimmed to the Web Mercator limit.
+  `MercatorClipDetail` gains `polar_only`. (#3232)
+- The backup service keeps the last dump that holds catalog records out of
+  retention, so a restart after the database volume was lost no longer prunes
+  the day's real dump in favour of an empty one. The marker is
+  `/backups/.last-good-dump`. (#3224)
+- A PostGIS refresh repair bounds its whole transaction on PostgreSQL 17 and
+  later, so a registered table owned by another role isn't kept locked for
+  several statement timeouts. (#3240)
+- A held-back refresh no longer dates or marks drift on a dataset that was
+  rebound to another source while the refresh waited. (#3342)
+- A histogram over a range of adjacent doubles returns ordered bin edges.
+  (#3327)
+- `POST /maps/import` answers with only the layers the caller can read. (#3336)
 - Editing a category colour in the map builder no longer resets the layer's catch-all colour to
-  grey. A fallback colour set elsewhere, such as in imported style JSON, is kept.
-
-### Fixed
-
+  grey. A fallback colour set elsewhere, such as in imported style JSON, is kept. (#3249)
+- Imported ArcGIS class colours and labels survive the style editor: numeric
+  unique-value categories are kept as numbers, the graduated null colour is
+  kept as `style_config.nullColor` (including across a colour, radius or width
+  switch), and an imported style on an integer coded-value field opens with its
+  column and labelled classes. A Single category beyond the double range stays
+  text. (#3318, #3345, #3356)
+- A new categorical style can start from an integer column. Categorical mode
+  lists smallint, integer and bigint columns, matches their numeric codes, and
+  shows each class as "Label (code)" when the column has value labels. (#3366)
+- Cluster bubbles on layers of up to 5,000 points count only the points the layer
+  filter keeps, and arrows on a line layer follow a data-driven line colour.
+  (#3222, #3221)
+- The map data panel says what to do when it stops at 100 features, and links
+  each layer to its dataset's Data tab when every dataset in the map is public.
+  (#3301)
+- Feature popups show YouTube values as ordinary links, because the embed
+  was blocked by the content security policy. (#3348)
+- Import forms announce their errors to screen readers, and the service URL,
+  file URL and token fields are tied to them. A probe of an unrecognised address
+  shows a localized message. The Source tab's drift badge reads "Columns changed
+  at last refresh", the public map viewer sets the page title to the map name,
+  the admin Groups table fits a phone, and the builder's empty-state search says
+  "Press Enter to search". (#3358)
+- The "Create map with AI" progress label follows the interface language.
+  (#3229)
+- Three settings fields keep their help text announced while they show an
+  error. (#3291)
 - The message shown when an account is temporarily locked out of signing in now
-  also names API keys as the way back in for scripts and desktop apps.
+  also names API keys as the way back in for scripts and desktop apps. (#3238)
+- `geolens arcgis migrate` resumes a multi-layer file without duplicating
+  datasets, resumes data file items without a new download, resets an item's
+  layer pins when its service changes, reads more shapes of item HTML, adds
+  the layer id to titles when layers share a name, and keeps rerun state honest
+  for maps, web map layers and a lost refresh answer. (#3274, #3278, #3287,
+  #3289, #3292, #3295, #3360)
+- Pressing Enter on an image link, or on a link inside a rich-text value, in a
+  feature popup opens the link instead of copying the property value. (#3367)
+- The builder's layer stack and layer editor show a layer's full name on hover,
+  and a category summary next to the name gives up its width first. (#3369)
+- `EGRESS.md` lists the call that ArcGIS sign-in makes to the portal a user
+  names. (#3364)
 
-### Fixed
+### Security
 
-- The api and worker start behind PgBouncer in transaction mode with
-  `DB_USE_EXTERNAL_POOLER=true`. The job queue no longer sends its search path in
-  the `options` startup parameter, which PgBouncer rejects; it sets it inside each
-  transaction instead.
-- Your server-clustered layer's bubbles now stay visible when a saved filter has a
-  literal incompatible with a known column type or uses a property outside the dataset's
-  tile attribute allowlist. Bubbles then count all the layer's points, while individual points
-  keep the filter.
+- A GDAL service run that carries a credential is held to its source's scheme,
+  host and port, so a redirect can't repeat an ArcGIS query token or a
+  service-chosen credential header on another origin. A hop refused for leaving
+  the origin gets its own job error. (#3330)
+- ArcGIS reads that put the token in the query string (servers below 10.5.1 and
+  the 499 and web-tier fallbacks) refuse any cross-origin redirect, even one
+  that doesn't repeat the token. A service import whose count read is redirected
+  to another origin now fails. A user-supplied URL that already holds
+  `?token=` is refused on a cross-origin hop that repeats the token. (#3298)
+- Pillow is raised to 13.0.0, which fixes eight CVEs, and certifi to 2026.10.19.
+  (#3216)
+
+### Upgrade notes
+
+- Migrations 0087 to 0093 run on upgrade. 0087 widens the API key scope check
+  for Publish keys. 0088 moves each dataset's one kept previous version onto its
+  version row and drops the four `datasets.previous_version_*` columns; its
+  downgrade refuses while any dataset keeps more than one version. 0089, 0091,
+  0092 and 0093 add the group tables, with tenant columns and policies that
+  stay dormant on a single-organization install; 0091 and 0092 refuse to upgrade
+  when a group member or grant pairs rows from different tenants. 0090 adds
+  `attribute_metadata.value_labels`. 0093 allows `restricted` map visibility; its
+  downgrade turns restricted maps private. (#3230, #3281, #3306, #3314, #3315,
+  #3337, #3354)
+- Overlay authors: `EXTENSION_API_VERSION` is now 19. The permission methods
+  keep their signatures, but `restricted` now also admits members of a group
+  granted on the dataset. An extension that implements the `permission` slot
+  needs a release that adds the group branch to `filter_visible`,
+  `can_access_dataset` and `record_audience`. An overlay that declares no
+  version still loads with a warning and denies group members. (#3315)
+- Credentialed requests to `http://` service addresses stop working until the
+  host is listed in `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`; deployments outside
+  the bundled Compose files must pass the variable to both the api and worker
+  containers. (#3330)
 
 ## [1.26.0] - 2026-10-18
 
