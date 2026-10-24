@@ -357,6 +357,11 @@ and releases use semantic versioning.
 - Cluster bubbles on layers of up to 5,000 points count only the points the layer
   filter keeps, and arrows on a line layer follow a data-driven line colour.
   (#3222, #3221)
+- A server-clustered layer keeps its bubbles when its saved filter can't run on
+  the cluster tile route: a literal that doesn't fit a known column's type or
+  range, or a property outside the dataset's tile attribute allowlist. The
+  bubbles then count all the layer's points, and individual points keep the
+  filter. Map layers return the allowlist as `dataset_tile_columns`. (#3352)
 - The map data panel says what to do when it stops at 100 features, and links
   each layer to its dataset's Data tab when every dataset in the map is public.
   (#3301)
