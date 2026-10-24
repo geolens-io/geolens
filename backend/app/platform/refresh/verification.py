@@ -289,7 +289,8 @@ def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any])
     Verification policy, credentials, coverage results, and arbitrary origin
     metadata are intentionally excluded. They have their own exact eligibility
     checks; mixing them into the source identity would make a credential
-    rotation look like a source rebind.
+    rotation look like a source rebind. A trailing slash on the URL is not
+    part of the identity: some doors store one and others strip it.
     """
     service_type = source_binding.get("service_type")
     url = source_binding.get("url")
@@ -303,7 +304,7 @@ def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any])
     payload = {
         "connector": service_type,
         "layer_id": str(layer_id),
-        "service_url": url,
+        "service_url": url.rstrip("/"),
     }
     return hashlib.sha256(
         json.dumps(

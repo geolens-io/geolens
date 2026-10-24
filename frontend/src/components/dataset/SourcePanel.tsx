@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { stripTrailingSlashes } from '@/lib/dataset-access';
 import { formatDateTimeSmart, formatDateTimeUtc, formatNumber } from '@/lib/format';
 import {
   healthDotColors,
@@ -176,7 +177,12 @@ function matchesCurrentServiceBinding(
     && typeof binding.layer_id === 'string'
     && binding.layer_id === currentLayer
     && typeof binding.url === 'string'
-    && safeHttpPointer(binding.url) === currentUrl;
+    && sameServiceUrl(safeHttpPointer(binding.url), currentUrl);
+}
+
+// canonical_service_source_binding_fingerprint ignores a trailing slash too.
+function sameServiceUrl(a: string | null, b: string | null): boolean {
+  return (a && stripTrailingSlashes(a)) === (b && stripTrailingSlashes(b));
 }
 
 // A later published run replaced the data this held upload was measured

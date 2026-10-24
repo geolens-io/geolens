@@ -969,18 +969,20 @@ def _matches_service_origin(
     layer_name: str,
 ) -> bool:
     """Return whether a fetch still describes the dataset's stored source."""
-    stored_ref = bound.origin_ref or {}
-    return (
-        classify_origin(bound.source_format) == "service"
-        and stored_ref.get("service_type") == source_format
-        and stored_ref.get("url") == source_url
-        and stored_ref.get("layer_id")
-        == service_layer_identity(
-            source_format,
-            layer_id=layer_id,
-            layer_name=layer_name,
-        )
-    )
+    if classify_origin(bound.source_format) != "service":
+        return False
+    attempted = {
+        "service_type": source_format,
+        "url": source_url,
+        "layer_id": service_layer_identity(
+            source_format, layer_id=layer_id, layer_name=layer_name
+        ),
+    }
+    fingerprint = refresh_policy.canonical_service_source_binding_fingerprint
+    try:
+        return fingerprint(bound.origin_ref or {}) == fingerprint(attempted)
+    except ValueError:
+        return False
 
 
 def _require_service_source_url(value: str | None) -> str:

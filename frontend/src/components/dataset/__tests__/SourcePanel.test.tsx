@@ -1228,6 +1228,65 @@ describe('SourcePanel', () => {
     });
   });
 
+  it('offers a blocked-run retry when the bound URL differs only by a trailing slash', () => {
+    const serviceUrl = 'https://services.example.com/arcgis/rest/services/Roads/FeatureServer';
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'scheduled',
+          status: 'blocked',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 0,
+          schema_diff: null,
+          verification: {
+            decision: 'blocked',
+            source_binding: { service_type: 'arcgis_featureserver', url: serviceUrl, layer_id: '0' },
+            source_count: 0,
+            fetched_count: 0,
+            count_status: 'matched',
+            identity_check: 'unavailable',
+            review_reasons: ['empty_result'],
+            review_fingerprint: 'fingerprint',
+            accepted_blocked_run_id: null,
+          },
+          error_code: 'review_required',
+          error_message: null,
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          origin_ref: {
+            kind: 'service',
+            service_type: 'arcgis_featureserver',
+            url: `${serviceUrl}/`,
+            layer_id: '0',
+          },
+        })}
+        canEdit
+        onAcceptBlockedRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Review and retry' })).toBeInTheDocument();
+  });
+
   it('disables blocked-run retry while a refresh is busy', () => {
     const onAcceptBlockedRun = vi.fn();
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({

@@ -23,13 +23,14 @@ from app.platform.refresh.verification import (
 )
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import BoundPointer, set_dataset_origin
 from app.processing.ingest import tasks_vector
 from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import (
     RefreshPublicationFenceError,
     _enforce_refresh_publication_fence,
     _fetch_service_layer_with_paging_guard,
+    _matches_service_origin,
     reupload_service,
 )
 
@@ -143,6 +144,57 @@ async def _execute_with_fake(task_kwargs: dict, fake) -> None:
         await reupload_service.func(**task_kwargs)
 
 
+async def _running_scheduled_run(
+    session, dataset, *, created_by: uuid.UUID, fingerprint: str, **run_fields
+) -> IngestJob:
+    """A claimed scheduled service run, admitted on ``fingerprint``."""
+    job = IngestJob(
+        dataset_id=dataset.id,
+        created_by=created_by,
+        status="running",
+        user_metadata={"refresh": True},
+    )
+    session.add(job)
+    await session.flush()
+    now = datetime.now(timezone.utc)
+    session.add(
+        DatasetRefreshRun(
+            dataset_id=dataset.id,
+            ingest_job_id=job.id,
+            origin_kind="service",
+            trigger="scheduled",
+            status="running",
+            started_at=now,
+            scheduled_for=now,
+            occurrence_key=f"fence:{uuid.uuid4()}",
+            claim_deadline=now,
+            execution_key=uuid.uuid4(),
+            source_binding_fingerprint=fingerprint,
+            verification_policy="arcgis_id_set_v1",
+            **run_fields,
+        )
+    )
+    await session.flush()
+    return job
+
+
+async def _enforce_fence(session, dataset, job: IngestJob) -> None:
+    await lock_catalog_rows(
+        session,
+        dataset_cls=type(dataset),
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=None,
+    )
+    await _enforce_refresh_publication_fence(
+        session,
+        job_id=job.id,
+        dataset=dataset,
+        verification={"decision": "allowed"},
+    )
+
+
 @pytest.mark.anyio
 async def test_finalization_fence_blocks_a_local_edit_after_the_run_baseline(
     test_db_session,
@@ -152,32 +204,12 @@ async def test_finalization_fence_blocks_a_local_edit_after_the_run_baseline(
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
     baseline = dataset.record.updated_at
     assert baseline is not None
-    job = IngestJob(
-        dataset_id=dataset.id,
+    job = await _running_scheduled_run(
+        test_db_session,
+        dataset,
         created_by=admin_id,
-        status="running",
-        user_metadata={"refresh": True},
-    )
-    test_db_session.add(job)
-    await test_db_session.flush()
-    test_db_session.add(
-        DatasetRefreshRun(
-            dataset_id=dataset.id,
-            ingest_job_id=job.id,
-            origin_kind="service",
-            trigger="scheduled",
-            status="running",
-            started_at=datetime.now(timezone.utc),
-            scheduled_for=datetime.now(timezone.utc),
-            occurrence_key=f"local-edit-fence:{uuid.uuid4()}",
-            claim_deadline=datetime.now(timezone.utc),
-            execution_key=uuid.uuid4(),
-            local_edit_baseline=baseline,
-            source_binding_fingerprint=canonical_service_source_binding_fingerprint(
-                dataset.origin_ref
-            ),
-            verification_policy="arcgis_id_set_v1",
-        )
+        fingerprint=canonical_service_source_binding_fingerprint(dataset.origin_ref),
+        local_edit_baseline=baseline,
     )
     await test_db_session.commit()
 
@@ -191,23 +223,10 @@ async def test_finalization_fence_blocks_a_local_edit_after_the_run_baseline(
         )
         await editor.commit()
 
-    await lock_catalog_rows(
-        test_db_session,
-        dataset_cls=type(dataset),
-        record_cls=Record,
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-        lock_timeout=None,
-    )
     with pytest.raises(
         RefreshPublicationFenceError, match="Dataset changed locally"
     ) as refused:
-        await _enforce_refresh_publication_fence(
-            test_db_session,
-            job_id=job.id,
-            dataset=dataset,
-            verification={"decision": "allowed"},
-        )
+        await _enforce_fence(test_db_session, dataset, job)
     assert refused.value.code == "local_edits_changed"
 
 
@@ -218,33 +237,12 @@ async def test_finalization_fence_blocks_a_source_rebind_before_publication(
     """A run cannot publish after the service binding it admitted has changed."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
-    job = IngestJob(
-        dataset_id=dataset.id,
+    job = await _running_scheduled_run(
+        test_db_session,
+        dataset,
         created_by=admin_id,
-        status="running",
-        user_metadata={"refresh": True},
+        fingerprint=canonical_service_source_binding_fingerprint(dataset.origin_ref),
     )
-    test_db_session.add(job)
-    await test_db_session.flush()
-    test_db_session.add(
-        DatasetRefreshRun(
-            dataset_id=dataset.id,
-            ingest_job_id=job.id,
-            origin_kind="service",
-            trigger="scheduled",
-            status="running",
-            started_at=datetime.now(timezone.utc),
-            scheduled_for=datetime.now(timezone.utc),
-            occurrence_key=f"source-fence:{uuid.uuid4()}",
-            claim_deadline=datetime.now(timezone.utc),
-            execution_key=uuid.uuid4(),
-            source_binding_fingerprint=canonical_service_source_binding_fingerprint(
-                dataset.origin_ref
-            ),
-            verification_policy="arcgis_id_set_v1",
-        )
-    )
-    await test_db_session.flush()
     set_dataset_origin(
         dataset,
         "service",
@@ -255,24 +253,68 @@ async def test_finalization_fence_blocks_a_source_rebind_before_publication(
     )
     await test_db_session.commit()
 
-    await lock_catalog_rows(
-        test_db_session,
-        dataset_cls=type(dataset),
-        record_cls=Record,
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-        lock_timeout=None,
-    )
     with pytest.raises(
         RefreshPublicationFenceError, match="Refresh source changed"
     ) as refused:
-        await _enforce_refresh_publication_fence(
-            test_db_session,
-            job_id=job.id,
-            dataset=dataset,
-            verification={"decision": "allowed"},
-        )
+        await _enforce_fence(test_db_session, dataset, job)
     assert refused.value.code == "source_changed"
+
+
+@pytest.mark.anyio
+async def test_finalization_fence_ignores_a_trailing_slash_on_the_bound_url(
+    test_db_session,
+):
+    """A run admitted on the URL without its trailing slash still publishes."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri=f"{_ARCGIS_BASE}/0",
+        service_type="arcgis_featureserver",
+        url=f"{_ARCGIS_BASE}/",
+        layer_id="0",
+    )
+    job = await _running_scheduled_run(
+        test_db_session,
+        dataset,
+        created_by=admin_id,
+        fingerprint=canonical_service_source_binding_fingerprint(
+            {
+                "service_type": "arcgis_featureserver",
+                "url": _ARCGIS_BASE,
+                "layer_id": "0",
+            }
+        ),
+    )
+    await test_db_session.commit()
+
+    await _enforce_fence(test_db_session, dataset, job)
+
+
+def test_service_fetch_matches_a_binding_stored_with_a_trailing_slash() -> None:
+    """Contact is dated when the fetch URL differs only by a trailing slash."""
+    bound = BoundPointer(
+        origin_uri=f"{_ARCGIS_BASE}/0",
+        origin_ref={
+            "kind": "service",
+            "service_type": "arcgis_featureserver",
+            "url": f"{_ARCGIS_BASE}/",
+            "layer_id": "0",
+        },
+        source_format="arcgis_featureserver",
+    )
+    fetch = {
+        "source_format": "arcgis_featureserver",
+        "source_url": _ARCGIS_BASE,
+        "layer_name": "Big",
+    }
+
+    assert _matches_service_origin(bound, layer_id=0, **fetch)
+    assert not _matches_service_origin(bound, layer_id=1, **fetch)
+    assert not _matches_service_origin(
+        bound._replace(source_format="geojson"), layer_id=0, **fetch
+    )
 
 
 @pytest.mark.anyio
