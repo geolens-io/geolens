@@ -1003,6 +1003,14 @@ export function ShareDialog({
   const selectedLevel = choice?.from === visibility ? choice.level : (visibility as MapVisibility);
   const radioGroupRef = useRef<HTMLDivElement>(null);
   const [savedNote, setSavedNote] = useState({ text: '', n: 0 });
+  // The level to focus once the audience controls are enabled again: they are
+  // still disabled while the save that cleared the last group settles.
+  const [levelToFocus, setLevelToFocus] = useState<MapVisibility | null>(null);
+  useEffect(() => {
+    if (!levelToFocus || audienceBusy) return;
+    radioGroupRef.current?.querySelector<HTMLElement>(`[data-level="${levelToFocus}"]`)?.focus();
+    setLevelToFocus(null);
+  }, [levelToFocus, audienceBusy]);
   const groupEditorOpen = canManageGroups && (visibility !== 'private' || selectedLevel === 'restricted');
   const openedFromChoice = choice?.from === visibility && choice.level === 'restricted';
 
@@ -1174,7 +1182,7 @@ export function ShareDialog({
     if (saved !== 'private') return;
     setChoice(null);
     setSavedNote((prev) => ({ text: t('share.groups.savedPrivate'), n: prev.n + 1 }));
-    radioGroupRef.current?.querySelector<HTMLElement>('[data-level="private"]')?.focus();
+    setLevelToFocus('private');
   }
 
   function handleVisibilitySelect(newVisibility: MapVisibility) {

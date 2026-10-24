@@ -2399,6 +2399,21 @@ describe('sharing a map with groups', () => {
     expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveFocus();
   });
 
+  it('focuses the checked level only once the save has settled and the levels are enabled', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useMapAudienceBusy).mockReturnValue(true);
+    const view = setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false });
+
+    await user.click(screen.getByRole('button', { name: 'stub cleared' }));
+    expect(screen.getByRole('radio', { name: /^Only you/ })).not.toHaveFocus();
+
+    vi.mocked(useMapAudienceBusy).mockReturnValue(false);
+    view.rerender(
+      <ShareDialog key="map-1" mapId="map-1" visibility="private" groups={[]} open onOpenChange={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveFocus());
+  });
+
   it('unshares when Only you is chosen on a restricted map and says members lose access', async () => {
     const user = userEvent.setup();
     const publishMapFn = vi.fn().mockResolvedValue({ clearedGroups: true });
