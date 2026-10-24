@@ -10,6 +10,8 @@ Start the Playwright MCP server with `--isolated --storage-state playwright/.aut
 
 The session belongs to the origin it was created on, `E2E_BASE_URL` (default `http://localhost:8080`). For a Vite server on another port, run `E2E_BASE_URL=http://localhost:5174 make smoke-auth`.
 
+To sign in through the form instead, copy the locators in `e2e/auth.setup.ts`. The password field is `#password`, since `getByLabel(/password/i)` also matches the show-password toggle.
+
 The e2e suite keeps its own session in `playwright/.auth/user.json`, so the two don't collide. Signing out still revokes the smoke session. To test sign-out or roles, create a throwaway user through the admin API. Give each parallel browser agent its own user.
 
 ## Locators
@@ -25,7 +27,7 @@ Copy locators from the spec for the area you're checking (`e2e/<area>.spec.ts`),
 
 ## Screenshots
 
-Take viewport screenshots. Full-page captures of long pages exceed the image size limit. The server writes only under the working directory and its `--output-dir`, so save screenshots there and not to a temp path.
+Take viewport screenshots. Full-page captures of long pages exceed the image size limit. When one panel or dialog is what you're checking, screenshot just that element (`browser_take_screenshot` with its `ref`, or `locator.screenshot()`): a smaller image costs fewer tokens to read. The server writes only under the working directory and its `--output-dir`, so save screenshots there and not to a temp path.
 
 Map tiles paint only in a visible browser. A blank map in a hidden Chrome tab proves nothing, so verify map rendering in Playwright.
 
