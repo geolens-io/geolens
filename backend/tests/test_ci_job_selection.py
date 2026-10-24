@@ -232,6 +232,7 @@ _BACKEND = {
     "security-scan",
 }
 _PROBE = {"runtime-extension-image-probe"}
+_COMPAT = {"previous-release-compat"}
 
 
 def test_frontend_only_pr_skips_the_backend_jobs():
@@ -251,7 +252,7 @@ def test_merge_group_runs_every_gate():
     wf = _workflow()
     selected = _select("merge_group")
     assert set(wf["jobs"]["ci-ok"]["needs"]) <= selected
-    assert not selected & _PROBE
+    assert not selected & (_PROBE | _COMPAT)
 
 
 @pytest.mark.parametrize(
@@ -262,7 +263,7 @@ def test_merge_group_runs_every_gate():
 def test_push_after_a_passing_queue_run_skips_the_matrix(files):
     """The queue already ran the matrix on this SHA; only push-only work runs,
     whatever the pushed diff touched."""
-    assert _select("push", files, queue_verified="true") == _ALWAYS | _PROBE
+    assert _select("push", files, queue_verified="true") == _ALWAYS | _PROBE | _COMPAT
 
 
 @pytest.mark.parametrize("lookup", ["", "false"])
@@ -270,7 +271,24 @@ def test_push_without_a_passing_queue_run_runs_the_full_matrix(lookup):
     wf = _workflow()
     selected = _select("push", queue_verified=lookup)
     expected = set(wf["jobs"]["ci-ok"]["needs"]) - {"e2e-smoke"}
-    assert expected | _PROBE <= selected
+    assert expected | _PROBE | _COMPAT <= selected
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "backend/alembic/versions/0088_dataset_kept_versions.py",
+        "backend/app/modules/catalog/datasets/domain/models.py",
+        "scripts/previous-release-compat.sh",
+    ],
+)
+def test_schema_pr_runs_the_previous_release_check(path):
+    """A migration or model change must run the previous release against it."""
+    assert _COMPAT <= _select("pull_request", [path])
+
+
+def test_previous_release_check_skips_unrelated_prs():
+    assert not _select("pull_request", ["backend/app/api/main.py"]) & _COMPAT
 
 
 def _queue_step() -> dict[str, Any]:

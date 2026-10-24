@@ -70,6 +70,7 @@ jobs:
       mcp: ${{ steps.filter.outputs.mcp }}
       sdks: ${{ steps.filter.outputs.sdks }}
       alembic: ${{ steps.filter.outputs.alembic }}
+      compat: ${{ steps.filter.outputs.compat }}
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
       monitoring: ${{ steps.filter.outputs.monitoring }}
@@ -404,6 +405,11 @@ jobs:
               - 'backend/app/core/db/models.py'
               - 'backend/app/processing/**/models.py'
               - 'db/**'
+            # The previous-release check also runs on every migration or model
+            # change above; this adds its own inputs.
+            compat:
+              - 'scripts/previous-release-compat.sh'
+              - '.github/workflows/ci.yml'
             installer:
               - 'scripts/install.sh'
               - 'scripts/upgrade.sh'
@@ -1851,6 +1857,50 @@ jobs:
           # is better than relying on bash defaults.
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
+
+  # ---------- previous-release compatibility ----------
+  # A release's migrations run while the previous release's api and worker
+  # still serve, as in a rolling upgrade. Boot the newest release and the
+  # newest of the minor line before it from their published images, upgrade
+  # the schema to this tree's heads under them, then read a dataset, ingest
+  # one and list datasets. Advisory: it stays out of ci-ok and the queue.
+  previous-release-compat:
+    name: Previous-Release Compatibility
+    needs: changes
+    if: needs.changes.outputs.alembic == 'true' || needs.changes.outputs.compat == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --locked --no-dev
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run the previous releases against this schema
+        run: scripts/previous-release-compat.sh
 
   # ---------- frontend ----------
   frontend-lint:
