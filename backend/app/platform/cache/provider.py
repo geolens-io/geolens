@@ -56,6 +56,31 @@ class CacheProvider(Protocol):
         """
         ...
 
+    async def compare_and_set(
+        self, key: str, expected: Any, value: Any, ttl: int = 300
+    ) -> bool:
+        """Replace an existing value with TTL only if it equals *expected*.
+
+        True if stored. The comparison and write are atomic against concurrent
+        writers of the same key; a missing or expired entry never matches,
+        including when *expected* is None. A layered provider operates on its
+        active store and answers False on a shared-store error, without replay.
+        Security-store overrides use ``set_authoritative`` instead, so every
+        store a later read might consult receives the decision.
+        """
+        ...
+
+    async def compare_and_delete(self, key: str, expected: Any) -> bool:
+        """Delete an existing value only if it equals *expected*. True if deleted.
+
+        The comparison and delete are atomic against concurrent writers of the
+        same key; missing or expired entries never match, even for None.
+        A layered provider operates on its active store and answers False on a
+        shared-store error, without replay. Security-store overrides use
+        ``set_authoritative`` so every store receives the decision.
+        """
+        ...
+
     async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
         """Store value with TTL in EVERY store, overriding whatever is there.
 

@@ -337,12 +337,8 @@ async def test_a_failed_send_gets_the_backoff_only_inside_the_first_cooldown(
     assert len(calls) == (2 if retried else 1)
 
 
-async def test_a_written_back_claim_delays_the_next_incident_by_one_backoff(
-    monkeypatch, sent
-):
-    """A failed send reads its claim, another replica's recovery deletes it,
-    then the send writes it back. The next incident alerts once that backoff
-    runs out."""
+async def test_a_failed_send_cannot_resurrect_a_recovered_claim(monkeypatch, sent):
+    """Recovery wins before the failed send's conditional rewrite reaches storage."""
     calls, answers = sent
     monkeypatch.setattr(health_svc, "HEALTH_ALERT_RETRY_SECS", 0.05)
     other: dict = {}
@@ -350,32 +346,37 @@ async def test_a_written_back_claim_delays_the_next_incident_by_one_backoff(
     class _RecoveryBetweenReadAndWrite(_SharedMemoryCache):
         armed = False
 
-        async def get(self, key, *, security=False):
-            value = await super().get(key, security=security)
+        async def _recover(self, key):
             if self.armed and key == health_svc._HEALTH_ALERT_KEY:
                 self.armed = False
                 with _replica(other):
                     await _poll()
+
+        async def get(self, key, *, security=False):
+            value = await super().get(key, security=security)
+            await self._recover(key)
             return value
+
+        async def compare_and_set(self, key, expected, value, ttl=300):
+            await self._recover(key)
+            return await super().compare_and_set(key, expected, value, ttl)
 
     cache = _RecoveryBetweenReadAndWrite()
     monkeypatch.setattr(provider, "_cache_provider", cache)
     _checks(monkeypatch, DEGRADED, DEGRADED, HEALTHY, DEGRADED, DEGRADED)
 
     claimed = await _poll(run_background=False)
-    token = health_svc._alert_claim_token
     with _replica(other):
         await _poll()
     answers.append(PARTLY_DELIVERED)
     cache.armed = True
     await claimed.background()
-    assert await cache.get(health_svc._HEALTH_ALERT_KEY) == token
+    assert await cache.get(health_svc._HEALTH_ALERT_KEY) is None
     with _replica(other):
         await _poll()
-    await asyncio.sleep(0.1)
+    assert len(calls) == 2
     with _replica(other):
         await _poll()
-
     assert len(calls) == 2
 
 
@@ -557,3 +558,344 @@ async def test_a_probe_queued_behind_a_stuck_one_still_answers(monkeypatch, sent
     assert response.status_code == 503
     assert calls == []
     assert "health_probe_result_dropped" in [log["event"] for log in logs]
+
+
+async def test_an_undelivered_claim_expires_before_the_cooldown(monkeypatch):
+    cache = get_cache()
+    before = time.monotonic()
+    claim = await health_svc.claim_health_alert(["database"])
+    assert claim is not None
+    remaining = cache._store[health_svc._HEALTH_ALERT_KEY][1] - before
+    assert (
+        health_svc.HEALTH_ALERT_DELIVERY_TIMEOUT + health_svc.HEALTH_TIMEOUT
+        < remaining
+        < health_svc.HEALTH_ALERT_COOLDOWN_SECS
+    )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "retry"), [(DELIVERED, True), (DELIVERED, False), (UNDELIVERED, False)]
+)
+async def test_completed_delivery_renews_the_claim_from_delivery_time(
+    monkeypatch, sent, outcome, retry
+):
+    _, answers = sent
+    answers.append(outcome)
+    if not retry:
+        monkeypatch.setattr(health_svc, "_last_health_status", "degraded")
+        monkeypatch.setattr(
+            health_svc,
+            "_health_incident_started_at",
+            time.monotonic() - health_svc.HEALTH_ALERT_COOLDOWN_SECS,
+        )
+    _checks(monkeypatch, DEGRADED)
+    response = await _poll(run_background=False)
+    cache = get_cache()
+    token = health_svc._alert_claim_token
+    cache._store[health_svc._HEALTH_ALERT_KEY] = (token, time.monotonic() + 1)
+    before = time.monotonic()
+    await response.background()
+    assert cache._store[health_svc._HEALTH_ALERT_KEY][1] >= (
+        before + health_svc.HEALTH_ALERT_COOLDOWN_SECS
+    )
+
+
+async def test_recovery_cannot_delete_a_replacement_claim(monkeypatch):
+    class _ReplacedAtStorage(_SharedMemoryCache):
+        armed = False
+
+        async def _replace(self, key):
+            if self.armed:
+                self.armed = False
+                await self.set(key, "successor")
+
+        async def get(self, key, *, security=False):
+            value = await super().get(key, security=security)
+            await self._replace(key)
+            return value
+
+        async def compare_and_delete(self, key, expected):
+            await self._replace(key)
+            return await super().compare_and_delete(key, expected)
+
+    cache = _ReplacedAtStorage()
+    monkeypatch.setattr(provider, "_cache_provider", cache)
+    await health_svc.claim_health_alert(["database"])
+    cache.armed = True
+    await health_svc.release_health_alert()
+    assert await cache.get(health_svc._HEALTH_ALERT_KEY) == "successor"
+    assert health_svc._alert_claim_token is None
+
+
+async def test_a_stalled_delivery_is_bounded_and_gets_backoff(monkeypatch, sent):
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(events_mod, "notify", stalled)
+    monkeypatch.setattr(
+        health_svc, "HEALTH_ALERT_DELIVERY_TIMEOUT", 0.01, raising=False
+    )
+    _checks(monkeypatch, DEGRADED)
+    response = await _poll(run_background=False)
+    finished = True
+    try:
+        await asyncio.wait_for(response.background(), timeout=0.2)
+    except TimeoutError:
+        finished = False
+    assert finished, "the delivery deadline must finish before the claim can expire"
+    remaining = get_cache()._store[health_svc._HEALTH_ALERT_KEY][1] - time.monotonic()
+    assert 0 < remaining <= health_svc.HEALTH_ALERT_RETRY_SECS
+
+
+@pytest.mark.parametrize("outcome", [DELIVERED, UNDELIVERED])
+async def test_delivery_never_renews_a_successor_claim(monkeypatch, sent, outcome):
+    _, answers = sent
+    _checks(monkeypatch, DEGRADED)
+    response = await _poll(run_background=False)
+    cache = get_cache()
+    await cache.set(health_svc._HEALTH_ALERT_KEY, "successor", ttl=1)
+    expiry = cache._store[health_svc._HEALTH_ALERT_KEY][1]
+    answers.append(outcome)
+    await response.background()
+    assert cache._store[health_svc._HEALTH_ALERT_KEY] == ("successor", expiry)
+
+
+async def test_a_stored_null_does_not_swallow_an_alert_or_get_deleted():
+    cache = get_cache()
+    await cache.set(health_svc._HEALTH_ALERT_KEY, None)
+    claim = await health_svc.claim_health_alert(["database"])
+    assert claim is not None and not claim.shared
+    await health_svc.release_health_alert()
+    assert health_svc._HEALTH_ALERT_KEY in cache._store
+
+
+async def test_a_failed_renewal_does_not_break_delivery(monkeypatch, sent):
+    calls, _ = sent
+    _checks(monkeypatch, DEGRADED)
+    response = await _poll(run_background=False)
+    cache = get_cache()
+    original = cache._store[health_svc._HEALTH_ALERT_KEY]
+    monkeypatch.setattr(
+        cache, "compare_and_set", AsyncMock(side_effect=ConnectionError)
+    )
+    with structlog.testing.capture_logs() as logs:
+        await response.background()
+    assert len(calls) == 1
+    assert cache._store[health_svc._HEALTH_ALERT_KEY] == original
+    assert "health_alert_claim_update_failed" in [entry["event"] for entry in logs]
+
+
+@pytest.mark.parametrize("fail_after_send", [False, True])
+async def test_threaded_delivery_keeps_ownership_until_the_send_terminates(
+    monkeypatch, fail_after_send
+):
+    import smtplib
+    import threading
+
+    from app.core.config import settings
+    from app.platform import notifications
+    from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
+    from tests.fixtures.smtp_transport import SMTPTransport
+
+    active = 0
+    overlap = False
+    lock = threading.Lock()
+
+    class TrackedSMTP(smtplib.SMTP):
+        def send_message(self, *args, **kwargs):
+            nonlocal active, overlap
+            with lock:
+                active += 1
+                overlap |= active > 1
+            try:
+                return super().send_message(*args, **kwargs)
+            finally:
+                with lock:
+                    active -= 1
+
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "notification_webhook_url", None)
+    monkeypatch.setattr(
+        notifications,
+        "get_notification_sinks",
+        lambda: [EnvConfiguredNotificationSink()],
+    )
+    monkeypatch.setattr(events_mod, "notify", notifications.notify)
+    monkeypatch.setattr(smtplib, "SMTP", TrackedSMTP)
+    monkeypatch.setattr(health_svc, "HEALTH_ALERT_DELIVERY_TIMEOUT", 0.2)
+    monkeypatch.setattr(health_svc, "HEALTH_ALERT_CLAIM_SECS", 0.7)
+    monkeypatch.setattr(health_svc, "HEALTH_ALERT_RETRY_SECS", 0.05)
+
+    with SMTPTransport(data=True, fail=fail_after_send) as transport:
+        transport.configure(monkeypatch)
+        first = await health_svc.claim_health_alert(["database"])
+        assert first is not None and first.shared
+        task = asyncio.create_task(
+            health_svc._deliver_health_alert(
+                first.token, True, time.monotonic(), "database", "degraded"
+            )
+        )
+        try:
+            assert await asyncio.to_thread(transport.data.wait, 1)
+            with _replica({}):
+                assert await health_svc.claim_health_alert(["database"]) is None
+            # Pass the original lease while the peer is gated. A hard abort must
+            # have joined the first worker before the next replica can acquire.
+            await asyncio.sleep(0.75)
+            first_finished = task.done()
+            live_before_successor = active
+            with _replica({}):
+                successor = await health_svc.claim_health_alert(["database"])
+            transport.release_data.set()
+            await task
+            assert successor is not None
+            await health_svc._deliver_health_alert(
+                successor.token, True, time.monotonic(), "database", "degraded"
+            )
+        finally:
+            transport.release_data.set()
+            await task
+
+        assert len(transport.messages) == 1
+        assert not overlap, "a successor sent while the first SMTP worker was live"
+        assert first_finished and live_before_successor == 0
+        assert active == 0
+        remaining = (
+            get_cache()._store[health_svc._HEALTH_ALERT_KEY][1] - time.monotonic()
+        )
+        if fail_after_send:
+            assert 0 < remaining <= health_svc.HEALTH_ALERT_RETRY_SECS
+        else:
+            assert (
+                health_svc.HEALTH_ALERT_COOLDOWN_SECS - 1
+                < remaining
+                <= health_svc.HEALTH_ALERT_COOLDOWN_SECS
+            )
+
+
+async def test_success_renews_a_redis_claim_with_one_second_left(monkeypatch, sent):
+    calls, _ = sent
+    cache = _fake_redis_cache()
+    monkeypatch.setattr(provider, "_cache_provider", cache)
+    _checks(monkeypatch, DEGRADED)
+    response = await _poll(run_background=False)
+    assert await cache._client.expire(health_svc._HEALTH_ALERT_KEY, 1)
+
+    await response.background()
+
+    assert len(calls) == 1
+    assert (
+        await cache.get(health_svc._HEALTH_ALERT_KEY) == health_svc._alert_claim_token
+    )
+    ttl = await cache._client.ttl(health_svc._HEALTH_ALERT_KEY)
+    assert (
+        health_svc.HEALTH_ALERT_COOLDOWN_SECS - 1
+        <= ttl
+        <= health_svc.HEALTH_ALERT_COOLDOWN_SECS
+    )
+
+
+async def test_no_overlapping_send_during_owner_cache_connection_failure(monkeypatch):
+    cache = get_cache()
+    compare_and_set = cache.compare_and_set
+    failed_owner = None
+
+    async def owner_outage(key, expected, value, ttl):
+        nonlocal failed_owner
+        if failed_owner is None:
+            failed_owner = expected
+        if expected == failed_owner:
+            raise ConnectionError("owner connection unavailable")
+        return await compare_and_set(key, expected, value, ttl)
+
+    monkeypatch.setattr(cache, "compare_and_set", owner_outage)
+    await test_threaded_delivery_keeps_ownership_until_the_send_terminates(
+        monkeypatch, False
+    )
+
+
+def test_claim_lease_covers_the_send_deadline_and_abort_cleanup():
+    from app.platform.notifications.smtp_channel import SMTP_ABORT_CLEANUP_SECS
+
+    assert health_svc.HEALTH_ALERT_CLAIM_SECS > (
+        health_svc.HEALTH_ALERT_DELIVERY_TIMEOUT
+        + SMTP_ABORT_CLEANUP_SECS
+        + health_svc.HEALTH_TIMEOUT
+    )
+
+
+async def test_a_background_send_cannot_restart_an_expired_delivery_budget(monkeypatch):
+    from app.core.config import settings
+    from app.platform import notifications
+    from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
+    from tests.fixtures.smtp_transport import SMTPTransport
+
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "notification_webhook_url", None)
+    monkeypatch.setattr(
+        notifications,
+        "get_notification_sinks",
+        lambda: [EnvConfiguredNotificationSink()],
+    )
+    monkeypatch.setattr(events_mod, "notify", notifications.notify)
+    with SMTPTransport() as transport:
+        transport.configure(monkeypatch)
+        claim = await health_svc.claim_health_alert(["database"])
+        assert claim is not None
+        await health_svc._deliver_health_alert(
+            claim.token,
+            True,
+            time.monotonic() - health_svc.HEALTH_ALERT_DELIVERY_TIMEOUT - 1,
+            "database",
+            "degraded",
+        )
+        assert transport.connections == 0
+        assert not transport.messages
+
+
+async def test_a_quit_error_after_send_does_not_schedule_a_health_alert_retry(
+    monkeypatch,
+):
+    import smtplib
+
+    from app.core.config import settings
+    from app.platform import notifications
+    from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
+    from tests.fixtures.smtp_transport import SMTPTransport
+
+    deliveries = []
+
+    class QuitFailureSMTP(smtplib.SMTP):
+        def quit(self):
+            raise OSError("QUIT response timed out")
+
+    async def notify(notification):
+        result = await notifications.notify(notification)
+        deliveries.append(result)
+        return result
+
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "notification_webhook_url", None)
+    monkeypatch.setattr(
+        notifications,
+        "get_notification_sinks",
+        lambda: [EnvConfiguredNotificationSink()],
+    )
+    monkeypatch.setattr(events_mod, "notify", notify)
+    monkeypatch.setattr(smtplib, "SMTP", QuitFailureSMTP)
+    _checks(monkeypatch, DEGRADED)
+    with SMTPTransport(data=True) as transport:
+        transport.configure(monkeypatch)
+        response = await _poll(run_background=False)
+        task = asyncio.create_task(response.background())
+        try:
+            assert await asyncio.to_thread(transport.data.wait, 1)
+        finally:
+            transport.release_data.set()
+            await task
+        assert len(transport.messages) == 1
+        assert deliveries == [DELIVERED]
+        remaining = (
+            get_cache()._store[health_svc._HEALTH_ALERT_KEY][1] - time.monotonic()
+        )
+        assert health_svc.HEALTH_ALERT_COOLDOWN_SECS - 1 < remaining

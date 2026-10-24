@@ -134,11 +134,16 @@ class TestExtensionApiVersionConstant:
         dataset read it. The ``permission`` methods keep their signatures, so
         an overlay replacing that key must add the group branch itself.
 
+        v20 adds the required ``compare_and_set`` and ``compare_and_delete``
+        methods to ``CacheProvider``. An overlay that replaces the cache
+        provider without them fails on its first token-conditional health-alert
+        claim.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 19
+        assert EXTENSION_API_VERSION == 20
 
 
 class TestCheckExtensionApiVersion:

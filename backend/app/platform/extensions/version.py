@@ -154,7 +154,11 @@ logger = logging.getLogger(__name__)
 # group branch to ``filter_visible``, ``can_access_dataset`` and
 # ``record_audience``, or it denies group members everything core says they
 # can read.
-EXTENSION_API_VERSION: int = 19
+#
+# 19 -> 20: CacheProvider gained required ``compare_and_set`` and
+# ``compare_and_delete`` methods for atomic, token-guarded health-alert claims.
+# Cache implementations supplied by overlays must implement both operations.
+EXTENSION_API_VERSION: int = 20
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

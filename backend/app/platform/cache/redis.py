@@ -19,11 +19,37 @@ logger = structlog.stdlib.get_logger(__name__)
 _MAX_PENDING_AUTHORITATIVE = 512
 
 
+# Compare and mutate inside Redis so a replica cannot replace the token in between.
+_COMPARE_AND_SET = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return 1
+end
+return 0
+"""
+_COMPARE_AND_DELETE = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+
+def _encode_value(value: Any) -> str:
+    """Canonicalize sortable keys without narrowing the legacy JSON key domain."""
+    # Sorted keys compare independently of order; unsortable keys keep legacy order.
+    try:
+        return json.dumps(value, default=str, sort_keys=True)
+    except TypeError:
+        return json.dumps(value, default=str)
+
+
 class RedisCacheProvider:
     """Redis/Valkey cache provider with circuit breaker and graceful fallback.
 
-    Every method wraps Redis calls in try/except, logs a warning, and falls
-    back to an in-memory cache -- Redis failure never crashes the app.
+    Cache operations isolate Redis failures, using an in-memory fallback
+    where their contract permits it. Conditional mutations answer False on
+    a Redis error rather than applying the mutation to another store.
 
     Circuit breaker: after ``max_failures`` consecutive errors, stop
     contacting Redis for ``cooldown_seconds`` and route to the fallback.
@@ -183,9 +209,7 @@ class RedisCacheProvider:
                     self._pending_authoritative.pop(key, None)
                     continue
                 try:
-                    await self._client.set(
-                        key, json.dumps(value, default=str), ex=remaining
-                    )
+                    await self._client.set(key, _encode_value(value), ex=remaining)
                 except (
                     Exception
                 ):  # broad: redis unreachable; leave entries queued for next drain
@@ -252,7 +276,7 @@ class RedisCacheProvider:
                 await self._fallback.set(key, value, ttl)
             return
         try:
-            await self._client.set(key, json.dumps(value, default=str), ex=ttl)
+            await self._client.set(key, _encode_value(value), ex=ttl)
             self._record_success()
         except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
             logger.warning("redis_cache_set_failed", key=key, exc_info=True)
@@ -278,7 +302,7 @@ class RedisCacheProvider:
             self._queue_authoritative_replay(key, value, ttl)
             return
         try:
-            await self._client.set(key, json.dumps(value, default=str), ex=ttl)
+            await self._client.set(key, _encode_value(value), ex=ttl)
             self._record_success()
         except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
             logger.warning(
@@ -317,13 +341,50 @@ class RedisCacheProvider:
                 return False
             return await self._fallback.set_if_absent(key, value, ttl)
         try:
-            stored = await self._client.set(
-                key, json.dumps(value, default=str), ex=ttl, nx=True
-            )
+            stored = await self._client.set(key, _encode_value(value), ex=ttl, nx=True)
             self._record_success()
             return bool(stored)
         except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
             logger.warning("redis_cache_set_if_absent_failed", key=key, exc_info=True)
+            self._record_failure()
+            return False
+
+    async def compare_and_set(
+        self, key: str, expected: Any, value: Any, ttl: int = 300
+    ) -> bool:
+        """Atomically replace a matching value in the active store; never replay."""
+        if await self._circuit_open():
+            return await self._fallback.compare_and_set(key, expected, value, ttl)
+        try:
+            stored = await self._client.eval(
+                _COMPARE_AND_SET,
+                1,
+                key,
+                _encode_value(expected),
+                _encode_value(value),
+                ttl,
+            )
+            self._record_success()
+            return bool(stored)
+        except Exception:  # broad: a conditional write cannot be replayed safely
+            logger.warning("redis_cache_compare_and_set_failed", key=key, exc_info=True)
+            self._record_failure()
+            return False
+
+    async def compare_and_delete(self, key: str, expected: Any) -> bool:
+        """Atomically delete a matching value in the active store; never replay."""
+        if await self._circuit_open():
+            return await self._fallback.compare_and_delete(key, expected)
+        try:
+            deleted = await self._client.eval(
+                _COMPARE_AND_DELETE, 1, key, _encode_value(expected)
+            )
+            self._record_success()
+            return bool(deleted)
+        except Exception:  # broad: a conditional delete cannot be replayed safely
+            logger.warning(
+                "redis_cache_compare_and_delete_failed", key=key, exc_info=True
+            )
             self._record_failure()
             return False
 
