@@ -195,9 +195,11 @@ def _hits(path: Path) -> list[str]:
                 hits.append(f"line {node.lineno}: op.{op}")
         for node in _strings(root):
             text = _render(node) or ""
-            matched = [label for label, rx in _SQL_PATTERNS.items() if rx.search(text)]
-            if matched:
-                hits.append(f"line {node.lineno}: SQL {', '.join(matched)}")
+            hits.extend(
+                f"line {node.lineno}: SQL {label} at offset {m.start()}"
+                for label, rx in _SQL_PATTERNS.items()
+                for m in rx.finditer(text)
+            )
             explained = {
                 m.start()
                 for rx in (*_SQL_PATTERNS.values(), _HARMLESS_DROP)
@@ -278,6 +280,17 @@ def test_detects_contract_steps_in_upgrade(tmp_path: Path, body: str) -> None:
     path = tmp_path / "9999_case.py"
     path.write_text(f"{_HELPERS}\n\ndef upgrade():\n    {body}\n", encoding="utf-8")
     assert _hits(path), body
+
+
+@pytest.mark.architecture
+def test_counts_each_contract_statement_in_one_string(tmp_path: Path) -> None:
+    path = tmp_path / "9999_case.py"
+    path.write_text(
+        'def upgrade():\n    op.execute("ALTER TABLE t DROP COLUMN a; '
+        'ALTER TABLE t DROP COLUMN b")\n',
+        encoding="utf-8",
+    )
+    assert len(_hits(path)) == 2
 
 
 @pytest.mark.architecture
