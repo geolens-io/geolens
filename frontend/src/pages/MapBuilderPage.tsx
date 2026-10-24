@@ -56,6 +56,7 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { clearPersistedFolderGroup, getParentGroupId, resolveDropGroupMembership } from '@/components/builder/folder-groups';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
+import { AttributeTableDrawer } from '@/components/builder/AttributeTableDrawer';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { previewSaveMode } from '@/components/builder/ephemeral-preview';
 // Lazy: it pulls in the import page's metadata form and is mounted only while
@@ -917,6 +918,20 @@ export function MapBuilderPage() {
   const handleAnalyzeLayer = useCallback((layerId: string) => {
     setAnalysisPrefill({ layerId, operation: 'buffer', nonce: Date.now() });
     setRailPanel('analysis');
+  }, []);
+
+  // The open attribute-table drawer holds one layer id; opening another
+  // layer's table replaces the current one, and a removed layer closes it.
+  const [attributeTableLayerId, setAttributeTableLayerId] = useState<string | null>(null);
+  const attributeTableLayer = useMemo(
+    () => layers.localLayers.find((l) => l.id === attributeTableLayerId) ?? null,
+    [layers.localLayers, attributeTableLayerId],
+  );
+  const handleOpenAttributeTable = useCallback((layerId: string) => {
+    setAttributeTableLayerId(layerId);
+  }, []);
+  const handleCloseAttributeTable = useCallback(() => {
+    setAttributeTableLayerId(null);
   }, []);
 
   // Clearing on any navigation away from the panel keeps a later ordinary
@@ -1785,6 +1800,7 @@ export function MapBuilderPage() {
               onDuplicate={handleRowDuplicate}
               onZoomToLayer={layers.handleZoomToLayer}
               onAnalyzeLayer={handleAnalyzeLayer}
+              onOpenAttributeTable={handleOpenAttributeTable}
               onCopyStyle={layers.handleCopyStyle}
               onPasteStyle={layers.handlePasteStyle}
               onBulkApplyStyle={handleBulkApplyStyle}
@@ -1877,6 +1893,7 @@ export function MapBuilderPage() {
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
                 onBreadcrumbClick={onBreadcrumbClick}
+                onOpenAttributeTable={handleOpenAttributeTable}
                 featureCount={filteredFeatureCount}
               />
               </Suspense>
@@ -1925,6 +1942,7 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
+                  onOpenAttributeTable={handleOpenAttributeTable}
                   featureCount={filteredFeatureCount}
                 />
                 </Suspense>
@@ -2112,6 +2130,17 @@ export function MapBuilderPage() {
         onBlockerReset={save.blocker.reset}
         onBlockerProceed={save.blocker.proceed}
       />
+
+      {/* Read-only attribute table for one layer, in a drawer under the map.
+          Unmounts when the layer is removed, taking its highlight with it. */}
+      {attributeTableLayer && (
+        <AttributeTableDrawer
+          layer={attributeTableLayer}
+          open
+          onClose={handleCloseAttributeTable}
+          mapRef={mapInstanceRef}
+        />
+      )}
 
       </DndContext>
 

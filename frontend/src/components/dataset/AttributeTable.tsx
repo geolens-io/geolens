@@ -42,6 +42,7 @@ import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { valueLabelFor, type ValueLabels } from '@/lib/value-labels';
+import { cn } from '@/lib/utils';
 import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -93,6 +94,10 @@ interface AttributeTableProps {
   datasetId: string;
   canEdit?: boolean;
   compact?: boolean;
+  /** CQL2-JSON filter expression sent as the rows request's `filter` param. */
+  cql2Filter?: string;
+  /** Row activation (Enter/click), e.g. the builder drawer finding a row on the map. */
+  onRowClick?: (gid: number) => void;
   /** Leading toolbar content, shown on the row that holds the Columns menu. */
   heading?: ReactNode;
   /** Trailing toolbar controls, after the Columns menu. */
@@ -193,6 +198,8 @@ export function AttributeTable({
   datasetId,
   canEdit = false,
   compact = false,
+  cql2Filter,
+  onRowClick,
   heading,
   actions,
   valueLabels,
@@ -243,7 +250,7 @@ export function AttributeTable({
   // A cursor is a position within one filter + sort order. Reset paging during
   // render, not in an effect, so no request goes out with the new order and
   // the old cursor.
-  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null]);
+  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null, cql2Filter ?? null]);
   const [pagedScope, setPagedScope] = useState(pagingScope);
   if (pagedScope !== pagingScope) {
     setPagedScope(pagingScope);
@@ -266,6 +273,7 @@ export function AttributeTable({
     cursor,
     activeFilters,
     sort,
+    cql2Filter,
   );
   // A schema edit, in GeoLens or on a live table, can drop or retype the sorted
   // column, and the server reports that as a 400 whose text depends on where it
@@ -669,7 +677,9 @@ export function AttributeTable({
 
   if (isError) return shell(<div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>);
 
-  if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
+  // A CQL2 filter that matched nothing is a filter result, not an empty
+  // dataset: it flows through the normal path (header, toolbar, noResults).
+  if (effectiveTotal === 0 && !activeFilters && !cql2Filter && (!data?.rows || data.rows.length === 0)) {
     return shell(
       <div className="text-center py-12 text-muted-foreground">
         {t('attributes.noData')}
@@ -806,7 +816,19 @@ export function AttributeTable({
                     <TableRow
                       key={row.id}
                       data-index={virtualRow.index}
-                      className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
+                      className={cn(
+                        virtualRow.index % 2 === 1 ? 'bg-muted/30' : '',
+                        onRowClick && 'cursor-pointer hover:bg-primary-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                      )}
+                      tabIndex={onRowClick ? 0 : undefined}
+                      aria-label={onRowClick ? t('attributes.rowActionLabel', { gid, defaultValue: 'Show row {{gid}} on the map' }) : undefined}
+                      onClick={onRowClick ? () => onRowClick(gid) : undefined}
+                      onKeyDown={onRowClick ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(gid);
+                        }
+                      } : undefined}
                     >
                       {selectable ? (
                         <TableCell className={`w-10 ${cellClass}`}>

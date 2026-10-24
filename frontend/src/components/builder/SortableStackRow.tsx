@@ -17,6 +17,8 @@ interface SortableStackRowProps {
   onZoomToLayer?: (id: string) => void;
   /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. */
+  onOpenAttributeTable?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
@@ -63,6 +65,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle,
@@ -127,6 +130,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onDuplicate={onDuplicate}
         onZoomToLayer={onZoomToLayer}
         onAnalyzeLayer={onAnalyzeLayer}
+        onOpenAttributeTable={onOpenAttributeTable}
         onCopyStyle={onCopyStyle}
         onPasteStyle={onPasteStyle}
         canPasteStyle={canPasteStyle}

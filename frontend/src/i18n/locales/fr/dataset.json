@@ -231,6 +231,7 @@
     "cellEditorLabel": "Modifier {{column}} pour l’entité {{gid}}",
     "selectPage": "Sélectionner toutes les lignes de cette page",
     "selectRow": "Sélectionner la ligne {{gid}}",
+    "rowActionLabel": "Afficher la ligne {{gid}} sur la carte",
     "deleteRows_one": "Supprimer {{formattedCount}} ligne",
     "deleteRows_many": "Supprimer {{formattedCount}} lignes",
     "deleteRows_other": "Supprimer {{formattedCount}} lignes",

@@ -231,6 +231,7 @@
     "cellEditorLabel": "Edit {{column}} for feature {{gid}}",
     "selectPage": "Select all rows on this page",
     "selectRow": "Select row {{gid}}",
+    "rowActionLabel": "Show row {{gid}} on the map",
     "deleteRows_one": "Delete {{formattedCount}} row",
     "deleteRows_many": "Delete {{formattedCount}} rows",
     "deleteRows_other": "Delete {{formattedCount}} rows",

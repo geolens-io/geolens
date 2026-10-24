@@ -231,6 +231,7 @@
     "cellEditorLabel": "{{column}} für Feature {{gid}} bearbeiten",
     "selectPage": "Alle Zeilen auf dieser Seite auswählen",
     "selectRow": "Zeile {{gid}} auswählen",
+    "rowActionLabel": "Zeile {{gid}} auf der Karte anzeigen",
     "deleteRows_one": "{{formattedCount}} Zeile löschen",
     "deleteRows_many": "{{formattedCount}} Zeilen löschen",
     "deleteRows_other": "{{formattedCount}} Zeilen löschen",

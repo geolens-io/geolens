@@ -231,6 +231,7 @@
     "cellEditorLabel": "编辑要素 {{gid}} 的 {{column}}",
     "selectPage": "选择本页所有行",
     "selectRow": "选择行 {{gid}}",
+    "rowActionLabel": "在地图上显示第 {{gid}} 行",
     "deleteRows_one": "删除 {{formattedCount}} 行",
     "deleteRows_many": "删除 {{formattedCount}} 行",
     "deleteRows_other": "删除 {{formattedCount}} 行",

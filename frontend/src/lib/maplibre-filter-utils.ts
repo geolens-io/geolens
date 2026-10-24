@@ -567,12 +567,23 @@ function conditionToCql2(
 export function maplibreFilterToCql2(
   filter: FilterSpecification | null | undefined,
   columns?: readonly FilterColumn[] | null,
+  opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
   const canonical = parseCanonicalFilter(filter);
   if (canonical.kind === 'opaque') return 'unsupported';
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
   );
+  // Without column metadata the server reads the live table, but WITH it an
+  // unknown field converts to a filter the rows endpoint must reject — the
+  // drawer asks for this stricter mode so a stale field name falls back to
+  // the all-rows notice instead of a table that cannot load.
+  if (opts?.requireKnownFields && columns) {
+    const known = new Set(columns.map((col) => col.name));
+    for (const condition of canonical.conditions) {
+      if (!known.has(condition.field)) return 'unsupported';
+    }
+  }
   const parts: Cql2Expression[] = [];
   for (const condition of canonical.conditions) {
     const part = conditionToCql2(condition, types.get(condition.field));

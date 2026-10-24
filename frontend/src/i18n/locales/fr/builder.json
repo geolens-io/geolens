@@ -1379,6 +1379,7 @@
     "kebabGroupTrigger": "Options de groupe pour {{name}}",
     "kebabZoomToLayer": "Zoomer sur la couche",
     "kebabAnalyzeLayer": "Analyser cette couche",
+    "kebabAttributeTable": "Ouvrir la table attributaire",
     "kebabCopyStyle": "Copier le style",
     "kebabPasteStyle": "Coller le style",
     "kebabPasteStyleHint": "Copiez d'abord un style depuis une couche compatible",
@@ -1456,9 +1457,16 @@
     "newGroupItem": "Nouveau groupe…",
     "toggleExpand": "Basculer le groupe de dossiers"
   },
+  "attributeTableDrawer": {
+    "description": "Table attributaire de {{name}}",
+    "filterUnsupported": "Le filtre de la couche n'a pas pu être appliqué — toutes les lignes sont affichées.",
+    "resizeHandle": "Redimensionner la table attributaire",
+    "close": "Fermer la table attributaire"
+  },
   "layerEditor": {
     "close": "Fermer l'éditeur de couche",
     "tabsLabel": "Onglets de l'éditeur de couche",
+    "openAttributeTable": "Ouvrir la table attributaire",
     "section": {
       "renderAs": "Afficher comme",
       "appearance": "Apparence",

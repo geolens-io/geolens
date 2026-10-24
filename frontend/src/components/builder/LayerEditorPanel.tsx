@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, X } from 'lucide-react';
+import { ChevronLeft, Table2, X } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
 import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
@@ -8,7 +8,7 @@ import { PopupConfigEditor } from './PopupConfigEditor';
 import { RasterLayerControls } from './RasterLayerControls';
 import { InlineDeleteConfirm } from './row-chrome';
 import { cn } from '@/lib/utils';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { canOpenAttributeTable, getLayerCapabilities } from '@/lib/layer-capabilities';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints, isDiscreteColorStyle } from '@/components/map/layer-icons';
@@ -63,6 +63,10 @@ interface LayerEditorPanelProps {
   breadcrumbPresetName?: string;
   /** Click handler for the breadcrumb element when editorScene === 'basemap-sublayer'. */
   onBreadcrumbClick?: () => void;
+  /** Opens the read-only attribute-table drawer for this layer. Rendered in
+   *  the default scene only, and only for layers whose dataset carries a
+   *  data table. */
+  onOpenAttributeTable?: (layerId: string) => void;
   /**
    * Rendered-feature count for the active layer; forwarded to the filter-tab
    * LayerFilterEditor so it can render the empty-state hint when a filter is
@@ -158,6 +162,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   sceneFooter,
   breadcrumbPresetName,
   onBreadcrumbClick,
+  onOpenAttributeTable,
   featureCount,
 }: LayerEditorPanelProps) {
   const { t } = useTranslation('builder');
@@ -391,6 +396,21 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             )}
           </div>
 
+          {/* Read-only data inspection from the editor header, mirroring the
+              layer-row kebab action. Default scene only: the DEM, basemap and
+              settings scenes have no dataset-backed layer behind them. */}
+          {isDefaultScene && onOpenAttributeTable && canOpenAttributeTable(layer) && (
+            <button
+              type="button"
+              data-testid="layer-editor-open-attribute-table"
+              onClick={() => onOpenAttributeTable(layer.id)}
+              aria-label={t('layerEditor.openAttributeTable', { defaultValue: 'Open attribute table' })}
+              title={t('layerEditor.openAttributeTable', { defaultValue: 'Open attribute table' })}
+              className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Table2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
