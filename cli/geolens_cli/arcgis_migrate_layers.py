@@ -310,6 +310,7 @@ def _import_layer(
         object_id_field=layer.object_id_field
         if isinstance(layer.object_id_field, str)
         else None,
+        **_item_link(ctx, row["id"]),
     )
     try:
         with long_request_timeout(ctx.geolens.client):
@@ -338,6 +339,11 @@ def _commit_body(title: str, visibility: str) -> Any:
     from geolens.models.commit_request import CommitRequest
 
     return CommitRequest(title=title, visibility=visibility)
+
+
+def _item_link(ctx: MigrationContext, item_id: str) -> dict[str, str]:
+    """The fields a dataset links back to its portal item with."""
+    return {"item_id": item_id, "portal_url": ctx.portal_root}
 
 
 def _apply_target(

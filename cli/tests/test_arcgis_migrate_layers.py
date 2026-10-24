@@ -352,6 +352,18 @@ def test_a_layer_named_like_a_tagged_title_is_tagged_too(runner, plan_file, geol
     ]
 
 
+def test_each_layer_preview_names_the_item_and_its_portal(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [(b["item_id"], b["portal_url"]) for b in service.bodies(PREVIEW)] == [
+        (A2, PORTAL),
+        (A2, PORTAL),
+    ]
+
+
 def test_a_public_item_sends_no_credential(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     token = secrets.token_urlsafe(16)

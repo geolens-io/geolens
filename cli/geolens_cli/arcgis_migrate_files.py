@@ -26,6 +26,7 @@ from .arcgis_migrate_layers import (
     _JobGone,
     _apply_target,
     _commit_body,
+    _item_link,
     _title,
     _wait_for_dataset,
 )
@@ -206,6 +207,7 @@ def _fan_out(
     base: str,
     visibility: str,
     entry: ItemState,
+    link: Mapping[str, str],
 ) -> list[str]:
     """Import each layer of a multi-layer file as its own dataset."""
     from geolens.api.datasets import (
@@ -226,7 +228,8 @@ def _fan_out(
     entry.pending_upload = None
     ctx.save()
     request = FanOutCommitRequest(
-        layers=[FanOutLayerRequest(layer_name=n, title=titles[n]) for n in layers]
+        layers=[FanOutLayerRequest(layer_name=n, title=titles[n]) for n in layers],
+        **link,
     )
     try:
         with long_request_timeout(ctx.geolens.client):
@@ -263,7 +266,11 @@ def _fan_out(
 
 
 def _resume_fan_out(
-    ctx: MigrationContext, entry: ItemState, base: str, visibility: str
+    ctx: MigrationContext,
+    entry: ItemState,
+    base: str,
+    visibility: str,
+    link: Mapping[str, str],
 ) -> ItemResult | None:
     """Carry on a fan-out an earlier run sent but never saw the answer to.
 
@@ -285,7 +292,7 @@ def _resume_fan_out(
             raise ItemFailed(f"{base}: {exc}") from None
         status = "gone"
     if status == "pending":
-        failed = _fan_out(ctx, job_id, layers, base, visibility, entry)
+        failed = _fan_out(ctx, job_id, layers, base, visibility, entry, link)
         return ItemResult(
             notes=[f"the file holds {len(layers)} layers, one dataset each", *failed]
         )
@@ -383,12 +390,12 @@ def _finish_recorded(
     job_id: UUID,
     title: str,
     visibility: str,
-    columns: Mapping[str, str],
+    extra: Mapping[str, str],
 ) -> str | None:
     """The dataset of a job an earlier run uploaded, or None when the file must
     be uploaded again."""
     try:
-        _commit(ctx, job_id, title, visibility, columns)
+        _commit(ctx, job_id, title, visibility, extra)
         return _wait_for_dataset(ctx, job_id, title)
     except (_JobEnded, _JobGone):
         return None
@@ -422,6 +429,7 @@ def import_file(
         raise ItemFailed("the item is not in the inventory the plan was built from")
     base = item["target"]["title"] or item["title"]
     visibility = item["target"]["visibility"]
+    link = _item_link(ctx, item["id"])
     # Layers of a fan-out an earlier run queued but did not wait for.
     _wait_for_layers(ctx, entry, base)
     if entry.layer_datasets:
@@ -434,14 +442,14 @@ def import_file(
         return ItemResult(notes=list(entry.notes))
 
     if entry.fan_out:
-        resumed = _resume_fan_out(ctx, entry, base, visibility)
+        resumed = _resume_fan_out(ctx, entry, base, visibility, link)
         if resumed is not None:
             return resumed
 
     recorded = entry.layer_jobs.get(JOB_KEY)
     if recorded:
         dataset = _finish_recorded(
-            ctx, UUID(recorded), base, visibility, entry.file_columns
+            ctx, UUID(recorded), base, visibility, {**entry.file_columns, **link}
         )
         del entry.layer_jobs[JOB_KEY]
         if dataset is not None:
@@ -493,7 +501,7 @@ def import_file(
             ],
         )
     if len(layers) > 1:
-        failed = _fan_out(ctx, job_id, layers, base, visibility, entry)
+        failed = _fan_out(ctx, job_id, layers, base, visibility, entry, link)
         return ItemResult(
             notes=[f"the file holds {len(layers)} layers, one dataset each", *failed]
         )
@@ -507,7 +515,7 @@ def import_file(
     notes = []
     if item["type"] == "CSV" and not columns and preview.geometry_type is None:
         notes.append("no geometry column found; imported as a table")
-    _commit(ctx, job_id, base, visibility, columns)
+    _commit(ctx, job_id, base, visibility, {**columns, **link})
     dataset = _wait_for_dataset(ctx, job_id, base)
     del entry.layer_jobs[JOB_KEY]
     return _pinned(entry, dataset, notes)

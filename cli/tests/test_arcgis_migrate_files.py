@@ -226,6 +226,28 @@ def test_detected_coordinate_columns_ride_the_commit(runner, tmp_path, geolens, 
     assert body["x_column"] == "lon" and body["y_column"] == "lat"
 
 
+def test_the_commit_names_the_item_and_its_portal(runner, tmp_path, geolens, portal):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    [body] = files.commits.values()
+    assert (body["item_id"], body["portal_url"]) == (D3, PORTAL)
+
+
+def test_a_fan_out_names_the_item_and_its_portal(runner, tmp_path, geolens, portal):
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    [request] = files.fan_outs
+    assert (request["item_id"], request["portal_url"]) == (D3, PORTAL)
+
+
 def test_a_file_over_the_instance_limit_is_skipped_with_its_size(
     runner, tmp_path, geolens, portal
 ):
