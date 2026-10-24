@@ -431,6 +431,8 @@ jobs:
                       WINNER_ID="${RECHECK_IDS%% *}"
                     fi
                     if [ "$RECHECK_COUNT" = "1" ]; then
+                      # The API doesn't return job summaries; `gh run view` shows annotations.
+                      echo "::notice title=Newsletter scheduled::\"${SUBJECT}\" sends at ${PUBLISH_DATE} unless it is cancelled or edited in Buttondown before then."
                       summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
                     elif [ "$RECHECK_COUNT" != "unreadable" ] && [ "$RECHECK_COUNT" -gt 1 ]; then
                       # Whoever OBSERVES duplicates demotes EVERY losing copy,
@@ -493,6 +495,7 @@ jobs:
                   elif [ "$LOOKUP_OK" = "0" ]; then
                     summary "newsletter: drafted \"${SUBJECT}\" (duplicate check unreadable) — review and send by hand"
                   else
+                    echo "::notice title=Newsletter drafted::\"${SUBJECT}\" was drafted from fallback notes and won't send by itself. Rewrite and send it in Buttondown."
                     summary "newsletter: drafted \"${SUBJECT}\" (fallback notes) — rewrite and send by hand"
                   fi
                   ;;
