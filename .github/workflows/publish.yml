@@ -97,14 +97,15 @@ jobs:
               echo "Checks on main passed for ${GITHUB_SHA}."
               exit 0
             fi
-            if [ "$SECONDS" -ge "$deadline" ]; then
+            now=$SECONDS
+            if [ "$now" -ge "$deadline" ]; then
               echo "::error::Refusing to publish ${GITHUB_SHA}: its checks on main did not finish green within ${WAIT_SECONDS}s."
             else
               echo "Waiting for checks on ${GITHUB_SHA}."
             fi
             [ -z "$pending" ] || printf 'Still running:\n%s\n' "$pending"
             [ -z "$missing" ] || printf 'No successful run yet of:\n%s\n' "$missing"
-            [ "$SECONDS" -lt "$deadline" ] || exit 1
+            [ "$now" -lt "$deadline" ] || exit 1
             sleep "$POLL_SECONDS"
           done
 
