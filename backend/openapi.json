@@ -48243,7 +48243,7 @@
     },
     "/datasets/{dataset_id}/rows/": {
       "get": {
-        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.",
+        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.\nAn optional CQL2-JSON ``filter`` expression ANDs with them.",
         "operationId": "get_dataset_rows_endpoint_datasets__dataset_id__rows__get",
         "parameters": [
           {
@@ -48311,6 +48311,24 @@
               ],
               "title": "Order",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.",
+              "title": "Filter"
             }
           }
         ],

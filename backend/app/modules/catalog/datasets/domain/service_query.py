@@ -33,7 +33,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_column_ref,
 )
-from app.modules.catalog.datasets.domain.service_analysis import _json_safe
+from app.modules.catalog.datasets.domain.service_analysis import LayerFilter, _json_safe
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -516,6 +516,7 @@ async def _select_rows(
     sort_col: str | None,
     descending: bool,
     label_codes: dict[str, list[str]],
+    cql2_filter: LayerFilter | None = None,
 ) -> list[dict]:
     """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
@@ -543,11 +544,17 @@ async def _select_rows(
         keyset=keyset,
         label_codes=label_codes,
     )
+    cql2_binds: list = []
+    if cql2_filter is not None:
+        # An extra AND limb from compile_feature_cql2_ast: an unqualified,
+        # live-schema-vetted fragment whose values ride named :cql2_* binds.
+        where_sql += f" AND ({cql2_filter[0]})"
+        cql2_binds = cql2_filter[1]
     result = await db.execute(
         text(
             # codeql[py/sql-injection]
             f"{with_sql}SELECT {select_sql} FROM {table_ref}{join_sql}{where_sql} ORDER BY {order_sql} LIMIT :limit"
-        ).bindparams(**bind_params)
+        ).bindparams(*cql2_binds, **bind_params)
     )
     return [
         {key: _json_safe(value) for key, value in row._mapping.items()}
@@ -566,6 +573,7 @@ async def get_dataset_rows(
     sort: str | None = None,
     descending: bool = False,
     dataset_id: uuid.UUID | None = None,
+    cql2_filter: LayerFilter | None = None,
 ) -> tuple[list[dict], int, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
@@ -578,6 +586,10 @@ async def get_dataset_rows(
     Column names are validated against column_info to prevent injection.
     With ``dataset_id``, a filter also matches rows whose code's value label
     contains the term.
+
+    ``cql2_filter`` is a ``(where_sql, binds)`` pair from
+    ``compile_layer_filter``; its fragment ANDs into the same WHERE, and the
+    caller owns its validation.
 
     ``sort`` orders by that column, then gid; ``after_gid`` is still the last
     row's gid, and a page after a since-deleted cursor row is empty. Raises
@@ -621,6 +633,7 @@ async def get_dataset_rows(
             sort_col=sort_col,
             descending=descending,
             label_codes=label_codes,
+            cql2_filter=cql2_filter,
         )
 
         count_result = await db.execute(

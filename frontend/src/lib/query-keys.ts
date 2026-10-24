@@ -40,7 +40,8 @@ export const queryKeys = {
       cursor: number,
       filters?: Record<string, string>,
       sort?: DatasetRowsSort,
-    ) => ['dataset-rows', id, limit, cursor, filters, sort] as const,
+      cql2Filter?: string,
+    ) => ['dataset-rows', id, limit, cursor, filters, sort, cql2Filter] as const,
     rowsPrefix: (id: string) => ['dataset-rows', id] as const,
     history: (id: string, skip: number, limit: number) =>
       ['dataset-history', id, skip, limit] as const,

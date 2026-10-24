@@ -24161,6 +24161,12 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
          * Sort direction; applies only with `sort`.
          */
         order?: 'asc' | 'desc';
+        /**
+         * Filter
+         *
+         * Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.
+         */
+        filter?: string | null;
     };
     url: '/datasets/{dataset_id}/rows/';
 };

@@ -1204,8 +1204,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A metadata edit judges its visibility and status change as one move.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
         # Internal pointer reads sit beside the detail query that shares them, and
-        # the row browser's sort, keyset and label-filter SQL share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 652,
+        # the row browser's sort, keyset, label-filter and CQL2-filter SQL share its column projection.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 665,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
