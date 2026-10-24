@@ -51,7 +51,7 @@ Domain documentation uses the single-context layout. See `docs/agents/domain.md`
 Commands start at the repository root unless specified. Setup: [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md). Reuse existing environments; run `npm ci` in the relevant package when dependencies need installing/syncing.
 
 - Stack: `make dev-init` bootstraps; `make dev` starts; `make down` stops.
-- Schema changes: `make migrate`, then `make alembic-check` against a compatible DB at migration heads.
+- Schema changes: `make migrate`, then `make alembic-check` against a compatible DB at migration heads. `backend/tests/test_migration_upgrade_contract.py` (database-free) checks each `upgrade()` against the rolling-upgrade review rule.
 - Backend: `make test` / `make test-cov` use the API container. Python changes require `cd backend && uv run ruff check . && uv run ruff format --check .`. Coverage floor: 80%; McCabe limit: 15; `backend/pyproject.toml`'s `per-file-ignores` may only shrink.
 - Frontend: `cd frontend && API_PROXY_TARGET=http://localhost:8001 npm run dev`. Gates: `npm run build && npm run lint && npm run typecheck && npm run test:coverage` from `frontend/`; `npx tsc --noEmit` does not check this project. Focused test: `npx vitest run src/path/foo.test.ts`.
 - E2E needs a running stack: `npm run e2e` / `npm run e2e:smoke`; focused: `npx playwright test e2e/foo.spec.ts --project=chromium`. Run relevant smoke groups for user-flow changes: `e2e:smoke:core` gates PRs that touch the stack, and `e2e:smoke:audit` covers accessibility, record detail and the showcase; see the contributor guide. For a manual browser check through the Playwright MCP (sign-in, locators, screenshots, cleanup), read `docs/agents/browser-smoke.md`.
@@ -136,6 +136,7 @@ Reviewers, including the Codex bot, treat these as P1:
 - A violation of Rule 1, 2 or 3 above, a new outbound call without an opt-in and an `EGRESS.md` row, or a wider default CSP.
 - An open feature moved behind an edition, license or availability check, or a gated standards endpoint.
 - A migration that can lose existing data.
+- A migration whose `upgrade()` drops or renames a column or table, or narrows a column (type, `NOT NULL`, a tighter check), that the previous release reads. The previous release keeps running during a rolling upgrade: keep the old form for one release and drop it in a later minor.
 - A regression test that would still pass with the fix removed.
 - A user-facing string missing from any of the five locales.
 
