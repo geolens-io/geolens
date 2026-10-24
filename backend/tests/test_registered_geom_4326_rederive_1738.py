@@ -668,9 +668,11 @@ async def test_the_whole_repair_transaction_is_bounded(
     table_name = f"rd_txn_{uuid.uuid4().hex[:10]}"
     await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
 
+    # Long statements keep the deadline well inside one: a deadline that fires
+    # between statements reaches an idle asyncpg connection, which drops the 25P04.
     async def _slow_rederive(session, *args, **kwargs):
-        for _ in range(4):
-            await session.execute(text("SELECT pg_sleep(0.15)"))
+        for _ in range(3):
+            await session.execute(text("SELECT pg_sleep(0.5)"))
         raise AssertionError("the transaction deadline should have fired")
 
     try:
@@ -681,7 +683,7 @@ async def test_the_whole_repair_transaction_is_bounded(
             tasks_postgis_refresh, "_REPAIR_STATEMENT_TIMEOUT_MS", 60_000
         )
         monkeypatch.setattr(
-            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 300
+            tasks_postgis_refresh, "_REPAIR_TRANSACTION_TIMEOUT_MS", 750
         )
         with patch(
             "app.processing.ingest.metadata.rederive_geom_4326",
@@ -711,7 +713,7 @@ async def test_the_whole_repair_transaction_is_bounded(
 
 @pytest.mark.parametrize(
     ("configured", "repair_bound_ms"),
-    [("10min", 300), ("200ms", 60_000)],
+    [("10min", 500), ("500ms", 60_000)],
     ids=["longer-is-replaced", "shorter-is-kept"],
 )
 async def test_an_armed_transaction_timeout_meets_the_repair_bound(
@@ -744,9 +746,10 @@ async def test_an_armed_transaction_timeout_meets_the_repair_bound(
             await conn.invalidate()
             await conn.close()
 
+    # One statement, so the deadline can't fire between statements, where an
+    # idle asyncpg connection drops the 25P04.
     async def _slow_rederive(session, *args, **kwargs):
-        for _ in range(4):
-            await session.execute(text("SELECT pg_sleep(0.15)"))
+        await session.execute(text("SELECT pg_sleep(2)"))
         raise AssertionError("the repair's transaction deadline should have fired")
 
     admin_id = await get_user_id(test_db_session, "admin")
