@@ -171,6 +171,17 @@ def include_name(name, type_, parent_names):
     return True
 
 
+# Unmapped, but kept in the schema for rolling upgrades from 1.26.
+_UNMAPPED_DATASET_COLUMNS = frozenset(
+    {
+        "previous_version_number",
+        "previous_version_retained_at",
+        "previous_version_bytes",
+        "previous_version_refreshed_at",
+    }
+)
+
+
 def include_object(obj, name, type_, reflected, compare_to):
     """Exclude objects managed outside SQLAlchemy from autogenerate.
 
@@ -184,6 +195,15 @@ def include_object(obj, name, type_, reflected, compare_to):
     if name and name.startswith("procrastinate_"):
         return False
     if type_ == "index" and name == "ix_record_embeddings_hnsw":
+        return False
+    if (
+        type_ == "column"
+        and reflected
+        and compare_to is None
+        and name in _UNMAPPED_DATASET_COLUMNS
+        and obj.table.schema == "catalog"
+        and obj.table.name == "datasets"
+    ):
         return False
     return True
 

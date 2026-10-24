@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- During a rolling upgrade from 1.26 to 1.27, api and worker pods still
+  running 1.26 failed every dataset request and job, because migration
+  `0088_dataset_kept_versions` dropped four `catalog.datasets` columns they
+  read. The migration now empties those columns and leaves them in place, and
+  a later release drops them. Databases already upgraded to 1.27.0 have no
+  such columns and need nothing.
+
 ## [1.27.0] - 2026-10-24
 
 ### Added

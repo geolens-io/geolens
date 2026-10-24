@@ -76,14 +76,40 @@ async def _drop(session, dataset_id, tables) -> None:
     await session.commit()
 
 
+_LEGACY_COLUMNS = (
+    "previous_version_number",
+    "previous_version_retained_at",
+    "previous_version_bytes",
+    "previous_version_refreshed_at",
+)
+
+
+async def _legacy_columns() -> set[str]:
+    rows = await fresh_query(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'catalog' AND table_name = 'datasets' "
+        "AND column_name LIKE 'previous_version_%'"
+    )
+    return {row[0] for row in rows}
+
+
+@pytest.mark.parametrize("legacy_columns", ["kept", "dropped"])
 async def test_one_kept_version_survives_a_downgrade_and_an_upgrade(
-    test_db_session,
+    test_db_session, legacy_columns
 ) -> None:
-    """Down: the kept table takes the single name and the dataset columns; up: it is kept again, rows intact."""
+    """Down: the kept table takes the single name and the dataset columns, whether or not they were dropped; up: it is kept again, rows intact."""
     session = test_db_session
     dataset_id, base, tables = await _seed(session, versions=[2])
     single = _single_name(base, dataset_id)
     try:
+        if legacy_columns == "dropped":
+            await fresh_query(
+                "ALTER TABLE catalog.datasets "
+                + ", ".join(f"DROP COLUMN {c}" for c in _LEGACY_COLUMNS)
+            )
+        assert await _legacy_columns() == (
+            set(_LEGACY_COLUMNS) if legacy_columns == "kept" else set()
+        )
         down = run_alembic("downgrade", _BEFORE)
         assert down.returncode == 0, down.stderr
         row = await fresh_query(
@@ -109,7 +135,64 @@ async def test_one_kept_version_survives_a_downgrade_and_an_upgrade(
         assert await _gids(single) == [2]
     finally:
         run_alembic("upgrade", "heads")
+        await fresh_query(
+            "ALTER TABLE catalog.datasets "
+            "ADD COLUMN IF NOT EXISTS previous_version_number integer, "
+            "ADD COLUMN IF NOT EXISTS previous_version_retained_at timestamptz, "
+            "ADD COLUMN IF NOT EXISTS previous_version_bytes bigint, "
+            "ADD COLUMN IF NOT EXISTS previous_version_refreshed_at timestamptz"
+        )
         await _drop(session, dataset_id, [*tables.values(), single])
+
+
+async def test_an_upgrade_keeps_the_dataset_columns_empty(test_db_session) -> None:
+    """The kept version moves to its version row and the columns a 1.26 process maps stay, all NULL."""
+    session = test_db_session
+    dataset_id, base, tables = await _seed(session, versions=[2])
+    single = _single_name(base, dataset_id)
+    try:
+        down = run_alembic("downgrade", _BEFORE)
+        assert down.returncode == 0, down.stderr
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr
+
+        assert await _legacy_columns() == set(_LEGACY_COLUMNS)
+        row = await fresh_query(
+            f"SELECT {', '.join(_LEGACY_COLUMNS)} FROM catalog.datasets WHERE id = :id",
+            {"id": dataset_id},
+        )
+        assert row == [(None, None, None, None)]
+        kept = await fresh_query(
+            "SELECT version_number, kept_table, kept_bytes FROM "
+            "catalog.dataset_versions WHERE dataset_id = :id "
+            "AND kept_table IS NOT NULL",
+            {"id": dataset_id},
+        )
+        assert kept == [(2, single, 8192)]
+    finally:
+        run_alembic("upgrade", "heads")
+        await _drop(session, dataset_id, [*tables.values(), single])
+
+
+async def test_a_1_26_dataset_write_works_at_head(test_db_session) -> None:
+    """A dataset write and read shaped like 1.26's, naming the old columns, succeeds."""
+    session = test_db_session
+    dataset_id, _, _ = await _seed(session, versions=[])
+    try:
+        await fresh_query(
+            "UPDATE catalog.datasets SET current_version = 4, "
+            + ", ".join(f"{c} = NULL" for c in _LEGACY_COLUMNS)
+            + " WHERE id = :id",
+            {"id": dataset_id},
+        )
+        row = await fresh_query(
+            f"SELECT current_version, {', '.join(_LEGACY_COLUMNS)} "
+            "FROM catalog.datasets WHERE id = :id",
+            {"id": dataset_id},
+        )
+        assert row == [(4, None, None, None, None)]
+    finally:
+        await _drop(session, dataset_id, [])
 
 
 async def test_an_upgrade_writes_a_missing_version_row(test_db_session) -> None:
