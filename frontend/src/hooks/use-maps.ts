@@ -296,9 +296,13 @@ export function useMapShareToken(mapId: string | undefined) {
   });
 }
 
-// Group saves and visibility changes share this key and wait for each other,
-// so a slower answer can't undo a later one.
+// Group saves and visibility changes share this key, which holds the controls
+// while either runs, and a per-map scope, which sends them in the order made.
 const mapAudienceMutationKey = ['maps', 'audience'] as const;
+
+function mapAudienceScope(mapId: string | undefined) {
+  return mapId ? { id: `map-audience:${mapId}` } : undefined;
+}
 
 export function useMapAudienceBusy() {
   return useIsMutating({ mutationKey: mapAudienceMutationKey }) > 0;
@@ -315,10 +319,11 @@ async function applyMapAudience(
   qc.setQueryData<MapResponse>(queryKeys.maps.detail(mapId), (old) => old && { ...old, ...audience });
 }
 
-export function usePublishMap() {
+export function usePublishMap(mapId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: mapAudienceMutationKey,
+    scope: mapAudienceScope(mapId),
     // A map with groups cannot go private directly (the server keeps it
     // restricted), so "private" unshares it first.
     mutationFn: async ({ id, visibility }: { id: string; visibility: MapVisibility }) => {
@@ -348,10 +353,11 @@ export function usePublishMap() {
   });
 }
 
-export function useSetMapGroups() {
+export function useSetMapGroups(mapId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: mapAudienceMutationKey,
+    scope: mapAudienceScope(mapId),
     mutationFn: ({ mapId, groupIds, confirm }: { mapId: string; groupIds: string[]; confirm?: MapGroupsConfirm }) =>
       setMapGroups(mapId, groupIds, confirm),
     onSuccess: async (data, variables) => {
@@ -359,6 +365,9 @@ export function useSetMapGroups() {
         visibility: data.visibility as MapVisibility,
         groups: data.groups,
       });
+      // A map that becomes restricted loses its share link and embed tokens.
+      qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(variables.mapId) });
       // Sharing the layers' datasets changes those datasets too.
       for (const datasetId of data.shared_dataset_ids ?? []) {
         qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });

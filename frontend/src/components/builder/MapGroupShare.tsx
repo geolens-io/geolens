@@ -35,7 +35,7 @@ export function MapGroupShare({
   mapId, visibility, groups: current, hasLinks, focusOnOpen, onSaved, onPickerOpenChange,
 }: MapGroupShareProps) {
   const { t } = useTranslation('builder');
-  const save = useSetMapGroups();
+  const save = useSetMapGroups(mapId);
   const audienceBusy = useMapAudienceBusy();
   // Unmounting with the list open would otherwise leave the dialog's Escape blocked.
   useEffect(() => () => onPickerOpenChange?.(false), [onPickerOpenChange]);

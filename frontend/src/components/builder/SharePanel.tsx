@@ -930,7 +930,7 @@ export function ShareDialog({
 }: ShareDialogProps) {
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
-  const publishMap = usePublishMap();
+  const publishMap = usePublishMap(mapId);
   const audienceBusy = useMapAudienceBusy();
   // While the group picker's list is open, Escape closes the list, not the dialog.
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);

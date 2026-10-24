@@ -384,6 +384,41 @@ describe('map audience cache', () => {
     });
   });
 
+  it("sends a visibility change only after the same map's group save settles", async () => {
+    let finishSave!: (value: { visibility: string; groups: typeof PLANNERS[] }) => void;
+    mockSetMapGroups.mockReturnValueOnce(new Promise((resolve) => { finishSave = resolve; }) as never);
+    mockPublishMap.mockResolvedValueOnce({ visibility: 'internal' } as never);
+    const qc = keepingQc();
+    const { result } = renderHookWithWrapper(
+      () => ({ save: useSetMapGroups('map-1'), publish: usePublishMap('map-1') }),
+      { wrapper: wrapperFor(qc) },
+    );
+
+    act(() => {
+      result.current.save.mutate({ mapId: 'map-1', groupIds: ['g-2'] });
+      result.current.publish.mutate({ id: 'map-1', visibility: 'internal' });
+    });
+    await waitFor(() => expect(mockSetMapGroups).toHaveBeenCalled());
+    expect(mockPublishMap).not.toHaveBeenCalled();
+
+    await act(async () => finishSave({ visibility: 'restricted', groups: [PLANNERS] }));
+    await waitFor(() => expect(mockPublishMap).toHaveBeenCalledWith('map-1', 'internal'));
+  });
+
+  it("refetches the map's share link and embed tokens after a group save", async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'restricted', groups: [PLANNERS] });
+    const qc = keepingQc();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHookWithWrapper(() => useSetMapGroups('map-1'), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ mapId: 'map-1', groupIds: ['g-2'] });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.maps.shareToken('map-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.maps.embedTokens('map-1') });
+  });
+
   it('holds the cleared groups once "Only you" unshares the map', async () => {
     mockSetMapGroups.mockResolvedValueOnce({ visibility: 'private', groups: [] });
     const qc = keepingQc();
