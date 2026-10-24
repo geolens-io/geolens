@@ -88,6 +88,8 @@ dev = [
     "fakeredis>=2.37.0",
     "pystac>=1.15.2",
 ]
+# CI's pre-commit job installs only this group.
+pre-commit = ["pre-commit"]
 
 [tool.ruff.lint]
 # Enforce function complexity as well as module size.

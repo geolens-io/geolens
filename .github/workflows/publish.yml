@@ -25,9 +25,6 @@ env:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 jobs:
   # Images ship only from a commit whose checks on main passed: the latest
@@ -114,6 +111,12 @@ jobs:
     needs: require-green-commit
     runs-on: ubuntu-26.04
     timeout-minutes: 45
+    # packages: the GHCR push; id-token and attestations: the SBOM attestation.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:

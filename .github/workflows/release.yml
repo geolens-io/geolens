@@ -18,36 +18,34 @@ on:
       - completed
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: Create GitHub Release
-    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. The job-level
-    # startsWith(head_branch, 'v') gate is necessary but not sufficient — a
-    # workflow_dispatch smoke run also has head_branch set to the dispatched
-    # ref's name, so `--ref v1.18.0` matches this check exactly like a real
-    # tag push does. The step-level event check below is what actually
-    # excludes a dispatch.
+    # Only for a SUCCESSFUL smoke that a vX.Y.Z tag push started. A
+    # workflow_dispatch smoke also sets head_branch to the dispatched ref's
+    # name, so `--ref v1.18.0` passes the startsWith check exactly like a
+    # tag push does; the event check keeps a dispatch from starting the job
+    # at all, before anything checks out the smoked commit.
     if: >
       github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    permissions:
+      contents: write
     env:
       TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
-      # The job-level startsWith(head_branch, 'v') gate also
-      # matches ordinary branch names like `video-fix` smoked via
-      # workflow_dispatch, and it matches a workflow_dispatch smoke of a real
-      # tag ref too — head_branch carries the dispatched ref's name either
-      # way, so it cannot on its own tell "this tag was smoked by a tag push"
-      # from "this tag was smoked on demand, with whatever image version the
-      # dispatch input happened to carry". Require workflow_run.event ==
-      # 'push' as well: only a smoke that itself ran because of a tag push
-      # proves the artifact under test is bound to this tag (prod-smoke.yml's
-      # own ref-binding fix). Anything else reaching this job is an anomaly,
-      # so fail loudly rather than releasing from it.
+      # Only a smoke that itself ran because of a tag push proves the
+      # artifact under test is bound to this tag; an on-demand smoke tests
+      # whatever image version its dispatch input carried. The job-level `if:`
+      # already requires a push and a `v` prefix, which a branch like
+      # `video-fix` also has. This step repeats the event check and requires
+      # a semver tag, so anything else that reaches the job fails loudly
+      # rather than releasing.
       - name: Assert semver-shaped tag
         env:
           SMOKE_EVENT: ${{ github.event.workflow_run.event }}
