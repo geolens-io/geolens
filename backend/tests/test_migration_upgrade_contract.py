@@ -209,7 +209,7 @@ def _hits(path: Path) -> list[str]:
                 if m.start() not in explained:
                     snippet = " ".join(text[m.start() :].split())[:60]
                     hits.append(f"line {node.lineno}: unrecognized {snippet!r}")
-    return sorted(set(hits), key=lambda h: int(h.split()[1].rstrip(":")))
+    return sorted(hits, key=lambda h: int(h.split()[1].rstrip(":")))
 
 
 def _all_hits() -> dict[str, list[str]]:
@@ -290,6 +290,20 @@ def test_counts_each_contract_statement_in_one_string(tmp_path: Path) -> None:
         'ALTER TABLE t DROP COLUMN b")\n',
         encoding="utf-8",
     )
+    assert len(_hits(path)) == 2
+
+
+@pytest.mark.architecture
+@pytest.mark.parametrize(
+    "line",
+    [
+        'sql = ["DROP TABLE a", "DROP TABLE b"]',
+        'op.drop_column("t", "a"); op.drop_column("t", "b")',
+    ],
+)
+def test_counts_each_contract_step_on_one_line(tmp_path: Path, line: str) -> None:
+    path = tmp_path / "9999_case.py"
+    path.write_text(f"def upgrade():\n    {line}\n", encoding="utf-8")
     assert len(_hits(path)) == 2
 
 
