@@ -23,7 +23,7 @@
 # scoped entry + rationale in .trivyignore.yaml). The official postgis/postgres
 # entrypoint runs as root only to initdb/chown on first boot, then drops to the
 # unprivileged `postgres` user via gosu for the server process.
-FROM --platform=linux/amd64 postgis/postgis:18-3.6
+FROM --platform=linux/amd64 postgis/postgis:18-3.6@sha256:e84455a058f60f06dd8c40e66a2c628b8fc113d9fca0896e1f308b25b897207f
 
 # pgvector for semantic-search embeddings, from the PGDG apt repository that the
 # official postgres/postgis base image already configures.

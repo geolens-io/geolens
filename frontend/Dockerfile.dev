@@ -2,7 +2,7 @@
 # Vite dev server image — runs as non-root `node` user (uid 1000).
 # Uses a BuildKit npm cache mount.
 
-FROM node:26.12.0-alpine
+FROM node:26.12.0-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5
 
 WORKDIR /app
 
