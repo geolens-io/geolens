@@ -121,6 +121,8 @@ def _render(node: ast.AST) -> str | None:
 def _strings(node: ast.AST) -> list[ast.AST]:
     """Outermost string expressions under ``node`` except docstrings."""
     if _render(node) is not None:
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            return [node, *_strings(node.right)]
         return [node]
     children = list(ast.iter_child_nodes(node))
     if (
@@ -251,6 +253,7 @@ _UPGRADE_CASES = {
     "retype": 'op.alter_column("t", "a", type_=sa.Integer())',
     "implicit concat": 'op.execute("ALTER TABLE t " "drop  column a")',
     "plus concat": 'op.execute("ALTER TABLE t DROP " + "COLUMN a")',
+    "percent operand": 'op.execute("ALTER TABLE t %s" % "DROP COLUMN a")',
     "f-string": 'op.execute(sa.text(f"ALTER TABLE {t} RENAME COLUMN a TO b"))',
     "alter type": 'op.execute("ALTER TABLE t ALTER a SET DATA TYPE int")',
     "set not null sql": 'op.execute("ALTER TABLE t ALTER COLUMN a\\n SET NOT NULL")',
