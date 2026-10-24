@@ -188,6 +188,59 @@ describe('DataDrivenStyleEditor', () => {
         { value: 2, color: expect.any(String) },
       ]);
     });
+
+    it('keeps saved labels when a ramp change regenerates a float-coded style', async () => {
+      mockUseColumnValues.mockReturnValue(hookData({ values: [1.5, 2.5], count: 2 }));
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_column_info: [{ name: 'ratio', type: 'double precision' }],
+            style_config: {
+              mode: 'categorical',
+              column: 'ratio',
+              ramp: 'Set2',
+              categories: [
+                { value: 1.5, label: 'Low', color: '#111111' },
+                { value: 2.5, color: '#222222' },
+              ],
+            },
+            paint: { 'fill-color': colorExprFor('ratio') },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+      await userEvent.setup().click(screen.getByRole('button', { name: /Paired/i }));
+
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled());
+      const [, config] = onStyleConfigChange.mock.calls.at(-1)!;
+      expect((config as StyleConfig).categories).toEqual([
+        { value: 1.5, label: 'Low', color: expect.any(String) },
+        { value: 2.5, color: expect.any(String) },
+      ]);
+    });
+
+    it('points to graduated mode only for columns categorical mode leaves out', () => {
+      const hint = /numeric columns available in graduated mode/;
+      const { unmount } = render(
+        <DataDrivenStyleEditor layer={makeLayer()} onStyleConfigChange={vi.fn()} />,
+      );
+      expect(screen.queryByText(hint)).toBeNull();
+      unmount();
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_column_info: [
+              { name: 'population', type: 'integer' },
+              { name: 'ratio', type: 'double precision' },
+            ],
+          })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(hint).textContent).toMatch(/^1 /);
+    });
   });
 
   describe('useEffect guard — categorical', () => {
@@ -1390,6 +1443,7 @@ describe('DataDrivenStyleEditor', () => {
       render(
         <DataDrivenStyleEditor
           layer={makeLayer({
+            dataset_column_info: [{ name: 'ratio', type: 'double precision' }],
             paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
             style_config: { builder: { fillColorSaved: '#ff0000', outlineWidth: 2 } },
           })}

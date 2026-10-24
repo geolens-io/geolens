@@ -373,6 +373,7 @@ export function DataDrivenStyleEditor({
   const columnIsBoolean = columns.some((c) => c.name === column && isBooleanColumn(c.type));
   const columnIsInteger = columns.some((c) => c.name === column && isIntegerColumn(c.type));
   const numericColumns = columns.filter((c) => isNumericColumn(c.type));
+  const numericColumnsHiddenHere = numericColumns.filter((c) => !textColumns.includes(c));
   const filteredColumns = mode === 'categorical' ? textColumns : numericColumns;
 
   const columnForCategorical = mode === 'categorical' && column ? column : undefined;
@@ -515,8 +516,15 @@ export function DataDrivenStyleEditor({
     const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
     const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback, columnIsBoolean);
 
+    // A ramp change on the same column keeps the saved labels, which may have
+    // been imported for a column the attribute metadata has no labels for.
+    const savedLabels = new Map(
+      (styleConfig?.column === column ? styleConfig.categories ?? [] : [])
+        .filter((c) => c.label !== undefined)
+        .map((c) => [String(c.value), c.label]),
+    );
     const categories = values.map((v, i) => {
-      const label = valueLabelFor(valueLabels, v);
+      const label = savedLabels.get(String(v)) ?? valueLabelFor(valueLabels, v);
       return { value: v, ...(label !== undefined ? { label } : {}), color: colors[i] };
     });
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
@@ -931,13 +939,11 @@ export function DataDrivenStyleEditor({
         </p>
       )}
 
-      {/* Mode defaults to Categorical, whose Column dropdown lists only text
-          columns, so numeric columns (e.g. `mag`) would be invisible with no hint.
-          Surface a persistent pointer whenever numeric columns exist but are
-          hidden by Categorical mode, so graduated styling is discoverable. */}
-      {mode === 'categorical' && numericColumns.length > 0 && (
+      {/* Mode defaults to Categorical, whose Column dropdown leaves out float
+          columns (e.g. `mag`), so point to graduated mode while it hides any. */}
+      {mode === 'categorical' && numericColumnsHiddenHere.length > 0 && (
         <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
-          {t('dataDriven.numericColumnsAvailable', { count: numericColumns.length })}{' '}
+          {t('dataDriven.numericColumnsAvailable', { count: numericColumnsHiddenHere.length })}{' '}
           <button
             type="button"
             className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
