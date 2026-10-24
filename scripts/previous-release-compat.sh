@@ -79,7 +79,7 @@ for tool in docker git uv curl openssl python3; do
   command -v "${tool}" >/dev/null 2>&1 || { echo "${tool} is required" >&2; exit 2; }
 done
 # The login and alembic steps reach the published ports on 127.0.0.1.
-docker_host="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)}"
+docker_host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
 case "${docker_host}" in
   "" | unix://* | npipe://*) ;;
   *) echo "needs a local Docker daemon, got ${docker_host}" >&2; exit 2 ;;
