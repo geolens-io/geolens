@@ -148,6 +148,11 @@ class ItemState:
     # What of the item GeoLens doesn't import, such as a service's raster
     # layers; cutover counts each as a loss.
     left_behind: list[str] = field(default_factory=list)
+    # Set when the item's import stage finished: the service's left-out layer
+    # notes and, per imported layer, its label and layer id, from which a rerun
+    # gives the recorded datasets the plan's current title and visibility
+    # without probing the service again.
+    import_pass: dict[str, Any] | None = None
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)

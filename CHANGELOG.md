@@ -7,6 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+- A rerun of `geolens arcgis migrate` no longer probes an item's service before
+  it retries a step the item still needs. When the state file records that an
+  item's import stage finished, the rerun applies the plan's current title and
+  visibility to the recorded datasets and goes straight to the item metadata,
+  keywords and ownership transfer, so you can retry a failed metadata or
+  transfer step while the service is unavailable or refuses the ArcGIS
+  credential. A rerun of a non-public item whose import stage finished no
+  longer needs an ArcGIS credential either; an item already brought up to
+  date still refreshes from the source, and that refresh keeps demanding one.
+  A plan whose service URL changed still falls back to the full
+  probe and import, and the rerun imports no layer the recorded import didn't.
+
 ## [1.27.1] - 2026-10-24
 
 Upgrade from 1.26 straight to 1.27.1 rather than 1.27.0. An instance already

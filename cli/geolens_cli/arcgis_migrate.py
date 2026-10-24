@@ -48,7 +48,7 @@ from .arcgis_migrate_export import (
 from .arcgis_migrate_cutover import failing_checks, inventory_changes
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
-from .arcgis_migrate_layers import import_layers
+from .arcgis_migrate_layers import _import_recorded, import_layers
 from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
@@ -1185,6 +1185,16 @@ def _portal_client(
             item["action"] == _plan.IMPORT_MAP
             and state.status(item["id"]) not in FINISHED
             and getattr(state.items.get(item["id"]), "map_id", None)
+        )
+        and not (
+            # A rerun of a service item whose import finished resumes from the
+            # recorded datasets; a finished item brought up to date still
+            # refreshes from the source, so only a rerun is spared.
+            item["action"] == _plan.IMPORT_LAYERS
+            and state.status(item["id"]) not in FINISHED
+            and _import_recorded(
+                state.items.get(item["id"]), rows[item["id"]].get("url")
+            )
         )
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
