@@ -67,9 +67,9 @@ and releases use semantic versioning.
   restores any of them, and `DELETE
   /datasets/{id}/previous-versions/{version_number}` deletes one. The admin
   stats report their size in `previous_versions_bytes`, and
-  `total_storage_bytes` now counts them. Three kept versions take up to three
-  times a replaced dataset's size; set the limit to 1 to keep the earlier
-  behaviour. (#3281, #3282)
+  `total_storage_bytes` now counts them. Three kept versions can add up to three
+  copies of a dataset's size on top of its current one; set the limit to 1 to
+  keep the earlier behaviour. (#3281, #3282)
 - `POST /datasets/{id}/aggregate/` returns exact summaries of a layer's rows
   for widgets: `count`, `stats` (count, sum, avg, min, max of a numeric
   column), `value_counts`, `histogram` and `group_by`, over the whole layer or
