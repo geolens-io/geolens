@@ -53,6 +53,13 @@ describe('MapGroupShare', () => {
     expect(await screen.findByText('Pick groups, then save.')).toBeInTheDocument();
   });
 
+  it('announces each pick after the opening hint', async () => {
+    const { user } = setup({ focusOnOpen: true });
+    expect(await screen.findByText('Pick groups, then save.')).toBeInTheDocument();
+    await pick(user, 'Surveyors');
+    expect(await screen.findByText('Surveyors added. Save to apply.')).toBeInTheDocument();
+  });
+
   it('lists the groups a restricted map is shared with', async () => {
     setup({ visibility: 'restricted', groups: [SURVEYORS] });
     expect(await screen.findByText('Surveyors')).toBeInTheDocument();

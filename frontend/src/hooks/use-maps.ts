@@ -309,7 +309,8 @@ export function usePublishMap() {
       }
       return { clearedGroups, visibility: (await publishMap(id, visibility)).visibility };
     },
-    onSuccess: (_data, variables) => {
+    // Settled, not success: the groups may already be cleared when publishMap fails.
+    onSettled: (_data, _error, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);

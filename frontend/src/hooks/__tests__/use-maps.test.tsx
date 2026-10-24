@@ -285,6 +285,23 @@ describe('usePublishMap', () => {
     expect(mockPublishMap).toHaveBeenCalledWith('map-1', 'private');
   });
 
+  it('refetches the map when the visibility PUT fails after the groups were cleared', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'internal', groups: [] });
+    mockPublishMap.mockRejectedValueOnce(new ApiError('Internal Server Error', 500));
+    const qc = makeQc();
+    seedGroups(qc, [{ id: 'g-1', name: 'Surveyors' }]);
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ id: 'map-1', visibility: 'private' }),
+      ).rejects.toThrow();
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.maps.detail('map-1') });
+  });
+
   it('leaves groups alone for a map without any', async () => {
     mockPublishMap.mockResolvedValueOnce({} as never);
     const qc = makeQc();

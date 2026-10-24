@@ -141,7 +141,7 @@ export function MapGroupShare({ mapId, visibility, groups: current, hasLinks, fo
         />
       )}
       <LiveAnnouncement
-        text={focusOnOpen ? t('share.groups.openedHint') : announcement.text}
+        text={focusOnOpen && announcement.n === 0 ? t('share.groups.openedHint') : announcement.text}
         trigger={String(announcement.n)}
       />
     </section>
