@@ -1,5 +1,6 @@
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
+import { groupsDigits } from '@/lib/feature-property-value';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 
 const EXCLUDED_PROPERTY_KEYS = new Set(['geom', 'geometry']);
@@ -14,6 +15,8 @@ interface AccessibleMapFeature {
   geometryType: string;
   bounds: [west: number, south: number, east: number, north: number] | null;
   properties: [key: string, value: unknown][];
+  /** Properties whose numbers render without digit grouping. */
+  ungroupedKeys: ReadonlySet<string>;
 }
 
 export interface AccessibleMapFeatureResult {
@@ -96,6 +99,14 @@ function visibleProperties(
   return entries;
 }
 
+function ungroupedKeys(layer: SharedLayerResponse): Set<string> {
+  return new Set(
+    (layer.column_info ?? [])
+      .filter((column) => typeof column.semantic_role === 'string' && !groupsDigits(column.semantic_role))
+      .map((column) => String(column.name)),
+  );
+}
+
 function identityForFeature(
   feature: MapGeoJSONFeature,
   layerName: string,
@@ -176,6 +187,7 @@ export function toAccessibleMapFeatures(
       geometryType: feature.geometry?.type ?? layer.geometry_type ?? 'Unknown',
       bounds,
       properties: visibleProperties(properties, layer),
+      ungroupedKeys: ungroupedKeys(layer),
     });
   }
 

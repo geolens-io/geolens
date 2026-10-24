@@ -74,8 +74,26 @@ describe('toAccessibleMapFeatures', () => {
         geometryType: 'LineString',
         bounds: [-76.5, 39.1, -75.2, 40.4],
         properties: [['name', 'Market Street'], ['speed', 25]],
+        ungroupedKeys: new Set(),
       }],
     });
+  });
+
+  it('lists identifier and temporal columns as ungrouped', () => {
+    const layer = makeLayer({
+      column_info: [
+        { name: 'name', type: 'text', semantic_role: 'identifier' },
+        { name: 'speed', type: 'integer', semantic_role: 'measure' },
+        { name: 'built', type: 'integer', semantic_role: 'temporal' },
+        { name: 'lanes', type: 'integer' },
+      ],
+    });
+    const result = toAccessibleMapFeatures(
+      [makeFeature()],
+      (mapLayerId) => mapLayerId === 'viewer-layer-layer-1' ? layer : null,
+    );
+
+    expect(result.features[0].ungroupedKeys).toEqual(new Set(['name', 'built']));
   });
 
   it('excludes basemap/unmanaged features and honors disabled popups', () => {

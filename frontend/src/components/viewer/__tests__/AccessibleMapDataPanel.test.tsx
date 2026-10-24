@@ -38,16 +38,20 @@ const RESULT: AccessibleMapFeatureResult = {
     geometryType: 'Point',
     bounds: [-76.6122, 39.2904, -76.6122, 39.2904],
     properties: [['street_name', 'Fayette Street'], ['lanes', 2]],
+    ungroupedKeys: new Set(),
   }],
 };
 
-function Harness({ onRefresh = vi.fn() }: { onRefresh?: () => void }) {
+function Harness({
+  onRefresh = vi.fn(),
+  featureResult = RESULT,
+}: { onRefresh?: () => void; featureResult?: AccessibleMapFeatureResult }) {
   const [open, setOpen] = useState(false);
   return (
     <AccessibleMapDataPanel
       layers={[LAYER]}
       visibleLayers={new Set(['layer-1'])}
-      featureResult={RESULT}
+      featureResult={featureResult}
       open={open}
       onOpenChange={setOpen}
       onRefresh={onRefresh}
@@ -80,6 +84,28 @@ describe('AccessibleMapDataPanel', () => {
     expect(within(dialog).getByText('Street Name')).toBeInTheDocument();
     expect(within(dialog).getByText('Fayette Street')).toBeInTheDocument();
     expect(within(dialog).getByRole('region', { name: 'Map layer and feature data' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('shows a year without digit grouping and a measure with it', () => {
+    const [feature] = RESULT.features;
+    render(
+      <Harness
+        featureResult={{
+          ...RESULT,
+          features: [{
+            ...feature,
+            properties: [['year_built', 1952], ['lane_feet', 1952]],
+            ungroupedKeys: new Set(['year_built']),
+          }],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Map data' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Map data' });
+    expect(within(dialog).getByText('1952')).toBeInTheDocument();
+    expect(within(dialog).getByText('1,952')).toBeInTheDocument();
   });
 
   it('refreshes the viewport-derived feature list on demand', () => {

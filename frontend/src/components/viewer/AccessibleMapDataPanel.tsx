@@ -41,11 +41,12 @@ function formatValue(
   locale: string,
   booleanTrue: string,
   booleanFalse: string,
+  useGrouping: boolean,
 ): string {
   // 5 fraction digits (not the shared default of 4): this panel is the
   // accessible surface for raw feature coordinates, so it keeps the more
   // precise formatting.
-  return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5) ?? '—';
+  return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5, useGrouping) ?? '—';
 }
 
 export function AccessibleMapDataPanel({
@@ -240,6 +241,7 @@ export function AccessibleMapDataPanel({
                                     i18n.language,
                                     t('viewer.data.booleanTrue'),
                                     t('viewer.data.booleanFalse'),
+                                    !feature.ungroupedKeys.has(key),
                                   )}
                                 </dd>
                               </div>

@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { truncateGraphemes } from '@/lib/text';
 import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
-import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
+import { formatFeaturePropertyValue, groupsDigits } from '@/lib/feature-property-value';
 import { useAttributes } from '@/components/dataset/hooks/use-dataset';
 import { valueLabelFor, valueLabelsByField, type ValueLabels } from '@/lib/value-labels';
 
@@ -15,7 +15,13 @@ export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
   columnInfo?:
-    | { name: string; type: string; title?: string; value_labels?: Record<string, string> }[]
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+      }[]
     | null;
   /** Dataset whose attribute metadata supplies the row labels; without it
    *  every key is humanized. */
@@ -111,17 +117,6 @@ export function FeaturePopup({
 
   const feature = features[activeIndex] ?? features[0];
 
-  const formatValue = useCallback(
-    (value: unknown): string =>
-      formatFeaturePropertyValue(
-        value,
-        i18n.language,
-        t('featurePopup.booleanTrue'),
-        t('featurePopup.booleanFalse'),
-      ) ?? '--',
-    [t],
-  );
-
   const { data: attributeList } = useAttributes(feature?.datasetId);
   const columnInfoForTitles = feature?.columnInfo;
   const fieldTitles = useMemo(() => {
@@ -149,6 +144,35 @@ export function FeaturePopup({
     }
     return labels;
   }, [attributeList, columnInfoForTitles]);
+
+  const semanticRoles = useMemo(() => {
+    const roles = new Map<string, string>();
+    if (attributeList) {
+      for (const attribute of attributeList.attributes) {
+        if (attribute.is_current && attribute.semantic_role) {
+          roles.set(attribute.field_name, attribute.semantic_role);
+        }
+      }
+      return roles;
+    }
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.semantic_role) roles.set(column.name, column.semantic_role);
+    }
+    return roles;
+  }, [attributeList, columnInfoForTitles]);
+
+  const formatValue = useCallback(
+    (value: unknown, key: string): string =>
+      formatFeaturePropertyValue(
+        value,
+        i18n.language,
+        t('featurePopup.booleanTrue'),
+        t('featurePopup.booleanFalse'),
+        4,
+        groupsDigits(semanticRoles.get(key)),
+      ) ?? '--',
+    [t, semanticRoles],
+  );
 
   const properties = feature?.properties;
   const columnInfo = feature?.columnInfo;
@@ -194,7 +218,7 @@ export function FeaturePopup({
   const { layerName, title } = feature;
 
   const handleCopy = async (key: string, value: unknown) => {
-    const text = formatValue(value);
+    const text = formatValue(value, key);
     try {
       await navigator.clipboard.writeText(text);
       setCopiedKey(key);
@@ -331,7 +355,7 @@ export function FeaturePopup({
                       <span className="flex items-start gap-1">
                         <ValueDisplay
                           value={value}
-                          formatValue={formatValue}
+                          formatValue={(v) => formatValue(v, key)}
                           labels={valueLabels.get(key)}
                         />
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">

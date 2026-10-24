@@ -470,6 +470,44 @@ class TestSharedMapColumnTitles:
             {"name": "plain", "type": "text"},
         ]
 
+    async def test_shared_payload_carries_the_semantic_role_of_exposed_columns(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "year_built", "type": "integer"},
+                {"name": "floors", "type": "integer"},
+            ],
+        )
+        test_db_session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="year_built", semantic_role="temporal"
+                ),
+                AttributeMetadata(dataset_id=ds.id, field_name="floors"),
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="not_exposed",
+                    semantic_role="identifier",
+                ),
+            ]
+        )
+        await test_db_session.commit()
+        _map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == [
+            {"name": "year_built", "type": "integer", "semantic_role": "temporal"},
+            {"name": "floors", "type": "integer"},
+        ]
+
 
 class TestSharedMapValueLabels:
     async def _embed_map(self, client, admin_auth_header, session, labels):

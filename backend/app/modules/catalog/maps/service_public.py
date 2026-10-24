@@ -387,7 +387,7 @@ def _exposed_pairs(pairs: list[tuple[uuid.UUID, str]]):
 async def _attribute_display_by_dataset(
     session: AsyncSession, exposed: dict[uuid.UUID, set[str]]
 ) -> dict[uuid.UUID, dict[str, dict]]:
-    """Current titles and value labels of the exposed columns, by dataset.
+    """Current titles, roles and value labels of the exposed columns, by dataset.
 
     ``exposed`` holds the column names each authorized dataset's layers show.
     The labels' size is measured in SQL first, and only a dataset within
@@ -410,6 +410,7 @@ async def _attribute_display_by_dataset(
             AttributeMetadata.dataset_id,
             AttributeMetadata.field_name,
             AttributeMetadata.title,
+            AttributeMetadata.semantic_role,
             func.coalesce(
                 func.octet_length(cast(AttributeMetadata.value_labels, Text)), 0
             ),
@@ -420,6 +421,7 @@ async def _attribute_display_by_dataset(
                     AttributeMetadata.title.is_not(None),
                     AttributeMetadata.title != "",
                 ),
+                AttributeMetadata.semantic_role.is_not(None),
                 AttributeMetadata.value_labels.is_not(None),
             ),
         )
@@ -427,11 +429,16 @@ async def _attribute_display_by_dataset(
     display: dict[uuid.UUID, dict[str, dict]] = {}
     label_bytes: dict[uuid.UUID, int] = {}
     labelled: set[tuple[uuid.UUID, str]] = set()
-    for dataset_id, field_name, title, size in rows.all():
+    for dataset_id, field_name, title, role, size in rows.all():
         if title:
             display.setdefault(dataset_id, {}).setdefault(field_name, {})["title"] = (
                 title
             )
+        if role:
+            # The popup reads a year or an id without digit grouping.
+            display.setdefault(dataset_id, {}).setdefault(field_name, {})[
+                "semantic_role"
+            ] = role
         if size:
             labelled.add((dataset_id, field_name))
             label_bytes[dataset_id] = label_bytes.get(dataset_id, 0) + size
@@ -465,7 +472,7 @@ async def _attribute_display_by_dataset(
 def _column_info_with_display(
     column_info: list | None, display: dict[str, dict] | None
 ) -> list | None:
-    """Attach each exposed column's title and value labels; other columns add nothing."""
+    """Attach each exposed column's title, role and labels; others add nothing."""
     if not column_info or not display:
         return column_info
     return [

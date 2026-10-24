@@ -602,3 +602,55 @@ describe('FeaturePopup — coded values', () => {
     expect(screen.queryByText('Active')).not.toBeInTheDocument();
   });
 });
+
+describe('FeaturePopup — digit grouping', () => {
+  it('shows a year or an identifier without digit grouping', () => {
+    mockUseAttributes.mockReturnValue({
+      data: {
+        attributes: [
+          { ...attribute('year_built', null), semantic_role: 'temporal' },
+          { ...attribute('parcel_no', null), semantic_role: 'identifier' },
+          { ...attribute('floor_area', null), semantic_role: 'measure' },
+        ],
+        total: 3,
+      },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { year_built: 1952, parcel_no: 30012, floor_area: 1952 },
+            visibleFields: ['year_built', 'parcel_no', 'floor_area'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('1952')).toBeInTheDocument();
+    expect(screen.getByText('30012')).toBeInTheDocument();
+    expect(screen.getByText('1,952')).toBeInTheDocument();
+  });
+
+  it('takes the role from column_info when the attributes are not readable', () => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            properties: { year_built: 1952 },
+            columnInfo: [{ name: 'year_built', type: 'integer', semantic_role: 'temporal' }],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('1952')).toBeInTheDocument();
+  });
+});
