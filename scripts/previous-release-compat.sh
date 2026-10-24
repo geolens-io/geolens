@@ -78,6 +78,12 @@ printf '%s' "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
 for tool in docker git uv curl openssl python3; do
   command -v "${tool}" >/dev/null 2>&1 || { echo "${tool} is required" >&2; exit 2; }
 done
+# The login and alembic steps reach the published ports on 127.0.0.1.
+docker_host="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)}"
+case "${docker_host}" in
+  "" | unix://* | npipe://*) ;;
+  *) echo "needs a local Docker daemon, got ${docker_host}" >&2; exit 2 ;;
+esac
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/geolens-compat.XXXXXX")"
 RELEASE_DIR="${WORK}/release"
@@ -90,7 +96,7 @@ mkdir "${RELEASE_DIR}"
 compose() {
   local keep=(PATH="${PATH}" HOME="${HOME}")
   local name
-  for name in DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY; do
+  for name in DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY REGISTRY IMAGE_OWNER; do
     if [ -n "${!name:-}" ]; then keep+=("${name}=${!name}"); fi
   done
   env -i "${keep[@]}" docker compose -p "${PROJECT}" \
@@ -263,7 +269,8 @@ log "[${VERSION}] schema ${release_revision} -> ${head_revision}"
 
 request dataset GET "/datasets/${SEED_ID}"
 request items GET "/collections/${SEED_ID}/items?limit=2"
-grep -q '"features"' "${BODY}" || fail_with_evidence "OGC items response has no features" "" "${BODY}"
+python3 -I -c 'import json, sys; sys.exit(len(json.load(open(sys.argv[1])).get("features") or []) != 2)' "${BODY}" \
+  || fail_with_evidence "OGC items response does not hold the two seeded features" "" "${BODY}"
 write_geojson "${WORK}/after.geojson" -74.0
 ingest "${WORK}/after.geojson" compat-after-upgrade
 AFTER_ID="${INGESTED_ID}"
