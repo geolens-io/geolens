@@ -7,14 +7,20 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.27.1] - 2026-10-24
+
+Upgrade from 1.26 straight to 1.27.1 rather than 1.27.0. An instance already
+on 1.27.0 moves to 1.27.1 with no migration.
+
 ### Fixed
 
-- During a rolling upgrade from 1.26 to 1.27, api and worker pods still
-  running 1.26 failed every dataset request and job, because migration
-  `0088_dataset_kept_versions` dropped four `catalog.datasets` columns they
-  read. The migration now empties those columns and leaves them in place, and
-  a later release drops them. Databases already upgraded to 1.27.0 have no
-  such columns and need nothing.
+- During a rolling upgrade from 1.26 to 1.27.0, api and worker processes still
+  running 1.26 failed every dataset request and every job they picked up until
+  they were replaced, because migration `0088_dataset_kept_versions` dropped
+  four `catalog.datasets` columns they read. The migration now empties those
+  columns and leaves them in place, so 1.26 processes keep working while the
+  upgrade rolls out. A later release drops them. Databases already upgraded to
+  1.27.0 have no such columns and need nothing. (#3380)
 
 ## [1.27.0] - 2026-10-24
 
@@ -6517,7 +6523,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.27.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.27.1...HEAD
+[1.27.1]: https://github.com/geolens-io/geolens/compare/v1.27.0...v1.27.1
 [1.27.0]: https://github.com/geolens-io/geolens/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/geolens-io/geolens/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/geolens-io/geolens/compare/v1.25.0...v1.25.1
