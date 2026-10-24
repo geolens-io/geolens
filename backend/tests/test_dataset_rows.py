@@ -14,7 +14,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
+from app.modules.catalog.datasets.domain import service_query
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.schemas import DatasetRowsResponse
 
 from tests.factories import create_dataset, get_user_id
 
@@ -296,6 +298,7 @@ class TestRowsResponse:
         assert "columns" in data
         assert isinstance(data["rows"], list)
         assert data["approximate_total"] >= 5  # reltuples is approximate
+        assert data["total_kind"] == "estimate"
         assert data["columns"] == TEST_COLUMN_INFO
 
     @pytest.mark.anyio
@@ -462,6 +465,74 @@ class TestRowsKeysetPagination:
         data = resp.json()
         assert len(data["rows"]) == 1
         assert data["rows"][0]["name"] == "a"
+
+
+class TestRowsFilteredTotal:
+    @pytest.fixture
+    async def more_a_rows(self, test_db_session, rows_dataset):
+        """Two more rows whose name contains "a", so three match ``filter[name]=a``."""
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{TEST_TABLE_NAME} (name, value) VALUES ('ab', 6), ('ca', 7)"
+            )
+        )
+        await test_db_session.commit()
+        return rows_dataset
+
+    @pytest.mark.anyio
+    async def test_a_filtered_page_counts_its_matches(
+        self, client: AsyncClient, admin_auth_header: dict, rows_dataset
+    ):
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter[name]": "a"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (1, "exact")
+
+    @pytest.mark.anyio
+    async def test_a_later_filtered_page_counts_every_match(
+        self, client: AsyncClient, admin_auth_header: dict, more_a_rows
+    ):
+        first = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={"filter[name]": "a", "limit": 1},
+            headers=admin_auth_header,
+        )
+        resp = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={
+                "filter[name]": "a",
+                "limit": 1,
+                "after": first.json()["next_cursor"],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["rows"]) == 1
+        assert (data["approximate_total"], data["total_kind"]) == (3, "exact")
+
+    @pytest.mark.anyio
+    async def test_matches_past_the_cap_report_the_cap_as_a_floor(
+        self, client: AsyncClient, admin_auth_header: dict, more_a_rows, monkeypatch
+    ):
+        monkeypatch.setattr(service_query, "FILTERED_COUNT_CAP", 2)
+        resp = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={"filter[name]": "a"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (2, "at_least")
+
+
+def test_the_documented_cap_is_the_counted_cap():
+    description = DatasetRowsResponse.model_fields["total_kind"].description
+    assert f"{service_query.FILTERED_COUNT_CAP:,}" in description
 
 
 # ---------------------------------------------------------------------------

@@ -161,7 +161,7 @@ async def get_dataset_rows_endpoint(
     # never label old rows with the new table's id.
     table_oid = await current_table_oid(db, table_name)
     try:
-        rows, approx_total, columns, next_cursor = await get_dataset_rows(
+        rows, total, total_kind, columns, next_cursor = await get_dataset_rows(
             db,
             table_name,
             limit=limit,
@@ -190,7 +190,8 @@ async def get_dataset_rows_endpoint(
 
     return DatasetRowsResponse(
         rows=rows,
-        approximate_total=approx_total,
+        approximate_total=total,
+        total_kind=total_kind,
         columns=columns,
         next_cursor=next_cursor,
         # `columns`, not `dataset`: an absent data table rolls the session back,

@@ -224,6 +224,7 @@
     "filterColumn": "Filtrar {{column}}",
     "noResults": "No se encontraron filas coincidentes.",
     "showingExact": "Mostrando {{start}}-{{end}} de {{total}} filas",
+    "showingAtLeast": "Mostrando {{start}}-{{end}} de más de {{total}} filas",
     "rowsPerPage": "Filas por página",
     "columns": "Columnas",
     "loadFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",

@@ -8,6 +8,10 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.dataset_rows_response_total_kind import (
+    check_dataset_rows_response_total_kind,
+)
+from ..models.dataset_rows_response_total_kind import DatasetRowsResponseTotalKind
 from typing import cast
 
 if TYPE_CHECKING:
@@ -24,7 +28,11 @@ class DatasetRowsResponse:
     Attributes:
         columns (list[ColumnChange]):
         rows (list[DatasetRowsResponseRowsItem]):
-        approximate_total (int): Estimated total row count (may use pg stats)
+        approximate_total (int): Total row count, or with `filter[...]` the matching rows; `total_kind` says how exact
+            it is.
+        total_kind (DatasetRowsResponseTotalKind | Unset): `estimate` for the table's planner statistics (no filter),
+            `exact` for counted matches, `at_least` when more rows match than the 10,000 that are counted. Default:
+            'estimate'.
         next_cursor (int | None | Unset): Cursor value for the next page, null if last
         sortable_columns (list[str] | Unset): Columns the rows endpoint accepts as `sort`.
         table_id (None | str | Unset): Opaque id of the data table these rows were read from. Send it as the `table_id`
@@ -35,6 +43,7 @@ class DatasetRowsResponse:
     columns: list[ColumnChange]
     rows: list[DatasetRowsResponseRowsItem]
     approximate_total: int
+    total_kind: DatasetRowsResponseTotalKind | Unset = "estimate"
     next_cursor: int | None | Unset = UNSET
     sortable_columns: list[str] | Unset = UNSET
     table_id: None | str | Unset = UNSET
@@ -52,6 +61,10 @@ class DatasetRowsResponse:
             rows.append(rows_item)
 
         approximate_total = self.approximate_total
+
+        total_kind: str | Unset = UNSET
+        if not isinstance(self.total_kind, Unset):
+            total_kind = self.total_kind
 
         next_cursor: int | None | Unset
         if isinstance(self.next_cursor, Unset):
@@ -78,6 +91,8 @@ class DatasetRowsResponse:
                 "approximate_total": approximate_total,
             }
         )
+        if total_kind is not UNSET:
+            field_dict["total_kind"] = total_kind
         if next_cursor is not UNSET:
             field_dict["next_cursor"] = next_cursor
         if sortable_columns is not UNSET:
@@ -109,6 +124,13 @@ class DatasetRowsResponse:
 
         approximate_total = d.pop("approximate_total")
 
+        _total_kind = d.pop("total_kind", UNSET)
+        total_kind: DatasetRowsResponseTotalKind | Unset
+        if isinstance(_total_kind, Unset):
+            total_kind = UNSET
+        else:
+            total_kind = check_dataset_rows_response_total_kind(_total_kind)
+
         def _parse_next_cursor(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -133,6 +155,7 @@ class DatasetRowsResponse:
             columns=columns,
             rows=rows,
             approximate_total=approximate_total,
+            total_kind=total_kind,
             next_cursor=next_cursor,
             sortable_columns=sortable_columns,
             table_id=table_id,

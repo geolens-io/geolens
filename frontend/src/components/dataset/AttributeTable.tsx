@@ -593,9 +593,12 @@ export function AttributeTable({
   }, [compact, virtualizer]);
 
   const approximateTotal = data?.approximate_total ?? 0;
+  const totalKind = data?.total_kind ?? 'estimate';
   const rowCount = data?.rows?.length ?? 0;
-  const effectiveTotal = approximateTotal > 0 ? approximateTotal : rowCount;
-  const isExact = approximateTotal === 0 && rowCount > 0;
+  // A filtered page's total is counted, so zero means no match rather than no statistics.
+  const counted = totalKind !== 'estimate';
+  const effectiveTotal = counted || approximateTotal > 0 ? approximateTotal : rowCount;
+  const isExact = totalKind === 'exact' || (!counted && approximateTotal === 0 && rowCount > 0);
   const rangeStart = rowCount > 0 ? (cursorHistory.length - 1) * pageSize + 1 : 0;
   const rangeEnd = rangeStart > 0 ? rangeStart + rowCount - 1 : 0;
 
@@ -877,9 +880,14 @@ export function AttributeTable({
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-muted-foreground">
-            {isExact
-              ? t('attributes.showingExact', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })
-              : t('attributes.showing', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })}
+            {t(
+              totalKind === 'at_least'
+                ? 'attributes.showingAtLeast'
+                : isExact
+                  ? 'attributes.showingExact'
+                  : 'attributes.showing',
+              { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
+            )}
             {isFetching && (
               <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
             )}

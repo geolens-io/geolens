@@ -555,6 +555,39 @@ async def _select_rows(
     ]
 
 
+# A filtered page counts its matches up to here; past it the total is a floor.
+FILTERED_COUNT_CAP = 10_000
+
+
+async def _count_matches(
+    db: AsyncSession,
+    table_ref: str,
+    cols: list[dict],
+    filters: dict[str, str],
+    label_codes: dict[str, list[str]],
+) -> tuple[int, str]:
+    """``(count, "exact")`` for the rows *filters* match, or
+    ``(FILTERED_COUNT_CAP, "at_least")`` when more match."""
+    where_sql, bind_params = _build_where_filters(
+        filters,
+        column_types={c["name"]: c.get("type", "") for c in cols},
+        after_gid=0,
+        limit=FILTERED_COUNT_CAP + 1,
+        keyset="gid > :after_gid",
+        label_codes=label_codes,
+    )
+    result = await db.execute(
+        text(
+            # codeql[py/sql-injection]
+            f"SELECT count(*) FROM (SELECT 1 FROM {table_ref}{where_sql} LIMIT :limit) AS matched"
+        ).bindparams(**bind_params)
+    )
+    count = result.scalar_one()
+    if count > FILTERED_COUNT_CAP:
+        return FILTERED_COUNT_CAP, "at_least"
+    return count, "exact"
+
+
 async def get_dataset_rows(
     db: AsyncSession,
     table_name: str,
@@ -566,13 +599,15 @@ async def get_dataset_rows(
     sort: str | None = None,
     descending: bool = False,
     dataset_id: uuid.UUID | None = None,
-) -> tuple[list[dict], int, list[dict], int | None]:
+) -> tuple[list[dict], int, str, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
-    Returns (rows, approximate_total, column_info, next_cursor). Uses keyset
+    Returns (rows, total, total_kind, column_info, next_cursor). Uses keyset
     pagination (WHERE gid > :after_gid) for constant-time page access at any
     depth. Geometry columns are excluded from SELECT to avoid transferring
-    large binary data. Count uses pg_class.reltuples for O(1) estimation.
+    large binary data. Without filters the total is pg_class.reltuples, an
+    ``"estimate"``; with filters it is the matching rows, ``"exact"`` up to
+    FILTERED_COUNT_CAP and ``"at_least"`` past it.
 
     ``filters`` is a dict of {column_name: search_term} for ILIKE filtering.
     Column names are validated against column_info to prevent injection.
@@ -623,15 +658,20 @@ async def get_dataset_rows(
             label_codes=label_codes,
         )
 
-        count_result = await db.execute(
-            text(
-                "SELECT reltuples::bigint FROM pg_class"
-                " WHERE relname = :tbl"
-                " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)"
-            ).bindparams(tbl=table_name, schema=_schema)
-        )
-        rel = count_result.scalar_one_or_none()
-        approx_total = max(0, rel) if rel is not None else 0
+        if filters:
+            total, total_kind = await _count_matches(
+                db, _table_ref, cols, filters, label_codes
+            )
+        else:
+            count_result = await db.execute(
+                text(
+                    "SELECT reltuples::bigint FROM pg_class"
+                    " WHERE relname = :tbl"
+                    " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)"
+                ).bindparams(tbl=table_name, schema=_schema)
+            )
+            rel = count_result.scalar_one_or_none()
+            total, total_kind = max(0, rel) if rel is not None else 0, "estimate"
 
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
@@ -647,6 +687,6 @@ async def get_dataset_rows(
             logger.error("Data schema %s does not exist", _schema)
             raise
         logger.warning("Data table %s is absent", table_name, exc_info=True)
-        return [], 0, column_info or [], None
+        return [], 0, "exact", column_info or [], None
 
-    return rows, approx_total, column_info or [], next_cursor
+    return rows, total, total_kind, column_info or [], next_cursor

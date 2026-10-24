@@ -4610,9 +4610,15 @@ export type DatasetRowsResponse = {
     /**
      * Approximate Total
      *
-     * Estimated total row count (may use pg stats)
+     * Total row count, or with `filter[...]` the matching rows; `total_kind` says how exact it is.
      */
     approximate_total: number;
+    /**
+     * Total Kind
+     *
+     * `estimate` for the table's planner statistics (no filter), `exact` for counted matches, `at_least` when more rows match than the 10,000 that are counted.
+     */
+    total_kind?: 'estimate' | 'exact' | 'at_least';
     /**
      * Next Cursor
      *

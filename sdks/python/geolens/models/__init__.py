@@ -307,6 +307,7 @@ from .dataset_retention_response import DatasetRetentionResponse
 from .dataset_retention_update import DatasetRetentionUpdate
 from .dataset_rows_response import DatasetRowsResponse
 from .dataset_rows_response_rows_item import DatasetRowsResponseRowsItem
+from .dataset_rows_response_total_kind import DatasetRowsResponseTotalKind
 from .dataset_version_list_response import DatasetVersionListResponse
 from .dataset_version_response import DatasetVersionResponse
 from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
@@ -1254,6 +1255,7 @@ __all__ = (
     "DatasetRetentionUpdate",
     "DatasetRowsResponse",
     "DatasetRowsResponseRowsItem",
+    "DatasetRowsResponseTotalKind",
     "DatasetVersionListResponse",
     "DatasetVersionResponse",
     "DbfTruncationCollisionWarning",

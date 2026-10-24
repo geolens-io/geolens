@@ -224,6 +224,7 @@
     "editInvalidValue": "不是有效的 {{type}} 值",
     "noResults": "未找到匹配的行。",
     "showingExact": "正在显示第 {{start}}-{{end}} 行，共 {{total}} 行",
+    "showingAtLeast": "正在显示第 {{start}}-{{end}} 行，共超过 {{total}} 行",
     "rowsPerPage": "每页行数",
     "columns": "列",
     "loadFailed": "数据加载失败，请重试。",

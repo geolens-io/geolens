@@ -224,6 +224,7 @@
     "filterColumn": "{{column}} filtern",
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
+    "showingAtLeast": "{{start}}-{{end}} von über {{total}} Zeilen",
     "rowsPerPage": "Zeilen pro Seite",
     "columns": "Spalten",
     "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen.",

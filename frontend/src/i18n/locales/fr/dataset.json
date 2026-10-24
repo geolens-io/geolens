@@ -224,6 +224,7 @@
     "filterColumn": "Filtrer {{column}}",
     "noResults": "Aucune ligne correspondante trouvée.",
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
+    "showingAtLeast": "Affichage {{start}}-{{end}} sur plus de {{total}} lignes",
     "rowsPerPage": "Lignes par page",
     "columns": "Colonnes",
     "loadFailed": "Impossible de charger les données. Veuillez réessayer.",

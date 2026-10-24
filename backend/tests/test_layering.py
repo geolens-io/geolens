@@ -1204,8 +1204,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A metadata edit judges its visibility and status change as one move.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
         # Internal pointer reads sit beside the detail query that shares them, and
-        # the row browser's sort, keyset and label-filter SQL share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 652,
+        # the row browser's sort, keyset, label-filter and match-count SQL share
+        # its filter clauses.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 692,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
@@ -1392,7 +1393,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 696,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1994,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 2005,
     # Records, datasets and their grant, translation and attribute children map
     # one catalog schema.
     "backend/app/modules/catalog/datasets/domain/models.py": 1003,

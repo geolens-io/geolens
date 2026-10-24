@@ -1237,7 +1237,18 @@ class DatasetRowsResponse(BaseModel):
     columns: list[ColumnChange]
     rows: list[dict[str, Any]]
     approximate_total: int = Field(
-        description="Estimated total row count (may use pg stats)"
+        description=(
+            "Total row count, or with `filter[...]` the matching rows; "
+            "`total_kind` says how exact it is."
+        )
+    )
+    total_kind: Literal["estimate", "exact", "at_least"] = Field(
+        default="estimate",
+        description=(
+            "`estimate` for the table's planner statistics (no filter), "
+            "`exact` for counted matches, `at_least` when more rows match "
+            "than the 10,000 that are counted."
+        ),
     )
     next_cursor: int | None = Field(
         default=None, description="Cursor value for the next page, null if last"
