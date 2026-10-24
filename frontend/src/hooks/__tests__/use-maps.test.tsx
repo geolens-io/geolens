@@ -23,7 +23,7 @@ vi.mock('@/api/maps', async (importOriginal) => {
 
 import { ApiError } from '@/api/client';
 import { listMaps, getMap, deleteMap, createMap, publishMap, setMapGroups, checkMapVisibility } from '@/api/maps';
-import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
+import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap, useSetMapGroups, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { queryKeys } from '@/lib/query-keys';
 import type { MapVisibility } from '@/types/api';
 
@@ -346,6 +346,54 @@ describe('usePublishMap', () => {
     });
 
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+});
+
+// The Share dialog rebuilds its group draft from the cached map right after a
+// save; a cache still holding the replaced groups would send them again.
+describe('map audience cache', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const SURVEYORS = { id: 'g-1', name: 'Surveyors' };
+  const PLANNERS = { id: 'g-2', name: 'Planners' };
+
+  function keepingQc() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    qc.setQueryData(queryKeys.maps.detail('map-1'), { id: 'map-1', visibility: 'restricted', groups: [SURVEYORS] });
+    return qc;
+  }
+
+  function wrapperFor(qc: QueryClient) {
+    return ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+  }
+
+  it('holds the saved groups before a group save resolves', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'restricted', groups: [PLANNERS] });
+    const qc = keepingQc();
+    const { result } = renderHookWithWrapper(() => useSetMapGroups(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ mapId: 'map-1', groupIds: ['g-2'] });
+    });
+
+    expect(qc.getQueryData(queryKeys.maps.detail('map-1'))).toMatchObject({
+      visibility: 'restricted',
+      groups: [PLANNERS],
+    });
+  });
+
+  it('holds the cleared groups once "Only you" unshares the map', async () => {
+    mockSetMapGroups.mockResolvedValueOnce({ visibility: 'private', groups: [] });
+    const qc = keepingQc();
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'map-1', visibility: 'private' });
+    });
+
+    expect(qc.getQueryData(queryKeys.maps.detail('map-1'))).toMatchObject({ visibility: 'private', groups: [] });
   });
 });
 

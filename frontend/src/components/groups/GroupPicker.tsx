@@ -17,13 +17,15 @@ interface GroupPickerProps {
   inputRef?: RefObject<HTMLInputElement | null>;
   /** Focuses the search input once the caller's groups have loaded. */
   focusWhenReady?: boolean;
+  /** Reports the results list opening and closing, so a dialog can leave Escape to it. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
  * Chips for the groups a dataset or map is shared with, plus a searchable
  * picker over the caller's own groups (every group for an admin).
  */
-export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, focusWhenReady }: GroupPickerProps) {
+export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, focusWhenReady, onOpenChange }: GroupPickerProps) {
   const { t } = useTranslation('dataset');
   const myGroups = useMyGroups(true);
   const ready = !myGroups.isLoading;
@@ -104,6 +106,7 @@ export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, fo
             users={candidates}
             onSelect={handleAdd}
             busy={busy}
+            onOpenChange={onOpenChange}
             text={{
               placeholder: t('groupShare.placeholder'),
               noMatches: t('groupShare.noMatches'),

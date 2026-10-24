@@ -41,7 +41,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
+import { usePublishMap, useMapAudienceBusy, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
@@ -931,6 +931,9 @@ export function ShareDialog({
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
+  const audienceBusy = useMapAudienceBusy();
+  // While the group picker's list is open, Escape closes the list, not the dialog.
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   // The restrict_public_visibility instance setting caps
   // non-admins at non-public; the server enforces it with a 403, this only
   // disables the Public choice.
@@ -1300,7 +1303,12 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onEscapeKeyDown={(event) => {
+          if (groupPickerOpen) event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t('share.dialogDescription')}</DialogDescription>
@@ -1399,7 +1407,7 @@ export function ShareDialog({
                       blocked && 'cursor-not-allowed opacity-60',
                     )}
                     onClick={() => handleVisibilitySelect(opt.value)}
-                    disabled={publishMap.isPending || blocked}
+                    disabled={audienceBusy || blocked}
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
                     <div className="min-w-0">
@@ -1550,6 +1558,7 @@ export function ShareDialog({
               hasLinks={hasShareToken || Boolean(activeEmbedToken)}
               focusOnOpen={openedFromChoice}
               onSaved={handleGroupsSaved}
+              onPickerOpenChange={setGroupPickerOpen}
             />
           )}
 

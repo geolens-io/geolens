@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import { toast } from 'sonner';
 import userEvent from '@testing-library/user-event';
-import { setMapGroups } from '@/api/maps';
+import { publishMap, setMapGroups } from '@/api/maps';
+import { usePublishMap } from '@/hooks/use-maps';
 import { listMyGroups } from '@/api/groups';
 import { ApiError } from '@/api/client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -10,6 +11,7 @@ import { MapGroupShare } from '../MapGroupShare';
 vi.mock('@/api/maps', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/maps')>()),
   setMapGroups: vi.fn(),
+  publishMap: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/api/groups', () => ({ listMyGroups: vi.fn() }));
@@ -58,6 +60,30 @@ describe('MapGroupShare', () => {
     expect(await screen.findByText('Pick groups, then save.')).toBeInTheDocument();
     await pick(user, 'Surveyors');
     expect(await screen.findByText('Surveyors added. Save to apply.')).toBeInTheDocument();
+  });
+
+  it('holds Save groups while a visibility change is still in flight', async () => {
+    vi.mocked(publishMap).mockReturnValue(new Promise(() => {}));
+    function ChangeVisibility() {
+      const publish = usePublishMap();
+      return (
+        <button type="button" onClick={() => publish.mutate({ id: 'map-1', visibility: 'internal' })}>
+          change visibility
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    render(
+      <>
+        <MapGroupShare mapId="map-1" visibility="restricted" groups={[SURVEYORS]} hasLinks={false} />
+        <ChangeVisibility />
+      </>,
+    );
+    await pick(user, 'Planners');
+    expect(screen.getByRole('button', { name: 'Save groups' })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'change visibility' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save groups' })).toBeDisabled());
   });
 
   it('lists the groups a restricted map is shared with', async () => {

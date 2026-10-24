@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useIsMutating, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatMutationError } from '@/lib/error-map';
 import {
@@ -296,18 +296,42 @@ export function useMapShareToken(mapId: string | undefined) {
   });
 }
 
+// Group saves and visibility changes share this key and wait for each other,
+// so a slower answer can't undo a later one.
+const mapAudienceMutationKey = ['maps', 'audience'] as const;
+
+export function useMapAudienceBusy() {
+  return useIsMutating({ mutationKey: mapAudienceMutationKey }) > 0;
+}
+
+// Written into the cached map as soon as the server answers: a draft rebuilt
+// from the replaced groups would grant them again on the next save.
+async function applyMapAudience(
+  qc: QueryClient,
+  mapId: string,
+  audience: Partial<Pick<MapResponse, 'visibility' | 'groups'>>,
+) {
+  await qc.cancelQueries({ queryKey: queryKeys.maps.detail(mapId) });
+  qc.setQueryData<MapResponse>(queryKeys.maps.detail(mapId), (old) => old && { ...old, ...audience });
+}
+
 export function usePublishMap() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: mapAudienceMutationKey,
     // A map with groups cannot go private directly (the server keeps it
     // restricted), so "private" unshares it first.
     mutationFn: async ({ id, visibility }: { id: string; visibility: MapVisibility }) => {
       const hasGroups = Boolean(qc.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.groups?.length);
       const clearedGroups = visibility === 'private' && hasGroups;
-      if (clearedGroups && (await setMapGroups(id, [])).visibility === visibility) {
-        return { clearedGroups, visibility };
+      if (clearedGroups) {
+        const unshared = await setMapGroups(id, []);
+        await applyMapAudience(qc, id, { visibility: unshared.visibility as MapVisibility, groups: unshared.groups });
+        if (unshared.visibility === visibility) return { clearedGroups, visibility };
       }
-      return { clearedGroups, visibility: (await publishMap(id, visibility)).visibility };
+      const published = await publishMap(id, visibility);
+      await applyMapAudience(qc, id, { visibility: published.visibility });
+      return { clearedGroups, visibility: published.visibility };
     },
     // Settled, not success: the groups may already be cleared when publishMap fails.
     onSettled: (_data, _error, variables) => {
@@ -327,9 +351,14 @@ export function usePublishMap() {
 export function useSetMapGroups() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: mapAudienceMutationKey,
     mutationFn: ({ mapId, groupIds, confirm }: { mapId: string; groupIds: string[]; confirm?: MapGroupsConfirm }) =>
       setMapGroups(mapId, groupIds, confirm),
-    onSuccess: (data, variables) => {
+    onSuccess: async (data, variables) => {
+      await applyMapAudience(qc, variables.mapId, {
+        visibility: data.visibility as MapVisibility,
+        groups: data.groups,
+      });
       // Sharing the layers' datasets changes those datasets too.
       for (const datasetId of data.shared_dataset_ids ?? []) {
         qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });

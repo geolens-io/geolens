@@ -19,6 +19,7 @@ import {
 import { useEdition } from '@/hooks/use-edition';
 import { useCanSetPublicVisibility, useTileConfig } from '@/hooks/use-settings';
 import {
+  useMapAudienceBusy,
   useCreateShareToken,
   useMapShareToken,
   usePublishMap,
@@ -31,7 +32,7 @@ import { toast } from 'sonner';
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 vi.mock('@/components/builder/MapGroupShare', () => ({
-  MapGroupShare: ({ visibility, hasLinks, focusOnOpen, onSaved }: { visibility: string; hasLinks: boolean; focusOnOpen?: boolean; onSaved?: (v: string) => void }) => (
+  MapGroupShare: ({ visibility, hasLinks, focusOnOpen, onSaved, onPickerOpenChange }: { visibility: string; hasLinks: boolean; focusOnOpen?: boolean; onSaved?: (v: string) => void; onPickerOpenChange?: (open: boolean) => void }) => (
     <div
       data-testid="map-group-share"
       data-visibility={visibility}
@@ -40,6 +41,9 @@ vi.mock('@/components/builder/MapGroupShare', () => ({
     >
       <button type="button" onClick={() => onSaved?.('private')}>
         stub cleared
+      </button>
+      <button type="button" onClick={() => onPickerOpenChange?.(true)}>
+        stub open picker
       </button>
     </div>
   ),
@@ -62,6 +66,7 @@ vi.mock('@/api/maps', async (importOriginal) => {
 
 vi.mock('@/hooks/use-maps', () => ({
   usePublishMap: vi.fn(),
+  useMapAudienceBusy: vi.fn(() => false),
   useCreateShareToken: vi.fn(),
   useRevokeShareToken: vi.fn(),
   useMapShareToken: vi.fn(),
@@ -139,6 +144,7 @@ function setup({
   groups,
   gateEmbedTokens = false,
   groupHiddenIds = [],
+  onOpenChange = vi.fn(),
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -181,6 +187,7 @@ function setup({
   gateEmbedTokens?: boolean;
   /** The layer ids the server says some of the map's groups can't read. */
   groupHiddenIds?: string[];
+  onOpenChange?: (open: boolean) => void;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -306,7 +313,7 @@ function setup({
       visibility={visibility}
       groups={groups}
       open
-      onOpenChange={vi.fn()}
+      onOpenChange={onOpenChange}
       hasUnsavedChanges={hasUnsavedChanges}
       saveStatus={saveStatus}
       layers={layers}
@@ -2332,6 +2339,24 @@ describe('sharing a map with groups', () => {
     expect(screen.getByRole('radio', { name: /^Specific groups/ })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('radio', { name: /^Only you/ })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByTestId('map-group-share')).toHaveAttribute('data-visibility', 'restricted');
+  });
+
+  it('holds every visibility level while a group save or visibility change is in flight', () => {
+    vi.mocked(useMapAudienceBusy).mockReturnValue(true);
+    setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false });
+
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+    vi.mocked(useMapAudienceBusy).mockReturnValue(false);
+  });
+
+  it('leaves Escape to the group picker while its list is open', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    setup({ visibility: 'restricted', groups: [SURVEYORS], hasShareToken: false, onOpenChange });
+
+    await user.click(screen.getByRole('button', { name: 'stub open picker' }));
+    await user.keyboard('{Escape}');
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it('opens the group editor on a private map without changing visibility', async () => {

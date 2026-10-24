@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
-import { useSetMapGroups } from '@/hooks/use-maps';
+import { useMapAudienceBusy, useSetMapGroups } from '@/hooks/use-maps';
 import { GroupPicker } from '@/components/groups/GroupPicker';
 import { MapShareConfirmDialog } from '@/components/builder/MapShareConfirmDialog';
 import { layersHiddenFromGroups } from '@/api/maps';
@@ -22,6 +22,8 @@ interface MapGroupShareProps {
   focusOnOpen?: boolean;
   /** Called with the visibility the server reports after a save. */
   onSaved?: (visibility: string) => void;
+  /** Reports the group picker's results list opening and closing. */
+  onPickerOpenChange?: (open: boolean) => void;
 }
 
 const SAVED_KEYS: Record<string, string> = {
@@ -29,9 +31,14 @@ const SAVED_KEYS: Record<string, string> = {
   private: 'share.groups.savedPrivate',
 };
 
-export function MapGroupShare({ mapId, visibility, groups: current, hasLinks, focusOnOpen, onSaved }: MapGroupShareProps) {
+export function MapGroupShare({
+  mapId, visibility, groups: current, hasLinks, focusOnOpen, onSaved, onPickerOpenChange,
+}: MapGroupShareProps) {
   const { t } = useTranslation('builder');
   const save = useSetMapGroups();
+  const audienceBusy = useMapAudienceBusy();
+  // Unmounting with the list open would otherwise leave the dialog's Escape blocked.
+  useEffect(() => () => onPickerOpenChange?.(false), [onPickerOpenChange]);
   const pickerRef = useRef<HTMLInputElement>(null);
   const { selected, dirty, edit, reset, announcement, announce } = useGroupDraft(current);
   const becomesRestricted = visibility === 'private' && selected.length > 0;
@@ -107,9 +114,10 @@ export function MapGroupShare({ mapId, visibility, groups: current, hasLinks, fo
           edit(next);
         }}
         onAnnounce={announce}
-        busy={save.isPending}
+        busy={audienceBusy}
         inputRef={pickerRef}
         focusWhenReady={focusOnOpen}
+        onOpenChange={onPickerOpenChange}
       />
 
       <p className="text-xs text-muted-foreground">
@@ -126,7 +134,7 @@ export function MapGroupShare({ mapId, visibility, groups: current, hasLinks, fo
           {errorText}
         </p>
       )}
-      <Button size="sm" disabled={!dirty || save.isPending} onClick={() => submit()}>
+      <Button size="sm" disabled={!dirty || audienceBusy} onClick={() => submit()}>
         {save.isPending ? t('share.updatingVisibility') : t('share.groups.save')}
       </Button>
       {gap && (
