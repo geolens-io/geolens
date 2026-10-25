@@ -1104,6 +1104,12 @@ async def _csv_geometry_is_3d(
     return seen
 
 
+def declares_linear_geometry(geometry_type: str) -> bool:
+    """Whether an ogrinfo geometry type names no curved type, in either spelling."""
+    lowered = geometry_type.lower()
+    return not any(word in lowered for word in ("circular", "curve", "surface"))
+
+
 async def run_ogr2ogr(
     file_path: str,
     table_name: str,
@@ -1205,7 +1211,7 @@ async def run_ogr2ogr(
         cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
     if not is_non_spatial:
-        if not any(word in geometry_type.lower() for word in ("curve", "surface")):
+        if declares_linear_geometry(geometry_type):
             # A geodatabase polygon or polyline layer reports a linear type yet
             # returns curved rows wherever a segment is an arc, and PostGIS
             # refuses those in the linear column the declared type creates.

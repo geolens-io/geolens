@@ -481,6 +481,26 @@ class TestTier1Ingest:
             await test_db_session.commit()
 
 
+@pytest.mark.parametrize(
+    ("geometry_type", "linear"),
+    [
+        ("MultiPolygon", True),
+        ("3D Multi Line String", True),
+        ("Point", True),
+        ("CircularString", False),
+        ("Circular String Z", False),
+        ("CompoundCurve", False),
+        ("Curve Polygon", False),
+        ("MultiCurve", False),
+        ("3D Multi Surface", False),
+    ],
+)
+def test_only_linear_declared_types_are_densified(geometry_type: str, linear: bool):
+    from app.processing.ingest.ogr import declares_linear_geometry
+
+    assert declares_linear_geometry(geometry_type) is linear
+
+
 @pytest.mark.skipif(
     shutil.which("ogr2ogr") is None,
     reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
