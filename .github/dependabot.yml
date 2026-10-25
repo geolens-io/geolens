@@ -101,6 +101,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "ci"]
     open-pull-requests-limit: 5
     groups:
@@ -124,6 +126,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "docker"]
     groups:
       docker-root-security:
@@ -137,6 +141,8 @@ updates:
     directory: "/db"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "docker"]
     groups:
       docker-db-security:
@@ -150,6 +156,8 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "docker"]
     groups:
       docker-frontend-security:
@@ -181,6 +189,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "docker"]
     groups:
       compose-security:
@@ -195,6 +205,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels: ["dependencies", "ci"]
     groups:
       pre-commit-security:
