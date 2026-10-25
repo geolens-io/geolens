@@ -2310,10 +2310,11 @@ jobs:
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
-    # A clean run takes about 27 minutes. Playwright's CI globalTimeout (30
-    # minutes) stops the main suite first, so failing specs that each burn
-    # their retries still reach the failure summary below.
-    timeout-minutes: 40
+    # A clean run takes about 27 minutes. Playwright's CI globalTimeout stops
+    # the main suite at 30, so failing specs that each burn their retries
+    # still reach the failure summary below. The cap also covers a slow setup:
+    # the browser install alone may take 13 minutes.
+    timeout-minutes: 50
     # Failing spec names travel to nightly-e2e-report as a job
     # output (readable from `needs` even when this job fails), so the
     # tracking issue can name specs instead of only "e2e-test: failure".
