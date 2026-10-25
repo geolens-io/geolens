@@ -571,16 +571,26 @@ ogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}
 
 ## Authentication
 
-GeoLens supports three authentication methods. Public datasets are accessible
+GeoLens supports four authentication methods. Public datasets are accessible
 without credentials; private/restricted datasets require one of:
 
 | Method | Usage |
 |--------|-------|
 | **API Key header** | `X-Api-Key: <key>` |
 | **JWT Bearer token** | `Authorization: Bearer <token>` |
+| **API Key as a Basic password** | `Authorization: Basic base64(<any username>:<key>)` |
 | **API Key query param** (deprecated) | `?api_key=<key>` |
 
-Priority: header API key > query param API key > JWT > anonymous.
+Priority: header API key > Basic API key > query param API key > JWT > anonymous.
+
+**HTTP Basic carries an API key, never an account password**, and like the
+query parameter it authenticates `GET`, `HEAD` and `OPTIONS` only, since a
+browser that saved the login replays it on cross-site requests. On any other
+method, or when the header is malformed, the login is a credential that cannot
+be resolved (see below). It is meant for desktop GIS clients that send a saved
+login only after a Basic challenge: point them at `{your-server}/api/desktop`,
+which answers `401` with `WWW-Authenticate: Basic` until the key is sent and
+then redirects to the OGC API landing page at `/api/`.
 
 **The `?api_key=` query parameter is deprecated, and it authenticates reads
 only.** A key sent in the URL is recorded by server access logs and by any

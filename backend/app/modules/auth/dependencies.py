@@ -1,5 +1,6 @@
 """FastAPI dependencies for JWT authentication and role-based access control."""
 
+import base64
 import hashlib
 import uuid
 from dataclasses import dataclass
@@ -299,19 +300,18 @@ def _query_key_may_authenticate(
     route_template: str,
     query_params: Mapping[str, str] | None = None,
 ) -> bool:
-    """Whether a key that arrived in the QUERY STRING may authenticate this.
+    """Whether a key in the QUERY STRING or an HTTP Basic header may authenticate this.
 
-    The deprecated ``?api_key=`` lane was documented read-only but
-    unenforced, so the same credential could authorize mutations. Restriction
-    is on the TRANSPORT, not the key: a URL-borne key leaks into browser
-    history, logs, and ``Referer`` headers by construction, so what it may do
-    is bounded independently of what its owner may do.
+    Restriction is on the TRANSPORT, not the key. A URL-borne key leaks into
+    browser history, logs, and ``Referer`` headers by construction, and a
+    browser caches a Basic login and replays it on cross-site requests, so
+    what either may do is bounded independently of what its owner may do.
 
     Reuses the ``_READ_ONLY_KEY_WRITING_GET_ROUTES`` classification but is
     deliberately stricter than the read_only scope rule: it does NOT inherit
     ``_READ_ONLY_KEY_EXEMPT_ROUTES``, since those POSTs are reads a key owner
-    chose to make while a logged URL is a credential nobody chose to expose.
-    Header keys are untouched.
+    chose to make while a logged URL or a replayed login is a credential
+    nobody chose to send. ``X-Api-Key`` keys are untouched.
     """
     return method in _READ_ONLY_SAFE_METHODS and _read_only_key_may_call(
         method, route_template, query_params
@@ -337,17 +337,39 @@ def _should_log_query_lane_refusal(route_template: str) -> bool:
     return True
 
 
-def _supplied_api_key(request: Request) -> str | None:
-    """The API key this request may authenticate with, header first.
+def _basic_password(authorization: str) -> str | None:
+    """The password of an HTTP Basic ``Authorization`` value, or None if malformed."""
+    scheme, _, encoded = authorization.partition(" ")
+    if scheme.lower() != "basic":
+        return None
+    try:
+        decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+    except ValueError:  # binascii.Error and UnicodeDecodeError among them
+        return None
+    return decoded.partition(":")[2] or None
 
-    The sole place deciding whether a query-string key counts, so
-    this resolver and ``request_carries_credentials`` cannot disagree. A
-    refused query-lane key is treated as absent, not surfaced as a new error
-    shape that would tell an attacker their key parsed.
+
+def _supplied_api_key(request: Request) -> str | None:
+    """The API key this request may authenticate with.
+
+    Precedence: ``X-Api-Key``, then the password of an HTTP Basic header
+    (the username is ignored), then ``?api_key=``. The sole place deciding
+    whether a Basic or query-string key counts, so this resolver and
+    ``request_carries_credentials`` cannot disagree. A refused key is treated
+    as absent, not surfaced as a new error shape that would tell an attacker
+    their key parsed; a refused Basic header still leaves an
+    ``Authorization`` header on the request, so it is answered 401.
     """
     header_key = request.headers.get("X-Api-Key")
     if header_key:
         return header_key
+    basic_key = _basic_password(request.headers.get("Authorization", ""))
+    if basic_key:
+        if _query_key_may_authenticate(
+            request.method, _route_template(request), request.query_params
+        ):
+            return basic_key
+        return None
     query_key = request.query_params.get("api_key")
     if not query_key:
         return None
@@ -395,12 +417,12 @@ def log_permission_denial(
 
 
 async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
-    """Try to resolve a user from X-Api-Key header or api_key query parameter.
+    """Try to resolve a user from an API key in a header, Basic login or query.
 
     The ``?api_key=`` query lane is DEPRECATED (leaks into access logs); kept
     for clients that cannot set headers, e.g. desktop GIS XYZ tile URLs.
-    Precedence: header > query param. ``_supplied_api_key`` drops a
-    query-string key on anything but a read.
+    Precedence: ``X-Api-Key`` > Basic > query param. ``_supplied_api_key``
+    drops a Basic or query-string key on anything but a read.
 
     A dataset key off its scope's routes on its own dataset resolves to None,
     like an invalid key: a valid bearer token on the same request then

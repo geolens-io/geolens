@@ -7,6 +7,17 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+- ArcGIS Pro can open private datasets through its Server Authentication
+  login. Point an OGC API connection at `/api/desktop`, enter any username and
+  an API key as the password, and save the login. The route answers `401`
+  with a Basic challenge until a working key arrives, then redirects to the
+  OGC API landing page at `/api/`. An API key now authenticates as the password
+  of an HTTP Basic login on every route, for `GET`, `HEAD` and `OPTIONS` only;
+  a Basic login on any other method, a malformed one or one whose password
+  isn't a live key is answered `401`. Account passwords are never accepted
+  this way. Before this release any Basic login was answered `401`, which
+  broke every other connection Pro had open to the same server once it had
+  sent one.
 - A file geodatabase feature class whose rows hold circular arcs now imports.
   Polygon and polyline classes drawn or edited in ArcGIS Pro often have arc
   segments, and every such class failed with `ogr2ogr failed (exit 1)`. Arcs
