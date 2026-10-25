@@ -1338,7 +1338,7 @@ async def test_budget_kwargs_are_threaded(
     assert captured["restrict_tables"] == frozenset({"t"})  # stripped + set
     # The connection-pool protections are wired through.
     assert captured["release_session"] is True
-    assert captured["capacity_semaphore"] is query_router._query_slots
+    assert captured["capacity_semaphore"] is query_router.query_slots
 
 
 async def test_at_capacity_returns_429(
@@ -1356,7 +1356,7 @@ async def test_at_capacity_returns_429(
     # A semaphore with zero free slots: already at capacity.
     exhausted = asyncio.Semaphore(1)
     await exhausted.acquire()
-    monkeypatch.setattr(query_router, "_query_slots", exhausted)
+    monkeypatch.setattr(query_router, "query_slots", exhausted)
 
     resp = await client.post(
         "/query/",
@@ -1369,9 +1369,9 @@ async def test_at_capacity_returns_429(
 
 def test_capacity_bound_is_pool_derived_and_at_least_one():
     """The bound tracks the configured pool and never drops below 1."""
-    from app.processing.ai.query_router import _capacity_bound
+    from app.processing.ai.sandbox_bounds import capacity_bound
 
-    assert _capacity_bound() >= 1
+    assert capacity_bound() >= 1
 
 
 @pytest.mark.parametrize(("workers", "expected"), [(1, 4), (2, 2), (8, 1)])

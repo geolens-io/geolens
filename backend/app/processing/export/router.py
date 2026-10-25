@@ -34,6 +34,7 @@ from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import (
     FORMAT_MAP,
+    MAX_EXPORT_FEATURES as _MAX_EXPORT_FEATURES,
     PARQUET_MEDIA_TYPE,
     ExportError,
     bbox_where_sql,
@@ -81,13 +82,6 @@ _EXPORT_BODY = {
     )
     if media_type != "application/geo+json"
 }
-
-# Ceiling for full-table exports (by feature count): an unbounded ogr2ogr
-# writes an arbitrarily large temp file and holds a worker for the duration. A
-# tautological filter (where=1=1) cannot bypass the cap, since oversized
-# datasets get a bounded COUNT with the caller's filters applied. The
-# subprocess timeout bounds runtime regardless.
-_MAX_EXPORT_FEATURES = 5_000_000
 
 # Each cold conversion spawns ogr2ogr or streams rows into a temp file, so
 # concurrent ones are capped per process and the overflow is shed with a retry.

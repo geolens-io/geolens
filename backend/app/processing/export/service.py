@@ -12,7 +12,11 @@ import structlog
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.csv_safety import numeric_column_names
-from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
+from app.processing.export.ogr import (
+    FORMAT_MAP,
+    PARQUET_MEDIA_TYPE,
+    run_ogr2ogr_export,
+)
 from app.processing.export.where_validator import (
     mask_quoted_literals,
     validate_where_ast,
@@ -321,10 +325,6 @@ def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
     safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
 
     if format_key == "parquet":
-        # Function-level import: parquet.py imports this module for
-        # validate_where_clause, and it pulls pyarrow in with it.
-        from app.processing.export.parquet import PARQUET_MEDIA_TYPE
-
         return f"{safe_name}.parquet", PARQUET_MEDIA_TYPE
 
     if format_key not in FORMAT_MAP:

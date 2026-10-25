@@ -291,8 +291,7 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
         register_kwargs["server_metadata_url"] = provider.discovery_url
     else:
         # Generic OIDC / GitHub without discovery -- explicit URLs. GitHub's
-        # token endpoint returns form-encoded unless Accept: application/json
-        # is requested, hence token_endpoint_auth_method below.
+        # token endpoint takes the client credentials in the POST body.
         register_kwargs["authorize_url"] = provider.authorize_url
         register_kwargs["access_token_url"] = provider.token_url
         register_kwargs["userinfo_endpoint"] = provider.userinfo_url

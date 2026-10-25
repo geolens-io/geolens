@@ -74,7 +74,7 @@ class TestRewriteS3Prefix:
             _make_vrt_xml([("0", "/vsis3/mybucket/rasters/1/cog.tif")]),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 1
         assert "/vsis3/mybucket/rasters/1/cog.tif -> rasters/1/cog.tif" in changes[0]
@@ -86,7 +86,7 @@ class TestRewriteS3Prefix:
             _make_vrt_xml([("0", "/vsis3/mybucket/rasters/1/cog.tif")]),
         )
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         tree = parse(str(vrt))
         nodes = list(tree.getroot().iter("SourceFilename"))
@@ -103,7 +103,7 @@ class TestRewriteAzurePrefix:
             _make_vrt_xml([("0", "/vsiaz/mycontainer/rasters/2/cog.tif")]),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 1
         assert "/vsiaz/mycontainer/rasters/2/cog.tif -> rasters/2/cog.tif" in changes[0]
@@ -115,7 +115,7 @@ class TestRewriteAzurePrefix:
             _make_vrt_xml([("0", "/vsiaz/mycontainer/rasters/2/cog.tif")]),
         )
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         tree = parse(str(vrt))
         nodes = list(tree.getroot().iter("SourceFilename"))
@@ -133,7 +133,7 @@ class TestVrtOfVrt:
             _make_vrt_xml([("0", "/vsis3/bucket/rasters/2/source.vrt")]),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 1
         assert "rasters/2/source.vrt" in changes[0]
@@ -150,7 +150,7 @@ class TestVrtOfVrt:
             _make_vrt_xml([("0", "/vsiaz/container/rasters/nested/source.vrt")]),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 1
         assert "rasters/nested/source.vrt" in changes[0]
@@ -168,7 +168,7 @@ class TestVrtOfVrt:
             ),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 2
 
@@ -180,7 +180,7 @@ class TestDryRun:
         _write_vrt(vrt, original_xml)
         mtime_before = vrt.stat().st_mtime
 
-        changes = rewrite_vrt_sources(vrt, dry_run=True)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt", dry_run=True)
 
         # Changes reported
         assert len(changes) == 1
@@ -193,7 +193,7 @@ class TestDryRun:
         _write_vrt(vrt, _make_vrt_xml([("1", "rasters/1/cog.tif")]))
         mtime_before = vrt.stat().st_mtime
 
-        changes = rewrite_vrt_sources(vrt, dry_run=True)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt", dry_run=True)
 
         assert changes == []
         assert vrt.stat().st_mtime == mtime_before
@@ -205,7 +205,7 @@ class TestIdempotency:
         vrt = tmp_path / "test.vrt"
         _write_vrt(vrt, _make_vrt_xml([("1", "rasters/1/cog.tif")]))
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert changes == []
 
@@ -217,10 +217,10 @@ class TestIdempotency:
             _make_vrt_xml([("0", "/vsis3/bucket/rasters/1/cog.tif")]),
         )
 
-        first_pass = rewrite_vrt_sources(vrt)
+        first_pass = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
         assert len(first_pass) == 1  # changed on first pass
 
-        second_pass = rewrite_vrt_sources(vrt)
+        second_pass = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
         assert second_pass == []  # idempotent — no changes on second pass
 
     def test_second_pass_does_not_modify_file(self, tmp_path: Path) -> None:
@@ -230,10 +230,10 @@ class TestIdempotency:
             _make_vrt_xml([("0", "/vsis3/bucket/rasters/1/cog.tif")]),
         )
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
         content_after_first = vrt.read_bytes()
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
         content_after_second = vrt.read_bytes()
 
         assert content_after_first == content_after_second
@@ -257,7 +257,7 @@ class TestStoreRoundtrip:
             ),
         )
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         # Simulate "fetch from storage" — just read the file back
         stored_content = vrt.read_text(encoding="utf-8")
@@ -278,7 +278,7 @@ class TestStoreRoundtrip:
             ),
         )
 
-        rewrite_vrt_sources(vrt)
+        rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         tree = parse(str(vrt))
         for node in tree.getroot().iter("SourceFilename"):
@@ -301,7 +301,7 @@ class TestMultipleSourceNodes:
             ),
         )
 
-        changes = rewrite_vrt_sources(vrt)
+        changes = rewrite_vrt_sources(vrt, vrt_storage_key="test.vrt")
 
         assert len(changes) == 3
         tree = parse(str(vrt))

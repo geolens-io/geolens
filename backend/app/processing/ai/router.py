@@ -60,8 +60,7 @@ from typing import TYPE_CHECKING
 from app.core.identity import Identity
 from app.platform.extensions import get_processing_port
 from app.modules.auth.dependencies import require_permission
-from app.core.ai_credentials import anthropic_configured
-from app.core.config import settings
+from app.core.ai_credentials import builtin_providers_configured
 from app.core.dependencies import get_db
 from app.core.persistent_config import (
     AI_ENABLED,
@@ -188,10 +187,7 @@ async def _ai_availability(db: AsyncSession) -> bool:
     if not await AI_ENABLED.get(db):
         return False
     provider = await LLM_PROVIDER.get(db)
-    keys = {
-        "anthropic": anthropic_configured(),
-        "openai_compatible": settings.openai_api_key,
-    }
+    keys = builtin_providers_configured()
     return bool(keys.get(provider)) and not await llm_model_unset(db, provider)
 
 
@@ -207,10 +203,7 @@ async def _check_ai_available(db: AsyncSession) -> None:
             detail="AI features are disabled by administrator",
         )
     provider = await LLM_PROVIDER.get(db)
-    keys = {
-        "anthropic": anthropic_configured(),
-        "openai_compatible": settings.openai_api_key,
-    }
+    keys = builtin_providers_configured()
     if not keys.get(provider):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -787,7 +780,7 @@ async def _call_llm_endpoint(
 
 
 async def _authorize_metadata_dataset(
-    db: AsyncSession, dataset_id: str, user: Identity
+    db: AsyncSession, dataset_id: str, user: Identity, port: "ProcessingPort"
 ) -> None:
     """Authorize the attacker-controlled body.dataset_id before AI metadata
     generation. Without this, any editor (default role has ``use_ai_chat``)
@@ -802,8 +795,6 @@ async def _authorize_metadata_dataset(
     Goes through ProcessingPort, not a direct catalog import, so an
     Enterprise/Cloud port can observe this authorization.
     """
-    port = get_processing_port()
-
     try:
         dsid = uuid_mod.UUID(dataset_id)
     except (ValueError, AttributeError, TypeError):
@@ -834,7 +825,7 @@ async def generate_metadata_summary(
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_summary_draft(db, body.dataset_id, port=port, user_id=user.id),
         error_prefix="AI metadata summary generation",
@@ -856,7 +847,7 @@ async def generate_metadata_keywords(
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     user_roles = await port.get_user_roles(db, user)
     return await _call_llm_endpoint(
         generate_keyword_suggestions(
@@ -881,7 +872,7 @@ async def generate_metadata_lineage(
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_lineage_draft(db, body.dataset_id, port=port, user_id=user.id),
         error_prefix="AI metadata lineage generation",
@@ -903,7 +894,7 @@ async def generate_metadata_quality_statement(
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_quality_statement_draft(
             db, body.dataset_id, port=port, user_id=user.id

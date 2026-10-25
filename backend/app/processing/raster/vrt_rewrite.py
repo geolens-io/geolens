@@ -39,7 +39,7 @@ _VSI_STRIP_RE = re.compile(r"^(?:/vsis3/[^/]+/|/vsiaz/[^/]+/)(.+)$")
 def rewrite_vrt_sources(
     vrt_path: Path,
     *,
-    vrt_storage_key: str | None = None,
+    vrt_storage_key: str,
     dry_run: bool = False,
 ) -> list[str]:
     """Rewrite SourceFilename nodes in-place to use relativeToVRT="1" paths.
@@ -48,9 +48,7 @@ def rewrite_vrt_sources(
     VRT-of-VRT SimpleSource blocks): strips the prefix to the logical key,
     computes the path relative to the VRT's own directory
     (``posixpath.relpath(logical_key, posixpath.dirname(vrt_storage_key))``),
-    and sets ``relativeToVRT="1"``. ``vrt_storage_key=None`` falls back to
-    the full logical key; the ingest call sites in tasks_vrt.py always supply
-    it.
+    and sets ``relativeToVRT="1"``.
 
     ``dry_run=True`` returns the change list without writing; otherwise it
     writes only if changes were found.
@@ -63,7 +61,6 @@ def rewrite_vrt_sources(
     Args:
         vrt_path: Path to the .vrt file to rewrite (in-place when not dry_run).
         vrt_storage_key: The storage key at which the VRT will be/is stored.
-            None uses the full logical key as-is (legacy fallback).
         dry_run: If True, return changes without writing. Default: False.
 
     Returns:
@@ -75,20 +72,15 @@ def rewrite_vrt_sources(
 
     # The VRT's directory within the bucket/container, e.g.
     # "rasters/abc/sha/source.vrt" -> "rasters/abc/sha".
-    vrt_dir: str | None = (
-        posixpath.dirname(vrt_storage_key) if vrt_storage_key else None
-    )
+    vrt_dir = posixpath.dirname(vrt_storage_key)
 
     for node in root.iter("SourceFilename"):
         src = node.text or ""
         m = _VSI_STRIP_RE.match(src)
         if m:
             logical = m.group(1)
-            if vrt_dir is not None:
-                # What GDAL resolves at open time when relativeToVRT="1".
-                relative = posixpath.relpath(logical, vrt_dir)
-            else:
-                relative = logical
+            # What GDAL resolves at open time when relativeToVRT="1".
+            relative = posixpath.relpath(logical, vrt_dir)
             changes.append(f"{src} -> {relative}")
             node.text = relative
             node.set("relativeToVRT", "1")

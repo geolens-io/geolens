@@ -1,14 +1,12 @@
-"""Static-analysis tests for postgresql.conf and Map index-deferral doc deliverables."""
+"""Static-analysis tests for postgresql.conf and the Map index-deferral decision."""
 
 import re
 
+from app.modules.catalog.maps.models import Map
 from tests.repo_paths import repo_root
 
 _REPO_ROOT = repo_root(__file__)
 _POSTGRESQL_CONF = _REPO_ROOT / "db" / "postgresql.conf"
-_MAP_MODEL = (
-    _REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "models.py"
-)
 
 
 def test_postgresql_conf_sets_hnsw_ef_search_default():
@@ -42,23 +40,9 @@ def test_postgresql_conf_enables_lock_wait_and_io_observability():
         )
 
 
-def test_map_model_documents_index_deferral_trigger():
-    """Map.__table_args__ must document the visibility-index deferral with a revisit trigger."""
-    text = _MAP_MODEL.read_text()
-    assert "no composite" in text.lower() and "Map.visibility" in text, (
-        "Map model must document why no composite Map.visibility index exists."
-    )
-    # Trigger condition should mention seq-scan / EXPLAIN / metric — give some
-    # flexibility on phrasing.
-    triggers = ["seq scan", "seq-scan", "EXPLAIN", "metric"]
-    assert any(t in text for t in triggers), (
-        "The visibility-index deferral must name a clear revisit trigger "
-        "(e.g., 'EXPLAIN shows seq scan')."
-    )
-
-
-def test_map_model_index_deferral_names_visibility_column():
-    """The deferral rationale stays inline with the model for public release."""
-    text = _MAP_MODEL.read_text()
-    assert "Map.visibility" in text or "Map visibility" in text
-    assert "no composite" in text.lower()
+def test_maps_table_has_no_index_on_visibility():
+    """The deferred visibility index is a decision; adding one needs a fresh EXPLAIN."""
+    indexed = {
+        column.name for index in Map.__table__.indexes for column in index.columns
+    }
+    assert "visibility" not in indexed

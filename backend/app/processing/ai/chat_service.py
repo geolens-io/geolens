@@ -24,20 +24,17 @@ from app.platform.sandbox import validate_and_execute  # re-exported (test patch
 
 # Re-exports: public names every external caller may import from this facade.
 from app.processing.ai.chat_actions import (
-    _build_label_action,
     _collect_chat_action,
     _execute_chat_tool,
     _handle_query_data,
 )
 from app.processing.ai.chat_constants import (
-    _EDIT_TOOLS,
     TOOL_RESULT_PROTOCOL,
     _MAX_COLUMNS_PER_LAYER,
     _MAX_SAMPLE_COLS,
     _MAX_SYSTEM_PROMPT_LAYERS,
     ERROR_MESSAGES,
     QUERY_RESULT_SANITY_PROMPT,
-    _get_ramp_colors,
     _sanitize_layer_name,
     fence_untrusted_content,
     lang_name,
@@ -51,21 +48,12 @@ from app.processing.ai.chat_geojson import (
     _extract_geojson,
     _is_geom_value,
     _safe_value,
-    safe_rows,
     ensure_geometry_selected,
     strip_geometry_columns,
 )
-from app.processing.ai.chat_styles import (
-    _build_categorical_style,
-    _build_data_driven_style,
-    _build_graduated_style,
-    _get_color_property,
-)
 from app.processing.ai.chat_validation import (
     _build_chat_actions,
-    _extract_get_refs,
     _validate_actions,
-    _validate_filter_columns,
 )
 from app.processing.ai.llm_loop import resolve_provider
 from app.processing.ai.schemas import (
@@ -103,13 +91,10 @@ __all__ = [
     # Validation (used by streaming.py)
     "_build_chat_actions",
     "_validate_actions",
-    "_validate_filter_columns",
-    "_extract_get_refs",
     # GeoJSON helpers (used by tests)
     "_is_geom_value",
     "_detect_geom_column",
     "_safe_value",
-    "safe_rows",
     "_extract_geojson",
     "ensure_geometry_selected",
     "strip_geometry_columns",
@@ -117,17 +102,6 @@ __all__ = [
     # ``app.processing.ai.chat_service.{generate_sql,validate_and_execute}``)
     "generate_sql",
     "validate_and_execute",
-    # Style builders (kept available; not imported by external callers but
-    # tests inspect the facade surface).
-    "_build_data_driven_style",
-    "_build_categorical_style",
-    "_build_graduated_style",
-    "_get_color_property",
-    # Action helpers
-    "_build_label_action",
-    # Tool name set
-    "_EDIT_TOOLS",
-    "_get_ramp_colors",
 ]
 
 

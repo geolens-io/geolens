@@ -48,7 +48,6 @@ from app.processing.ai.sandbox_bounds import (
     MAX_OUTPUT_COLUMNS,
     MAX_TABLE_REPEATS,
     MAX_VALUES_ROWS,
-    capacity_bound,
     query_slots,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
@@ -110,11 +109,6 @@ _QUERY_TIMEOUT_MS = 5_000
 _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
-# The self-join fan-out cap lives in sandbox_bounds.py and applies to
-# query_data too: it is a property of the shared planner and pool, and both
-# surfaces share the `use_ai_chat` permission.
-_QUERY_MAX_TABLE_REPEATS = MAX_TABLE_REPEATS
-
 # Output-amplifying functions dropped on this raw surface: each turns a small
 # input into an arbitrarily large single cell via a width/count/replacement
 # argument, which no SQL-length cap, row_limit, or statement timeout bounds.
@@ -158,9 +152,6 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
 _QUERY_MAX_VALUES_ROWS = MAX_VALUES_ROWS
 _QUERY_MAX_OUTPUT_COLUMNS = MAX_OUTPUT_COLUMNS
 _QUERY_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-
-_capacity_bound = capacity_bound
-_query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
 # request. These reuse the app-wide ``limiter``, so the per-user/per-IP
@@ -345,13 +336,13 @@ async def sandbox_query_endpoint(
             row_limit=body.row_limit,
             timeout_ms=_QUERY_TIMEOUT_MS,
             restrict_tables=restrict,
-            max_table_repeats=_QUERY_MAX_TABLE_REPEATS,
+            max_table_repeats=MAX_TABLE_REPEATS,
             require_reader_role=True,
             # Return the request connection before the sandbox opens its own,
             # and cap total concurrent executions. Nothing below reads `db`;
             # the audit trail uses its own session.
             release_session=True,
-            capacity_semaphore=_query_slots,
+            capacity_semaphore=query_slots,
             # Raw-surface guards against output/cardinality amplification.
             extra_blocked_functions=_QUERY_BLOCKED_FUNCTIONS,
             max_values_rows=_QUERY_MAX_VALUES_ROWS,

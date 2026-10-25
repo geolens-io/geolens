@@ -353,7 +353,7 @@ class TestCrossProviderMoveAcceptance:
         vrt_xml = _make_vrt_xml_with_vsi_path("/vsis3/my-bucket/rasters/1/cog.tif")
         vrt_path.write_text(vrt_xml, encoding="utf-8")
 
-        changes = rewrite_vrt_sources(vrt_path)
+        changes = rewrite_vrt_sources(vrt_path, vrt_storage_key="test.vrt")
         assert len(changes) == 1
 
         stored = vrt_path.read_bytes()
@@ -384,13 +384,13 @@ class TestCrossProviderMoveAcceptance:
         sha_before = _sha256(bytes_before)
 
         # First rewrite (no changes expected — already logical)
-        changes1 = rewrite_vrt_sources(vrt_path)
+        changes1 = rewrite_vrt_sources(vrt_path, vrt_storage_key="test.vrt")
         assert changes1 == [], (
             f"First rewrite on logical VRT should be no-op: {changes1}"
         )
 
         # Second rewrite
-        changes2 = rewrite_vrt_sources(vrt_path)
+        changes2 = rewrite_vrt_sources(vrt_path, vrt_storage_key="test.vrt")
         assert changes2 == [], f"Second rewrite should also be no-op: {changes2}"
 
         sha_after = _sha256(vrt_path.read_bytes())

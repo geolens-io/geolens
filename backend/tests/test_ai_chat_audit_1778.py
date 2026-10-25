@@ -735,7 +735,7 @@ class TestQueryDataSandboxBounds:
     def test_chat_and_raw_endpoint_share_one_semaphore(self):
         from app.processing.ai import query_router
 
-        assert query_router._query_slots is sandbox_bounds.query_slots
+        assert query_router.query_slots is sandbox_bounds.query_slots
         assert (
             chat_actions._SANDBOX_BOUNDS["capacity_semaphore"]
             is sandbox_bounds.query_slots
@@ -746,7 +746,7 @@ class TestQueryDataSandboxBounds:
 
         assert (
             chat_actions._SANDBOX_BOUNDS["max_table_repeats"]
-            == query_router._QUERY_MAX_TABLE_REPEATS
+            == sandbox_bounds.MAX_TABLE_REPEATS
         )
         assert (
             chat_actions._SANDBOX_BOUNDS["max_values_rows"]

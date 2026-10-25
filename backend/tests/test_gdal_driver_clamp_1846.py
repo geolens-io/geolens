@@ -1306,7 +1306,7 @@ def _strip_steps(text: str) -> int:
 
 
 def test_the_comment_strip_is_linear_in_the_size_of_the_schema():
-    """The lazy regex this replaced was quadratic on uploader-chosen text.
+    r"""The lazy regex this replaced was quadratic on uploader-chosen text.
 
     `re.compile(r"/\*.*?\*/", re.DOTALL)` restarts a scan to end-of-string at
     every unterminated opener: 64 KB took 3.6 s, and the scan used to run

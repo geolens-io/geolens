@@ -28,6 +28,8 @@ from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.processing.export.ogr import (
+    MAX_EXPORT_FEATURES as _MAX_EXPORT_FEATURES,
+    PARQUET_MEDIA_TYPE,
     ExportError,
     bbox_where_sql,
     export_subprocess_timeout_seconds,
@@ -35,15 +37,6 @@ from app.processing.export.ogr import (
 from app.processing.export.service import export_descriptor, validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info, probe_geom_4326
-
-# Re-exported from `ogr.py`, which owns it so `api/main.py` can read the whole
-# set of export media types without importing pyarrow.
-from app.processing.export.ogr import PARQUET_MEDIA_TYPE  # noqa: F401
-
-# Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
-# feature_count is NULL (legacy/registered rows), so the parquet path enforces
-# its own bounded-count cap regardless.
-_MAX_EXPORT_FEATURES = 5_000_000
 
 # Rows, or approximate bytes of Python values, held before a batch is encoded
 # and appended to the file. Whichever bound trips first flushes, so memory
