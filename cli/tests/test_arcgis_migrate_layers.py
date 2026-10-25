@@ -426,6 +426,20 @@ def test_group_and_raster_layers_are_skipped_with_a_note(runner, plan_file, geol
     assert payload["items"][0]["notes"] == notes
 
 
+def test_a_layer_the_probe_can_import_is_imported_whatever_its_type(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Cameras", "Oriented Imagery Layer", importable=True)]
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [b["layer_name"] for b in service.bodies(PREVIEW)] == ["Cameras"]
+    assert _state(plan_file)["items"][A2]["dataset_ids"] == [dataset_id("Cameras")]
+
+
 def test_a_service_with_nothing_to_import_is_done_and_imports_nothing_on_a_rerun(
     runner, plan_file, geolens
 ):

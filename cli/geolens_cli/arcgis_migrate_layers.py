@@ -30,8 +30,6 @@ from .arcgis_migrate_session import (
 )
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
-# ArcGIS sub-layer types that hold features GeoLens can import.
-IMPORTABLE_LAYER_TYPES = frozenset({"Feature Layer", "Table"})
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
 JOB_POLL_INTERVAL = 5.0
@@ -207,14 +205,11 @@ def _titles(base: str, layers: list[Any]) -> list[str]:
 
 def _importable(layer: Any) -> str | None:
     """Why *layer* is not imported, or None."""
+    if getattr(layer, "importable", True) is not False:
+        return None
     kind = getattr(layer, "source_layer_type", None)
-    if not isinstance(kind, str):
-        kind = None
-    if getattr(layer, "importable", True) is False or (
-        kind is not None and kind not in IMPORTABLE_LAYER_TYPES
-    ):
-        return f"{_layer_label(layer)}: {kind or 'this kind of'} layer, not imported"
-    return None
+    kind = kind if isinstance(kind, str) else "this kind of"
+    return f"{_layer_label(layer)}: {kind} layer, not imported"
 
 
 class _JobEnded(ItemFailed):
