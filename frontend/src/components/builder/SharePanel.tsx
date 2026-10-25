@@ -41,7 +41,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { VisibilityConfirmDialog } from '@/components/ui/visibility-confirm-dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { usePublishMap, useMapAudienceBusy, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
@@ -1310,6 +1310,81 @@ export function ShareDialog({
     }
   }
 
+  const visibilityDialog = (() => {
+    if (pendingVisibility !== 'public') {
+      return {
+        title: t('share.leavePublicConfirmTitle'),
+        description: t('share.leavePublicConfirmDescription'),
+        confirm: {
+          label: t('share.leavePublicConfirmAction'),
+          onClick: handleConfirmVisibilityChange,
+          variant: 'destructive' as const,
+        },
+      };
+    }
+    if (isPublicBlocked) {
+      return {
+        title: t('share.makePublicBlockedTitle'),
+        description: t('share.makePublicBlockedIntro'),
+        body: (
+          <div className="space-y-2">
+            {/* Up to 200 titles of up to 500 characters each — bounded
+                independently of the dialog's own height. */}
+            <ul
+              data-testid="share-blocked-datasets-list"
+              aria-label={t('share.makePublicBlockedIntro')}
+              className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
+            >
+              {blockedDatasets.map((name) => (
+                <li key={name} className="break-words">
+                  {name}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              {t('share.makePublicBlockedRemedy')}
+            </p>
+          </div>
+        ),
+      };
+    }
+    if (publicEligibilityFailed) {
+      return {
+        title: t('share.makePublicConfirmTitle'),
+        description: t('share.makePublicCheckFailed'),
+        footerExtra: (
+          <Button type="button" variant="outline" onClick={checkPublicEligibility}>
+            {t('share.makePublicCheckRetry')}
+          </Button>
+        ),
+      };
+    }
+    return {
+      title: t('share.makePublicConfirmTitle'),
+      description: t('share.makePublicConfirmDescription'),
+      body:
+        isPublicEligible && pendingAudienceHiddenLayers.length > 0 ? (
+          <div
+            data-testid="share-confirm-audience-hidden-warning"
+            className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <p>
+              {t('share.audienceHiddenWarning', {
+                count: pendingAudienceHiddenLayers.length,
+                layers: pendingAudienceHiddenLayers.join(', '),
+              })}
+            </p>
+          </div>
+        ) : undefined,
+      confirm: {
+        label: t('share.makePublicConfirmAction'),
+        onClick: handleConfirmVisibilityChange,
+        pending: isCheckingPublicEligibility,
+      },
+    };
+  })();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -1449,97 +1524,19 @@ export function ShareDialog({
 
           {/* Crossing the public boundary is confirmed before the mutation
               runs: going public exposes the map and leaving public kills
-              existing share links. Only the leave-public action is
-              destructive-styled. */}
-          <VisibilityConfirmDialog
+              existing share links. */}
+          <ConfirmDialog
             open={pendingVisibility !== null}
             onOpenChange={(dialogOpen) => {
               if (!dialogOpen) setPendingVisibility(null);
             }}
-            cancelLabel={t('share.visibilityConfirmCancel')}
-            title={
-              pendingVisibility !== 'public'
-                ? t('share.leavePublicConfirmTitle')
-                : isPublicBlocked
-                  ? t('share.makePublicBlockedTitle')
-                  : t('share.makePublicConfirmTitle')
-            }
-            description={
-              pendingVisibility !== 'public'
-                ? t('share.leavePublicConfirmDescription')
-                : isPublicBlocked
-                  ? t('share.makePublicBlockedIntro')
-                  : publicEligibilityFailed
-                    ? t('share.makePublicCheckFailed')
-                    : t('share.makePublicConfirmDescription')
-            }
-            footerExtra={
-              pendingVisibility === 'public' && publicEligibilityFailed ? (
-                <Button type="button" variant="outline" onClick={checkPublicEligibility}>
-                  {t('share.makePublicCheckRetry')}
-                </Button>
-              ) : undefined
-            }
-            confirm={
-              pendingVisibility !== 'public'
-                ? {
-                    label: t('share.leavePublicConfirmAction'),
-                    onClick: handleConfirmVisibilityChange,
-                    destructive: true,
-                  }
-                : !isPublicBlocked && !publicEligibilityFailed
-                  ? {
-                      label: (
-                        <>
-                          {isCheckingPublicEligibility && (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" aria-hidden="true" />
-                          )}
-                          {t('share.makePublicConfirmAction')}
-                        </>
-                      ),
-                      onClick: handleConfirmVisibilityChange,
-                      disabled: isCheckingPublicEligibility,
-                    }
-                  : undefined
-            }
+            title={visibilityDialog.title}
+            description={visibilityDialog.description}
+            footerExtra={visibilityDialog.footerExtra}
+            confirm={visibilityDialog.confirm}
           >
-            {pendingVisibility === 'public' && isPublicBlocked && (
-              <div className="space-y-2">
-                {/* Up to 200 titles of up to 500 characters each — bounded
-                    independently of the dialog's own height. */}
-                <ul
-                  data-testid="share-blocked-datasets-list"
-                  aria-label={t('share.makePublicBlockedIntro')}
-                  className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
-                >
-                  {blockedDatasets.map((name) => (
-                    <li key={name} className="break-words">
-                      {name}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-xs text-muted-foreground">
-                  {t('share.makePublicBlockedRemedy')}
-                </p>
-              </div>
-            )}
-            {pendingVisibility === 'public' &&
-              isPublicEligible &&
-              pendingAudienceHiddenLayers.length > 0 && (
-                <div
-                  data-testid="share-confirm-audience-hidden-warning"
-                  className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
-                >
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-                  <p>
-                    {t('share.audienceHiddenWarning', {
-                      count: pendingAudienceHiddenLayers.length,
-                      layers: pendingAudienceHiddenLayers.join(', '),
-                    })}
-                  </p>
-                </div>
-              )}
-          </VisibilityConfirmDialog>
+            {visibilityDialog.body}
+          </ConfirmDialog>
 
           {publishMap.isPending && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -696,7 +696,6 @@
     "revokeConfirmDescription": "Der Link funktioniert sofort nicht mehr und alle Einbettungs-Tokens dieser Karte werden ungültig. Das kann nicht rückgängig gemacht werden.",
     "revokeConfirmCancel": "Abbrechen",
     "revokeConfirmAction": "Link widerrufen",
-    "visibilityConfirmCancel": "Abbrechen",
     "makePublicConfirmTitle": "Diese Karte öffentlich machen?",
     "makePublicBlockedTitle": "Diese Karte kann noch nicht öffentlich sein",
     "makePublicConfirmDescription": "Alle können diese Karte ansehen und im Kartenkatalog finden, auch ohne Freigabelink.",

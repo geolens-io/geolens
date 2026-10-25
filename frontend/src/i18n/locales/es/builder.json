@@ -696,7 +696,6 @@
     "revokeConfirmDescription": "El enlace dejará de funcionar de inmediato y se invalidarán los tokens de inserción de este mapa. No se puede deshacer.",
     "revokeConfirmCancel": "Cancelar",
     "revokeConfirmAction": "Revocar enlace",
-    "visibilityConfirmCancel": "Cancelar",
     "makePublicConfirmTitle": "¿Hacer público este mapa?",
     "makePublicBlockedTitle": "Este mapa aún no puede ser público",
     "makePublicConfirmDescription": "Todos podrán ver este mapa y encontrarlo en el catálogo de Mapas, sin un enlace compartido.",

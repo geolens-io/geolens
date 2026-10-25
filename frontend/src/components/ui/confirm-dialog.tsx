@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,27 +12,29 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-interface VisibilityConfirmDialogProps {
+interface ConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   description: ReactNode;
-  cancelLabel: ReactNode;
+  /** Defaults to the shared Cancel label. */
+  cancelLabel?: ReactNode;
   /** Body between the description and the footer. */
   children?: ReactNode;
   /** Rendered between Cancel and the confirm action. */
   footerExtra?: ReactNode;
-  /** Omit when the change cannot proceed; Cancel is then the only way out. */
+  /** Omit when the action cannot proceed; Cancel is then the only way out. */
   confirm?: {
-    label: ReactNode;
+    label: string;
     onClick: () => void;
-    disabled?: boolean;
-    destructive?: boolean;
+    variant?: ComponentProps<typeof AlertDialogAction>['variant'];
+    /** Shows a spinner and disables the action. */
+    pending?: boolean;
   };
 }
 
-/** Confirmation shown before a visibility change crosses the public boundary. */
-export function VisibilityConfirmDialog({
+/** Confirmation dialog for an action the user must approve before it runs. */
+export function ConfirmDialog({
   open,
   onOpenChange,
   title,
@@ -39,7 +43,8 @@ export function VisibilityConfirmDialog({
   children,
   footerExtra,
   confirm,
-}: VisibilityConfirmDialogProps) {
+}: ConfirmDialogProps) {
+  const { t } = useTranslation();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       {/* Bounded independently of the body: a short viewport (phone landscape,
@@ -52,14 +57,17 @@ export function VisibilityConfirmDialog({
         </AlertDialogHeader>
         {children}
         <AlertDialogFooter>
-          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel>{cancelLabel ?? t('common:cancel')}</AlertDialogCancel>
           {footerExtra}
           {confirm && (
             <AlertDialogAction
-              variant={confirm.destructive ? 'destructive' : undefined}
+              variant={confirm.variant}
               onClick={confirm.onClick}
-              disabled={confirm.disabled}
+              disabled={confirm.pending}
             >
+              {confirm.pending && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" aria-hidden="true" />
+              )}
               {confirm.label}
             </AlertDialogAction>
           )}

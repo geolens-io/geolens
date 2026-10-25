@@ -696,7 +696,6 @@
     "revokeConfirmDescription": "该链接将立即失效，且此地图的所有嵌入地图访问令牌都将作废。此操作无法撤销。",
     "revokeConfirmCancel": "取消",
     "revokeConfirmAction": "撤销链接",
-    "visibilityConfirmCancel": "取消",
     "makePublicConfirmTitle": "将此地图设为公开？",
     "makePublicBlockedTitle": "此地图暂时无法公开",
     "makePublicConfirmDescription": "所有人都可以查看此地图，并在地图目录中找到它，无需分享链接。",

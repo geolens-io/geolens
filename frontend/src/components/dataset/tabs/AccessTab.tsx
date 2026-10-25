@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { VisibilityConfirmDialog } from '@/components/ui/visibility-confirm-dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -490,16 +490,14 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
         />
       )}
 
-      <VisibilityConfirmDialog
+      <ConfirmDialog
         open={confirmPublic}
         onOpenChange={setConfirmPublic}
         title={t('metadataEdit.publicConfirmTitle')}
         description={t('metadataEdit.publicConfirmDescription')}
-        cancelLabel={t('common:cancel')}
         confirm={{
           label: t('metadataEdit.publicConfirmAction'),
           onClick: () => {
-            setConfirmPublic(false);
             void changeVisibility('public');
           },
         }}

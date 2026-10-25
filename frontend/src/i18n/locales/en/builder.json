@@ -696,7 +696,6 @@
     "revokeConfirmDescription": "The link will stop working immediately and any embed tokens for this map will be invalidated. This cannot be undone.",
     "revokeConfirmCancel": "Cancel",
     "revokeConfirmAction": "Revoke link",
-    "visibilityConfirmCancel": "Cancel",
     "makePublicConfirmTitle": "Make this map public?",
     "makePublicBlockedTitle": "This map can't be public yet",
     "makePublicConfirmDescription": "Everyone will be able to view this map and find it in the Maps catalog, without a share link.",

@@ -696,7 +696,6 @@
     "revokeConfirmDescription": "Le lien cessera de fonctionner immédiatement et les jetons d’intégration de cette carte seront invalidés. Cette action est irréversible.",
     "revokeConfirmCancel": "Annuler",
     "revokeConfirmAction": "Révoquer le lien",
-    "visibilityConfirmCancel": "Annuler",
     "makePublicConfirmTitle": "Rendre cette carte publique ?",
     "makePublicBlockedTitle": "Cette carte ne peut pas encore être publique",
     "makePublicConfirmDescription": "Tout le monde pourra voir cette carte et la trouver dans le catalogue Cartes, sans lien de partage.",
