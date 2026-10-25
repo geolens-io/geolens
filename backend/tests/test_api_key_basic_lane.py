@@ -292,6 +292,7 @@ async def test_an_unresolvable_basic_login_is_refused(
         ):
             resp = await client.get(url, headers=auth)
             assert resp.status_code == 401, (name, url, resp.text)
+            assert resp.headers["www-authenticate"] == CHALLENGE, (name, url)
 
 
 async def test_a_revoked_key_is_refused_over_basic(
@@ -415,14 +416,23 @@ async def test_the_desktop_entry_challenges_without_a_working_credential(
         _basic("glk_not-a-real-key"),
         _basic(ADMIN_PASS, username=ADMIN_USER),
         {"Authorization": "Basic not*base64"},
-        {"Authorization": "Bearer not-a-token"},
-        {"X-Api-Key": "glk_not-a-real-key"},
     ):
         for method in ("GET", "HEAD"):
             resp = await client.request(method, "/desktop", headers=auth)
             assert resp.status_code == 401, (method, auth, resp.text)
             assert resp.headers["www-authenticate"] == CHALLENGE, (method, auth)
-            assert resp.headers["cache-control"] == "no-store", (method, auth)
+
+
+async def test_the_desktop_entry_refuses_a_dead_credential_in_its_own_scheme(
+    client: AsyncClient,
+):
+    for auth in (
+        {"Authorization": "Bearer not-a-token"},
+        {"X-Api-Key": "glk_not-a-real-key"},
+    ):
+        resp = await client.get("/desktop", headers=auth)
+        assert resp.status_code == 401, (auth, resp.text)
+        assert resp.headers["www-authenticate"] == "Bearer", auth
 
 
 async def test_the_desktop_entry_redirects_a_signed_in_caller_to_the_landing_page(

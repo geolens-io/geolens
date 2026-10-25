@@ -337,6 +337,9 @@ def _should_log_query_lane_refusal(route_template: str) -> bool:
     return True
 
 
+BASIC_CHALLENGE = 'Basic realm="GeoLens"'
+
+
 def _basic_password(authorization: str) -> str | None:
     """The password of an HTTP Basic ``Authorization`` value, or None if malformed."""
     scheme, _, encoded = authorization.partition(" ")
@@ -587,10 +590,14 @@ def reject_unresolvable_credentials(request: Request, user: Identity | None) -> 
     sending a junk header.
     """
     if user is None and request_carries_credentials(request):
+        # Answer in the scheme the caller used: a desktop client asks for a
+        # new login only when challenged for Basic.
+        scheme = request.headers.get("Authorization", "").partition(" ")[0]
+        challenge = BASIC_CHALLENGE if scheme.lower() == "basic" else "Bearer"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": challenge},
         )
 
 

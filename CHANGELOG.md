@@ -14,7 +14,8 @@ and releases use semantic versioning.
   OGC API landing page at `/api/`. An API key now authenticates as the password
   of an HTTP Basic login on every route, for `GET`, `HEAD` and `OPTIONS` only;
   a Basic login on any other method, a malformed one or one whose password
-  isn't a live key is answered `401`. Account passwords are never accepted
+  isn't a live key is answered `401` with a Basic challenge, so the client
+  asks for a new login. Account passwords are never accepted
   this way. Before this release any Basic login was answered `401`, which
   broke every other connection Pro had open to the same server once it had
   sent one.

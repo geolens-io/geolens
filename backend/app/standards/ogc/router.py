@@ -20,6 +20,7 @@ from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
 from app.modules.auth.dependencies import (
+    BASIC_CHALLENGE,
     get_optional_user,
     get_optional_user_no_security_schema,
 )
@@ -306,7 +307,9 @@ async def landing_page(
 
 @ogc_router.api_route("/desktop", methods=["GET", "HEAD"], include_in_schema=False)
 async def desktop_entry(
-    request: Request, db: AsyncSession = Depends(get_db)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> RedirectResponse:
     """Challenge for HTTP Basic, then send a signed-in caller to the landing page.
 
@@ -314,18 +317,12 @@ async def desktop_entry(
     the landing page serves anonymous callers, so this route asks every caller
     without a working credential for one, whatever the catalog holds.
     """
-    try:
-        user = await get_optional_user_no_security_schema(request, db)
-    except HTTPException as exc:
-        if exc.status_code != status.HTTP_401_UNAUTHORIZED:
-            raise
-        user = None
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={
-                "WWW-Authenticate": 'Basic realm="GeoLens"',
+                "WWW-Authenticate": BASIC_CHALLENGE,
                 "Cache-Control": "no-store",
             },
         )
