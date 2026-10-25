@@ -921,7 +921,7 @@ describe('AccessTab', () => {
           mockListKeywords.mockImplementation(
             () =>
               new Promise((res) => {
-                resolveProbe = res;
+                resolveProbe = res as (v: unknown) => void;
               }) as ReturnType<typeof listKeywords>,
           );
           render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
