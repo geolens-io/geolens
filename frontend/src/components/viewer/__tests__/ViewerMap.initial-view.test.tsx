@@ -1,7 +1,7 @@
 /**
- * A shared map without a saved view hands ViewerMap the layers' bounds: MapLibre
- * fits them at construction, and the load handler keeps the fit at zoom 2 or
- * closer, as the Builder's fit does.
+ * A shared map without a saved view asks ViewerMap to fit its layers: MapLibre
+ * fits their bounds at construction, and the load handler keeps the fit at
+ * zoom 2 or closer, as the Builder's fit does.
  */
 import type { ReactNode } from 'react';
 import { act, render } from '@/test/test-utils';
@@ -54,14 +54,28 @@ vi.mock('@/components/map/MapCoordReadout', () => ({
 }));
 
 const CAMERA = { center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 };
-const BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 80]];
+const LAYER = {
+  id: 'layer-1',
+  dataset_id: 'dataset-1',
+  dataset_name: 'Countries',
+  table_name: 'countries',
+  geometry_type: 'MultiPolygon',
+  sort_order: 0,
+  visible: true,
+  opacity: 1,
+  paint: {},
+  layout: {},
+  tile_url: '',
+  dataset_extent_bbox: [-180, -60, 180, 80],
+} as SharedLayerResponse;
 
-function renderViewer(bounds: typeof BOUNDS | null) {
+function renderViewer(fitLayers: boolean) {
   render(
     <ViewerMap
-      layers={[] as SharedLayerResponse[]}
+      layers={[LAYER]}
       basemapStyle="positron"
-      initialViewState={{ ...CAMERA, bounds }}
+      initialViewState={CAMERA}
+      fitLayers={fitLayers}
       visibleLayers={new Set<string>()}
     />,
   );
@@ -89,17 +103,17 @@ describe('ViewerMap initial view', () => {
     mapGlMock.props = null;
   });
 
-  it('fits the given bounds at construction', () => {
-    renderViewer(BOUNDS);
+  it('fits the visible layers at construction', () => {
+    renderViewer(true);
 
     expect(mapGlMock.props?.initialViewState).toMatchObject({
-      bounds: BOUNDS,
+      bounds: [[-180, -60], [180, 80]],
       fitBoundsOptions: { padding: 40, maxZoom: 18 },
     });
   });
 
-  it('opens at the center and zoom without bounds', () => {
-    renderViewer(null);
+  it('opens at the center and zoom without a fit', () => {
+    renderViewer(false);
 
     expect(mapGlMock.props?.initialViewState).toEqual({
       longitude: 0, latitude: 0, zoom: 2, bearing: 0, pitch: 0,
@@ -107,13 +121,13 @@ describe('ViewerMap initial view', () => {
   });
 
   it('keeps a wide fit at zoom 2', () => {
-    renderViewer(BOUNDS);
+    renderViewer(true);
 
     expect(loadWithZoom(0.8)).toHaveBeenCalledWith(2);
   });
 
   it('leaves a saved view below zoom 2 alone', () => {
-    renderViewer(null);
+    renderViewer(false);
 
     expect(loadWithZoom(1.5)).not.toHaveBeenCalled();
   });

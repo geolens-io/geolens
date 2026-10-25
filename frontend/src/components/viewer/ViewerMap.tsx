@@ -38,7 +38,7 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import { clampMinZoomAfterFit } from '@/components/builder/builder-bounds';
+import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { adapterInputFor, describeLayers } from '@/components/builder/layer-description';
 import { prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration, syncRenderContext } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
@@ -85,9 +85,9 @@ interface ViewerMapProps {
     zoom: number;
     bearing: number;
     pitch: number;
-    /** Fit these bounds instead of the center and zoom. Read once, at mount. */
-    bounds?: [[number, number], [number, number]] | null;
   };
+  /** Open fitted to the visible layers instead of the center and zoom. Read once, at mount. */
+  fitLayers?: boolean;
   visibleLayers: Set<string>;
   onMapReady?: (map: MaplibreMap) => void;
   embedToken?: string;
@@ -141,6 +141,7 @@ export const ViewerMap = memo(function ViewerMap({
   layers,
   basemapStyle,
   initialViewState,
+  fitLayers = false,
   visibleLayers,
   onMapReady,
   embedToken,
@@ -164,7 +165,7 @@ export const ViewerMap = memo(function ViewerMap({
   // Mount-time projection for the MapGL prop; see the comment at
   // the <MapGL projection> site for why it must never change after mount.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
-  const [initialBounds] = useState(() => initialViewState.bounds ?? null);
+  const [initialBounds] = useState(() => (fitLayers ? getVisibleLayerBounds(layers) : null));
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
   // The visible layers' required credit lines for the attribution control below.
   const layerAttributions = useMemo(
@@ -1031,7 +1032,7 @@ export const ViewerMap = memo(function ViewerMap({
     bearing: initialViewState.bearing,
     pitch: initialViewState.pitch,
     // MapLibre fits these at construction, overriding longitude, latitude and zoom.
-    ...(initialBounds && { bounds: initialBounds, fitBoundsOptions: { padding: 40, maxZoom: 18 } }),
+    ...(initialBounds && { bounds: initialBounds, fitBoundsOptions: FIT_BOUNDS_OPTIONS }),
   }), [initialViewState.center_lng, initialViewState.center_lat, initialViewState.zoom, initialViewState.bearing, initialViewState.pitch, initialBounds]);
 
     const invalidateTileTokens = useInvalidateTileTokens();

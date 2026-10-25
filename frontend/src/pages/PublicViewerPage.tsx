@@ -8,7 +8,6 @@ const ViewerMap = lazy(() =>
 );
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
-import { getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { legendFacts, type DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
@@ -167,7 +166,6 @@ function PublicViewer() {
     zoom: parsedZoom ?? data.zoom,
     bearing: data.bearing,
     pitch: data.pitch,
-    bounds: fitLayers ? getVisibleLayerBounds(data.layers) : null,
   };
 
   return (
@@ -186,6 +184,7 @@ function PublicViewer() {
             showBasemapLabels={data.show_basemap_labels ?? true}
             terrainConfig={data.terrain_config ?? null}
             initialViewState={viewState}
+            fitLayers={fitLayers}
             visibleLayers={visibleLayers}
             embedToken={embedToken}
             onDrawnChange={setDrawnLayers}

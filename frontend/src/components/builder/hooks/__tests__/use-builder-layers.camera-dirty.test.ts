@@ -80,10 +80,29 @@ vi.mock('react-router', async () => {
   };
 });
 
-function leavingBuilderIsBlocked(): boolean {
-  return !!blockerPredicate?.({
+/** Save state and both leave prompts: the in-app navigation blocker and beforeunload. */
+function expectLeaveGuard(
+  state: { hasUnsavedChanges: boolean; hasUnsavedEdits: boolean; saveStatus: string },
+  { saveEnabled, asksBeforeLeaving }: { saveEnabled: boolean; asksBeforeLeaving: boolean },
+) {
+  const unload = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unload);
+  const blocked = !!blockerPredicate?.({
     currentLocation: { pathname: '/maps/map-1' },
     nextLocation: { pathname: '/maps' },
+  });
+  expect({
+    saveEnabled: state.hasUnsavedChanges,
+    saveStatus: state.saveStatus,
+    edits: state.hasUnsavedEdits,
+    blocked,
+    beforeUnload: unload.defaultPrevented,
+  }).toEqual({
+    saveEnabled,
+    saveStatus: saveEnabled ? 'unsaved' : 'saved',
+    edits: asksBeforeLeaving,
+    blocked: asksBeforeLeaving,
+    beforeUnload: asksBeforeLeaving,
   });
 }
 
@@ -306,34 +325,21 @@ describe('an unsaved camera move is unsaved work', () => {
 });
 
 describe('leaving with an unsaved camera', () => {
-  const beforeUnloadArmed = (spy: { mock: { calls: unknown[][] } }) =>
-    spy.mock.calls.some(([event]) => event === 'beforeunload');
-
   it('enables Save but does not ask before leaving after a pan alone', () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
     const { hook, moveTo } = render(savedMap());
 
     moveTo({ lng: -71.1, lat: 42.4 });
 
-    expect(hook.result.current.hasUnsavedChanges).toBe(true);
-    expect(hook.result.current.saveStatus).toBe('unsaved');
-    expect(hook.result.current.hasUnsavedEdits).toBe(false);
-    expect(beforeUnloadArmed(addSpy)).toBe(false);
-    expect(leavingBuilderIsBlocked()).toBe(false);
-    addSpy.mockRestore();
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: false });
   });
 
   it('asks before leaving after a pan and a style change', () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
     const { hook, moveTo } = render(savedMap());
 
     moveTo({ lng: -71.1, lat: 42.4 });
     act(() => { hook.result.current.handleOpacityChange('layer-1', 0.25); });
 
-    expect(hook.result.current.hasUnsavedEdits).toBe(true);
-    expect(beforeUnloadArmed(addSpy)).toBe(true);
-    expect(leavingBuilderIsBlocked()).toBe(true);
-    addSpy.mockRestore();
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
   });
 
   it('keeps asking when the camera returns to the saved view after an edit', () => {
@@ -343,8 +349,7 @@ describe('leaving with an unsaved camera', () => {
     moveTo({ lng: -71.1, lat: 42.4 });
     moveTo({ lng: SAVED.lng, lat: SAVED.lat });
 
-    expect(hook.result.current.hasUnsavedEdits).toBe(true);
-    expect(leavingBuilderIsBlocked()).toBe(true);
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
   });
 
   it('stops asking but keeps Save once a reverted edit leaves only the pan', () => {
@@ -356,14 +361,12 @@ describe('leaving with an unsaved camera', () => {
       hook.result.current.markDirty();
     });
     moveTo({ lng: -71.1, lat: 42.4 });
-    expect(leavingBuilderIsBlocked()).toBe(true);
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
 
     act(() => { hook.result.current.setLocalName(savedName); });
     act(() => { hook.result.current.requestCleanRecheck(); });
 
-    expect(hook.result.current.hasUnsavedEdits).toBe(false);
-    expect(hook.result.current.hasUnsavedChanges).toBe(true);
-    expect(leavingBuilderIsBlocked()).toBe(false);
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: false });
   });
 });
 
@@ -430,11 +433,8 @@ describe('a map that fits its layers as it loads', () => {
     return page;
   }
 
-  function expectClean(page: ReturnType<typeof renderBuilder>) {
-    expect(page.latest.hasUnsavedChanges).toBe(false);
-    expect(page.latest.hasUnsavedEdits).toBe(false);
-    expect(leavingBuilderIsBlocked()).toBe(false);
-  }
+  const expectClean = (page: ReturnType<typeof renderBuilder>) =>
+    expectLeaveGuard(page.latest, { saveEnabled: false, asksBeforeLeaving: false });
 
   it('stays clean after the first fit', () => {
     const page = renderBuilder([withoutView('map-1')]);
@@ -465,8 +465,7 @@ describe('a map that fits its layers as it loads', () => {
     expectClean(page);
 
     page.moveTo({ lng: -71.1, lat: 42.4 });
-    expect(page.latest.hasUnsavedChanges).toBe(true);
-    expect(page.latest.hasUnsavedEdits).toBe(false);
+    expectLeaveGuard(page.latest, { saveEnabled: true, asksBeforeLeaving: false });
   });
 });
 

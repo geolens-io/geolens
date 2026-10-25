@@ -361,7 +361,8 @@ describe('PublicViewerPage', () => {
 
       await screen.findByTestId('viewer-map');
 
-      expect(viewerMapMock.props?.initialViewState.bounds).toEqual([[-74.3, 40.5], [-73.7, 40.9]]);
+      expect(viewerMapMock.props?.fitLayers).toBe(true);
+      expect(viewerMapMock.props?.layers).toEqual([extentLayer]);
     });
 
     it('opens at the saved view when the map has one', async () => {
@@ -370,11 +371,11 @@ describe('PublicViewerPage', () => {
 
       await screen.findByTestId('viewer-map');
 
+      expect(viewerMapMock.props?.fitLayers).toBe(false);
       expect(viewerMapMock.props?.initialViewState).toMatchObject({
         center_lng: SHARED_MAP.center_lng,
         center_lat: SHARED_MAP.center_lat,
         zoom: SHARED_MAP.zoom,
-        bounds: null,
       });
     });
 
@@ -387,7 +388,7 @@ describe('PublicViewerPage', () => {
 
       await screen.findByTestId('viewer-map');
 
-      expect(viewerMapMock.props?.initialViewState.bounds).toBeNull();
+      expect(viewerMapMock.props?.fitLayers).toBe(false);
     });
   });
 

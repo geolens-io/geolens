@@ -60,7 +60,7 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
-import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit } from './builder-bounds';
+import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS } from './builder-bounds';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // Wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph.
@@ -1267,32 +1267,24 @@ export const BuilderMap = memo(function BuilderMap({
     if (isFirstFit) {
       initialFitDoneRef.current = true;
       if (hasSavedView) return; // MapGL already positioned via initialViewState
-    } else if (!layerCountChanged || !visibleBoundsChanged) {
-      // Only fit when the visible extent genuinely changed. Duplicate renderings
-      // add a layer row but keep the same dataset bounds, so they must not move
-      // the user's current map view.
-      return;
     }
-    if (!visibleBounds) return;
+
+    // After the first fit, only fit when the visible extent genuinely changed.
+    // Duplicate renderings add a layer row but keep the same dataset bounds, so
+    // they must not move the user's current map view.
+    if (!isFirstFit && !layerCountChanged) return;
+    if (!visibleBounds || (!isFirstFit && !visibleBoundsChanged)) return;
 
     // Capture the camera first and offer a one-shot return, so the fit has a
     // way back. Not on the very first fit: there is no user-chosen view yet, so
     // the offer would be page-load noise.
-    const previousCamera = isFirstFit ? null : {
-      center: map.getCenter(),
-      zoom: map.getZoom(),
-      bearing: map.getBearing(),
-      pitch: map.getPitch(),
-    };
-
-    map.fitBounds(
-      visibleBounds,
-      { padding: 40, maxZoom: 18, duration: 0 },
-    );
-
-    clampMinZoomAfterFit(map);
-
-    if (previousCamera) {
+    if (!isFirstFit) {
+      const previousCamera = {
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
       // Replace rather than stack: a second auto-fit makes the older offer stale,
       // and its camera is no longer the one the user was looking at.
       if (returnToViewToastRef.current !== undefined) toast.dismiss(returnToViewToastRef.current);
@@ -1313,6 +1305,10 @@ export const BuilderMap = memo(function BuilderMap({
         },
       });
     }
+
+    map.fitBounds(visibleBounds, { ...FIT_BOUNDS_OPTIONS, duration: 0 });
+
+    clampMinZoomAfterFit(map);
   // Reads `layers.length` rather than popupInvalidationKey: the effect
   // short-circuits on unchanged layer count and visible bounds, so the full key
   // would only add misleading extra runs on heatmap-ramp / height-column edits.
