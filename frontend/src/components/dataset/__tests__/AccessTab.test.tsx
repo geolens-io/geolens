@@ -895,6 +895,63 @@ describe('AccessTab', () => {
         expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       });
 
+      it.each([
+        ['no gap', { keywords: [], total: 0, inherited_audience_gap: false }],
+        [
+          'a gap',
+          {
+            keywords: [
+              {
+                id: 'kw-1',
+                record_id: 'rec-1',
+                keyword: 'codename',
+                vocabulary_uri: null,
+                keyword_type: 'theme',
+                inherited: true,
+              },
+            ],
+            total: 1,
+            inherited_audience_gap: true,
+          },
+        ],
+      ])(
+        'a superseded Internal probe resolving with %s does nothing once Public is chosen',
+        async (_label, probe) => {
+          let resolveProbe: (v: unknown) => void = () => {};
+          mockListKeywords.mockImplementation(
+            () =>
+              new Promise((res) => {
+                resolveProbe = res;
+              }) as ReturnType<typeof listKeywords>,
+          );
+          render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+          selectVisibility('Internal');
+          await waitFor(() => expect(mockListKeywords).toHaveBeenCalledTimes(1));
+          selectVisibility('Public');
+          await screen.findByText('Make this dataset public?');
+
+          resolveProbe(probe);
+          await new Promise((r) => setTimeout(r, 0));
+
+          expect(mutate).not.toHaveBeenCalled();
+          expect(screen.queryByText('Share inherited keywords?')).not.toBeInTheDocument();
+          expect(screen.getByText('Make this dataset public?')).toBeInTheDocument();
+
+          mockListKeywords.mockResolvedValue({
+            keywords: [],
+            total: 0,
+            inherited_audience_gap: false,
+          });
+          confirmMakePublic();
+          await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+          expect(mutate.mock.calls[0][0]).toEqual({
+            datasetId: 'ds-1',
+            data: { visibility: 'public' },
+          });
+        },
+      );
+
       it('asks for the public confirmation first, then the inherited-keywords dialog', async () => {
         mockListKeywords.mockResolvedValue({
           keywords: [

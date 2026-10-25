@@ -295,6 +295,8 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   function handleVisibilityChange(value: string) {
     if (value === dataset.visibility) return;
     if (value === 'public') {
+      // Discards any earlier selection's probe still in flight.
+      probeSeq.current++;
       setConfirmPublic(true);
       return;
     }
