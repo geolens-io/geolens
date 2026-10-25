@@ -295,6 +295,18 @@ async def test_an_unresolvable_basic_login_is_refused(
             assert resp.headers["www-authenticate"] == CHALLENGE, (name, url)
 
 
+async def test_a_required_auth_route_challenges_a_dead_basic_login_for_basic(
+    client: AsyncClient,
+):
+    resp = await client.get("/auth/me/", headers=_basic("glk_not-a-real-key"))
+    assert resp.status_code == 401, resp.text
+    assert resp.headers["www-authenticate"] == CHALLENGE
+
+    resp = await client.get("/auth/me/", headers={"Authorization": "Bearer x"})
+    assert resp.status_code == 401, resp.text
+    assert resp.headers["www-authenticate"] == "Bearer"
+
+
 async def test_a_revoked_key_is_refused_over_basic(
     client: AsyncClient, owner, datasets
 ):
