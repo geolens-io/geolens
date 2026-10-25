@@ -7,6 +7,12 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+- Changing a dataset's visibility to Public on its Access tab now asks for
+  confirmation first, from any current level. The dialog says anonymous users
+  will reach the dataset's features through the OGC API, its map tiles, its
+  downloads and its catalog record, and that groups it is shared with keep
+  their access. Cancelling leaves the visibility as it was. Narrowing a
+  dataset, or moving it to Internal or Private, applies without a prompt.
 - A rerun of `geolens arcgis migrate` no longer probes an item's service before
   it retries a step the item still needs. When the state file records that an
   item's import stage finished, the rerun applies the plan's current title and

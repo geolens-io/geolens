@@ -175,7 +175,10 @@
     "license": "Licence",
     "vintageStart": "Début du millésime",
     "vintageEnd": "Fin du millésime",
-    "saving": "Enregistrement..."
+    "saving": "Enregistrement...",
+    "publicConfirmTitle": "Rendre ce jeu de données public ?",
+    "publicConfirmDescription": "Les utilisateurs anonymes pourront accéder à ses entités via l'API OGC, à ses tuiles cartographiques, à ses téléchargements et à sa fiche de catalogue. Les groupes avec lesquels ce jeu de données est partagé conservent leur accès.",
+    "publicConfirmAction": "Rendre public"
   },
   "groupShare": {
     "title": "Partager avec des groupes",

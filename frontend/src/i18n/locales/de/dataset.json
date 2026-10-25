@@ -175,7 +175,10 @@
     "license": "Lizenz",
     "vintageStart": "Datenstand Beginn",
     "vintageEnd": "Datenstand Ende",
-    "saving": "Wird gespeichert..."
+    "saving": "Wird gespeichert...",
+    "publicConfirmTitle": "Diesen Datensatz öffentlich machen?",
+    "publicConfirmDescription": "Anonyme Nutzer können seine Features über die OGC API, seine Kartenkacheln, seine Downloads und seinen Katalogeintrag erreichen. Gruppen, für die dieser Datensatz freigegeben ist, behalten ihren Zugriff.",
+    "publicConfirmAction": "Öffentlich machen"
   },
   "groupShare": {
     "title": "Mit Gruppen teilen",

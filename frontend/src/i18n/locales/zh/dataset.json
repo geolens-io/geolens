@@ -175,7 +175,10 @@
     "license": "许可协议",
     "vintageStart": "数据年份开始",
     "vintageEnd": "数据年份结束",
-    "saving": "正在保存..."
+    "saving": "正在保存...",
+    "publicConfirmTitle": "将此数据集设为公开？",
+    "publicConfirmDescription": "匿名用户将可以通过 OGC API 访问其要素、地图瓦片、下载内容及其目录记录。已与此数据集共享的群组保留其访问权限。",
+    "publicConfirmAction": "设为公开"
   },
   "groupShare": {
     "title": "与用户组共享",

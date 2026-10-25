@@ -175,7 +175,10 @@
     "license": "License",
     "vintageStart": "Data Vintage Start",
     "vintageEnd": "Data Vintage End",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "publicConfirmTitle": "Make this dataset public?",
+    "publicConfirmDescription": "Anonymous users will be able to reach its features through the OGC API, its map tiles, its downloads and its catalog record. Groups this dataset is shared with keep their access.",
+    "publicConfirmAction": "Make public"
   },
   "groupShare": {
     "title": "Share with groups",

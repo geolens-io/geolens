@@ -479,11 +479,16 @@ describe('AccessTab', () => {
       expect(screen.getByText('Private')).toBeInTheDocument();
     });
 
+    function confirmMakePublic() {
+      fireEvent.click(screen.getByRole('button', { name: 'Make public' }));
+    }
+
     it('lets an owner or admin move a dataset from private to public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
       openVisibilitySelect();
       fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+      confirmMakePublic();
 
       await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       expect(mutate.mock.calls[0][0]).toEqual({
@@ -626,6 +631,7 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
         expect(screen.getByText('codename')).toBeInTheDocument();
@@ -648,6 +654,7 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -664,6 +671,7 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       });
@@ -708,6 +716,7 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
         expect(
@@ -741,6 +750,7 @@ describe('AccessTab', () => {
         fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
         await waitFor(() => expect(resolvers).toHaveLength(2));
 
         // The newest probe resolves FIRST with no gap: direct mutate for
@@ -779,6 +789,7 @@ describe('AccessTab', () => {
         fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
         await waitFor(() => expect(handlers).toHaveLength(2));
 
         handlers[1].resolve({ keywords: [], total: 0, inherited_audience_gap: false });
@@ -809,6 +820,7 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
         expect(toast.warning).toHaveBeenCalledWith(
@@ -826,9 +838,116 @@ describe('AccessTab', () => {
 
         openVisibilitySelect();
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
 
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
         expect(toast.warning).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('public confirm', () => {
+      beforeEach(() => {
+        mockListKeywords.mockResolvedValue({
+          keywords: [],
+          total: 0,
+          inherited_audience_gap: false,
+        });
+      });
+
+      it.each(['private', 'restricted', 'internal'] as const)(
+        'selecting Public from %s opens the dialog without mutating',
+        async (from) => {
+          render(<AccessTab dataset={makeDataset({ visibility: from })} canEdit />);
+
+          openVisibilitySelect();
+          fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+          const dialog = await screen.findByRole('alertdialog');
+          expect(within(dialog).getByText('Make this dataset public?')).toBeInTheDocument();
+          expect(
+            within(dialog).getByText(/OGC API, its map tiles, its downloads and its catalog record/),
+          ).toBeInTheDocument();
+          expect(within(dialog).getByText(/Groups this dataset is shared with keep their access/)).toBeInTheDocument();
+          expect(mutate).not.toHaveBeenCalled();
+        },
+      );
+
+      it('confirming applies visibility public', async () => {
+        render(<AccessTab dataset={makeDataset({ visibility: 'internal' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        confirmMakePublic();
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+      });
+
+      it('cancelling leaves the visibility unchanged and the select on the old value', async () => {
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        await screen.findByRole('alertdialog');
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+        expect(mutate).not.toHaveBeenCalled();
+        expect(mockListKeywords).not.toHaveBeenCalled();
+        expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent('Private');
+      });
+
+      it.each([
+        ['private', 'Internal'],
+        ['public', 'Internal'],
+        ['public', 'Private'],
+      ] as const)('moving %s to %s applies with no dialog', async (from, to) => {
+        render(<AccessTab dataset={makeDataset({ visibility: from })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: to }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      });
+
+      it('asks for the public confirmation first, then the inherited-keywords dialog', async () => {
+        mockListKeywords.mockResolvedValue({
+          keywords: [
+            {
+              id: 'kw-1',
+              record_id: 'rec-1',
+              keyword: 'codename',
+              vocabulary_uri: null,
+              keyword_type: 'theme',
+              inherited: true,
+            },
+          ],
+          total: 1,
+          inherited_audience_gap: true,
+        });
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await screen.findByText('Make this dataset public?');
+        expect(screen.queryByText('Share inherited keywords?')).not.toBeInTheDocument();
+        expect(mockListKeywords).not.toHaveBeenCalled();
+
+        confirmMakePublic();
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        expect(mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Change visibility' }));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
       });
     });
 

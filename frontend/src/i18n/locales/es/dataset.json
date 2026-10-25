@@ -175,7 +175,10 @@
     "license": "Licencia",
     "vintageStart": "Inicio de fecha de datos",
     "vintageEnd": "Fin de fecha de datos",
-    "saving": "Guardando..."
+    "saving": "Guardando...",
+    "publicConfirmTitle": "¿Hacer público este conjunto de datos?",
+    "publicConfirmDescription": "Los usuarios anónimos podrán acceder a sus entidades mediante la API OGC, a sus teselas de mapa, a sus descargas y a su registro del catálogo. Los grupos con los que se comparte este conjunto de datos conservan su acceso.",
+    "publicConfirmAction": "Hacer público"
   },
   "groupShare": {
     "title": "Compartir con grupos",

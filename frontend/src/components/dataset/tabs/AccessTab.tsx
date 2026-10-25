@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { VisibilityConfirmDialog } from '@/components/ui/visibility-confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -264,6 +265,9 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   // no-longer-intended value. Each invocation takes a fresh id; a response whose
   // id is no longer current is discarded.
   const probeSeq = useRef(0);
+  // Going public is confirmed first, from any level, because anonymous readers
+  // reach the data through the standards endpoints and downloads as well.
+  const [confirmPublic, setConfirmPublic] = useState(false);
 
   function applyVisibility(visibility: DatasetVisibility) {
     updateDataset.mutate(
@@ -288,9 +292,16 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     );
   }
 
-  async function handleVisibilityChange(value: string) {
+  function handleVisibilityChange(value: string) {
     if (value === dataset.visibility) return;
-    const visibility = value as DatasetVisibility;
+    if (value === 'public') {
+      setConfirmPublic(true);
+      return;
+    }
+    void changeVisibility(value as DatasetVisibility);
+  }
+
+  async function changeVisibility(visibility: DatasetVisibility) {
     const seq = ++probeSeq.current;
     // Only a move that ADDS readers warrants the dialog. The probe asks an
     // absolute question ("does this audience exceed the source?"), so running
@@ -478,6 +489,21 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
           canCreate={canCreateKeys && dataset.geometry_type !== null}
         />
       )}
+
+      <VisibilityConfirmDialog
+        open={confirmPublic}
+        onOpenChange={setConfirmPublic}
+        title={t('metadataEdit.publicConfirmTitle')}
+        description={t('metadataEdit.publicConfirmDescription')}
+        cancelLabel={t('common:cancel')}
+        confirm={{
+          label: t('metadataEdit.publicConfirmAction'),
+          onClick: () => {
+            setConfirmPublic(false);
+            void changeVisibility('public');
+          },
+        }}
+      />
 
       {/* The publish-moment diff — which inherited keywords the
           wider audience would see, with the option to back out and prune. */}
