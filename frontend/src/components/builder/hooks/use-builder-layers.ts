@@ -121,7 +121,15 @@ export function useBuilderLayers(
   const [layersMapId, setLayersMapId] = useState<string | null>(null);
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // hasUnsavedChanges enables Save and includes a moved camera. hasUnsavedEdits
+  // excludes a camera-only move and drives the leave prompt, so a pan alone
+  // is saved when the author saves but doesn't ask before leaving.
+  const [hasUnsavedChanges, setUnsavedFlag] = useState(false);
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
+  const setHasUnsavedChanges = useCallback((next: React.SetStateAction<boolean>) => {
+    setUnsavedFlag(next);
+    setHasUnsavedEdits(next);
+  }, []);
   const hasUnsavedChangesRef = useRef(false);
   hasUnsavedChangesRef.current = hasUnsavedChanges;
   // Live camera sampled on moveend, tagged with the map it was taken on. Null
@@ -149,7 +157,7 @@ export function useBuilderLayers(
       if (next === false) opaqueDirtyRef.current = false;
       setHasUnsavedChanges(next);
     },
-    [],
+    [setHasUnsavedChanges],
   );
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
@@ -162,7 +170,7 @@ export function useBuilderLayers(
       _setBasemapConfigRaw(next);
       setHasUnsavedChanges(true);
     },
-    [],
+    [setHasUnsavedChanges],
   );
   const [localTerrainConfig, setLocalTerrainConfig] = useState<MapTerrainConfig | null>(null);
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
@@ -307,7 +315,7 @@ export function useBuilderLayers(
       opaqueDirtyRef.current = false;
       setHasUnsavedChanges(false);
     }
-  }, [mapData]);
+  }, [mapData, setHasUnsavedChanges]);
 
   useEffect(() => {
     if (mapData && !initializedRef.current) {
@@ -410,7 +418,7 @@ export function useBuilderLayers(
 
     setHasUnsavedChanges(true);
     return true;
-  }, [mapInstanceRef]);
+  }, [mapInstanceRef, setHasUnsavedChanges]);
 
   const handleMoveUp = useCallback((layerId: string) => handleMove(layerId, 'up'), [handleMove]);
   const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
@@ -430,7 +438,7 @@ export function useBuilderLayers(
     }
 
     setHasUnsavedChanges(true);
-  }, [mapInstanceRef]);
+  }, [mapInstanceRef, setHasUnsavedChanges]);
 
   const handleDisplayNameChange = useCallback((layerId: string, newName: string | null) => {
     const normalized = newName?.trim() || null;
@@ -438,7 +446,7 @@ export function useBuilderLayers(
       prev.map((l) => (l.id === layerId ? { ...l, display_name: normalized } : l)),
     );
     setHasUnsavedChanges(true);
-  }, []);
+  }, [setHasUnsavedChanges]);
 
   const handleToggleExpand = useCallback((layerId: string) => {
     setExpandedLayerId((prev) => {
@@ -465,7 +473,7 @@ export function useBuilderLayers(
     if (layersRef.current.some((l) => l.id === groupId && isFolderGroupLayer(l))) {
       setHasUnsavedChanges(true);
     }
-  }, []);
+  }, [setHasUnsavedChanges]);
 
   const handleZoomToLayer = useCallback((layerId: string) => {
     const map = mapInstanceRef.current;
@@ -620,7 +628,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, saveBaselineSyncRef, t]);
+  }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, saveBaselineSyncRef, t, setHasUnsavedChanges]);
 
   const handleAddDataset = useCallback(
     (
@@ -756,7 +764,7 @@ export function useBuilderLayers(
         },
       );
     },
-    [mapId, addLayerMutation, t, saveBaselineSyncRef],
+    [mapId, addLayerMutation, t, saveBaselineSyncRef, setHasUnsavedChanges],
   );
   // Adds the entry intent's dataset once. Depends on mapData so the effect
   // re-evaluates once initializedRef is set.
@@ -810,7 +818,7 @@ export function useBuilderLayers(
     // still be shared, and the next syncFromState prunes only orphans.
     removePerLayerCompanions(mapInstanceRef.current, [layerId]);
     setHasUnsavedChanges(true);
-  }, [mapInstanceRef]);
+  }, [mapInstanceRef, setHasUnsavedChanges]);
 
   const handleToggleLegend = useCallback((layerId: string) => {
     setLocalLayers((prev) =>
@@ -819,7 +827,7 @@ export function useBuilderLayers(
       ),
     );
     setHasUnsavedChanges(true);
-  }, []);
+  }, [setHasUnsavedChanges]);
 
   const handleDuplicateRendering = useCallback((layerId: string) => {
     if (!mapId) return;
@@ -892,9 +900,9 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
+  }, [addLayerMutation, mapId, t, saveBaselineSyncRef, setHasUnsavedChanges]);
 
-  const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
+  const markDirty = useCallback(() => setHasUnsavedChanges(true), [setHasUnsavedChanges]);
 
   // For state this hook can't compare against server data (dock notes, plugin
   // toggles). Marking re-derivable edits (name, description, basemap) opaque
@@ -902,7 +910,7 @@ export function useBuilderLayers(
   const markOpaqueDirty = useCallback(() => {
     opaqueDirtyRef.current = true;
     setHasUnsavedChanges(true);
-  }, []);
+  }, [setHasUnsavedChanges]);
 
   // The live camera when it is an unsaved edit made on this map, else null. The
   // entry camera keeps an untouched map clean, so this applies to a map with no
@@ -917,8 +925,8 @@ export function useBuilderLayers(
   }, [mapData]);
 
   // Revert clears dirty state only after full layer objects and map-level state
-  // match the saved baseline.
-  const computeMapIsClean = useCallback((): boolean => {
+  // match the saved baseline. The camera is checked separately by unsavedCamera.
+  const computeEditsAreClean = useCallback((): boolean => {
     if (!mapData || opaqueDirtyRef.current) return false;
 
     const baseline = savedLayerBaselineRef.current;
@@ -946,9 +954,6 @@ export function useBuilderLayers(
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
-    // Every save rewrites center, zoom, bearing and pitch from the live map, so
-    // an unsaved pan here is a pending change to the stored view.
-    if (unsavedCamera()) return false;
 
     // Folder expansion is persisted (prepareLayersForPersistence reads
     // groupMeta) and handleToggleGroupExpand dirties the map, so an
@@ -964,7 +969,7 @@ export function useBuilderLayers(
     return true;
   }, [
     mapData, localName, localDescription, localLegendTitle, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, unsavedCamera,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
@@ -979,12 +984,16 @@ export function useBuilderLayers(
   // A request stays pending until it finds the map clean, and re-runs when the
   // saved baselines change: a save invalidates the map-detail query, and a
   // revert racing the refetch would otherwise compare stale server data once.
+  // Every save rewrites center, zoom, bearing and pitch from the live map, so
+  // once the edits are put back an unsaved pan still keeps Save enabled.
   useEffect(() => {
     if (recheckNonce === 0 || !recheckPendingRef.current) return;
-    if (!computeMapIsClean()) return;
+    if (!computeEditsAreClean()) return;
+    setHasUnsavedEdits(false);
+    if (unsavedCamera()) return;
     recheckPendingRef.current = false;
-    setHasUnsavedChanges(false);
-  }, [recheckNonce, computeMapIsClean]);
+    setUnsavedFlag(false);
+  }, [recheckNonce, computeEditsAreClean, unsavedCamera]);
 
   // Camera a change of map identity starts from. Re-read on every identity
   // change: the shared MapGL instance isn't repositioned, so the screen still
@@ -1022,19 +1031,18 @@ export function useBuilderLayers(
       setCameraUnsaved(unsaved);
       // A save clears the flag while the camera stays unsaved-looking, so the
       // next pan has no flip to re-dirty it through.
-      if (unsaved && !hasUnsavedChangesRef.current) setHasUnsavedChanges(true);
+      if (unsaved && !hasUnsavedChangesRef.current) setUnsavedFlag(true);
     };
     map.on('moveend', handleMoveEnd);
     return () => { map.off?.('moveend', handleMoveEnd); };
   }, [currentMapId, mapInstance, mapInstanceRef]);
 
-  // An unsaved camera edit is unsaved work (the navigation blocker and
-  // beforeunload read hasUnsavedChanges); anything else asks for the ordinary
+  // An unsaved camera edit enables Save; anything else asks for the ordinary
   // recheck, which clears the flag only if nothing else is outstanding.
   useEffect(() => {
     if (cameraUnsaved === null) return;
     if (unsavedCamera()) {
-      setHasUnsavedChanges(true);
+      setUnsavedFlag(true);
       return;
     }
     requestCleanRecheck();
@@ -1163,6 +1171,7 @@ export function useBuilderLayers(
     savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges: setHasUnsavedChangesTracked,
+    hasUnsavedEdits,
     requestCleanRecheck,
     expandedLayerId,
     activeEditorTab,

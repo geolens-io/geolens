@@ -483,6 +483,24 @@ def _column_info_with_display(
     ]
 
 
+def _shared_camera(map_obj: Map) -> dict[str, Any]:
+    """The stored center and zoom, or world defaults for a map without them.
+
+    A stored 0 is a real view (the equator, zoom 0), so only None falls back.
+    """
+    has_saved_view = (
+        map_obj.center_lng is not None
+        and map_obj.center_lat is not None
+        and map_obj.zoom is not None
+    )
+    return {
+        "center_lng": 0.0 if map_obj.center_lng is None else map_obj.center_lng,
+        "center_lat": 0.0 if map_obj.center_lat is None else map_obj.center_lat,
+        "zoom": 2.0 if map_obj.zoom is None else map_obj.zoom,
+        "has_saved_view": has_saved_view,
+    }
+
+
 def _build_shared_layer_dict(
     layer: MapLayer,
     ds_name: str | None,
@@ -664,9 +682,7 @@ async def get_shared_map(
         map_data = {
             "name": map_obj.name,
             "description": map_obj.description,
-            "center_lng": map_obj.center_lng or 0.0,
-            "center_lat": map_obj.center_lat or 0.0,
-            "zoom": map_obj.zoom or 2.0,
+            **_shared_camera(map_obj),
             "bearing": map_obj.bearing,
             "pitch": map_obj.pitch,
             "basemap_style": map_obj.basemap_style,
@@ -739,9 +755,7 @@ async def get_shared_map(
     map_data = {
         "name": map_row.name,
         "description": map_row.description,
-        "center_lng": map_row.center_lng or 0.0,
-        "center_lat": map_row.center_lat or 0.0,
-        "zoom": map_row.zoom or 2.0,
+        **_shared_camera(map_row),
         "bearing": map_row.bearing,
         "pitch": map_row.pitch,
         "basemap_style": map_row.basemap_style,

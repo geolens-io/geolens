@@ -228,6 +228,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     mapInstanceRef: { current: createMockMap() } as unknown as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
+    hasUnsavedEdits: false,
     hasThumbnail: true,
     // The real MapBuilderPage owns this ref; tests that don't
     // exercise the layer-create → save-baseline bridge get a plain no-op ref.
@@ -1832,11 +1833,11 @@ describe('useBuilderSave', () => {
     expect(result.current.blocker.state).toBe('unblocked');
   });
 
-  it('adds beforeunload listener when hasUnsavedChanges is true', () => {
+  it('adds beforeunload listener when hasUnsavedEdits is true', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
-    const state = makeSaveState({ hasUnsavedChanges: true });
+    const state = makeSaveState({ hasUnsavedChanges: true, hasUnsavedEdits: true });
     const { unmount } = renderHook(() => useBuilderSave(state));
 
     expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
@@ -1849,10 +1850,10 @@ describe('useBuilderSave', () => {
     removeSpy.mockRestore();
   });
 
-  it('does not add beforeunload listener when hasUnsavedChanges is false', () => {
+  it('does not add beforeunload listener for a camera-only change', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
 
-    const state = makeSaveState({ hasUnsavedChanges: false });
+    const state = makeSaveState({ hasUnsavedChanges: true, hasUnsavedEdits: false });
     renderHook(() => useBuilderSave(state));
 
     const beforeUnloadCalls = addSpy.mock.calls.filter(

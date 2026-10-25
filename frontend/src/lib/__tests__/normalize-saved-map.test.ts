@@ -74,6 +74,7 @@ function makeSharedMapResponse(overrides: Partial<SharedMapResponse> = {}): Shar
     center_lng: 0,
     center_lat: 0,
     zoom: 8,
+    has_saved_view: true,
     bearing: 0,
     pitch: 0,
     basemap_style: overrides.basemap_style ?? 'positron',

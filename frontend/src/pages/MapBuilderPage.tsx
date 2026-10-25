@@ -321,6 +321,7 @@ export function MapBuilderPage() {
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
     saveBaselineSyncRef,

@@ -19,6 +19,22 @@ and releases use semantic versioning.
   A plan whose service URL changed still falls back to the full
   probe and import, and the rerun imports no layer the recorded import didn't.
 
+### Fixed
+
+- A map with layers and no saved view opened at the world view in the Builder
+  and in the shared and embedded viewers. Both now open fitted to the visible
+  layers, and opening such a map in the Builder leaves it with no unsaved
+  changes. A `center` or `zoom` in a share link still sets the view.
+- Panning or zooming the Builder map with nothing else changed no longer asks
+  before you leave the page. Save stays enabled and still stores the new view.
+  Any other unsaved edit, with or without a pan, still asks.
+- A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2.
+
+### Changed
+
+- `GET /maps/shared/{token}` returns `has_saved_view`, true when the map stores
+  a center and zoom. This is an additive REST change.
+
 ## [1.27.1] - 2026-10-24
 
 Upgrade from 1.26 straight to 1.27.1 rather than 1.27.0. An instance already

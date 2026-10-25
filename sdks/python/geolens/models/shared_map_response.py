@@ -28,6 +28,8 @@ class SharedMapResponse:
         center_lng (float):
         center_lat (float):
         zoom (float):
+        has_saved_view (bool): True when the map stores a center and zoom. When false, center and zoom are defaults and
+            a viewer should fit the layers instead.
         bearing (float):
         pitch (float):
         basemap_style (str):
@@ -44,6 +46,7 @@ class SharedMapResponse:
     center_lng: float
     center_lat: float
     zoom: float
+    has_saved_view: bool
     bearing: float
     pitch: float
     basemap_style: str
@@ -69,6 +72,8 @@ class SharedMapResponse:
         center_lat = self.center_lat
 
         zoom = self.zoom
+
+        has_saved_view = self.has_saved_view
 
         bearing = self.bearing
 
@@ -116,6 +121,7 @@ class SharedMapResponse:
                 "center_lng": center_lng,
                 "center_lat": center_lat,
                 "zoom": zoom,
+                "has_saved_view": has_saved_view,
                 "bearing": bearing,
                 "pitch": pitch,
                 "basemap_style": basemap_style,
@@ -156,6 +162,8 @@ class SharedMapResponse:
         center_lat = d.pop("center_lat")
 
         zoom = d.pop("zoom")
+
+        has_saved_view = d.pop("has_saved_view")
 
         bearing = d.pop("bearing")
 
@@ -223,6 +231,7 @@ class SharedMapResponse:
             center_lng=center_lng,
             center_lat=center_lat,
             zoom=zoom,
+            has_saved_view=has_saved_view,
             bearing=bearing,
             pitch=pitch,
             basemap_style=basemap_style,

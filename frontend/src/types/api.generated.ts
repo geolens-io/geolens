@@ -14588,6 +14588,11 @@ export interface components {
             center_lat: number;
             /** Zoom */
             zoom: number;
+            /**
+             * Has Saved View
+             * @description True when the map stores a center and zoom. When false, center and zoom are defaults and a viewer should fit the layers instead.
+             */
+            has_saved_view: boolean;
             /** Bearing */
             bearing: number;
             /** Pitch */

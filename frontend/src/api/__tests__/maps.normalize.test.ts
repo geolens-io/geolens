@@ -157,6 +157,7 @@ function makeSharedMapResponsePayload(overrides: Partial<SharedMapResponse> = {}
     center_lng: overrides.center_lng ?? -74.006,
     center_lat: overrides.center_lat ?? 40.7128,
     zoom: overrides.zoom ?? 10,
+    has_saved_view: overrides.has_saved_view ?? true,
     bearing: overrides.bearing ?? 0,
     pitch: overrides.pitch ?? 0,
     basemap_style: overrides.basemap_style ?? 'positron',

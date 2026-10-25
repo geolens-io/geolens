@@ -915,6 +915,8 @@ interface SaveState {
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
+  /** Unsaved changes other than a camera-only move; these ask before leaving. */
+  hasUnsavedEdits: boolean;
   hasThumbnail?: boolean;
   /** Callback ref populated by useBuilderSave and invoked by useBuilderLayers'
    *  layer-create paths (handleAddDataset / handleDuplicateRendering) so the
@@ -1515,8 +1517,8 @@ export function useBuilderSave(state: SaveState) {
     return () => { captureSignalRef.current.cancelled = true; };
   }, []);
 
-  // Warn before tab close / refresh with unsaved changes, and block in-app navigation
-  const blocker = useUnsavedGuard(state.hasUnsavedChanges);
+  // Warn before tab close / refresh with unsaved edits, and block in-app navigation
+  const blocker = useUnsavedGuard(state.hasUnsavedEdits);
 
   // Keyboard shortcut: Ctrl/Cmd+S
   const handleSaveRef = useRef(handleSave);

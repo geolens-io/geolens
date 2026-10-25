@@ -19257,6 +19257,11 @@
             "title": "Zoom",
             "type": "number"
           },
+          "has_saved_view": {
+            "description": "True when the map stores a center and zoom. When false, center and zoom are defaults and a viewer should fit the layers instead.",
+            "title": "Has Saved View",
+            "type": "boolean"
+          },
           "bearing": {
             "title": "Bearing",
             "type": "number"
@@ -19324,6 +19329,7 @@
           "center_lng",
           "center_lat",
           "zoom",
+          "has_saved_view",
           "bearing",
           "pitch",
           "basemap_style",

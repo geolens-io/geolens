@@ -2332,6 +2332,56 @@ class TestSharedMap:
         assert resp.status_code == 200
         assert resp.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
 
+    @pytest.mark.parametrize("with_layer", [False, True])
+    @pytest.mark.parametrize(
+        "view",
+        [
+            None,
+            {"center_lng": 0.0, "center_lat": 0.0, "zoom": 0.0},
+            {"center_lng": -73.9, "center_lat": 40.7, "zoom": 10.0},
+        ],
+        ids=["no-view", "stored-zero", "stored-view"],
+    )
+    async def test_get_shared_map_reports_saved_view(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        with_layer: bool,
+        view: dict | None,
+    ):
+        """has_saved_view tells a stored camera from defaults; a stored 0 is kept."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+        if with_layer:
+            admin_id = await get_user_id(test_db_session, "admin")
+            ds = await create_dataset(test_db_session, created_by=admin_id)
+            layer_resp = await client.post(
+                f"/maps/{map_id}/layers",
+                json={"dataset_id": str(ds.id)},
+                headers=admin_auth_header,
+            )
+            assert layer_resp.status_code == 201
+        put_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public", **(view or {})},
+            headers=admin_auth_header,
+        )
+        assert put_resp.status_code == 200
+        share_resp = await client.post(
+            f"/maps/{map_id}/share/", headers=admin_auth_header
+        )
+        token = share_resp.json()["token"]
+
+        resp = await client.get(f"/maps/shared/{token}")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["layers"]) == (1 if with_layer else 0)
+        camera = view or {"center_lng": 0.0, "center_lat": 0.0, "zoom": 2.0}
+        assert {key: data[key] for key in camera} == camera
+        assert data["has_saved_view"] is (view is not None)
+
     async def test_get_shared_map_invalid_token(self, client: AsyncClient):
         """GET /maps/shared/{bogus_token} returns 404."""
         resp = await client.get("/maps/shared/bogus_token_12345")

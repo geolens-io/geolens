@@ -11264,6 +11264,12 @@ export type SharedMapResponse = {
      */
     zoom: number;
     /**
+     * Has Saved View
+     *
+     * True when the map stores a center and zoom. When false, center and zoom are defaults and a viewer should fit the layers instead.
+     */
+    has_saved_view: boolean;
+    /**
      * Bearing
      */
     bearing: number;

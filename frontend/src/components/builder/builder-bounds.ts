@@ -8,7 +8,9 @@ type VisibleLayerBounds = [[number, number], [number, number]];
 
 /** Merges every visible layer's bbox into one box, unwrapping an
  * antimeridian crossing (west > east) rather than dropping it. */
-export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
+export function getVisibleLayerBounds(
+  layers: ReadonlyArray<Pick<MapLayerResponse, 'visible'> & { dataset_extent_bbox?: number[] | null }>,
+): VisibleLayerBounds | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;

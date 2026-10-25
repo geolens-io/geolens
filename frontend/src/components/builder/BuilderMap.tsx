@@ -1267,18 +1267,18 @@ export const BuilderMap = memo(function BuilderMap({
     if (isFirstFit) {
       initialFitDoneRef.current = true;
       if (hasSavedView) return; // MapGL already positioned via initialViewState
+    } else if (!layerCountChanged || !visibleBoundsChanged) {
+      // Only fit when the visible extent genuinely changed. Duplicate renderings
+      // add a layer row but keep the same dataset bounds, so they must not move
+      // the user's current map view.
+      return;
     }
-
-    // Only fit when the visible extent genuinely changed. Duplicate renderings
-    // add a layer row but keep the same dataset bounds, so they must not move
-    // the user's current map view.
-    if (!layerCountChanged) return;
-    if (!visibleBounds || !visibleBoundsChanged) return;
+    if (!visibleBounds) return;
 
     // Capture the camera first and offer a one-shot return, so the fit has a
     // way back. Not on the very first fit: there is no user-chosen view yet, so
     // the offer would be page-load noise.
-    const previousCamera = {
+    const previousCamera = isFirstFit ? null : {
       center: map.getCenter(),
       zoom: map.getZoom(),
       bearing: map.getBearing(),
@@ -1292,7 +1292,7 @@ export const BuilderMap = memo(function BuilderMap({
 
     clampMinZoomAfterFit(map);
 
-    if (!isFirstFit) {
+    if (previousCamera) {
       // Replace rather than stack: a second auto-fit makes the older offer stale,
       // and its camera is no longer the one the user was looking at.
       if (returnToViewToastRef.current !== undefined) toast.dismiss(returnToViewToastRef.current);

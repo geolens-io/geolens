@@ -8,6 +8,7 @@ const ViewerMap = lazy(() =>
 );
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { legendFacts, type DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
@@ -156,6 +157,9 @@ function PublicViewer() {
 
   const parsedCenter = parseCenter(centerParam);
   const parsedZoom = parseZoom(zoomParam);
+  // A map with no saved view opens fitted to its visible layers, as the Builder
+  // does, unless the URL picks the view.
+  const fitLayers = data.has_saved_view === false && !parsedCenter && parsedZoom === null;
 
   const viewState = {
     center_lng: parsedCenter?.lng ?? data.center_lng,
@@ -163,6 +167,7 @@ function PublicViewer() {
     zoom: parsedZoom ?? data.zoom,
     bearing: data.bearing,
     pitch: data.pitch,
+    bounds: fitLayers ? getVisibleLayerBounds(data.layers) : null,
   };
 
   return (

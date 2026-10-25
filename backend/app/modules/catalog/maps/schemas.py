@@ -1334,6 +1334,12 @@ class SharedMapResponse(BaseModel):
     center_lng: float
     center_lat: float
     zoom: float
+    has_saved_view: bool = Field(
+        description=(
+            "True when the map stores a center and zoom. When false, center and "
+            "zoom are defaults and a viewer should fit the layers instead."
+        ),
+    )
     bearing: float
     pitch: float
     basemap_style: str

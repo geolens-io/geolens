@@ -120,6 +120,7 @@ function useCombinedBuilder(
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
   });

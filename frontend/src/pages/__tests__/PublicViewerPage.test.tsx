@@ -68,6 +68,7 @@ const SHARED_MAP: SharedMapResponse = {
   center_lng: -73.9857,
   center_lat: 40.7484,
   zoom: 10,
+  has_saved_view: true,
   bearing: 0,
   pitch: 0,
   basemap_style: 'carto-light',
@@ -339,6 +340,54 @@ describe('PublicViewerPage', () => {
       basemapConfig: SHARED_MAP.basemap_config,
       terrainConfig: SHARED_MAP.terrain_config,
       showBasemapLabels: true,
+    });
+  });
+
+  describe('initial view', () => {
+    const extentLayer = { ...SHARED_MAP.layers[0], dataset_extent_bbox: [-74.3, 40.5, -73.7, 40.9] };
+
+    function mapWithView(hasSavedView: boolean) {
+      mockedUseSharedMap.mockReturnValue({
+        data: { ...SHARED_MAP, has_saved_view: hasSavedView, layers: [extentLayer] },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as ReturnType<typeof useSharedMap>);
+    }
+
+    it('fits the visible layers when the map has no saved view', async () => {
+      mapWithView(false);
+      renderPage();
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.initialViewState.bounds).toEqual([[-74.3, 40.5], [-73.7, 40.9]]);
+    });
+
+    it('opens at the saved view when the map has one', async () => {
+      mapWithView(true);
+      renderPage();
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.initialViewState).toMatchObject({
+        center_lng: SHARED_MAP.center_lng,
+        center_lat: SHARED_MAP.center_lat,
+        zoom: SHARED_MAP.zoom,
+        bounds: null,
+      });
+    });
+
+    it.each([
+      ['center', '?center=2.35,48.86'],
+      ['zoom', '?zoom=6'],
+    ])('lets a URL %s override the fit', async (_name, query) => {
+      mapWithView(false);
+      renderPage(`/m/share-token${query}`);
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.initialViewState.bounds).toBeNull();
     });
   });
 

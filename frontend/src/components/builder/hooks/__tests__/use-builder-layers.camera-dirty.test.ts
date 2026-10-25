@@ -1,16 +1,15 @@
 /**
- * Every save rewrote center/zoom/bearing/pitch from the live map,
- * but nothing in the builder's clean check looked at the camera. A pan or zoom
- * therefore left `hasUnsavedChanges` false, so there was no navigation
- * blocker, no beforeunload, and the new view was lost on navigate-away, while
- * any unrelated save silently replaced the stored home view.
+ * Every save rewrites center/zoom/bearing/pitch from the live map, so a moved
+ * camera is a pending change: it enables Save (`hasUnsavedChanges`). A camera
+ * move alone doesn't ask before leaving (`hasUnsavedEdits` stays false); any
+ * other edit still does.
  *
  * These tests drive the real hooks (useBuilderLayers + useBuilderSave wired the
  * way MapBuilderPage wires them) through a map mock that emits `moveend`, so
  * they exercise the actual signal rather than the wiring.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, render as renderComponent, renderHook } from '@testing-library/react';
 import { useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -68,10 +67,25 @@ vi.mock('@/api/maps', () => ({
 // useUnsavedGuard's useBlocker needs a Data Router; the shared renderHook
 // wrapper provides MemoryRouter, so stub it as the sibling suites do.
 const mockBlocker = { state: 'unblocked' as const, reset: vi.fn(), proceed: vi.fn() };
+type BlockerArgs = { currentLocation: { pathname: string }; nextLocation: { pathname: string } };
+let blockerPredicate: ((args: BlockerArgs) => boolean) | null = null;
 vi.mock('react-router', async () => {
   const actual = await vi.importActual('react-router');
-  return { ...actual, useBlocker: () => mockBlocker };
+  return {
+    ...actual,
+    useBlocker: (predicate: (args: BlockerArgs) => boolean) => {
+      blockerPredicate = predicate;
+      return mockBlocker;
+    },
+  };
 });
+
+function leavingBuilderIsBlocked(): boolean {
+  return !!blockerPredicate?.({
+    currentLocation: { pathname: '/maps/map-1' },
+    nextLocation: { pathname: '/maps' },
+  });
+}
 
 /* ── A map mock whose camera moves and whose `moveend` actually fires ──── */
 
@@ -102,15 +116,18 @@ function makeMovableMap(initial: Camera) {
     },
   } as unknown as MaplibreMap;
 
-  /** Move the camera and settle, exactly as a drag-pan or wheel-zoom does. */
-  function moveTo(next: Partial<Camera>) {
+  /** A programmatic jump: maplibre fires moveend synchronously for duration 0. */
+  function jumpTo(next: Partial<Camera>) {
     Object.assign(camera, next);
-    act(() => {
-      handlers.get('moveend')?.forEach((handler) => handler());
-    });
+    handlers.get('moveend')?.forEach((handler) => handler());
   }
 
-  return { map, moveTo, camera };
+  /** Move the camera and settle, exactly as a drag-pan or wheel-zoom does. */
+  function moveTo(next: Partial<Camera>) {
+    act(() => { jumpTo(next); });
+  }
+
+  return { map, moveTo, jumpTo, camera };
 }
 
 /* ── Harness: the two hooks wired as MapBuilderPage wires them ─────────── */
@@ -132,9 +149,14 @@ function useCachedMap(client: QueryClient, mapId: string): MapResponse | undefin
   return data;
 }
 
-function useCombinedBuilder(client: QueryClient, mapId: string, map: MaplibreMap) {
+function useCombinedBuilder(
+  client: QueryClient,
+  mapId: string,
+  map: MaplibreMap | null,
+) {
   const mapData = useCachedMap(client, mapId) as MapResponse;
   const mapInstanceRef = useRef<MaplibreMap | null>(map);
+  mapInstanceRef.current = map;
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
 
   const layers = useBuilderLayers(
@@ -162,6 +184,7 @@ function useCombinedBuilder(client: QueryClient, mapId: string, map: MaplibreMap
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
   });
@@ -212,6 +235,7 @@ function render(initialMapData: MapResponse, startCamera: Camera = SAVED) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  blockerPredicate = null;
   __resetThumbnailDebounceForTests();
   mockUpdateMapMutateAsync.mockResolvedValue({});
   mockPatchMapLayersMutateAsync.mockResolvedValue({});
@@ -279,17 +303,118 @@ describe('an unsaved camera move is unsaved work', () => {
 
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
   });
+});
 
-  it('arms beforeunload for an unsaved camera move', () => {
+describe('leaving with an unsaved camera', () => {
+  const beforeUnloadArmed = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.some(([event]) => event === 'beforeunload');
+
+  it('enables Save but does not ask before leaving after a pan alone', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const { hook, moveTo } = render(savedMap());
-    expect(addSpy.mock.calls.filter(([event]) => event === 'beforeunload')).toHaveLength(0);
 
     moveTo({ lng: -71.1, lat: 42.4 });
 
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
-    expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    expect(hook.result.current.saveStatus).toBe('unsaved');
+    expect(hook.result.current.hasUnsavedEdits).toBe(false);
+    expect(beforeUnloadArmed(addSpy)).toBe(false);
+    expect(leavingBuilderIsBlocked()).toBe(false);
     addSpy.mockRestore();
+  });
+
+  it('asks before leaving after a pan and a style change', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const { hook, moveTo } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4 });
+    act(() => { hook.result.current.handleOpacityChange('layer-1', 0.25); });
+
+    expect(hook.result.current.hasUnsavedEdits).toBe(true);
+    expect(beforeUnloadArmed(addSpy)).toBe(true);
+    expect(leavingBuilderIsBlocked()).toBe(true);
+    addSpy.mockRestore();
+  });
+
+  it('keeps asking when the camera returns to the saved view after an edit', () => {
+    const { hook, moveTo } = render(savedMap());
+
+    act(() => { hook.result.current.handleOpacityChange('layer-1', 0.25); });
+    moveTo({ lng: -71.1, lat: 42.4 });
+    moveTo({ lng: SAVED.lng, lat: SAVED.lat });
+
+    expect(hook.result.current.hasUnsavedEdits).toBe(true);
+    expect(leavingBuilderIsBlocked()).toBe(true);
+  });
+
+  it('stops asking but keeps Save once a reverted edit leaves only the pan', () => {
+    const { hook, moveTo } = render(savedMap());
+    const savedName = hook.result.current.localName;
+
+    act(() => {
+      hook.result.current.setLocalName('Renamed');
+      hook.result.current.markDirty();
+    });
+    moveTo({ lng: -71.1, lat: 42.4 });
+    expect(leavingBuilderIsBlocked()).toBe(true);
+
+    act(() => { hook.result.current.setLocalName(savedName); });
+    act(() => { hook.result.current.requestCleanRecheck(); });
+
+    expect(hook.result.current.hasUnsavedEdits).toBe(false);
+    expect(hook.result.current.hasUnsavedChanges).toBe(true);
+    expect(leavingBuilderIsBlocked()).toBe(false);
+  });
+});
+
+describe('a map that fits its layers as it loads', () => {
+  // MapBuilderPage receives the map instance in the same load event that makes
+  // BuilderMap ready, and BuilderMap (a child) runs its first fit in an effect.
+  // The page's entry-camera effect runs after the child's, so the fitted view
+  // is the entry view and opening the map leaves it clean.
+  const WORLD: Camera = { lng: 0, lat: 20, zoom: 2 };
+  const FITTED: Camera = { lng: -73.95, lat: 40.75, zoom: 11.5 };
+
+  function FittingMap({ ready, fit }: { ready: boolean; fit: () => void }) {
+    useEffect(() => { if (ready) fit(); }, [ready, fit]);
+    return null;
+  }
+
+  it('stays clean after the first fit', () => {
+    const { map, jumpTo, moveTo } = makeMovableMap(WORLD);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const data = savedMap({ center_lng: null, center_lat: null, zoom: null }, WORLD);
+    client.setQueryData(queryKeys.maps.detail(data.id), data);
+    const fit = () => jumpTo(FITTED);
+    const page = {} as { load: () => void; latest: ReturnType<typeof useCombinedBuilder> };
+
+    function Page() {
+      const [instance, setInstance] = useState<MaplibreMap | null>(null);
+      const [ready, setReady] = useState(false);
+      const state = useCombinedBuilder(client, data.id, instance);
+      useEffect(() => {
+        page.latest = state;
+        page.load = () => {
+          setReady(true);
+          setInstance(map);
+        };
+      });
+      return createElement(FittingMap, { ready, fit });
+    }
+
+    renderComponent(
+      createElement(QueryClientProvider, { client }, createElement(MemoryRouter, null, createElement(Page))),
+    );
+    act(() => { page.load(); });
+    // maplibre's resize() and tile settles fire moveend without moving.
+    moveTo({});
+
+    expect(page.latest.hasUnsavedChanges).toBe(false);
+    expect(page.latest.hasUnsavedEdits).toBe(false);
+    expect(leavingBuilderIsBlocked()).toBe(false);
+
+    moveTo({ lng: -71.1, lat: 42.4 });
+    expect(page.latest.hasUnsavedChanges).toBe(true);
   });
 });
 
