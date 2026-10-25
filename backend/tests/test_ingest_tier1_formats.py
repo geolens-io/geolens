@@ -479,3 +479,61 @@ class TestTier1Ingest:
                 text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
             )
             await test_db_session.commit()
+
+
+@pytest.mark.skipif(
+    shutil.which("ogr2ogr") is None,
+    reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
+)
+@pytest.mark.requires_ogr2ogr
+class TestProGeodatabaseCurves:
+    """Feature classes whose rows hold circular arcs load as linear geometry.
+
+    ``pro_curves_gdb.zip`` was written by ArcGIS Pro 3.7: ``zones`` is a polygon
+    with an arc segment and a hole, ``network/trails`` holds one polyline with an
+    arc and one without. GDAL reports both classes as linear types and returns
+    curved geometries for the arc rows.
+    """
+
+    @pytest.mark.parametrize(
+        ("layer", "rows", "kind"),
+        [("zones", 1, "ST_MultiPolygon"), ("trails", 2, "ST_MultiLineString")],
+    )
+    async def test_loads_arcs_as_linear(
+        self, test_db_session, layer: str, rows: int, kind: str
+    ):
+        from app.processing.ingest.ogr import (
+            build_pg_conn_str,
+            run_ogr2ogr,
+            run_ogrinfo,
+        )
+
+        table = f"tst_curves_{uuid.uuid4().hex[:8]}"
+        source = str(FIXTURES / "pro_curves_gdb.zip")
+        try:
+            info = await run_ogrinfo(source, layer_name=layer)
+            await run_ogr2ogr(
+                source,
+                table,
+                build_pg_conn_str(),
+                source_srid=info.get("srid"),
+                geometry_type=info.get("geometry_type"),
+                layer_name=layer,
+                schema="data",
+            )
+            result = await test_db_session.execute(
+                text(
+                    "SELECT count(*), bool_or(ST_HasArc(_geolens_geom)), "
+                    "array_agg(DISTINCT ST_GeometryType(_geolens_geom)) "
+                    f"FROM data.{table}"  # noqa: S608 - test table
+                )
+            )
+            count, has_arc, types = result.one()
+            assert count == rows
+            assert has_arc is False
+            assert types == [kind]
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()

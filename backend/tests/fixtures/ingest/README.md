@@ -16,6 +16,7 @@ exercise the column-preservation guarantees in the ingest pipeline.
 | `tier1_points.kml` | `basic_attrs.geojson` as LIBKML-written KML. |
 | `tier1_points.kmz` | The same features as KMZ — a zip whose members are `doc.kml` plus `layers/basic_attrs.kml`. |
 | `tier1_points_gdb.zip` | The same features as an OpenFileGDB `.gdb` directory, zipped. Exercises the zip-holds-a-`.gdb` branch that distinguishes `fgdb` from `shapefile`. |
+| `pro_curves_gdb.zip` | A file geodatabase written by ArcGIS Pro 3.7 with arcpy, so it can't be regenerated with GDAL. `zones` is a polygon with an arc segment and a hole and `network/trails` a polyline class with one arced line; GDAL reports both as linear types and returns curved rows. It also holds `sites` (domains, subtypes, attachments, Pro 3.x field types) and a related `inspections` table. |
 
 ## Regenerating the Tier-1 format fixtures
 

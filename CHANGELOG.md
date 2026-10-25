@@ -7,6 +7,13 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+- A file geodatabase feature class whose rows hold circular arcs now imports.
+  Polygon and polyline classes drawn or edited in ArcGIS Pro often have arc
+  segments, and every such class failed with `ogr2ogr failed (exit 1)`. Arcs
+  are densified to line segments on import. Layers that declare a curved
+  geometry type, such as a GeoPackage `CurvePolygon` layer, are stored as
+  before.
+
 - Changing a dataset's visibility to Public on its Access tab now asks for
   confirmation first, from any current level. The dialog says anonymous users
   will reach the dataset's features through the OGC API, its map tiles, its

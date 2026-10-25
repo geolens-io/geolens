@@ -1205,6 +1205,11 @@ async def run_ogr2ogr(
         cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
     if not is_non_spatial:
+        if not any(word in geometry_type.lower() for word in ("curve", "surface")):
+            # A geodatabase polygon or polyline layer reports a linear type yet
+            # returns curved rows wherever a segment is an arc, and PostGIS
+            # refuses those in the linear column the declared type creates.
+            cmd.extend(["-nlt", "CONVERT_TO_LINEAR"])
         cmd.extend(
             [
                 "-nlt",
