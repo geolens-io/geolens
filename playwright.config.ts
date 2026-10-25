@@ -10,6 +10,9 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
+  // Ends the run inside the e2e-test job's cap, so the json summary still
+  // names the failing specs instead of the job being cancelled.
+  globalTimeout: process.env.CI ? 30 * 60_000 : 0,
   workers: 1,
   // The json reporter feeds the nightly failure report, which
   // names the failing SPECS in the tracking issue instead of only saying

@@ -70,7 +70,7 @@ test.describe('URL import download step', () => {
     });
 
     await openUrlTab(page);
-    await page.getByLabel('File URL; fetched server-side').fill(FILE_URL);
+    await page.getByLabel('File URL · fetched server-side').fill(FILE_URL);
     await page.getByRole('button', { name: 'Fetch →' }).click();
 
     // The download is an ordinary job-progress view, with the step label the
@@ -101,13 +101,13 @@ test.describe('URL import download step', () => {
     ]);
 
     await openUrlTab(page);
-    await page.getByLabel('File URL; fetched server-side').fill(FILE_URL);
+    await page.getByLabel('File URL · fetched server-side').fill(FILE_URL);
     await page.getByRole('button', { name: 'Fetch →' }).click();
 
     await expect(
       page.getByText('The server returned HTTP 404 for this URL.').first(),
     ).toBeVisible({ timeout: 20_000 });
     // The form is usable again rather than pinned to the dead job.
-    await expect(page.getByLabel('File URL; fetched server-side')).toBeEnabled();
+    await expect(page.getByLabel('File URL · fetched server-side')).toBeEnabled();
   });
 });

@@ -26,7 +26,7 @@ async function openUrlTab(page: Page) {
 
 async function submitTileset(page: Page) {
   await page.getByRole('radio', { name: '3D Tiles tileset' }).check();
-  await page.getByLabel('File URL; fetched server-side').fill(FILE_URL);
+  await page.getByLabel('File URL · fetched server-side').fill(FILE_URL);
   await page.getByRole('button', { name: 'Fetch →' }).click();
 }
 
@@ -111,7 +111,7 @@ test.describe('URL import of a 3D Tiles archive', () => {
     await submitTileset(page);
 
     await expect(page.getByText(REFUSAL).first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByLabel('File URL; fetched server-side')).toBeEnabled();
+    await expect(page.getByLabel('File URL · fetched server-side')).toBeEnabled();
     await expect(page.getByRole('radio', { name: '3D Tiles tileset' })).toBeChecked();
   });
 });
