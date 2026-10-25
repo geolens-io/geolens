@@ -24,7 +24,10 @@ and releases use semantic versioning.
 - A map with layers and no saved view opened at the world view in the Builder
   and in the shared and embedded viewers. Both now open fitted to the visible
   layers, and opening such a map in the Builder leaves it with no unsaved
-  changes. A `center` or `zoom` in a share link still sets the view.
+  changes. A `center` or `zoom` in a share link still sets the view. Going
+  from one map to another inside the Builder now opens the next map the same
+  way, at its saved view or fitted to its layers, instead of keeping the
+  previous map's view.
 - Panning or zooming the Builder map with nothing else changed no longer asks
   before you leave the page. Save stays enabled and still stores the new view.
   Any other unsaved edit, with or without a pan, still asks.

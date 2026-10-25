@@ -135,18 +135,17 @@ export function useBuilderLayers(
   // Live camera sampled on moveend, tagged with the map it was taken on. Null
   // until the map has settled once, since a map that never moved can't have
   // changed the view a save would store. The tag matters because direct
-  // /maps/:id navigation keeps this hook and the MapGL instance mounted, and a
-  // sample from the previous map must not be judged against the next map's
-  // saved view. The sample lives in a ref; state holds only whether it differs
+  // /maps/:id navigation keeps this hook mounted, and a sample from the
+  // previous map must not be judged against the next map's saved view. The
+  // sample lives in a ref; state holds only whether it differs
   // from the saved view, so a pan that doesn't flip that answer doesn't
   // re-render the page.
   const liveCameraRef = useRef<CameraSample | null>(null);
   const mapDataRef = useRef(mapData);
   mapDataRef.current = mapData;
   const [cameraUnsaved, setCameraUnsaved] = useState<boolean | null>(null);
-  // The camera the current map was entered on, until the camera leaves it: the
-  // saved view on a fresh load, or the previous map's position after in-page
-  // navigation (nothing repositions the shared instance). Not an edit.
+  // The camera the current map opened at, until the camera leaves it: its
+  // saved view, or the fit to its layers when it has none. Not an edit.
   const cameraEntryRef = useRef<CameraSample | null>(null);
   // Dirt this hook can't re-derive from server state: plugin toggles and other
   // page-owned edits through markDirty. recheckClean refuses to clear the flag
@@ -995,9 +994,9 @@ export function useBuilderLayers(
     setUnsavedFlag(false);
   }, [recheckNonce, computeEditsAreClean, unsavedCamera]);
 
-  // Camera a change of map identity starts from. Re-read on every identity
-  // change: the shared MapGL instance isn't repositioned, so the screen still
-  // shows the previous map's view.
+  // Re-read on every identity change and map instance. MapBuilderPage gives
+  // each map its own BuilderMap, which positions it (saved view or a fit) in a
+  // child effect that runs before this one.
   const currentMapId = mapData?.id ?? null;
   useEffect(() => {
     const map = mapInstance ?? mapInstanceRef.current;

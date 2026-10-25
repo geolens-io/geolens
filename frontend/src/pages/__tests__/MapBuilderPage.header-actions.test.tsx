@@ -42,9 +42,16 @@ vi.mock('react-router', async (importOriginal) => {
   };
 });
 
-vi.mock('@/components/builder/BuilderMap', () => ({
-  BuilderMap: () => <div data-testid="builder-map" />,
-}));
+const builderMapMounts = vi.hoisted(() => ({ count: 0 }));
+vi.mock('@/components/builder/BuilderMap', async () => {
+  const { useEffect } = await vi.importActual<typeof import('react')>('react');
+  return {
+    BuilderMap: () => {
+      useEffect(() => { builderMapMounts.count += 1; }, []);
+      return <div data-testid="builder-map" />;
+    },
+  };
+});
 
 vi.mock('@/components/builder/LayerPanel', () => ({
   LayerPanel: () => <div data-testid="layer-panel" />,
@@ -250,6 +257,19 @@ describe('MapBuilderPage header actions', () => {
     dialogsState.setShowShare.mockReset();
     mockHandleToggleExpand.mockReset();
     localStorage.clear();
+  });
+
+  it('mounts a fresh map canvas when the route moves to another map', async () => {
+    const { rerender } = render(<MapBuilderPage />, { route: '/maps/map-1' });
+    await screen.findByTestId('builder-map');
+    const mountsOnOpen = builderMapMounts.count;
+
+    rerender(<MapBuilderPage />);
+    expect(builderMapMounts.count).toBe(mountsOnOpen);
+
+    mockUseParams.mockReturnValue({ id: 'map-2' });
+    rerender(<MapBuilderPage />);
+    await waitFor(() => expect(builderMapMounts.count).toBeGreaterThan(mountsOnOpen));
   });
 
   it('surfaces share as a primary desktop action for existing maps', async () => {

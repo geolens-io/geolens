@@ -1938,7 +1938,10 @@ export function MapBuilderPage() {
         <div className="relative min-h-0 min-w-0">
           <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
             <Suspense fallback={<LoadingState />}>
+              {/* Keyed by map so in-page navigation opens the next map the way a
+                  fresh load does: at its saved view, or fitted to its layers. */}
               <BuilderMap
+                key={id}
                 layers={layers.localLayers}
                 // Hiding the basemap keeps data layers and drops the imagery.
                 basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}

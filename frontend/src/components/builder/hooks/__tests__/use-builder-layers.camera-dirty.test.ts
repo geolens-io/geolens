@@ -368,53 +368,105 @@ describe('leaving with an unsaved camera', () => {
 });
 
 describe('a map that fits its layers as it loads', () => {
-  // MapBuilderPage receives the map instance in the same load event that makes
-  // BuilderMap ready, and BuilderMap (a child) runs its first fit in an effect.
-  // The page's entry-camera effect runs after the child's, so the fitted view
-  // is the entry view and opening the map leaves it clean.
+  // MapBuilderPage keys BuilderMap by map id, so every map, the first one or
+  // one reached by in-page navigation, gets a fresh instance. Its load event
+  // makes BuilderMap ready and hands the page the instance in one render, and
+  // BuilderMap (a child) fits a map with no saved view in an effect. The page's
+  // entry-camera effect runs after the child's, so the fitted view is the entry
+  // view and opening the map leaves it clean.
   const WORLD: Camera = { lng: 0, lat: 20, zoom: 2 };
   const FITTED: Camera = { lng: -73.95, lat: 40.75, zoom: 11.5 };
+  const withoutView = (id: string) =>
+    savedMap({ id, center_lng: null, center_lat: null, zoom: null }, WORLD);
 
-  function FittingMap({ ready, fit }: { ready: boolean; fit: () => void }) {
-    useEffect(() => { if (ready) fit(); }, [ready, fit]);
-    return null;
-  }
-
-  it('stays clean after the first fit', () => {
-    const { map, jumpTo, moveTo } = makeMovableMap(WORLD);
+  function renderBuilder(maps: MapResponse[]) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const data = savedMap({ center_lng: null, center_lat: null, zoom: null }, WORLD);
-    client.setQueryData(queryKeys.maps.detail(data.id), data);
-    const fit = () => jumpTo(FITTED);
-    const page = {} as { load: () => void; latest: ReturnType<typeof useCombinedBuilder> };
+    for (const data of maps) client.setQueryData(queryKeys.maps.detail(data.id), data);
+    const page = {} as {
+      latest: ReturnType<typeof useCombinedBuilder>;
+      show: (mapId: string) => void;
+      load: () => void;
+      moveTo: (next: Partial<Camera>) => void;
+      camera: () => Camera;
+    };
 
-    function Page() {
-      const [instance, setInstance] = useState<MaplibreMap | null>(null);
+    /** Stands in for BuilderMap: a new map per mount, fitted on load when there is no saved view. */
+    function FakeBuilderMap({ data, onMapRef }: { data: MapResponse; onMapRef: (map: MaplibreMap | null) => void }) {
+      const hasView = data.center_lng != null && data.center_lat != null;
+      const [movable] = useState(() =>
+        makeMovableMap(hasView ? { lng: data.center_lng!, lat: data.center_lat!, zoom: data.zoom! } : WORLD),
+      );
       const [ready, setReady] = useState(false);
-      const state = useCombinedBuilder(client, data.id, instance);
       useEffect(() => {
-        page.latest = state;
         page.load = () => {
           setReady(true);
-          setInstance(map);
+          onMapRef(movable.map);
         };
+        page.moveTo = movable.moveTo;
+        page.camera = () => ({ ...movable.camera });
       });
-      return createElement(FittingMap, { ready, fit });
+      useEffect(() => {
+        if (ready && !hasView) movable.jumpTo(FITTED);
+      }, [ready, hasView, movable]);
+      useEffect(() => () => onMapRef(null), [onMapRef]);
+      return null;
+    }
+
+    function Page() {
+      const [mapId, setMapId] = useState(maps[0].id);
+      const [instance, setInstance] = useState<MaplibreMap | null>(null);
+      const state = useCombinedBuilder(client, mapId, instance);
+      useEffect(() => { page.latest = state; });
+      useEffect(() => {
+        page.show = (next) => setMapId(next);
+      }, []);
+      const data = maps.find((m) => m.id === mapId)!;
+      return createElement(FakeBuilderMap, { key: mapId, data, onMapRef: setInstance });
     }
 
     renderComponent(
       createElement(QueryClientProvider, { client }, createElement(MemoryRouter, null, createElement(Page))),
     );
-    act(() => { page.load(); });
-    // maplibre's resize() and tile settles fire moveend without moving.
-    moveTo({});
+    return page;
+  }
 
+  function expectClean(page: ReturnType<typeof renderBuilder>) {
     expect(page.latest.hasUnsavedChanges).toBe(false);
     expect(page.latest.hasUnsavedEdits).toBe(false);
     expect(leavingBuilderIsBlocked()).toBe(false);
+  }
 
-    moveTo({ lng: -71.1, lat: 42.4 });
+  it('stays clean after the first fit', () => {
+    const page = renderBuilder([withoutView('map-1')]);
+
+    act(() => { page.load(); });
+    // maplibre's resize() and tile settles fire moveend without moving.
+    page.moveTo({});
+
+    expect(page.camera()).toMatchObject(FITTED);
+    expectClean(page);
+
+    page.moveTo({ lng: -71.1, lat: 42.4 });
     expect(page.latest.hasUnsavedChanges).toBe(true);
+  });
+
+  it('fits and stays clean after in-page navigation from a map with a saved view', () => {
+    const page = renderBuilder([savedMap(), withoutView('map-2')]);
+    act(() => { page.load(); });
+    page.moveTo({});
+    expectClean(page);
+
+    act(() => { page.show('map-2'); });
+    act(() => { page.load(); });
+    page.moveTo({});
+
+    expect(page.latest.layersMapId).toBe('map-2');
+    expect(page.camera()).toMatchObject(FITTED);
+    expectClean(page);
+
+    page.moveTo({ lng: -71.1, lat: 42.4 });
+    expect(page.latest.hasUnsavedChanges).toBe(true);
+    expect(page.latest.hasUnsavedEdits).toBe(false);
   });
 });
 
@@ -500,9 +552,9 @@ describe('the dirty check mirrors the persisted precision', () => {
 });
 
 describe('a camera sample belongs to the map it was taken on', () => {
-  // A direct /maps/:id navigation keeps this hook and the MapGL instance
-  // mounted, and nothing repositions the instance, so the previous map's view
-  // is still on screen. It is nobody's edit on the map now being shown.
+  // A direct /maps/:id navigation keeps this hook mounted. When one map
+  // instance spans the switch, the previous map's view is still on screen, and
+  // it is nobody's edit on the map now being shown.
   const OTHER: Camera = { lng: 5.5, lat: 10.25, zoom: 6 };
   const otherMap = () => savedMap({ id: 'map-2' }, OTHER);
 
