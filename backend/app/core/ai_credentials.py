@@ -211,8 +211,7 @@ def anthropic_configured() -> bool:
 def builtin_providers_configured() -> dict[str, bool]:
     """Which built-in LLM providers have the credentials they need.
 
-    Overlay providers are absent: the selected one counts as configured and the
-    provider call surfaces any auth failure.
+    Overlay providers are not in the map; each caller decides how to treat one.
     """
     return {
         "anthropic": anthropic_configured(),
