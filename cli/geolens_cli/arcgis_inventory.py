@@ -926,7 +926,12 @@ def _collect_dependencies(
         is_map = row["type"] in _MAP_CONFIG_TYPES
         lenient = row["id"] in best_effort
         try:
-            data = client.get_json(path, array_ok=lenient)
+            data = client.get_json(
+                path,
+                array_ok=lenient,
+                # The portal answers a notebook's data with a redirect on its own host.
+                follow_same_host=row["type"] in _NON_JSON_TYPES,
+            )
         except PortalError as exc:
             _detach(exc)
             if exc.kind == "auth":

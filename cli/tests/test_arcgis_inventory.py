@@ -1183,6 +1183,40 @@ def test_read_all_item_data_does_not_report_a_file_download_as_an_error(
     assert [s for s in portal.seen if s.url.startswith(download)] == []
 
 
+def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
+    item = "7f" * 16
+    target = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    notebook = {"map": {"itemId": A1}}
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": target}))
+    routes[f"content/items/{item}/data/notebook"] = notebook
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--read-all-item-data", "--strict")
+
+    assert result.exit_code == 0
+    report = _report(result)
+
+    assert report["errors"] == []
+    assert _rows(report)[item]["dependencies_status"] == "parsed"
+    assert (A1, "app_web_map", None) in _links(report, item)
+    hop = portal.requests_to(f"content/items/{item}/data/notebook")
+    assert len(hop) == 1
+
+
+def test_a_notebook_data_redirect_to_another_host_is_still_refused(run):
+    item = "7f" * 16
+    elsewhere = f"https://other.example.com/sharing/rest/content/items/{item}/data"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": elsewhere}))
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--read-all-item-data", "--strict")
+
+    assert _rows(_report(result))[item]["dependencies_status"] != "parsed"
+    assert [
+        s for s in portal.seen if urlsplit(s.url).hostname == "other.example.com"
+    ] == []
+
+
 def test_a_web_map_data_redirect_is_an_item_error_without_portal_advice(run):
     item = B1
     routes = _one_item(

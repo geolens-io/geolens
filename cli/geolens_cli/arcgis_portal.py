@@ -32,7 +32,15 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, quote_plus, unquote_plus, urlencode, urljoin, urlsplit
+from urllib.parse import (
+    parse_qsl,
+    quote,
+    quote_plus,
+    unquote_plus,
+    urlencode,
+    urljoin,
+    urlsplit,
+)
 
 # AGOL and Enterprise 10.5.1+ read the token from this header. Not
 # `Authorization`, which a web tier in front of Enterprise may consume.
@@ -262,8 +270,10 @@ class PortalError(Exception):
         http_status: int | None = None,
         retryable: bool = False,
         retry_after: float | None = None,
+        redirect_to: str | None = None,
     ) -> None:
         super().__init__(message)
+        self.redirect_to = redirect_to
         self.kind = kind
         self.http_status = http_status
         self.retryable = retryable
@@ -408,9 +418,13 @@ class PortalClient:
         params: Mapping[str, Any] | None = None,
         *,
         array_ok: bool = False,
+        follow_same_host: bool = False,
     ) -> Any:
         """GET ``/sharing/rest/<path>`` as a JSON object, retrying transient
         failures; with *array_ok* a JSON array is returned too.
+
+        With *follow_same_host* one redirect to https on the portal's own host
+        is followed, with the same credential; any other redirect is refused.
 
         An error envelope in a 200 body raises ``PortalError``. A 499 "token
         required", as an envelope or an HTTP status, with the header present
@@ -421,6 +435,27 @@ class PortalClient:
         """
         query = {**(params or {}), "f": "json"}
         url = f"{self.root}/sharing/rest/{path}"
+        try:
+            return self._get_json_renewing(path, url, query, array_ok)
+        except PortalError as exc:
+            if not (follow_same_host and exc.kind == "redirect"):
+                raise
+            target = self._same_host_target(url, exc.redirect_to)
+            if target is None:
+                raise
+        # One hop only: a second redirect is refused like any other.
+        parts = urlsplit(target)
+        hop_query = {**dict(parse_qsl(parts.query)), **query}
+        return self._get_json_renewing(
+            parts.path,
+            f"{parts.scheme}://{parts.netloc}{parts.path}",
+            hop_query,
+            array_ok,
+        )
+
+    def _get_json_renewing(
+        self, path: str, url: str, query: dict[str, Any], array_ok: bool
+    ) -> Any:
         token = self.token
         try:
             return self._get_json_sent(path, url, query, array_ok)
@@ -429,6 +464,15 @@ class PortalClient:
             if not rejected or not self._renew_token(token):
                 raise
         return self._get_json_sent(path, url, query, array_ok)
+
+    def _same_host_target(self, base: str, location: str | None) -> str | None:
+        """*location* resolved against *base* when it is https on the portal's
+        own host and port with no userinfo, else None."""
+        target, _host, allowed = self._redirect_target(base, location)
+        if not allowed:
+            return None
+        host = (urlsplit(target).hostname or "").lower()
+        return target if host == (urlsplit(self.root).hostname or "").lower() else None
 
     def _get_json_sent(
         self, path: str, url: str, query: dict[str, Any], array_ok: bool
@@ -917,6 +961,7 @@ class PortalClient:
                 "pass the final portal URL with --portal-url.",
                 kind="redirect",
                 http_status=status,
+                redirect_to=exc.headers.get("Location"),
             )
         if status in (401, _TOKEN_INVALID, _TOKEN_REQUIRED):
             kind = "auth"
