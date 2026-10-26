@@ -69,7 +69,7 @@ beforeEach(() => {
 describe('AuditLogViewer heading', () => {
   it('leaves the page title to the page header', () => {
     renderViewer();
-    expect(screen.queryByRole('heading', { name: 'Audit Logs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Audit Log' })).not.toBeInTheDocument();
   });
 });
 

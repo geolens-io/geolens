@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Registros de auditoría",
+    "title": "Registro de auditoría",
     "loading": "Cargando registros de auditoría...",
     "errorLoading": "Error al cargar registros de auditoría: {{message}}",
     "searchPlaceholder": "Usuario / Acción",

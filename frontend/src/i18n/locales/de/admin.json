@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Protokoll",
+    "title": "Audit-Protokoll",
     "loading": "Protokolleinträge werden geladen...",
     "errorLoading": "Protokolleinträge konnten nicht geladen werden: {{message}}",
     "searchPlaceholder": "Benutzer / Aktion",

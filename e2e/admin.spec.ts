@@ -94,7 +94,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/audit');
 
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Audit Logs' }),
+      page.getByRole('heading', { level: 1, name: 'Audit Log', exact: true }),
     ).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'Action' })).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'From' })).toBeVisible();
@@ -304,7 +304,7 @@ test.describe('Admin Panel', () => {
     await page.getByRole('link', { name: 'Audit Log' }).click();
     await page.waitForURL('/admin/audit');
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Audit Logs' }),
+      page.getByRole('heading', { level: 1, name: 'Audit Log', exact: true }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Published Maps' }).click();

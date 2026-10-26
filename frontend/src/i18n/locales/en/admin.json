@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Audit Logs",
+    "title": "Audit Log",
     "loading": "Loading audit logs...",
     "errorLoading": "Failed to load audit logs: {{message}}",
     "searchPlaceholder": "User / Action",
