@@ -125,6 +125,7 @@ export const SidebarRail = memo(function SidebarRail({
                 // editor is open (data-selected is visual-only).
                 aria-pressed={isSelected}
                 data-selected={isSelected ? 'true' : undefined}
+                data-rail-layer-id={layer.id}
                 className={cn(
                   'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isSelected

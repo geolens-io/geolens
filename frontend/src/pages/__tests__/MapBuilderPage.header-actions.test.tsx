@@ -885,7 +885,9 @@ describe('MapBuilderPage docked attribute table (round 4)', () => {
     expect(document.activeElement).toBe(kebabTrigger('l-trails'));
   });
 
-  it('below 800px opening the table from the editor sheet closes the editor; close returns focus to the stack row', () => {
+  it('below 800px opening the table from the editor sheet closes the editor; close returns focus to the rail button', () => {
+    // Below 800px the layout is also a rail: the stack rows are not rendered.
+    mockIsRail = true;
     mockIsEditorHidden = true;
     mockExpandedLayerId = 'l-trails';
     mockHandleToggleExpand.mockClear();
@@ -896,7 +898,7 @@ describe('MapBuilderPage docked attribute table (round 4)', () => {
     expect(mockHandleToggleExpand).toHaveBeenCalledWith('');
     expect(sheetContent()).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'attributeTableDrawer.close' }));
-    expect(document.activeElement).toBe(kebabTrigger('l-trails'));
+    expect(document.activeElement).toBe(document.querySelector('[data-rail-layer-id="l-trails"]'));
   });
 
   it('the layer picker lists exactly the table-capable layers in map order and defaults to the opened layer', () => {
