@@ -666,7 +666,8 @@ export function maplibreFilterToCql2(
   columns?: readonly FilterColumn[] | null,
   opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
-  const canonical = parseCanonicalFilter(filter);
+  // The map draws the sanitized filter, so the table and analysis must read the same one.
+  const canonical = parseCanonicalFilter(sanitizeNullableNumericFilter(filter));
   if (canonical.kind === 'opaque') return 'unsupported';
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),

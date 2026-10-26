@@ -242,9 +242,11 @@ describe('maplibreFilterToCql2', () => {
   it.each([
     [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
     [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
-    // A bare `to-number` reads a missing value as 0, which passes `< 5` on the map.
+    // The editor's own bare accessor is migrated to the null-guarded form, as on the map.
+    [['<', ['to-number', ['get', 'mag'], 1e12], 5], { op: '<', args: [p('mag'), 5] }],
+    // A hand-authored fallback is left alone: `to-number` reads a missing value as 0, which passes `< 5`.
     [
-      ['<', ['to-number', ['get', 'mag'], 1e12], 5],
+      ['<', ['to-number', ['get', 'mag'], 7], 5],
       { op: 'or', args: [isNull('mag'), { op: '<', args: [p('mag'), 5] }] },
     ],
     [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
