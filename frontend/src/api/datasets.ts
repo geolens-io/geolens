@@ -64,6 +64,8 @@ export async function getDatasetRows(
     after?: number;
     filters?: Record<string, string>;
     sort?: DatasetRowsSort;
+    /** CQL2-JSON filter expression, sent verbatim as `filter`. */
+    cql2Filter?: string;
   } = {},
 ): Promise<DatasetRowsResponse> {
   const query = new URLSearchParams();
@@ -73,6 +75,7 @@ export async function getDatasetRows(
     query.set('sort', params.sort.column);
     query.set('order', params.sort.desc ? 'desc' : 'asc');
   }
+  if (params.cql2Filter) query.set('filter', params.cql2Filter);
   if (params.filters) {
     for (const [col, value] of Object.entries(params.filters)) {
       if (value) query.set(`filter[${col}]`, value);

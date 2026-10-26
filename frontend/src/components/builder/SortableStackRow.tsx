@@ -17,6 +17,8 @@ interface SortableStackRowProps {
   onZoomToLayer?: (id: string) => void;
   /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. */
+  onOpenAttributeTable?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
@@ -63,6 +65,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle,
@@ -114,7 +117,10 @@ export const SortableStackRow = memo(function SortableStackRow({
   );
 
   return (
-    <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined} data-row-id={layer.id}>
+    // tabIndex=-1: a programmatic focus target (the page returns focus to the
+    // first remaining row when a layer is removed while its table is open)
+    // without joining the tab order; the row body keeps its own tabIndex.
+    <div ref={setNodeRef} style={style} tabIndex={-1} data-dnd-over={isOver ? 'true' : undefined} data-row-id={layer.id}>
       <StackRow
         layer={layer}
         selected={selected}
@@ -127,6 +133,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onDuplicate={onDuplicate}
         onZoomToLayer={onZoomToLayer}
         onAnalyzeLayer={onAnalyzeLayer}
+        onOpenAttributeTable={onOpenAttributeTable}
         onCopyStyle={onCopyStyle}
         onPasteStyle={onPasteStyle}
         canPasteStyle={canPasteStyle}

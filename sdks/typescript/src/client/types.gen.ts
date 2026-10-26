@@ -4610,7 +4610,7 @@ export type DatasetRowsResponse = {
     /**
      * Approximate Total
      *
-     * Total row count, or with `filter[...]` the matching rows; `total_kind` says how exact it is.
+     * Total row count, or with `filter[...]` or the CQL2 `filter` the matching rows; `total_kind` says how exact it is.
      */
     approximate_total: number;
     /**
@@ -24173,6 +24173,12 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
          * Sort direction; applies only with `sort`.
          */
         order?: 'asc' | 'desc';
+        /**
+         * Filter
+         *
+         * Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.
+         */
+        filter?: string | null;
     };
     url: '/datasets/{dataset_id}/rows/';
 };

@@ -186,17 +186,20 @@ export function applyMapBasemapAppearance({
 
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
-    return;
-  }
+  } else {
+    reorderBasemapLabels(map, showBasemapLabels, sourcePrefix);
+    applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, sourcePrefix);
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
 
-  reorderBasemapLabels(map, showBasemapLabels, sourcePrefix);
-  applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, sourcePrefix);
-  applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
-
-  if (reorderDataLayerIds) {
-    reorderDataLayers(map, reorderDataLayerIds, idPrefix);
+    if (reorderDataLayerIds) {
+      reorderDataLayers(map, reorderDataLayerIds, idPrefix);
+    }
+    reorderBasemapAboveData(map, basemapConfig?.basemap_position ?? undefined, sourcePrefix);
   }
-  reorderBasemapAboveData(map, basemapConfig?.basemap_position ?? undefined, sourcePrefix);
+  // Data composition can move layers above selection while sources are still pending.
+  for (const id of ['attribute-table-highlight-line', 'attribute-table-highlight-point']) {
+    if (map.getLayer(id)) map.moveLayer(id);
+  }
 }
 
 interface SyncMapCompositionOptions {

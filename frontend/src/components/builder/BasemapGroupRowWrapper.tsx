@@ -90,9 +90,13 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   );
 
   return (
+    // tabIndex=-1: a programmatic focus target (the page returns focus to the
+    // first remaining row when a layer is removed while its table is open)
+    // without joining the tab order; the row body keeps its own tabIndex.
     <div
       ref={setNodeRef}
       style={style}
+      tabIndex={-1}
       data-basemap-drop-target={isOver ? 'true' : undefined}
       data-row-id={group.id}
     >

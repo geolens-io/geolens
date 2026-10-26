@@ -1382,6 +1382,7 @@
     "categoricalSummary_other": "{{column}} · {{count}} 个类别",
     "kebabZoomToLayer": "缩放至图层",
     "kebabAnalyzeLayer": "分析此图层",
+    "kebabAttributeTable": "打开属性表",
     "kebabCopyStyle": "复制样式",
     "kebabPasteStyle": "粘贴样式",
     "kebabPasteStyleHint": "请先从匹配的图层复制样式",
@@ -1459,6 +1460,12 @@
     "deleteConfirmCancel": "保留分组",
     "newGroupItem": "新建分组…"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "属性表图层",
+    "filterUnsupported": "无法应用图层过滤器——显示所有行。",
+    "resizeHandle": "调整属性表大小",
+    "close": "关闭属性表"
+  },
   "layerEditor": {
     "close": "关闭图层编辑器",
     "deleteLayer": "删除图层",
@@ -1466,6 +1473,7 @@
     "deleteLayerConfirmAction": "删除",
     "deleteLayerConfirmCancel": "保留图层",
     "tabsLabel": "图层编辑器标签页",
+    "openAttributeTable": "打开属性表",
     "section": {
       "renderAs": "渲染方式",
       "appearance": "外观",

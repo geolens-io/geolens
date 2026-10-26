@@ -1382,6 +1382,7 @@
     "categoricalSummary_other": "{{column}} · {{count}} categories",
     "kebabZoomToLayer": "Zoom to layer",
     "kebabAnalyzeLayer": "Analyze this layer",
+    "kebabAttributeTable": "Open attribute table",
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "kebabPasteStyleHint": "Copy a style from a matching layer first",
@@ -1459,6 +1460,12 @@
     "deleteConfirmCancel": "Keep group",
     "newGroupItem": "New group…"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "Attribute table layer",
+    "filterUnsupported": "The layer's filter could not be applied — showing every row.",
+    "resizeHandle": "Resize attribute table",
+    "close": "Close attribute table"
+  },
   "layerEditor": {
     "close": "Close layer editor",
     "deleteLayer": "Delete layer",
@@ -1466,6 +1473,7 @@
     "deleteLayerConfirmAction": "Delete",
     "deleteLayerConfirmCancel": "Keep layer",
     "tabsLabel": "Layer editor tabs",
+    "openAttributeTable": "Open attribute table",
     "section": {
       "renderAs": "Render as",
       "appearance": "Appearance",

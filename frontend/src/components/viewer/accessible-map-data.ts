@@ -29,7 +29,12 @@ type ResolveAccessibleLayer = (
   mapLayerId: string,
 ) => SharedLayerResponse | null;
 
-function geometryBounds(
+/**
+ * Envelope of one GeoJSON geometry as [west, south, east, north]. Collections
+ * fold member-by-member, recursing into nested collections; null when no
+ * coordinate is finite.
+ */
+export function geometryBounds(
   geometry: GeoJSON.Geometry | null | undefined,
 ): AccessibleMapFeature['bounds'] {
   if (!geometry) return null;

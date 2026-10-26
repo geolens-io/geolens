@@ -50,6 +50,11 @@ export type StyleLayer = StyleSpecification['layers'][number] & {
 // Single source of truth for "is this style layer basemap-owned vs a user data
 // layer?". Reused by basemap-style-mutation (override scoping).
 export function isBasemapOwnedLayer(layer: object, sourcePrefix: string): boolean {
+  // Mirror AttributeTableDrawer's ids without importing a UI component here.
+  const id = 'id' in layer ? layer.id : undefined;
+  if (id === 'attribute-table-highlight'
+    || id === 'attribute-table-highlight-line'
+    || id === 'attribute-table-highlight-point') return false;
   // Basemap-owned when the source does NOT start with the data sourcePrefix.
   // Background layers have no `source` at all and count as basemap-owned.
   const source = 'source' in layer ? (layer as { source?: unknown }).source : undefined;

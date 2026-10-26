@@ -1378,6 +1378,7 @@
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
     "kebabAnalyzeLayer": "Diese Ebene analysieren",
+    "kebabAttributeTable": "Attributtabelle öffnen",
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
     "kebabPasteStyleHint": "Kopiere zuerst einen Stil von einer passenden Ebene",
@@ -1455,9 +1456,16 @@
     "newGroupItem": "Neue Gruppe…",
     "toggleExpand": "Ordnergruppe umschalten"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "Layer der Attributtabelle",
+    "filterUnsupported": "Der Filter der Ebene konnte nicht angewendet werden – alle Zeilen werden angezeigt.",
+    "resizeHandle": "Attributtabelle in der Größe ändern",
+    "close": "Attributtabelle schließen"
+  },
   "layerEditor": {
     "close": "Layer-Editor schließen",
     "tabsLabel": "Layer-Editor-Tabs",
+    "openAttributeTable": "Attributtabelle öffnen",
     "section": {
       "renderAs": "Darstellung",
       "appearance": "Darstellung",

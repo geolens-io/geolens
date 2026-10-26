@@ -28,8 +28,8 @@ class DatasetRowsResponse:
     Attributes:
         columns (list[ColumnChange]):
         rows (list[DatasetRowsResponseRowsItem]):
-        approximate_total (int): Total row count, or with `filter[...]` the matching rows; `total_kind` says how exact
-            it is.
+        approximate_total (int): Total row count, or with `filter[...]` or the CQL2 `filter` the matching rows;
+            `total_kind` says how exact it is.
         total_kind (DatasetRowsResponseTotalKind | Unset): `estimate` for the table's planner statistics (no filter),
             `exact` for counted matches, `at_least` when more rows match than the 10,000 that are counted. Default:
             'estimate'.

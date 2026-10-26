@@ -1238,8 +1238,8 @@ class DatasetRowsResponse(BaseModel):
     rows: list[dict[str, Any]]
     approximate_total: int = Field(
         description=(
-            "Total row count, or with `filter[...]` the matching rows; "
-            "`total_kind` says how exact it is."
+            "Total row count, or with `filter[...]` or the CQL2 `filter` the "
+            "matching rows; `total_kind` says how exact it is."
         )
     )
     total_kind: Literal["estimate", "exact", "at_least"] = Field(

@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  Table2,
   Trash2,
   Type,
 } from 'lucide-react';
@@ -34,7 +35,7 @@ import {
 import { LayerTypeIcon } from '@/components/map/layer-icons';
 import { legendFacts } from '@/components/map/legend-facts';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { canOpenAttributeTable, getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
@@ -65,6 +66,9 @@ interface StackRowProps {
   /** Opens the Analysis panel prefilled with this layer. Rendered
    *  only for analysable (vector dataset) layers. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. Rendered
+   *  only for layers whose dataset carries a data table. */
+  onOpenAttributeTable?: (id: string) => void;
   /** Stashes this layer's geometry-compatible style in the session clipboard. */
   onCopyStyle?: (id: string) => void;
   /** Applies the clipboard style to this layer; disabled when !canPasteStyle. */
@@ -135,6 +139,7 @@ export const StackRow = memo(function StackRow({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle = false,
@@ -641,6 +646,19 @@ export const StackRow = memo(function StackRow({
               >
                 <FlaskConical className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabAnalyzeLayer', { defaultValue: 'Analyze this layer' })}
+              </DropdownMenuItem>
+            )}
+            {/* Read-only data inspection, like Analyze: offered only where a
+                table makes sense (vector dataset with a data table), so a
+                raster, DEM or tileset row never opens a drawer the rows
+                endpoint would refuse. */}
+            {onOpenAttributeTable && canOpenAttributeTable(layer) && (
+              <DropdownMenuItem
+                data-testid="kebab-open-attribute-table"
+                onSelect={() => onOpenAttributeTable(layer.id)}
+              >
+                <Table2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('stackRow.kebabAttributeTable', { defaultValue: 'Open attribute table' })}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

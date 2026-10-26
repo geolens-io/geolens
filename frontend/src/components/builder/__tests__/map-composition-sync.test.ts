@@ -37,6 +37,8 @@ const reorderBasemapAboveDataMock = vi.mocked(reorderBasemapAboveData);
 function map(styleLoaded = true) {
   return {
     isStyleLoaded: vi.fn(() => styleLoaded),
+    getLayer: vi.fn(),
+    moveLayer: vi.fn(),
   } as unknown as MaplibreMap;
 }
 
@@ -65,6 +67,8 @@ function skyMap(initialSky?: Sky) {
       setMissingStyleImageResolver: vi.fn(),
       setSky,
       getSky: vi.fn(() => stored),
+      getLayer: vi.fn(),
+      moveLayer: vi.fn(),
     } as unknown as MaplibreMap,
     setSky,
     sky: () => stored,
@@ -83,6 +87,8 @@ function containerMap() {
       setProjection: vi.fn(),
       setMissingStyleImageResolver: vi.fn(),
       getContainer: vi.fn(() => container),
+      getLayer: vi.fn(),
+      moveLayer: vi.fn(),
     } as unknown as MaplibreMap,
     container,
   };
@@ -182,7 +188,7 @@ describe('map composition sync', () => {
 
   it('applies the saved projection with the basemap appearance', () => {
     const setProjection = vi.fn();
-    const target = { isStyleLoaded: vi.fn(() => true), setProjection } as unknown as MaplibreMap;
+    const target = { isStyleLoaded: vi.fn(() => true), setProjection, getLayer: vi.fn(), moveLayer: vi.fn() } as unknown as MaplibreMap;
 
     applyMapBasemapAppearance({
       map: target,
@@ -200,7 +206,7 @@ describe('map composition sync', () => {
     // visibly in mercator during slow tile loads.
     setProjection.mockClear();
     applyMapBasemapAppearance({
-      map: { isStyleLoaded: vi.fn(() => false), setProjection } as unknown as MaplibreMap,
+      map: { isStyleLoaded: vi.fn(() => false), setProjection, getLayer: vi.fn(), moveLayer: vi.fn() } as unknown as MaplibreMap,
       basemapConfig: { projection: 'globe' } as MapBasemapConfig,
     });
     expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
@@ -214,7 +220,7 @@ describe('map composition sync', () => {
     });
     const once = vi.fn();
     const off = vi.fn();
-    const loading = { isStyleLoaded: vi.fn(() => false), setProjection, once, off } as unknown as MaplibreMap;
+    const loading = { isStyleLoaded: vi.fn(() => false), setProjection, once, off, getLayer: vi.fn(), moveLayer: vi.fn() } as unknown as MaplibreMap;
 
     applyMapBasemapAppearance({
       map: loading,
@@ -242,7 +248,7 @@ describe('map composition sync', () => {
   it('applies the globe atmosphere with the projection and resets it on mercator', () => {
     const setProjection = vi.fn();
     const setSky = vi.fn();
-    const target = { isStyleLoaded: vi.fn(() => true), setProjection, setSky } as unknown as MaplibreMap;
+    const target = { isStyleLoaded: vi.fn(() => true), setProjection, setSky, getLayer: vi.fn(), moveLayer: vi.fn() } as unknown as MaplibreMap;
 
     applyMapBasemapAppearance({
       map: target,
@@ -261,7 +267,7 @@ describe('map composition sync', () => {
     // Sky is attempted on the same not-yet-idle path as the projection.
     setSky.mockClear();
     applyMapBasemapAppearance({
-      map: { isStyleLoaded: vi.fn(() => false), setProjection, setSky } as unknown as MaplibreMap,
+      map: { isStyleLoaded: vi.fn(() => false), setProjection, setSky, getLayer: vi.fn(), moveLayer: vi.fn() } as unknown as MaplibreMap,
       basemapConfig: { projection: 'globe' } as MapBasemapConfig,
     });
     expect(setSky).toHaveBeenCalledWith(
@@ -332,6 +338,8 @@ describe('map composition sync', () => {
     const off = vi.fn();
     const loading = {
       isStyleLoaded: vi.fn(() => false), setProjection, setSky, once, off,
+      getLayer: vi.fn(),
+      moveLayer: vi.fn(),
     } as unknown as MaplibreMap;
 
     applyMapBasemapAppearance({
@@ -357,6 +365,8 @@ describe('map composition sync', () => {
       setProjection: vi.fn(),
       setMissingStyleImageResolver: vi.fn(),
       setSky: throwingSky,
+      getLayer: vi.fn(),
+      moveLayer: vi.fn(),
       once: skyOnce,
       off: vi.fn(),
     } as unknown as MaplibreMap;
@@ -445,6 +455,8 @@ describe('map composition sync', () => {
       isStyleLoaded: vi.fn(() => false),
       setProjection: vi.fn(() => { throw new Error('Style is not done loading'); }),
       getContainer: vi.fn(() => container),
+      getLayer: vi.fn(),
+      moveLayer: vi.fn(),
       once: vi.fn(),
       off: vi.fn(),
     } as unknown as MaplibreMap;

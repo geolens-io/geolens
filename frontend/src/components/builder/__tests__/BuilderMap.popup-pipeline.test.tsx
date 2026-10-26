@@ -114,6 +114,7 @@ const mapState = vi.hoisted(() => {
     getSource: vi.fn(() => null),
     // Every id the builder asks about exists, so refreshQueryLayerIds keeps them.
     getLayer: vi.fn((id: string) => ({ id })),
+    moveLayer: vi.fn(),
     getStyle: vi.fn(() => ({ layers: [] })),
     fitBounds: vi.fn(),
     getZoom: vi.fn(() => 8),

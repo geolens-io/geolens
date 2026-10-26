@@ -42,6 +42,7 @@ import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { valueLabelFor, type ValueLabels } from '@/lib/value-labels';
+import { cn } from '@/lib/utils';
 import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -93,10 +94,29 @@ interface AttributeTableProps {
   datasetId: string;
   canEdit?: boolean;
   compact?: boolean;
+  /** CQL2-JSON filter expression sent as the rows request's `filter` param. */
+  cql2Filter?: string;
+  /** Row activation (Enter/click), e.g. the builder drawer finding a row on the map. */
+  onRowClick?: (gid: number) => void;
+  /**
+   * The highlighted row's gid (the builder drawer's map highlight). Set, every
+   * rendered row carries aria-selected — the match "true" with the inset
+   * primary marker, the others "false" — and the marker follows the prop.
+   * Omitted, no selection is rendered (the dataset page).
+   */
+  selectedGid?: number | null;
   /** Leading toolbar content, shown on the row that holds the Columns menu. */
   heading?: ReactNode;
   /** Trailing toolbar controls, after the Columns menu. */
   actions?: ReactNode;
+  /**
+   * When set, renders the caller's node as the table's header row, receiving
+   * the row count and the Columns control; the count then no longer renders
+   * in the pagination bar, and the rows-per-page select is omitted (the
+   * caller's header owns the table's combobox — the builder drawer's layer
+   * picker). Unset, the toolbar and pagination bar render exactly as before.
+   */
+  renderHeader?: (parts: { count: ReactNode; columns: ReactNode }) => ReactNode;
   /** Code labels per column; a labelled cell shows its label and keeps the code reachable. */
   valueLabels?: ReadonlyMap<string, ValueLabels>;
 }
@@ -193,8 +213,12 @@ export function AttributeTable({
   datasetId,
   canEdit = false,
   compact = false,
+  cql2Filter,
+  onRowClick,
+  selectedGid,
   heading,
   actions,
+  renderHeader,
   valueLabels,
 }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
@@ -243,7 +267,7 @@ export function AttributeTable({
   // A cursor is a position within one filter + sort order. Reset paging during
   // render, not in an effect, so no request goes out with the new order and
   // the old cursor.
-  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null]);
+  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null, cql2Filter ?? null]);
   const [pagedScope, setPagedScope] = useState(pagingScope);
   if (pagedScope !== pagingScope) {
     setPagedScope(pagingScope);
@@ -258,7 +282,7 @@ export function AttributeTable({
     setEditingCell(null);
     setEditError(null);
     if (parentRef.current) parentRef.current.scrollTop = 0;
-  }, [datasetId, cursor, activeFilters, sort, pageSize]);
+  }, [datasetId, cursor, activeFilters, sort, pageSize, cql2Filter]);
 
   const { data, error, isLoading, isFetching, isError, isPlaceholderData } = useDatasetRows(
     datasetId,
@@ -266,6 +290,7 @@ export function AttributeTable({
     cursor,
     activeFilters,
     sort,
+    cql2Filter,
   );
   // A schema edit, in GeoLens or on a live table, can drop or retype the sorted
   // column, and the server reports that as a 400 whose text depends on where it
@@ -602,6 +627,24 @@ export function AttributeTable({
   const rangeStart = rowCount > 0 ? (cursorHistory.length - 1) * pageSize + 1 : 0;
   const rangeEnd = rangeStart > 0 ? rangeStart + rowCount - 1 : 0;
 
+  // The row count text: the pagination bar renders it by default, a
+  // renderHeader caller embeds it in its own header instead.
+  const countNode = (
+    <span className="text-muted-foreground">
+      {t(
+        totalKind === 'at_least'
+          ? 'attributes.showingAtLeast'
+          : isExact
+            ? 'attributes.showingExact'
+            : 'attributes.showing',
+        { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
+      )}
+      {isFetching && (
+        <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
+      )}
+    </span>
+  );
+
   const columnsMenu = columns.length > 0 ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -645,19 +688,25 @@ export function AttributeTable({
 
   // The root is a shrinkable flex column: inside a height-bounded parent
   // (DataTab) the scroll region absorbs the overflow, so the toolbar and the
-  // pagination bar stay on screen.
+  // pagination bar stay on screen. A renderHeader caller owns the header row,
+  // so the shell drops the inter-row gap (the caller's header borders the
+  // table directly).
   const shell = (body: ReactNode) => (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {heading || actions || columnsMenu ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {heading}
-          <div className="ms-auto flex items-center gap-1">
-            {deleteRowsAction}
-            {columnsMenu}
-            {actions}
+    <div className={cn('flex min-h-0 flex-1 flex-col', !renderHeader && 'gap-3')}>
+      {renderHeader ? (
+        renderHeader({ count: countNode, columns: columnsMenu })
+      ) : (
+        heading || actions || columnsMenu ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {heading}
+            <div className="ms-auto flex items-center gap-1">
+              {deleteRowsAction}
+              {columnsMenu}
+              {actions}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null
+      )}
       {body}
     </div>
   );
@@ -672,7 +721,9 @@ export function AttributeTable({
 
   if (isError) return shell(<div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>);
 
-  if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
+  // A CQL2 filter that matched nothing is a filter result, not an empty
+  // dataset: it flows through the normal path (header, toolbar, noResults).
+  if (effectiveTotal === 0 && !activeFilters && !cql2Filter && (!data?.rows || data.rows.length === 0)) {
     return shell(
       <div className="text-center py-12 text-muted-foreground">
         {t('attributes.noData')}
@@ -805,11 +856,27 @@ export function AttributeTable({
                 {virtualItems.map((virtualRow) => {
                   const row = rows[virtualRow.index];
                   const gid = row.original.gid as number;
+                  const activatable = onRowClick && Number.isSafeInteger(gid);
+                  const selected = selectedGid !== undefined && gid === selectedGid;
                   return (
                     <TableRow
                       key={row.id}
                       data-index={virtualRow.index}
-                      className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
+                      aria-selected={selectedGid === undefined ? undefined : selected ? 'true' : 'false'}
+                      className={cn(
+                        virtualRow.index % 2 === 1 ? 'bg-muted/30' : '',
+                        activatable && 'cursor-pointer hover:bg-primary-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                        selected && 'selection-inset',
+                      )}
+                      tabIndex={activatable ? 0 : undefined}
+                      aria-label={activatable ? t('attributes.rowActionLabel', { gid, defaultValue: 'Show row {{gid}} on the map' }) : undefined}
+                      onClick={activatable ? () => onRowClick(gid) : undefined}
+                      onKeyDown={activatable ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(gid);
+                        }
+                      } : undefined}
                     >
                       {selectable ? (
                         <TableCell className={`w-10 ${cellClass}`}>
@@ -879,43 +946,33 @@ export function AttributeTable({
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-muted-foreground">
-            {t(
-              totalKind === 'at_least'
-                ? 'attributes.showingAtLeast'
-                : isExact
-                  ? 'attributes.showingExact'
-                  : 'attributes.showing',
-              { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
-            )}
-            {isFetching && (
-              <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
-            )}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">{t('attributes.rowsPerPage')}</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(val) => {
-                setPageSize(Number(val));
-                setCursorHistory([0]);
-              }}
-            >
-              <SelectTrigger
-                className="h-7 w-[70px] text-xs"
-                aria-label={t('attributes.rowsPerPage')}
+          {!renderHeader && countNode}
+          {!renderHeader && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-xs">{t('attributes.rowsPerPage')}</span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(val) => {
+                  setPageSize(Number(val));
+                  setCursorHistory([0]);
+                }}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt} value={String(opt)}>
-                    {opt}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                <SelectTrigger
+                  className="h-7 w-[70px] text-xs"
+                  aria-label={t('attributes.rowsPerPage')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={String(opt)}>
+                      {opt}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button

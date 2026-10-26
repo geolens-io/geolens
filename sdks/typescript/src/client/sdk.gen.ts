@@ -3498,6 +3498,7 @@ export const reuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPost = <ThrowOn
  * Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
  * fetch the next page, with or without ``sort``.
  * Supports column filtering via query params: ``filter[column_name]=value``.
+ * An optional CQL2-JSON ``filter`` expression ANDs with them.
  */
 export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError extends boolean = false>(options: Options<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData, ThrowOnError>): RequestResult<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError> => (options.client ?? client).get<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError>({
     security: [

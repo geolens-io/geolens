@@ -83,6 +83,8 @@ interface UnifiedStackPanelProps {
   onZoomToLayer?: (id: string) => void;
   /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. */
+  onOpenAttributeTable?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   onBulkApplyStyle?: (ids: Set<string>) => void;
@@ -305,6 +307,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   onBulkApplyStyle,
@@ -808,6 +811,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onDuplicate={onDuplicate}
                                 onZoomToLayer={onZoomToLayer}
                                 onAnalyzeLayer={onAnalyzeLayer}
+                                onOpenAttributeTable={onOpenAttributeTable}
                                 onCopyStyle={onCopyStyle}
                                 onPasteStyle={onPasteStyle}
                                 canPasteStyle={
@@ -866,6 +870,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onDuplicate={onDuplicate}
                     onZoomToLayer={onZoomToLayer}
                     onAnalyzeLayer={onAnalyzeLayer}
+                    onOpenAttributeTable={onOpenAttributeTable}
                     onCopyStyle={onCopyStyle}
                     onPasteStyle={onPasteStyle}
                     canPasteStyle={
