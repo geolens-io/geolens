@@ -313,7 +313,7 @@ describe('AnalysisPanel', () => {
     // What the structured filter editor writes for "mag >= 5 and kind != x".
     const editorFilter = [
       'all',
-      ['all', ['==', ['typeof', ['get', 'mag']], 'number'], ['>=', ['get', 'mag'], 5]],
+      ['all', ['!=', ['typeof', ['get', 'mag']], 'null'], ['>=', ['to-number', ['get', 'mag'], -1_000_000_000_000], 5]],
       ['!=', ['get', 'kind'], 'x'],
     ];
     const cql2 = {

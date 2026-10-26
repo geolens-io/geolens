@@ -181,14 +181,14 @@ describe('buildFilterExpression', () => {
     const result = buildFilterExpression(conditions, columns, 'all');
     expect(result).toEqual([
       'all',
-      ['all', ['==', ['typeof', ['get', 'population']], 'number'], ['>', ['get', 'population'], 100]],
+      ['all', ['!=', ['typeof', ['get', 'population']], 'null'], ['>', ['to-number', ['get', 'population'], -1_000_000_000_000], 100]],
     ]);
   });
 
   it('parses nullable-safe numeric comparisons back into editable conditions', () => {
     const expr: FilterSpecification = [
       'all',
-      ['all', ['==', ['typeof', ['get', 'population']], 'number'], ['<=', ['get', 'population'], 500]],
+      ['all', ['!=', ['typeof', ['get', 'population']], 'null'], ['<=', ['to-number', ['get', 'population'], 1_000_000_000_000], 500]],
     ] as FilterSpecification;
     const result = parseFilterExpression(expr);
     expect(result.kind).toBe('editable');

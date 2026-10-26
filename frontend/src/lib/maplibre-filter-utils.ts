@@ -8,9 +8,9 @@ import type { FilterSpecification } from 'maplibre-gl';
  * opaque, uneditable filter):
  *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field], or the
  *                         null-safe pair this module emits for numeric columns,
- *                         ["all", ["==", ["typeof", ["get", field]], "number"],
- *                         [op, ["get", field], n]], and the legacy
- *                         ["to-number", ["get", field], fallback] accessor.
+ *                         ["all", ["!=", ["typeof", ["get", field]], "null"],
+ *                         [op, ["to-number", ["get", field], fallback], n]], and
+ *                         the bare ["to-number", ["get", field], fallback] accessor.
  *   - membership:         ["in", ["get", field], ["literal", [...]]]   (in_list)
  *                         ["!", ["in", ["get", field], ["literal", [...]]]] (not_in_list)
  *   - substring/contains: ["in", <scalar>, ["get", field]]
@@ -32,10 +32,19 @@ function isGetExpression(value: unknown): value is ['get', string] {
   return Array.isArray(value) && value[0] === 'get' && typeof value[1] === 'string';
 }
 
+const NUMERIC_LOW_SENTINEL = -1_000_000_000_000;
+const NUMERIC_HIGH_SENTINEL = 1_000_000_000_000;
+
+function numericFallbackForOperator(operator: string, comparisonValue: number) {
+  if (operator === '<' || operator === '<=') return NUMERIC_HIGH_SENTINEL;
+  if (comparisonValue === NUMERIC_LOW_SENTINEL) return NUMERIC_HIGH_SENTINEL;
+  return NUMERIC_LOW_SENTINEL;
+}
+
 /**
- * A numeric comparison that a null or missing value never satisfies, as SQL
- * does. MapLibre's `to-number` reads null as 0, so the value's type is checked
- * first instead.
+ * A numeric comparison that a null or missing value never satisfies, as in SQL.
+ * `to-number` still reads a numeric string, but it turns null into 0, so the
+ * value's type is checked for null first.
  */
 export function buildNullSafeNumericComparison(
   field: string,
@@ -44,20 +53,24 @@ export function buildNullSafeNumericComparison(
 ) {
   return [
     'all',
-    ['==', ['typeof', ['get', field]], 'number'],
-    [operator, ['get', field], comparisonValue],
+    ['!=', ['typeof', ['get', field]], 'null'],
+    [
+      operator,
+      ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)],
+      comparisonValue,
+    ],
   ];
 }
 
-/** The field of `["==", ["typeof", ["get", field]], "number"]`, else null. */
-function numberGuardField(node: unknown): string | null {
+/** The field of `["!=", ["typeof", ["get", field]], "null"]`, else null. */
+function nullGuardField(node: unknown): string | null {
   return Array.isArray(node) &&
     node.length === 3 &&
-    node[0] === '==' &&
+    node[0] === '!=' &&
     Array.isArray(node[1]) &&
     node[1][0] === 'typeof' &&
     isGetExpression(node[1][1]) &&
-    node[2] === 'number'
+    node[2] === 'null'
     ? node[1][1][1]
     : null;
 }
@@ -65,15 +78,17 @@ function numberGuardField(node: unknown): string | null {
 /** The comparison of a `buildNullSafeNumericComparison` pair, else null. */
 function guardedComparison(node: unknown): unknown[] | null {
   if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return null;
-  const field = numberGuardField(node[1]);
+  const field = nullGuardField(node[1]);
   const comparison = node[2];
   return field !== null &&
     Array.isArray(comparison) &&
     comparison.length === 3 &&
     typeof comparison[0] === 'string' &&
     NUMERIC_COMPARISON_OPERATORS.has(comparison[0]) &&
-    isGetExpression(comparison[1]) &&
-    comparison[1][1] === field &&
+    Array.isArray(comparison[1]) &&
+    comparison[1][0] === 'to-number' &&
+    isGetExpression(comparison[1][1]) &&
+    comparison[1][1][1] === field &&
     typeof comparison[2] === 'number'
     ? comparison
     : null;
@@ -147,11 +162,11 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
     return { field: e[1], operator: 'has', value: '' };
   }
 
-  // null-safe numeric comparison: ["all", ["==", ["typeof", ["get", f]], "number"], [op, ["get", f], n]]
+  // null-safe numeric comparison: ["all", ["!=", ["typeof", ["get", f]], "null"], [op, ["to-number", ["get", f], fb], n]]
   const guarded = guardedComparison(e);
   if (guarded) {
     return {
-      field: (guarded[1] as ['get', string])[1],
+      field: ((guarded[1] as unknown[])[1] as ['get', string])[1],
       operator: guarded[0] as string,
       value: String(guarded[2]),
       rawValue: guarded[2],
@@ -337,7 +352,7 @@ function sanitizeFilterNode(node: unknown): unknown {
     NUMERIC_COMPARISON_OPERATORS.has(operator) &&
     typeof right === 'number'
   ) {
-    // The legacy accessor reads null as 0; the guarded pair does not.
+    // The bare accessor reads null as 0; the guarded pair does not.
     const field = isGetExpression(left)
       ? left[1]
       : Array.isArray(left) && left[0] === 'to-number' && isGetExpression(left[1])

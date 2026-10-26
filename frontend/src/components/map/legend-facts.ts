@@ -424,12 +424,6 @@ function isNumberAccessor(value: unknown, column: string): boolean {
     && value.slice(2).every((fallback) => typeof fallback === 'number');
 }
 
-/** Whether an expression is `['==', ['typeof', ['get', column]], 'number']`. */
-function isNumberGuard(value: unknown, column: string): boolean {
-  return Array.isArray(value) && value.length === 3 && value[0] === '==' && value[2] === 'number'
-    && Array.isArray(value[1]) && value[1][0] === 'typeof' && getColumn(value[1][1]) === column;
-}
-
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
  * `in` on it, alone or inside `all`; null when the filter names none.
@@ -438,9 +432,6 @@ function filteredValues(filter: unknown, column: string, numeric: boolean): unkn
   if (!Array.isArray(filter)) return null;
   const [op, input, operand] = filter;
   if (op === 'all') {
-    // The editor's null-safe pair, `['all', ['==', ['typeof', col], 'number'], cmp]`,
-    // lets nothing through on a column that isn't numeric.
-    if (!numeric && filter.slice(1).some((entry) => isNumberGuard(entry, column))) return null;
     const limits = filter.slice(1)
       .map((entry) => filteredValues(entry, column, numeric))
       .filter((limit): limit is unknown[] => limit !== null);

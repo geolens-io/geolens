@@ -33,7 +33,7 @@ describe('sanitizeNullableNumericFilter', () => {
   it('guards a numeric comparison with a type check so a null value never satisfies it', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
-    expect(result).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]]);
+    expect(result).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]]);
   });
 
   it.each([
@@ -55,9 +55,19 @@ describe('sanitizeNullableNumericFilter', () => {
     expect(drawn(result, { n: operator === '<' ? value - 1 : value + 1 })).toBe(operator !== '==');
   });
 
+  it('still reads a numeric string as a number, as to-number always did', () => {
+    const legacy = ['>=', ['to-number', ['get', 'score'], -1_000_000_000_000], 5] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(legacy);
+
+    expect(drawn(result, { score: '10' })).toBe(true);
+    expect(drawn(result, { score: 10 })).toBe(true);
+    expect(drawn(result, { score: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+  });
+
   it('rewrites a saved legacy to-number accessor to the guarded form', () => {
     const legacy = ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 0] as unknown as FilterSpecification;
-    expect(sanitizeNullableNumericFilter(legacy)).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 0]]);
+    expect(sanitizeNullableNumericFilter(legacy)).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 0]]);
   });
 
   it('keeps a guarded filter as it is, however often it is sanitized', () => {
@@ -68,8 +78,8 @@ describe('sanitizeNullableNumericFilter', () => {
   it('FL-01: returns the SAME reference for an already-sanitized filter (structurally unchanged)', () => {
     const filter = [
       'all',
-      ['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]],
-      ['all', ['==', ['typeof', ['get', 'area']], 'number'], ['>', ['get', 'area'], 10]],
+      ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]],
+      ['all', ['!=', ['typeof', ['get', 'area']], 'null'], ['>', ['to-number', ['get', 'area'], -1_000_000_000_000], 10]],
     ] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).toBe(filter);
@@ -79,7 +89,7 @@ describe('sanitizeNullableNumericFilter', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).not.toBe(filter);
-    expect(result).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]]);
+    expect(result).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]]);
   });
 });
 
@@ -97,7 +107,7 @@ describe('parseCanonicalFilter', () => {
   });
 
   it('parses the null-safe numeric comparison back to one condition', () => {
-    const expr = ['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['>', ['get', 'pop'], 5]] as FilterSpecification;
+    const expr = ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['>', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]] as FilterSpecification;
     expect(parseCanonicalFilter(expr)).toEqual({
       kind: 'editable',
       combinator: 'all',
@@ -211,7 +221,7 @@ describe('maplibreFilterToCql2', () => {
     // A null never satisfies a numeric comparison, on the map or in SQL.
     [['<', ['to-number', ['get', 'mag'], 1e12], 5], { op: '<', args: [p('mag'), 5] }],
     [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
-    [['all', ['==', ['typeof', ['get', 'mag']], 'number'], ['<', ['get', 'mag'], 5]], { op: '<', args: [p('mag'), 5] }],
+    [['all', ['!=', ['typeof', ['get', 'mag']], 'null'], ['<', ['to-number', ['get', 'mag'], 1_000_000_000_000], 5]], { op: '<', args: [p('mag'), 5] }],
     [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
     // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.
     [

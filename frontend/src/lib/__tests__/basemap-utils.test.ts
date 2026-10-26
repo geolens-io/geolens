@@ -388,8 +388,8 @@ describe('sanitizeMaplibreStyle', () => {
 
     expect(layer.filter).toEqual([
       'all',
-      ['all', ['==', ['typeof', ['get', 'admin_level']], 'number'], ['>=', ['get', 'admin_level'], 3]],
-      ['all', ['==', ['typeof', ['get', 'admin_level']], 'number'], ['<=', ['get', 'admin_level'], 6]],
+      ['all', ['!=', ['typeof', ['get', 'admin_level']], 'null'], ['>=', ['to-number', ['get', 'admin_level'], -1_000_000_000_000], 3]],
+      ['all', ['!=', ['typeof', ['get', 'admin_level']], 'null'], ['<=', ['to-number', ['get', 'admin_level'], 1_000_000_000_000], 6]],
     ]);
   });
 });
