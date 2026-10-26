@@ -444,6 +444,9 @@ class _FileReupload:
             record_type=self.prior_record_type,
             dataset_geometry_type=self.prior_geometry_type,
         )
+        if not self.layer_name and self.info.get("attachments_omitted"):
+            # ogr2ogr copies every source layer unless one is named.
+            self.layer_name = self.info["layer_name"]
         self.srid = self.info.get("srid")
         await run_ogr2ogr(
             self.file_path,
