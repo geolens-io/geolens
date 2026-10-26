@@ -1217,6 +1217,37 @@ def test_a_notebook_data_redirect_to_another_host_is_still_refused(run):
     ] == []
 
 
+@pytest.mark.parametrize(
+    ("root", "location", "followed"),
+    [
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com/x",
+            False,
+        ),
+        (
+            "https://portal.example.com/arcgis",
+            "https://portal.example.com:7443/x",
+            False,
+        ),
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com:7443/x",
+            True,
+        ),
+        ("https://portal.example.com/arcgis", "https://portal.example.com:443/x", True),
+    ],
+)
+def test_a_followed_redirect_keeps_the_portal_host_and_effective_port(
+    root, location, followed
+):
+    client = arcgis_portal.PortalClient(root, redact=str, opener=FakePortal({}))
+
+    target = client._same_host_target(f"{root}/sharing/rest/x", location)
+
+    assert (target is not None) is followed
+
+
 def test_a_web_map_data_redirect_is_an_item_error_without_portal_advice(run):
     item = B1
     routes = _one_item(

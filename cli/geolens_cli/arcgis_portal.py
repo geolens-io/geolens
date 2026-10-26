@@ -467,12 +467,17 @@ class PortalClient:
 
     def _same_host_target(self, base: str, location: str | None) -> str | None:
         """*location* resolved against *base* when it is https on the portal's
-        own host and port with no userinfo, else None."""
+        own host and effective port with no userinfo, else None."""
         target, _host, allowed = self._redirect_target(base, location)
         if not allowed:
             return None
-        host = (urlsplit(target).hostname or "").lower()
-        return target if host == (urlsplit(self.root).hostname or "").lower() else None
+        # The credential goes along, so the port must match too, not just be a
+        # default one.
+        sent, portal = urlsplit(target), urlsplit(self.root)
+        same = (sent.hostname or "").lower() == (portal.hostname or "").lower() and (
+            sent.port or 443
+        ) == (portal.port or 443)
+        return target if same else None
 
     def _get_json_sent(
         self, path: str, url: str, query: dict[str, Any], array_ok: bool
