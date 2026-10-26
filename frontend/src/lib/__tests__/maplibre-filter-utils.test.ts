@@ -130,8 +130,13 @@ describe('parseCanonicalFilter', () => {
     expect(parseCanonicalFilter(expr)).toEqual({
       kind: 'editable',
       combinator: 'all',
-      conditions: [{ field: 'pop', operator: '>', value: '5', rawValue: 5, toNumber: true }],
+      conditions: [{ field: 'pop', operator: '>', value: '5', rawValue: 5, toNumber: true, nullGuarded: true }],
     });
+  });
+
+  it('does not offer a guarded comparison with its own fallback to the editor', () => {
+    const expr = ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['>', ['to-number', ['get', 'pop'], 7], 5]] as FilterSpecification;
+    expect(parseCanonicalFilter(expr).kind).toBe('opaque');
   });
 
   it('FILT-01: parses a to-number numeric comparison back to field + numeric rawValue', () => {
@@ -237,9 +242,13 @@ describe('maplibreFilterToCql2', () => {
   it.each([
     [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
     [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
-    // A null never satisfies a numeric comparison, on the map or in SQL.
-    [['<', ['to-number', ['get', 'mag'], 1e12], 5], { op: '<', args: [p('mag'), 5] }],
+    // A bare `to-number` reads a missing value as 0, which passes `< 5` on the map.
+    [
+      ['<', ['to-number', ['get', 'mag'], 1e12], 5],
+      { op: 'or', args: [isNull('mag'), { op: '<', args: [p('mag'), 5] }] },
+    ],
     [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
+    // Behind the null guard, a null never satisfies it, on the map or in SQL.
     [['all', ['!=', ['typeof', ['get', 'mag']], 'null'], ['<', ['to-number', ['get', 'mag'], 1_000_000_000_000], 5]], { op: '<', args: [p('mag'), 5] }],
     [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
     // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.

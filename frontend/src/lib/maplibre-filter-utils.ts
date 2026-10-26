@@ -124,7 +124,10 @@ function guardedComparison(node: unknown): unknown[] | null {
     comparison[1][0] === 'to-number' &&
     isGetExpression(comparison[1][1]) &&
     comparison[1][1][1] === field &&
-    typeof comparison[2] === 'number'
+    typeof comparison[2] === 'number' &&
+    // A hand-authored fallback is not the editor's and must survive a rebuild.
+    comparison[1].length === 3 &&
+    comparison[1][2] === numericFallbackForOperator(comparison[0], comparison[2])
     ? comparison
     : null;
 }
@@ -138,8 +141,10 @@ export interface CanonicalFilterCondition {
   rawValue?: unknown;
   /** Parsed literal values for in_list / not_in_list (used for chip preview). */
   listValues?: unknown[];
-  /** A numeric comparison a null value never satisfies. */
+  /** Read through `to-number`, which turns a missing value into 0. */
   toNumber?: true;
+  /** `toNumber`, behind a null check: a null value never satisfies it. */
+  nullGuarded?: true;
 }
 
 type CanonicalFilter =
@@ -206,6 +211,7 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
       value: String(guarded[2]),
       rawValue: guarded[2],
       toNumber: true,
+      nullGuarded: true,
     };
   }
 
@@ -585,6 +591,23 @@ const cql2OrNull = (field: string, expr: Cql2Expression): Cql2Expression => ({
   args: [cql2IsNull(field), expr],
 });
 
+function compareNumbers(a: number, operator: string, b: number): boolean {
+  switch (operator) {
+    case '==':
+      return a === b;
+    case '!=':
+      return a !== b;
+    case '<':
+      return a < b;
+    case '>':
+      return a > b;
+    case '<=':
+      return a <= b;
+    default:
+      return a >= b;
+  }
+}
+
 function conditionToCql2(
   c: CanonicalFilterCondition,
   pgType: string | undefined,
@@ -613,8 +636,11 @@ function conditionToCql2(
   if (!op) return null;
   if (c.toNumber) {
     if (typeof c.rawValue !== 'number' || !Number.isFinite(c.rawValue)) return null;
-    // SQL drops a null from any comparison, as the guarded map filter does.
-    return { op, args: [cql2Property(c.field), c.rawValue] };
+    const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
+    // The map reads an unguarded null as 0; SQL drops it from any comparison.
+    return !c.nullGuarded && compareNumbers(0, c.operator, c.rawValue)
+      ? cql2OrNull(c.field, comparison)
+      : comparison;
   }
   if (c.rawValue === null) {
     if (c.operator === '==') return cql2IsNull(c.field);
