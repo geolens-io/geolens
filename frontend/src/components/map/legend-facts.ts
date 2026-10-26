@@ -424,22 +424,36 @@ function isNumberAccessor(value: unknown, column: string): boolean {
     && value.slice(2).every((fallback) => typeof fallback === 'number');
 }
 
+/** Whether an expression is `['!=', ['typeof', ['get', column]], 'null']`. */
+function isNullGuard(value: unknown, column: string): boolean {
+  return Array.isArray(value) && value.length === 3 && value[0] === '!=' && value[2] === 'null'
+    && Array.isArray(value[1]) && value[1][0] === 'typeof' && getColumn(value[1][1]) === column;
+}
+
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
  * `in` on it, alone or inside `all`; null when the filter names none.
  */
-function filteredValues(filter: unknown, column: string, numeric: boolean): unknown[] | null {
+function filteredValues(
+  filter: unknown,
+  column: string,
+  numeric: boolean,
+  excludesNull = false,
+): unknown[] | null {
   if (!Array.isArray(filter)) return null;
   const [op, input, operand] = filter;
   if (op === 'all') {
+    // A `typeof` null check on the column keeps null out of every limit inside.
+    const guarded = excludesNull || filter.slice(1).some((entry) => isNullGuard(entry, column));
     const limits = filter.slice(1)
-      .map((entry) => filteredValues(entry, column, numeric))
+      .map((entry) => filteredValues(entry, column, numeric, guarded))
       .filter((limit): limit is unknown[] => limit !== null);
     return limits.length > 0 ? limits.reduce((kept, limit) => kept.filter((value) => limit.includes(value))) : null;
   }
   if (filter.length !== 3) return null;
   if (numeric && op === '==' && typeof operand === 'number' && isNumberAccessor(input, column)) {
-    return [operand];
+    // MapLibre turns a null into 0 before any fallback, so a zero comparison admits null.
+    return operand === 0 && !excludesNull ? [0, null] : [operand];
   }
   if (getColumn(input) !== column) return null;
   if (op === '==' && isLiteral(operand)) return [operand];

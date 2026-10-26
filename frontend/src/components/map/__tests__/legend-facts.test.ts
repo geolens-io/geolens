@@ -778,6 +778,11 @@ const classRows: ClassRow[] = [
     [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }])],
   ],
   [
+    'a bare number accessor equal to 0, which lets nulls reach the fallback',
+    codedPoints([[0, '#f472b6'], [1, '#60a5fa']], ['all', ['==', ['to-number', ['get', 'code'], 0], 0]]),
+    [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }, other('#cccccc')])],
+  ],
+  [
     'a number accessor on a column the layer types as text, which reaches the fallback',
     codedPoints([[1, '#f472b6'], [2, '#60a5fa']], codeEquals(1), 'text'),
     [categories('code', [{ color: '#f472b6', label: '1' }, { color: '#60a5fa', label: '2' }, other('#cccccc')])],
