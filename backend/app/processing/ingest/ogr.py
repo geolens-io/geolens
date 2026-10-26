@@ -727,6 +727,15 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
     return None
 
 
+# A file geodatabase keeps a feature class's attachments in `<name>__ATTACH`
+# and the link back to it in `<name>__ATTACHREL`; neither is a dataset.
+_GDB_ATTACHMENT_SUFFIXES = ("__ATTACH", "__ATTACHREL")
+
+
+def _is_gdb_attachment_table(layer: dict) -> bool:
+    return str(layer.get("name", "")).upper().endswith(_GDB_ATTACHMENT_SUFFIXES)
+
+
 def _extract_common_layer_metadata(
     data: dict, layer_name: str | None
 ) -> tuple[dict, dict]:
@@ -750,13 +759,18 @@ def _extract_common_layer_metadata(
     Raises KeyError if the JSON has no ``layers`` entry so callers can
     fall through to their fallback path.
     """
-    layers = data.get("layers", [])
-    if not layers:
+    all_found = data.get("layers", [])
+    if not all_found:
         raise KeyError("no layers in ogrinfo JSON output")
+    # Attachment tables are never offered; a source that holds nothing else
+    # keeps them so it still previews.
+    layers = [
+        lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
+    ] or all_found
 
     target_layer = layers[0]
     if layer_name:
-        for lyr in layers:
+        for lyr in all_found:
             if lyr.get("name") == layer_name:
                 target_layer = lyr
                 break

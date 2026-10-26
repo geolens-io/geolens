@@ -313,6 +313,34 @@ class TestExtractCommonLayerMetadata:
         with pytest.raises(KeyError):
             _extract_common_layer_metadata({}, None)
 
+    def test_geodatabase_attachment_tables_are_not_offered_as_layers(self):
+        data = {
+            "layers": [
+                {"name": "sites__ATTACH", "featureCount": 3, "fields": []},
+                {"name": "sites", "featureCount": 5, "fields": []},
+                {"name": "sites__ATTACHREL", "featureCount": 0, "fields": []},
+                {"name": "roads", "featureCount": 2, "fields": []},
+            ]
+        }
+
+        target, meta = _extract_common_layer_metadata(data, None)
+
+        assert target["name"] == "sites"
+        assert [lyr["name"] for lyr in meta["all_layers"]] == ["sites", "roads"]
+
+    def test_geodatabase_with_one_real_layer_previews_that_layer(self):
+        data = {
+            "layers": [
+                {"name": "sites__ATTACH", "featureCount": 3, "fields": []},
+                {"name": "sites", "featureCount": 5, "fields": []},
+            ]
+        }
+
+        target, meta = _extract_common_layer_metadata(data, None)
+
+        assert target["name"] == "sites"
+        assert meta["all_layers"] is None
+
     def test_single_layer_with_geometry(self):
         data = {
             "layers": [
