@@ -1417,6 +1417,41 @@ def test_a_finished_file_item_without_a_recorded_dataset_is_reported(
 # Cutover
 
 
+def test_the_loss_report_lists_each_relationship_class_once(runner, plan_file, geolens):
+    _edit_plan(plan_file, (A2,))
+    relationship = {
+        "name": "Parcels_Owners",
+        "related_layer_id": 1,
+        "cardinality": "OneToMany",
+        "role": "Origin",
+    }
+    FakeImport(
+        geolens,
+        [
+            _layer(0, "Parcels", has_attachments=False, relationships=[relationship]),
+            _layer(
+                1,
+                "Owners",
+                "Table",
+                has_attachments=False,
+                relationships=[
+                    {**relationship, "related_layer_id": 0, "role": "Destination"}
+                ],
+            ),
+        ],
+    )
+
+    result, _payload = _migrate(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    texts = [f["text"] for f in report["follow_ups"] if f["kind"] == "relationships"]
+    assert texts == [
+        "relationship class Parcels_Owners from layer 0 (origin) to layer 1 "
+        "(destination), OneToMany, which GeoLens doesn't import"
+    ]
+
+
 def test_cutover_refuses_a_migrated_layer_with_attachments_until_accepted(
     runner, plan_file, geolens
 ):

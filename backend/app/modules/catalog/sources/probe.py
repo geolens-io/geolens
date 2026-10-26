@@ -34,7 +34,8 @@ from app.modules.catalog.sources.adapters.arcgis import (
 )
 from app.modules.catalog.sources.adapters.arcgis_attachments import (
     apply_attachment_flags,
-    fetch_arcgis_attachment_flags,
+    apply_relationships,
+    fetch_arcgis_layer_details,
 )
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
@@ -110,15 +111,15 @@ def _build_probe_response(result: dict, layers: list[dict], url: str) -> ProbeRe
 async def _enrich_arcgis_layers(
     base_url: str, result: dict, client: httpx.AsyncClient, token: str | None
 ) -> list[dict]:
-    """Feature counts and attachment flags, read concurrently."""
+    """Feature counts, attachment flags and relationships, read concurrently."""
     version = result.get("version")
-    counted, flags = await asyncio.gather(
+    counted, (flags, relationships) = await asyncio.gather(
         enrich_arcgis_feature_counts(
             base_url, result["layers"], client, token=token, current_version=version
         ),
-        fetch_arcgis_attachment_flags(base_url, client, token, current_version=version),
+        fetch_arcgis_layer_details(base_url, client, token, current_version=version),
     )
-    return apply_attachment_flags(counted, flags)
+    return apply_relationships(apply_attachment_flags(counted, flags), relationships)
 
 
 def _build_arcgis_response(
@@ -140,6 +141,7 @@ def _build_arcgis_response(
             parent_layer_id=layer.get("parent_layer_id"),
             importable=layer.get("importable", True),
             has_attachments=layer.get("has_attachments"),
+            relationships=layer.get("relationships") or [],
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers

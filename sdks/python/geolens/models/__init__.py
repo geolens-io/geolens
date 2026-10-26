@@ -547,6 +547,7 @@ from .landing_page import LandingPage
 from .layer_info import LayerInfo
 from .layer_info_kind import LayerInfoKind
 from .layer_preview import LayerPreview
+from .layer_relationship import LayerRelationship
 from .lineage_draft_response import LineageDraftResponse
 from .list_admin_jobs_admin_jobs_get_order import ListAdminJobsAdminJobsGetOrder
 from .list_admin_jobs_admin_jobs_get_sort import ListAdminJobsAdminJobsGetSort
@@ -1399,6 +1400,7 @@ __all__ = (
     "LayerInfo",
     "LayerInfoKind",
     "LayerPreview",
+    "LayerRelationship",
     "LineageDraftResponse",
     "ListAdminJobsAdminJobsGetOrder",
     "ListAdminJobsAdminJobsGetSort",

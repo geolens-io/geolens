@@ -11201,6 +11201,11 @@ export interface components {
              */
             has_attachments?: boolean | null;
             /**
+             * Relationships
+             * @description Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.
+             */
+            relationships?: components["schemas"]["LayerRelationship"][];
+            /**
              * Layer Id
              * @description Numeric or string layer ID used by ArcGIS services.
              */
@@ -11226,6 +11231,37 @@ export interface components {
             feature_count?: number | null;
             /** Field Count */
             field_count?: number | null;
+        };
+        /**
+         * LayerRelationship
+         * @description An ArcGIS relationship class as one of its two layers declares it.
+         */
+        LayerRelationship: {
+            /**
+             * Id
+             * @description Relationship ID on the layer.
+             */
+            id?: number | null;
+            /**
+             * Name
+             * @description Relationship class name.
+             */
+            name?: string | null;
+            /**
+             * Related Layer Id
+             * @description ArcGIS ID of the layer or table at the other end.
+             */
+            related_layer_id: number | string;
+            /**
+             * Cardinality
+             * @description 'OneToOne', 'OneToMany' or 'ManyToMany', when the service says.
+             */
+            cardinality?: string | null;
+            /**
+             * Role
+             * @description 'Origin' or 'Destination': this layer's end of the relationship.
+             */
+            role?: string | null;
         };
         /**
          * LineageDraftResponse

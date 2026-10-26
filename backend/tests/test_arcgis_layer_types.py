@@ -187,6 +187,70 @@ class TestProbeReportsAttachments:
         assert flags == {}
 
 
+class TestProbeReportsRelationships:
+    async def _relationships(self, body: dict) -> dict:
+        from app.modules.catalog.sources.probe import _enrich_arcgis_layers
+
+        async with _service(lambda request: _stream(body)) as client:
+            result = await probe_arcgis_service(_BASE, client)
+            assert result is not None
+            enriched = await _enrich_arcgis_layers(_BASE, result, client, None)
+        response = _build_arcgis_response(result, enriched, _BASE)
+        return {
+            layer.layer_id: [r.model_dump() for r in layer.relationships]
+            for layer in response.layers
+        }
+
+    async def test_reads_relationship_classes_from_all_layers_and_tables(self) -> None:
+        body = {
+            "layers": [
+                {
+                    "id": 0,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 4,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleOrigin",
+                        },
+                        {"id": 1, "relatedTableId": True},
+                        "junk",
+                    ],
+                },
+                {"id": 1, "relationships": "none"},
+            ],
+            "tables": [
+                {
+                    "id": 4,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 0,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleDestination",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        found = await self._relationships(body)
+
+        assert found[0] == [
+            {
+                "id": 0,
+                "name": "Sites_Visits",
+                "related_layer_id": 4,
+                "cardinality": "OneToMany",
+                "role": "Origin",
+            }
+        ]
+        assert found[4][0]["role"] == "Destination"
+        assert found[1] == found[2] == []
+
+
 class TestPreviewRefusesLayersWithoutRows:
     @pytest.mark.parametrize(
         "layer_type",

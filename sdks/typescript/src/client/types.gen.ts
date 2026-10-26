@@ -6656,6 +6656,12 @@ export type LayerInfo = {
      */
     has_attachments?: boolean | null;
     /**
+     * Relationships
+     *
+     * Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.
+     */
+    relationships?: Array<LayerRelationship>;
+    /**
      * Layer Id
      *
      * Numeric or string layer ID used by ArcGIS services.
@@ -6691,6 +6697,44 @@ export type LayerPreview = {
      * Field Count
      */
     field_count?: number | null;
+};
+
+/**
+ * LayerRelationship
+ *
+ * An ArcGIS relationship class as one of its two layers declares it.
+ */
+export type LayerRelationship = {
+    /**
+     * Id
+     *
+     * Relationship ID on the layer.
+     */
+    id?: number | null;
+    /**
+     * Name
+     *
+     * Relationship class name.
+     */
+    name?: string | null;
+    /**
+     * Related Layer Id
+     *
+     * ArcGIS ID of the layer or table at the other end.
+     */
+    related_layer_id: number | string;
+    /**
+     * Cardinality
+     *
+     * 'OneToOne', 'OneToMany' or 'ManyToMany', when the service says.
+     */
+    cardinality?: string | null;
+    /**
+     * Role
+     *
+     * 'Origin' or 'Destination': this layer's end of the relationship.
+     */
+    role?: string | null;
 };
 
 /**

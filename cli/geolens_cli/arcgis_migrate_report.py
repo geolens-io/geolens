@@ -24,7 +24,15 @@ from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import attachment_losses
 from .arcgis_migrate_export import replacement_note
 from . import arcgis_plan as _plan
-from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    PENDING,
+    SKIPPED,
+    ItemState,
+    MigrationState,
+)
 from .arcgis_portal import Redactor, redact_json
 
 REPORT_JSON = "arcgis-migration-report.json"
@@ -148,6 +156,8 @@ def _follow_ups(
                 "attachments",
                 f"layer {layer} {has} attachments, which GeoLens doesn't import yet",
             )
+        for text in _relationship_losses(item, entry):
+            add(item["id"], "relationships", text)
     for unresolved in owner_unresolved:
         add(unresolved["item"], "owner_unresolved", unresolved["reason"])
     for change in owner_changes:
@@ -202,6 +212,30 @@ def _follow_ups(
                     f"depends on {dep}, gone from the portal before it was migrated",
                 )
     return out
+
+
+def _relationship_losses(item: Mapping[str, Any], entry: ItemState | None) -> list[str]:
+    """One line per relationship class of a migrated service item, which
+    GeoLens doesn't carry over. Both layers of a class declare it; it is listed
+    once."""
+    if item.get("removed") or item["action"] != _plan.IMPORT_LAYERS or not entry:
+        return []
+    lines: dict[tuple[str | None, frozenset[str]], str] = {}
+    for layer, records in (entry.relationships or {}).items():
+        for rel in records:
+            related = rel["related"]
+            origin, destination = (
+                (related, layer) if rel["role"] == "Destination" else (layer, related)
+            )
+            key = (rel["name"], frozenset((layer, related)))
+            detail = f"{rel['cardinality']}, " if rel["cardinality"] else ""
+            lines.setdefault(
+                key,
+                f"relationship class {rel['name'] or '(unnamed)'} from layer "
+                f"{origin} (origin) to layer {destination} (destination), "
+                f"{detail}which GeoLens doesn't import",
+            )
+    return list(lines.values())
 
 
 def _export_section(
