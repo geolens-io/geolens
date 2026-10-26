@@ -95,6 +95,15 @@ def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
 
 
+def item_replacement(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
+    """The note for *item*; a source file superseded by a hosted layer says so."""
+    layer = item.get("superseded_by")
+    if layer:
+        title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
+        return f"Published as {title}; migrated with it."
+    return replacement_note(item["type"])
+
+
 def _private_dirs(path: Path) -> None:
     """Create *path* and any missing parent at mode 0700."""
     for directory in reversed([path, *path.parents]):
@@ -647,7 +656,7 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            replacement_note(item["type"]),
+            item_replacement(item, plan),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1

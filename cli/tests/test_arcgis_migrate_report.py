@@ -148,6 +148,29 @@ def test_unsupported_items_are_grouped_by_type_with_one_replacement_note(tmp_pat
     assert "### Dashboard" in text and "`export/dashboard/x`" in text
 
 
+def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostable(
+    tmp_path,
+):
+    plan = _plan(tmp_path)
+    layer_title = next(i["title"] for i in plan["items"] if i["id"] == A1)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    export = {"path": "export/csv/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, D3, "done", export=export)
+
+    report = report_mod.build_run_report(plan, state)
+    text = report_mod.render_run_markdown(report)
+
+    assert report["unsupported"][0]["replacement"] == (
+        f"Published as {layer_title}; migrated with it."
+    )
+    assert "No equivalent in GeoLens." not in text
+    assert "## Items GeoLens can't host" not in text
+    assert "## Source files published as hosted layers" in text
+
+
 def _run(runner, plan_file: Path, *flags: str):
     return runner.invoke(
         app, [*flags, "arcgis", "migrate", str(plan_file), "--only", A2]
