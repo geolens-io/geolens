@@ -50,16 +50,44 @@ export function buildNullSafeNumericComparison(
   field: string,
   operator: string,
   comparisonValue: number,
+  negated = false,
 ) {
-  return [
-    'all',
-    ['!=', ['typeof', ['get', field]], 'null'],
-    [
-      operator,
-      ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)],
-      comparisonValue,
-    ],
+  const comparison = [
+    operator,
+    ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)],
+    comparisonValue,
   ];
+  // The guard stays outside a negation, or `!` would turn a null into a match.
+  return ['all', ['!=', ['typeof', ['get', field]], 'null'], negated ? ['!', comparison] : comparison];
+}
+
+/** A `buildNullSafeNumericComparison(..., true)` result, else false. */
+function guardedNegation(node: unknown): boolean {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return false;
+  const field = nullGuardField(node[1]);
+  const negation = node[2];
+  const inner = Array.isArray(negation) && negation[0] === '!' ? bareNumericComparison(negation[1]) : null;
+  return field !== null && inner !== null && inner.field === field;
+}
+
+/** `[op, ["get", f] | ["to-number", ["get", f], ...], n]` as its parts, else null. */
+function bareNumericComparison(
+  node: unknown,
+): { field: string; operator: string; value: number } | null {
+  if (!Array.isArray(node) || node.length < 3) return null;
+  const [operator, left, right] = node;
+  if (
+    typeof operator !== 'string' ||
+    !NUMERIC_COMPARISON_OPERATORS.has(operator) ||
+    typeof right !== 'number'
+  ) {
+    return null;
+  }
+  if (isGetExpression(left)) return { field: left[1], operator, value: right };
+  if (Array.isArray(left) && left[0] === 'to-number' && isGetExpression(left[1])) {
+    return { field: left[1][1], operator, value: right };
+  }
+  return null;
 }
 
 /** The field of `["!=", ["typeof", ["get", field]], "null"]`, else null. */
@@ -344,21 +372,16 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
 
 function sanitizeFilterNode(node: unknown): unknown {
   if (!Array.isArray(node) || node.length === 0) return node;
-  if (node[0] === 'literal' || guardedComparison(node)) return node;
+  if (node[0] === 'literal' || guardedComparison(node) || guardedNegation(node)) return node;
 
-  const [operator, left, right] = node;
-  if (
-    typeof operator === 'string' &&
-    NUMERIC_COMPARISON_OPERATORS.has(operator) &&
-    typeof right === 'number'
-  ) {
-    // The bare accessor reads null as 0; the guarded pair does not.
-    const field = isGetExpression(left)
-      ? left[1]
-      : Array.isArray(left) && left[0] === 'to-number' && isGetExpression(left[1])
-        ? left[1][1]
-        : null;
-    if (field !== null) return buildNullSafeNumericComparison(field, operator, right);
+  // The bare accessor reads null as 0; the guarded pair does not.
+  const comparison = bareNumericComparison(node);
+  if (comparison) {
+    return buildNullSafeNumericComparison(comparison.field, comparison.operator, comparison.value);
+  }
+  const negated = node[0] === '!' && node.length === 2 ? bareNumericComparison(node[1]) : null;
+  if (negated) {
+    return buildNullSafeNumericComparison(negated.field, negated.operator, negated.value, true);
   }
 
   // Recurse only through combinator/negation wrappers: walking every child

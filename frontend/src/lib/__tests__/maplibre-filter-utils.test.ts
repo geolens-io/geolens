@@ -55,6 +55,17 @@ describe('sanitizeNullableNumericFilter', () => {
     expect(drawn(result, { n: operator === '<' ? value - 1 : value + 1 })).toBe(operator !== '==');
   });
 
+  it('keeps a null out of a negated numeric comparison too', () => {
+    const negated = ['!', ['==', ['to-number', ['get', 'n'], -1_000_000_000_000], 0]] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(negated);
+
+    expect(drawn(result, { n: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+    expect(drawn(result, { n: 0 })).toBe(false);
+    expect(drawn(result, { n: 4 })).toBe(true);
+    expect(sanitizeNullableNumericFilter(result)).toBe(result);
+  });
+
   it('still reads a numeric string as a number, as to-number always did', () => {
     const legacy = ['>=', ['to-number', ['get', 'score'], -1_000_000_000_000], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(legacy);
