@@ -84,7 +84,14 @@ function bareNumericComparison(
     return null;
   }
   if (isGetExpression(left)) return { field: left[1], operator, value: right };
-  if (Array.isArray(left) && left[0] === 'to-number' && isGetExpression(left[1])) {
+  // Only the accessor the editor wrote: a hand-authored fallback keeps its own meaning.
+  if (
+    Array.isArray(left) &&
+    left.length === 3 &&
+    left[0] === 'to-number' &&
+    isGetExpression(left[1]) &&
+    left[2] === numericFallbackForOperator(operator, right)
+  ) {
     return { field: left[1][1], operator, value: right };
   }
   return null;

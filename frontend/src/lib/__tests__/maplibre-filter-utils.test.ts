@@ -66,6 +66,14 @@ describe('sanitizeNullableNumericFilter', () => {
     expect(sanitizeNullableNumericFilter(result)).toBe(result);
   });
 
+  it('leaves a hand-authored to-number fallback as it is', () => {
+    const authored = ['>=', ['to-number', ['get', 'score'], 100], 5] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(authored);
+
+    expect(result).toBe(authored);
+    expect(drawn(result, { score: 'unknown' })).toBe(true);
+  });
+
   it('still reads a numeric string as a number, as to-number always did', () => {
     const legacy = ['>=', ['to-number', ['get', 'score'], -1_000_000_000_000], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(legacy);
