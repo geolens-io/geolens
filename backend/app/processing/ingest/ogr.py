@@ -730,6 +730,7 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
 # A file geodatabase keeps a feature class's attachments in `<name>__ATTACH`
 # and the link back to it in `<name>__ATTACHREL`; neither is a dataset.
 _GDB_ATTACHMENT_SUFFIXES = ("__ATTACH", "__ATTACHREL")
+_GDB_DRIVERS = ("OpenFileGDB", "FileGDB")
 
 
 def _is_gdb_attachment_table(layer: dict) -> bool:
@@ -762,11 +763,14 @@ def _extract_common_layer_metadata(
     all_found = data.get("layers", [])
     if not all_found:
         raise KeyError("no layers in ogrinfo JSON output")
-    # Attachment tables are never offered; a source that holds nothing else
-    # keeps them so it still previews.
-    layers = [
-        lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
-    ] or all_found
+    # The suffixes mean attachment only in a geodatabase. They are never
+    # offered there; a source that holds nothing else keeps them so it still
+    # previews.
+    layers = all_found
+    if data.get("driverShortName") in _GDB_DRIVERS:
+        layers = [
+            lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
+        ] or all_found
 
     target_layer = layers[0]
     if layer_name:
@@ -814,6 +818,7 @@ def _extract_common_layer_metadata(
         "feature_count": target_layer.get("featureCount"),
         "columns": columns,
         "all_layers": all_layers,
+        "attachments_omitted": len(layers) < len(all_found),
     }
 
 

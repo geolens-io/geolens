@@ -315,12 +315,13 @@ class TestExtractCommonLayerMetadata:
 
     def test_geodatabase_attachment_tables_are_not_offered_as_layers(self):
         data = {
+            "driverShortName": "OpenFileGDB",
             "layers": [
                 {"name": "sites__ATTACH", "featureCount": 3, "fields": []},
                 {"name": "sites", "featureCount": 5, "fields": []},
                 {"name": "sites__ATTACHREL", "featureCount": 0, "fields": []},
                 {"name": "roads", "featureCount": 2, "fields": []},
-            ]
+            ],
         }
 
         target, meta = _extract_common_layer_metadata(data, None)
@@ -330,16 +331,35 @@ class TestExtractCommonLayerMetadata:
 
     def test_geodatabase_with_one_real_layer_previews_that_layer(self):
         data = {
+            "driverShortName": "OpenFileGDB",
             "layers": [
                 {"name": "sites__ATTACH", "featureCount": 3, "fields": []},
                 {"name": "sites", "featureCount": 5, "fields": []},
-            ]
+            ],
         }
 
         target, meta = _extract_common_layer_metadata(data, None)
 
         assert target["name"] == "sites"
         assert meta["all_layers"] is None
+        assert meta["attachments_omitted"] is True
+
+    def test_attachment_suffix_layers_outside_a_geodatabase_stay_offered(self):
+        data = {
+            "driverShortName": "GPKG",
+            "layers": [
+                {"name": "survey__ATTACH", "featureCount": 3, "fields": []},
+                {"name": "roads", "featureCount": 2, "fields": []},
+            ],
+        }
+
+        _, meta = _extract_common_layer_metadata(data, None)
+
+        assert [lyr["name"] for lyr in meta["all_layers"]] == [
+            "survey__ATTACH",
+            "roads",
+        ]
+        assert meta["attachments_omitted"] is False
 
     def test_single_layer_with_geometry(self):
         data = {
