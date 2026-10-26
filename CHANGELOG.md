@@ -25,7 +25,6 @@ and releases use semantic versioning.
   are densified to line segments on import. Layers that declare a curved
   geometry type, such as a GeoPackage `CurvePolygon` layer, are stored as
   before.
-
 - Changing a dataset's visibility to Public on its Access tab now asks for
   confirmation first, from any current level. The dialog says anonymous users
   will reach the dataset's features through the OGC API, its map tiles, its
