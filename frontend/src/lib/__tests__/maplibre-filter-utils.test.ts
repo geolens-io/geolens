@@ -1,3 +1,4 @@
+import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
 import { describe, it, expect } from 'vitest';
 import type { FilterSpecification } from 'maplibre-gl';
 import {
@@ -13,6 +14,12 @@ import {
 // ---------------------------------------------------------------------------
 // Empty-array -> null boundary hardening in sanitizeNullableNumericFilter
 // ---------------------------------------------------------------------------
+// MapLibre's own filter evaluator, so the test sees what the map draws.
+function drawn(filter: FilterSpecification | null, props: Record<string, unknown>): boolean {
+  const test = featureFilter(filter ?? undefined, 'layers[0].filter').filter;
+  return test({ zoom: 0 }, { type: 1, properties: props } as never);
+}
+
 describe('sanitizeNullableNumericFilter', () => {
   it('EDIT-03 — returns null for an empty-array filter (never lets [] reach setFilter)', () => {
     expect(sanitizeNullableNumericFilter([] as unknown as FilterSpecification)).toBeNull();
@@ -23,21 +30,46 @@ describe('sanitizeNullableNumericFilter', () => {
     expect(sanitizeNullableNumericFilter(undefined)).toBeNull();
   });
 
-  it('wraps a non-empty numeric comparison with the nullable-safe accessor (existing behavior preserved)', () => {
+  it('guards a numeric comparison with a type check so a null value never satisfies it', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
-    expect(result).toEqual([
-      '==',
-      ['to-number', ['get', 'pop'], -1_000_000_000_000],
-      5,
-    ]);
+    expect(result).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]]);
+  });
+
+  it.each([
+    ['==', 0],
+    ['>=', -5],
+    ['<', 3],
+    ['!=', 0],
+  ])('a null value does not match %s %s on the map', (operator, value) => {
+    const result = sanitizeNullableNumericFilter([
+      operator,
+      ['get', 'n'],
+      value,
+    ] as unknown as FilterSpecification);
+
+    expect(drawn(result, { n: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+    expect(drawn(result, { n: value })).toBe(operator === '==' || operator === '>=');
+    // A value that satisfies the comparison still draws.
+    expect(drawn(result, { n: operator === '<' ? value - 1 : value + 1 })).toBe(operator !== '==');
+  });
+
+  it('rewrites a saved legacy to-number accessor to the guarded form', () => {
+    const legacy = ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 0] as unknown as FilterSpecification;
+    expect(sanitizeNullableNumericFilter(legacy)).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 0]]);
+  });
+
+  it('keeps a guarded filter as it is, however often it is sanitized', () => {
+    const once = sanitizeNullableNumericFilter(['all', ['<', ['get', 'pop'], 3]] as unknown as FilterSpecification);
+    expect(sanitizeNullableNumericFilter(once)).toBe(once);
   });
 
   it('FL-01: returns the SAME reference for an already-sanitized filter (structurally unchanged)', () => {
     const filter = [
       'all',
-      ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5],
-      ['>', ['to-number', ['get', 'area'], -1_000_000_000_000], 10],
+      ['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]],
+      ['all', ['==', ['typeof', ['get', 'area']], 'number'], ['>', ['get', 'area'], 10]],
     ] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).toBe(filter);
@@ -47,11 +79,7 @@ describe('sanitizeNullableNumericFilter', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).not.toBe(filter);
-    expect(result).toEqual([
-      '==',
-      ['to-number', ['get', 'pop'], -1_000_000_000_000],
-      5,
-    ]);
+    expect(result).toEqual(['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['==', ['get', 'pop'], 5]]);
   });
 });
 
@@ -66,6 +94,15 @@ describe('parseCanonicalFilter', () => {
       expect(result.combinator).toBe('all');
       expect(result.conditions[0]).toMatchObject({ field: 'name', operator: '==', value: 'foo', rawValue: 'foo' });
     }
+  });
+
+  it('parses the null-safe numeric comparison back to one condition', () => {
+    const expr = ['all', ['==', ['typeof', ['get', 'pop']], 'number'], ['>', ['get', 'pop'], 5]] as FilterSpecification;
+    expect(parseCanonicalFilter(expr)).toEqual({
+      kind: 'editable',
+      combinator: 'all',
+      conditions: [{ field: 'pop', operator: '>', value: '5', rawValue: 5, toNumber: true }],
+    });
   });
 
   it('FILT-01: parses a to-number numeric comparison back to field + numeric rawValue', () => {
@@ -171,12 +208,10 @@ describe('maplibreFilterToCql2', () => {
   it.each([
     [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
     [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
-    // `to-number` reads a missing value as 0, which passes `< 5` on the map.
-    [
-      ['<', ['to-number', ['get', 'mag'], 1e12], 5],
-      { op: 'or', args: [isNull('mag'), { op: '<', args: [p('mag'), 5] }] },
-    ],
+    // A null never satisfies a numeric comparison, on the map or in SQL.
+    [['<', ['to-number', ['get', 'mag'], 1e12], 5], { op: '<', args: [p('mag'), 5] }],
     [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
+    [['all', ['==', ['typeof', ['get', 'mag']], 'number'], ['<', ['get', 'mag'], 5]], { op: '<', args: [p('mag'), 5] }],
     [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
     // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.
     [

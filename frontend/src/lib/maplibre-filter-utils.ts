@@ -6,9 +6,11 @@ import type { FilterSpecification } from 'maplibre-gl';
  *
  * Supported grammar subset (deliberate scope — anything else round-trips as an
  * opaque, uneditable filter):
- *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field] or the
- *                         nullable-safe ["to-number", ["get", field], fallback]
- *                         accessor this module emits for numeric columns.
+ *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field], or the
+ *                         null-safe pair this module emits for numeric columns,
+ *                         ["all", ["==", ["typeof", ["get", field]], "number"],
+ *                         [op, ["get", field], n]], and the legacy
+ *                         ["to-number", ["get", field], fallback] accessor.
  *   - membership:         ["in", ["get", field], ["literal", [...]]]   (in_list)
  *                         ["!", ["in", ["get", field], ["literal", [...]]]] (not_in_list)
  *   - substring/contains: ["in", <scalar>, ["get", field]]
@@ -26,25 +28,55 @@ import type { FilterSpecification } from 'maplibre-gl';
 // ActiveFilterChips.
 export const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
-const NUMERIC_LOW_SENTINEL = -1_000_000_000_000;
-const NUMERIC_HIGH_SENTINEL = 1_000_000_000_000;
-
 function isGetExpression(value: unknown): value is ['get', string] {
   return Array.isArray(value) && value[0] === 'get' && typeof value[1] === 'string';
 }
 
-function numericFallbackForOperator(operator: string, comparisonValue: number) {
-  if (operator === '<' || operator === '<=') return NUMERIC_HIGH_SENTINEL;
-  if (comparisonValue === NUMERIC_LOW_SENTINEL) return NUMERIC_HIGH_SENTINEL;
-  return NUMERIC_LOW_SENTINEL;
-}
-
-export function buildNullableSafeNumericAccessor(
+/**
+ * A numeric comparison that a null or missing value never satisfies, as SQL
+ * does. MapLibre's `to-number` reads null as 0, so the value's type is checked
+ * first instead.
+ */
+export function buildNullSafeNumericComparison(
   field: string,
   operator: string,
   comparisonValue: number,
 ) {
-  return ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)];
+  return [
+    'all',
+    ['==', ['typeof', ['get', field]], 'number'],
+    [operator, ['get', field], comparisonValue],
+  ];
+}
+
+/** The field of `["==", ["typeof", ["get", field]], "number"]`, else null. */
+function numberGuardField(node: unknown): string | null {
+  return Array.isArray(node) &&
+    node.length === 3 &&
+    node[0] === '==' &&
+    Array.isArray(node[1]) &&
+    node[1][0] === 'typeof' &&
+    isGetExpression(node[1][1]) &&
+    node[2] === 'number'
+    ? node[1][1][1]
+    : null;
+}
+
+/** The comparison of a `buildNullSafeNumericComparison` pair, else null. */
+function guardedComparison(node: unknown): unknown[] | null {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return null;
+  const field = numberGuardField(node[1]);
+  const comparison = node[2];
+  return field !== null &&
+    Array.isArray(comparison) &&
+    comparison.length === 3 &&
+    typeof comparison[0] === 'string' &&
+    NUMERIC_COMPARISON_OPERATORS.has(comparison[0]) &&
+    isGetExpression(comparison[1]) &&
+    comparison[1][1] === field &&
+    typeof comparison[2] === 'number'
+    ? comparison
+    : null;
 }
 
 export interface CanonicalFilterCondition {
@@ -56,7 +88,7 @@ export interface CanonicalFilterCondition {
   rawValue?: unknown;
   /** Parsed literal values for in_list / not_in_list (used for chip preview). */
   listValues?: unknown[];
-  /** Read through `to-number`, which turns a missing value into 0. */
+  /** A numeric comparison a null value never satisfies. */
   toNumber?: true;
 }
 
@@ -113,6 +145,18 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
   // has: ["has", f]
   if (e[0] === 'has' && typeof e[1] === 'string') {
     return { field: e[1], operator: 'has', value: '' };
+  }
+
+  // null-safe numeric comparison: ["all", ["==", ["typeof", ["get", f]], "number"], [op, ["get", f], n]]
+  const guarded = guardedComparison(e);
+  if (guarded) {
+    return {
+      field: (guarded[1] as ['get', string])[1],
+      operator: guarded[0] as string,
+      value: String(guarded[2]),
+      rawValue: guarded[2],
+      toNumber: true,
+    };
   }
 
   // standard comparison: [op, ["get", f], value]
@@ -285,20 +329,21 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
 
 function sanitizeFilterNode(node: unknown): unknown {
   if (!Array.isArray(node) || node.length === 0) return node;
-  if (node[0] === 'literal') return node;
+  if (node[0] === 'literal' || guardedComparison(node)) return node;
 
   const [operator, left, right] = node;
   if (
     typeof operator === 'string' &&
     NUMERIC_COMPARISON_OPERATORS.has(operator) &&
-    typeof right === 'number' &&
-    isGetExpression(left)
+    typeof right === 'number'
   ) {
-    return [
-      operator,
-      buildNullableSafeNumericAccessor(left[1], operator, right),
-      right,
-    ];
+    // The legacy accessor reads null as 0; the guarded pair does not.
+    const field = isGetExpression(left)
+      ? left[1]
+      : Array.isArray(left) && left[0] === 'to-number' && isGetExpression(left[1])
+        ? left[1][1]
+        : null;
+    if (field !== null) return buildNullSafeNumericComparison(field, operator, right);
   }
 
   // Recurse only through combinator/negation wrappers: walking every child
@@ -495,23 +540,6 @@ const cql2OrNull = (field: string, expr: Cql2Expression): Cql2Expression => ({
   args: [cql2IsNull(field), expr],
 });
 
-function compareNumbers(a: number, operator: string, b: number): boolean {
-  switch (operator) {
-    case '==':
-      return a === b;
-    case '!=':
-      return a !== b;
-    case '<':
-      return a < b;
-    case '>':
-      return a > b;
-    case '<=':
-      return a <= b;
-    default:
-      return a >= b;
-  }
-}
-
 function conditionToCql2(
   c: CanonicalFilterCondition,
   pgType: string | undefined,
@@ -540,10 +568,8 @@ function conditionToCql2(
   if (!op) return null;
   if (c.toNumber) {
     if (typeof c.rawValue !== 'number' || !Number.isFinite(c.rawValue)) return null;
-    const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
-    return compareNumbers(0, c.operator, c.rawValue)
-      ? cql2OrNull(c.field, comparison)
-      : comparison;
+    // SQL drops a null from any comparison, as the guarded map filter does.
+    return { op, args: [cql2Property(c.field), c.rawValue] };
   }
   if (c.rawValue === null) {
     if (c.operator === '==') return cql2IsNull(c.field);

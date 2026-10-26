@@ -7,7 +7,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
-  buildNullableSafeNumericAccessor,
+  buildNullSafeNumericComparison,
   parseCanonicalFilter,
   validateRawFilter,
   FilterValidationError,
@@ -175,13 +175,11 @@ export function buildFilterExpression(
         classifyColumnType(pgType) === 'number' &&
         typeof coerced === 'number' &&
         NUMERIC_COMPARISON_OPERATORS.has(cond.operator);
-      expressions.push([
-        cond.operator,
+      expressions.push(
         isNumericComparison
-          ? buildNullableSafeNumericAccessor(cond.field, cond.operator, coerced)
-          : ['get', cond.field],
-        coerced,
-      ]);
+          ? buildNullSafeNumericComparison(cond.field, cond.operator, coerced)
+          : [cond.operator, ['get', cond.field], coerced],
+      );
     }
   }
 

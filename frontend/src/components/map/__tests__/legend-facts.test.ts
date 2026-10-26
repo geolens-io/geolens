@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCategoricalExpression, buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { buildNullableSafeNumericAccessor } from '@/lib/maplibre-filter-utils';
+import { buildNullSafeNumericComparison } from '@/lib/maplibre-filter-utils';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { describeLayers } from '@/components/builder/layer-description';
 import { toSyncInput } from '@/components/builder/map-sync';
@@ -388,7 +388,7 @@ const codedPoints = (arms: [number, string][], filter: unknown, type = 'integer'
   filter: filter as MapLayerResponse['filter'],
 });
 /** The filter editor's equality on a numeric `code` column. */
-const codeEquals = (value: number) => ['all', ['==', buildNullableSafeNumericAccessor('code', '==', value), value]];
+const codeEquals = (value: number) => ['all', buildNullSafeNumericComparison('code', '==', value)];
 /** The graduated-colour fixture with its fill-color replaced. */
 const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
 
@@ -773,9 +773,9 @@ const classRows: ClassRow[] = [
     [categories('code', [{ color: '#f472b6', label: '1' }, { color: '#60a5fa', label: '2' }])],
   ],
   [
-    'a numeric equality with 0, which lets nulls reach the fallback',
+    'a numeric equality with 0, which lets no null reach the fallback',
     codedPoints([[0, '#f472b6'], [1, '#60a5fa']], codeEquals(0)),
-    [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }, other('#cccccc')])],
+    [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }])],
   ],
   [
     'a number accessor on a column the layer types as text, which reaches the fallback',
