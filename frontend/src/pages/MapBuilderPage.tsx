@@ -1984,7 +1984,12 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
-                  onOpenAttributeTable={(layerId) => handleOpenAttributeTable(layerId, 'editor')}
+                  onOpenAttributeTable={(layerId) => {
+                    // This sheet would cover the features the table fits to,
+                    // so the table replaces it and closing returns to the stack row.
+                    if (attributeTableLayerId !== layerId) handleCloseEditor();
+                    handleOpenAttributeTable(layerId, 'stack');
+                  }}
                   featureCount={filteredFeatureCount}
                 />
                 </Suspense>

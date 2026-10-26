@@ -26,6 +26,20 @@ const HIGHLIGHT_POINT_LAYER = 'attribute-table-highlight-point';
 
 const MIN_DRAWER_HEIGHT = 120;
 const MAX_DRAWER_HEIGHT_RATIO = 0.7;
+// Map height kept above the table: a row fit pads 40px on each side.
+const MIN_MAP_HEIGHT = 160;
+
+// Measured from the map's top edge, since the navbar and title bar above it
+// vary in height; on a short window the table yields first, down to its minimum.
+function maxDrawerHeight(map: MaplibreMap | null): number {
+  const mapTop = map?.getContainer().getBoundingClientRect().top ?? 0;
+  const available = window.innerHeight - mapTop - MIN_MAP_HEIGHT;
+  return Math.round(clampDrawerHeight(available, window.innerHeight * MAX_DRAWER_HEIGHT_RATIO));
+}
+
+function clampDrawerHeight(next: number, max: number): number {
+  return Math.max(MIN_DRAWER_HEIGHT, Math.min(max, next));
+}
 
 export interface AttributeTableDrawerProps {
   /** The layer whose dataset the table reads; must satisfy canOpenAttributeTable. */
@@ -65,9 +79,8 @@ export function AttributeTableDrawer({
   const isEditorHiddenRef = useRef(isEditorHidden);
   isEditorHiddenRef.current = isEditorHidden;
   const titleId = useId();
-  const [height, setHeight] = useState(
-    () => Math.min(320, Math.round(window.innerHeight * MAX_DRAWER_HEIGHT_RATIO)),
-  );
+  const [maxHeight, setMaxHeight] = useState(() => maxDrawerHeight(mapRef.current));
+  const [height, setHeight] = useState(() => Math.min(320, maxHeight));
   const heightRef = useRef(height);
   heightRef.current = height;
 
@@ -269,26 +282,20 @@ export function AttributeTableDrawer({
 
   // --- Resizing -------------------------------------------------------------
   const dragOrigin = useRef<{ pointerY: number; height: number } | null>(null);
-  // The column's height follows the window (the page root fills <main>'s
-  // remaining viewport under the navbar/footer), so the maximum derives from
-  // window.innerHeight and keeps the map a usable minimum inside the column.
-  const [maxHeight, setMaxHeight] = useState(
-    () => Math.round(window.innerHeight * MAX_DRAWER_HEIGHT_RATIO),
-  );
   const clampHeight = useCallback(
-    (next: number): number => Math.min(maxHeight, Math.max(MIN_DRAWER_HEIGHT, next)),
+    (next: number): number => clampDrawerHeight(next, maxHeight),
     [maxHeight],
   );
   // When the window shrinks the maximum with it, an over-tall table reclamps.
   useEffect(() => {
     const onWindowResize = () => {
-      const max = Math.round(window.innerHeight * MAX_DRAWER_HEIGHT_RATIO);
+      const max = maxDrawerHeight(mapRef.current);
       setMaxHeight(max);
-      setHeight((current) => Math.min(max, Math.max(MIN_DRAWER_HEIGHT, current)));
+      setHeight((current) => clampDrawerHeight(current, max));
     };
     window.addEventListener('resize', onWindowResize);
     return () => window.removeEventListener('resize', onWindowResize);
-  }, []);
+  }, [mapRef]);
 
   // map.resize() coalesced at most once per animation frame while the handle
   // drags, plus a final call on drag end: MapLibre re-reads its container's
@@ -351,14 +358,11 @@ export function AttributeTableDrawer({
   // aria-labelledby — and the title element yields to it.
   const pickerShown = Boolean(pickerLayers && onLayerChange);
 
-  // The one merged header, composed from AttributeTable's own pieces: name,
-  // (picker,) row count, filter notice, Columns control, close — in the
-  // maintainer's order. The visible name carrier keeps truncate + min-w-0
-  // (the picker its max-w-40 cap); nothing that can squeeze the name away
-  // carries shrink-0 (the close button sits last and never competes for
-  // width).
+  // The one merged header, composed from AttributeTable's own pieces: name or
+  // picker, row count, then Columns and close kept together at the end. The
+  // name truncates (the picker is capped at max-w-40) rather than wrap the row.
   const renderHeader = ({ count, columns }: { count: ReactNode; columns: ReactNode }) => (
-    <header className="flex items-center gap-2 border-b px-4 py-2 shrink-0">
+    <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2">
       <Table2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
       {!pickerShown && (
         <h2
@@ -393,27 +397,30 @@ export function AttributeTableDrawer({
           ))}
         </select>
       )}
-      {count}
+      <span className="text-xs">{count}</span>
       {filterUnsupported && (
+        // Its own line under the controls, so a long translation never squeezes them.
         <p
           role="status"
           data-testid="attribute-table-filter-unsupported"
-          className="text-xs text-muted-foreground"
+          className="order-last basis-full text-xs text-muted-foreground"
         >
           {t('attributeTableDrawer.filterUnsupported', {
             defaultValue: "The layer's filter could not be applied — showing every row.",
           })}
         </p>
       )}
-      {columns}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label={t('attributeTableDrawer.close', { defaultValue: 'Close attribute table' })}
-        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
+      <div className="ms-auto flex shrink-0 items-center gap-1">
+        {columns}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('attributeTableDrawer.close', { defaultValue: 'Close attribute table' })}
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
     </header>
   );
 
@@ -425,7 +432,7 @@ export function AttributeTableDrawer({
       aria-orientation="horizontal"
       aria-label={t('attributeTableDrawer.resizeHandle', { defaultValue: 'Resize attribute table' })}
       aria-valuenow={height}
-      aria-valuemin={Math.min(MIN_DRAWER_HEIGHT, maxHeight)}
+      aria-valuemin={MIN_DRAWER_HEIGHT}
       aria-valuemax={maxHeight}
       tabIndex={0}
       data-testid="attribute-table-drawer-resize"

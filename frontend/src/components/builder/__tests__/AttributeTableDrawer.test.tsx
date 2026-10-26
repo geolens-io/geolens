@@ -85,6 +85,8 @@ function makeFakeMap() {
     }),
     fitBounds: vi.fn(),
     resize: vi.fn(),
+    // jsdom lays nothing out, so the container's top edge is 0 unless a test moves it.
+    getContainer: vi.fn(() => document.createElement('div')),
     isStyleLoaded: vi.fn(() => true),
     // MapLibre exposes the parsed style even while sources are still loading.
     getStyle: vi.fn(() => styleLoadFired ? { version: 8, sources: {}, layers: [] } : undefined),
@@ -937,6 +939,28 @@ describe('docked attribute table (round 4)', () => {
     fireEvent.pointerUp(handle, { clientY: 10000 });
   });
 
+  it('the maximum keeps 160px of map under its top edge, down to the table minimum', () => {
+    const map = makeFakeMap();
+    const container = document.createElement('div');
+    container.getBoundingClientRect = () => ({ top: 96 }) as DOMRect;
+    map.getContainer = vi.fn(() => container) as unknown as typeof map.getContainer;
+    vi.stubGlobal('innerHeight', 550);
+    render(<AttributeTableDrawer layer={makeLayer()} open onClose={vi.fn()} mapRef={{ current: map }} />);
+
+    const handle = screen.getByRole('separator');
+    // 550 - 96 - 160 = 294, below 70% of the window (385).
+    expect(handle.getAttribute('aria-valuemax')).toBe('294');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(parseFloat(handle.closest('section')!.style.height)).toBe(294);
+
+    // A window too short for both keeps the table at its minimum.
+    container.getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(handle.getAttribute('aria-valuemax')).toBe('120');
+  });
+
   it('a smaller window lowers the maximum and re-clamps an over-tall table', () => {
     const map = makeFakeMap();
     render(<AttributeTableDrawer layer={makeLayer()} open onClose={vi.fn()} mapRef={{ current: map }} />);
@@ -956,7 +980,8 @@ describe('docked attribute table (round 4)', () => {
     // The maximum follows the window and the over-tall table re-clamps to it,
     // consistently across the section height and all three aria values.
     const maxAfter = Number(handle.getAttribute('aria-valuemax'));
-    expect(maxAfter).toBe(Math.round(500 * 0.7));
+    // 500px less the 160px map minimum is under 70% of the window.
+    expect(maxAfter).toBe(340);
     expect(maxAfter).toBeLessThan(maxBefore);
     expect(handle.getAttribute('aria-valuemin')).toBe('120');
     expect(Number(handle.getAttribute('aria-valuenow'))).toBe(maxAfter);
