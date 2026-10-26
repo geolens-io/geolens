@@ -950,9 +950,11 @@ export function MapBuilderPage() {
     requestAnimationFrame(() => {
       const openerEl = opener
         ? opener.path === 'stack'
+          // Below 1100px the rail replaces the stack rows.
           ? document
             .getElementById(`stack-row-${opener.layerId}`)
-            ?.querySelector<HTMLElement>('[data-kebab-trigger]') ?? null
+            ?.querySelector<HTMLElement>('[data-kebab-trigger]')
+            ?? document.querySelector<HTMLElement>(`[data-rail-layer-id="${CSS.escape(opener.layerId)}"]`)
           : document.querySelector<HTMLElement>('[data-testid="layer-editor-open-attribute-table"]')
         : null;
       (openerEl ?? document.querySelector<HTMLElement>('[data-row-id]'))?.focus();
@@ -1984,7 +1986,12 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
-                  onOpenAttributeTable={(layerId) => handleOpenAttributeTable(layerId, 'editor')}
+                  onOpenAttributeTable={(layerId) => {
+                    // This sheet would cover the features the table fits to,
+                    // so the table replaces it and closing returns to the layer's rail button.
+                    if (attributeTableLayerId !== layerId) handleCloseEditor();
+                    handleOpenAttributeTable(layerId, 'stack');
+                  }}
                   featureCount={filteredFeatureCount}
                 />
                 </Suspense>

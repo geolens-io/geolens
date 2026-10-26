@@ -620,6 +620,7 @@ function makeFakeMap() {
     }),
     fitBounds: vi.fn(),
     resize: vi.fn(),
+    getContainer: vi.fn(() => document.createElement('div')),
     isStyleLoaded: vi.fn(() => true),
     on: vi.fn((event: string, handler: () => void) => {
       if (event === 'style.load') styleLoadListeners.add(handler);
@@ -882,6 +883,22 @@ describe('MapBuilderPage docked attribute table (round 4)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'attributeTableDrawer.close' }));
     expect(document.activeElement).toBe(kebabTrigger('l-trails'));
+  });
+
+  it('below 800px opening the table from the editor sheet closes the editor; close returns focus to the rail button', () => {
+    // Below 800px the layout is also a rail: the stack rows are not rendered.
+    mockIsRail = true;
+    mockIsEditorHidden = true;
+    mockExpandedLayerId = 'l-trails';
+    mockHandleToggleExpand.mockClear();
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+    fireEvent.click(screen.getByTestId('layer-editor-open-attribute-table'));
+
+    // The editor sheet would cover the features the table fits to.
+    expect(mockHandleToggleExpand).toHaveBeenCalledWith('');
+    expect(sheetContent()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'attributeTableDrawer.close' }));
+    expect(document.activeElement).toBe(document.querySelector('[data-rail-layer-id="l-trails"]'));
   });
 
   it('the layer picker lists exactly the table-capable layers in map order and defaults to the opened layer', () => {

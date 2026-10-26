@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+- A dataset's Data table sizes each column to its header and values instead
+  of a fixed filter-box width, so more columns fit on screen, and its filter
+  row is shorter and set in the body font.
 - ArcGIS Pro can open private datasets through its Server Authentication
   login. Point an OGC API connection at `/api/desktop`, enter any username and
   an API key as the password, and save the login. The route answers `401`

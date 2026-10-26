@@ -630,7 +630,7 @@ export function AttributeTable({
   // The row count text: the pagination bar renders it by default, a
   // renderHeader caller embeds it in its own header instead.
   const countNode = (
-    <span className="text-muted-foreground">
+    <span className="whitespace-nowrap text-muted-foreground">
       {t(
         totalKind === 'at_least'
           ? 'attributes.showingAtLeast'
@@ -821,18 +821,21 @@ export function AttributeTable({
                 })}
               </TableRow>
             ))}
-            {/* Filter row */}
-            <TableRow>
-              {selectable ? <TableHead className="py-1" /> : null}
+            {/* Filter row: input cells, so none of the header's mono caps. */}
+            <TableRow className="[&_th]:h-8 [&_th]:py-1 [&_th]:font-sans [&_th]:normal-case [&_th]:tracking-normal">
+              {selectable ? <TableHead /> : null}
               {table.getHeaderGroups()[0]?.headers.map((header) => (
-                <TableHead key={`filter-${header.id}`} className="py-1">
+                <TableHead key={`filter-${header.id}`}>
                   {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
                     <Input
                       aria-label={t('attributes.filterColumn', { column: header.column.id })}
                       value={columnFilters[header.column.id] ?? ''}
                       onChange={(e) => handleFilterChange(header.column.id, e.target.value)}
                       placeholder={t('attributes.filter')}
-                      className="bg-transparent border-0 border-b rounded-none text-xs h-7 focus-visible:ring-0 focus-visible:border-primary"
+                      // size={1} drops the input's 20-character intrinsic width,
+                      // so the header text and cell values size the column.
+                      size={1}
+                      className="h-6 min-w-24 rounded-none border-0 border-b px-1 text-xs md:text-xs focus-visible:border-primary focus-visible:ring-0"
                     />
                   ) : null}
                 </TableHead>
