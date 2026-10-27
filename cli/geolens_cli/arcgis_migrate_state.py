@@ -144,7 +144,7 @@ class ItemState:
     # it didn't say); None until the service is probed by this version.
     attachments: dict[str, bool | None] | None = None
     # Imported service layer -> the relationship classes it declares, as
-    # {"name", "related", "cardinality", "role"}; None until probed by this
+    # {"id", "name", "related", "cardinality", "role"}; None until probed by this
     # version.
     relationships: dict[str, list[dict[str, Any]]] | None = None
     # Why the item sits with --unmapped-owner instead of its plan owner.

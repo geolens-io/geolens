@@ -40,10 +40,12 @@ def _relationships(entry: dict) -> list[dict]:
         related = rel.get("relatedTableId") if isinstance(rel, dict) else None
         if isinstance(related, bool) or not isinstance(related, int | str):
             continue
-        name = rel.get("name")
+        rel_id, name = rel.get("id"), rel.get("name")
         out.append(
             {
-                "id": rel.get("id") if isinstance(rel.get("id"), int) else None,
+                "id": rel_id
+                if isinstance(rel_id, int) and not isinstance(rel_id, bool)
+                else None,
                 "name": name if isinstance(name, str) and name else None,
                 "related_layer_id": related,
                 "cardinality": _short(rel.get("cardinality"), "esriRelCardinality"),
@@ -59,9 +61,9 @@ async def fetch_arcgis_layer_details(
     token: str | None = None,
     *,
     current_version: object = None,
-) -> tuple[dict[str, bool], dict[str, list[dict]]]:
-    """``({layer id: hasAttachments}, {layer id: relationships})`` for the
-    entries that state them."""
+) -> dict[str, dict]:
+    """``{layer id: {"has_attachments": bool, "relationships": [...]}}``, each
+    key present only where the entry states it."""
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
             data = await read_arcgis_json(
@@ -77,57 +79,31 @@ async def fetch_arcgis_layer_details(
     ):
         # `SSRFError` is a `ValueError`: a refused redirect degrades like any
         # other failure of this optional read.
-        return {}, {}
+        return {}
     if not isinstance(data, dict) or "error" in data:
-        return {}, {}
-    flags: dict[str, bool] = {}
-    relationships: dict[str, list[dict]] = {}
+        return {}
+    details: dict[str, dict] = {}
     for key in ("layers", "tables"):
         entries = data.get(key)
         for entry in entries if isinstance(entries, list) else []:
-            if not isinstance(entry, dict) or isinstance(entry.get("id"), bool):
+            layer_id = entry.get("id") if isinstance(entry, dict) else None
+            if isinstance(layer_id, bool) or not isinstance(layer_id, int | str):
                 continue
-            if not isinstance(entry.get("id"), int | str):
-                continue
-            has = entry.get("hasAttachments")
-            if isinstance(has, bool):
-                flags[str(entry["id"])] = has
-            if found := _relationships(entry):
-                relationships[str(entry["id"])] = found
-    return flags, relationships
+            found: dict = {}
+            if isinstance(entry.get("hasAttachments"), bool):
+                found["has_attachments"] = entry["hasAttachments"]
+            if relationships := _relationships(entry):
+                found["relationships"] = relationships
+            if found:
+                details[str(layer_id)] = found
+    return details
 
 
-async def fetch_arcgis_attachment_flags(
-    base_url: str,
-    client: httpx.AsyncClient,
-    token: str | None = None,
-    *,
-    current_version: object = None,
-) -> dict[str, bool]:
-    """``{layer id: hasAttachments}`` for the entries that state a boolean."""
-    flags, _relationships_by_layer = await fetch_arcgis_layer_details(
-        base_url, client, token, current_version=current_version
-    )
-    return flags
-
-
-def apply_attachment_flags(layers: list[dict], flags: dict[str, bool]) -> list[dict]:
-    """Layers with ``has_attachments`` taken from *flags* where it names them."""
+def apply_layer_details(layers: list[dict], details: dict[str, dict]) -> list[dict]:
+    """Layers with the attachment flag and relationships *details* states."""
     return [
-        {**layer, "has_attachments": flags[str(layer["id"])]}
-        if str(layer.get("id")) in flags
-        else layer
-        for layer in layers
-    ]
-
-
-def apply_relationships(
-    layers: list[dict], relationships: dict[str, list[dict]]
-) -> list[dict]:
-    """Layers with ``relationships`` taken from *relationships* where it names them."""
-    return [
-        {**layer, "relationships": relationships[str(layer["id"])]}
-        if str(layer.get("id")) in relationships
+        {**layer, **details[str(layer.get("id"))]}
+        if str(layer.get("id")) in details
         else layer
         for layer in layers
     ]

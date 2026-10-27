@@ -42,8 +42,8 @@ from .arcgis_migrate_layers import (
     _layer_label,
     _send,
     attachment_flags,
-    relationship_records,
     importable_layers,
+    relationship_records,
 )
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, aware_time, whole_number

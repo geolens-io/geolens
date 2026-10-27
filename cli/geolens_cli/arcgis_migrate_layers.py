@@ -172,9 +172,13 @@ def relationship_records(layers: Any) -> dict[str, list[dict[str, Any]]]:
         records = []
         for rel in declared if isinstance(declared, list) else []:
             related = getattr(rel, "related_layer_id", None)
+            rel_id = getattr(rel, "id", None)
             if isinstance(related, int | str):
                 records.append(
                     {
+                        "id": rel_id
+                        if isinstance(rel_id, int) and not isinstance(rel_id, bool)
+                        else None,
                         "name": _text(getattr(rel, "name", None)),
                         "related": str(related),
                         "cardinality": _text(getattr(rel, "cardinality", None)),

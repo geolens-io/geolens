@@ -214,25 +214,27 @@ def _follow_ups(
     return out
 
 
-def _relationship_losses(item: Mapping[str, Any], entry: ItemState | None) -> list[str]:
+def _relationship_losses(item: Mapping[str, Any], entry: ItemState) -> list[str]:
     """One line per relationship class of a migrated service item, which
     GeoLens doesn't carry over. Both layers of a class declare it; it is listed
-    once."""
-    if item.get("removed") or item["action"] != _plan.IMPORT_LAYERS or not entry:
+    once. A class with no name is told apart by its id."""
+    if item["action"] != _plan.IMPORT_LAYERS:
         return []
-    lines: dict[tuple[str | None, frozenset[str]], str] = {}
+    lines: dict[tuple[str | int | None, frozenset[str]], str] = {}
     for layer, records in (entry.relationships or {}).items():
         for rel in records:
             related = rel["related"]
-            origin, destination = (
-                (related, layer) if rel["role"] == "Destination" else (layer, related)
-            )
-            key = (rel["name"], frozenset((layer, related)))
+            # Without a stated role the direction isn't known, so none is claimed.
+            if rel["role"] == "Origin":
+                ends = f"from layer {layer} (origin) to layer {related} (destination)"
+            elif rel["role"] == "Destination":
+                ends = f"from layer {related} (origin) to layer {layer} (destination)"
+            else:
+                ends = f"between layers {' and '.join(sorted((layer, related)))}"
             detail = f"{rel['cardinality']}, " if rel["cardinality"] else ""
             lines.setdefault(
-                key,
-                f"relationship class {rel['name'] or '(unnamed)'} from layer "
-                f"{origin} (origin) to layer {destination} (destination), "
+                (rel["name"] or rel["id"], frozenset((layer, related))),
+                f"relationship class {rel['name'] or '(unnamed)'} {ends}, "
                 f"{detail}which GeoLens doesn't import",
             )
     return list(lines.values())

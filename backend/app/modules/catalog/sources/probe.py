@@ -33,8 +33,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
     probe_arcgis_service,
 )
 from app.modules.catalog.sources.adapters.arcgis_attachments import (
-    apply_attachment_flags,
-    apply_relationships,
+    apply_layer_details,
     fetch_arcgis_layer_details,
 )
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
@@ -113,13 +112,13 @@ async def _enrich_arcgis_layers(
 ) -> list[dict]:
     """Feature counts, attachment flags and relationships, read concurrently."""
     version = result.get("version")
-    counted, (flags, relationships) = await asyncio.gather(
+    counted, details = await asyncio.gather(
         enrich_arcgis_feature_counts(
             base_url, result["layers"], client, token=token, current_version=version
         ),
         fetch_arcgis_layer_details(base_url, client, token, current_version=version),
     )
-    return apply_relationships(apply_attachment_flags(counted, flags), relationships)
+    return apply_layer_details(counted, details)
 
 
 def _build_arcgis_response(
