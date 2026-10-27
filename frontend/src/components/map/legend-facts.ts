@@ -11,6 +11,7 @@ import {
   resolveAdapterType,
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
+import { nullGuardField } from '@/lib/maplibre-filter-utils';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getColorProperty } from '@/lib/color-ramps';
 import { isNumericColumn } from '@/lib/column-utils';
@@ -426,21 +427,28 @@ function isNumberAccessor(value: unknown, column: string): boolean {
 
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
- * `in` on it, alone or inside `all`; null when the filter names none. On a numeric
- * column the number accessor reads a null as 0, so an equality with 0 lets nulls through.
+ * `in` on it, alone or inside `all`; null when the filter names none.
  */
-function filteredValues(filter: unknown, column: string, numeric: boolean): unknown[] | null {
+function filteredValues(
+  filter: unknown,
+  column: string,
+  numeric: boolean,
+  excludesNull = false,
+): unknown[] | null {
   if (!Array.isArray(filter)) return null;
   const [op, input, operand] = filter;
   if (op === 'all') {
+    // A `typeof` null check on the column keeps null out of every limit inside.
+    const guarded = excludesNull || filter.slice(1).some((entry) => nullGuardField(entry) === column);
     const limits = filter.slice(1)
-      .map((entry) => filteredValues(entry, column, numeric))
+      .map((entry) => filteredValues(entry, column, numeric, guarded))
       .filter((limit): limit is unknown[] => limit !== null);
     return limits.length > 0 ? limits.reduce((kept, limit) => kept.filter((value) => limit.includes(value))) : null;
   }
   if (filter.length !== 3) return null;
   if (numeric && op === '==' && typeof operand === 'number' && isNumberAccessor(input, column)) {
-    return operand === 0 ? [0, null] : [operand];
+    // MapLibre turns a null into 0 before any fallback, so a zero comparison admits null.
+    return operand === 0 && !excludesNull ? [0, null] : [operand];
   }
   if (getColumn(input) !== column) return null;
   if (op === '==' && isLiteral(operand)) return [operand];

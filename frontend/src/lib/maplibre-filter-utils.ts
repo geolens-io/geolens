@@ -6,9 +6,11 @@ import type { FilterSpecification } from 'maplibre-gl';
  *
  * Supported grammar subset (deliberate scope — anything else round-trips as an
  * opaque, uneditable filter):
- *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field] or the
- *                         nullable-safe ["to-number", ["get", field], fallback]
- *                         accessor this module emits for numeric columns.
+ *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field], or the
+ *                         null-safe pair this module emits for numeric columns,
+ *                         ["all", ["!=", ["typeof", ["get", field]], "null"],
+ *                         [op, ["to-number", ["get", field], fallback], n]], and
+ *                         the bare ["to-number", ["get", field], fallback] accessor.
  *   - membership:         ["in", ["get", field], ["literal", [...]]]   (in_list)
  *                         ["!", ["in", ["get", field], ["literal", [...]]]] (not_in_list)
  *   - substring/contains: ["in", <scalar>, ["get", field]]
@@ -26,12 +28,12 @@ import type { FilterSpecification } from 'maplibre-gl';
 // ActiveFilterChips.
 export const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
-const NUMERIC_LOW_SENTINEL = -1_000_000_000_000;
-const NUMERIC_HIGH_SENTINEL = 1_000_000_000_000;
-
 function isGetExpression(value: unknown): value is ['get', string] {
   return Array.isArray(value) && value[0] === 'get' && typeof value[1] === 'string';
 }
+
+const NUMERIC_LOW_SENTINEL = -1_000_000_000_000;
+const NUMERIC_HIGH_SENTINEL = 1_000_000_000_000;
 
 function numericFallbackForOperator(operator: string, comparisonValue: number) {
   if (operator === '<' || operator === '<=') return NUMERIC_HIGH_SENTINEL;
@@ -39,12 +41,104 @@ function numericFallbackForOperator(operator: string, comparisonValue: number) {
   return NUMERIC_LOW_SENTINEL;
 }
 
-export function buildNullableSafeNumericAccessor(
+/**
+ * A numeric comparison that a null or missing value never satisfies, as in SQL.
+ * `to-number` still reads a numeric string, but it turns null into 0, so the
+ * value's type is checked for null first.
+ */
+export function buildNullSafeNumericComparison(
   field: string,
   operator: string,
   comparisonValue: number,
+  negated = false,
 ) {
-  return ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)];
+  const comparison = [
+    operator,
+    ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)],
+    comparisonValue,
+  ];
+  // The guard stays outside a negation, or `!` would turn a null into a match.
+  return ['all', ['!=', ['typeof', ['get', field]], 'null'], negated ? ['!', comparison] : comparison];
+}
+
+interface NumericComparison {
+  field: string;
+  operator: string;
+  value: number;
+}
+
+/** `[op, left, n]` with a number on the right, as its parts, else null. */
+function numericComparisonParts(
+  node: unknown,
+): { operator: string; left: unknown; value: number } | null {
+  if (!Array.isArray(node) || node.length !== 3) return null;
+  const [operator, left, value] = node;
+  return typeof operator === 'string' &&
+    NUMERIC_COMPARISON_OPERATORS.has(operator) &&
+    typeof value === 'number'
+    ? { operator, left, value }
+    : null;
+}
+
+/**
+ * The field of the accessor the editor wrote, `["to-number", ["get", f], fallback]`
+ * with its own fallback: a hand-authored fallback keeps its meaning, so is not it.
+ */
+function editorAccessorField(left: unknown, operator: string, value: number): string | null {
+  return Array.isArray(left) &&
+    left.length === 3 &&
+    left[0] === 'to-number' &&
+    isGetExpression(left[1]) &&
+    left[2] === numericFallbackForOperator(operator, value)
+    ? left[1][1]
+    : null;
+}
+
+/** `[op, ["get", f] | <editor accessor of f>, n]` as its parts, else null. */
+function bareNumericComparison(node: unknown): NumericComparison | null {
+  const parts = numericComparisonParts(node);
+  if (!parts) return null;
+  const field = isGetExpression(parts.left)
+    ? parts.left[1]
+    : editorAccessorField(parts.left, parts.operator, parts.value);
+  return field === null ? null : { field, operator: parts.operator, value: parts.value };
+}
+
+/** The field of `["!=", ["typeof", ["get", field]], "null"]`, else null. */
+export function nullGuardField(node: unknown): string | null {
+  return Array.isArray(node) &&
+    node.length === 3 &&
+    node[0] === '!=' &&
+    Array.isArray(node[1]) &&
+    node[1][0] === 'typeof' &&
+    isGetExpression(node[1][1]) &&
+    node[2] === 'null'
+    ? node[1][1][1]
+    : null;
+}
+
+/** The comparison of a `buildNullSafeNumericComparison` pair, else null. */
+function guardedComparison(node: unknown): NumericComparison | null {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return null;
+  const field = nullGuardField(node[1]);
+  const parts = numericComparisonParts(node[2]);
+  return field !== null &&
+    parts !== null &&
+    editorAccessorField(parts.left, parts.operator, parts.value) === field
+    ? { field, operator: parts.operator, value: parts.value }
+    : null;
+}
+
+/** A `buildNullSafeNumericComparison(..., true)` result, else false. */
+function guardedNegation(node: unknown): boolean {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return false;
+  const field = nullGuardField(node[1]);
+  const negation = node[2];
+  const inner =
+    Array.isArray(negation) && negation.length === 2 && negation[0] === '!'
+      ? bareNumericComparison(negation[1])
+      : null;
+  return field !== null && inner !== null && inner.field === field;
 }
 
 export interface CanonicalFilterCondition {
@@ -58,6 +152,8 @@ export interface CanonicalFilterCondition {
   listValues?: unknown[];
   /** Read through `to-number`, which turns a missing value into 0. */
   toNumber?: true;
+  /** `toNumber`, behind a null check: a null value never satisfies it. */
+  nullGuarded?: true;
 }
 
 type CanonicalFilter =
@@ -113,6 +209,19 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
   // has: ["has", f]
   if (e[0] === 'has' && typeof e[1] === 'string') {
     return { field: e[1], operator: 'has', value: '' };
+  }
+
+  // null-safe numeric comparison: ["all", ["!=", ["typeof", ["get", f]], "null"], [op, ["to-number", ["get", f], fb], n]]
+  const guarded = guardedComparison(e);
+  if (guarded) {
+    return {
+      field: guarded.field,
+      operator: guarded.operator,
+      value: String(guarded.value),
+      rawValue: guarded.value,
+      toNumber: true,
+      nullGuarded: true,
+    };
   }
 
   // standard comparison: [op, ["get", f], value]
@@ -285,20 +394,18 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
 
 function sanitizeFilterNode(node: unknown): unknown {
   if (!Array.isArray(node) || node.length === 0) return node;
-  if (node[0] === 'literal') return node;
+  if (node[0] === 'literal' || guardedComparison(node) || guardedNegation(node)) return node;
 
-  const [operator, left, right] = node;
-  if (
-    typeof operator === 'string' &&
-    NUMERIC_COMPARISON_OPERATORS.has(operator) &&
-    typeof right === 'number' &&
-    isGetExpression(left)
-  ) {
-    return [
-      operator,
-      buildNullableSafeNumericAccessor(left[1], operator, right),
-      right,
-    ];
+  // The bare accessor reads null as 0; the guarded pair does not.
+  const negated = node[0] === '!' && node.length === 2;
+  const comparison = bareNumericComparison(negated ? node[1] : node);
+  if (comparison) {
+    return buildNullSafeNumericComparison(
+      comparison.field,
+      comparison.operator,
+      comparison.value,
+      negated,
+    );
   }
 
   // Recurse only through combinator/negation wrappers: walking every child
@@ -541,7 +648,8 @@ function conditionToCql2(
   if (c.toNumber) {
     if (typeof c.rawValue !== 'number' || !Number.isFinite(c.rawValue)) return null;
     const comparison: Cql2Expression = { op, args: [cql2Property(c.field), c.rawValue] };
-    return compareNumbers(0, c.operator, c.rawValue)
+    // The map reads an unguarded null as 0; SQL drops it from any comparison.
+    return !c.nullGuarded && compareNumbers(0, c.operator, c.rawValue)
       ? cql2OrNull(c.field, comparison)
       : comparison;
   }
@@ -569,7 +677,8 @@ export function maplibreFilterToCql2(
   columns?: readonly FilterColumn[] | null,
   opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
-  const canonical = parseCanonicalFilter(filter);
+  // The map draws the sanitized filter, so the table and analysis must read the same one.
+  const canonical = parseCanonicalFilter(sanitizeNullableNumericFilter(filter));
   if (canonical.kind === 'opaque') return 'unsupported';
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
