@@ -66,6 +66,7 @@ from app.processing.ingest.tasks_staging import (
     StagingResult,
     original_archive_key,
     _run_staging_pipeline,
+    layer_to_load,
     source_columns_for,
     _validate_upload_file_safety,
 )
@@ -444,6 +445,7 @@ class _FileReupload:
             record_type=self.prior_record_type,
             dataset_geometry_type=self.prior_geometry_type,
         )
+        self.layer_name = layer_to_load(self.info, self.layer_name)
         self.srid = self.info.get("srid")
         await run_ogr2ogr(
             self.file_path,

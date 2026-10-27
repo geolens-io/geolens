@@ -451,6 +451,7 @@ class OgrinfoResult(TypedDict, total=False):
     columns: list[dict[str, str]]
     sample_rows: list[dict]
     all_layers: list[dict] | None
+    attachments_omitted: bool
 
 
 class IngestionError(Exception):
@@ -727,6 +728,15 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
     return None
 
 
+# A file geodatabase keeps a feature class's attachments in `<name>__ATTACH`
+# and the link back to it in `<name>__ATTACHREL`; neither is a dataset.
+_GDB_ATTACHMENT_SUFFIXES = ("__ATTACH", "__ATTACHREL")
+
+
+def _is_gdb_attachment_table(layer: dict) -> bool:
+    return layer.get("name", "").upper().endswith(_GDB_ATTACHMENT_SUFFIXES)
+
+
 def _extract_common_layer_metadata(
     data: dict, layer_name: str | None
 ) -> tuple[dict, dict]:
@@ -734,7 +744,8 @@ def _extract_common_layer_metadata(
 
     Returns ``(target_layer, metadata_dict)`` where metadata_dict carries
     the fields common to both ``run_ogrinfo`` and ``run_ogrinfo_preview``:
-    srid, geometry_type, layer_name, feature_count, columns, all_layers.
+    srid, geometry_type, layer_name, feature_count, columns, all_layers,
+    attachments_omitted.
 
     ``columns`` is a list of ``{"name": str, "type": str}`` mirroring the
     field definitions from the target layer, plus ``"subtype"`` when GDAL
@@ -750,13 +761,21 @@ def _extract_common_layer_metadata(
     Raises KeyError if the JSON has no ``layers`` entry so callers can
     fall through to their fallback path.
     """
-    layers = data.get("layers", [])
-    if not layers:
+    all_found = data.get("layers", [])
+    if not all_found:
         raise KeyError("no layers in ogrinfo JSON output")
+    # The suffixes mean attachment only in a geodatabase. They are never
+    # offered there; a source that holds nothing else keeps them so it still
+    # previews.
+    layers = all_found
+    if data.get("driverShortName") == "OpenFileGDB":
+        layers = [
+            lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
+        ] or all_found
 
     target_layer = layers[0]
     if layer_name:
-        for lyr in layers:
+        for lyr in all_found:
             if lyr.get("name") == layer_name:
                 target_layer = lyr
                 break
@@ -800,6 +819,7 @@ def _extract_common_layer_metadata(
         "feature_count": target_layer.get("featureCount"),
         "columns": columns,
         "all_layers": all_layers,
+        "attachments_omitted": len(layers) < len(all_found),
     }
 
 
@@ -848,7 +868,8 @@ async def run_ogrinfo(
 ) -> OgrinfoResult:
     """Run ogrinfo to detect CRS and layer metadata.
 
-    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
+    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers,
+    attachments_omitted.
     When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
 

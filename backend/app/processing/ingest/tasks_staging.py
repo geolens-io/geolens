@@ -318,6 +318,15 @@ def source_columns_for(info: dict, layer_name: str | None) -> list[dict] | None:
     return info.get("columns")
 
 
+def layer_to_load(info: dict, layer_name: str | None) -> str | None:
+    """The layer to load: ogr2ogr copies every source layer into the one table
+    unless one is named, so a geodatabase whose attachment tables were left out
+    of the preview names the layer that remains."""
+    if not layer_name and info.get("attachments_omitted"):
+        return info["layer_name"]
+    return layer_name
+
+
 def _stored_to_source_names(
     column_info: list[dict], source_columns: list[dict] | None
 ) -> dict[str, str]:

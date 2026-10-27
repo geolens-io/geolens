@@ -47,6 +47,7 @@ from app.processing.ingest.tasks_staging import (
     _archive_original_file,
     _cleanup_staging_on_failure,
     _validate_upload_file_safety,
+    layer_to_load,
     source_columns_for,
 )
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
@@ -492,6 +493,7 @@ async def ingest_file(
             info = await run_ogrinfo(
                 file_path, layer_name=layer_name, original_filename=source_filename
             )
+            layer_name = layer_to_load(info, layer_name)
             srid = info.get("srid")
             geometry_type = info.get("geometry_type")
             has_geometry = geometry_type is not None
