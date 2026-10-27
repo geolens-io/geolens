@@ -61,44 +61,51 @@ export function buildNullSafeNumericComparison(
   return ['all', ['!=', ['typeof', ['get', field]], 'null'], negated ? ['!', comparison] : comparison];
 }
 
-/** A `buildNullSafeNumericComparison(..., true)` result, else false. */
-function guardedNegation(node: unknown): boolean {
-  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return false;
-  const field = nullGuardField(node[1]);
-  const negation = node[2];
-  const inner = Array.isArray(negation) && negation[0] === '!' ? bareNumericComparison(negation[1]) : null;
-  return field !== null && inner !== null && inner.field === field;
+interface NumericComparison {
+  field: string;
+  operator: string;
+  value: number;
 }
 
-/** `[op, ["get", f] | ["to-number", ["get", f], ...], n]` as its parts, else null. */
-function bareNumericComparison(
+/** `[op, left, n]` with a number on the right, as its parts, else null. */
+function numericComparisonParts(
   node: unknown,
-): { field: string; operator: string; value: number } | null {
-  if (!Array.isArray(node) || node.length < 3) return null;
-  const [operator, left, right] = node;
-  if (
-    typeof operator !== 'string' ||
-    !NUMERIC_COMPARISON_OPERATORS.has(operator) ||
-    typeof right !== 'number'
-  ) {
-    return null;
-  }
-  if (isGetExpression(left)) return { field: left[1], operator, value: right };
-  // Only the accessor the editor wrote: a hand-authored fallback keeps its own meaning.
-  if (
-    Array.isArray(left) &&
+): { operator: string; left: unknown; value: number } | null {
+  if (!Array.isArray(node) || node.length !== 3) return null;
+  const [operator, left, value] = node;
+  return typeof operator === 'string' &&
+    NUMERIC_COMPARISON_OPERATORS.has(operator) &&
+    typeof value === 'number'
+    ? { operator, left, value }
+    : null;
+}
+
+/**
+ * The field of the accessor the editor wrote, `["to-number", ["get", f], fallback]`
+ * with its own fallback: a hand-authored fallback keeps its meaning, so is not it.
+ */
+function editorAccessorField(left: unknown, operator: string, value: number): string | null {
+  return Array.isArray(left) &&
     left.length === 3 &&
     left[0] === 'to-number' &&
     isGetExpression(left[1]) &&
-    left[2] === numericFallbackForOperator(operator, right)
-  ) {
-    return { field: left[1][1], operator, value: right };
-  }
-  return null;
+    left[2] === numericFallbackForOperator(operator, value)
+    ? left[1][1]
+    : null;
+}
+
+/** `[op, ["get", f] | <editor accessor of f>, n]` as its parts, else null. */
+function bareNumericComparison(node: unknown): NumericComparison | null {
+  const parts = numericComparisonParts(node);
+  if (!parts) return null;
+  const field = isGetExpression(parts.left)
+    ? parts.left[1]
+    : editorAccessorField(parts.left, parts.operator, parts.value);
+  return field === null ? null : { field, operator: parts.operator, value: parts.value };
 }
 
 /** The field of `["!=", ["typeof", ["get", field]], "null"]`, else null. */
-function nullGuardField(node: unknown): string | null {
+export function nullGuardField(node: unknown): string | null {
   return Array.isArray(node) &&
     node.length === 3 &&
     node[0] === '!=' &&
@@ -111,25 +118,27 @@ function nullGuardField(node: unknown): string | null {
 }
 
 /** The comparison of a `buildNullSafeNumericComparison` pair, else null. */
-function guardedComparison(node: unknown): unknown[] | null {
+function guardedComparison(node: unknown): NumericComparison | null {
   if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return null;
   const field = nullGuardField(node[1]);
-  const comparison = node[2];
+  const parts = numericComparisonParts(node[2]);
   return field !== null &&
-    Array.isArray(comparison) &&
-    comparison.length === 3 &&
-    typeof comparison[0] === 'string' &&
-    NUMERIC_COMPARISON_OPERATORS.has(comparison[0]) &&
-    Array.isArray(comparison[1]) &&
-    comparison[1][0] === 'to-number' &&
-    isGetExpression(comparison[1][1]) &&
-    comparison[1][1][1] === field &&
-    typeof comparison[2] === 'number' &&
-    // A hand-authored fallback is not the editor's and must survive a rebuild.
-    comparison[1].length === 3 &&
-    comparison[1][2] === numericFallbackForOperator(comparison[0], comparison[2])
-    ? comparison
+    parts !== null &&
+    editorAccessorField(parts.left, parts.operator, parts.value) === field
+    ? { field, operator: parts.operator, value: parts.value }
     : null;
+}
+
+/** A `buildNullSafeNumericComparison(..., true)` result, else false. */
+function guardedNegation(node: unknown): boolean {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return false;
+  const field = nullGuardField(node[1]);
+  const negation = node[2];
+  const inner =
+    Array.isArray(negation) && negation.length === 2 && negation[0] === '!'
+      ? bareNumericComparison(negation[1])
+      : null;
+  return field !== null && inner !== null && inner.field === field;
 }
 
 export interface CanonicalFilterCondition {
@@ -206,10 +215,10 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
   const guarded = guardedComparison(e);
   if (guarded) {
     return {
-      field: ((guarded[1] as unknown[])[1] as ['get', string])[1],
-      operator: guarded[0] as string,
-      value: String(guarded[2]),
-      rawValue: guarded[2],
+      field: guarded.field,
+      operator: guarded.operator,
+      value: String(guarded.value),
+      rawValue: guarded.value,
       toNumber: true,
       nullGuarded: true,
     };
@@ -388,13 +397,15 @@ function sanitizeFilterNode(node: unknown): unknown {
   if (node[0] === 'literal' || guardedComparison(node) || guardedNegation(node)) return node;
 
   // The bare accessor reads null as 0; the guarded pair does not.
-  const comparison = bareNumericComparison(node);
+  const negated = node[0] === '!' && node.length === 2;
+  const comparison = bareNumericComparison(negated ? node[1] : node);
   if (comparison) {
-    return buildNullSafeNumericComparison(comparison.field, comparison.operator, comparison.value);
-  }
-  const negated = node[0] === '!' && node.length === 2 ? bareNumericComparison(node[1]) : null;
-  if (negated) {
-    return buildNullSafeNumericComparison(negated.field, negated.operator, negated.value, true);
+    return buildNullSafeNumericComparison(
+      comparison.field,
+      comparison.operator,
+      comparison.value,
+      negated,
+    );
   }
 
   // Recurse only through combinator/negation wrappers: walking every child

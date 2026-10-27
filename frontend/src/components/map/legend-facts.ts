@@ -11,6 +11,7 @@ import {
   resolveAdapterType,
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
+import { nullGuardField } from '@/lib/maplibre-filter-utils';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getColorProperty } from '@/lib/color-ramps';
 import { isNumericColumn } from '@/lib/column-utils';
@@ -424,12 +425,6 @@ function isNumberAccessor(value: unknown, column: string): boolean {
     && value.slice(2).every((fallback) => typeof fallback === 'number');
 }
 
-/** Whether an expression is `['!=', ['typeof', ['get', column]], 'null']`. */
-function isNullGuard(value: unknown, column: string): boolean {
-  return Array.isArray(value) && value.length === 3 && value[0] === '!=' && value[2] === 'null'
-    && Array.isArray(value[1]) && value[1][0] === 'typeof' && getColumn(value[1][1]) === column;
-}
-
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
  * `in` on it, alone or inside `all`; null when the filter names none.
@@ -444,7 +439,7 @@ function filteredValues(
   const [op, input, operand] = filter;
   if (op === 'all') {
     // A `typeof` null check on the column keeps null out of every limit inside.
-    const guarded = excludesNull || filter.slice(1).some((entry) => isNullGuard(entry, column));
+    const guarded = excludesNull || filter.slice(1).some((entry) => nullGuardField(entry) === column);
     const limits = filter.slice(1)
       .map((entry) => filteredValues(entry, column, numeric, guarded))
       .filter((limit): limit is unknown[] => limit !== null);

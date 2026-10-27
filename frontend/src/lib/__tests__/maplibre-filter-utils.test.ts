@@ -11,15 +11,15 @@ import {
   utcTimestampText,
 } from '../maplibre-filter-utils';
 
-// ---------------------------------------------------------------------------
-// Empty-array -> null boundary hardening in sanitizeNullableNumericFilter
-// ---------------------------------------------------------------------------
 // MapLibre's own filter evaluator, so the test sees what the map draws.
 function drawn(filter: FilterSpecification | null, props: Record<string, unknown>): boolean {
   const test = featureFilter(filter ?? undefined, 'layers[0].filter').filter;
   return test({ zoom: 0 }, { type: 1, properties: props } as never);
 }
 
+// ---------------------------------------------------------------------------
+// Empty-array -> null boundary hardening in sanitizeNullableNumericFilter
+// ---------------------------------------------------------------------------
 describe('sanitizeNullableNumericFilter', () => {
   it('EDIT-03 — returns null for an empty-array filter (never lets [] reach setFilter)', () => {
     expect(sanitizeNullableNumericFilter([] as unknown as FilterSpecification)).toBeNull();
