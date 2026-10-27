@@ -1183,6 +1183,87 @@ def test_read_all_item_data_does_not_report_a_file_download_as_an_error(
     assert [s for s in portal.seen if s.url.startswith(download)] == []
 
 
+def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
+    item = "7f" * 16
+    target = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    notebook = {"map": {"itemId": A1}}
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": target}))
+    routes[f"content/items/{item}/data/notebook"] = notebook
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    assert result.exit_code == 0
+    report = _report(result)
+
+    assert report["errors"] == []
+    assert _rows(report)[item]["dependencies_status"] == "parsed"
+    assert (A1, "app_web_map", None) in _links(report, item)
+    hop = portal.requests_to(f"content/items/{item}/data/notebook")
+    assert len(hop) == 1
+
+
+def test_a_notebook_data_redirect_chain_stops_after_one_hop(run):
+    item = "7f" * 16
+    hop = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": hop}))
+    routes[f"content/items/{item}/data/notebook"] = (302, {}, {"Location": hop})
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    assert _rows(_report(result))[item]["dependencies_status"] == "error"
+    assert len(portal.requests_to(f"content/items/{item}/data")) == 1
+    assert len(portal.requests_to(f"content/items/{item}/data/notebook")) == 1
+
+
+def test_a_notebook_data_redirect_to_another_host_is_still_refused(run):
+    item = "7f" * 16
+    elsewhere = f"https://other.example.com/sharing/rest/content/items/{item}/data"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": elsewhere}))
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    report = _report(result)
+    assert _rows(report)[item]["dependencies_status"] == "error"
+    assert [e["item_id"] for e in report["errors"]] == [item]
+    assert [
+        s for s in portal.seen if urlsplit(s.url).hostname == "other.example.com"
+    ] == []
+
+
+@pytest.mark.parametrize(
+    ("root", "location", "followed"),
+    [
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com/x",
+            False,
+        ),
+        (
+            "https://portal.example.com/arcgis",
+            "https://portal.example.com:7443/x",
+            False,
+        ),
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com:7443/x",
+            True,
+        ),
+        ("https://portal.example.com/arcgis", "https://portal.example.com:443/x", True),
+    ],
+)
+def test_a_followed_redirect_keeps_the_portal_host_and_effective_port(
+    root, location, followed
+):
+    client = arcgis_portal.PortalClient(root, redact=str, opener=FakePortal({}))
+
+    target = client._same_host_target(f"{root}/sharing/rest/x", location)
+
+    assert (target is not None) is followed
+
+
 def test_a_web_map_data_redirect_is_an_item_error_without_portal_advice(run):
     item = B1
     routes = _one_item(

@@ -924,9 +924,11 @@ def _collect_dependencies(
         """The status of one item's data read; None when it stopped the run."""
         path = f"content/items/{quote(row['id'], safe='')}/data"
         is_map = row["type"] in _MAP_CONFIG_TYPES
+        non_json = row["type"] in _NON_JSON_TYPES
         lenient = row["id"] in best_effort
         try:
-            data = client.get_json(path, array_ok=lenient)
+            # The portal answers a notebook's data with a redirect on its own host.
+            data = client.get_json(path, array_ok=lenient, follow_same_host=non_json)
         except PortalError as exc:
             _detach(exc)
             if exc.kind == "auth":
@@ -945,7 +947,7 @@ def _collect_dependencies(
                 )
             # An app registered only by URL has no data; a web map always has
             # a configuration, so an empty one is a failed read.
-            not_json_ok = lenient or row["type"] in _NON_JSON_TYPES
+            not_json_ok = lenient or non_json
             tolerated = (
                 (
                     exc.kind in _UNREADABLE_KINDS
