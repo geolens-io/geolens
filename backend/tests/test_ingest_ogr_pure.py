@@ -344,6 +344,17 @@ class TestExtractCommonLayerMetadata:
         assert meta["all_layers"] is None
         assert meta["attachments_omitted"] is True
 
+    def test_geodatabase_holding_only_attachment_tables_still_previews(self):
+        data = {
+            "driverShortName": "OpenFileGDB",
+            "layers": [{"name": "sites__ATTACH", "featureCount": 3, "fields": []}],
+        }
+
+        target, meta = _extract_common_layer_metadata(data, None)
+
+        assert target["name"] == "sites__ATTACH"
+        assert meta["attachments_omitted"] is False
+
     def test_attachment_suffix_layers_outside_a_geodatabase_stay_offered(self):
         data = {
             "driverShortName": "GPKG",

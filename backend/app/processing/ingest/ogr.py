@@ -451,6 +451,7 @@ class OgrinfoResult(TypedDict, total=False):
     columns: list[dict[str, str]]
     sample_rows: list[dict]
     all_layers: list[dict] | None
+    attachments_omitted: bool
 
 
 class IngestionError(Exception):
@@ -730,11 +731,10 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
 # A file geodatabase keeps a feature class's attachments in `<name>__ATTACH`
 # and the link back to it in `<name>__ATTACHREL`; neither is a dataset.
 _GDB_ATTACHMENT_SUFFIXES = ("__ATTACH", "__ATTACHREL")
-_GDB_DRIVERS = ("OpenFileGDB", "FileGDB")
 
 
 def _is_gdb_attachment_table(layer: dict) -> bool:
-    return str(layer.get("name", "")).upper().endswith(_GDB_ATTACHMENT_SUFFIXES)
+    return layer.get("name", "").upper().endswith(_GDB_ATTACHMENT_SUFFIXES)
 
 
 def _extract_common_layer_metadata(
@@ -744,7 +744,8 @@ def _extract_common_layer_metadata(
 
     Returns ``(target_layer, metadata_dict)`` where metadata_dict carries
     the fields common to both ``run_ogrinfo`` and ``run_ogrinfo_preview``:
-    srid, geometry_type, layer_name, feature_count, columns, all_layers.
+    srid, geometry_type, layer_name, feature_count, columns, all_layers,
+    attachments_omitted.
 
     ``columns`` is a list of ``{"name": str, "type": str}`` mirroring the
     field definitions from the target layer, plus ``"subtype"`` when GDAL
@@ -767,7 +768,7 @@ def _extract_common_layer_metadata(
     # offered there; a source that holds nothing else keeps them so it still
     # previews.
     layers = all_found
-    if data.get("driverShortName") in _GDB_DRIVERS:
+    if data.get("driverShortName") == "OpenFileGDB":
         layers = [
             lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
         ] or all_found
@@ -867,7 +868,8 @@ async def run_ogrinfo(
 ) -> OgrinfoResult:
     """Run ogrinfo to detect CRS and layer metadata.
 
-    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
+    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers,
+    attachments_omitted.
     When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
 
