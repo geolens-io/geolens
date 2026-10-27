@@ -222,8 +222,8 @@ def _export_section(
                     # A failed export holds what was fetched, not all of it.
                     "incomplete": entry.status == FAILED,
                     "errors": entry.export["errors"],
-                    "replacement": item_replacement(item, plan),
-                    "superseded": bool(item.get("superseded_by")),
+                    "replacement": item_replacement(item, plan, state),
+                    "superseded_by": item.get("superseded_by"),
                 }
             )
     return rows
@@ -366,7 +366,9 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
         ("Items GeoLens can't host", False),
         ("Source files published as hosted layers", True),
     ):
-        section = [r for r in report["unsupported"] if r["superseded"] is superseded]
+        section = [
+            r for r in report["unsupported"] if bool(r["superseded_by"]) is superseded
+        ]
         if not section:
             continue
         lines += ["", f"## {heading}", ""]

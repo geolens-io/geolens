@@ -148,9 +148,7 @@ def test_unsupported_items_are_grouped_by_type_with_one_replacement_note(tmp_pat
     assert "### Dashboard" in text and "`export/dashboard/x`" in text
 
 
-def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostable(
-    tmp_path,
-):
+def _superseded_report(tmp_path, *, layer_migrated: bool):
     plan = _plan(tmp_path)
     layer_title = next(i["title"] for i in plan["items"] if i["id"] == A1)
     for item in plan["items"]:
@@ -159,9 +157,18 @@ def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostabl
     state = _state(tmp_path)
     export = {"path": "export/csv/x", "bytes": 5, "partial": False, "errors": []}
     _set(state, D3, "done", export=export)
-
+    if layer_migrated:
+        _set(state, A1, "done", dataset_ids=["ds-1"])
+    else:
+        _set(state, A1, "failed", error="probe failed")
     report = report_mod.build_run_report(plan, state)
-    text = report_mod.render_run_markdown(report)
+    return layer_title, report, report_mod.render_run_markdown(report)
+
+
+def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostable(
+    tmp_path,
+):
+    layer_title, report, text = _superseded_report(tmp_path, layer_migrated=True)
 
     assert report["unsupported"][0]["replacement"] == (
         f"Published as {layer_title}; migrated with it."
@@ -169,6 +176,17 @@ def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostabl
     assert "No equivalent in GeoLens." not in text
     assert "## Items GeoLens can't host" not in text
     assert "## Source files published as hosted layers" in text
+
+
+def test_a_superseded_source_file_whose_layer_did_not_migrate_says_so(tmp_path):
+    layer_title, report, _text = _superseded_report(tmp_path, layer_migrated=False)
+
+    replacement = report["unsupported"][0]["replacement"]
+    assert replacement == (
+        f"Source file of {layer_title}, which has not migrated; "
+        "this export is its only copy."
+    )
+    assert "migrated with it" not in replacement
 
 
 def _run(runner, plan_file: Path, *flags: str):

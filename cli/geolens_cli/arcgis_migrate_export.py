@@ -5,8 +5,8 @@ Hand-maintained. GeoLens can't host these items, so nothing is lost when the
 ArcGIS subscription ends: for each one the CLI writes
 ``export/<type>/<item id>/`` next to the state file with ``item.json``, the
 item's data (``data.json`` or the raw file), its ``resources/`` and, for a
-story, a readable ``story.md``. ``export/INDEX.md`` lists every item with the
-replacement note for its type. Files are written at mode 0600 and every JSON
+story, a readable ``story.md``. ``export/INDEX.md`` lists every item with its
+replacement note. Files are written at mode 0600 and every JSON
 passes through the redactor. The only host contacted is the plan's portal.
 """
 
@@ -95,13 +95,21 @@ def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
 
 
-def item_replacement(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
-    """The note for *item*; a source file superseded by a hosted layer says so."""
+def item_replacement(
+    item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
+) -> str:
+    """The note for *item*; a source file superseded by a hosted layer says so,
+    and says when that layer hasn't migrated, as the follow-ups do."""
     layer = item.get("superseded_by")
-    if layer:
-        title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
+    if not layer:
+        return replacement_note(item["type"])
+    title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
+    entry = state.items.get(layer)
+    if entry and entry.dataset_ids:
         return f"Published as {title}; migrated with it."
-    return replacement_note(item["type"])
+    return (
+        f"Source file of {title}, which has not migrated; this export is its only copy."
+    )
 
 
 def _private_dirs(path: Path) -> None:
@@ -630,8 +638,8 @@ def write_index(
     lines = [
         "# Export index",
         "",
-        "Items GeoLens can't host, saved so nothing is lost when the ArcGIS "
-        "subscription ends.",
+        "Items saved so nothing is lost when the ArcGIS subscription ends: items "
+        "GeoLens can't host, and source files of hosted layers.",
         "",
         "| Item | Type | Owner | Size | Status | Folder | Replacement |",
         "| --- | --- | --- | --- | --- | --- | --- |",
@@ -656,7 +664,7 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            item_replacement(item, plan),
+            item_replacement(item, plan, state),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1
