@@ -191,6 +191,26 @@ def test_a_rerun_refreshes_a_migrated_service_and_records_its_last_update(
     assert entry["refreshing"] == {} and entry["stale"] == []
 
 
+def test_a_refresh_that_reads_no_relationships_keeps_the_recorded_ones(
+    runner, plan_file, geolens
+):
+    classes = [{"related_layer_id": 1, "role": "Origin", "name": "Parcels_Owners"}]
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels", has_attachments=False, relationships=classes)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    assert _state(plan_file)["items"][A2]["relationships"]["0"]
+    # A failed optional /layers read reports no relationships at all.
+    service.layers[0].pop("relationships")
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    recorded = _state(plan_file)["items"][A2]["relationships"]["0"]
+    assert [rel["name"] for rel in recorded] == ["Parcels_Owners"]
+
+
 def test_a_private_service_is_refreshed_with_the_token(runner, plan_file, geolens):
     token = secrets.token_urlsafe(16)
     service = _migrated(runner, plan_file, geolens, A1, "--token", token)

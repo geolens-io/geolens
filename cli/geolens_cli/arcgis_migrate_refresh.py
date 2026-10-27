@@ -458,7 +458,9 @@ def refresh_layers(
         return ["couldn't check the service's layers: its probe listed none"]
     flags = attachment_flags(probe.layers)
     entry.attachments = {key: flags.get(key) for key in entry.layer_datasets}
-    related = relationship_records(probe.layers)
+    # The service's /layers read is optional and a failed one reads as "none",
+    # so a refresh adds and updates what the probe states and never clears it.
+    related = {**(entry.relationships or {}), **relationship_records(probe.layers)}
     entry.relationships = {
         key: related[key] for key in entry.layer_datasets if key in related
     }
