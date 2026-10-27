@@ -22,7 +22,7 @@ from typing import Any
 from . import arcgis_report as _report
 from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import attachment_losses
-from .arcgis_migrate_export import replacement_note
+from .arcgis_migrate_export import item_replacement
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
 from .arcgis_portal import Redactor, redact_json
@@ -222,7 +222,8 @@ def _export_section(
                     # A failed export holds what was fetched, not all of it.
                     "incomplete": entry.status == FAILED,
                     "errors": entry.export["errors"],
-                    "replacement": replacement_note(item["type"]),
+                    "replacement": item_replacement(item, plan, state),
+                    "superseded_by": item.get("superseded_by"),
                 }
             )
     return rows
@@ -361,13 +362,21 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
             for r in report["items"]
         ),
     )
-    if report["unsupported"]:
-        lines += ["", "## Items GeoLens can't host", ""]
-        by_type: dict[str, list[Mapping[str, Any]]] = {}
-        for row in report["unsupported"]:
-            by_type.setdefault(row["type"], []).append(row)
-        for item_type, rows in sorted(by_type.items()):
-            lines += [f"### {esc(item_type)}", "", esc(rows[0]["replacement"]), ""]
+    for heading, superseded in (
+        ("Items GeoLens can't host", False),
+        ("Source files published as hosted layers", True),
+    ):
+        section = [
+            r for r in report["unsupported"] if bool(r["superseded_by"]) is superseded
+        ]
+        if not section:
+            continue
+        lines += ["", f"## {heading}", ""]
+        by_type: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+        for row in section:
+            by_type.setdefault((row["type"], row["replacement"]), []).append(row)
+        for (item_type, replacement), rows in sorted(by_type.items()):
+            lines += [f"### {esc(item_type)}", "", esc(replacement), ""]
             for row in rows:
                 flag = " (partial)" if row["partial"] else ""
                 if row["incomplete"]:

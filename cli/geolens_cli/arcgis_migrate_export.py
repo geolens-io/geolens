@@ -5,8 +5,8 @@ Hand-maintained. GeoLens can't host these items, so nothing is lost when the
 ArcGIS subscription ends: for each one the CLI writes
 ``export/<type>/<item id>/`` next to the state file with ``item.json``, the
 item's data (``data.json`` or the raw file), its ``resources/`` and, for a
-story, a readable ``story.md``. ``export/INDEX.md`` lists every item with the
-replacement note for its type. Files are written at mode 0600 and every JSON
+story, a readable ``story.md``. ``export/INDEX.md`` lists every item with its
+replacement note. Files are written at mode 0600 and every JSON
 passes through the redactor. The only host contacted is the plan's portal.
 """
 
@@ -25,7 +25,14 @@ from urllib.parse import quote
 
 from . import arcgis_report as _report
 from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
-from .arcgis_migrate_state import FAILED, ItemState, MigrationState, whole_number
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    ItemState,
+    MigrationState,
+    whole_number,
+)
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
@@ -93,6 +100,21 @@ NOTES_DEFAULT = _NO_EQUIVALENT
 
 def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
+
+
+def item_replacement(
+    item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
+) -> str:
+    """The note for *item*; a source file superseded by a hosted layer says so,
+    and says when that layer hasn't migrated, as the follow-ups do."""
+    layer = item.get("superseded_by")
+    if not layer:
+        return replacement_note(item["type"])
+    title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
+    entry = state.items.get(layer)
+    if entry and entry.dataset_ids and entry.status in (DONE, EXISTS):
+        return f"Published as {title}; migrated with it."
+    return f"Source file of {title}, which has not migrated."
 
 
 def _private_dirs(path: Path) -> None:
@@ -621,8 +643,8 @@ def write_index(
     lines = [
         "# Export index",
         "",
-        "Items GeoLens can't host, saved so nothing is lost when the ArcGIS "
-        "subscription ends.",
+        "Items saved so nothing is lost when the ArcGIS subscription ends: items "
+        "GeoLens can't host, and source files of hosted layers.",
         "",
         "| Item | Type | Owner | Size | Status | Folder | Replacement |",
         "| --- | --- | --- | --- | --- | --- | --- |",
@@ -647,7 +669,7 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            replacement_note(item["type"]),
+            item_replacement(item, plan, state),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1
