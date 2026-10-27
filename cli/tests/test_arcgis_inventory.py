@@ -1191,7 +1191,7 @@ def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
     routes[f"content/items/{item}/data/notebook"] = notebook
     portal = FakePortal(routes)
 
-    result, _ = run(portal, "--scope", "org", "--read-all-item-data", "--strict")
+    result, _ = run(portal, "--scope", "org", "--strict")
 
     assert result.exit_code == 0
     report = _report(result)
@@ -1203,15 +1203,31 @@ def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
     assert len(hop) == 1
 
 
+def test_a_notebook_data_redirect_chain_stops_after_one_hop(run):
+    item = "7f" * 16
+    hop = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": hop}))
+    routes[f"content/items/{item}/data/notebook"] = (302, {}, {"Location": hop})
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    assert _rows(_report(result))[item]["dependencies_status"] == "error"
+    assert len(portal.requests_to(f"content/items/{item}/data")) == 1
+    assert len(portal.requests_to(f"content/items/{item}/data/notebook")) == 1
+
+
 def test_a_notebook_data_redirect_to_another_host_is_still_refused(run):
     item = "7f" * 16
     elsewhere = f"https://other.example.com/sharing/rest/content/items/{item}/data"
     routes = _one_item(item, "Notebook", data=(302, {}, {"Location": elsewhere}))
     portal = FakePortal(routes)
 
-    result, _ = run(portal, "--scope", "org", "--read-all-item-data", "--strict")
+    result, _ = run(portal, "--scope", "org", "--strict")
 
-    assert _rows(_report(result))[item]["dependencies_status"] != "parsed"
+    report = _report(result)
+    assert _rows(report)[item]["dependencies_status"] == "error"
+    assert [e["item_id"] for e in report["errors"]] == [item]
     assert [
         s for s in portal.seen if urlsplit(s.url).hostname == "other.example.com"
     ] == []

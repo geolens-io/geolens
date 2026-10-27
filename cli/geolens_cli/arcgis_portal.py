@@ -7,7 +7,9 @@ portal root it was built with, never to the services an item points at and
 never to GeoLens; redirects are refused so a credential can't follow one to
 another host. The one exception is a file download, which may take a single
 redirect to https on the portal's own host or ArcGIS storage (``arcgis.com``
-and its subdomains) and sends no credential there. A command that also needs
+and its subdomains) and sends no credential there. A notebook's item-data read
+may also take one redirect, to the portal's own host and effective port, and
+sends the credential there. A command that also needs
 GeoLens reaches it only through the SDK client for the configured instance,
 so it contacts the portal, its ArcGIS storage and GeoLens. Tokens and passwords stay in memory, and every error message is
 redacted when it is built.
@@ -259,7 +261,8 @@ class PortalError(Exception):
     """A portal request failed; ``kind`` picks the exit code.
 
     The message is redacted when the error is built, so ``str()`` is safe to
-    print anywhere.
+    print anywhere. ``redirect_to`` is the raw ``Location`` of a redirect, which
+    can carry a pre-signed query: read it, never print it.
     """
 
     def __init__(
@@ -273,11 +276,11 @@ class PortalError(Exception):
         redirect_to: str | None = None,
     ) -> None:
         super().__init__(message)
-        self.redirect_to = redirect_to
         self.kind = kind
         self.http_status = http_status
         self.retryable = retryable
         self.retry_after = retry_after
+        self.redirect_to = redirect_to
 
 
 class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
@@ -438,7 +441,7 @@ class PortalClient:
         try:
             return self._get_json_renewing(path, url, query, array_ok)
         except PortalError as exc:
-            if not (follow_same_host and exc.kind == "redirect"):
+            if not follow_same_host or exc.http_status not in _REDIRECT_STATUSES:
                 raise
             target = self._same_host_target(url, exc.redirect_to)
             if target is None:
@@ -447,10 +450,7 @@ class PortalClient:
         parts = urlsplit(target)
         hop_query = {**dict(parse_qsl(parts.query)), **query}
         return self._get_json_renewing(
-            parts.path,
-            f"{parts.scheme}://{parts.netloc}{parts.path}",
-            hop_query,
-            array_ok,
+            path, f"{parts.scheme}://{parts.netloc}{parts.path}", hop_query, array_ok
         )
 
     def _get_json_renewing(
@@ -468,15 +468,14 @@ class PortalClient:
     def _same_host_target(self, base: str, location: str | None) -> str | None:
         """*location* resolved against *base* when it is https on the portal's
         own host and effective port with no userinfo, else None."""
-        target, _host, allowed = self._redirect_target(base, location)
+        target, host, allowed = self._redirect_target(base, location)
         if not allowed:
             return None
         # The credential goes along, so the port must match too, not just be a
         # default one.
-        sent, portal = urlsplit(target), urlsplit(self.root)
-        same = (sent.hostname or "").lower() == (portal.hostname or "").lower() and (
-            sent.port or 443
-        ) == (portal.port or 443)
+        port = urlsplit(target).port or 443
+        portal = urlsplit(self.root)
+        same = host == (portal.hostname or "").lower() and port == (portal.port or 443)
         return target if same else None
 
     def _get_json_sent(
