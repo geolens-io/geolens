@@ -25,7 +25,14 @@ from urllib.parse import quote
 
 from . import arcgis_report as _report
 from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
-from .arcgis_migrate_state import FAILED, ItemState, MigrationState, whole_number
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    ItemState,
+    MigrationState,
+    whole_number,
+)
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
@@ -105,11 +112,9 @@ def item_replacement(
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)
-    if entry and entry.dataset_ids:
+    if entry and entry.dataset_ids and entry.status in (DONE, EXISTS):
         return f"Published as {title}; migrated with it."
-    return (
-        f"Source file of {title}, which has not migrated; this export is its only copy."
-    )
+    return f"Source file of {title}, which has not migrated."
 
 
 def _private_dirs(path: Path) -> None:

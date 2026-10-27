@@ -182,11 +182,23 @@ def test_a_superseded_source_file_whose_layer_did_not_migrate_says_so(tmp_path):
     layer_title, report, _text = _superseded_report(tmp_path, layer_migrated=False)
 
     replacement = report["unsupported"][0]["replacement"]
-    assert replacement == (
-        f"Source file of {layer_title}, which has not migrated; "
-        "this export is its only copy."
-    )
+    assert replacement == f"Source file of {layer_title}, which has not migrated."
     assert "migrated with it" not in replacement
+
+
+def test_a_layer_with_a_dataset_that_then_failed_is_not_called_migrated(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    export = {"path": "export/csv/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, D3, "done", export=export)
+    _set(state, A1, "failed", dataset_ids=["ds-1"], error="second layer failed")
+
+    report = report_mod.build_run_report(plan, state)
+
+    assert "migrated with it" not in report["unsupported"][0]["replacement"]
 
 
 def _run(runner, plan_file: Path, *flags: str):
