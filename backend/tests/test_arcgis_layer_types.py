@@ -117,15 +117,19 @@ _ATTACH_ROOT = {
 }
 
 
-async def _attachment_flags(layers_handler) -> dict:
+async def _probed_layers(layers_handler) -> list:
     from app.modules.catalog.sources.probe import _enrich_arcgis_layers
 
     async with _service(layers_handler) as client:
         result = await probe_arcgis_service(_BASE, client)
         assert result is not None
         enriched = await _enrich_arcgis_layers(_BASE, result, client, None)
-    response = _build_arcgis_response(result, enriched, _BASE)
-    return {layer.layer_id: layer.has_attachments for layer in response.layers}
+    return _build_arcgis_response(result, enriched, _BASE).layers
+
+
+async def _attachment_flags(layers_handler) -> dict:
+    layers = await _probed_layers(layers_handler)
+    return {layer.layer_id: layer.has_attachments for layer in layers}
 
 
 class TestProbeReportsAttachments:
@@ -181,10 +185,68 @@ class TestProbeReportsAttachments:
 
         async with httpx.AsyncClient(transport=_Slow()) as client:
             with patch.object(arcgis_attachments, "DEFAULT_CHECK_TIMEOUT", 0.05):
-                flags = await arcgis_attachments.fetch_arcgis_attachment_flags(
+                details = await arcgis_attachments.fetch_arcgis_layer_details(
                     _BASE, client
                 )
-        assert flags == {}
+        assert details == {}
+
+
+class TestProbeReportsRelationships:
+    async def _relationships(self, body: dict) -> dict:
+        layers = await _probed_layers(lambda request: _stream(body))
+        return {
+            layer.layer_id: [r.model_dump() for r in layer.relationships]
+            for layer in layers
+        }
+
+    async def test_reads_relationship_classes_from_all_layers_and_tables(self) -> None:
+        body = {
+            "layers": [
+                {
+                    "id": 0,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 4,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleOrigin",
+                        },
+                        {"id": 1, "relatedTableId": True},
+                        "junk",
+                    ],
+                },
+                {"id": 1, "relationships": "none"},
+            ],
+            "tables": [
+                {
+                    "id": 4,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 0,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleDestination",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        found = await self._relationships(body)
+
+        assert found[0] == [
+            {
+                "id": 0,
+                "name": "Sites_Visits",
+                "related_layer_id": 4,
+                "cardinality": "OneToMany",
+                "role": "Origin",
+            }
+        ]
+        assert found[4][0]["role"] == "Destination"
+        assert found[1] == found[2] == []
 
 
 class TestPreviewRefusesLayersWithoutRows:

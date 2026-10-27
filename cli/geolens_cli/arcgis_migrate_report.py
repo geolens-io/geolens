@@ -24,7 +24,15 @@ from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import attachment_losses
 from .arcgis_migrate_export import item_replacement
 from . import arcgis_plan as _plan
-from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    PENDING,
+    SKIPPED,
+    ItemState,
+    MigrationState,
+)
 from .arcgis_portal import Redactor, redact_json
 
 REPORT_JSON = "arcgis-migration-report.json"
@@ -148,6 +156,8 @@ def _follow_ups(
                 "attachments",
                 f"layer {layer} {has} attachments, which GeoLens doesn't import yet",
             )
+        for text in _relationship_losses(item, entry):
+            add(item["id"], "relationships", text)
     for unresolved in owner_unresolved:
         add(unresolved["item"], "owner_unresolved", unresolved["reason"])
     for change in owner_changes:
@@ -202,6 +212,32 @@ def _follow_ups(
                     f"depends on {dep}, gone from the portal before it was migrated",
                 )
     return out
+
+
+def _relationship_losses(item: Mapping[str, Any], entry: ItemState) -> list[str]:
+    """One line per relationship class of a migrated service item, which
+    GeoLens doesn't carry over. Both layers of a class declare it; it is listed
+    once. A class with no name is told apart by its id."""
+    if item["action"] != _plan.IMPORT_LAYERS:
+        return []
+    lines: dict[tuple[str | int | None, frozenset[str]], str] = {}
+    for layer, records in (entry.relationships or {}).items():
+        for rel in records:
+            related = rel["related"]
+            # Without a stated role the direction isn't known, so none is claimed.
+            if rel["role"] == "Origin":
+                ends = f"from layer {layer} (origin) to layer {related} (destination)"
+            elif rel["role"] == "Destination":
+                ends = f"from layer {related} (origin) to layer {layer} (destination)"
+            else:
+                ends = f"between layers {' and '.join(sorted((layer, related)))}"
+            detail = f"{rel['cardinality']}, " if rel["cardinality"] else ""
+            lines.setdefault(
+                (rel["name"] or rel["id"], frozenset((layer, related))),
+                f"relationship class {rel['name'] or '(unnamed)'} {ends}, "
+                f"{detail}which GeoLens doesn't import",
+            )
+    return list(lines.values())
 
 
 def _export_section(

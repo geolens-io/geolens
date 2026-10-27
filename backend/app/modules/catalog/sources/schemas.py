@@ -148,6 +148,24 @@ class ProbeRequest(BaseModel):
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
+class LayerRelationship(BaseModel):
+    """An ArcGIS relationship class as one of its two layers declares it."""
+
+    id: int | None = Field(default=None, description="Relationship ID on the layer.")
+    name: str | None = Field(default=None, description="Relationship class name.")
+    related_layer_id: int | str = Field(
+        description="ArcGIS ID of the layer or table at the other end."
+    )
+    cardinality: str | None = Field(
+        default=None,
+        description="'OneToOne', 'OneToMany' or 'ManyToMany', when the service says.",
+    )
+    role: str | None = Field(
+        default=None,
+        description="'Origin' or 'Destination': this layer's end of the relationship.",
+    )
+
+
 class LayerInfo(BaseModel):
     name: str = Field(
         description="Internal layer identifier used by the source service."
@@ -191,6 +209,13 @@ class LayerInfo(BaseModel):
         description=(
             "Whether the ArcGIS layer reports file attachments. Null when the "
             "service does not say, and for other service types."
+        ),
+    )
+    relationships: list[LayerRelationship] = Field(
+        default_factory=list,
+        description=(
+            "Relationship classes the ArcGIS layer takes part in. Empty when the "
+            "service declares none or does not say, and for other service types."
         ),
     )
     layer_id: int | str | None = Field(

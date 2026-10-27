@@ -191,6 +191,26 @@ def test_a_rerun_refreshes_a_migrated_service_and_records_its_last_update(
     assert entry["refreshing"] == {} and entry["stale"] == []
 
 
+def test_a_refresh_that_reads_no_relationships_keeps_the_recorded_ones(
+    runner, plan_file, geolens
+):
+    classes = [{"related_layer_id": 1, "role": "Origin", "name": "Parcels_Owners"}]
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels", has_attachments=False, relationships=classes)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    assert _state(plan_file)["items"][A2]["relationships"]["0"]
+    # A failed optional /layers read reports no relationships at all.
+    service.layers[0].pop("relationships")
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    recorded = _state(plan_file)["items"][A2]["relationships"]["0"]
+    assert [rel["name"] for rel in recorded] == ["Parcels_Owners"]
+
+
 def test_a_private_service_is_refreshed_with_the_token(runner, plan_file, geolens):
     token = secrets.token_urlsafe(16)
     service = _migrated(runner, plan_file, geolens, A1, "--token", token)
@@ -1415,6 +1435,70 @@ def test_a_finished_file_item_without_a_recorded_dataset_is_reported(
 
 
 # Cutover
+
+
+def test_the_loss_report_lists_each_relationship_class_once(runner, plan_file, geolens):
+    _edit_plan(plan_file, (A2,))
+    relationship = {
+        "name": "Parcels_Owners",
+        "related_layer_id": 1,
+        "cardinality": "OneToMany",
+        "role": "Origin",
+    }
+    FakeImport(
+        geolens,
+        [
+            _layer(0, "Parcels", has_attachments=False, relationships=[relationship]),
+            _layer(
+                1,
+                "Owners",
+                "Table",
+                has_attachments=False,
+                relationships=[
+                    {**relationship, "related_layer_id": 0, "role": "Destination"}
+                ],
+            ),
+        ],
+    )
+
+    result, _payload = _migrate(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    texts = [f["text"] for f in report["follow_ups"] if f["kind"] == "relationships"]
+    assert texts == [
+        "relationship class Parcels_Owners from layer 0 (origin) to layer 1 "
+        "(destination), OneToMany, which GeoLens doesn't import"
+    ]
+
+
+def test_unnamed_relationship_classes_between_the_same_layers_are_listed_apart(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    classes = [
+        {"id": 0, "related_layer_id": 1, "cardinality": "OneToMany", "role": "Origin"},
+        {"id": 1, "related_layer_id": 1, "cardinality": "ManyToMany"},
+    ]
+    FakeImport(
+        geolens,
+        [
+            _layer(0, "Parcels", has_attachments=False, relationships=classes),
+            _layer(1, "Owners", "Table", has_attachments=False),
+        ],
+    )
+
+    result, _payload = _migrate(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    texts = [f["text"] for f in report["follow_ups"] if f["kind"] == "relationships"]
+    assert texts == [
+        "relationship class (unnamed) from layer 0 (origin) to layer 1 "
+        "(destination), OneToMany, which GeoLens doesn't import",
+        "relationship class (unnamed) between layers 0 and 1, ManyToMany, "
+        "which GeoLens doesn't import",
+    ]
 
 
 def test_cutover_refuses_a_migrated_layer_with_attachments_until_accepted(

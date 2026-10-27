@@ -43,6 +43,7 @@ from .arcgis_migrate_layers import (
     _send,
     attachment_flags,
     importable_layers,
+    relationship_records,
 )
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
@@ -457,6 +458,12 @@ def refresh_layers(
         return ["couldn't check the service's layers: its probe listed none"]
     flags = attachment_flags(probe.layers)
     entry.attachments = {key: flags.get(key) for key in entry.layer_datasets}
+    # The service's /layers read is optional and a failed one reads as "none",
+    # so a refresh adds and updates what the probe states and never clears it.
+    related = {**(entry.relationships or {}), **relationship_records(probe.layers)}
+    entry.relationships = {
+        key: related[key] for key in entry.layer_datasets if key in related
+    }
     ctx.save()
     wanted, _notes, entry.left_behind = importable_layers(probe)
     added = [

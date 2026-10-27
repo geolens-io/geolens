@@ -11153,6 +11153,14 @@
             "description": "Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.",
             "title": "Has Attachments"
           },
+          "relationships": {
+            "description": "Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.",
+            "items": {
+              "$ref": "#/components/schemas/LayerRelationship"
+            },
+            "title": "Relationships",
+            "type": "array"
+          },
           "layer_id": {
             "anyOf": [
               {
@@ -11230,6 +11238,76 @@
           "name"
         ],
         "title": "LayerPreview",
+        "type": "object"
+      },
+      "LayerRelationship": {
+        "description": "An ArcGIS relationship class as one of its two layers declares it.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relationship ID on the layer.",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relationship class name.",
+            "title": "Name"
+          },
+          "related_layer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "ArcGIS ID of the layer or table at the other end.",
+            "title": "Related Layer Id"
+          },
+          "cardinality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'OneToOne', 'OneToMany' or 'ManyToMany', when the service says.",
+            "title": "Cardinality"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'Origin' or 'Destination': this layer's end of the relationship.",
+            "title": "Role"
+          }
+        },
+        "required": [
+          "related_layer_id"
+        ],
+        "title": "LayerRelationship",
         "type": "object"
       },
       "LineageDraftResponse": {
