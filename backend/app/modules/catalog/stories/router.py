@@ -376,7 +376,7 @@ async def discard_story_draft_endpoint(
     """Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin)."""
     story, roles = await _owned_story(db, story_id, user)
-    discard(story)
+    await discard(db, story)
     await audit_emit(
         db,
         AuditEvent(

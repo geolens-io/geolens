@@ -449,6 +449,29 @@ async def test_discard_reverts_to_the_published_document(client: AsyncClient, pe
     assert texts == ["published"]
 
 
+async def test_discard_points_story_maps_back_at_the_published_maps(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    kept_map, scratch_map = await _map(client, owner), await _map(client, owner)
+    story = await _story(client, owner)
+    story = await _saved(client, owner, story, [_chapter(kept_map)])
+    assert (await _publish(client, owner, story["id"])).status_code == 200
+    await _saved(client, owner, story, [_chapter(kept_map), _chapter(scratch_map)])
+
+    async def listed() -> set[str]:
+        rows = await test_db_session.scalars(
+            select(StoryMap.map_id).where(StoryMap.story_id == uuid.UUID(story["id"]))
+        )
+        return {str(r) for r in rows}
+
+    assert await listed() == {kept_map, scratch_map}
+    assert (
+        await client.post(f"/stories/{story['id']}/discard", headers=owner)
+    ).status_code == 200
+    assert await listed() == {kept_map}
+
+
 async def test_deleting_a_map_drops_the_scene_and_keeps_the_text(
     client: AsyncClient, people, test_db_session
 ):

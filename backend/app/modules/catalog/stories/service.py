@@ -588,12 +588,13 @@ async def check_visibility_change(
     )
 
 
-def discard(story: Story) -> None:
+async def discard(db: AsyncSession, story: Story) -> None:
     """Revert the draft to the published document. Call holding ``lock_story``."""
     story.draft = (
         copy.deepcopy(story.published) if story.published else empty_document()
     )
     story.draft_revision += 1
+    await sync_story_maps(db, story)
 
 
 def refuse_stale_revision(story: Story, revision: int) -> None:
