@@ -254,6 +254,8 @@ def geolens(fake_geolens):
             "GET /admin/users/": {"users": [operator], "total": 1},
             "GET /settings/all/": (403, _problem(403, "no")),
             "GET /settings/feature-flags/": {"restrict_public_visibility": False},
+            "GET /datasets/": {"datasets": [], "total": 0},
+            "GET /catalog/collections/": {"collections": [], "total": 0},
         }
     )
     return fake_geolens
