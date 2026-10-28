@@ -742,6 +742,18 @@ def test_pending_members_reach_unresolved_users(runner, tmp_path, team):
     assert pending["item"] == "group g1" and "agol_ghost" in pending["reason"]
 
 
+def test_a_cutover_dry_run_lists_members_who_would_stay_pending(runner, tmp_path, team):
+    GroupsApi(team, _service(team), existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob", "agol_ghost"])
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    checks = {c["check"]: c["items"] for c in payload["cutover"]["checks"]}
+    [pending] = checks["unresolved-users"]
+    assert pending["item"] == "group g1" and "agol_ghost" in pending["reason"]
+    assert "unresolved-users" in payload["cutover"]["refused"]
+
+
 def test_a_retried_share_skips_datasets_already_shared(runner, tmp_path, team):
     service = _service(team)
     api = GroupsApi(team, service, existing=[])

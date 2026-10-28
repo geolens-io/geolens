@@ -81,6 +81,7 @@ from .arcgis_migrate_session import (
 from .arcgis_migrate_state import (
     FAILED,
     FINISHED,
+    PENDING,
     SKIPPED,
     STATE_FILENAME,
     ItemState,
@@ -145,6 +146,8 @@ HANDLERS: dict[str, Handler] = {
     _plan.EXPORT_ONLY: export_item,
     _plan.IMPORT_MAP: import_map,
 }
+# Actions that make datasets or a map in GeoLens.
+IMPORTING = frozenset({_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.IMPORT_MAP})
 # Action -> how a rerun brings a finished item of it up to date.
 REFRESHERS: dict[str, Refresher] = {
     _plan.IMPORT_LAYERS: refresh_layers,
@@ -250,9 +253,26 @@ def _wanted(
     return wanted
 
 
-def _needs_run(item: Mapping[str, Any], status: str, no_retry: bool) -> bool:
-    if status in FINISHED or item.get("removed"):
+def _exported_not_imported(item: Mapping[str, Any], entry: ItemState | None) -> bool:
+    """Whether a finished item was exported and the plan now imports it: its
+    action changed to one that makes datasets or a map, and none are recorded."""
+    return bool(
+        entry is not None
+        and entry.status in FINISHED
+        and entry.export is not None
+        and item["action"] in IMPORTING
+        and not (entry.dataset_ids or entry.layer_datasets or entry.map_id)
+    )
+
+
+def _needs_run(
+    item: Mapping[str, Any], entry: ItemState | None, no_retry: bool
+) -> bool:
+    status = entry.status if entry else PENDING
+    if item.get("removed"):
         return False
+    if status in FINISHED:
+        return _exported_not_imported(item, entry)
     if status == FAILED and no_retry:
         return False
     return not (status == SKIPPED and item["action"] == _plan.SKIP)
@@ -268,7 +288,8 @@ def select_items(
     return [
         item
         for item in ordered
-        if item["id"] in wanted and _needs_run(item, state.status(item["id"]), no_retry)
+        if item["id"] in wanted
+        and _needs_run(item, state.items.get(item["id"]), no_retry)
     ]
 
 
@@ -283,6 +304,7 @@ def select_refresh(
         and not item.get("removed")
         and not item.get("unlisted")
         and state.status(item["id"]) in FINISHED
+        and not _exported_not_imported(item, state.items.get(item["id"]))
         and (not only or item["id"] in only)
     ]
 
@@ -592,6 +614,7 @@ def mark_cutover(
     owners: Owners,
     summary: RunSummary,
     portal: PortalClient | None = None,
+    groups: GroupPlan | None = None,
 ) -> dict[str, Any] | None:
     """With --cutover, the checks that fail and whether the run is marked as
     the final one: only when it finished and every failing check is accepted.
@@ -611,7 +634,13 @@ def mark_cutover(
         }
         for change in owners.changed
     ]
-    failing = failing_checks(plan, state, [*owners.unresolved, *moved], changed)
+    failing = failing_checks(
+        plan,
+        state,
+        [*owners.unresolved, *moved],
+        changed,
+        groups.groups if groups else None,
+    )
     accepted = [c["check"] for c in failing if c["check"] in opts.accept]
     refused = [c["check"] for c in failing if c["check"] not in opts.accept]
     marked = not refused and summary.stopped is None and not opts.dry_run
@@ -794,6 +823,9 @@ def _migrate_one(
     pending: str | None = None,
 ) -> None:
     entry = state.start(item["id"])
+    if item["action"] != _plan.EXPORT_ONLY:
+        # An item exported earlier and imported now is no longer an export.
+        entry.export = None
     item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
     try:
         result = handler(ctx, item, entry)
@@ -1507,7 +1539,7 @@ def _run(
             owners,
             summary,
             redact,
-            mark_cutover(opts, plan, state, owners, summary),
+            mark_cutover(opts, plan, state, owners, summary, groups=groups),
             groups,
         )
     auth = None
@@ -1579,6 +1611,8 @@ def _run(
         owners,
         summary,
         redact,
-        mark_cutover(opts, plan, state, owners, summary, auth.client if auth else None),
+        mark_cutover(
+            opts, plan, state, owners, summary, auth.client if auth else None, groups
+        ),
         groups,
     )
