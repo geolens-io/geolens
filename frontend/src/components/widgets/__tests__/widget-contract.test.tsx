@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { supportedLngs } from '@/i18n/config';
 import { loadAllResources } from '@/i18n/resources';
 import { WidgetView } from '../WidgetView';
+import type { WidgetSurface } from '../contract';
 import {
   checkWidgetWrite,
   getWidgetDefinition,
@@ -15,7 +16,19 @@ const id = '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11';
 
 const examples: Record<string, { config: unknown; fallbackText: string | RegExp }> = {
   markdown: { config: { text: '## Heading\n\nSome **bold** text.' }, fallbackText: /Some \*\*bold\*\* text\./ },
+  indicator: { config: { stat: 'sum', column: 'area' }, fallbackText: /Sum of area/ },
+  bar_chart: {
+    config: { column: 'land_use', stat: 'mean', stat_column: 'area', limit: 5 },
+    fallbackText: /No data yet/,
+  },
 };
+
+// A dashboard widget names the layer it summarizes.
+const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
+
+function instanceFor(surface: WidgetSurface, instance: Record<string, unknown>) {
+  return surface === 'dashboard' ? { layer_id: layerId, ...instance } : instance;
+}
 
 function lookupKey(bundle: unknown, key: string): unknown {
   return key
@@ -41,15 +54,15 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
 
     it('validates its default and example configs', () => {
       for (const config of [definition.defaultConfig, example.config]) {
-        const parsed = parseStoredWidget({ id, type, v: definition.v, config }, surface);
-        expect(parsed).toMatchObject({ ok: true, instance: { id, type, v: definition.v, config } });
-        expect(checkWidgetWrite({ id, type, v: definition.v, config }, surface)).toEqual({ ok: true });
+        const instance = instanceFor(surface, { id, type, v: definition.v, config });
+        expect(parseStoredWidget(instance, surface)).toMatchObject({ ok: true, instance });
+        expect(checkWidgetWrite(instance, surface)).toEqual({ ok: true });
       }
     });
 
     it('rejects configs of the wrong shape', () => {
       for (const config of [undefined, null, 'text', 42, []]) {
-        expect(parseStoredWidget({ id, type, v: definition.v, config }, surface)).toMatchObject({
+        expect(parseStoredWidget(instanceFor(surface, { id, type, v: definition.v, config }), surface)).toMatchObject({
           ok: false,
           reason: 'invalid_config',
         });
@@ -57,7 +70,7 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
     });
 
     it('rejects an unknown type on write', () => {
-      const unknown = { id, type: `${type}-from-the-future`, v: 1, config: example.config };
+      const unknown = instanceFor(surface, { id, type: `${type}-from-the-future`, v: 1, config: example.config });
       expect(checkWidgetWrite(unknown, surface)).toEqual({ ok: false, reason: 'unknown_type' });
       expect(checkWidgetWrite({ ...unknown, v: definition.v + 1, type }, surface)).toEqual({
         ok: false,
@@ -70,7 +83,7 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
         { id, type: `${type}-from-the-future`, v: 1, config: { anything: [1, 2] } },
         { id, type, v: definition.v + 1, config: example.config },
         { id, type, v: definition.v, config: { broken: true } },
-      ];
+      ].map((raw) => instanceFor(surface, raw));
       for (const raw of unreadable) {
         expect(parseStoredWidget(raw, surface).ok).toBe(false);
         expect(checkWidgetWrite(raw, surface).ok).toBe(false);

@@ -2486,6 +2486,116 @@
         "title": "BackfillTenantRun",
         "type": "object"
       },
+      "BarChartConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "description": "The column whose values become bars.",
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "stat": {
+            "default": "count",
+            "enum": [
+              "count",
+              "sum",
+              "mean",
+              "min",
+              "max"
+            ],
+            "title": "Stat",
+            "type": "string"
+          },
+          "stat_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stat Column"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "column"
+        ],
+        "title": "BarChartConfig",
+        "type": "object"
+      },
+      "BarChartWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "bar_chart",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/BarChartConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "BarChartWidget",
+        "type": "object"
+      },
       "BasemapConfig": {
         "additionalProperties": false,
         "properties": {
@@ -5816,6 +5926,78 @@
         "title": "CreateLayerResponse",
         "type": "object"
       },
+      "DashboardConfig": {
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "widgets": {
+            "description": "The widgets on layers this response shows, in panel order.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar_chart": "#/components/schemas/BarChartWidget",
+                  "indicator": "#/components/schemas/IndicatorWidget"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IndicatorWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/BarChartWidget"
+                }
+              ]
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "version",
+          "widgets"
+        ],
+        "title": "DashboardConfig",
+        "type": "object"
+      },
+      "DashboardConfigInput": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "widgets": {
+            "description": "Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar_chart": "#/components/schemas/BarChartWidget",
+                  "indicator": "#/components/schemas/IndicatorWidget"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IndicatorWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/BarChartWidget"
+                }
+              ]
+            },
+            "maxItems": 50,
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "title": "DashboardConfigInput",
+        "type": "object"
+      },
       "DatasetApiKeyCreateRequest": {
         "properties": {
           "name": {
@@ -8638,6 +8820,16 @@
               }
             ]
           },
+          "dashboard_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DashboardConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -10395,6 +10587,101 @@
           "oauth_deleted"
         ],
         "title": "ImportResult",
+        "type": "object"
+      },
+      "IndicatorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "stat": {
+            "enum": [
+              "count",
+              "sum",
+              "mean",
+              "min",
+              "max"
+            ],
+            "title": "Stat",
+            "type": "string"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          }
+        },
+        "required": [
+          "stat"
+        ],
+        "title": "IndicatorConfig",
+        "type": "object"
+      },
+      "IndicatorWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "indicator",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/IndicatorConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "IndicatorWidget",
         "type": "object"
       },
       "InfrastructureConfig": {
@@ -13233,6 +13520,16 @@
               }
             ]
           },
+          "dashboard_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DashboardConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -13926,6 +14223,17 @@
               }
             ],
             "description": "Map-level terrain source and exaggeration preferences"
+          },
+          "dashboard_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DashboardConfigInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dashboard. Omit to keep it; null removes the widgets you see."
           },
           "visibility": {
             "anyOf": [
@@ -19507,6 +19815,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/TerrainConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dashboard_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DashboardConfig"
               },
               {
                 "type": "null"

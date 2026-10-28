@@ -1,14 +1,22 @@
 import { WIDGET_TITLE_MAX_LENGTH } from './contract';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSurface } from './contract';
+import { barChartWidget } from './bar-chart/definition';
+import { indicatorWidget } from './indicator/definition';
 import { markdownTextWidget } from './markdown/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
-export const widgetDefinitions: readonly AnyWidgetDefinition[] = [markdownTextWidget];
+export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
+  markdownTextWidget,
+  indicatorWidget,
+  barChartWidget,
+];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANCE_KEYS = new Set(['id', 'type', 'v', 'title', 'config']);
+// Every dashboard widget summarizes one layer of the dashboard's map.
+const DASHBOARD_INSTANCE_KEYS = new Set([...INSTANCE_KEYS, 'layer_id', 'scope']);
 
 type WidgetRejection =
   | 'malformed'
@@ -37,15 +45,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Parses one instance with the server's rules: the keys are exactly `id`,
- * `type`, `v`, `title` and `config`, and the config is the registered type's
- * at a version this build reads. Never throws: an instance it can't read comes
+ * `type`, `v`, `title` and `config`, plus a required `layer_id` and an
+ * optional `scope` on a dashboard, and the config is the registered type's at
+ * a version this build reads. Never throws: an instance it can't read comes
  * back as `ok: false` and is shown as a notice. On success the config is
  * upgraded to the definition's `v`.
  */
 export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedWidget {
+  const allowedKeys = surface === 'dashboard' ? DASHBOARD_INSTANCE_KEYS : INSTANCE_KEYS;
   if (
     !isRecord(raw) ||
-    !Object.keys(raw).every((key) => INSTANCE_KEYS.has(key)) ||
+    !Object.keys(raw).every((key) => allowedKeys.has(key)) ||
     typeof raw.id !== 'string' ||
     !UUID.test(raw.id) ||
     typeof raw.type !== 'string' ||
@@ -60,10 +70,22 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
   if (!definition) return { ok: false, reason: 'unknown_type' };
   const v = raw.v as number;
   if (v < 1 || v > definition.v) return { ok: false, reason: 'unsupported_version' };
+  if (
+    surface === 'dashboard' &&
+    (typeof raw.layer_id !== 'string' ||
+      !UUID.test(raw.layer_id) ||
+      (raw.scope !== undefined && raw.scope !== 'layer' && raw.scope !== 'view'))
+  ) {
+    return { ok: false, reason: 'malformed' };
+  }
   const config = definition.parseConfig(raw.config, v);
   if (config === null) return { ok: false, reason: 'invalid_config' };
   const instance: WidgetInstance = { id: raw.id, type: raw.type, v: definition.v, config };
   if (typeof raw.title === 'string') instance.title = raw.title;
+  if (surface === 'dashboard') {
+    instance.layer_id = raw.layer_id as string;
+    instance.scope = raw.scope === 'view' ? 'view' : 'layer';
+  }
   return { ok: true, definition, instance };
 }
 

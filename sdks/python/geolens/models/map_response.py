@@ -17,6 +17,7 @@ import datetime
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config import DashboardConfig
     from ..models.group_ref import GroupRef
     from ..models.map_layer_response import MapLayerResponse
     from ..models.terrain_config import TerrainConfig
@@ -50,6 +51,7 @@ class MapResponse:
         notes (None | str | Unset):
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
+        dashboard_config (DashboardConfig | None | Unset):
         thumbnail_url (None | str | Unset):
         og_image_url (None | str | Unset):
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
@@ -80,6 +82,7 @@ class MapResponse:
     notes: None | str | Unset = UNSET
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfig | None | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     og_image_url: None | str | Unset = UNSET
     forked_from_id: None | Unset | UUID = UNSET
@@ -92,6 +95,7 @@ class MapResponse:
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
         from ..models.terrain_config import TerrainConfig
 
         id = str(self.id)
@@ -158,6 +162,14 @@ class MapResponse:
             terrain_config = self.terrain_config.to_dict()
         else:
             terrain_config = self.terrain_config
+
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfig):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
 
         thumbnail_url: None | str | Unset
         if isinstance(self.thumbnail_url, Unset):
@@ -246,6 +258,8 @@ class MapResponse:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
         if og_image_url is not UNSET:
@@ -268,6 +282,7 @@ class MapResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
         from ..models.group_ref import GroupRef
         from ..models.map_layer_response import MapLayerResponse
         from ..models.terrain_config import TerrainConfig
@@ -385,6 +400,23 @@ class MapResponse:
             return cast(None | TerrainConfig | Unset, data)
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
+        def _parse_dashboard_config(data: object) -> DashboardConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfig.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfig | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
 
         def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
@@ -509,6 +541,7 @@ class MapResponse:
             notes=notes,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             thumbnail_url=thumbnail_url,
             og_image_url=og_image_url,
             forked_from_id=forked_from_id,

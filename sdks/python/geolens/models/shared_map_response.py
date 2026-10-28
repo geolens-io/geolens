@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config import DashboardConfig
     from ..models.shared_layer_response import SharedLayerResponse
     from ..models.terrain_config import TerrainConfig
 
@@ -37,6 +38,7 @@ class SharedMapResponse:
         show_basemap_labels (bool | Unset):  Default: True.
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
+        dashboard_config (DashboardConfig | None | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
         legend_title (None | str | Unset):
     """
@@ -54,12 +56,14 @@ class SharedMapResponse:
     show_basemap_labels: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfig | None | Unset = UNSET
     has_non_public_layers: bool | Unset = False
     legend_title: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
         from ..models.terrain_config import TerrainConfig
 
         name = self.name
@@ -104,6 +108,14 @@ class SharedMapResponse:
         else:
             terrain_config = self.terrain_config
 
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfig):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
+
         has_non_public_layers = self.has_non_public_layers
 
         legend_title: None | str | Unset
@@ -134,6 +146,8 @@ class SharedMapResponse:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if legend_title is not UNSET:
@@ -144,6 +158,7 @@ class SharedMapResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
         from ..models.shared_layer_response import SharedLayerResponse
         from ..models.terrain_config import TerrainConfig
 
@@ -214,6 +229,23 @@ class SharedMapResponse:
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
 
+        def _parse_dashboard_config(data: object) -> DashboardConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfig.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfig | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
+
         has_non_public_layers = d.pop("has_non_public_layers", UNSET)
 
         def _parse_legend_title(data: object) -> None | str | Unset:
@@ -239,6 +271,7 @@ class SharedMapResponse:
             show_basemap_labels=show_basemap_labels,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             has_non_public_layers=has_non_public_layers,
             legend_title=legend_title,
         )

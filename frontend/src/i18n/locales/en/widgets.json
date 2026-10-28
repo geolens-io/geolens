@@ -1,10 +1,33 @@
 {
   "unavailable": "This block can't be shown. It may come from a newer version of GeoLens.",
+  "noData": "No data yet",
+  "noRows": "No data",
+  "showTable": "Show data table",
+  "stats": {
+    "count": "Count",
+    "sum": "Sum of {{column}}",
+    "mean": "Average of {{column}}",
+    "min": "Minimum of {{column}}",
+    "max": "Maximum of {{column}}"
+  },
   "types": {
     "markdown": {
       "label": "Text",
       "imageNotShown": "Image not shown",
       "imageNotShownAlt": "Image not shown: {{alt}}"
+    },
+    "indicator": {
+      "label": "Indicator",
+      "summary": "{{label}}: {{value}}"
+    },
+    "bar_chart": {
+      "label": "Bar chart",
+      "summary": "{{stat}} by {{column}}",
+      "keyboardHint": "Use the arrow keys to move between bars.",
+      "bar": "{{label}}: {{value}}",
+      "noValue": "(no value)",
+      "other": "Other",
+      "roleDescription": "bar chart"
     }
   }
 }

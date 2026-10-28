@@ -1,10 +1,33 @@
 {
   "unavailable": "无法显示此块。它可能来自较新版本的 GeoLens。",
+  "noData": "暂无数据",
+  "noRows": "无数据",
+  "showTable": "显示数据表",
+  "stats": {
+    "count": "计数",
+    "sum": "{{column}} 总和",
+    "mean": "{{column}} 平均值",
+    "min": "{{column}} 最小值",
+    "max": "{{column}} 最大值"
+  },
   "types": {
     "markdown": {
       "label": "文本",
       "imageNotShown": "未显示图片",
       "imageNotShownAlt": "未显示图片：{{alt}}"
+    },
+    "indicator": {
+      "label": "指标",
+      "summary": "{{label}}：{{value}}"
+    },
+    "bar_chart": {
+      "label": "条形图",
+      "summary": "按 {{column}} 统计的{{stat}}",
+      "keyboardHint": "使用方向键在各条之间移动。",
+      "bar": "{{label}}：{{value}}",
+      "noValue": "（无值）",
+      "other": "其他",
+      "roleDescription": "条形图"
     }
   }
 }

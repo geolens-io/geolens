@@ -12,10 +12,15 @@ toolbar and is not part of this registry.
 The server owns the stored shape (`backend/app/modules/catalog/widgets/schemas.py`),
 and `registry.ts` mirrors it. Each instance is `{ id, type, v, title?, config }`:
 `id` is a UUID the client makes and keeps across saves, unique within a list;
-`title` is at most 120 characters; no other keys are allowed. A type that needs
-more, such as a dashboard widget's layer id, adds those keys to the server model
-and to `parseStoredWidget` together. The document that holds the instances, a
-story or a map's `dashboard_config`, has its own `version`.
+`title` is at most 120 characters. A dashboard widget also has a `layer_id`,
+the map layer it summarizes, and a `scope`, `layer` (the default) or `view`; no
+other keys are allowed. A type that needs more adds those keys to the server
+model and to `parseStoredWidget` together. The document that holds the
+instances, a story or a map's `dashboard_config`, has its own `version`.
+
+A chart is SVG drawn by its renderer, with no chart library: one tab stop,
+arrow keys to move between its marks, colours from theme tokens, and its data
+table as the fallback (see `bar-chart/`).
 
 A type is a `WidgetDefinition` (`contract.ts`) with:
 
@@ -43,9 +48,12 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 
 - `parseStoredWidget(raw, surface)` never throws. An instance this build can't
   read (an unknown type, a newer `v`, an invalid config) comes back as
-  `{ ok: false, reason }` and is shown as a notice. The server already leaves
-  those out of its responses and puts them back when the document is saved, so
-  this is a backstop.
+  `{ ok: false, reason }` and is shown as a notice. A save without it deletes
+  it, so the server has to keep such instances out of its responses and put
+  them back on save. Dashboards do that for instances the server can't parse
+  and for types it doesn't accept on write yet. Stories do it only for blocks
+  the server can't parse, so register a block type here before the server
+  parses it.
 - `checkWidgetWrite(submitted, surface)` is the server's write rule: a
   submitted instance must parse, or the server answers 422. There's no
   exception for stored instances.

@@ -14,6 +14,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config_input import DashboardConfigInput
     from ..models.map_layer_input import MapLayerInput
     from ..models.terrain_config import TerrainConfig
 
@@ -37,6 +38,8 @@ class MapUpdate:
         show_basemap_labels (bool | None | Unset):
         basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
+        dashboard_config (DashboardConfigInput | None | Unset): The dashboard. Omit to keep it; null removes the widgets
+            you see.
         visibility (MapVisibility | None | Unset): private, internal, public or restricted. A map shared with groups is
             restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one
             group.
@@ -58,6 +61,7 @@ class MapUpdate:
     show_basemap_labels: bool | None | Unset = UNSET
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfigInput | None | Unset = UNSET
     visibility: MapVisibility | None | Unset = UNSET
     layers: list[MapLayerInput] | None | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
@@ -66,6 +70,7 @@ class MapUpdate:
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config_input import DashboardConfigInput
         from ..models.terrain_config import TerrainConfig
 
         name: None | str | Unset
@@ -144,6 +149,14 @@ class MapUpdate:
         else:
             terrain_config = self.terrain_config
 
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfigInput):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
+
         visibility: None | str | Unset
         if isinstance(self.visibility, Unset):
             visibility = UNSET
@@ -206,6 +219,8 @@ class MapUpdate:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if layers is not UNSET:
@@ -220,6 +235,7 @@ class MapUpdate:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config_input import DashboardConfigInput
         from ..models.map_layer_input import MapLayerInput
         from ..models.terrain_config import TerrainConfig
 
@@ -351,6 +367,25 @@ class MapUpdate:
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
 
+        def _parse_dashboard_config(
+            data: object,
+        ) -> DashboardConfigInput | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfigInput.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfigInput | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
+
         def _parse_visibility(data: object) -> MapVisibility | None | Unset:
             if data is None:
                 return data
@@ -431,6 +466,7 @@ class MapUpdate:
             show_basemap_labels=show_basemap_labels,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             visibility=visibility,
             layers=layers,
             plugins=plugins,

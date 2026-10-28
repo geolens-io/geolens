@@ -22,7 +22,13 @@ from app.modules.catalog.authorization import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.service_diff import _replace_layers
+from app.modules.catalog.maps.dashboard import (
+    DashboardConfigInput,
+    drop_repointed,
+    fork_dashboard,
+    merge_dashboard,
+)
+from app.modules.catalog.maps.service_diff import _replace_layers, _unreadable_layer_ids
 from app.modules.catalog.maps.service_layers import (
     MAP_WRITE_DENIED,
     bulk_check_dataset_access,
@@ -422,6 +428,7 @@ async def update_map(
     show_basemap_labels: bool | None = None,
     basemap_config: dict | None | object = _UNSET,
     terrain_config: dict | None | object = _UNSET,
+    dashboard_config: dict | None | object = _UNSET,
     visibility: str | None = None,
     plugins: list[str] | None | object = _UNSET,
     legend_title: str | None | object = _UNSET,
@@ -433,6 +440,8 @@ async def update_map(
     ``user`` is the caller the save acts for (None reads as anonymous). Layers
     whose dataset map reads hide from it survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
+    A ``dashboard_config`` is checked against the layers the map has after the
+    save (``merge_dashboard``).
 
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
     restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
@@ -444,9 +453,13 @@ async def update_map(
     ``(Map, layer_rows, forked_from_name, owner_username)``. Built from
     in-session ORM state so callers don't need a post-save re-fetch.
     """
-    if layers is not None:
+    if layers is not None or dashboard_config is not _UNSET:
         await lock_map_layers(session, map_id)
-    result = await session.execute(select(Map).where(Map.id == map_id))
+    # The caller loaded this map before any lock; the merges below need the
+    # stored values as they are now, not the identity map's copy.
+    result = await session.execute(
+        select(Map).where(Map.id == map_id).execution_options(populate_existing=True)
+    )
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
@@ -490,8 +503,16 @@ async def update_map(
         map_obj.legend_title = title.strip() if title and title.strip() else None
 
     # Replace layers if provided
+    datasets_before: dict[uuid.UUID, uuid.UUID] = {}
     if layers is not None:
+        datasets_before = await _layer_datasets(session, map_id)
         await _replace_layers(session, map_id, layers, user)
+    if dashboard_config is not _UNSET or (
+        datasets_before and map_obj.dashboard_config is not None
+    ):
+        map_obj.dashboard_config = await _saved_dashboard(
+            session, map_obj, dashboard_config, user, datasets_before
+        )
 
     await session.flush()
     # The flush's UPDATE holds the map row when there was one to write.
@@ -505,6 +526,46 @@ async def update_map(
     if db_updated_at is not None:
         map_obj.updated_at = db_updated_at
     return map_obj, layer_rows, forked_name, owner_username
+
+
+async def _layer_datasets(
+    session: AsyncSession, map_id: uuid.UUID
+) -> dict[uuid.UUID, uuid.UUID]:
+    rows = await session.execute(
+        select(MapLayer.id, MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    )
+    return {layer_id: dataset_id for layer_id, dataset_id in rows.all()}
+
+
+async def _saved_dashboard(
+    session: AsyncSession,
+    map_obj: Map,
+    sent: object,
+    user: Identity | None,
+    datasets_before: dict[uuid.UUID, uuid.UUID],
+) -> dict | None:
+    """The dashboard after a save that sent one (``sent`` is a dict or None),
+    or that replaced the layers (``sent`` is ``_UNSET``)."""
+    layers = list(
+        (
+            await session.scalars(select(MapLayer).where(MapLayer.map_id == map_obj.id))
+        ).all()
+    )
+    repointed = {
+        layer.id
+        for layer in layers
+        if datasets_before.get(layer.id, layer.dataset_id) != layer.dataset_id
+    }
+    if sent is _UNSET:
+        return drop_repointed(map_obj.dashboard_config, repointed)
+    hidden = await _unreadable_layer_ids(session, layers, user)
+    return merge_dashboard(
+        None if sent is None else DashboardConfigInput.model_validate(sent),
+        map_obj.dashboard_config,
+        readable_layer_ids={layer.id for layer in layers} - hidden,
+        hidden_layer_ids=hidden,
+        repointed_layer_ids=repointed,
+    )
 
 
 async def delete_map(
@@ -593,6 +654,9 @@ async def duplicate_map(
         session, layer_dataset_ids, user, user_roles
     )
 
+    copied_layers = {
+        layer.id: uuid.uuid4() for layer in layers if layer.dataset_id in accessible_ids
+    }
     new_map = Map(
         name=fork_name,
         description=source.description,
@@ -614,6 +678,8 @@ async def duplicate_map(
                 session, source.terrain_config, accessible_ids, user
             ),
         ),
+        # Widgets follow their layers, so one on a layer the fork skips goes too.
+        dashboard_config=fork_dashboard(source.dashboard_config, copied_layers),
         plugins=source.plugins,
         legend_title=source.legend_title,
         thumbnail_uri=None,
@@ -626,10 +692,11 @@ async def duplicate_map(
 
     excluded_count = 0
     for layer in layers:
-        if layer.dataset_id not in accessible_ids:
+        if layer.id not in copied_layers:
             excluded_count += 1
             continue
         new_layer = MapLayer(
+            id=copied_layers[layer.id],
             map_id=new_map.id,
             dataset_id=layer.dataset_id,
             sort_order=layer.sort_order,

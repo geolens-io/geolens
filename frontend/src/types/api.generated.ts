@@ -7537,6 +7537,62 @@ export interface components {
              */
             status: "pending" | "already_running" | "not_queued";
         };
+        /** BarChartConfig */
+        BarChartConfig: {
+            /**
+             * Column
+             * @description The column whose values become bars.
+             */
+            column: string;
+            /**
+             * Stat
+             * @default count
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Stat Column */
+            stat_column?: string | null;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
+        /** BarChartWidget */
+        BarChartWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "bar_chart";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["BarChartConfig"];
+        };
         /** BasemapConfig */
         BasemapConfig: {
             /**
@@ -8990,6 +9046,30 @@ export interface components {
              */
             created_at: string;
         };
+        /** DashboardConfig */
+        DashboardConfig: {
+            /** Version */
+            version: number;
+            /**
+             * Widgets
+             * @description The widgets on layers this response shows, in panel order.
+             */
+            widgets: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"])[];
+        };
+        /** DashboardConfigInput */
+        DashboardConfigInput: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * Widgets
+             * @description Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+             */
+            widgets?: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"])[];
+        };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {
             /**
@@ -10162,6 +10242,7 @@ export interface components {
             show_basemap_labels: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -11048,6 +11129,51 @@ export interface components {
              * @default 0
              */
             oauth_accounts_deleted: number;
+        };
+        /** IndicatorConfig */
+        IndicatorConfig: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Column */
+            column?: string | null;
+        };
+        /** IndicatorWidget */
+        IndicatorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "indicator";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["IndicatorConfig"];
         };
         /** InfrastructureConfig */
         InfrastructureConfig: {
@@ -12126,6 +12252,7 @@ export interface components {
             show_basemap_labels: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -12374,6 +12501,8 @@ export interface components {
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             /** @description Map-level terrain source and exaggeration preferences */
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            /** @description The dashboard. Omit to keep it; null removes the widgets you see. */
+            dashboard_config?: components["schemas"]["DashboardConfigInput"] | null;
             /** @description private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group. */
             visibility?: components["schemas"]["MapVisibility"] | null;
             /**
@@ -14878,6 +15007,7 @@ export interface components {
             show_basemap_labels: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             /**
              * Has Non Public Layers
              * @default false

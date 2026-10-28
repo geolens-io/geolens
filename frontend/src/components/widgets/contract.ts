@@ -10,13 +10,17 @@ export const WIDGET_TITLE_MAX_LENGTH = 120;
 /**
  * A widget instance as the server stores and returns it (`widgets/schemas.py`).
  * `id` is made by the client and stays the same across saves. `v` is the
- * version of this type's config shape, starting at 1.
+ * version of this type's config shape, starting at 1. Dashboard widgets also
+ * name the map layer they summarize, and whether they cover the whole layer
+ * or only the map view.
  */
 export interface WidgetInstance<C = unknown> {
   id: string;
   type: string;
   v: number;
   title?: string;
+  layer_id?: string;
+  scope?: 'layer' | 'view';
   config: C;
 }
 
