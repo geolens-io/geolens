@@ -99,6 +99,24 @@ def in_use(made: Mapping[str, Any] | None) -> bool:
     )
 
 
+def groups_in_use(plan: Mapping[str, Any], state: MigrationState) -> set[str]:
+    """The ArcGIS groups a restricted item still shares with: one still to
+    import, or one migrated and not removed, unlisted ones included, whose
+    GeoLens objects keep the group's grant. A group outside these waits on
+    nobody."""
+    needed = set(wanted_groups(plan, plan["items"]))
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        if (
+            not item.get("removed")
+            and item["target"]["visibility"] == "restricted"
+            and entry is not None
+            and (entry.dataset_ids or entry.map_id)
+        ):
+            needed.update(item["target"]["groups"] or [])
+    return needed
+
+
 def sharing_losses(
     plan: Mapping[str, Any], state: MigrationState, item: Mapping[str, Any]
 ) -> list[str]:
@@ -151,9 +169,8 @@ def _users(
         if entry is not None and entry.owner_pending and not item.get("removed"):
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
-    needed = set(wanted_groups(plan, plan["items"]))
+    needed = groups_in_use(plan, state)
     for group_id, made in sorted(state.groups.items()):
-        # A group no item to import is shared with any more waits on nobody.
         if not in_use(made) or group_id not in needed:
             continue
         for pending in made.get("pending") or []:

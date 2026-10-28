@@ -21,8 +21,12 @@ from typing import Any
 
 from . import arcgis_report as _report
 from .arcgis_migrate_collections import DENIED
-from .arcgis_migrate_cutover import attachment_losses, in_use, sharing_losses
-from .arcgis_migrate_groups import wanted_groups
+from .arcgis_migrate_cutover import (
+    attachment_losses,
+    groups_in_use,
+    in_use,
+    sharing_losses,
+)
 from .arcgis_migrate_export import item_replacement
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
@@ -151,7 +155,7 @@ def _follow_ups(
             add(item["id"], "relationships", text)
     for unresolved in owner_unresolved:
         add(unresolved["item"], "owner_unresolved", unresolved["reason"])
-    needed = set(wanted_groups(plan, plan["items"]))
+    needed = groups_in_use(plan, state)
     for group_id, group in sorted(state.groups.items()):
         current = in_use(group) and group_id in needed
         for pending in (group.get("pending") or []) if current else []:

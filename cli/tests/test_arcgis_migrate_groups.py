@@ -971,9 +971,12 @@ def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
     assert sent == [{"group_ids": sorted([CREATED, OTHER])}]
 
 
-@pytest.mark.parametrize("change", ["removed", "private"])
-def test_a_group_no_item_needs_any_more_blocks_no_cutover(
-    runner, tmp_path, team, change
+@pytest.mark.parametrize(
+    ("change", "counted"),
+    [("removed", False), ("private", False), ("unlisted", True)],
+)
+def test_pending_members_count_while_a_migrated_or_planned_item_needs_the_group(
+    runner, tmp_path, team, change, counted
 ):
     service = _service(team)
     GroupsApi(team, service, existing=[])
@@ -982,16 +985,18 @@ def test_a_group_no_item_needs_any_more_blocks_no_cutover(
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
         if item["id"] == A2:
-            if change == "removed":
-                item["removed"] = True
-            else:
+            if change == "private":
                 item["target"]["visibility"] = "private"
+            else:
+                # A partial inventory marks a migrated item unlisted; its
+                # GeoLens datasets keep the group's grant.
+                item[change] = True
     plan_file.write_text(json.dumps(plan))
 
     _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
 
     checks = {c["check"] for c in payload["cutover"]["checks"]}
-    assert "unresolved-users" not in checks
+    assert ("unresolved-users" in checks) is counted
     state = MigrationState.load(
         tmp_path / "arcgis-migration-state.json",
         plan["portal"]["url"],
@@ -1000,4 +1005,4 @@ def test_a_group_no_item_needs_any_more_blocks_no_cutover(
         persist=False,
     )
     report = build_run_report(plan, state)
-    assert "member_pending" not in {f["kind"] for f in report["follow_ups"]}
+    assert ("member_pending" in {f["kind"] for f in report["follow_ups"]}) is counted
