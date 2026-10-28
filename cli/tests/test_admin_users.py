@@ -16,7 +16,21 @@ from .arcgis_fake import inventory_report
 
 NOW = "2026-10-01T00:00:00Z"
 OPERATOR = "00000000-0000-0000-0000-0000000000a0"
-OIDC = [{"slug": "corp", "display_name": "Corp SSO", "provider_type": "oidc"}]
+OIDC = ["password", "oidc"]
+
+
+def _capabilities(methods: list[str]) -> dict:
+    return {
+        "server": {"version": "1.28.0", "edition": "community"},
+        "publish_contract": 1,
+        "auth": {"password_login_enabled": "password" in methods, "methods": methods},
+        "upload": None,
+        "basemaps": [],
+        "flags": {},
+        "status_order": ["draft", "published"],
+        "rate_limits": {"global_per_second": 10, "login_per_minute": 5},
+        "me": None,
+    }
 
 
 def _user(user_id: str, username: str, email: str | None, roles: list[str]) -> dict:
@@ -36,7 +50,7 @@ def _user(user_id: str, username: str, email: str | None, roles: list[str]) -> d
 class Users:
     """The admin user routes of a fake instance, recording what was created."""
 
-    def __init__(self, fake, providers: list[dict] | None = None) -> None:
+    def __init__(self, fake, methods: list[str] | None = None) -> None:
         self.users = [
             _user(OPERATOR, "operator", "operator@example.org", ["admin"]),
             _user(
@@ -48,7 +62,7 @@ class Users:
         ]
         self.sent: list[dict] = []
         self.refuse: dict[str, tuple[int, dict]] = {}
-        fake.routes["GET /auth/oauth/providers/"] = providers or []
+        fake.routes["GET /capabilities/"] = _capabilities(methods or ["password"])
         fake.routes["GET /admin/users/"] = lambda seen: {
             "users": self.users,
             "total": len(self.users),
@@ -106,7 +120,9 @@ def test_new_users_are_created_and_existing_ones_skipped(
     runner, tmp_path, fake_geolens
 ):
     users = Users(fake_geolens)
-    path = _csv(tmp_path, ROWS + "Alice,,viewer\ndave,alice@example.org,viewer\n")
+    path = _csv(
+        tmp_path, ROWS + "Alice,,viewer\noperator,OPERATOR@example.org,viewer\n"
+    )
 
     result, payload = _run(runner, str(path))
 
@@ -115,8 +131,29 @@ def test_new_users_are_created_and_existing_ones_skipped(
         ("bob", "bob@example.org", "editor"),
         ("carol", None, "viewer"),
     ]
-    assert [u["username"] for u in payload["skipped"]] == ["Alice", "dave"]
+    assert [u["username"] for u in payload["skipped"]] == ["Alice", "operator"]
     assert [u["username"] for u in payload["created"]] == ["bob", "carol"]
+
+
+@pytest.mark.parametrize(
+    ("row", "reason"),
+    [
+        ("alice,someone@example.org,viewer", "GeoLens user alice has another email"),
+        ("dave,alice@example.org,viewer", "the email belongs to GeoLens user alice"),
+    ],
+    ids=["same-name-other-email", "other-name-same-email"],
+)
+def test_a_row_clashing_with_an_account_is_a_conflict(
+    runner, tmp_path, fake_geolens, row, reason
+):
+    users = Users(fake_geolens)
+
+    result, payload = _run(runner, str(_csv(tmp_path, f"username,email,role\n{row}\n")))
+
+    assert result.exit_code == 1
+    assert users.sent == []
+    assert payload["skipped"] == []
+    assert payload["conflicts"][0]["reason"] == reason
 
 
 def test_passwords_are_shown_only_with_print_passwords(runner, tmp_path, fake_geolens):
@@ -193,20 +230,20 @@ def test_a_partial_failure_exits_1_after_creating_the_rest(
 def test_an_oidc_instance_gets_no_users_without_link_by_email(
     runner, tmp_path, fake_geolens
 ):
-    users = Users(fake_geolens, providers=OIDC)
+    users = Users(fake_geolens, methods=OIDC)
 
     result, payload = _run(runner, str(_csv(tmp_path, ROWS)))
 
     assert result.exit_code == 0, result.output
     assert users.sent == []
-    assert payload["identity_provider"] is True
+    assert payload["identity_providers"] == ["oidc"]
     assert [u["username"] for u in payload["pending"]] == ["bob", "carol"]
 
 
 def test_link_by_email_creates_users_that_have_an_email_and_shows_no_password(
     runner, tmp_path, fake_geolens
 ):
-    users = Users(fake_geolens, providers=OIDC)
+    users = Users(fake_geolens, methods=OIDC)
 
     result, payload = _run(runner, str(_csv(tmp_path, ROWS)), "--link-by-email")
 
@@ -218,16 +255,14 @@ def test_link_by_email_creates_users_that_have_an_email_and_shows_no_password(
 
 
 @pytest.mark.parametrize(
-    ("args", "providers"),
+    ("args", "methods"),
     [
         (["--link-by-email", "--print-passwords"], OIDC),
-        (["--link-by-email"], []),
+        (["--link-by-email"], ["password"]),
     ],
 )
-def test_link_by_email_misuse_is_refused(
-    runner, tmp_path, fake_geolens, args, providers
-):
-    users = Users(fake_geolens, providers=providers)
+def test_link_by_email_misuse_is_refused(runner, tmp_path, fake_geolens, args, methods):
+    users = Users(fake_geolens, methods=methods)
 
     result, _ = _run(runner, str(_csv(tmp_path, ROWS)), *args)
 
@@ -328,3 +363,105 @@ def test_from_inventory_creates_its_users(runner, tmp_path, fake_geolens):
         ("gis_admin", "editor"),
         ("planner_one", "viewer"),
     ]
+
+
+def test_saml_counts_as_an_identity_provider(runner, tmp_path, fake_geolens):
+    users = Users(fake_geolens, methods=["saml"])
+
+    result, payload = _run(runner, str(_csv(tmp_path, ROWS)))
+
+    assert result.exit_code == 0, result.output
+    assert users.sent == []
+    assert payload["identity_providers"] == ["saml"]
+
+
+def test_a_dry_run_creates_nothing(runner, tmp_path, fake_geolens):
+    users = Users(fake_geolens)
+
+    result, payload = _run(runner, str(_csv(tmp_path, ROWS)), "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert users.sent == []
+    assert [u["username"] for u in payload["created"]] == ["bob", "carol"]
+    assert all("password" not in u and "id" not in u for u in payload["created"])
+
+
+def test_seed_csv_never_overwrites_a_file(runner, tmp_path, fake_geolens):
+    Users(fake_geolens)
+    out = tmp_path / "seed.csv"
+    out.write_text("keep me\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "users",
+            "import",
+            "--from-inventory",
+            str(_inventory(tmp_path)),
+            "--seed-csv",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "already exists" in result.output
+    assert out.read_text() == "keep me\n"
+
+
+def test_seed_cells_a_spreadsheet_would_run_are_made_inert(tmp_path):
+    out = tmp_path / "seed.csv"
+
+    admin_users.write_seed(
+        out,
+        [
+            admin_users.Row("=cmd|' /C calc'!A0", None, "viewer"),
+            admin_users.Row("@sum", "+1@example.org", "viewer"),
+            admin_users.Row("plain", "-x@example.org", "viewer"),
+        ],
+    )
+
+    assert out.read_text().splitlines()[1:] == [
+        "'=cmd|' /C calc'!A0,,viewer",
+        "'@sum,'+1@example.org,viewer",
+        "plain,'-x@example.org,viewer",
+    ]
+
+
+def test_an_unexpected_error_carrying_the_password_is_redacted(
+    runner, tmp_path, fake_geolens, monkeypatch
+):
+    Users(fake_geolens)
+    sent: list[str] = []
+
+    def explode(geolens, row, password):
+        sent.append(password)
+        raise RuntimeError(f"connection reset while sending {password}")
+
+    monkeypatch.setattr(admin_users, "_create", explode)
+
+    result, _ = _run(runner, str(_csv(tmp_path, ROWS)))
+
+    assert result.exit_code == 1
+    assert sent and sent[0] not in result.output
+    assert "[REDACTED]" in result.output
+
+
+def test_ctrl_c_keeps_the_passwords_already_made(
+    runner, tmp_path, fake_geolens, monkeypatch
+):
+    users = Users(fake_geolens)
+    create = admin_users._create
+
+    def interrupt_second(geolens, row, password):
+        if users.sent:
+            raise KeyboardInterrupt
+        return create(geolens, row, password)
+
+    monkeypatch.setattr(admin_users, "_create", interrupt_second)
+
+    result, payload = _run(runner, str(_csv(tmp_path, ROWS)), "--print-passwords")
+
+    assert result.exit_code == 130
+    assert payload["interrupted"] is True
+    assert [u["password"] for u in payload["created"]] == users.passwords

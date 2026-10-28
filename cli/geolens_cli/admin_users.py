@@ -13,18 +13,21 @@ otherwise nobody knows it and the operator sets one per user through the
 admin password reset. A password is never written to a file, a log or an
 error message.
 
-An instance that signs in through an OpenID Connect provider creates its
-users at their first sign-in, so by default nothing is created there and
-those owners and members stay pending until a migrate rerun finds them.
-``--link-by-email`` creates them anyway, with a password nobody is shown, for
-that first sign-in to link to by email; GeoLens links only when the provider
-sends ``email_verified``.
+An instance that signs in through an identity provider (OpenID Connect,
+SAML or a sign-in extension) creates its users at their first sign-in, so by
+default nothing is created there and those owners and members stay pending
+until a migrate rerun finds them. ``--link-by-email`` creates them anyway,
+with a password nobody is shown, for that first sign-in to link to by email;
+GeoLens links only when the provider sends ``email_verified``. An email an
+admin enters counts as verified, so a provider sign-in with that address
+takes the account: rows' emails need review before ``--link-by-email``.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import os
 import secrets
 import string
 from collections.abc import Callable, Iterable, Mapping
@@ -36,7 +39,6 @@ import click
 import typer
 
 from . import arcgis_plan as _plan
-from . import arcgis_report as _report
 from . import output as _output
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_OK, EXIT_SERVER, EXIT_USAGE
 from .arcgis_migrate_session import GeoLens, GeoLensError
@@ -47,7 +49,10 @@ COLUMNS = ("username", "email", "role")
 OWNER_ROLE = "editor"
 MEMBER_ROLE = "viewer"
 USERNAME_LENGTH = (3, 150)
+EXIT_INTERRUPTED = 130
 USER_PAGE_SIZE = 200
+# A spreadsheet reads a cell starting with one of these as a formula.
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
 # Well past the default 12-character policy and under bcrypt's 72 bytes.
 PASSWORD_LENGTH = 32
 _PASSWORD_CLASSES = (
@@ -157,19 +162,30 @@ def rows_from_inventory(inventory: Mapping[str, Any]) -> list[Row]:
     )
 
 
+def _cell(value: str) -> str:
+    """*value* made inert for a spreadsheet the CSV is opened in."""
+    return f"'{value}" if value.startswith(_FORMULA_LEAD) else value
+
+
 def write_seed(path: Path, rows: Iterable[Row]) -> None:
-    """Write *rows* as a CSV to review and edit before importing it."""
-    if path.exists():
-        raise UsageError(f"{path} already exists; pass another --seed-csv path")
+    """Write *rows* as a new CSV, at mode 0600 since it holds email addresses,
+    to review and edit before importing it; an existing file is refused."""
     text = io.StringIO()
     writer = csv.writer(text, lineterminator="\n")
     writer.writerow(COLUMNS)
-    writer.writerows([row.username, row.email or "", row.role] for row in rows)
+    writer.writerows(
+        [_cell(row.username), _cell(row.email or ""), row.role] for row in rows
+    )
     try:
-        # The CSV holds email addresses.
-        _report.write_private(path, text.getvalue())
+        handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise UsageError(
+            f"{path} already exists; pass another --seed-csv path"
+        ) from None
     except OSError as exc:
         raise UsageError(f"can't write {path}: {exc.strerror}") from None
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(text.getvalue())
 
 
 def _list_users(geolens: GeoLens) -> list[Any]:
@@ -185,10 +201,12 @@ def _list_users(geolens: GeoLens) -> list[Any]:
             return users
 
 
-def _signs_in_through_a_provider(geolens: GeoLens) -> bool:
-    from geolens.api.auth import list_public_providers_auth_oauth_providers_get as get
+def _identity_providers(geolens: GeoLens) -> list[str]:
+    """The instance's sign-in methods other than its own password form."""
+    from geolens.api.admin import get_capabilities_capabilities_get as get
 
-    return bool(geolens.call(get.sync_detailed))
+    methods = geolens.call(get.sync_detailed).auth.methods
+    return [method for method in methods if method != "password"]
 
 
 def _create(geolens: GeoLens, row: Row, password: str) -> Any:
@@ -239,49 +257,97 @@ def import_users(
     opts: ImportOptions,
     redact: Redactor,
 ) -> dict[str, Any]:
-    """Create each row's user unless it exists or must wait; what happened."""
-    provider = _signs_in_through_a_provider(geolens)
-    if opts.link_by_email and not provider:
+    """Create each row's user unless it exists, conflicts with an account or
+    must wait; what happened. Ctrl-C stops before the next row and keeps what
+    was created, so its passwords are still shown."""
+    providers = _identity_providers(geolens)
+    if opts.link_by_email and not providers:
         raise UsageError(
             "--link-by-email is for an instance that signs in through an "
             "identity provider, and this one has none"
         )
-    known: set[str] = set()
-    for user in _list_users(geolens):
-        known.update(n.lower() for n in (user.username, user.email) if n)
+    accounts = _Accounts(_list_users(geolens))
     result: dict[str, Any] = {
-        "identity_provider": provider,
+        "identity_providers": providers,
         "created": [],
         "skipped": [],
+        "conflicts": [],
         "pending": [],
         "failed": [],
+        "interrupted": False,
     }
-    for row in rows:
-        entry = {"username": row.username, "email": row.email, "role": row.role}
-        if row.username.lower() in known or (row.email and row.email.lower() in known):
-            result["skipped"].append({**entry, "reason": "already a GeoLens user"})
-            continue
-        reason = _pending_reason(row, opts, provider)
-        if reason:
-            result["pending"].append({**entry, "reason": reason})
-            continue
-        if opts.dry_run:
-            result["created"].append(entry)
-            continue
-        password = generate_password()
-        redact.add(password)
-        try:
-            created = _create(geolens, row, password)
-        except GeoLensError as exc:
-            if exc.status == 409:
-                result["skipped"].append({**entry, "reason": redact(str(exc))})
-            else:
-                result["failed"].append({**entry, "error": redact(str(exc))})
-            continue
-        known.update(n.lower() for n in (row.username, row.email) if n)
-        shown = {"password": password} if opts.print_passwords else {}
-        result["created"].append({**entry, "id": str(created.id), **shown})
+    try:
+        for row in rows:
+            _import_row(geolens, row, opts, redact, accounts, providers, result)
+    except KeyboardInterrupt:
+        result["interrupted"] = True
     return result
+
+
+class _Accounts:
+    """GeoLens users by lower-cased username and email."""
+
+    def __init__(self, users: Iterable[Any]) -> None:
+        self.by_name: dict[str, Any] = {}
+        self.by_email: dict[str, Any] = {}
+        for user in users:
+            self.add(user)
+
+    def add(self, user: Any) -> None:
+        self.by_name[user.username.lower()] = user
+        if user.email:
+            self.by_email[user.email.lower()] = user
+
+    def conflict(self, row: Row) -> tuple[bool, str | None]:
+        """Whether *row* is already a user, and why it clashes with one."""
+        account = self.by_name.get(row.username.lower())
+        holder = self.by_email.get(row.email.lower()) if row.email else None
+        if account is not None and (not row.email or holder is account):
+            return True, None
+        if account is not None:
+            return True, f"GeoLens user {account.username} has another email"
+        if holder is not None:
+            return True, f"the email belongs to GeoLens user {holder.username}"
+        return False, None
+
+
+def _import_row(
+    geolens: GeoLens,
+    row: Row,
+    opts: ImportOptions,
+    redact: Redactor,
+    accounts: _Accounts,
+    providers: list[str],
+    result: dict[str, Any],
+) -> None:
+    entry = {"username": row.username, "email": row.email, "role": row.role}
+    exists, clash = accounts.conflict(row)
+    if clash:
+        result["conflicts"].append({**entry, "reason": clash})
+        return
+    if exists:
+        result["skipped"].append({**entry, "reason": "already a GeoLens user"})
+        return
+    reason = _pending_reason(row, opts, bool(providers))
+    if reason:
+        result["pending"].append({**entry, "reason": reason})
+        return
+    if opts.dry_run:
+        result["created"].append(entry)
+        return
+    password = generate_password()
+    redact.add(password)
+    try:
+        created = _create(geolens, row, password)
+    except GeoLensError as exc:
+        if exc.status == 409:
+            result["conflicts"].append({**entry, "reason": redact(str(exc))})
+        else:
+            result["failed"].append({**entry, "error": redact(str(exc))})
+        return
+    accounts.add(created)
+    shown = {"password": password} if opts.print_passwords else {}
+    result["created"].append({**entry, "id": str(created.id), **shown})
 
 
 def _print(
@@ -301,8 +367,15 @@ def _print(
         fmt.info(f"  skipped {user['username']}: {user['reason']}")
     for user in result["pending"]:
         fmt.warn(f"{user['username']} waits: {user['reason']}")
+    for user in result["conflicts"]:
+        fmt.error(f"{user['username']} not created: {user['reason']}")
     for user in result["failed"]:
         fmt.error(f"{user['username']}: {user['error']}")
+    if result["interrupted"]:
+        fmt.error(
+            "interrupted; a user being created when it stopped may exist without "
+            "its password shown, so set one through the admin password reset"
+        )
     if result["created"] and not opts.dry_run and not opts.print_passwords:
         if opts.link_by_email:
             fmt.info(
@@ -354,4 +427,6 @@ def run_cli(
         fmt.json({"dry_run": opts.dry_run, **result})
     else:
         _print(fmt, result, opts)
-    return EXIT_GENERIC if result["failed"] else EXIT_OK
+    if result["interrupted"]:
+        return EXIT_INTERRUPTED
+    return EXIT_GENERIC if result["failed"] or result["conflicts"] else EXIT_OK

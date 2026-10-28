@@ -2370,7 +2370,8 @@ def admin_users_import(
             "--link-by-email",
             help="On an instance that signs in through an identity provider, create "
             "the users for their first sign-in to link to by email; needs the "
-            "provider to send email_verified",
+            "provider to send email_verified, and the emails reviewed, since one "
+            "an admin enters counts as verified",
         ),
     ] = False,
     dry_run: Annotated[
