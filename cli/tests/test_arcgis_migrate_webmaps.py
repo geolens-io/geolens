@@ -796,3 +796,75 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
     # Layers stay as their own items share them, not widened to the group.
     assert shares == [{"group_ids": [group], "confirm": "map_only"}]
     assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}
+
+
+@pytest.mark.parametrize(
+    ("first", "expected"),
+    [("Planning", ["planning", "other"]), ("", ["other"])],
+    ids=["portal-adds-a-group", "private-map-gets-its-first-group"],
+)
+def test_a_rerun_shares_a_migrated_map_with_a_group_the_portal_added(
+    runner, plan_file, geolens, first, expected
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    planning = "00000000-0000-0000-0005-000000000002"
+    other = "00000000-0000-0000-0005-000000000003"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["visibility"] = "restricted"
+            item["target"]["groups"] = ["g1"]
+    plan["group_map"]["g1"] = {
+        "collection": "Planning",
+        "visibility": "internal",
+        "geolens_group": first,
+    }
+    plan["group_map"]["g2"] = {
+        "collection": "Other",
+        "visibility": "internal",
+        "geolens_group": "Other",
+    }
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /admin/groups/"] = {
+        "groups": [
+            {
+                "id": g,
+                "name": name,
+                "member_count": 0,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+            for g, name in ((planning, "Planning"), (other, "Other"))
+        ],
+        "total": 2,
+    }
+    for g in (planning, other):
+        geolens.routes[f"GET /admin/groups/{g}/members/"] = {"members": [], "total": 0}
+    held: dict[str, Any] = {"visibility": "private", "groups": []}
+
+    def share(seen):
+        ids = seen.json()["group_ids"]
+        held.update(
+            visibility="restricted" if ids else "private",
+            groups=[{"id": g, "name": g} for g in ids],
+        )
+        return {**held, "shared_dataset_ids": [], "hidden_layers": []}
+
+    geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {**_map(), **held}
+    token = secrets.token_urlsafe(16)
+    assert _migrate(runner, plan_file, "--only", B1, "--token", token)[0].exit_code == 0
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["groups"] = ["g1", "g2"]
+    plan_file.write_text(json.dumps(plan))
+
+    result, payload = _migrate(runner, plan_file, "--only", B1, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    ids = sorted({"planning": planning, "other": other}[g] for g in expected)
+    assert held["visibility"] == "restricted"
+    assert [g["id"] for g in held["groups"]] == ids
+    assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: ids}
