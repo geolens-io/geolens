@@ -148,7 +148,7 @@ def _install(monkeypatch, handler) -> None:
 @pytest.fixture(autouse=True)
 def no_inventory(monkeypatch):
     """These tests stub the handlers, which are what read the inventory."""
-    monkeypatch.setattr(migrate, "_inventory_rows", lambda *args: ({}, None))
+    monkeypatch.setattr(migrate, "_inventory_rows", lambda *args: ({}, None, {}))
 
 
 @pytest.fixture(autouse=True)
@@ -1013,7 +1013,7 @@ def test_each_accept_flag_lifts_only_its_own_check(runner, tmp_path, geolens, ha
     assert payload["cutover"]["refused"] == ["unresolved-users"]
 
 
-def test_a_state_file_is_written_as_v2_and_v1_still_loads(
+def test_a_state_file_is_written_as_v3_and_v1_still_loads(
     runner, tmp_path, geolens, handled
 ):
     _allow_transfers(geolens, _created_id(L1), _created_id(L2))
@@ -1025,7 +1025,7 @@ def test_a_state_file_is_written_as_v2_and_v1_still_loads(
     result, _ = _run(runner, tmp_path, _plan([_item(L1), _item(L2)]))
 
     assert result.exit_code == 0, result.output
-    assert _state(tmp_path)["schema_version"] == "2"
+    assert _state(tmp_path)["schema_version"] == "3"
 
 
 def test_cutover_counts_an_item_whose_plan_owner_moved_to_another_user(

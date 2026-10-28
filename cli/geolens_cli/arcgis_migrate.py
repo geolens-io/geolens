@@ -46,6 +46,13 @@ from .arcgis_migrate_export import (
     write_index,
 )
 from .arcgis_migrate_cutover import failing_checks, inventory_changes
+from .arcgis_migrate_groups import (
+    GroupPlan,
+    GroupUsageError,
+    Sharing,
+    prepare_groups,
+    share,
+)
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers
@@ -311,8 +318,8 @@ def _effective(
     return effective
 
 
-def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | None:
-    """The instance's role permissions, or None when the setting can't be read."""
+def _setting(geolens: GeoLens, key: str) -> Any:
+    """The instance setting *key*'s value, or None when it can't be read."""
     from geolens.api.admin import get_all_settings_settings_all_get as get_settings
 
     try:
@@ -321,9 +328,15 @@ def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | No
         return None
     for items in settings.tabs.additional_properties.values():
         for setting in items:
-            if setting.key == "role_permissions" and isinstance(setting.value, dict):
+            if setting.key == key:
                 return setting.value
     return None
+
+
+def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | None:
+    """The instance's role permissions, or None when the setting can't be read."""
+    value = _setting(geolens, "role_permissions")
+    return value if isinstance(value, dict) else None
 
 
 class _Directory:
@@ -333,11 +346,15 @@ class _Directory:
         self, users: Iterable[Any], roles: Mapping[str, Mapping[str, bool]] | None
     ) -> None:
         self._by_name: dict[str, dict[str, Any]] = {}
-        for user in users:
+        users_seen = list(users)
+        for user in users_seen:
             for name in (user.username, user.email):
                 if isinstance(name, str) and name:
                     self._by_name.setdefault(name.lower(), {})[str(user.id)] = user
         self.roles = _effective(roles) if roles is not None else None
+        self.admins = frozenset(
+            str(user.id) for user in users_seen if "admin" in (user.roles or [])
+        )
 
     def find(self, name: str) -> Any | None:
         """The one user *name* names, or None; ``UsageError`` when one user's
@@ -385,6 +402,7 @@ class Owners:
     # Finished items that wait for their owner, and who to hand some to now.
     waiting: list[str] = field(default_factory=list)
     handovers: dict[str, Owner] = field(default_factory=dict)
+    directory: Any = None
 
 
 def _pending_reason(
@@ -427,7 +445,7 @@ def resolve_owners(
     problems: set[str] = set()
     if unmapped_owner and fallback is None:
         problems.add(f"--unmapped-owner {unmapped_owner} is not a GeoLens user")
-    owners = Owners({}, [], [], directory.roles is not None, [])
+    owners = Owners({}, [], [], directory.roles is not None, [], directory=directory)
     for item in to_run:
         permission = TRANSFER_PERMISSION.get(item["action"])
         # An unlisted item is left pending without an import, so it needs no owner.
@@ -703,6 +721,14 @@ def _unmet(
     ]
 
 
+def _sharing_target(
+    ctx: MigrationContext, item: Mapping[str, Any], owner_id: str | None
+) -> tuple[Mapping[str, Any], list[str]]:
+    if ctx.sharing is None:
+        return item, []
+    return ctx.sharing.target(item, owner_id)
+
+
 def _migrate_one(
     ctx: MigrationContext,
     state: MigrationState,
@@ -712,9 +738,10 @@ def _migrate_one(
     pending: str | None = None,
 ) -> None:
     entry = state.start(item["id"])
+    item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
     try:
         result = handler(ctx, item, entry)
-        entry.notes = [state.clean(note) for note in result.notes]
+        entry.notes = [state.clean(note) for note in [*result.notes, *sharing_notes]]
         state.save()
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
@@ -727,6 +754,7 @@ def _migrate_one(
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
             )
+            share(ctx, item, entry)
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
             transfer(ctx, entry, owner, revisions)
@@ -804,8 +832,15 @@ def refresh_finished(
     for item in items:
         entry = state.items[item["id"]]
         summary.refreshed.append(item["id"])
+        item, _notes = _sharing_target(ctx, item, entry.owner_id)
         try:
             reasons = REFRESHERS[item["action"]](ctx, item, entry)
+            if not reasons:
+                try:
+                    # A rerun leaves a map as it is; its refresh reports a difference.
+                    share(ctx, item, entry, with_map=False)
+                except ItemFailed as exc:
+                    reasons = [str(exc)]
         except StopRun as exc:
             entry.stale = [state.clean(str(exc))]
             summary.stopped = entry.stale[0]
@@ -895,7 +930,9 @@ def _report(
     summary: RunSummary,
     redact: Redactor,
     cutover: Mapping[str, Any] | None = None,
+    groups: GroupPlan | None = None,
 ) -> int:
+    groups = groups or GroupPlan()
     rows = [
         {
             "id": item["id"],
@@ -957,6 +994,8 @@ def _report(
         "not_up_to_date": stale,
         "stopped": summary.stopped,
         "cutover": cutover,
+        "groups": groups.groups,
+        "group_warnings": groups.warnings,
         "report": [str(p) for p in report_files] if report_files else None,
         "failed": failed,
     }
@@ -978,6 +1017,7 @@ def _report(
                 # Failed before, left out of this run: the exit code counts it.
                 fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
         _print_owners(fmt, owners, summary)
+        _print_groups(fmt, groups, opts.dry_run)
         verb = "Would bring" if opts.dry_run else "Brought"
         fmt.info(f"{verb} {len(summary.refreshed)} migrated item(s) up to date.")
         for item_id, reasons in stale.items():
@@ -1047,6 +1087,29 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
         )
 
 
+def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> None:
+    for arcgis_id, group in groups.groups.items():
+        if not group["name"]:
+            fmt.warn(f"ArcGIS group {arcgis_id} maps to no GeoLens group")
+            continue
+        if not group["created"]:
+            fmt.info(
+                f"ArcGIS group {arcgis_id}: shared with GeoLens group {group['name']}"
+            )
+            continue
+        verb = "would get" if dry_run else "is"
+        fmt.info(
+            f"ArcGIS group {arcgis_id} {verb} GeoLens group {group['name']} with "
+            f"{len(group['added'])} member(s)"
+        )
+        for pending in group["pending"]:
+            fmt.warn(f"{group['name']}: {pending['member']} waits: {pending['reason']}")
+        if group["members_unread"]:
+            fmt.warn(f"{group['name']}: members not read: {group['members_unread']}")
+    for line in groups.warnings:
+        fmt.warn(line)
+
+
 def _print_cutover(
     fmt: _output.Formatter, cutover: Mapping[str, Any] | None, dry_run: bool
 ) -> None:
@@ -1096,9 +1159,13 @@ def run_cli(
 
 def _inventory_rows(
     plan: Mapping[str, Any], plan_path: Path, to_run: list[Mapping[str, Any]]
-) -> tuple[dict[str, Mapping[str, Any]], Mapping[str, Any] | None]:
-    """Inventory rows by item id and the inventory's portal record, read only
-    when an item imports a service.
+) -> tuple[
+    dict[str, Mapping[str, Any]],
+    Mapping[str, Any] | None,
+    dict[str, Mapping[str, Any]],
+]:
+    """Inventory rows by item id, the inventory's portal record and its
+    groups with their members by group id, read only when an item imports.
 
     Refuses an inventory from another portal or ArcGIS organization than the
     plan's (the plan's portal receives the password, and the inventory's
@@ -1106,7 +1173,7 @@ def _inventory_rows(
     was built, whose URLs and sharing the operator hasn't reviewed.
     """
     if not any(item["action"] in _PORTAL_ACTIONS for item in to_run):
-        return {}, None
+        return {}, None, {}
     inventory = _plan.load_inventory(plan_path.parent / plan["inventory"]["path"])
     try:
         same = portal_root(inventory["portal"]["url"], True) == portal_root(
@@ -1131,7 +1198,11 @@ def _inventory_rows(
             f"{inventory['generated_at']}, not {plan['inventory']['generated_at']} "
             "when the plan was built; rebuild the plan and review it again"
         )
-    return {row["id"]: row for row in inventory["items"]}, inventory["portal"]
+    return (
+        {row["id"]: row for row in inventory["items"]},
+        inventory["portal"],
+        {group["id"]: group for group in inventory.get("groups", [])},
+    )
 
 
 def _resumes_without_download(entry: ItemState | None) -> bool:
@@ -1277,7 +1348,9 @@ def _run(
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         refresh = select_refresh(plan, state, opts.only)
         touched = [*to_run, *refresh]
-        rows, portal_info = _inventory_rows(plan, opts.plan_path, touched)
+        rows, portal_info, inventory_groups = _inventory_rows(
+            plan, opts.plan_path, touched
+        )
         portal = (
             None
             if opts.dry_run
@@ -1292,7 +1365,21 @@ def _run(
     try:
         operator_id = _require_admin(geolens)
         owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)
-    except UsageError as exc:
+        groups = prepare_groups(
+            geolens,
+            plan,
+            inventory_groups,
+            state,
+            owners.directory,
+            touched,
+            dry_run=opts.dry_run,
+        )
+        sharing = Sharing(
+            groups={a: g["id"] for a, g in groups.groups.items()},
+            restrict_public=_setting(geolens, "restrict_public_visibility") is True,
+            admins=owners.directory.admins,
+        )
+    except (UsageError, GroupUsageError) as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
     except GeoLensError as exc:
@@ -1327,6 +1414,7 @@ def _run(
             summary,
             redact,
             mark_cutover(opts, plan, state, owners, summary),
+            groups,
         )
     auth = None
     if portal is not None:
@@ -1356,6 +1444,7 @@ def _run(
         portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,
         operator_id=operator_id,
+        sharing=sharing,
     )
     # Any way out of the loop but a normal return leaves the report to the
     # finally block, so it is never stale.
@@ -1397,4 +1486,5 @@ def _run(
         summary,
         redact,
         mark_cutover(opts, plan, state, owners, summary, auth.client if auth else None),
+        groups,
     )

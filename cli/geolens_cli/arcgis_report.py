@@ -101,6 +101,7 @@ def build_report(
         "items": inv.items,
         "dependencies": inv.dependencies,
         "errors": inv.errors,
+        **({"groups": inv.groups} if inv.groups is not None else {}),
     }
 
 

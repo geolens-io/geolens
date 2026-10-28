@@ -306,11 +306,16 @@ def import_map(
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
     title = item["target"]["title"] or item["title"]
+    visibility = item["target"]["visibility"]
     body = ArcgisWebmapImportRequest(
         webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),
         name=title[:255],
         title=item["title"][:255],
-        visibility=check_map_visibility(item["target"]["visibility"]),
+        # A new map can't be restricted before it has groups; sharing it
+        # with them afterwards makes it restricted.
+        visibility=check_map_visibility(
+            "private" if visibility == "restricted" else visibility
+        ),
         basemap_map=ArcgisWebmapImportRequestBasemapMap.from_dict(
             _basemap_entries(ctx, webmap)
         ),

@@ -229,6 +229,8 @@ class MigrationContext:
     operator_id: str | None = None
     # The instance's upload_max_size_mb in bytes, read once from its settings.
     upload_limit: int | None = None
+    # How the plan's sharing becomes GeoLens sharing (arcgis_migrate_groups.Sharing).
+    sharing: Any = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
 

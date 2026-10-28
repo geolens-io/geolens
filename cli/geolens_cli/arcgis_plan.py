@@ -44,7 +44,13 @@ SKIP = "skip"
 ACTIONS = (IMPORT_LAYERS, IMPORT_FILE, IMPORT_MAP, EXPORT_ONLY, SKIP)
 
 DEFAULTS = {"visibility": "private", "collection_from": "folder"}
-_ACCESS_VISIBILITY = {"private": "private", "org": "internal", "public": "public"}
+# "shared" is ArcGIS for shared with groups only.
+_ACCESS_VISIBILITY = {
+    "private": "private",
+    "shared": "restricted",
+    "org": "internal",
+    "public": "public",
+}
 # Roles whose target must exist before the item that names it.
 _ORDERING_ROLES_EXCLUDED = frozenset({"published_from"})
 # Item values an operator may edit, as paths into the item and its defaults.
@@ -98,6 +104,7 @@ def _group_defaults(
                 {
                     "collection": group["title"] or group["id"],
                     "visibility": _visibility(group["access"] or "", fallback),
+                    "geolens_group": None,
                 },
             )
     return dict(sorted(groups.items()))
@@ -364,6 +371,23 @@ def reads_everything(inventory: Mapping[str, Any]) -> bool:
     return inventory["auth"].get("role") == ORG_ADMIN
 
 
+def possibly_under_shared(
+    plan: Mapping[str, Any], item: Mapping[str, Any]
+) -> str | None:
+    """Why an item shared only with ArcGIS groups may reach fewer people in
+    GeoLens than in the portal, as far as the plan can tell, or None."""
+    if item["target"]["visibility"] != "restricted":
+        return None
+    if item["target"]["groups"] is None:
+        return "its ArcGIS group sharing wasn't read"
+    if (plan["inventory"].get("auth") or {}).get("role") != ORG_ADMIN:
+        return (
+            "its ArcGIS groups were read by an account that isn't an org admin, "
+            "which doesn't see private groups it isn't in"
+        )
+    return None
+
+
 def shows_removals(inventory: Mapping[str, Any]) -> bool:
     """Whether an inventory not listing an item shows the item is gone: only
     a complete, org-scope inventory read by an org admin. A user-scope one
@@ -588,6 +612,9 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
         "group_sharing_unknown": sorted(
             row["id"] for row in inventory["items"] if row["groups"] is None
         ),
+        "possibly_under_shared": sorted(
+            item["id"] for item in present if possibly_under_shared(plan, item)
+        ),
         "dependency_read_errors": sorted(
             row["id"] for row in inventory["items"] if _unread_dependencies(row)
         ),
@@ -703,6 +730,14 @@ def run_cli(
             f"{len(unknown_groups)} item(s) have no group sharing in the inventory, "
             "so their group collections are missing; rerun the inventory signed in "
             f"and without --no-groups: {', '.join(unknown_groups[:5])}"
+        )
+    under_shared = stats["possibly_under_shared"]
+    if under_shared:
+        fmt.warn(
+            f"{len(under_shared)} item(s) shared only with groups may reach fewer "
+            "people in GeoLens: the inventory wasn't read by an org admin, who "
+            "alone sees every group an item is shared with: "
+            + ", ".join(under_shared[:5])
         )
     if not plan["inventory"]["complete"]:
         fmt.warn(

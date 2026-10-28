@@ -2268,7 +2268,15 @@ def arcgis_migrate(
         typer.Option(
             "--accept-unresolved-users",
             help="With --cutover, accept items whose plan owner isn't a GeoLens user "
-            "who can take them",
+            "who can take them, and ArcGIS group members who aren't GeoLens users yet",
+        ),
+    ] = False,
+    accept_under_sharing: Annotated[
+        bool,
+        typer.Option(
+            "--accept-under-sharing",
+            help="With --cutover, accept items shared only with ArcGIS groups that "
+            "may reach fewer people in GeoLens",
         ),
     ] = False,
 ) -> None:
@@ -2285,6 +2293,7 @@ def arcgis_migrate(
         _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
         _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
         _arcgis_cutover.USERS: accept_unresolved_users,
+        _arcgis_cutover.SHARING: accept_under_sharing,
     }
     options = _arcgis_migrate.MigrateOptions(
         plan_path=plan,

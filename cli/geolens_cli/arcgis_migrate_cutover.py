@@ -26,7 +26,8 @@ UNFINISHED = "unfinished-items"
 INVENTORY = "incomplete-inventory"
 ATTACHMENTS = "attachment-loss"
 USERS = "unresolved-users"
-CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS)
+SHARING = "under-sharing"
+CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
 
 
@@ -89,6 +90,41 @@ def _attachments(
     ]
 
 
+def sharing_losses(
+    plan: Mapping[str, Any], state: MigrationState, item: Mapping[str, Any]
+) -> list[str]:
+    """Why a migrated item shared only with ArcGIS groups may reach fewer
+    people in GeoLens than in the portal."""
+    entry = state.items.get(item["id"])
+    if (
+        item.get("removed")
+        or item["target"]["visibility"] != "restricted"
+        or entry is None
+        or not (entry.dataset_ids or entry.map_id)
+    ):
+        return []
+    plan_reason = _plan.possibly_under_shared(plan, item)
+    out = [plan_reason] if plan_reason else []
+    for group in item["target"]["groups"] or []:
+        made = state.groups.get(group)
+        if not made or not made.get("id") or made.get("deleted"):
+            out.append(f"ArcGIS group {group} maps to no GeoLens group")
+        elif made.get("members_unread"):
+            out.append(
+                f"the members of ArcGIS group {group} weren't read, so its GeoLens "
+                f"group {made['name']} lacks them: {made['members_unread']}"
+            )
+    return out
+
+
+def _sharing(plan: Mapping[str, Any], state: MigrationState) -> list[dict[str, str]]:
+    return [
+        {"item": item["id"], "reason": reason}
+        for item in plan["items"]
+        for reason in sharing_losses(plan, state, item)
+    ]
+
+
 def _users(
     plan: Mapping[str, Any],
     state: MigrationState,
@@ -100,6 +136,15 @@ def _users(
         if entry is not None and entry.owner_pending and not item.get("removed"):
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
+    for group_id, made in sorted(state.groups.items()):
+        for pending in made.get("pending") or []:
+            out.append(
+                {
+                    "item": f"group {group_id}",
+                    "reason": f"member {pending['member']} isn't in GeoLens group "
+                    f"{made['name']}: {pending['reason']}",
+                }
+            )
     return out
 
 
@@ -211,5 +256,6 @@ def failing_checks(
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
         USERS: _users(plan, state, unresolved),
+        SHARING: _sharing(plan, state),
     }
     return [{"check": name, "items": found[name]} for name in CHECKS if found[name]]

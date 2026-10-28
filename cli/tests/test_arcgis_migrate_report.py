@@ -93,6 +93,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == A2:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = ["g1"]
         if item["id"] == D3:
             item["superseded_by"] = A1
@@ -126,7 +127,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
     kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
-    assert (A2, "group_sharing") in kinds
+    assert (A2, "under_shared") in kinds
     assert (A2, "skipped_layer") in kinds
     assert (D3, "superseded") in kinds
     assert (A3, "quota") in kinds
@@ -257,6 +258,7 @@ def test_a_group_shared_export_gets_no_audience_follow_up(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == C3:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = ["g1"]
     state = _state(tmp_path)
     _set(
@@ -268,7 +270,7 @@ def test_a_group_shared_export_gets_no_audience_follow_up(tmp_path):
 
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
-    assert (C3, "group_sharing") not in {
+    assert (C3, "under_shared") not in {
         (f["item"], f["kind"]) for f in report["follow_ups"]
     }
 
@@ -322,18 +324,25 @@ def test_group_sharing_that_was_never_read_is_a_follow_up(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == A1:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = None
         if item["id"] == A2:
-            item["target"]["groups"] = []
+            # Shared with the organization, so its groups add no one.
+            item["target"]["visibility"] = "internal"
+            item["target"]["groups"] = None
     state = _state(tmp_path)
     _set(state, A1, "done", dataset_ids=["ds-1"])
     _set(state, A2, "done", dataset_ids=["ds-2"])
 
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
-    kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
-    assert (A1, "group_unknown") in kinds
-    assert (A2, "group_unknown") not in kinds and (A2, "group_sharing") not in kinds
+    under = {
+        f["item"]: f["text"]
+        for f in report["follow_ups"]
+        if f["kind"] == "under_shared"
+    }
+    assert "group sharing wasn't read" in under[A1]
+    assert A2 not in under
 
 
 def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):

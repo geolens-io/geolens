@@ -360,6 +360,8 @@ class Inventory:
     abort: PortalError | None = None
     # When the reading started, by the portal's clock; None when it gave none.
     started_at: str | None = None
+    # Every group an item is shared with, with its members; None when not read.
+    groups: list[dict[str, Any]] | None = None
 
 
 def _pages(
@@ -1310,6 +1312,86 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
             inv.abort = inv.abort or out.auth
 
 
+@dataclass
+class _Members:
+    usernames: list[str] | None = None
+    unread: str | None = None
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    auth: PortalError | None = None
+
+
+def _member_names(data: Mapping[str, Any], redact: Redactor) -> list[str]:
+    owner = data.get("owner")
+    names = [owner] if isinstance(owner, str) else []
+    for key in ("admins", "users"):
+        listed = data.get(key)
+        names += (
+            [n for n in listed if isinstance(n, str)]
+            if isinstance(listed, list)
+            else []
+        )
+    return sorted({redact(n) for n in names if n})
+
+
+def _collect_group_members(
+    client: PortalClient, inv: Inventory, concurrency: int
+) -> None:
+    """Read the members of every group an item is shared with into
+    ``inv.groups``.
+
+    A group that hides its members from everyone but its managers and org
+    admins still answers a member with its owner and managers alone, so for
+    any other reader those members are recorded as unknown, not as the list.
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    for row in inv.items:
+        for group in row["groups"] or []:
+            groups.setdefault(group["id"], dict(group))
+    org_admin = inv.auth.get("role") == "org_admin"
+    stop = threading.Event()
+
+    def fetch(group_id: str) -> _Members:
+        out = _Members()
+        if stop.is_set():
+            return out
+        base = f"community/groups/{quote(group_id, safe='')}"
+        try:
+            info = client.get_json(base)
+            hidden = bool(info.get("hiddenMembers"))
+            if hidden and not org_admin:
+                out.unread = "the group hides its members from the inventory's account"
+                return out
+            out.usernames = _member_names(
+                client.get_json(f"{base}/users"), client._redact
+            )
+        except PortalError as exc:
+            _detach(exc)
+            if exc.kind == "auth":
+                stop.set()
+                out.auth = exc
+                return out
+            out.unread = "the portal didn't list the group's members"
+            if exc.http_status not in _HIDDEN_STATUSES:
+                out.errors.append(_error_row(group_id, "group_members", exc))
+        return out
+
+    ids = sorted(groups)
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        results = dict(zip(ids, pool.map(fetch, ids), strict=True))
+    inv.groups = [
+        {
+            **groups[group_id],
+            "members": results[group_id].usernames,
+            "members_unread": results[group_id].unread,
+        }
+        for group_id in ids
+    ]
+    for out in results.values():
+        inv.errors.extend(out.errors)
+        if out.auth is not None:
+            inv.abort = inv.abort or out.auth
+
+
 def external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
     """Whether a service URL lies outside the organization's own services."""
     if not url:
@@ -1501,6 +1583,8 @@ def run_inventory(
     _collect_details(client, inv, concurrency, read_groups and auth_mode != "anonymous")
     if inv.abort is None:
         _collect_owners(client, inv, concurrency)
+    if inv.abort is None and read_groups and auth_mode != "anonymous":
+        _collect_group_members(client, inv, concurrency)
     if inv.abort is not None:
         _mark_not_fetched(inv)
         return inv

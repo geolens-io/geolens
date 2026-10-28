@@ -84,7 +84,7 @@
       "additionalProperties": {"type": "string"}
     },
     "group_map": {
-      "description": "ArcGIS group id to the collection its items join and the visibility that collection gets.",
+      "description": "ArcGIS group id to the collection its items join, the visibility that collection gets, and the GeoLens group that items shared only with groups are shared with.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -92,7 +92,11 @@
         "required": ["collection", "visibility"],
         "properties": {
           "collection": {"type": "string"},
-          "visibility": {"enum": ["private", "internal", "public"]}
+          "visibility": {"enum": ["private", "internal", "public"]},
+          "geolens_group": {
+            "description": "null or absent: the migration creates a GeoLens group named after the ArcGIS group and adds its members. A name: the existing GeoLens group to share with instead, whose members are left as they are. Empty: the group maps to no GeoLens group.",
+            "type": ["string", "null"]
+          }
         }
       }
     },
@@ -135,7 +139,10 @@
               "description": "GeoLens username or email that overrides owner_map for this item; null uses owner_map.",
               "type": ["string", "null"]
             },
-            "visibility": {"enum": ["private", "internal", "public"]},
+            "visibility": {
+              "description": "restricted: shared with the GeoLens groups the item's ArcGIS groups map to, or private when none maps.",
+              "enum": ["private", "restricted", "internal", "public"]
+            },
             "collections": {
               "description": "Collections the item joins: its folder, plus any added by hand. Group collections come from groups and group_map.",
               "type": "array",

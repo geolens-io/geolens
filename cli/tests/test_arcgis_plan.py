@@ -122,8 +122,16 @@ def test_groups_and_folders_become_collections():
         }
     )
     assert plan["group_map"] == {
-        "g1": {"collection": "GIS team", "visibility": "internal"},
-        "g2": {"collection": "Public maps", "visibility": "public"},
+        "g1": {
+            "collection": "GIS team",
+            "visibility": "internal",
+            "geolens_group": None,
+        },
+        "g2": {
+            "collection": "Public maps",
+            "visibility": "public",
+            "geolens_group": None,
+        },
     }
     target = _items(plan)[A1]["target"]
     assert target["collections"] == ["Apps"]
@@ -877,7 +885,7 @@ def test_a_plan_without_an_org_id_merges_on_the_portal_url_alone():
 def test_fresh_defaults_use_the_plans_fallback_visibility(runner, inventory_file):
     path = inventory_file.parent / "arcgis-migration-plan.json"
     report = inventory_report()
-    _row(report, A1)["sharing"]["access"] = "shared"
+    _row(report, A1)["sharing"]["access"] = "custom"
     inventory_file.write_text(json.dumps(report))
     _plan_cli(runner, str(inventory_file))
     plan = json.loads(path.read_text())

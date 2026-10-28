@@ -131,7 +131,12 @@
     },
     "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
     "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
-    "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}}
+    "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+    "groups": {
+      "description": "Every group an item is shared with, with its members. Absent when groups weren't read (--no-groups, an anonymous run) or from an inventory written before members were read.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/group_members"}
+    }
   },
   "$defs": {
     "quarter": {
@@ -368,16 +373,35 @@
         "access": {"type": ["string", "null"]}
       }
     },
+    "group_members": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "access", "members", "members_unread"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "access": {"type": ["string", "null"]},
+        "members": {
+          "description": "ArcGIS usernames of the group's owner, managers and members; null when they couldn't all be read.",
+          "type": ["array", "null"],
+          "items": {"type": "string"}
+        },
+        "members_unread": {
+          "description": "Why members is null: the group hides its members from the inventory's account, or the portal didn't list them.",
+          "type": ["string", "null"]
+        }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,
       "required": ["item_id", "phase", "http_status", "message"],
       "properties": {
         "item_id": {
-          "description": "The item's id; for the owner and folders phases, the owner's username; for external, the referenced item's id.",
+          "description": "The item's id; for the owner and folders phases, the owner's username; for external, the referenced item's id; for group_members, the group's id.",
           "type": "string"
         },
-        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "external", "owner", "folders"]},
+        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "external", "owner", "folders", "group_members"]},
         "http_status": {"type": ["integer", "null"]},
         "message": {"type": "string"}
       }
