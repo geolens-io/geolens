@@ -242,13 +242,17 @@ def read_stored(stored: Sequence[Any] | None, host: WidgetHost) -> StoredWidgets
     widgets: list[Any] = []
     unreadable: list[KeptWidget] = []
     for index, raw in enumerate(stored or ()):
-        try:
-            widget = adapter.validate_python(raw)
-            parsed = widget.type not in _UNEDITABLE.get(host, ())
-        except ValidationError:
-            parsed = False
-        if parsed:
-            widgets.append(widget)
+        parsed = None
+        uneditable = isinstance(raw, dict) and raw.get("type") in _UNEDITABLE.get(
+            host, ()
+        )
+        if not uneditable:
+            try:
+                parsed = adapter.validate_python(raw)
+            except ValidationError:
+                pass
+        if parsed is not None:
+            widgets.append(parsed)
         else:
             after = tuple(str(widget.id) for widget in reversed(widgets))
             unreadable.append(KeptWidget(after, raw))
