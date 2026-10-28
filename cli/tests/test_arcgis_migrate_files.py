@@ -199,6 +199,10 @@ def test_a_finished_item_whose_action_became_an_import_is_imported(
     set_action(earlier)
     assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
     assert not files.uploads
+    state_file = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["items"][D3]["stale"] = ["export failed: HTTP 500"]
+    state_file.write_text(json.dumps(state))
     set_action("import_file")
 
     result, _ = _migrate(runner, plan_file, "--only", D3)
@@ -207,7 +211,7 @@ def test_a_finished_item_whose_action_became_an_import_is_imported(
     [job] = files.commits
     entry = _state(plan_file)["items"][D3]
     assert entry["status"] == "done" and entry["dataset_ids"] == [dataset_id(job)]
-    assert entry["export"] is None
+    assert entry["export"] is None and entry["stale"] == []
 
     _migrate(runner, plan_file, "--only", D3)
     assert len(files.commits) == 1
