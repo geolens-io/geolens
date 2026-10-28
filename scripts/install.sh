@@ -102,7 +102,8 @@ generate_password() {
 # profile and password they already chose.
 enable_bundled_cache() {
   if [ -z "$(get_env_value REDIS_URL)" ]; then
-    cache_pw="$(get_env_value VALKEY_PASSWORD)"
+    # Compose strips matching quotes from .env values, so the URL must too.
+    cache_pw="$(get_env_value VALKEY_PASSWORD | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
     if [ -z "$cache_pw" ]; then
       cache_pw="$(generate_jwt_secret)"
       update_env_value VALKEY_PASSWORD "$cache_pw"
@@ -604,6 +605,14 @@ main() {
       # Overwrite any stale prod pin from a previous run so bare `docker compose`
       # matches the source build we actually ran.
       update_env_value COMPOSE_FILE "docker-compose.yml"
+      # The source build has no password-protected `cache` service, so a
+      # REDIS_URL written by an earlier release install would point nowhere.
+      case "$(get_env_value REDIS_URL)" in
+        *@valkey:* | redis://valkey:*)
+          update_env_value REDIS_URL ""
+          warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
+          ;;
+      esac
     fi
   fi
 

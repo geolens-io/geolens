@@ -37,6 +37,12 @@ enable_bundled_cache
 [ "$(get_env_value COMPOSE_PROFILES)" = "backup,cache" ] || fail "profiles not appended"
 [ -z "$(get_env_value VALKEY_PASSWORD)" ] || fail "password generated for an external REDIS_URL"
 
+printf 'VALKEY_PASSWORD="quoted.pw-1"\n' >.env
+enable_bundled_cache
+[ "$(get_env_value REDIS_URL)" = "redis://:quoted.pw-1@valkey:6379/0" ] || fail "quoted password leaked quotes into REDIS_URL"
+
 grep -q 'enable_bundled_cache$' "$INSTALL_SH" || fail "install.sh never calls enable_bundled_cache"
+
+grep -q 'cleared REDIS_URL' "$INSTALL_SH" || fail "source-build fallback does not clear the bundled REDIS_URL"
 
 echo "PASS: install.sh enables the bundled cache"
