@@ -72,6 +72,7 @@ from app.modules.catalog.maps.router_link_preview import (
 from app.modules.catalog.maps.router_ownership import router as maps_ownership_router
 from app.standards.ogc.router import ogc_features_router, ogc_router
 from app.modules.catalog.records.router import router as records_router
+from app.modules.catalog.stories.router import router as stories_router
 from app.modules.catalog.search.router import collections_router, search_router
 from app.modules.catalog.sources.router import router as services_router
 from app.modules.catalog.sources.stac_asset_size_router import (
@@ -140,6 +141,7 @@ api_router.include_router(maps_link_preview_router)
 # ERROR_RESPONSES_WRITE defaults — see the comment on sprites_router in
 # maps/router_assets.py.
 api_router.include_router(maps_sprites_router)
+api_router.include_router(stories_router)
 api_router.include_router(ai_router)
 # Raw sandbox SQL endpoint (POST /query/), consumed by the MCP
 # `query` tool. Auth-only; see processing/ai/query_router.py.

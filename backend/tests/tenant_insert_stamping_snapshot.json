@@ -134,6 +134,24 @@
     },
     {
       "schema": "catalog",
+      "table": "stories",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "story_maps",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
       "table": "users",
       "name": "trg_stamp_current_tenant_on_insert",
       "type_mask": 7,

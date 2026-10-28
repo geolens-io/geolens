@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, TYPE_CHECKING
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+
+from ..models.stored_story_visibility import check_stored_story_visibility
+from ..models.stored_story_visibility import StoredStoryVisibility
+from dateutil.parser import isoparse
+from typing import cast
+from uuid import UUID
+import datetime
+
+if TYPE_CHECKING:
+    from ..models.story_document import StoryDocument
+
+
+T = TypeVar("T", bound="StoryResponse")
+
+
+@_attrs_define
+class StoryResponse:
+    """
+    Attributes:
+        id (UUID):
+        title (str):
+        summary (None | str):
+        visibility (StoredStoryVisibility): A story's visibility as stored. ``restricted`` is reserved for story
+            group sharing, which no route sets yet.
+        created_by (None | UUID):
+        published_at (datetime.datetime | None): When the story was last published; null if never.
+        created_at (datetime.datetime):
+        updated_at (datetime.datetime):
+        can_edit (bool):
+        document (None | StoryDocument): The published document; null until the story is published.
+    """
+
+    id: UUID
+    title: str
+    summary: None | str
+    visibility: StoredStoryVisibility
+    created_by: None | UUID
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    can_edit: bool
+    document: None | StoryDocument
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        from ..models.story_document import StoryDocument
+
+        id = str(self.id)
+
+        title = self.title
+
+        summary: None | str
+        summary = self.summary
+
+        visibility: str = self.visibility
+
+        created_by: None | str
+        if isinstance(self.created_by, UUID):
+            created_by = str(self.created_by)
+        else:
+            created_by = self.created_by
+
+        published_at: None | str
+        if isinstance(self.published_at, datetime.datetime):
+            published_at = self.published_at.isoformat()
+        else:
+            published_at = self.published_at
+
+        created_at = self.created_at.isoformat()
+
+        updated_at = self.updated_at.isoformat()
+
+        can_edit = self.can_edit
+
+        document: dict[str, Any] | None
+        if isinstance(self.document, StoryDocument):
+            document = self.document.to_dict()
+        else:
+            document = self.document
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "id": id,
+                "title": title,
+                "summary": summary,
+                "visibility": visibility,
+                "created_by": created_by,
+                "published_at": published_at,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "can_edit": can_edit,
+                "document": document,
+            }
+        )
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.story_document import StoryDocument
+
+        d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
+        title = d.pop("title")
+
+        def _parse_summary(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        summary = _parse_summary(d.pop("summary"))
+
+        visibility = check_stored_story_visibility(d.pop("visibility"))
+
+        def _parse_created_by(data: object) -> None | UUID:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                created_by_type_0 = UUID(data)
+
+                return created_by_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        created_by = _parse_created_by(d.pop("created_by"))
+
+        def _parse_published_at(data: object) -> datetime.datetime | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                published_at_type_0 = isoparse(data)
+
+                return published_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None, data)
+
+        published_at = _parse_published_at(d.pop("published_at"))
+
+        created_at = isoparse(d.pop("created_at"))
+
+        updated_at = isoparse(d.pop("updated_at"))
+
+        can_edit = d.pop("can_edit")
+
+        def _parse_document(data: object) -> None | StoryDocument:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                document_type_0 = StoryDocument.from_dict(data)
+
+                return document_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | StoryDocument, data)
+
+        document = _parse_document(d.pop("document"))
+
+        story_response = cls(
+            id=id,
+            title=title,
+            summary=summary,
+            visibility=visibility,
+            created_by=created_by,
+            published_at=published_at,
+            created_at=created_at,
+            updated_at=updated_at,
+            can_edit=can_edit,
+            document=document,
+        )
+
+        story_response.additional_properties = d
+        return story_response
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

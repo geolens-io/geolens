@@ -521,7 +521,8 @@ class TestEveryPublicationStateWriterIsAccountedFor:
 
         ``tasks_common.py`` stamps an initial status on a dataset that does not
         exist yet, which no outstanding signature can name. ``service_groups.py``
-        writes a map's visibility, and no tile signature names a map.
+        writes a map's visibility and ``stories/router.py`` a story's, and no
+        tile signature names a map or a story.
         """
         import pathlib
 
@@ -540,6 +541,7 @@ class TestEveryPublicationStateWriterIsAccountedFor:
                 "attr:visibility",
                 "values:visibility",
             ],
+            "modules/catalog/stories/router.py": ["attr:visibility"],
             "processing/ingest/tasks_common.py": ["attr:record_status"],
         }
 
