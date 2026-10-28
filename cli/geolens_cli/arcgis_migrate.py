@@ -228,7 +228,8 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 def _wanted(
     by_id: Mapping[str, Mapping[str, Any]], only: list[str], state: MigrationState
 ) -> set[str]:
-    """The --only items plus every unfinished plan item they depend on."""
+    """The --only items plus every plan item they depend on that still has
+    to run: an unfinished one, or a finished one ``_needs_run`` runs again."""
     unknown = sorted(set(only) - set(by_id))
     if unknown:
         raise UsageError(f"--only names items not in the plan: {', '.join(unknown)}")
@@ -248,7 +249,10 @@ def _wanted(
         if by_id[item_id].get("removed") or by_id[item_id].get("unlisted"):
             continue
         for dep in by_id[item_id]["depends_on"]:
-            if dep in by_id and state.status(dep) not in FINISHED:
+            if dep in by_id and (
+                state.status(dep) not in FINISHED
+                or _needs_run(by_id[dep], state.items.get(dep), no_retry=False)
+            ):
                 stack.append(dep)
     return wanted
 
