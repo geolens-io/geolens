@@ -29,7 +29,7 @@ const components: Components = {
 export default function MarkdownTextRenderer({ config }: WidgetRenderProps<MarkdownTextConfig>) {
   return (
     <div className="space-y-3 break-words text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_code]:font-mono [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5">
-      <Markdown components={components}>{config.markdown}</Markdown>
+      <Markdown components={components}>{config.text}</Markdown>
     </div>
   );
 }

@@ -6,8 +6,8 @@ import MarkdownTextRenderer from '../markdown/MarkdownTextRenderer';
 import { MARKDOWN_TEXT_MAX_LENGTH, markdownTextWidget } from '../markdown/definition';
 import { parseStoredWidget } from '../registry';
 
-function renderMarkdown(markdown: string) {
-  return render(<MarkdownTextRenderer config={{ markdown }} />);
+function renderMarkdown(text: string) {
+  return render(<MarkdownTextRenderer config={{ text }} />);
 }
 
 describe('Markdown text widget', () => {
@@ -46,23 +46,25 @@ describe('Markdown text widget', () => {
     expect(screen.getByText('Image not shown')).toBeInTheDocument();
   });
 
-  it('accepts only a markdown string within the length cap', () => {
+  it('accepts only a text string within the length cap', () => {
     const parse = (config: unknown) => markdownTextWidget.parseConfig(config, 1);
-    expect(parse({ markdown: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH) })).not.toBeNull();
-    expect(parse({ markdown: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH + 1) })).toBeNull();
+    expect(parse({ text: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH) })).not.toBeNull();
+    expect(parse({ text: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH + 1) })).toBeNull();
     expect(parse({})).toBeNull();
-    expect(parse({ markdown: 1 })).toBeNull();
-    expect(parse({ markdown: 'x', html: '<b>' })).toBeNull();
+    expect(parse({ text: 1 })).toBeNull();
+    expect(parse({ text: 'x', html: '<b>' })).toBeNull();
+    expect(parse({ markdown: 'x' })).toBeNull();
   });
 });
 
 describe('WidgetView with the Markdown text widget', () => {
-  const config = { markdown: 'Some **bold** text.' };
+  const config = { text: 'Some **bold** text.' };
+  const id = '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11';
 
   afterEach(() => vi.restoreAllMocks());
 
   it('swaps the text fallback for the lazy renderer', async () => {
-    const parsed = parseStoredWidget({ type: 'markdown', v: 1, config }, 'story');
+    const parsed = parseStoredWidget({ id, type: 'markdown', v: 1, config }, 'story');
     const { container } = render(<WidgetView parsed={parsed} />);
     await vi.waitFor(() => expect(container.querySelector('strong')).toHaveTextContent('bold'));
   });
@@ -75,7 +77,7 @@ describe('WidgetView with the Markdown text widget', () => {
       loadRenderer: () => Promise.reject(new Error('chunk failed')),
     });
     render(
-      <WidgetView parsed={{ ok: true, definition, instance: { type: 'markdown', v: 1, config } }} />,
+      <WidgetView parsed={{ ok: true, definition, instance: { id, type: 'markdown', v: 1, config } }} />,
     );
     await vi.waitFor(() => expect(logged).toHaveBeenCalled());
     expect(screen.getByText('Some **bold** text.')).toBeInTheDocument();

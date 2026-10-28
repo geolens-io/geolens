@@ -9,10 +9,13 @@ toolbar and is not part of this registry.
 
 ## The contract
 
-Each stored instance is `{ type, v, config }`. Surfaces may add fields beside
-those, such as a dashboard widget's layer id; parsing passes them through. The
-document that holds the instances, a story or a map's `dashboard_config`, has
-its own `version`.
+The server owns the stored shape (`backend/app/modules/catalog/widgets/schemas.py`),
+and `registry.ts` mirrors it. Each instance is `{ id, type, v, title?, config }`:
+`id` is a UUID the client makes and keeps across saves, unique within a list;
+`title` is at most 120 characters; no other keys are allowed. A type that needs
+more, such as a dashboard widget's layer id, adds those keys to the server model
+and to `parseStoredWidget` together. The document that holds the instances, a
+story or a map's `dashboard_config`, has its own `version`.
 
 A type is a `WidgetDefinition` (`contract.ts`) with:
 
@@ -22,10 +25,11 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 - `surfaces`: `story`, `dashboard` or both.
 - `parseConfig(config, v)`: a hand-written validator that returns the config
   or `null`. It rejects keys it doesn't know and caps strings and lists, the
-  same as the server's Pydantic model (`extra="forbid"`).
+  same as the type's server model (`extra="forbid"`).
 - `defaultConfig`: what a newly added instance starts with.
-- `dataRequest(config)` (optional): what the widget asks the aggregate
-  endpoint for. The host adds the dataset, filter and bbox.
+- `dataRequest(config)` (optional): the aggregate endpoint request body
+  (`WidgetDataRequest`, from the generated API types) without `filter` and
+  `bbox`, which the host adds.
 - `loadRenderer`: `() => import('./my-widget/MyWidgetRenderer')`. Anything
   heavy, including a new dependency, is imported only from the renderer so it
   stays out of the main bundle.
@@ -39,12 +43,12 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 
 - `parseStoredWidget(raw, surface)` never throws. An instance this build can't
   read (an unknown type, a newer `v`, an invalid config) comes back as
-  `{ ok: false, reason, raw }` and is shown as a notice.
-- `serializeWidget(parsed)` gives the value to save: the parsed instance, or
-  the untouched `raw`, so saving a document never drops what it couldn't read.
-- `checkWidgetWrite(submitted, surface, stored)` is the server's rule: a
-  submitted instance must parse unless it's identical to one already stored.
-  The server answers 422 otherwise.
+  `{ ok: false, reason }` and is shown as a notice. The server already leaves
+  those out of its responses and puts them back when the document is saved, so
+  this is a backstop.
+- `checkWidgetWrite(submitted, surface)` is the server's write rule: a
+  submitted instance must parse, or the server answers 422. There's no
+  exception for stored instances.
 
 `defineWidget` wraps `loadRenderer` in `React.lazy` as the definition's
 `Renderer`. `WidgetView` renders a parsed instance with its fallback around
@@ -60,7 +64,7 @@ that renderer.
 4. Add an example config to `examples` in
    `__tests__/widget-contract.test.tsx`. That suite runs every registered type
    through the contract: configs validate, an unknown type is refused on
-   write, an unreadable stored instance is kept, the fallback renders, and the
+   write, an unreadable instance gets the notice, the fallback renders, and the
    i18n keys exist in every locale.
 5. Add a test file for the widget's own behavior, like
    `__tests__/markdown.test.tsx`.

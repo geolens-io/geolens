@@ -2,7 +2,7 @@ import { defineWidget } from '../contract';
 import { MarkdownTextFallback } from './MarkdownTextFallback';
 
 export interface MarkdownTextConfig {
-  markdown: string;
+  text: string;
 }
 
 export const MARKDOWN_TEXT_MAX_LENGTH = 20_000;
@@ -10,10 +10,10 @@ export const MARKDOWN_TEXT_MAX_LENGTH = 20_000;
 function parseMarkdownTextConfig(config: unknown): MarkdownTextConfig | null {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
   const keys = Object.keys(config);
-  if (keys.length !== 1 || keys[0] !== 'markdown') return null;
-  const { markdown } = config as { markdown: unknown };
-  if (typeof markdown !== 'string' || markdown.length > MARKDOWN_TEXT_MAX_LENGTH) return null;
-  return { markdown };
+  if (keys.length !== 1 || keys[0] !== 'text') return null;
+  const { text } = config as { text: unknown };
+  if (typeof text !== 'string' || text.length > MARKDOWN_TEXT_MAX_LENGTH) return null;
+  return { text };
 }
 
 export const markdownTextWidget = defineWidget<MarkdownTextConfig>({
@@ -22,7 +22,7 @@ export const markdownTextWidget = defineWidget<MarkdownTextConfig>({
   surfaces: ['story'],
   labelKey: 'types.markdown.label',
   i18nKeys: ['types.markdown.imageNotShown', 'types.markdown.imageNotShownAlt'],
-  defaultConfig: { markdown: '' },
+  defaultConfig: { text: '' },
   parseConfig: parseMarkdownTextConfig,
   loadRenderer: () => import('./MarkdownTextRenderer'),
   Fallback: MarkdownTextFallback,

@@ -1,44 +1,40 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
+import type { components } from '@/types/api.generated';
 
 /** Where a widget type may be placed. Story blocks and dashboard widgets share one registry. */
 export type WidgetSurface = 'story' | 'dashboard';
 
+/** Longest `title` the server accepts. */
+export const WIDGET_TITLE_MAX_LENGTH = 120;
+
 /**
- * A stored widget instance, as story blocks and dashboard widgets persist it.
- * `v` is the version of this type's config shape, starting at 1. Surfaces add
- * their own fields beside these (a dashboard widget's layer id and scope).
+ * A widget instance as the server stores and returns it (`widgets/schemas.py`).
+ * `id` is made by the client and stays the same across saves. `v` is the
+ * version of this type's config shape, starting at 1.
  */
 export interface WidgetInstance<C = unknown> {
+  id: string;
   type: string;
   v: number;
+  title?: string;
   config: C;
 }
 
-/** A stored document holding widget instances: a story or a map's `dashboard_config`. */
-export interface WidgetDocument {
-  /** Version of the document's own shape, independent of each instance's `v`. */
-  version: number;
-}
+type AggregateRequest =
+  | components['schemas']['CountRequest']
+  | components['schemas']['StatsRequest']
+  | components['schemas']['ValueCountsRequest']
+  | components['schemas']['HistogramRequest']
+  | components['schemas']['GroupByRequest'];
 
-type WidgetStatistic = 'count' | 'sum' | 'mean' | 'min' | 'max';
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /**
- * What a widget asks the aggregate endpoint for. The dashboard host adds the
- * dataset, the layer's filter and, for widgets that follow the map view, the
- * bbox. Draft shape: the endpoint doesn't exist yet and may tighten it.
+ * What a widget asks the aggregate endpoint for: its request body without the
+ * `filter` and `bbox`, which the dashboard host adds from the layer and the
+ * map view.
  */
-type WidgetDataRequest =
-  | { op: 'count' }
-  | { op: 'stats'; column: string }
-  | { op: 'value_counts'; column: string; limit: number }
-  | { op: 'histogram'; column: string; bins: number }
-  | {
-      op: 'group_by';
-      column: string;
-      statistic: WidgetStatistic;
-      valueColumn?: string;
-      limit: number;
-    };
+type WidgetDataRequest = DistributiveOmit<AggregateRequest, 'filter' | 'bbox'>;
 
 export interface WidgetRenderProps<C> {
   config: C;

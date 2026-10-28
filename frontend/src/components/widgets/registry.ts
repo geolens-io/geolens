@@ -1,3 +1,4 @@
+import { WIDGET_TITLE_MAX_LENGTH } from './contract';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSurface } from './contract';
 import { markdownTextWidget } from './markdown/definition';
 
@@ -5,6 +6,9 @@ import { markdownTextWidget } from './markdown/definition';
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [markdownTextWidget];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INSTANCE_KEYS = new Set(['id', 'type', 'v', 'title', 'config']);
 
 type WidgetRejection =
   | 'malformed'
@@ -14,7 +18,7 @@ type WidgetRejection =
 
 export type ParsedWidget =
   | { ok: true; definition: AnyWidgetDefinition; instance: WidgetInstance }
-  | { ok: false; reason: WidgetRejection; raw: unknown };
+  | { ok: false; reason: WidgetRejection };
 
 export type WidgetWriteCheck = { ok: true } | { ok: false; reason: WidgetRejection };
 
@@ -32,61 +36,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Parses one stored instance. Never throws: an instance this build can't read
- * (a newer type or `v`, a broken config) comes back as `ok: false` with `raw`
- * untouched, so the document keeps it. On success the config is upgraded to
- * the definition's `v`, and fields other than `type`, `v` and `config` pass
- * through.
+ * Parses one instance with the server's rules: the keys are exactly `id`,
+ * `type`, `v`, `title` and `config`, and the config is the registered type's
+ * at a version this build reads. Never throws: an instance it can't read comes
+ * back as `ok: false` and is shown as a notice. On success the config is
+ * upgraded to the definition's `v`.
  */
 export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedWidget {
-  if (!isRecord(raw) || typeof raw.type !== 'string' || !Number.isInteger(raw.v)) {
-    return { ok: false, reason: 'malformed', raw };
+  if (
+    !isRecord(raw) ||
+    !Object.keys(raw).every((key) => INSTANCE_KEYS.has(key)) ||
+    typeof raw.id !== 'string' ||
+    !UUID.test(raw.id) ||
+    typeof raw.type !== 'string' ||
+    !Number.isInteger(raw.v) ||
+    (raw.title !== undefined &&
+      raw.title !== null &&
+      (typeof raw.title !== 'string' || raw.title.length > WIDGET_TITLE_MAX_LENGTH))
+  ) {
+    return { ok: false, reason: 'malformed' };
   }
   const definition = getWidgetDefinition(raw.type, surface);
-  if (!definition) return { ok: false, reason: 'unknown_type', raw };
+  if (!definition) return { ok: false, reason: 'unknown_type' };
   const v = raw.v as number;
-  if (v < 1 || v > definition.v) return { ok: false, reason: 'unsupported_version', raw };
+  if (v < 1 || v > definition.v) return { ok: false, reason: 'unsupported_version' };
   const config = definition.parseConfig(raw.config, v);
-  if (config === null) return { ok: false, reason: 'invalid_config', raw };
-  return { ok: true, definition, instance: { ...raw, type: raw.type, v: definition.v, config } };
-}
-
-/** The value to write back for a parsed instance: the upgraded instance, or the untouched original. */
-export function serializeWidget(parsed: ParsedWidget): unknown {
-  return parsed.ok ? parsed.instance : parsed.raw;
-}
-
-function sameJson(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    return (
-      Array.isArray(a) &&
-      Array.isArray(b) &&
-      a.length === b.length &&
-      a.every((item, i) => sameJson(item, b[i]))
-    );
-  }
-  if (!isRecord(a) || !isRecord(b)) return false;
-  const keys = Object.keys(a);
-  return (
-    keys.length === Object.keys(b).length &&
-    keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
-  );
+  if (config === null) return { ok: false, reason: 'invalid_config' };
+  const instance: WidgetInstance = { id: raw.id, type: raw.type, v: definition.v, config };
+  if (typeof raw.title === 'string') instance.title = raw.title;
+  return { ok: true, definition, instance };
 }
 
 /**
  * The server's rule for a submitted instance, which the client mirrors before
- * saving: it must parse, unless it's identical to one already in the stored
- * document (`stored`). That exception lets a whole-document save carry back
- * instances this build can't read, while a client can't introduce one. The
- * server answers 422 for a refused instance.
+ * saving: it must parse, or the server answers 422. The server keeps stored
+ * instances it can't read out of its responses and puts them back on save, so
+ * a client never has to send one.
  */
-export function checkWidgetWrite(
-  submitted: unknown,
-  surface: WidgetSurface,
-  stored: readonly unknown[] = [],
-): WidgetWriteCheck {
+export function checkWidgetWrite(submitted: unknown, surface: WidgetSurface): WidgetWriteCheck {
   const parsed = parseStoredWidget(submitted, surface);
-  if (parsed.ok || stored.some((instance) => sameJson(instance, submitted))) return { ok: true };
-  return { ok: false, reason: parsed.reason };
+  return parsed.ok ? { ok: true } : { ok: false, reason: parsed.reason };
 }
