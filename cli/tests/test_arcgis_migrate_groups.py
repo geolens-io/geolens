@@ -806,3 +806,31 @@ def test_a_rerun_says_why_it_narrowed_an_item(runner, tmp_path, team, up_to_date
 
     notes = _state(plan_file)["items"][A2]["notes"]
     assert any("made private" in note for note in notes)
+
+
+def test_unmapping_a_migrated_group_counts_at_cutover_and_a_remap_reuses_it(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_ghost"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    plan = json.loads(plan_file.read_text())
+    plan["group_map"]["g1"]["geolens_group"] = ""
+    plan_file.write_text(json.dumps(plan))
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    checks = {c["check"]: c["items"] for c in payload["cutover"]["checks"]}
+    assert "maps to no GeoLens group" in checks["under-sharing"][0]["reason"]
+    # The unused group's pending members no longer count.
+    assert "unresolved-users" not in checks
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["groups"][0]["name"] is None
+
+    plan["group_map"]["g1"]["geolens_group"] = None
+    plan_file.write_text(json.dumps(plan))
+    assert _run(runner, plan_file)[0].exit_code == 0
+    assert [g["id"] for g in api.groups] == [CREATED]
+    assert "unmapped" not in _state(plan_file)["groups"]["g1"]

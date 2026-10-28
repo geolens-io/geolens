@@ -251,15 +251,29 @@ def _pending_reason(row: Row, opts: ImportOptions, provider: bool) -> str | None
     return None
 
 
+def new_result() -> dict[str, Any]:
+    """What an import did, filled in as it goes."""
+    return {
+        "identity_providers": None,
+        "created": [],
+        "skipped": [],
+        "conflicts": [],
+        "pending": [],
+        "failed": [],
+        "stopped": None,
+    }
+
+
 def import_users(
     geolens: GeoLens,
     rows: list[Row],
     opts: ImportOptions,
     redact: Redactor,
-) -> dict[str, Any]:
+    result: dict[str, Any],
+) -> None:
     """Create each row's user unless it exists, conflicts with an account or
-    must wait; what happened. Ctrl-C stops before the next row and keeps what
-    was created, so its passwords are still shown."""
+    must wait, recording each outcome in *result* as it happens, so whatever
+    stops the run leaves the users already created in it."""
     providers = _identity_providers(geolens)
     if opts.link_by_email and not providers:
         raise UsageError(
@@ -267,21 +281,9 @@ def import_users(
             "identity provider, and this one has none"
         )
     accounts = _Accounts(_list_users(geolens))
-    result: dict[str, Any] = {
-        "identity_providers": providers,
-        "created": [],
-        "skipped": [],
-        "conflicts": [],
-        "pending": [],
-        "failed": [],
-        "interrupted": False,
-    }
-    try:
-        for row in rows:
-            _import_row(geolens, row, opts, redact, accounts, providers, result)
-    except KeyboardInterrupt:
-        result["interrupted"] = True
-    return result
+    result["identity_providers"] = providers
+    for row in rows:
+        _import_row(geolens, row, opts, redact, accounts, providers, result)
 
 
 class _Accounts:
@@ -371,10 +373,10 @@ def _print(
         fmt.error(f"{user['username']} not created: {user['reason']}")
     for user in result["failed"]:
         fmt.error(f"{user['username']}: {user['error']}")
-    if result["interrupted"]:
+    if result["stopped"]:
         fmt.error(
-            "interrupted; a user being created when it stopped may exist without "
-            "its password shown, so set one through the admin password reset"
+            f"{result['stopped']}; a user being created when it stopped may exist "
+            "without its password shown, so set one through the admin password reset"
         )
     if result["created"] and not opts.dry_run and not opts.print_passwords:
         if opts.link_by_email:
@@ -408,25 +410,41 @@ def run_cli(
         fmt.error(str(exc))
         return EXIT_USAGE
     geolens = GeoLens(sdk_factory(), instance, redact)
+    result = new_result()
     try:
-        result = import_users(geolens, rows, opts, redact)
+        import_users(geolens, rows, opts, redact, result)
+        code = EXIT_GENERIC if result["failed"] or result["conflicts"] else EXIT_OK
     except UsageError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
+    except KeyboardInterrupt:
+        result["stopped"], code = "interrupted", EXIT_INTERRUPTED
+    except typer.Exit as exc:
+        # The failed request was reported where it failed.
+        result["stopped"] = "stopped by a failed request"
+        code = exc.exit_code or EXIT_GENERIC
+    except click.ClickException as exc:
+        result["stopped"], code = redact(exc.format_message()), exc.exit_code
     except GeoLensError as exc:
-        fmt.error(redact(f"can't read the GeoLens users and sign-in setup: {exc}"))
+        result["stopped"] = redact(
+            f"can't read the GeoLens users and sign-in setup: {exc}"
+        )
+        code = EXIT_GENERIC
         if exc.status in (401, 403):
-            return EXIT_AUTH
-        return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
-    except (typer.Exit, click.ClickException):
-        raise
+            code = EXIT_AUTH
+        elif exc.status >= 500:
+            code = EXIT_SERVER
     except Exception as exc:  # broad: last guard so a traceback can't print a password
-        fmt.error(redact(f"unexpected error: {type(exc).__name__}: {exc}"))
-        return EXIT_GENERIC
-    if fmt.json_mode:
+        result["stopped"] = redact(f"unexpected error: {type(exc).__name__}: {exc}")
+        code = EXIT_GENERIC
+    # Every way out shows what was created: a rerun skips those users, so a
+    # password not shown now is lost.
+    if result["identity_providers"] is None:
+        fmt.error(str(result["stopped"]))
+    elif fmt.json_mode:
         fmt.json({"dry_run": opts.dry_run, **result})
+        if result["stopped"]:
+            fmt.error(str(result["stopped"]))
     else:
         _print(fmt, result, opts)
-    if result["interrupted"]:
-        return EXIT_INTERRUPTED
-    return EXIT_GENERIC if result["failed"] or result["conflicts"] else EXIT_OK
+    return code

@@ -368,6 +368,13 @@ def prepare_groups(
         named = entry.get("geolens_group")
         recorded = state.groups.get(arcgis_id)
         if named == "":
+            # Recorded, so cutover and the report follow the current choice;
+            # a group this command made is kept for a later remap to reuse.
+            state.groups[arcgis_id] = {
+                **(recorded or {"id": None, "name": None, "created": False}),
+                "unmapped": True,
+            }
+            state.save()
             out.groups[arcgis_id] = {"id": None, "name": None, "created": False}
             continue
         members = _resolve_members(
@@ -389,6 +396,7 @@ def prepare_groups(
         title = _title(arcgis_id, entry, inventory_groups)
         if recorded and recorded.get("created") and recorded.get("id"):
             record = dict(recorded)
+            record.pop("unmapped", None)
             if record.get("deleted") or not _exists(geolens, record["id"]):
                 out.warnings.append(
                     f"the GeoLens group {record['name']} this command created for "

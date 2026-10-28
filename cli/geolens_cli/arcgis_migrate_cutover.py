@@ -90,6 +90,14 @@ def _attachments(
     ]
 
 
+def in_use(made: Mapping[str, Any] | None) -> bool:
+    """Whether a state group record names a GeoLens group items are shared
+    with now: not unmapped in the plan and not deleted in GeoLens."""
+    return bool(
+        made and made.get("id") and not made.get("deleted") and not made.get("unmapped")
+    )
+
+
 def sharing_losses(
     plan: Mapping[str, Any], state: MigrationState, item: Mapping[str, Any]
 ) -> list[str]:
@@ -107,7 +115,7 @@ def sharing_losses(
     out = [plan_reason] if plan_reason else []
     for group in item["target"]["groups"] or []:
         made = state.groups.get(group)
-        if not made or not made.get("id") or made.get("deleted"):
+        if not in_use(made):
             out.append(f"ArcGIS group {group} maps to no GeoLens group")
         elif made.get("members_unread"):
             out.append(
@@ -143,6 +151,8 @@ def _users(
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
     for group_id, made in sorted(state.groups.items()):
+        if not in_use(made):
+            continue
         for pending in made.get("pending") or []:
             out.append(
                 {

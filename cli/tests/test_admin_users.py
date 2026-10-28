@@ -7,6 +7,7 @@ import stat
 import string
 from pathlib import Path
 
+import httpx
 import pytest
 
 from geolens_cli import admin_users
@@ -463,5 +464,28 @@ def test_ctrl_c_keeps_the_passwords_already_made(
     result, payload = _run(runner, str(_csv(tmp_path, ROWS)), "--print-passwords")
 
     assert result.exit_code == 130
-    assert payload["interrupted"] is True
+    assert payload["stopped"] == "interrupted"
     assert [u["password"] for u in payload["created"]] == users.passwords
+
+
+def test_a_transport_failure_still_shows_the_passwords_already_made(
+    runner, tmp_path, fake_geolens
+):
+    users = Users(fake_geolens)
+    create = users.create
+
+    def drop_second(seen):
+        if users.sent:
+            users.sent.append(seen.json())
+            raise httpx.ConnectTimeout("timed out")
+        return create(seen)
+
+    fake_geolens.routes["POST /admin/users/"] = drop_second
+
+    result, payload = _run(runner, str(_csv(tmp_path, ROWS)), "--print-passwords")
+
+    assert result.exit_code != 0
+    assert payload["stopped"] == "stopped by a failed request"
+    [made] = payload["created"]
+    assert made["username"] == "bob" and made["password"] == users.passwords[0]
+    assert users.passwords[1] not in result.output
