@@ -445,6 +445,13 @@ def _named(geolens: Any, found: Any, members: _Members) -> dict[str, Any]:
     return record
 
 
+def _both_taken(arcgis_id: str, title: str, prefix: str) -> GroupUsageError:
+    return GroupUsageError(
+        f"GeoLens already has groups named {title} and {prefix} - {title}; set "
+        f"group_map {arcgis_id} geolens_group to the one to share with"
+    )
+
+
 def prepare_groups(
     geolens: Any,
     plan: Mapping[str, Any],
@@ -522,14 +529,10 @@ def prepare_groups(
             names = (title, f"{prefix} - {title}")
             free = [n for n in names if not _taken(existing, n)]
             if not free:
-                out.warnings.append(
-                    f"GeoLens already has groups named {title} and {prefix} - "
-                    f"{title}, so the run will stop; set group_map {arcgis_id} "
-                    "geolens_group to the one to share with"
-                )
+                raise _both_taken(arcgis_id, title, prefix)
             record = {
                 "id": None,
-                "name": free[0] if free else title,
+                "name": free[0],
                 "created": True,
                 "added": [],
                 "joined": {},
@@ -548,11 +551,7 @@ def prepare_groups(
                     }
                     break
             if record is None:
-                raise GroupUsageError(
-                    f"GeoLens already has groups named {title} and "
-                    f"{prefix} - {title}; set group_map {arcgis_id} geolens_group "
-                    "to the one to share with"
-                )
+                raise _both_taken(arcgis_id, title, prefix)
             state.groups[arcgis_id] = record
             state.save()
         earlier = None if "joined" in record else sorted(record.get("added") or [])

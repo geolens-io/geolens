@@ -43,6 +43,7 @@ class FakeCollections:
         self.names: dict[str, str] = {}
         self.members: dict[str, set[str]] = {}
         fake.routes[f"POST {COLLECTIONS}"] = self.create
+        fake.routes[f"GET {COLLECTIONS}"] = self.listed
 
     def create(self, seen):
         name = seen.json()["name"]
@@ -56,15 +57,23 @@ class FakeCollections:
         )
         return (201, self.response(collection))
 
+    def listed(self, seen):
+        held = [(_uuid("c1", f"{i:02d}"), n) for i, n in enumerate(self.taken)]
+        rows = [*held, *self.names.items()]
+        return {
+            "collections": [self.response(c, name) for c, name in rows],
+            "total": len(rows),
+        }
+
     def add(self, collection: str, seen):
         new = set(seen.json()["dataset_ids"]) - self.members[collection]
         self.members[collection] |= new
         return {"added": len(new)}
 
-    def response(self, collection: str) -> dict:
+    def response(self, collection: str, name: str | None = None) -> dict:
         return {
             "id": collection,
-            "name": self.names[collection],
+            "name": name or self.names[collection],
             "description": None,
             "created_by": None,
             "created_at": "2026-10-01T00:00:00Z",
@@ -129,6 +138,45 @@ def test_a_name_held_by_another_collection_gets_the_portal_prefix(
 
     assert result.exit_code == 0, result.output
     assert list(collections.membership()) == ["Example County GIS - Transportation"]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_name_held_with_and_without_the_prefix_stops_the_run_before_any_import(
+    runner, tmp_path, geolens, dry_run
+):
+    service = _services(geolens)
+    collections = FakeCollections(
+        geolens, taken=("Transportation", "Example County GIS - Transportation")
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", A1, *(["--dry-run"] if dry_run else [])
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "collections named Transportation and Example County GIS - Transportation"
+        in result.output
+    )
+    assert "defaults.collection_from" in result.output
+    assert service.previews == 0 and collections.names == {}
+    assert not any(s.method != "GET" for s in geolens.seen)
+
+
+def test_a_collection_the_state_records_is_reused_even_when_both_names_are_held(
+    runner, tmp_path, geolens
+):
+    _services(geolens)
+    collections = FakeCollections(geolens)
+    plan_file = _plan(tmp_path)
+    assert _migrate(runner, plan_file, "--only", A1)[0].exit_code == 0
+    collections.taken.add("Example County GIS - Transportation")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert list(collections.membership()) == ["Transportation"]
 
 
 def test_a_failed_filing_is_redone_without_a_second_collection(
