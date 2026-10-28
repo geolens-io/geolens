@@ -2658,10 +2658,15 @@ class TestStoredFieldNames:
         )
         assert result.layers[0].style_config["column"] == "src_geom_2"
 
-    def test_source_names_survive_a_column_ingest_generated(self) -> None:
+    @pytest.mark.parametrize(
+        ("field", "column"), [("GEOM", "src_geom_2"), ("ELEV", "elev")]
+    )
+    def test_source_names_survive_a_column_ingest_generated(
+        self, field: str, column: str
+    ) -> None:
         renderer = {
             "type": "classBreaks",
-            "field": "GEOM",
+            "field": field,
             "classBreakInfos": [
                 {"classMaxValue": 1, "symbol": _fill()},
                 {"classMaxValue": 2, "symbol": _fill()},
@@ -2679,7 +2684,7 @@ class TestStoredFieldNames:
             {webmap["operationalLayers"][0]["id"]: dataset},
             dataset_columns={dataset: columns},
         )
-        assert result.layers[0].style_config["column"] == "src_geom_2"
+        assert result.layers[0].style_config["column"] == column
 
     def test_an_unknown_field_is_kept_and_reported_once(self) -> None:
         layer = {
