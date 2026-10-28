@@ -1193,6 +1193,24 @@ def test_a_map_group_removed_in_geolens_and_shared_again_is_theirs(monkeypatch):
     assert puts == []
 
 
+def test_a_map_read_without_its_groups_is_left_as_it_is(monkeypatch):
+    found = _map_read("restricted", [GEO, C])
+    del found.groups
+    ctx, puts, _reads = _map_ctx(monkeypatch, found)
+    entry = ItemState(
+        map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
+    )
+    item = {
+        "target": {"visibility": "restricted", "geolens_groups": [E], "groups": ["g1"]}
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert "didn't list its map's groups" in reason
+    assert puts == []
+    assert entry.granted == entry.groups == {MAP: [C]}
+
+
 def test_a_private_map_is_never_made_restricted_off_plan(monkeypatch):
     ctx, puts, _reads = _map_ctx(monkeypatch, _map_read("private", [GEO, C]))
     entry = ItemState(

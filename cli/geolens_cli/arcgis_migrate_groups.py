@@ -764,6 +764,14 @@ def _merge_map(
     from .arcgis_migrate_webmaps import get_map, map_state, map_visibility
 
     found = get_map(ctx.geolens, map_id)
+    if not isinstance(getattr(found, "groups", None), list):
+        # An empty baseline would drop the groups shared in GeoLens.
+        if not (new or gone):
+            return []
+        return [
+            "GeoLens didn't list its map's groups, so they were left as they are; "
+            "share it by hand"
+        ]
     gone &= _held(ctx, entry, map_id, _dataset_groups(found))
     wanted = target["visibility"]
     if new or gone:
