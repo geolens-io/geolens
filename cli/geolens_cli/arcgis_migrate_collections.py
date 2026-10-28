@@ -74,7 +74,7 @@ def taken_collections(
     wanted = [
         name
         for item in items
-        if item["action"] in _FILED_ACTIONS
+        if item["action"] in _FILED_ACTIONS and not item.get("unlisted")
         for name in item["target"]["collections"]
         if name and name not in known
     ]
