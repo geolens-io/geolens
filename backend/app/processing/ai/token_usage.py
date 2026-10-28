@@ -49,7 +49,6 @@ class AITokenUsage(Base):
 
 
 async def record_token_usage(
-    _db: AsyncSession,
     *,
     user_id: uuid.UUID | None,
     subsystem: str,
@@ -59,8 +58,7 @@ async def record_token_usage(
 ) -> None:
     """Persist a token usage record durably, best-effort (errors logged, not raised).
 
-    Writes in an INDEPENDENT, self-committing session, not the caller's
-    (``_db`` is unused, kept for call-site stability).
+    Writes in an INDEPENDENT, self-committing session, not the caller's.
 
     ``MAX_AI_TOKENS_PER_USER_PER_DAY`` reads this table, but gated AI paths
     commit inconsistently (``get_db()`` doesn't commit on success, streaming
@@ -122,7 +120,6 @@ async def record_token_usage_from_error(
     # the row lands.
     await _await_write_even_if_cancelled(
         record_token_usage(
-            _db,
             user_id=user_id,
             subsystem=subsystem,
             model=model,

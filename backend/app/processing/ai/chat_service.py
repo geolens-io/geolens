@@ -43,14 +43,6 @@ from app.processing.ai.chat_constants import (
 from app.processing.ai.chat_dataset import (
     build_dataset_chat_system_prompt,
 )  # re-exported (facade contract — router imports via this module)
-from app.processing.ai.chat_geojson import (
-    _detect_geom_column,
-    _extract_geojson,
-    _is_geom_value,
-    _safe_value,
-    ensure_geometry_selected,
-    strip_geometry_columns,
-)
 from app.processing.ai.chat_validation import (
     _build_chat_actions,
     _validate_actions,
@@ -91,13 +83,6 @@ __all__ = [
     # Validation (used by streaming.py)
     "_build_chat_actions",
     "_validate_actions",
-    # GeoJSON helpers (used by tests)
-    "_is_geom_value",
-    "_detect_geom_column",
-    "_safe_value",
-    "_extract_geojson",
-    "ensure_geometry_selected",
-    "strip_geometry_columns",
     # Test patch targets (kept module-level so unittest.mock.patch resolves
     # ``app.processing.ai.chat_service.{generate_sql,validate_and_execute}``)
     "generate_sql",
@@ -435,7 +420,6 @@ async def chat_edit_map(
     )
 
     await record_token_usage(
-        session,
         user_id=user.id,
         subsystem="chat",
         model=model,
