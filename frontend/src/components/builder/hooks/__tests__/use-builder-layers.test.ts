@@ -11,6 +11,7 @@ import {
   makeMapLibreMock,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { FilterSpecification } from 'maplibre-gl';
+import { toFitBounds } from '@/lib/bbox';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 const makeMockLayer = makeBuilderLayer;
@@ -640,7 +641,7 @@ describe('useBuilderLayers', () => {
       const { mockMap, result } = setupZoom([10, 20, 10, 20]);
       act(() => { result.current.handleZoomToLayer('layer-1'); });
       expect(mockMap.fitBounds).toHaveBeenCalledWith(
-        [[10, 20], [10, 20]],
+        toFitBounds([10, 20, 10, 20]),
         { padding: 40, maxZoom: 18 },
       );
     });

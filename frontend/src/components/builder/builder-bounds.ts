@@ -1,5 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
+import { toFitBounds } from '@/lib/bbox';
 
 // Imports nothing from BuilderMap.tsx: a static import would defeat
 // MapBuilderPage's `lazy(() => import(BuilderMap))` code-split boundary.
@@ -68,7 +69,7 @@ export function getVisibleLayerBounds(layers: readonly ExtentLayer[]): VisibleLa
     minX = -180;
     maxX = 180;
   }
-  return [[minX, minY], [maxX, maxY]];
+  return toFitBounds([minX, minY, maxX, maxY]);
 }
 
 /** Comparable string for a bounds value — cheap equality check for effect deps. */

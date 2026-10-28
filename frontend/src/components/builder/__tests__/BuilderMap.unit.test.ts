@@ -294,6 +294,13 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
     ]);
   });
 
+  // MapLibre's globe fit returns no camera for a zero-size box.
+  it('fits a single-point layer with a box that has width and height', () => {
+    const [[west, south], [east, north]] = getVisibleLayerBounds([layer([12.5, 48.1, 12.5, 48.1])])!;
+    expect(east - west).toBeGreaterThan(0);
+    expect(north - south).toBeGreaterThan(0);
+  });
+
   it('merges a crossing layer with a neighbour on the far side of the seam', () => {
     // Unwrapping only the crossing layer gave [-179, 182] — a
     // 361 degree span for a union that occupies about 5.

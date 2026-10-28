@@ -12,6 +12,9 @@
 
 export type Bbox = [number, number, number, number];
 
+// MapLibre's globe fit returns no camera for a zero-size box.
+const POINT_FIT_HALF_SPAN = 5e-8;
+
 /**
  * True for a bbox in the spec form — `west > east`, i.e. it crosses the
  * antimeridian. NOT a validity check: a malformed pair is indistinguishable
@@ -70,10 +73,16 @@ export function bboxCenterLon(bbox: Bbox): number {
  * The corner pair MapLibre's `fitBounds` / `initialViewState.bounds` wants.
  * MapLibre normalizes longitudes itself, so a crossing bbox is expressed by
  * letting east run past 180 (`[178.5, …] → [181.5, …]`) rather than by
- * splitting.
+ * splitting. A single point widens to a box about a centimetre across.
  */
 export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
   const [west, south, east, north] = bbox;
+  if (west === east && south === north) {
+    return [
+      [west - POINT_FIT_HALF_SPAN, Math.max(-90, south - POINT_FIT_HALF_SPAN)],
+      [east + POINT_FIT_HALF_SPAN, Math.min(90, north + POINT_FIT_HALF_SPAN)],
+    ];
+  }
   return [
     [west, south],
     [crossesAntimeridian(bbox) ? east + 360 : east, north],
