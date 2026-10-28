@@ -1,4 +1,4 @@
-"""Shapefiles that declare a code page, and ones zipped inside a single folder."""
+"""Shapefiles that declare a code page, and zips opened through a folder inside them."""
 
 import json
 import shutil
@@ -23,6 +23,7 @@ pytestmark = [
 ]
 
 NAME = "Café"
+FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
 
 
 def _shapefile(tmp_path: Path, *, encoding: str | None) -> Path:
@@ -129,10 +130,39 @@ def test_zip_with_root_files_or_several_folders_is_not_descended(tmp_path):
         archive.writestr("a/x.txt", "x")
         archive.writestr("b/y.txt", "y")
     assert ogr._resolve_source_path(str(many)) == f"/vsizip/{many}"
-    gdb = tmp_path / "gdb.zip"
-    with zipfile.ZipFile(gdb, "w") as archive:
-        archive.writestr("d.gdb/a00000001.gdbtable", "x")
-    assert ogr._resolve_source_path(str(gdb)) == f"/vsizip/{gdb}"
+
+
+@pytest.mark.parametrize(
+    ("members", "folder"),
+    [
+        (["d.gdb/", "d.gdb/a00000001.gdbtable"], "d.gdb"),
+        (["export/d.gdb/a00000001.gdbtable"], "export/d.gdb"),
+        (["d.gdb/a00000001.gdbtable", "readme.txt"], "d.gdb"),
+    ],
+)
+def test_a_zip_holding_one_geodatabase_opens_its_gdb_folder(tmp_path, members, folder):
+    source = tmp_path / "data.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        for member in members:
+            archive.writestr(member, "x")
+    assert ogr._resolve_source_path(str(source)) == f"/vsizip/{source}/{folder}"
+
+
+async def test_a_geodatabase_zip_named_without_gdb_previews_and_loads(
+    test_db_session, tmp_path
+):
+    source = tmp_path / "Seed_Pro_geodatabase.zip"
+    shutil.copy(FIXTURES / "tier1_points_gdb.zip", source)
+    preview = await ogr.run_ogrinfo_preview(str(source))
+    assert len(preview["sample_rows"]) == 3
+    table = await _load(str(source))
+    try:
+        count = await test_db_session.scalar(
+            text(f'SELECT count(*) FROM "data"."{table}"')
+        )
+        assert count == 3
+    finally:
+        await _drop(test_db_session, table)
 
 
 async def test_macos_metadata_does_not_count_as_a_declared_encoding(

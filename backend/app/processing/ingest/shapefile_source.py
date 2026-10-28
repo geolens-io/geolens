@@ -1,4 +1,4 @@
-"""Facts about a Shapefile source that GDAL needs the caller to supply."""
+"""Facts about a zipped or Shapefile source that GDAL needs the caller to supply."""
 
 import os
 import zipfile
@@ -6,11 +6,14 @@ from pathlib import PurePosixPath
 
 
 def zip_single_folder(file_path: str) -> str | None:
-    """The one top-level folder every member of a zip lives in, else None.
+    """The folder inside a zip that GDAL has to be pointed at, else None.
 
-    GDAL opens ``/vsizip/<archive>`` as a directory listing of its root, so a
-    Shapefile set packaged inside one folder is only found through that folder.
-    A ``.gdb`` folder is itself the dataset and is left at the root.
+    A zip holding one ``.gdb`` folder, at any depth, gets that folder:
+    OpenFileGDB opens a zip's root only when the zip is named ``*.gdb.zip``
+    or ``*_gdb.zip``. Otherwise it is the one top-level folder every member
+    lives in, because GDAL opens ``/vsizip/<archive>`` as a directory listing
+    of its root and a Shapefile set packaged inside a folder is only found
+    through that folder.
     """
     try:
         with zipfile.ZipFile(file_path) as archive:
@@ -21,11 +24,22 @@ def zip_single_folder(file_path: str) -> str | None:
             ]
     except (OSError, zipfile.BadZipFile):
         return None
+    gdbs = {folder for n in names if (folder := _gdb_folder(n))}
+    if len(gdbs) == 1:
+        return gdbs.pop()
     tops = {n.split("/", 1)[0] for n in names if n}
     if len(tops) != 1 or any("/" not in n for n in names if n):
         return None
     (top,) = tops
-    return None if top.lower().endswith(".gdb") else top
+    return top
+
+
+def _gdb_folder(name: str) -> str | None:
+    parts = name.split("/")
+    for depth, part in enumerate(parts[:-1], start=1):
+        if part.lower().endswith(".gdb"):
+            return "/".join(parts[:depth])
+    return None
 
 
 def declares_dbf_encoding(file_path: str, layer_name: str | None = None) -> bool:
