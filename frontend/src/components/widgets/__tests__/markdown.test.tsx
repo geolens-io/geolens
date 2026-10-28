@@ -50,6 +50,8 @@ describe('Markdown text widget', () => {
     const parse = (config: unknown) => markdownTextWidget.parseConfig(config, 1);
     expect(parse({ text: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH) })).not.toBeNull();
     expect(parse({ text: 'x'.repeat(MARKDOWN_TEXT_MAX_LENGTH + 1) })).toBeNull();
+    // The server counts code points, so an emoji is one character, not two.
+    expect(parse({ text: '🗺'.repeat(MARKDOWN_TEXT_MAX_LENGTH) })).not.toBeNull();
     expect(parse({})).toBeNull();
     expect(parse({ text: 1 })).toBeNull();
     expect(parse({ text: 'x', html: '<b>' })).toBeNull();

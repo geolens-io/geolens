@@ -141,6 +141,7 @@ describe('widget registry', () => {
     const instance = { id, type: 'markdown', v: 1, title: 'x'.repeat(120), config: { text: 'x' } };
     expect(parseStoredWidget(instance, 'story')).toMatchObject({ ok: true, instance });
     expect(checkWidgetWrite({ ...instance, title: null }, 'story')).toEqual({ ok: true });
+    expect(checkWidgetWrite({ ...instance, title: '🗺'.repeat(120) }, 'story')).toEqual({ ok: true });
     expect(checkWidgetWrite({ ...instance, title: 'x'.repeat(121) }, 'story')).toEqual({
       ok: false,
       reason: 'malformed',

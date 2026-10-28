@@ -12,7 +12,7 @@ function parseMarkdownTextConfig(config: unknown): MarkdownTextConfig | null {
   const keys = Object.keys(config);
   if (keys.length !== 1 || keys[0] !== 'text') return null;
   const { text } = config as { text: unknown };
-  if (typeof text !== 'string' || text.length > MARKDOWN_TEXT_MAX_LENGTH) return null;
+  if (typeof text !== 'string' || [...text].length > MARKDOWN_TEXT_MAX_LENGTH) return null;
   return { text };
 }
 

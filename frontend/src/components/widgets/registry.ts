@@ -52,7 +52,7 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
     !Number.isInteger(raw.v) ||
     (raw.title !== undefined &&
       raw.title !== null &&
-      (typeof raw.title !== 'string' || raw.title.length > WIDGET_TITLE_MAX_LENGTH))
+      (typeof raw.title !== 'string' || [...raw.title].length > WIDGET_TITLE_MAX_LENGTH))
   ) {
     return { ok: false, reason: 'malformed' };
   }
