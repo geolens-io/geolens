@@ -515,6 +515,8 @@ from .histogram_request import HistogramRequest
 from .histogram_request_filter_type_0 import HistogramRequestFilterType0
 from .histogram_response import HistogramResponse
 from .histogram_result import HistogramResult
+from .image_config import ImageConfig
+from .image_widget import ImageWidget
 from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
 )
@@ -659,6 +661,8 @@ from .map_style_import_warning import MapStyleImportWarning
 from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
+from .markdown_config import MarkdownConfig
+from .markdown_widget import MarkdownWidget
 from .mercator_clip_detail import MercatorClipDetail
 from .mercator_clip_warning import MercatorClipWarning
 from .metadata_assist_request import MetadataAssistRequest
@@ -956,6 +960,21 @@ from .stats_response import StatsResponse
 from .stats_result import StatsResult
 from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
+from .story_camera import StoryCamera
+from .story_chapter import StoryChapter
+from .story_chapter_input import StoryChapterInput
+from .story_create import StoryCreate
+from .story_document import StoryDocument
+from .story_document_input import StoryDocumentInput
+from .story_draft_response import StoryDraftResponse
+from .story_draft_update import StoryDraftUpdate
+from .story_list_response import StoryListResponse
+from .story_response import StoryResponse
+from .story_scene import StoryScene
+from .story_scene_layer_visibility import StorySceneLayerVisibility
+from .story_summary import StorySummary
+from .story_update import StoryUpdate
+from .story_visibility import StoryVisibility
 from .sublayer_override import SublayerOverride
 from .summary_draft_response import SummaryDraftResponse
 from .table_register_response import TableRegisterResponse
@@ -1374,6 +1393,8 @@ __all__ = (
     "HistogramRequestFilterType0",
     "HistogramResponse",
     "HistogramResult",
+    "ImageConfig",
+    "ImageWidget",
     "ImportConfigurationConfigOpsImportPostMode",
     "ImportResult",
     "InfrastructureConfig",
@@ -1480,6 +1501,8 @@ __all__ = (
     "MapSummaryResponse",
     "MapUpdate",
     "MapVisibility",
+    "MarkdownConfig",
+    "MarkdownWidget",
     "MercatorClipDetail",
     "MercatorClipWarning",
     "MetadataAssistRequest",
@@ -1685,6 +1708,21 @@ __all__ = (
     "StatsResult",
     "StatusUpdate",
     "StatusUpdateResponse",
+    "StoryCamera",
+    "StoryChapter",
+    "StoryChapterInput",
+    "StoryCreate",
+    "StoryDocument",
+    "StoryDocumentInput",
+    "StoryDraftResponse",
+    "StoryDraftUpdate",
+    "StoryListResponse",
+    "StoryResponse",
+    "StoryScene",
+    "StorySceneLayerVisibility",
+    "StorySummary",
+    "StoryUpdate",
+    "StoryVisibility",
     "SublayerOverride",
     "SummaryDraftResponse",
     "TableRegisterResponse",

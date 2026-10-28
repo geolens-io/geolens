@@ -197,6 +197,18 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "registers database tables",
     ),
+    **dict.fromkeys(
+        [
+            ("POST", "/stories"),
+            ("POST", "/stories/"),
+            ("PATCH", "/stories/{story_id}"),
+            ("PUT", "/stories/{story_id}/draft"),
+            ("POST", "/stories/{story_id}/publish"),
+            ("POST", "/stories/{story_id}/discard"),
+            ("POST", "/stories/{story_id}/duplicate"),
+        ],
+        "story authoring, not publishing",
+    ),
     ("POST", "/jobs/cleanup/stale"): "admin maintenance",
     ("POST", "/jobs/cleanup/stale/"): "admin maintenance",
     ("PUT", "/datasets/{dataset_id}/retention"): "schedules data for deletion",

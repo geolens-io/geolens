@@ -111,6 +111,24 @@
       "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
     },
     {
+      "policyname": "tenant_isolation_stories",
+      "tablename": "stories",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_story_maps",
+      "tablename": "story_maps",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
       "policyname": "tenant_isolation_users",
       "tablename": "users",
       "qual_contains": "current_setting",
@@ -170,6 +188,14 @@
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
+      "stories": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "story_maps": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "users": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
@@ -221,6 +247,14 @@
         "relforcerowsecurity": true
       },
       "records": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "stories": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "story_maps": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },

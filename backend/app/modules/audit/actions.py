@@ -130,6 +130,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "reupload.commit",
         "stac_connect",
         "stac_import",
+        "story.create",
+        "story.delete",
+        "story.duplicate",
+        "story.publish",
+        "story.update",
         # PersistentConfig.set() — generic/unprefixed, same rationale as "reset".
         "update",
         "user.approve",

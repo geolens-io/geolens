@@ -75,6 +75,8 @@ _RLS_TABLES = [
     "group_members",
     "dataset_group_grants",
     "map_group_grants",
+    "stories",
+    "story_maps",
 ]
 
 

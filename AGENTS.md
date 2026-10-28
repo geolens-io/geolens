@@ -107,11 +107,11 @@ Frontend change: from the worktree run `cd frontend && API_PROXY_TARGET=http://l
 
 Apply these rules to data access, URL fetching, ingestion and credential changes. Structural checks supplement behavioral tests; they do not prove every path is authorized.
 
-**Rule 1 — Access control.** Guard each handler's `Dataset`, `Record`, `Map`, `RecordEmbedding` and `IngestJob` fetch using sanctioned domain checks in `backend/tests/test_rule1_structural.py`. Dataset guards live in `backend/app/modules/catalog/authorization.py`:
+**Rule 1 — Access control.** Guard each handler's `Dataset`, `Record`, `Map`, `Story`, `RecordEmbedding` and `IngestJob` fetch using sanctioned domain checks in `backend/tests/test_rule1_structural.py`. Dataset guards live in `backend/app/modules/catalog/authorization.py`:
 
 - Reads: `check_dataset_access_or_anonymous(...)`, or `check_dataset_access(...)` for authenticated callers; denial is 404. The latter checks visibility only and cannot authorize writes.
 - Mutations: `check_dataset_write_access(...)` enforces visibility (404) and owner/admin rights (403).
-- Lists: execute the statement returned by `apply_visibility_filter(...)`; discarding its return provides no protection. Use corresponding sanctioned guards for maps, records and tiles.
+- Lists: execute the statement returned by `apply_visibility_filter(...)`; discarding its return provides no protection. Use corresponding sanctioned guards for maps, stories, records and tiles.
 
 Invalid supplied credentials must not silently become anonymous access; preserve `get_optional_user` behavior and exceptions pinned in `backend/tests/test_optional_auth_failure_mode_1518.py`.
 

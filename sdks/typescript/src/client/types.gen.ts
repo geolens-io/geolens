@@ -6133,6 +6133,53 @@ export type HistogramResult = {
 };
 
 /**
+ * ImageConfig
+ */
+export type ImageConfig = {
+    /**
+     * Alt
+     *
+     * Empty for decorative.
+     */
+    alt?: string;
+    /**
+     * Caption
+     */
+    caption?: string | null;
+};
+
+/**
+ * ImageWidget
+ */
+export type ImageWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'image';
+    /**
+     * V
+     */
+    v: 1;
+    /**
+     * Asset Id
+     *
+     * An image uploaded to the host story.
+     */
+    asset_id: string;
+    config: ImageConfig;
+};
+
+/**
  * ImportResult
  *
  * Summary of what was applied during an import.
@@ -8089,6 +8136,41 @@ export type MapUpdate = {
  * reads a restricted map as `private`.
  */
 export type MapVisibility = 'private' | 'internal' | 'public' | 'restricted';
+
+/**
+ * MarkdownConfig
+ */
+export type MarkdownConfig = {
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
+ * MarkdownWidget
+ */
+export type MarkdownWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'markdown';
+    /**
+     * V
+     */
+    v: 1;
+    config: MarkdownConfig;
+};
 
 /**
  * MercatorClipDetail
@@ -12627,6 +12709,330 @@ export type StatusUpdateResponse = {
      */
     metadata_warnings?: Array<string> | null;
 };
+
+/**
+ * StoryCamera
+ */
+export type StoryCamera = {
+    /**
+     * Center
+     *
+     * Longitude, latitude.
+     */
+    center: [
+        number,
+        number
+    ];
+    /**
+     * Zoom
+     */
+    zoom: number;
+    /**
+     * Bearing
+     */
+    bearing?: number;
+    /**
+     * Pitch
+     */
+    pitch?: number;
+};
+
+/**
+ * StoryChapter
+ */
+export type StoryChapter = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    scene?: StoryScene | null;
+    /**
+     * Scene Hidden
+     *
+     * The chapter has a scene on a map you can't read, so it's shown without one.
+     */
+    scene_hidden?: boolean;
+    /**
+     * Blocks
+     */
+    blocks?: Array<MarkdownWidget | ImageWidget>;
+};
+
+/**
+ * StoryChapterInput
+ */
+export type StoryChapterInput = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    scene?: StoryScene | null;
+    /**
+     * Scene Hidden
+     *
+     * Send back as read to keep a scene on a map you can't read; with it false, a chapter without a scene loses its stored one.
+     */
+    scene_hidden?: boolean;
+    /**
+     * Blocks
+     */
+    blocks?: Array<MarkdownWidget | ImageWidget>;
+};
+
+/**
+ * StoryCreate
+ */
+export type StoryCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+};
+
+/**
+ * StoryDocument
+ */
+export type StoryDocument = {
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Chapters
+     */
+    chapters: Array<StoryChapter>;
+};
+
+/**
+ * StoryDocumentInput
+ */
+export type StoryDocumentInput = {
+    /**
+     * Version
+     */
+    version?: 1;
+    /**
+     * Chapters
+     */
+    chapters?: Array<StoryChapterInput>;
+};
+
+/**
+ * StoryDraftResponse
+ */
+export type StoryDraftResponse = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    visibility: StoryVisibility;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Published At
+     *
+     * When the story was last published; null if never.
+     */
+    published_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Can Edit
+     */
+    can_edit: boolean;
+    /**
+     * Revision
+     */
+    revision: number;
+    document: StoryDocument;
+};
+
+/**
+ * StoryDraftUpdate
+ */
+export type StoryDraftUpdate = {
+    /**
+     * Revision
+     *
+     * The draft revision this save replaces.
+     */
+    revision: number;
+    document: StoryDocumentInput;
+};
+
+/**
+ * StoryListResponse
+ */
+export type StoryListResponse = {
+    /**
+     * Stories
+     */
+    stories: Array<StorySummary>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * StoryResponse
+ */
+export type StoryResponse = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    visibility: StoryVisibility;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Published At
+     *
+     * When the story was last published; null if never.
+     */
+    published_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Can Edit
+     */
+    can_edit: boolean;
+    /**
+     * The published document; null until the story is published.
+     */
+    document: StoryDocument | null;
+};
+
+/**
+ * StoryScene
+ */
+export type StoryScene = {
+    /**
+     * Map Id
+     */
+    map_id: string;
+    camera: StoryCamera;
+    /**
+     * Layer Visibility
+     *
+     * Visibility by map layer id. Layers the map no longer has are ignored, and a layer left out keeps its saved visibility.
+     */
+    layer_visibility?: {
+        [key: string]: boolean;
+    };
+};
+
+/**
+ * StorySummary
+ */
+export type StorySummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    visibility: StoryVisibility;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Published At
+     *
+     * When the story was last published; null if never.
+     */
+    published_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Can Edit
+     */
+    can_edit: boolean;
+};
+
+/**
+ * StoryUpdate
+ */
+export type StoryUpdate = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Refused with 409 when a map the published story uses is narrower than the new visibility.
+     */
+    visibility?: StoryVisibility | null;
+};
+
+/**
+ * StoryVisibility
+ *
+ * Who may read a published story, besides its owner and admins.
+ */
+export type StoryVisibility = 'private' | 'internal' | 'public';
 
 /**
  * SublayerOverride
@@ -32496,6 +32902,567 @@ export type SearchPostStacSearchPostResponses = {
 };
 
 export type SearchPostStacSearchPostResponse = SearchPostStacSearchPostResponses[keyof SearchPostStacSearchPostResponses];
+
+export type ListStoriesEndpointStoriesGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Owned Only
+         */
+        owned_only?: boolean;
+    };
+    url: '/stories/';
+};
+
+export type ListStoriesEndpointStoriesGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListStoriesEndpointStoriesGetError = ListStoriesEndpointStoriesGetErrors[keyof ListStoriesEndpointStoriesGetErrors];
+
+export type ListStoriesEndpointStoriesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryListResponse;
+};
+
+export type ListStoriesEndpointStoriesGetResponse = ListStoriesEndpointStoriesGetResponses[keyof ListStoriesEndpointStoriesGetResponses];
+
+export type CreateStoryEndpointStoriesPostData = {
+    body: StoryCreate;
+    path?: never;
+    query?: never;
+    url: '/stories/';
+};
+
+export type CreateStoryEndpointStoriesPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type CreateStoryEndpointStoriesPostError = CreateStoryEndpointStoriesPostErrors[keyof CreateStoryEndpointStoriesPostErrors];
+
+export type CreateStoryEndpointStoriesPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: StoryDraftResponse;
+};
+
+export type CreateStoryEndpointStoriesPostResponse = CreateStoryEndpointStoriesPostResponses[keyof CreateStoryEndpointStoriesPostResponses];
+
+export type DeleteStoryEndpointStoriesStoryIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}';
+};
+
+export type DeleteStoryEndpointStoriesStoryIdDeleteErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DeleteStoryEndpointStoriesStoryIdDeleteError = DeleteStoryEndpointStoriesStoryIdDeleteErrors[keyof DeleteStoryEndpointStoriesStoryIdDeleteErrors];
+
+export type DeleteStoryEndpointStoriesStoryIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteStoryEndpointStoriesStoryIdDeleteResponse = DeleteStoryEndpointStoriesStoryIdDeleteResponses[keyof DeleteStoryEndpointStoriesStoryIdDeleteResponses];
+
+export type GetStoryEndpointStoriesStoryIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}';
+};
+
+export type GetStoryEndpointStoriesStoryIdGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetStoryEndpointStoriesStoryIdGetError = GetStoryEndpointStoriesStoryIdGetErrors[keyof GetStoryEndpointStoriesStoryIdGetErrors];
+
+export type GetStoryEndpointStoriesStoryIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryResponse;
+};
+
+export type GetStoryEndpointStoriesStoryIdGetResponse = GetStoryEndpointStoriesStoryIdGetResponses[keyof GetStoryEndpointStoriesStoryIdGetResponses];
+
+export type UpdateStoryEndpointStoriesStoryIdPatchData = {
+    body: StoryUpdate;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}';
+};
+
+export type UpdateStoryEndpointStoriesStoryIdPatchErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`).
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type UpdateStoryEndpointStoriesStoryIdPatchError = UpdateStoryEndpointStoriesStoryIdPatchErrors[keyof UpdateStoryEndpointStoriesStoryIdPatchErrors];
+
+export type UpdateStoryEndpointStoriesStoryIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryResponse;
+};
+
+export type UpdateStoryEndpointStoriesStoryIdPatchResponse = UpdateStoryEndpointStoriesStoryIdPatchResponses[keyof UpdateStoryEndpointStoriesStoryIdPatchResponses];
+
+export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/discard';
+};
+
+export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostError = DiscardStoryDraftEndpointStoriesStoryIdDiscardPostErrors[keyof DiscardStoryDraftEndpointStoriesStoryIdDiscardPostErrors];
+
+export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryDraftResponse;
+};
+
+export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponse = DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses[keyof DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses];
+
+export type SaveStoryDraftEndpointStoriesStoryIdDraftPutData = {
+    body: StoryDraftUpdate;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/draft';
+};
+
+export type SaveStoryDraftEndpointStoriesStoryIdDraftPutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`).
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SaveStoryDraftEndpointStoriesStoryIdDraftPutError = SaveStoryDraftEndpointStoriesStoryIdDraftPutErrors[keyof SaveStoryDraftEndpointStoriesStoryIdDraftPutErrors];
+
+export type SaveStoryDraftEndpointStoriesStoryIdDraftPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryDraftResponse;
+};
+
+export type SaveStoryDraftEndpointStoriesStoryIdDraftPutResponse = SaveStoryDraftEndpointStoriesStoryIdDraftPutResponses[keyof SaveStoryDraftEndpointStoriesStoryIdDraftPutResponses];
+
+export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/duplicate';
+};
+
+export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostError = DuplicateStoryEndpointStoriesStoryIdDuplicatePostErrors[keyof DuplicateStoryEndpointStoriesStoryIdDuplicatePostErrors];
+
+export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses = {
+    /**
+     * Successful Response
+     */
+    201: StoryDraftResponse;
+};
+
+export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponse = DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses[keyof DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses];
+
+export type PublishStoryEndpointStoriesStoryIdPublishPostData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/publish';
+};
+
+export type PublishStoryEndpointStoriesStoryIdPublishPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`).
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type PublishStoryEndpointStoriesStoryIdPublishPostError = PublishStoryEndpointStoriesStoryIdPublishPostErrors[keyof PublishStoryEndpointStoriesStoryIdPublishPostErrors];
+
+export type PublishStoryEndpointStoriesStoryIdPublishPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryResponse;
+};
+
+export type PublishStoryEndpointStoriesStoryIdPublishPostResponse = PublishStoryEndpointStoriesStoryIdPublishPostResponses[keyof PublishStoryEndpointStoriesStoryIdPublishPostResponses];
 
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
     body?: never;

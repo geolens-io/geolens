@@ -15,7 +15,7 @@ This module closes those gaps structurally. It walks the real FastAPI route
 table, parses each handler's source (plus one level of directly-called
 ``app.*`` helper functions) into an AST, and asserts that any handler whose
 effective source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
-``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
+``Story``, ``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
 resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
@@ -122,6 +122,10 @@ _DELEGATED_GUARDS = (
     # the candidate selection /search/datasets/ and /search/facets/ share;
     # applies apply_visibility_filter through vetting_filters.
     "select_candidates",
+    # stories: app/modules/catalog/stories/service.py
+    "check_story_access",
+    "check_story_ownership",
+    "apply_story_visibility_filter",
 )
 
 # Guards that deny by RAISING (404/403) — a bare ``await guard(...)``
@@ -138,6 +142,8 @@ _RAISING_GUARDS = frozenset(
         "_check_record_ownership",
         "_authorize_vector_tile_request",
         "_enforce_tile_token_access",
+        "check_story_access",
+        "check_story_ownership",
     }
 )
 
@@ -152,6 +158,7 @@ _VALUE_GUARDS = frozenset(
         "apply_map_visibility_filter",
         "bulk_check_dataset_access",
         "select_candidates",
+        "apply_story_visibility_filter",
     }
 )
 
@@ -174,6 +181,7 @@ def _guard_objects() -> dict[str, Any]:
     from app.modules.catalog.maps import service_crud, service_layers
     from app.modules.catalog.records import router as records_router
     from app.modules.catalog.search import service_candidates
+    from app.modules.catalog.stories import service as stories_service
     from app.processing.tiles import router as tiles_router
 
     guard_objects = {
@@ -193,6 +201,9 @@ def _guard_objects() -> dict[str, Any]:
         "_authorize_vector_tile_request": tiles_router._authorize_vector_tile_request,
         "_enforce_tile_token_access": tiles_router._enforce_tile_token_access,
         "select_candidates": service_candidates.select_candidates,
+        "check_story_access": stories_service.check_story_access,
+        "check_story_ownership": stories_service.check_story_ownership,
+        "apply_story_visibility_filter": stories_service.apply_story_visibility_filter,
     }
     assert set(guard_objects) == _RAISING_GUARDS | _VALUE_GUARDS
     return guard_objects
@@ -373,6 +384,7 @@ def _parse(source: str) -> ast.Module | None:
 def _guarded_model_classes() -> tuple[type, ...]:
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.models import Map
+    from app.modules.catalog.stories.models import Story
     from app.platform.jobs.models import IngestJob
     from app.processing.embeddings.models import RecordEmbedding
 
@@ -380,7 +392,7 @@ def _guarded_model_classes() -> tuple[type, ...]:
     # uploader's filename and the failure text of their run, and every
     # job-row endpoint reported "no fetch detected" while it was outside.
     # A whole class of read was invisible to this gate rather than clean.
-    return (Dataset, Record, Map, RecordEmbedding, IngestJob)
+    return (Dataset, Record, Map, Story, RecordEmbedding, IngestJob)
 
 
 # ProcessingPort accessors that hand a guarded ORM class to processing/ code
@@ -489,8 +501,9 @@ def _accessor_functions() -> tuple[Any, ...]:
     from app.modules.catalog.datasets.domain.service import get_dataset
     from app.modules.catalog.maps.service_crud import get_map, get_map_with_layers
     from app.modules.catalog.records.service import get_record
+    from app.modules.catalog.stories.service import get_story
 
-    return (get_dataset, get_map, get_map_with_layers, get_record)
+    return (get_dataset, get_map, get_map_with_layers, get_record, get_story)
 
 
 # Accessor METHOD names for attribute calls whose receiver cannot be
@@ -504,6 +517,7 @@ _ACCESSOR_METHOD_NAMES = frozenset(
         "get_dataset_with_attributes",
         "get_map",
         "get_map_with_layers",
+        "get_story",
     }
 )
 
@@ -1127,7 +1141,7 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
     """AGENTS.md Rule 1, enforced per handler across the whole route table.
 
     A handler whose effective source (own body + one level of directly-called
-    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding/IngestJob must
+    app.* helpers) fetches Record/Dataset/Map/Story/RecordEmbedding/IngestJob must
     CALL one
     of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
     entry — and the allowlist must stay exact, so guarded-later or renamed
@@ -1147,7 +1161,7 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
             )
         pytest.fail(
             "Rule 1 violation: route handler(s) fetch a guarded model "
-            "(Record/Dataset/Map/RecordEmbedding/IngestJob) without a "
+            "(Record/Dataset/Map/Story/RecordEmbedding/IngestJob) without a "
             "sanctioned access "
             "check. Add check_dataset_access_or_anonymous / "
             "check_dataset_access / check_dataset_write_access / "
@@ -1219,6 +1233,50 @@ def test_every_map_fetching_handler_checks_the_map() -> None:
     stale = sorted(set(MAP_ALLOWLIST) - set(unchecked))
     assert not stale, "Stale MAP_ALLOWLIST entries:\n" + "\n".join(
         f"  {key}" for key in stale
+    )
+
+
+# A map guard says nothing about a story, so a stories route that fetches a
+# Story needs a story guard; a write needs the ownership guard.
+_STORY_READ_GUARDS = frozenset(
+    {"check_story_access", "check_story_ownership", "apply_story_visibility_filter"}
+)
+_STORY_WRITE_GUARDS = frozenset({"check_story_ownership"})
+# Writes a caller may make to a story they can only read: copying it.
+_STORY_READ_ONLY_WRITES = frozenset(
+    {"app.modules.catalog.stories.router.duplicate_story_endpoint"}
+)
+
+
+@pytest.mark.architecture
+def test_every_story_route_checks_the_story() -> None:
+    """Each stories route that fetches a Story calls a story guard."""
+    _, reports = _analyze_routes()
+    story_routes = [
+        r for r in reports if r.key.startswith("app.modules.catalog.stories.")
+    ]
+    fetching = [r for r in story_routes if r.fetch_lines]
+    assert len(fetching) >= 8, (
+        f"only {len(fetching)} stories routes fetch a Story (expected >=8); "
+        "Story fetch detection has stopped matching."
+    )
+    unchecked = []
+    for report in fetching:
+        reads = set(report.methods) <= _READ_METHODS
+        required = (
+            _STORY_READ_GUARDS
+            if reads or report.key in _STORY_READ_ONLY_WRITES
+            else _STORY_WRITE_GUARDS
+        )
+        if not report.guards & required:
+            unchecked.append(
+                f"  {' '.join(report.methods)} {report.path}\n    {report.key}"
+            )
+    assert not unchecked, (
+        "Rule 1 violation: stories route(s) fetch a Story without the story "
+        "guard they need. Reads call check_story_access, check_story_ownership "
+        "or apply_story_visibility_filter; writes call check_story_ownership.\n"
+        + "\n".join(unchecked)
     )
 
 
@@ -1889,6 +1947,31 @@ def test_delegated_guards_still_enforce_access() -> None:
     assert "_MAP_VISIBILITIES" in map_filter and "created_by" in map_filter, (
         "apply_map_visibility_filter no longer filters by visibility/ownership"
     )
+
+    from app.modules.catalog.stories import service as stories_service
+
+    story_read = _source_of(stories_service.check_story_access)
+    assert (
+        "_STORY_VISIBILITIES" in story_read
+        and "published_at" in story_read
+        and "_not_found" in _calls_in(stories_service.check_story_access)
+    ), "check_story_access no longer enforces published-story visibility with a 404"
+    story_own = _source_of(stories_service.check_story_ownership)
+    assert {"check_story_access", "can_edit_story"} <= _calls_in(
+        stories_service.check_story_ownership
+    ) and "403" in story_own, (
+        "check_story_ownership no longer checks access and owner-or-admin"
+    )
+    can_edit = _source_of(stories_service.can_edit_story)
+    assert "created_by" in can_edit and "admin" in can_edit, (
+        "can_edit_story no longer means owner-or-admin"
+    )
+    story_filter = _source_of(stories_service.apply_story_visibility_filter)
+    assert (
+        "_STORY_VISIBILITIES" in story_filter
+        and "created_by" in story_filter
+        and "published_at" in story_filter
+    ), "apply_story_visibility_filter no longer filters by visibility/ownership"
 
     from app.modules.catalog.maps import service_layers
     from app.processing.tiles import router as tiles_router
