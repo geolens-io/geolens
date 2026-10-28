@@ -1,0 +1,15 @@
+# Vulnerability suppressions for the upstream base image scans in
+# .github/workflows/dep-audit.yml only. That job adds these entries to the
+# `vulnerabilities:` list of .trivyignore.yaml; the release scans of built
+# images in .github/workflows/publish.yml never read this file.
+  - id: CVE-2026-111497
+    purls:
+      - "pkg:apk/alpine/brotli-libs@1.2.0-r1"
+    expired_at: 2026-11-30
+    statement: >-
+      brotli out-of-bounds write, fixed in Alpine's brotli-libs 1.2.1-r0. The
+      pinned nginxinc/nginx-unprivileged:1.31.7-alpine digest still ships
+      1.2.0-r1 and upstream has not rebuilt it. The frontend stage runs
+      `apk upgrade --no-cache`, which installs 1.2.1-r0, and the release
+      scans of the built image still enforce this CVE. REMOVE when the nginx
+      base pin moves to a rebuild with brotli-libs 1.2.1-r0 or later.
