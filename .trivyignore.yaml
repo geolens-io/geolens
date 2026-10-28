@@ -12,20 +12,6 @@ vulnerabilities:
       never reaches production, and the DoS requires feeding a crafted archive
       to `tar` — not a surface in our controlled build. Scoped to this single
       CVE. REMOVE once a node alpine base ships tar >= 7.5.19.
-  - id: CVE-2026-111497
-    purls:
-      - "pkg:apk/alpine/brotli-libs@1.2.0-r1"
-    expired_at: 2026-11-30
-    statement: >-
-      brotli out-of-bounds write, fixed in Alpine's brotli-libs 1.2.1-r0. The
-      pinned nginxinc/nginx-unprivileged:1.31.7-alpine digest still ships
-      1.2.0-r1 and upstream has not rebuilt it, so the upstream base scan
-      fails on every PR. The frontend stage runs `apk upgrade --no-cache`,
-      which installs 1.2.1-r0, so the shipped image never carries the
-      vulnerable version. The purl names that version only, so a built image
-      that somehow kept it, or any later version with this CVE, still fails.
-      REMOVE when the nginx base pin moves to a rebuild with brotli-libs
-      1.2.1-r0 or later.
 misconfigurations:
   - id: AVD-DS-0002
     paths:
