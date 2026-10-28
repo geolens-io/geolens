@@ -183,3 +183,23 @@ async def test_a_refresh_stores_newer_esri_types_as_native_types(
     [run] = await _runs_ordered(test_db_session, dataset_id)
     assert run.status == "succeeded", run.verification
     await _assert_typed(test_db_session, dataset_id)
+
+
+async def test_a_dataset_imported_with_text_columns_refreshes_into_typed_ones(
+    client, admin_auth_header, test_db_session, monkeypatch
+):
+    with patch.object(
+        tasks_vector, "_fetch_arcgis_column_casts", AsyncMock(return_value=None)
+    ):
+        dataset_id = await _ingest(test_db_session, monkeypatch)
+    async with _dispatch_harness() as task:
+        response = await client.post(
+            f"/datasets/{dataset_id}/refresh", json={}, headers=admin_auth_header
+        )
+    assert response.status_code == 202, response.text
+    with _source(monkeypatch):
+        await reupload_service.func(**task.defer_async.call_args.kwargs)
+
+    [run] = await _runs_ordered(test_db_session, dataset_id)
+    assert run.status == "succeeded", run.verification
+    await _assert_typed(test_db_session, dataset_id)

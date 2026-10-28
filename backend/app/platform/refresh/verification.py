@@ -313,6 +313,35 @@ def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any])
     ).hexdigest()
 
 
+_TEXT_TYPES = frozenset({"text", "character varying", "string"})
+# The types GeoLens now gives ArcGIS BigInteger, DateOnly, TimeOnly and
+# TimestampOffset fields; datasets imported earlier hold them as text.
+_ARCGIS_NATIVE_TYPES = frozenset(
+    {"bigint", "date", "time without time zone", "timestamp with time zone"}
+)
+
+
+def _without_arcgis_native_typing(
+    schema_diff: dict[str, Any], service_type: object
+) -> dict[str, Any]:
+    """``schema_diff`` minus text-to-native type changes on an ArcGIS layer.
+
+    A dataset imported before those fields were typed refreshes into typed
+    columns without an operator accepting a destructive schema change.
+    """
+    if service_type != "arcgis_featureserver":
+        return schema_diff
+    kept = [
+        change
+        for change in schema_diff.get("type_changes") or ()
+        if not (
+            str(change.get("old_type", "")).lower() in _TEXT_TYPES
+            and str(change.get("new_type", "")).lower() in _ARCGIS_NATIVE_TYPES
+        )
+    ]
+    return {**schema_diff, "type_changes": kept}
+
+
 def verify_service_refresh(
     *,
     source_binding: dict[str, Any],
@@ -359,7 +388,9 @@ def verify_service_refresh(
         reasons.append("source_count_unavailable")
     reasons.extend(
         review_reasons(
-            schema_diff=schema_diff,
+            schema_diff=_without_arcgis_native_typing(
+                schema_diff, source_binding.get("service_type")
+            ),
             fetched_feature_count=fetched_feature_count,
             live=live,
             staged=staged,
