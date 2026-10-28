@@ -57,6 +57,18 @@ def _names(geolens: Any) -> set[str]:
             return set(names)
 
 
+def _may_manage(geolens: Any) -> bool:
+    """Whether the operator holds ``manage_collections``; True when that
+    can't be read, so the check runs."""
+    from geolens.api.auth import me_permissions_auth_me_permissions_get as get
+
+    try:
+        granted = geolens.call(get.sync_detailed).permissions.to_dict()
+    except GeoLensError:
+        return True
+    return granted.get("manage_collections") is not False
+
+
 def taken_collections(
     geolens: Any,
     plan: Mapping[str, Any],
@@ -78,7 +90,9 @@ def taken_collections(
         for name in item["target"]["collections"]
         if name and name not in known
     ]
-    if not wanted:
+    # Without the permission filing is skipped with a note, so no name can
+    # fail an item.
+    if not wanted or not _may_manage(geolens):
         return None
     existing = _names(geolens)
     prefix = _prefix(portal_info)

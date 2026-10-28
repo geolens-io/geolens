@@ -259,9 +259,18 @@ def test_other_modes_file_nothing(runner, tmp_path, geolens, mode):
         assert "GeoLens groups" in notes[0]
 
 
-def test_an_operator_without_manage_collections_skips_filing(runner, tmp_path, geolens):
+@pytest.mark.parametrize(
+    "taken", [(), ("Transportation", "Example County GIS - Transportation")]
+)
+def test_an_operator_without_manage_collections_skips_filing(
+    runner, tmp_path, geolens, taken
+):
     _services(geolens)
+    FakeCollections(geolens, taken=taken)
     geolens.routes[f"POST {COLLECTIONS}"] = (403, _problem(403, "Permission denied"))
+    geolens.routes["GET /auth/me/permissions/"] = {
+        "permissions": {"manage_collections": False}
+    }
     plan_file = _plan(tmp_path)
 
     result, _ = _migrate(runner, plan_file, "--only", A1, "--only", A2)
