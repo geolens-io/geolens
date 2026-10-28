@@ -23,6 +23,8 @@ from app.platform.jobs.heartbeat import (
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
 )
+from app.platform.arcgis_native_types import column_casts_from_meta
+from app.processing.ingest.arcgis_column_types import apply_arcgis_column_casts
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
@@ -399,6 +401,42 @@ async def _fetch_arcgis_field_labels(
     ) as exc:  # broad: labels are optional; the refresh must not fail on them
         structlog.get_logger().warning(
             "arcgis_field_labels_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=redact_exception_text(exc),
+        )
+        return None
+
+
+async def _fetch_arcgis_column_casts(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> dict[str, str] | None:
+    """Esri types for the columns GDAL loads as text, or None when unreadable.
+
+    None leaves those columns as text: the data is still imported, so a failed
+    metadata read must not fail the import.
+    """
+    if layer_id is None:
+        return None
+    from app.modules.catalog.sources.adapters.arcgis import (
+        ArcGISTokenError,
+        fetch_arcgis_layer_meta,
+    )
+    from app.core.url_redaction import redact_exception_text
+    from app.platform.security import CredentialRedirectError, make_safe_client
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            meta = await fetch_arcgis_layer_meta(
+                source_url.rstrip("/"), str(layer_id).strip("/"), client, token
+            )
+        return column_casts_from_meta(meta)
+    except (ArcGISTokenError, CredentialRedirectError):
+        # GDAL would follow the same redirect with the token in its URL.
+        raise
+    except Exception as exc:  # broad: a cast is optional; the import falls back to text
+        structlog.get_logger().warning(
+            "arcgis_column_casts_fetch_failed",
             source_url=source_url,
             layer_id=str(layer_id),
             error=redact_exception_text(exc),
@@ -1027,6 +1065,12 @@ async def ingest_service(
                 with suppress(asyncio.CancelledError):
                     await service_progress_task
 
+        column_casts = (
+            await _fetch_arcgis_column_casts(source_url, layer_id, token)
+            if service_type == "arcgis_featureserver"
+            else None
+        )
+
         # Requiring running status fences finalization against a failed attempt.
         async with _job_phase_session(
             job_uuid,
@@ -1056,6 +1100,13 @@ async def ingest_service(
                 )
 
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+            await apply_arcgis_column_casts(
+                session,
+                staging_table_name,
+                column_casts,
+                schema=_current_tenant_schema(),
+            )
 
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = (

@@ -73,6 +73,11 @@ replace it), plus `VALKEY_PASSWORD=<openssl rand -hex 32>` and
 are missing. Source builds and installs with their own cache set `REDIS_URL` to
 that cache instead, and need no bundled service.
 
+ArcGIS service datasets with BigInteger, DateOnly or TimestampOffset fields
+imported earlier hold those fields as text. Their next refresh is held for
+review once, with the type changes listed. Accept it to switch to bigint,
+date and timestamptz columns. TimeOnly fields stay text.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.

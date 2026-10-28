@@ -144,6 +144,8 @@ _ESRI_FIELD_TYPE_MAP = {
     "esriFieldTypeSingle": "Real",
     "esriFieldTypeString": "String",
     "esriFieldTypeDate": "DateTime",
+    "esriFieldTypeDateOnly": "Date",
+    "esriFieldTypeTimestampOffset": "DateTime",
     "esriFieldTypeGUID": "String",
     "esriFieldTypeGlobalID": "String",
 }
