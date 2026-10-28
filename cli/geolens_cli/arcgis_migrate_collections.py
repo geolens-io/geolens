@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
+from . import arcgis_plan as _plan
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -35,7 +36,7 @@ COLLECTION_PAGE = 200
 FALLBACK_PREFIX = "ArcGIS"
 DENIED = "not filed into collections: the operator can't manage collections"
 # The plan actions whose datasets are filed into collections.
-_FILED_ACTIONS = ("import_layers", "import_file")
+_FILED_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
 
 
 def _prefix(portal_info: Mapping[str, Any] | None) -> str:
