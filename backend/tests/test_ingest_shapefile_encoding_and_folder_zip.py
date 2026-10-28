@@ -139,9 +139,10 @@ def test_zip_with_root_files_or_several_folders_is_not_descended(tmp_path):
         (["export/d.gdb/a00000001.gdbtable"], "export/d.gdb"),
         (["d.gdb/a00000001.gdbtable", "readme.txt"], "d.gdb"),
         (["./d.gdb/", "./d.gdb/a00000001.gdbtable"], "d.gdb"),
+        (["./shape/a.shp", "./shape/a.dbf", "./__MACOSX/shape/._a.shp"], "shape"),
     ],
 )
-def test_a_zip_holding_one_geodatabase_opens_its_gdb_folder(tmp_path, members, folder):
+def test_a_zip_resolves_to_the_folder_gdal_opens(tmp_path, members, folder):
     source = tmp_path / "data.zip"
     with zipfile.ZipFile(source, "w") as archive:
         for member in members:

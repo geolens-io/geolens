@@ -17,12 +17,11 @@ def zip_single_folder(file_path: str) -> str | None:
     """
     try:
         with zipfile.ZipFile(file_path) as archive:
-            names = [
-                # GDAL lists members without a leading "./".
-                n.replace("\\", "/").removeprefix("./")
-                for n in archive.namelist()
-                if not n.startswith("__MACOSX/")
-            ]
+            # GDAL lists members without a leading "./".
+            members = (
+                n.replace("\\", "/").removeprefix("./") for n in archive.namelist()
+            )
+            names = [n for n in members if not n.startswith("__MACOSX/")]
     except (OSError, zipfile.BadZipFile):
         return None
     gdbs = {folder for n in names if (folder := _gdb_folder(n))}
