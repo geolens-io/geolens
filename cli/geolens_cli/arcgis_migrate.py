@@ -68,7 +68,13 @@ from .arcgis_migrate_refresh import (
     refresh_layers,
     snapshot,
 )
-from .arcgis_migrate_webmaps import get_map, import_map, map_state, refresh_map
+from .arcgis_migrate_webmaps import (
+    get_map,
+    import_map,
+    map_state,
+    refresh_map,
+    thumbnail_dry_run_notes,
+)
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -1140,8 +1146,10 @@ def _report(
     redact: Redactor,
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
+    notes: Mapping[str, list[str]] | None = None,
 ) -> int:
     groups = groups or GroupPlan()
+    notes = notes or {}
     rows = [
         {
             "id": item["id"],
@@ -1151,9 +1159,10 @@ def _report(
             "owner": owners.by_item[item["id"]].username
             if item["id"] in owners.by_item
             else None,
-            "notes": list(state.items[item["id"]].notes)
-            if item["id"] in state.items
-            else [],
+            "notes": [
+                *(state.items[item["id"]].notes if item["id"] in state.items else []),
+                *notes.get(item["id"], []),
+            ],
             "error": state.items[item["id"]].error
             if item["id"] in state.items
             else None,
@@ -1726,6 +1735,7 @@ def _run(
             redact,
             mark_cutover(opts, plan, state, owners, summary, groups=groups),
             groups,
+            thumbnail_dry_run_notes(to_run, rows, state.items),
         )
     ctx = MigrationContext(
         geolens=geolens,

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import secrets
@@ -1059,3 +1060,135 @@ def test_only_a_web_map_imports_an_exported_service_whose_action_became_an_impor
         "parcels_0": dataset_id("Parcels"),
         "view_0": dataset_id("Parcels"),
     }
+
+
+THUMBNAIL = "thumbnail/ago_downloaded.png"
+THUMBNAIL_PUT = f"PUT /maps/{MAP_ID}/thumbnail/"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _thumbnail(portal, image: Any = PNG, path: Any = THUMBNAIL) -> None:
+    item = f"content/items/{B1}"
+    portal.routes[item] = {**portal.routes[item], "thumbnail": path}
+    portal.routes[f"{item}/info/{THUMBNAIL}"] = (
+        image if isinstance(image, tuple) else (200, image)
+    )
+
+
+def _uploads(geolens) -> list[str]:
+    return [
+        s.json()["data_uri"]
+        for s in geolens.seen
+        if s.method == "PUT" and s.url.endswith("/thumbnail/")
+    ]
+
+
+def _thumbnail_notes(plan_file) -> list[str]:
+    notes = _state(plan_file)["items"][B1]["notes"]
+    return [note for note in notes if "thumbnail" in note]
+
+
+def test_a_new_map_gets_the_web_maps_thumbnail(runner, plan_file, geolens, portal):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (204, None)
+    _thumbnail(portal)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _uploads(geolens) == [
+        "data:image/png;base64," + base64.b64encode(PNG).decode()
+    ]
+    [read] = portal.requests_to(f"content/items/{B1}/info/{THUMBNAIL}")
+    assert read.headers.get("x-esri-authorization", "").startswith("Bearer ")
+    assert _thumbnail_notes(plan_file) == []
+
+
+def test_a_rerun_gives_a_migrated_map_the_thumbnail_it_lacks_and_keeps_one_it_has(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (204, None)
+    _run(runner, plan_file)
+    assert _uploads(geolens) == []
+    assert _thumbnail_notes(plan_file) == [
+        "the web map's thumbnail was not carried over: the web map has none"
+    ]
+
+    _thumbnail(portal)
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert len(_uploads(geolens)) == 1
+    assert _thumbnail_notes(plan_file) == []
+
+    shown = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **shown(seen),
+        "thumbnail_url": f"/maps/{MAP_ID}/thumbnail/",
+    }
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert len(_uploads(geolens)) == 1
+
+
+@pytest.mark.parametrize(
+    ("image", "path", "reason"),
+    [
+        (PNG, "thumbnail/../../community/self", "its path can't be read"),
+        (b"\xff\xd8\xff" + b"\x00" * 80_000, THUMBNAIL, "larger than"),
+        (b"GIF89a" + b"\x00" * 64, THUMBNAIL, "not a PNG or JPEG"),
+        ((404, {"error": {"code": 404}}), THUMBNAIL, "reading it failed"),
+    ],
+)
+def test_a_thumbnail_that_cant_be_read_is_reported_and_the_map_kept(
+    runner, plan_file, geolens, portal, image, path, reason
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (204, None)
+    _thumbnail(portal, image, path)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["status"] == "done"
+    [note] = _thumbnail_notes(plan_file)
+    assert reason in note
+    assert _uploads(geolens) == []
+
+
+def test_a_refused_thumbnail_upload_is_reported_and_the_map_kept(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (400, _problem(400, "not an image"))
+    _thumbnail(portal)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["status"] == "done"
+    [note] = _thumbnail_notes(plan_file)
+    assert "uploading it failed" in note
+
+
+def test_a_dry_run_says_it_would_upload_the_thumbnail(
+    runner, tmp_path, geolens, portal
+):
+    plan_file = _write_plan(tmp_path, rows={B1: {"thumbnail": THUMBNAIL}})
+    _services(geolens)
+
+    result, payload = _migrate(runner, plan_file, "--only", B1, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    [row] = [row for row in payload["items"] if row["id"] == B1]
+    assert row["notes"] == [
+        "would upload the web map's thumbnail to the new GeoLens map"
+    ]
+    assert _uploads(geolens) == []
+    assert not portal.seen
