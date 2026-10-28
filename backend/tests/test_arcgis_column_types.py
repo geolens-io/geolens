@@ -112,7 +112,7 @@ async def _assert_typed(session, dataset_id) -> None:
     assert {c: types[c] for c in stored} == {
         "big": "bigint",
         "day": "date",
-        "clock": "time without time zone",
+        "clock": "character varying",
         "stamp": "timestamp with time zone",
         "iso_day": "date",
         "note": "character varying",
@@ -185,21 +185,124 @@ async def test_a_refresh_stores_newer_esri_types_as_native_types(
     await _assert_typed(test_db_session, dataset_id)
 
 
-async def test_a_dataset_imported_with_text_columns_refreshes_into_typed_ones(
+_NATIVE = {"big", "day", "stamp", "iso_day", "src_fid"}
+
+
+async def _post_refresh(client, headers, monkeypatch, dataset_id, **body):
+    async with _dispatch_harness() as task:
+        response = await client.post(
+            f"/datasets/{dataset_id}/refresh", json=body, headers=headers
+        )
+    assert response.status_code == 202, response.text
+    with _source(monkeypatch):
+        await reupload_service.func(**task.defer_async.call_args.kwargs)
+
+
+async def test_a_text_typed_dataset_is_held_once_then_publishes_native_types(
     client, admin_auth_header, test_db_session, monkeypatch
 ):
     with patch.object(
         tasks_vector, "_fetch_arcgis_column_casts", AsyncMock(return_value=None)
     ):
         dataset_id = await _ingest(test_db_session, monkeypatch)
-    async with _dispatch_harness() as task:
-        response = await client.post(
-            f"/datasets/{dataset_id}/refresh", json={}, headers=admin_auth_header
-        )
-    assert response.status_code == 202, response.text
-    with _source(monkeypatch):
-        await reupload_service.func(**task.defer_async.call_args.kwargs)
+    await _post_refresh(client, admin_auth_header, monkeypatch, dataset_id)
 
-    [run] = await _runs_ordered(test_db_session, dataset_id)
-    assert run.status == "succeeded", run.verification
+    [held] = await _runs_ordered(test_db_session, dataset_id)
+    assert held.status == "blocked", held.verification
+    assert "destructive_schema_change" in held.verification["review_reasons"]
+    assert {c["name"] for c in held.schema_diff["type_changes"]} == _NATIVE
+
+    await _post_refresh(
+        client,
+        admin_auth_header,
+        monkeypatch,
+        dataset_id,
+        accept_blocked_run_id=str(held.id),
+    )
+    assert [r.status for r in await _runs_ordered(test_db_session, dataset_id)] == [
+        "blocked",
+        "succeeded",
+    ]
     await _assert_typed(test_db_session, dataset_id)
+
+
+async def test_the_reupload_preview_names_the_type_changes_a_refresh_reports(
+    client, admin_auth_header, test_db_session, monkeypatch
+):
+    from app.modules.catalog.datasets.api import router_reupload
+
+    with patch.object(
+        tasks_vector, "_fetch_arcgis_column_casts", AsyncMock(return_value=None)
+    ):
+        dataset_id = await _ingest(test_db_session, monkeypatch)
+
+    async def preview() -> set[str]:
+        reported = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "0",
+            "feature_count": 1,
+            "columns": [
+                {"name": name, "type": "String"}
+                for name in ("OBJECTID", "Big", "Day", "Clock", "Stamp", "Iso_Day")
+            ]
+            + [{"name": "Note", "type": "String"}, {"name": "FID", "type": "String"}],
+            "sample_rows": [],
+        }
+        with (
+            patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+            patch.object(
+                router_reupload,
+                "fetch_arcgis_layer_meta",
+                AsyncMock(return_value=_META),
+            ),
+            patch.object(
+                router_reupload,
+                "run_service_preview",
+                AsyncMock(return_value=reported),
+            ),
+        ):
+            response = await client.post(
+                f"/datasets/{dataset_id}/reupload/service/preview",
+                json={
+                    "url": _BASE,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+        assert response.status_code == 200, response.text
+        return {c["name"] for c in response.json()["schema_diff"]["type_changes"]}
+
+    previewed = await preview()
+    assert previewed == _NATIVE
+
+    await _post_refresh(client, admin_auth_header, monkeypatch, dataset_id)
+    [run] = await _runs_ordered(test_db_session, dataset_id)
+    assert {c["name"] for c in run.schema_diff["type_changes"]} == previewed
+
+    await _post_refresh(
+        client,
+        admin_auth_header,
+        monkeypatch,
+        dataset_id,
+        accept_blocked_run_id=str(run.id),
+    )
+    assert await preview() == set()
+
+
+def test_the_preview_reports_the_newer_esri_types_by_their_native_kind() -> None:
+    from app.modules.catalog.sources.adapters.arcgis import (
+        _normalize_esri_field_type as normalize,
+    )
+
+    assert [
+        normalize(t)
+        for t in (
+            "esriFieldTypeBigInteger",
+            "esriFieldTypeDateOnly",
+            "esriFieldTypeTimestampOffset",
+            "esriFieldTypeTimeOnly",
+        )
+    ] == ["Integer64", "Date", "DateTime", "String"]

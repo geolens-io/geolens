@@ -166,7 +166,9 @@ async def _preview(client, headers, dataset_id, points, columns=("name",)) -> di
     }
     with (
         patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
-        patch.object(router_reupload, "fetch_arcgis_layer_meta", AsyncMock()),
+        patch.object(
+            router_reupload, "fetch_arcgis_layer_meta", AsyncMock(return_value={})
+        ),
         patch.object(
             router_reupload, "run_service_preview", AsyncMock(return_value=reported)
         ),

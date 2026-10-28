@@ -1,7 +1,7 @@
 """Column types for ArcGIS fields GDAL's ESRIJSON driver loads as text.
 
-The driver types only the long-standing Esri field types. BigInteger, DateOnly,
-TimeOnly and TimestampOffset arrive as strings, so a layer imported from the
+The driver types only the long-standing Esri field types. BigInteger, DateOnly
+and TimestampOffset arrive as strings, so a layer imported from the
 service would otherwise differ from the same data in a file geodatabase.
 """
 
@@ -9,7 +9,6 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.column_names import stored_column_names
 from app.processing.ingest.metadata_sql import _qtable, _sql_quote_ident
 
 logger = structlog.get_logger()
@@ -25,30 +24,12 @@ _CASTS: dict[str, tuple[str, str]] = {
         "THEN (to_timestamp({c}::bigint / 1000.0) AT TIME ZONE 'UTC')::date "
         "ELSE {c}::date END",
     ),
-    "esriFieldTypeTimeOnly": ("time", "{c}::time"),
     "esriFieldTypeTimestampOffset": (
         "timestamptz",
         "CASE WHEN {c} ~ " + _EPOCH_MS + " "
         "THEN to_timestamp({c}::bigint / 1000.0) ELSE {c}::timestamptz END",
     ),
 }
-
-
-def column_casts_from_meta(meta: dict) -> dict[str, str]:
-    """Esri type by stored column name, for the fields that need a cast."""
-    fields = [
-        f
-        for f in meta.get("fields") or []
-        if isinstance(f, dict)
-        and isinstance(f.get("name"), str)
-        and f.get("type") != "esriFieldTypeGeometry"
-    ]
-    stored = stored_column_names([f["name"] for f in fields])
-    return {
-        column.encode()[:63].decode(errors="ignore"): f["type"]
-        for f, column in zip(fields, stored, strict=True)
-        if f.get("type") in _CASTS
-    }
 
 
 async def apply_arcgis_column_casts(

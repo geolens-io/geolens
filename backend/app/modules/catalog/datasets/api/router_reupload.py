@@ -57,6 +57,10 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.arcgis_native_types import (
+    ARCGIS_NATIVE_PG_TYPES,
+    column_casts_from_meta,
+)
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import hold
@@ -520,22 +524,22 @@ async def reupload_dataset(
 
 async def _refuse_featureless_arcgis_layer(
     request: ReuploadServicePreviewRequest, token: str | None
-) -> None:
-    """Raise the coded 422 for a layer that holds no rows.
+) -> dict | None:
+    """Raise the coded 422 for a layer that holds no rows; else its metadata.
 
     Any other failure to read the metadata is left to the preview below,
-    which reports it.
+    which reports it, and gives None.
     """
     try:
         base, url_layer_id = normalize_arcgis_url(request.url)
     except Exception:  # broad: malformed ArcGIS URL, the preview reports it
-        return
+        return None
     layer_id = request.layer_id if request.layer_id is not None else url_layer_id
     if layer_id is None:
-        return
+        return None
     try:
         async with make_safe_client(timeout=15.0) as client:
-            await fetch_arcgis_layer_meta(
+            return await fetch_arcgis_layer_meta(
                 base.rstrip("/"), str(layer_id).strip("/"), client, token
             )
     except HTTPException:
@@ -546,7 +550,7 @@ async def _refuse_featureless_arcgis_layer(
             detail="redirect target refused by SSRF policy",
         )
     except Exception:  # broad: unreadable metadata, the preview reports it
-        return
+        return None
 
 
 @router.post(
@@ -600,8 +604,11 @@ async def reupload_service_preview(
             detail=str(exc),
         )
 
+    layer_meta = None
     if request.service_type.startswith("ArcGIS"):
-        await _refuse_featureless_arcgis_layer(request, url_query_token(credential))
+        layer_meta = await _refuse_featureless_arcgis_layer(
+            request, url_query_token(credential)
+        )
 
     try:
         gdal_source, layer_arg = build_gdal_source(
@@ -639,7 +646,9 @@ async def reupload_service_preview(
 
     diff = compute_schema_diff(
         prior_columns,
-        _diffable_columns(preview_data["columns"]),
+        _with_declared_native_types(
+            _diffable_columns(preview_data["columns"]), layer_meta
+        ),
         prior_feature_count,
         preview_data["feature_count"],
     )
@@ -699,6 +708,23 @@ def _diffable_columns(columns: list[dict]) -> list[dict]:
     """
     stored = stored_column_names([c["name"] for c in columns])
     return [{**c, "name": name} for c, name in zip(columns, stored, strict=True)]
+
+
+def _with_declared_native_types(columns: list[dict], meta: dict | None) -> list[dict]:
+    """``columns`` with the types the import stores for the fields Esri types natively.
+
+    GDAL reports those fields as strings, but publication casts them, so the
+    preview names the same type changes the publication will.
+    """
+    if not meta:
+        return columns
+    casts = column_casts_from_meta(meta)
+    return [
+        {**c, "type": ARCGIS_NATIVE_PG_TYPES[casts[c["name"]]]}
+        if c["name"] in casts
+        else c
+        for c in columns
+    ]
 
 
 @router.post(

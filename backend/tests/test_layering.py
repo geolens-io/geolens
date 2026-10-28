@@ -1300,7 +1300,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1082,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
     "backend/app/modules/catalog/sources/router.py": 1733,
@@ -1365,7 +1365,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1674,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1700,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
@@ -1374,7 +1374,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1204,
+    "backend/app/processing/ingest/tasks_vector.py": 1202,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1613,

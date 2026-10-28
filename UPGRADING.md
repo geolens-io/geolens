@@ -61,6 +61,11 @@ in `.env` (comma-separated, `host` or `host:port`) and restart `api` and
 charts and the cloud templates, must pass the variable to both the api and
 worker containers.
 
+ArcGIS service datasets with BigInteger, DateOnly or TimestampOffset fields
+imported earlier hold those fields as text. Their next refresh is held for
+review once, with the type changes listed. Accept it to switch to bigint,
+date and timestamptz columns. TimeOnly fields stay text.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.

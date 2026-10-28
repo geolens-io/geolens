@@ -23,10 +23,8 @@ from app.platform.jobs.heartbeat import (
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
 )
-from app.processing.ingest.arcgis_column_types import (
-    apply_arcgis_column_casts,
-    column_casts_from_meta,
-)
+from app.platform.arcgis_native_types import column_casts_from_meta
+from app.processing.ingest.arcgis_column_types import apply_arcgis_column_casts
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
