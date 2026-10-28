@@ -644,11 +644,12 @@ async def reupload_service_preview(
             },
         )
 
+    typed_columns = _with_declared_native_types(
+        _diffable_columns(preview_data["columns"]), layer_meta
+    )
     diff = compute_schema_diff(
         prior_columns,
-        _with_declared_native_types(
-            _diffable_columns(preview_data["columns"]), layer_meta
-        ),
+        typed_columns,
         prior_feature_count,
         preview_data["feature_count"],
     )
@@ -687,7 +688,12 @@ async def reupload_service_preview(
     return ReuploadPreviewResponse(
         job_id=job.id,
         source_filename=job.source_filename,
-        columns=preview_data["columns"],
+        columns=[
+            {**column, "type": typed["type"]}
+            for column, typed in zip(
+                preview_data["columns"], typed_columns, strict=True
+            )
+        ],
         crs=preview_data["srid"],
         geometry_type=preview_data["geometry_type"],
         feature_count=preview_data["feature_count"],

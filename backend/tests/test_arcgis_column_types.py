@@ -273,7 +273,13 @@ async def test_the_reupload_preview_names_the_type_changes_a_refresh_reports(
                 headers=admin_auth_header,
             )
         assert response.status_code == 200, response.text
-        return {c["name"] for c in response.json()["schema_diff"]["type_changes"]}
+        body = response.json()
+        shown = {c["name"]: c["type"] for c in body["columns"]}
+        if body["schema_diff"]["type_changes"]:
+            assert shown["Big"] == "bigint"
+            assert shown["Stamp"] == "timestamp with time zone"
+            assert shown["Clock"] == "String"
+        return {c["name"] for c in body["schema_diff"]["type_changes"]}
 
     previewed = await preview()
     assert previewed == _NATIVE
@@ -306,3 +312,19 @@ def test_the_preview_reports_the_newer_esri_types_by_their_native_kind() -> None
             "esriFieldTypeTimeOnly",
         )
     ] == ["Integer64", "Date", "DateTime", "String"]
+
+
+def test_malformed_field_types_give_no_casts_instead_of_an_error() -> None:
+    from app.platform.arcgis_native_types import column_casts_from_meta
+
+    assert column_casts_from_meta({"fields": "x"}) == {}
+    assert column_casts_from_meta([]) == {}
+    meta = {
+        "fields": [
+            {"name": "a", "type": ["esriFieldTypeBigInteger"]},
+            {"name": "b", "type": {"x": 1}},
+            {"name": "c", "type": None},
+            {"name": "d", "type": "esriFieldTypeBigInteger"},
+        ]
+    }
+    assert column_casts_from_meta(meta) == {"d": "esriFieldTypeBigInteger"}

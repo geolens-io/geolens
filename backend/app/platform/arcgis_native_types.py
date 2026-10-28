@@ -12,9 +12,12 @@ ARCGIS_NATIVE_PG_TYPES: dict[str, str] = {
 
 def column_casts_from_meta(meta: dict) -> dict[str, str]:
     """Esri type by stored column name, for the fields that get a native type."""
+    raw_fields = meta.get("fields") if isinstance(meta, dict) else None
+    if not isinstance(raw_fields, list):
+        return {}
     fields = [
         f
-        for f in meta.get("fields") or []
+        for f in raw_fields
         if isinstance(f, dict)
         and isinstance(f.get("name"), str)
         and f.get("type") != "esriFieldTypeGeometry"
@@ -23,5 +26,5 @@ def column_casts_from_meta(meta: dict) -> dict[str, str]:
     return {
         column.encode()[:63].decode(errors="ignore"): f["type"]
         for f, column in zip(fields, stored, strict=True)
-        if f.get("type") in ARCGIS_NATIVE_PG_TYPES
+        if isinstance(f.get("type"), str) and f["type"] in ARCGIS_NATIVE_PG_TYPES
     }
