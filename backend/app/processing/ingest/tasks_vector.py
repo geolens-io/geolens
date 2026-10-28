@@ -432,6 +432,7 @@ async def _fetch_arcgis_column_casts(
             meta = await fetch_arcgis_layer_meta(
                 source_url.rstrip("/"), str(layer_id).strip("/"), client, token
             )
+        return column_casts_from_meta(meta)
     except (ArcGISTokenError, CredentialRedirectError):
         # GDAL would follow the same redirect with the token in its URL.
         raise
@@ -443,7 +444,6 @@ async def _fetch_arcgis_column_casts(
             error=redact_exception_text(exc),
         )
         return None
-    return column_casts_from_meta(meta)
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])

@@ -9,7 +9,6 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.url_redaction import redact_exception_text
 from app.platform.column_names import stored_column_names
 from app.processing.ingest.metadata_sql import _qtable, _sql_quote_ident
 
@@ -46,7 +45,7 @@ def column_casts_from_meta(meta: dict) -> dict[str, str]:
     ]
     stored = stored_column_names([f["name"] for f in fields])
     return {
-        column[:63]: f["type"]
+        column.encode()[:63].decode(errors="ignore"): f["type"]
         for f, column in zip(fields, stored, strict=True)
         if f.get("type") in _CASTS
     }
@@ -97,5 +96,5 @@ async def apply_arcgis_column_casts(
                 table=table_name,
                 column=column,
                 esri_type=esri_type,
-                error=redact_exception_text(exc),
+                error=type(exc).__name__,
             )

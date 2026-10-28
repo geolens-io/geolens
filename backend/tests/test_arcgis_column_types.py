@@ -14,6 +14,7 @@ from app.processing.ingest import tasks_vector
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import get_user_id
+from tests.test_refresh_gate_1269 import _runs_ordered
 from tests.test_service_reupload_3d import _BASE, _dispatch_harness
 
 pytestmark = pytest.mark.anyio
@@ -179,4 +180,6 @@ async def test_a_refresh_stores_newer_esri_types_as_native_types(
     assert response.status_code == 202, response.text
     with _source(monkeypatch):
         await reupload_service.func(**task.defer_async.call_args.kwargs)
+    [run] = await _runs_ordered(test_db_session, dataset_id)
+    assert run.status == "succeeded", run.verification
     await _assert_typed(test_db_session, dataset_id)
