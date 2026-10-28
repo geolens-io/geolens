@@ -37,7 +37,7 @@ from ._sdk_helpers import (
     EXIT_USAGE,
 )
 from .arcgis_item_metadata import apply_item_metadata
-from .arcgis_migrate_collections import file_into_collections
+from .arcgis_migrate_collections import file_into_collections, taken_collections
 from .arcgis_migrate_export import (
     DEFAULT_CAP_MB,
     EXPORT_DIRNAME,
@@ -115,6 +115,9 @@ DEFAULT_TRANSFER_GRANTS = {
     "admin": {"upload": True, "edit_metadata": True},
 }
 USER_PAGE_SIZE = 200
+DATASET_PAGE = 200
+# Datasets the refusal of a run without its state file names.
+EARLIER_COPIES_SHOWN = 3
 _PORTAL_EXIT = {
     "auth": EXIT_AUTH,
     "network": EXIT_NETWORK,
@@ -176,6 +179,8 @@ class MigrateOptions:
     trusted_hosts: list[str] = field(default_factory=list)
     export_cap_mb: int = DEFAULT_CAP_MB
     cutover: bool = False
+    # Run without a state file even when GeoLens holds the plan's items.
+    start_fresh: bool = False
     # The cutover checks whose loss the operator accepts (CHECKS names).
     accept: frozenset[str] = frozenset()
 
@@ -355,6 +360,61 @@ def _restrict_public(geolens: GeoLens, items: Iterable[Mapping[str, Any]]) -> bo
             exc.detail,
         ) from None
     return flags.restrict_public_visibility is True
+
+
+def _earlier_copies(
+    geolens: GeoLens, items: Iterable[Mapping[str, Any]], state_path: Path
+) -> str | None:
+    """Why a run without a state file stops: GeoLens already holds datasets
+    that link to the portal items of *items*, which the run would import a
+    second time. None when it holds none."""
+    wanted = {
+        i["id"]
+        for i in items
+        if i["action"] in (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
+        and not i.get("unlisted")
+    }
+    if not wanted:
+        return None
+    from geolens.api.datasets import list_all_datasets_datasets_get as list_datasets
+
+    found: list[tuple[str, str]] = []
+    seen = 0
+    while True:
+        try:
+            page = geolens.call(
+                list_datasets.sync_detailed, skip=seen, limit=DATASET_PAGE
+            )
+        except GeoLensError as exc:
+            raise GeoLensError(
+                f"the datasets that show whether the plan's items were migrated "
+                f"before can't be read: {exc}",
+                exc.status,
+                exc.detail,
+            ) from None
+        seen += len(page.datasets)
+        for dataset in page.datasets:
+            ref = getattr(dataset, "origin_ref", None)
+            ref = ref.to_dict() if hasattr(ref, "to_dict") else {}
+            # A STAC ref's item_id names the catalog's item, not a portal item.
+            if (
+                ref.get("kind") in ("service", "upload")
+                and ref.get("item_id") in wanted
+            ):
+                found.append((ref["item_id"], f"{dataset.title} ({dataset.id})"))
+        if not page.datasets or seen >= page.total:
+            break
+    if not found:
+        return None
+    shown = ", ".join(copy for _, copy in found[:EARLIER_COPIES_SHOWN])
+    more = len(found) - EARLIER_COPIES_SHOWN
+    return (
+        f"there is no state file at {state_path}, but GeoLens already holds "
+        f"{len(found)} dataset(s) migrated from {len({i for i, _ in found})} of "
+        f"the plan's items ({shown}{f' and {more} more' if more > 0 else ''}), "
+        "which this run would import again; pass --state with the state file "
+        "of the earlier run, or --start-fresh to migrate them again anyway"
+    )
 
 
 def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | None:
@@ -1454,6 +1514,15 @@ def _run(
         owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)
         # Read before any group is made, so a run it stops changes nothing.
         restrict_public = _restrict_public(geolens, touched)
+        if not opts.start_fresh and not state.path.exists():
+            refusal = _earlier_copies(geolens, to_run, state.path)
+            if refusal:
+                raise UsageError(refusal)
+        refusal = taken_collections(
+            geolens, plan, to_run, state.collections, portal_info
+        )
+        if refusal:
+            raise UsageError(refusal)
         groups = prepare_groups(
             geolens,
             plan,

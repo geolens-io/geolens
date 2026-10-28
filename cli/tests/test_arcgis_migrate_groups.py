@@ -682,6 +682,27 @@ def test_a_dry_run_makes_no_group_and_lists_the_member_mapping(runner, tmp_path,
     assert not (plan_file.parent / "arcgis-migration-state.json").exists()
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_name_held_with_and_without_the_prefix_stops_the_run(
+    runner, tmp_path, team, dry_run
+):
+    service = _service(team)
+    api = GroupsApi(
+        team,
+        service,
+        existing=[_group(EXISTING, "Planners"), _group(OTHER, "ArcGIS - Planners")],
+    )
+    plan_file = _write(tmp_path, members=["agol_bob"])
+
+    result, _ = _run(runner, plan_file, *(["--dry-run"] if dry_run else []))
+
+    assert result.exit_code == 2
+    assert "groups named Planners and ArcGIS - Planners" in result.output
+    assert "group_map g1 geolens_group" in result.output
+    assert len(api.groups) == 2 and api.members == {}
+    assert service.bodies("POST /ingest/commit/") == []
+
+
 def test_the_report_lists_the_member_mapping(runner, tmp_path, team):
     service = _service(team)
     GroupsApi(team, service, existing=[])
