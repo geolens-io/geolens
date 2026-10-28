@@ -12,6 +12,7 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_export as export_module
+from geolens_cli.arcgis_migrate_state import MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
@@ -1247,3 +1248,26 @@ def test_a_raw_file_keeps_its_type_and_never_a_portal_path(item_type, name, expe
     full = {"name": name} if name is not None else {}
 
     assert export_module._raw_name({"type": item_type}, full) == expected
+
+
+@pytest.mark.parametrize(
+    ("action", "defaults", "expected"),
+    [
+        ("export_only", {"action": "export_only"}, "Source file of Layer"),
+        ("export_only", None, "Source file of Layer"),
+        ("import_file", {"action": "export_only"}, "No equivalent in GeoLens."),
+        ("import_file", {"action": "import_file"}, "Source file of Layer"),
+    ],
+)
+def test_the_hosted_layer_note_follows_the_items_current_action(
+    tmp_path, action, defaults, expected
+):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    item = {"id": D1, "type": "CSV", "action": action, "superseded_by": C1}
+    if defaults is not None:
+        item["defaults"] = defaults
+    plan = {"items": [item, {"id": C1, "title": "Layer"}]}
+
+    assert export_module.item_replacement(item, plan, state).startswith(
+        expected
+    )

@@ -124,9 +124,13 @@ def item_replacement(
     item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
 ) -> str:
     """The note for *item*; a source file superseded by a hosted layer says so,
-    and says when that layer hasn't migrated, as the follow-ups do."""
+    and says when that layer hasn't migrated, as the follow-ups do. An item
+    whose action was changed from its recorded default is no longer the
+    layer's source file, so it gets its type's note; a plan with no recorded
+    defaults counts as unchanged."""
     layer = item.get("superseded_by")
-    if not layer:
+    default_action = (item.get("defaults") or {}).get("action", item["action"])
+    if not layer or item["action"] != default_action:
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)
