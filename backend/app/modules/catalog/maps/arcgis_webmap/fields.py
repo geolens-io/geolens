@@ -27,22 +27,21 @@ class FieldNames:
         path: str = "",
         loss: LossReport | None = None,
     ) -> None:
-        cols = [c for c in columns or () if isinstance(c, Mapping)]
-        names = [c.get("name") for c in cols]
-        self._columns = {name for name in names if isinstance(name, str)}
+        self._columns: set[str] = set()
         self._by_source: dict[str, set[str]] = {}
         self._by_source_folded: dict[str, set[str]] = {}
-        for c in cols:
-            source, stored = c.get("source_name"), c.get("name")
-            if isinstance(source, str) and isinstance(stored, str):
-                self._by_source.setdefault(source, set()).add(stored)
-                self._by_source_folded.setdefault(source.casefold(), set()).add(stored)
-        self._sourced = bool(self._by_source)
         self._folded: dict[str, set[str]] = {}
-        for c in cols:
-            name = c.get("name")
-            if isinstance(name, str) and not isinstance(c.get("source_name"), str):
+        for c in columns or ():
+            if not isinstance(c, Mapping) or not isinstance(c.get("name"), str):
+                continue
+            name, source = c["name"], c.get("source_name")
+            self._columns.add(name)
+            if isinstance(source, str):
+                self._by_source.setdefault(source, set()).add(name)
+                self._by_source_folded.setdefault(source.casefold(), set()).add(name)
+            else:
                 self._folded.setdefault(name.casefold(), set()).add(name)
+        self._sourced = bool(self._by_source)
         self._path = path
         self._loss = loss
         self._reported: set[str] = set()

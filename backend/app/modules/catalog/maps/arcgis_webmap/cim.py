@@ -101,7 +101,9 @@ def _line(symbol: dict, path: str, loss: LossReport) -> dict | None:
 
 def _is_curved_circle(rings: list) -> bool:
     """One ring made only of circular arcs around a single centre."""
-    segments = _l(rings[0])[1:] if len(rings) == 1 else []
+    if len(rings) != 1:
+        return False
+    segments = _l(rings[0])[1:]
     centers = set()
     for segment in segments:
         arc = _l(_d(segment).get("a"))
@@ -110,7 +112,7 @@ def _is_curved_circle(rings: list) -> bool:
         if len(coords) != 2 or None in coords:
             return False
         centers.add(tuple(round(v, 3) for v in coords))
-    return len(segments) > 0 and len(centers) == 1
+    return bool(segments) and len(centers) == 1
 
 
 def _is_circle(geometry: dict) -> bool:
@@ -153,14 +155,12 @@ def _point(symbol: dict, path: str, loss: LossReport) -> dict | None:
     return {
         "type": "esriSMS",
         "style": "esriSMSCircle",
-        "color": shape.get("color")
-        if shape.get("style") == "esriSFSSolid"
-        else [0, 0, 0, 0],
+        "color": shape["color"] if shape["style"] == "esriSFSSolid" else [0, 0, 0, 0],
         "size": marker.get("size"),
         "angle": marker.get("rotation"),
         "xoffset": marker.get("offsetX"),
         "yoffset": marker.get("offsetY"),
-        "outline": shape.get("outline") or {},
+        "outline": shape["outline"],
     }
 
 

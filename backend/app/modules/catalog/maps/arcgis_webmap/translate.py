@@ -265,10 +265,14 @@ def _numeric_fields(
         and column.get("type") in _NUMERIC_COLUMN_KINDS
     }
     for esri in _l(definition.get("fields")):
-        if not isinstance(esri, dict) or not isinstance(esri.get("name"), str):
+        if (
+            not isinstance(esri, dict)
+            or not isinstance(esri.get("name"), str)
+            or esri.get("type") not in _NUMERIC_FIELD_KINDS
+        ):
             continue
         column = fields.stored(esri["name"]) or esri["name"]
-        if esri.get("type") in _NUMERIC_FIELD_KINDS and kinds.get(column) != "numeric":
+        if kinds.get(column) != "numeric":
             kinds[column] = _NUMERIC_FIELD_KINDS[esri["type"]]
     return kinds
 

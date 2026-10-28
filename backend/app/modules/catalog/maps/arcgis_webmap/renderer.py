@@ -172,8 +172,8 @@ def _fill(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
 def _symbol(raw: Any, path: str, loss: LossReport) -> _Symbol | None:
     symbol = _d(raw)
     if symbol.get("type") == "CIMSymbolReference":
-        symbol = classic_symbol(symbol, path, loss) or {}
-        if not symbol:
+        symbol = classic_symbol(symbol, path, loss)
+        if symbol is None:
             return None
     symbol_type = symbol.get("type")
     kind = _KIND_BY_SYMBOL.get(symbol_type) if isinstance(symbol_type, str) else None
