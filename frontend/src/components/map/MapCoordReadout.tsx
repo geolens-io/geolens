@@ -44,6 +44,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     const onMouseMove = (e: MapMouseEvent) => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
         if (disposed) return;
         const lat = parseFloat(e.lngLat.lat.toFixed(2));
         const lng = parseFloat(e.lngLat.lng.toFixed(2));
@@ -56,9 +57,14 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     };
 
     // `move` also covers programmatic camera changes before the first hover.
+    // A frame already queued is kept: cancelling it on every event would starve
+    // the readout for as long as an animated move keeps firing.
     const onMove = () => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(updateFromCenter);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        updateFromCenter();
+      });
     };
 
     const onMouseLeave = () => {

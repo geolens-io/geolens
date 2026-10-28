@@ -542,7 +542,7 @@ export function DatasetPage() {
   ];
 
   return (
-    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]', 'pb-[var(--floating-dock-inset,0px)]')}>
+    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]')}>
       <DatasetDetailHeader
         title={dataset.title}
         onTitleSave={handleSaveName}

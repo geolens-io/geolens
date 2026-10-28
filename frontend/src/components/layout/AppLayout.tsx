@@ -29,9 +29,10 @@ export function AppLayout() {
     // The navbar is fixed, so its height (h-14 + safe-area) is reserved as top
     // padding: min-h-screen pages sit below it and h-dvh map routes lose that
     // height to flex-1, as if the navbar were in flow. Banners render below it.
+    // Bottom padding reserves the space a floating launcher covers, footer included.
     <div
       className={cn(
-        'flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))]',
+        'flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[var(--floating-dock-inset,0px)]',
         isMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen',
       )}
     >
