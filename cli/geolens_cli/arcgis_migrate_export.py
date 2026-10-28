@@ -24,7 +24,13 @@ from typing import Any
 from urllib.parse import quote
 
 from . import arcgis_report as _report
-from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    ItemResult,
+    MigrationContext,
+    StopRun,
+)
 from .arcgis_migrate_state import (
     DONE,
     EXISTS,
@@ -410,10 +416,29 @@ def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> set
     return saved
 
 
+def _web_app(ctx: MigrationContext) -> str:
+    """The configured PUBLIC_APP_URL, which a split-origin install serves the
+    web app from, else the instance URL without /api."""
+    if ctx.web_app is None:
+        from geolens.api.admin import get_tile_config_settings_tile_config_get as tiles
+
+        try:
+            configured = ctx.geolens.call(tiles.sync_detailed).public_app_url
+        except GeoLensError:
+            configured = None
+        if isinstance(configured, str) and configured.startswith(
+            ("https://", "http://")
+        ):
+            ctx.web_app = configured.rstrip("/")
+        else:
+            ctx.web_app = ctx.web_origin
+    return ctx.web_app
+
+
 def _map_link(ctx: MigrationContext, item_id: str) -> str:
     migrated = ctx.items.get(item_id)
     if migrated is not None and migrated.map_id:
-        return f"{ctx.web_origin}/maps/{migrated.map_id}"
+        return f"{_web_app(ctx)}/maps/{migrated.map_id}"
     return f"{ctx.portal_root}/home/item.html?id={item_id}"
 
 

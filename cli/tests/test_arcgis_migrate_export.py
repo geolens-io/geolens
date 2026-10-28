@@ -182,9 +182,24 @@ def test_a_storymap_gets_story_text_images_and_map_links(
     assert _state(plan_file)["items"][C2]["export"]["story"] is True
 
 
+_TILE_CONFIG = "GET /settings/tile-config/"
+
+
+@pytest.mark.parametrize(
+    ("reply", "origin"),
+    [
+        ({"public_app_url": "https://maps.example.org/"}, "https://maps.example.org"),
+        ({"public_app_url": None}, "https://geolens.example.org"),
+        (
+            (500, {"detail": "boom", "status": 500, "title": "Error"}),
+            "https://geolens.example.org",
+        ),
+    ],
+)
 def test_a_story_links_to_the_geolens_map_made_from_its_web_map(
-    runner, tmp_path, geolens, install
+    runner, tmp_path, geolens, install, reply, origin
 ):
+    geolens.routes[_TILE_CONFIG] = reply
     data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
     install({f"content/items/{C2}/data": data})
     plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
@@ -204,7 +219,39 @@ def test_a_story_links_to_the_geolens_map_made_from_its_web_map(
 
     assert result.exit_code == 0, result.output
     text = (_export(plan_file, "storymap", C2) / "story.md").read_text()
-    assert "https://geolens.example.org/maps/m-123" in text
+    assert f"({origin}/maps/m-123)" in text
+    # Read once, when the story first links to a GeoLens map.
+    reads = [s for s in geolens.seen if s.url.endswith("/settings/tile-config/")]
+    assert len(reads) == 1
+
+
+def test_the_web_app_url_is_read_once_for_every_story_link():
+    from types import SimpleNamespace
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    calls: list[object] = []
+
+    class GeoLens:
+        def call(self, fn):
+            calls.append(fn)
+            return SimpleNamespace(public_app_url="https://maps.example.org")
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    assert [export._map_link(ctx, i) for i in ("a", "b")] == [
+        "https://maps.example.org/maps/m-1",
+        "https://maps.example.org/maps/m-2",
+    ]
+    assert len(calls) == 1
 
 
 def test_the_size_cap_stops_the_download_and_marks_the_item_partial(
