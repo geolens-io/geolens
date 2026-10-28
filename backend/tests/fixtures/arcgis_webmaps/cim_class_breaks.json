@@ -1,0 +1,297 @@
+{
+  "operationalLayers": [
+    {
+      "id": "conservation_18",
+      "itemId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "layerType": "ArcGISFeatureLayer",
+      "title": "Adjacency to Waterbodies",
+      "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Conservation/FeatureServer/18",
+      "visibility": true,
+      "opacity": 1,
+      "showLegend": true,
+      "layerDefinition": {
+        "drawingInfo": {
+          "renderer": {
+            "authoringInfo": {
+              "type": "classedColor"
+            },
+            "classBreakInfos": [
+              {
+                "classMaxValue": 1,
+                "label": "0",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          255,
+                          255,
+                          255,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              },
+              {
+                "classMaxValue": 3,
+                "label": "1 \u2013 2",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          218,
+                          218,
+                          235,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              },
+              {
+                "classMaxValue": 5,
+                "label": "3 - 5",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          188,
+                          189,
+                          220,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              },
+              {
+                "classMaxValue": 7,
+                "label": "5 - 7",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          158,
+                          154,
+                          200,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              },
+              {
+                "classMaxValue": 9,
+                "label": "7 - 9",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          117,
+                          107,
+                          177,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              },
+              {
+                "classMaxValue": 10,
+                "label": "9 - 10",
+                "symbol": {
+                  "symbol": {
+                    "angleAlignment": "Map",
+                    "symbolLayers": [
+                      {
+                        "anchor3D": "Center",
+                        "capStyle": "Round",
+                        "color": [
+                          110,
+                          110,
+                          110,
+                          255
+                        ],
+                        "enable": true,
+                        "height3D": 1,
+                        "joinStyle": "Round",
+                        "lineStyle3D": "Strip",
+                        "miterLimit": 10,
+                        "type": "CIMSolidStroke",
+                        "width": 0.7
+                      },
+                      {
+                        "color": [
+                          84,
+                          39,
+                          143,
+                          255
+                        ],
+                        "enable": true,
+                        "type": "CIMSolidFill"
+                      }
+                    ],
+                    "type": "CIMPolygonSymbol"
+                  },
+                  "type": "CIMSymbolReference"
+                }
+              }
+            ],
+            "field": "REC_WaterbodyAccessScore",
+            "legendOptions": {
+              "order": "ascendingValues"
+            },
+            "minValue": 0,
+            "type": "classBreaks"
+          }
+        }
+      },
+      "popupInfo": {
+        "popupElements": [
+          {
+            "type": "fields",
+            "fieldInfos": [
+              {
+                "fieldName": "PROP_LOC",
+                "label": "Property Location",
+                "visible": true
+              },
+              {
+                "fieldName": "REC_WaterbodyAccessScore",
+                "label": "Parcel score for closest distance to nearest waterbody",
+                "visible": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "baseMap": {
+    "baseMapLayers": [
+      {
+        "url": "https://esri/base"
+      }
+    ]
+  }
+}

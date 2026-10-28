@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import secrets
 from pathlib import Path
@@ -16,9 +17,18 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_webmaps as webmaps
 from geolens_cli.arcgis_migrate_state import ItemState
+from geolens_cli.arcgis_portal import PortalClient
 from geolens_cli.arcgis_migrate_webmaps import _translatable, match_datasets
 
-from .arcgis_fake import A1, A2, B1, FakePortal, item_data_path, portal_routes
+from .arcgis_fake import (
+    A1,
+    A2,
+    B1,
+    FIXTURES,
+    FakePortal,
+    item_data_path,
+    portal_routes,
+)
 from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
     NOW,
     OPERATOR,
@@ -165,6 +175,134 @@ def test_a_stored_token_in_the_web_map_is_not_sent(runner, plan_file, geolens):
 
     assert result.exit_code == 0, result.output
     assert "stored-in-web-map-not-a-real-token" not in _sent(geolens)[0].body.decode()
+
+
+PARCELS_LAYER = "/ExAmPlEoRg0123/arcgis/rest/services/Parcels/FeatureServer/0"
+SERVICE_RENDERER = {
+    "type": "simple",
+    "symbol": {"type": "esriSFS", "style": "esriSFSSolid", "color": [0, 92, 230, 255]},
+}
+
+
+def test_a_layer_the_web_map_leaves_unstyled_takes_its_service_renderer(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    portal.routes[PARCELS_LAYER] = {
+        "id": 0,
+        "drawingInfo": {"renderer": SERVICE_RENDERER, "transparency": 25},
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [request] = [s.json() for s in _sent(geolens)]
+    parcels = request["webmap"]["operationalLayers"][0]
+    assert parcels["layerDefinition"]["drawingInfo"] == {
+        "renderer": SERVICE_RENDERER,
+        "transparency": 25,
+    }
+    [read] = portal.requests_to(PARCELS_LAYER)
+    assert read.headers["x-esri-authorization"].startswith("Bearer ")
+    # The other organization's hydrants service is never read.
+    assert not [s for s in portal.seen if "OtherOrg" in s.url]
+
+
+def _styling_ctx(routes: dict[str, Any], trusted: str = "services1.arcgis.com"):
+    client = PortalClient(
+        "https://examplecounty.maps.arcgis.com",
+        opener=FakePortal(routes),
+        redact=str,
+        token="t",
+        sleep=lambda _s: None,
+    )
+    return SimpleNamespace(
+        portal=SimpleNamespace(client=client),
+        trusted_hosts=frozenset({trusted}),
+        portal_info=None,
+        redact=str,
+    )
+
+
+def _styling_webmap() -> dict[str, Any]:
+    return json.loads(
+        (FIXTURES / "webmap_service_styling.json").read_text(encoding="utf-8")
+    )
+
+
+def _drawing(webmap: dict[str, Any]) -> dict[str, Any]:
+    return {
+        layer["id"]: layer.get("layerDefinition", {}).get("drawingInfo")
+        for layer in webmap["operationalLayers"]
+    }
+
+
+SERVICE = "/ExAmPlEoRg0123/arcgis/rest/services/Conservation/FeatureServer/"
+ALL_MATCHED = {f"conservation_{n}": f"ds-{n}" for n in ("18", "9", "6", "0")}
+
+
+def test_source_styling_fills_only_what_the_web_map_leaves_to_the_service():
+    webmap = _styling_webmap()
+    authored = copy.deepcopy(webmap["operationalLayers"][0])
+    labels = webmap["operationalLayers"][1]["layerDefinition"]["drawingInfo"]
+    routes = {
+        f"{SERVICE}{n}": {"drawingInfo": {"renderer": {"type": "simple", "n": n}}}
+        for n in ("18", "9", "6", "0")
+    }
+    ctx = _styling_ctx(routes)
+
+    webmaps.fill_source_styling(ctx, webmap, ALL_MATCHED)
+
+    drawing = _drawing(webmap)
+    assert webmap["operationalLayers"][0] == authored
+    assert drawing["conservation_9"] == {
+        **labels,
+        "renderer": {"type": "simple", "n": "9"},
+    }
+    assert drawing["conservation_6"] == {"renderer": {"type": "simple", "n": "6"}}
+    assert drawing["conservation_0"] == {"renderer": {"type": "simple", "n": "0"}}
+    read = {s.path for s in ctx.portal.client._opener.seen}
+    assert f"{SERVICE}18" not in read
+
+
+def test_a_style_saved_on_the_layer_item_wins_over_the_service():
+    saved = {"type": "simple", "from": "item"}
+    routes = {
+        item_data_path(A1): {
+            "layers": [
+                {"id": 6, "layerDefinition": {"drawingInfo": {"renderer": saved}}}
+            ]
+        },
+        f"{SERVICE}6": {"drawingInfo": {"renderer": {"type": "simple"}}},
+    }
+    webmap = _styling_webmap()
+    ctx = _styling_ctx(routes)
+
+    webmaps.fill_source_styling(ctx, webmap, {"conservation_6": "ds-6"})
+
+    assert _drawing(webmap)["conservation_6"] == {"renderer": saved}
+    assert not ctx.portal.client._opener.requests_to(f"{SERVICE}6")
+
+
+def test_an_untrusted_or_unreadable_service_leaves_the_layer_unstyled():
+    webmap = _styling_webmap()
+    before = copy.deepcopy(webmap)
+    untrusted = _styling_ctx({f"{SERVICE}6": {"drawingInfo": {}}}, trusted="x")
+
+    webmaps.fill_source_styling(untrusted, webmap, ALL_MATCHED)
+    webmaps.fill_source_styling(_styling_ctx({}), webmap, ALL_MATCHED)
+
+    assert webmap == before
+    assert not [s for s in untrusted.portal.client._opener.seen if SERVICE in s.path]
+
+
+def test_a_layer_id_that_is_not_a_string_is_left_alone():
+    webmap = _styling_webmap()
+    webmap["operationalLayers"][0]["id"] = ["conservation_18"]
+    webmap["operationalLayers"][1]["id"] = {"x": 1}
+
+    webmaps.fill_source_styling(_styling_ctx({}), webmap, ALL_MATCHED)
 
 
 def test_a_rerun_keeps_the_map_it_made(runner, plan_file, geolens):
