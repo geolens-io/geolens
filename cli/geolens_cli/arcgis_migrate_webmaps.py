@@ -137,12 +137,15 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
     return matches
 
 
-def _read_object(read: Callable[[], Any]) -> dict[str, Any]:
+def _read_object(read: Callable[[], Any], *, portal: bool = False) -> dict[str, Any]:
     """*read*'s JSON object, or an empty one when it fails: missing styling
-    leaves a layer with GeoLens's default rather than failing the map."""
+    leaves a layer with GeoLens's default rather than failing the map. A
+    portal read the token is refused on stops the run instead."""
     try:
         data = read()
-    except PortalError:
+    except PortalError as exc:
+        if portal:
+            _stop_if_token_refused(exc)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -155,7 +158,8 @@ def _item_drawing(
         return None
     if item_id not in cache:
         cache[item_id] = _read_object(
-            lambda: ctx.portal.client.get_json(f"content/items/{item_id}/data")
+            lambda: ctx.portal.client.get_json(f"content/items/{item_id}/data"),
+            portal=True,
         )
     layers = cache[item_id].get("layers")
     for entry in layers if isinstance(layers, list) else []:

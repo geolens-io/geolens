@@ -16,6 +16,7 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_webmaps as webmaps
+from geolens_cli.arcgis_migrate_session import StopRun
 from geolens_cli.arcgis_migrate_state import ItemState
 from geolens_cli.arcgis_portal import PortalClient
 from geolens_cli.arcgis_migrate_webmaps import _translatable, match_datasets
@@ -283,6 +284,24 @@ def test_a_style_saved_on_the_layer_item_wins_over_the_service():
 
     assert _drawing(webmap)["conservation_6"] == {"renderer": saved}
     assert not ctx.portal.client._opener.requests_to(f"{SERVICE}6")
+
+
+def test_a_refused_token_on_the_layer_item_stops_the_run_but_a_service_read_does_not():
+    webmap = _styling_webmap()
+    refused = (498, {"error": {"code": 498}})
+
+    with pytest.raises(StopRun, match="fresh token"):
+        webmaps.fill_source_styling(
+            _styling_ctx({item_data_path(A1): refused}), webmap, ALL_MATCHED
+        )
+
+    before = copy.deepcopy(webmap)
+    webmaps.fill_source_styling(
+        _styling_ctx({f"{SERVICE}{n}": refused for n in ("18", "9", "6", "0")}),
+        webmap,
+        ALL_MATCHED,
+    )
+    assert webmap == before
 
 
 def test_an_untrusted_or_unreadable_service_leaves_the_layer_unstyled():

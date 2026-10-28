@@ -99,9 +99,23 @@ def _line(symbol: dict, path: str, loss: LossReport) -> dict | None:
     return None if stroke is None else _outline(stroke, path, loss)
 
 
+def _is_curved_circle(rings: list) -> bool:
+    """One ring made only of circular arcs around a single centre."""
+    segments = _l(rings[0])[1:] if len(rings) == 1 else []
+    centers = set()
+    for segment in segments:
+        arc = _l(_d(segment).get("a"))
+        center = _l(arc[1])[:2] if len(arc) > 1 else []
+        coords = [num(v) for v in center]
+        if len(coords) != 2 or None in coords:
+            return False
+        centers.add(tuple(round(v, 3) for v in coords))
+    return len(segments) > 0 and len(centers) == 1
+
+
 def _is_circle(geometry: dict) -> bool:
     if geometry.get("curveRings"):
-        return True
+        return _is_curved_circle(_l(geometry["curveRings"]))
     rings = _l(geometry.get("rings"))
     if len(rings) != 1:
         return False
@@ -133,7 +147,9 @@ def _point(symbol: dict, path: str, loss: LossReport) -> dict | None:
         return None
     if not _is_circle(_d(graphic.get("geometry"))):
         loss.add(path, "symbol_style", "vector marker shape drawn as a circle")
-    shape = _polygon(inner, f"{path}.markerGraphics[0].symbol", loss) or {}
+    shape = _polygon(inner, f"{path}.markerGraphics[0].symbol", loss)
+    if shape is None:
+        return None
     return {
         "type": "esriSMS",
         "style": "esriSMSCircle",

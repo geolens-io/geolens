@@ -2472,6 +2472,38 @@ class TestCimSymbols:
         _, details = self._symbol_kinds(_cim("CIMPointSymbol", marker))
         assert details == ["vector marker shape drawn as a circle"]
 
+    def _marker_with(self, geometry: dict, inner: dict):
+        marker = {
+            "type": "CIMVectorMarker",
+            "size": 8,
+            "markerGraphics": [{"geometry": geometry, "symbol": inner}],
+        }
+        return self._symbol_kinds(_cim("CIMPointSymbol", marker))
+
+    def test_a_curved_circle_marker_is_not_reported(self) -> None:
+        ring = [
+            [8.5, 0],
+            {"a": [[8.5, 17], [8.5, 8.5], 0, 1]},
+            {"a": [[8.5, 0], [8.5, 8.5], 0, 1]},
+        ]
+        inner = _cim("CIMPolygonSymbol", _cim_fill([1, 2, 3, 255]))["symbol"]
+        paint, details = self._marker_with({"curveRings": [ring]}, inner)
+        assert paint["circle-color"] == "#010203"
+        assert details == []
+
+    def test_a_curved_shape_that_is_not_a_circle_is_reported(self) -> None:
+        ring = [[0, 0], {"a": [[10, 0], [5, 0], 0, 1]}, {"a": [[0, 0], [5, -4], 0, 1]}]
+        inner = _cim("CIMPolygonSymbol", _cim_fill([1, 2, 3, 255]))["symbol"]
+        _, details = self._marker_with({"curveRings": [ring]}, inner)
+        assert details == ["vector marker shape drawn as a circle"]
+
+    def test_a_marker_with_nothing_drawable_has_no_symbol(self) -> None:
+        ring = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+        hatch = _cim("CIMPolygonSymbol", {"type": "CIMHatchFill", "enable": True})
+        paint, details = self._marker_with({"rings": [ring]}, hatch["symbol"])
+        assert paint is None
+        assert "CIMPointSymbol with nothing that could be drawn" in details
+
     def test_untranslatable_layers_are_reported_per_symbol(self) -> None:
         hatch = {"type": "CIMHatchFill", "enable": True}
         symbol = _cim("CIMPolygonSymbol", _cim_stroke([0, 0, 0, 255]), hatch)
@@ -2618,6 +2650,29 @@ class TestStoredFieldNames:
         columns = [
             {"name": "src_geom_2", "source_name": "GEOM"},
             {"name": "src_geom", "source_name": "src_geom"},
+        ]
+        result = _translate(
+            webmap,
+            {webmap["operationalLayers"][0]["id"]: dataset},
+            dataset_columns={dataset: columns},
+        )
+        assert result.layers[0].style_config["column"] == "src_geom_2"
+
+    def test_source_names_survive_a_column_ingest_generated(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "GEOM",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _fill()},
+                {"classMaxValue": 2, "symbol": _fill()},
+            ],
+        }
+        dataset = uuid.uuid4()
+        webmap = _with_renderer(renderer)
+        columns = [
+            {"name": "src_geom_2", "source_name": "GEOM"},
+            {"name": "src_geom", "source_name": "src_geom"},
+            {"name": "elev", "source_name": None},
         ]
         result = _translate(
             webmap,
