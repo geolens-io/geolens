@@ -1,0 +1,10 @@
+{
+  "unavailable": "无法显示此块。它可能来自较新版本的 GeoLens。",
+  "types": {
+    "markdown": {
+      "label": "文本",
+      "imageNotShown": "未显示图片",
+      "imageNotShownAlt": "未显示图片：{{alt}}"
+    }
+  }
+}

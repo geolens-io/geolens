@@ -1,0 +1,10 @@
+{
+  "unavailable": "Impossible d’afficher ce bloc. Il provient peut-être d’une version plus récente de GeoLens.",
+  "types": {
+    "markdown": {
+      "label": "Texte",
+      "imageNotShown": "Image non affichée",
+      "imageNotShownAlt": "Image non affichée : {{alt}}"
+    }
+  }
+}
