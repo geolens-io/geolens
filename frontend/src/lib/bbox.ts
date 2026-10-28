@@ -12,7 +12,7 @@
 
 export type Bbox = [number, number, number, number];
 
-// MapLibre's globe fit returns no camera for a zero-size box, so a point needs width.
+// MapLibre's globe fit returns no camera for a zero-size box.
 const POINT_FIT_HALF_SPAN = 5e-8;
 
 /**
