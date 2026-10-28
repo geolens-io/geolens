@@ -9,6 +9,7 @@ loss instead of applying a partial filter.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 _OPS = {"=": "==", "<>": "!=", "!=": "!="}
 _COMPARISONS = {"==", "!=", "<", ">", "<=", ">="}
@@ -122,6 +123,7 @@ class _Parser:
     def __init__(self, tokens: list[tuple[str, str]]) -> None:
         self.tokens = tokens
         self.pos = 0
+        self.fields: list[list] = []
         # Guarded negations, by node id, to the positive form that undoes them.
         self._positive: dict[int, tuple[list, list]] = {}
 
@@ -201,7 +203,8 @@ class _Parser:
     def _field(self) -> list:
         kind, value = self._next()
         if kind == "qid":
-            return ["get", value[1:-1]]
+            self.fields.append(["get", value[1:-1]])
+            return self.fields[-1]
         if kind == "word" and value.upper() not in {
             "AND",
             "OR",
@@ -213,7 +216,8 @@ class _Parser:
             "BETWEEN",
             "SELECT",
         }:
-            return ["get", value]
+            self.fields.append(["get", value])
+            return self.fields[-1]
         raise _Unsupported
 
     def _literal(self) -> str | float | int:
@@ -259,16 +263,24 @@ class _Parser:
         return node
 
 
-def definition_expression_to_filter(expression: str) -> list | None:
+def definition_expression_to_filter(
+    expression: str, resolve: Callable[[str], str] | None = None
+) -> list | None:
     """The MapLibre filter for ``expression``, or None when it can't be expressed.
 
     ``1=1`` and blank expressions select everything and also return None; use
-    ``is_match_all`` to tell them from an unsupported expression.
+    ``is_match_all`` to tell them from an unsupported expression. *resolve*
+    maps each field name of a filter that converts to the property it reads.
     """
     try:
-        return _Parser(_tokenize(expression)).parse()
+        parser = _Parser(_tokenize(expression))
+        node = parser.parse()
     except (_Unsupported, IndexError, ValueError):
         return None
+    if resolve is not None:
+        for field in parser.fields:
+            field[1] = resolve(field[1])
+    return node
 
 
 def is_match_all(expression: str) -> bool:
