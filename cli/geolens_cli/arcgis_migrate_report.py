@@ -108,7 +108,8 @@ def _follow_ups(
                 f"{reason}; check who it should be shared with in GeoLens",
             )
         layer = item.get("superseded_by")
-        if layer:
+        # An operator who changed the source file's action decided what it becomes.
+        if layer and item["action"] == (item.get("defaults") or item)["action"]:
             layer_entry = state.items.get(layer)
             ids = (
                 ", ".join(layer_entry.dataset_ids) if layer_entry else ""

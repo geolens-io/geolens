@@ -296,7 +296,17 @@ class MigrationState:
             ) from None
         try:
             data = json.loads(raw)
-            if data.get("schema_version") not in _READABLE_VERSIONS:
+            version = data.get("schema_version")
+            if version not in _READABLE_VERSIONS:
+                if (
+                    isinstance(version, str)
+                    and version.isdecimal()
+                    and int(version) > int(STATE_VERSION)
+                ):
+                    raise StateError(
+                        f"the state file {path} was written by a newer geolens-cli "
+                        f"(state version {version}); upgrade geolens-cli to use it"
+                    )
                 raise ValueError("unknown schema_version")
             items = {
                 str(item_id): ItemState.from_dict(entry)

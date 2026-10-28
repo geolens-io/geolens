@@ -190,7 +190,11 @@ def _popup_fields(
     if relabeled:
         loss.add(base, "popup_field_label", f"{relabeled} fields use an alias")
     if formatted:
-        loss.add(base, "popup_field_format", f"{formatted} fields")
+        loss.add(
+            base,
+            "popup_field_format",
+            f"{formatted} field{'' if formatted == 1 else 's'}",
+        )
     if computed:
         loss.add(base, "popup_expression", f"{computed} computed or related fields")
     return visible

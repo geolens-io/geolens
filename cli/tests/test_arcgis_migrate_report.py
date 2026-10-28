@@ -359,6 +359,29 @@ def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):
     assert text.endswith("GeoLens dataset: not migrated")
 
 
+def test_a_source_file_whose_action_was_changed_gets_no_superseded_follow_up(
+    tmp_path,
+):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+            item["defaults"].update(action="export_only", superseded_by=A1)
+            item["action"] = "export_only"
+    state = _state(tmp_path)
+    _set(state, A1, "done", dataset_ids=["ds-1"])
+
+    def kinds() -> set[str]:
+        report = report_mod.build_run_report(plan, state, runnable={"import_file"})
+        return {f["kind"] for f in report["follow_ups"] if f["item"] == D3}
+
+    assert "superseded" in kinds()
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "import_file"
+    assert "superseded" not in kinds()
+
+
 def test_an_unexpected_error_still_writes_the_report(
     runner, tmp_path, geolens, monkeypatch
 ):

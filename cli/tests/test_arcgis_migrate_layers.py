@@ -15,7 +15,15 @@ from geolens_cli import arcgis_migrate_session as session
 from geolens_cli import arcgis_plan as plan_mod
 from geolens_cli.main import app
 
-from .arcgis_fake import PORTAL, A1, A2, FakePortal, inventory_report, portal_routes
+from .arcgis_fake import (
+    PORTAL,
+    A1,
+    A2,
+    FakePortal,
+    inventory_report,
+    load,
+    portal_routes,
+)
 from .conftest import GEOLENS_INSTANCE
 
 OPERATOR = "00000000-0000-0000-0000-0000000000a0"
@@ -620,6 +628,32 @@ def test_a_password_token_is_renewed_once_after_a_rejection(
     }
     raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
     assert password not in raw and password not in result.output
+
+
+@pytest.mark.parametrize(("accepted", "code"), [(True, 0), (False, 3)])
+def test_a_dry_run_signs_in_once_as_the_run_does(
+    runner, plan_file, geolens, monkeypatch, accepted, code
+):
+    routes = {} if accepted else {"generateToken": load("generate_token_fail.json")}
+    portal = FakePortal(portal_routes(routes))
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    password = secrets.token_urlsafe(16)
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--dry-run",
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": password},
+    )
+
+    assert result.exit_code == code, result.output
+    assert [s.path for s in portal.seen] == ["generateToken"]
+    assert password not in result.output
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
 
 
 class _Clock:
@@ -1363,9 +1397,7 @@ def test_a_rerun_of_an_item_whose_import_finished_skips_the_probe(
     assert entry["status"] == "done"
     assert entry["owner_id"] == OPERATOR
     assert list(entry["last_update"]) == [dataset_id("Parcels")]
-    assert [
-        s for s in geolens.seen if s.method == "POST" and "/keywords/" in s.url
-    ]
+    assert [s for s in geolens.seen if s.method == "POST" and "/keywords/" in s.url]
 
 
 def test_a_plan_edit_reaches_the_recorded_datasets_without_a_probe(

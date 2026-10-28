@@ -677,6 +677,7 @@ def test_a_dry_run_makes_no_group_and_lists_the_member_mapping(runner, tmp_path,
     assert result.exit_code == 0, result.output
     assert len(api.groups) == 1 and api.members == {}
     assert "would get GeoLens group ArcGIS - Planners" in result.output
+    assert "with 2 member(s) of the ArcGIS group" in result.output
     assert "ArcGIS agol_bob -> GeoLens bob" in result.output
     assert "ArcGIS agol_eve -> GeoLens agol_eve" in result.output
     assert not (plan_file.parent / "arcgis-migration-state.json").exists()

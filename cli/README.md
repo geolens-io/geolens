@@ -32,7 +32,7 @@ geolens arcgis migrate ./run/arcgis-migration-plan.json
 
 1. `inventory` reads the portal and writes `arcgis-inventory.json` and a readable report.
 2. `plan` turns it into `arcgis-migration-plan.json`, which you review and edit. Each item has an action (`import_layers`, `import_file`, `import_map`, `export_only` or `skip`), a target owner, visibility, collections and title. `owners.json` maps ArcGIS usernames to GeoLens usernames or emails; an empty value means no owner yet.
-3. `migrate` (hidden from `--help` until the whole flow ships) runs the plan one item at a time, in dependency order. Add `--dry-run` first to check the plan and the owners without importing anything.
+3. `migrate` (hidden from `--help` until the whole flow ships) runs the plan one item at a time, in dependency order. Add `--dry-run` first to check the plan and the owners without importing anything. With `--username`, the dry run also makes the one ArcGIS sign-in the run starts with, so a refused password exits 3 before the real run; a token isn't checked.
 
 ### What each action does
 
@@ -83,8 +83,8 @@ A run that gets as far as the item loop writes `arcgis-migration-report.md` and 
 
 Exit codes:
 
-- 0: no item of the plan is failed, and no item the run selected was left waiting or unable to run. Skipped items (a file over the upload limit or with too many layers) and pending items the run did not select, such as items that can't run yet, don't change it, so read the report's counts and follow-ups before treating the migration as complete.
-- 1: an item of the plan is failed (including one this run left out with `--only` or `--no-retry`, and a portal download or GeoLens server error once items are running), an item the run selected was left pending because its action can't run yet or it waits on another item, a migrated item couldn't be brought up to date or handed to its owner, `--cutover` refused, or the run stopped (for example on an expired pasted token).
+- 0: no item of the plan is failed, and no item the run selected was left waiting or unable to run; or a `--cutover` run that didn't stop refused nothing, because every check that failed was accepted with its `--accept-*` flag, and no group membership change failed. Skipped items (a file over the upload limit or with too many layers) and pending items the run did not select, such as items that can't run yet, don't change it, so read the report's counts and follow-ups before treating the migration as complete.
+- 1: an item of the plan is failed (including one this run left out with `--only` or `--no-retry`, and a portal download or GeoLens server error once items are running), an item the run selected was left pending because its action can't run yet or it waits on another item, a migrated item couldn't be brought up to date or handed to its owner, `--cutover` refused (any failing check left unaccepted), or the run stopped (for example on an expired pasted token).
 - 2: the plan, state file, owner mapping or credentials couldn't be used, a group or collection name the run needs is taken, there is no state file while GeoLens holds datasets migrated from the plan's items, or the portal URL redirected before any item ran. `--dry-run` exits 2 on a taken name or those datasets too. A redirect refused once items are running fails that item (exit 1).
 - 3: authentication failed before any item ran (the GeoLens checks, or an ArcGIS password sign-in), or the server rejected a `GEOLENS_TOKEN` at any point, which stops the run with this code. A stored login that is rejected once items are running fails that item (exit 1).
 - 4: the portal couldn't be reached while signing in, or a GeoLens request couldn't connect or timed out at any point, which stops the run with this code. The exception is a timeout on the status poll of an import job: it is retried until the poll's deadline, and a deadline that runs out fails that item (exit 1). A portal download that fails once items are running also fails only that item (exit 1).
@@ -108,7 +108,7 @@ A migration ends with one last run after the portal stops changing, marked with 
    - `--accept-under-sharing`: an item shared only with ArcGIS groups may reach fewer people in GeoLens: the inventory wasn't read by an organization administrator, one of its groups maps to no GeoLens group, or a group's members couldn't be read.
 5. Read `arcgis-migration-report.md`, which records the cutover and the losses you accepted, and keep it with the state file. Then retire the portal. A refresh after that fails with the service's error, and the datasets stay as they are.
 
-A refused cutover exits 1 and leaves the run unmarked; nothing it imported or refreshed is undone. `--cutover` runs the whole plan, so it can't be combined with `--only`.
+A refused cutover exits 1 and leaves the run unmarked; nothing it imported or refreshed is undone. A marked cutover exits 0 even when the items you accepted are still failed or not up to date, and the report lists them. `--cutover` runs the whole plan, so it can't be combined with `--only`.
 
 ## Documentation
 

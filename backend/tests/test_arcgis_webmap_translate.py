@@ -978,6 +978,8 @@ class TestPopups:
             "popup_field_label",
             "popup_field_format",
         }
+        formatted = next(i for i in result.loss.items if i.kind == "popup_field_format")
+        assert formatted.detail == "1 field"
 
     def test_field_list_is_capped(self) -> None:
         popup = {

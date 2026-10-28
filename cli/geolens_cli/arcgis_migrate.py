@@ -1195,7 +1195,11 @@ def _report(
         _print_owners(fmt, owners, summary)
         _print_groups(fmt, groups, opts.dry_run)
         verb = "Would bring" if opts.dry_run else "Brought"
-        fmt.info(f"{verb} {len(summary.refreshed)} migrated item(s) up to date.")
+        brought = len(summary.refreshed)
+        # A dry run counts every item it would try; its stale reasons are old.
+        if not opts.dry_run:
+            brought -= len(stale)
+        fmt.info(f"{verb} {brought} migrated item(s) up to date.")
         for item_id, reasons in stale.items():
             for reason in reasons:
                 fmt.error(f"{item_id} is not up to date: {reason}")
@@ -1232,10 +1236,13 @@ def _report(
         or summary.stopped
         or stale
         or summary.handover_failed
-        or groups.failures
         or (cutover is not None and cutover["refused"])
     )
-    return EXIT_GENERIC if failed or left or report_failed else EXIT_OK
+    # A cutover that refused nothing lists every reason left among its checks,
+    # each accepted with its --accept-* flag.
+    accepted = cutover is not None and not cutover["refused"] and not summary.stopped
+    unaccepted = not accepted and (failed or left)
+    return EXIT_GENERIC if unaccepted or groups.failures or report_failed else EXIT_OK
 
 
 def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -> None:
@@ -1277,7 +1284,7 @@ def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> N
             verb = "would get" if dry_run else "is"
             fmt.info(
                 f"ArcGIS group {arcgis_id} {verb} GeoLens group {group['name']} "
-                f"with {len(group['added'])} member(s)"
+                f"with {len(group['added'])} member(s) of the ArcGIS group"
             )
         # Members found by their ArcGIS name are shown, so a same-named account
         # that is somebody else's can be caught before the run.
@@ -1537,9 +1544,10 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, touched
         )
+        # A dry run makes only the password sign-in the run starts with.
         portal = (
             None
-            if opts.dry_run
+            if opts.dry_run and not opts.username
             else _portal_client(opts, plan, touched, rows, state, redact)
         )
     except (_plan.PlanError, StateError, UsageError) as exc:
@@ -1590,7 +1598,22 @@ def _run(
             return EXIT_AUTH
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
+    auth = None
+    if portal is not None:
+        client, password = portal
+        try:
+            if password is not None and opts.username:
+                client.generate_token(opts.username, password)
+        except PortalError as exc:
+            fmt.error(str(exc))
+            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
+        auth = PortalAuth(client, renewable=password is not None)
+
     if opts.dry_run:
+        # As the run does first, so the dry run shows the status it will leave.
+        for item in to_run:
+            if item["action"] == _plan.SKIP:
+                state.finish(item["id"], SKIPPED, save=False)
         summary = RunSummary(
             unavailable=[
                 item["id"]
@@ -1618,16 +1641,6 @@ def _run(
             mark_cutover(opts, plan, state, owners, summary, groups=groups),
             groups,
         )
-    auth = None
-    if portal is not None:
-        client, password = portal
-        try:
-            if password is not None and opts.username:
-                client.generate_token(opts.username, password)
-        except PortalError as exc:
-            fmt.error(str(exc))
-            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
-        auth = PortalAuth(client, renewable=password is not None)
     ctx = MigrationContext(
         geolens=geolens,
         inventory=rows,
