@@ -49,6 +49,14 @@ ArcGIS sharing maps to GeoLens visibility: `private` stays private, `org` become
 
 Only an organization administrator sees every group an item is shared with, and a group can hide its members from everyone but its managers and administrators. `plan` lists items shared only with groups that a non-admin's inventory may have missed, and the report lists, as `under_shared` follow-ups, items whose groups weren't all read or carried over.
 
+### Users
+
+Owners and group members have to be GeoLens users before `migrate` can hand them items or add them to groups. `geolens admin users import users.csv` creates them from a CSV with a header row naming `username`, `email` and `role` (`admin`, `editor` or `viewer`; empty means `viewer`), and skips anyone GeoLens already has by username or email. `--from-inventory arcgis-inventory.json` takes the users from an inventory instead: every item owner as an editor, with the email the inventory read, and every member of a group an item is shared with as a viewer. Add `--seed-csv users.csv` to write those rows to a file you can review and edit, creating nothing. `--dry-run` says what would be created. The command needs a GeoLens admin session, and exits 1 when any user couldn't be created.
+
+Each new user gets a generated password that meets the password policy. `--print-passwords` shows each one once on standard output; nothing else writes them anywhere, so without it nobody knows them and you set one for each user through the admin password reset (Admin, Users) and pass it on.
+
+An instance that signs in through an OpenID Connect provider creates its users at their first sign-in, so the import creates nobody there: those owners and members stay pending, and a `migrate` rerun after they sign in hands them their items and adds them to their groups. `--link-by-email` creates them anyway, with a random password nobody is shown, so their first sign-in links to the account by email. GeoLens links only when the provider sends `email_verified`; without it that sign-in is refused. Users without an email stay pending.
+
 ### Credentials
 
 Public items need none. For anything else pass `--token`, `ARCGIS_TOKEN` or `--token-stdin`, or `--username` with the password in `ARCGIS_PASSWORD`, `--password-stdin` or a prompt. A token made from a password is renewed before it expires. A token you pasted is not: when it runs out the run stops, writes the state file and tells you to resume with a fresh one. Accounts that sign in with SAML or OpenID Connect have no password to give here, so use a token. Tokens and passwords are never written to the state file, the report or the export folder.
