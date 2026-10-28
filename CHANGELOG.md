@@ -59,6 +59,23 @@ and releases use semantic versioning.
   before you leave the page. Save stays enabled and still stores the new view.
   Any other unsaved edit, with or without a pan, still asks.
 - A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2.
+- `geolens arcgis migrate` no longer draws web map layers in the default
+  blue when their style lives on the service or uses Map Viewer symbols. A
+  layer the web map leaves to its source takes the style saved on its layer
+  item, or else the service layer's own renderer. The command reads the
+  item's style from the portal, and reads a service layer only from the
+  hosts it already trusts with the run's token: the organization's own
+  service hosts and any named with `--trust-service-host`. CIM symbols, which
+  Map Viewer and ArcGIS Pro save, are translated when they use a solid fill,
+  a solid outline, a solid line or a single circle marker, so a classed
+  layer keeps its class colours. Any other part of such a symbol is listed
+  in the loss report. The field names a renderer, label, popup or layer
+  filter uses now match the dataset's stored columns, so a field ArcGIS
+  spells `REC_Score` reads the `rec_score` column instead of drawing every
+  feature transparent; a field the dataset doesn't have is listed in the loss
+  report. A renderer that can't be used is now reported as missing its field
+  or as having no symbol that could be drawn, instead of "without a field or
+  symbols".
 
 ### Changed
 

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import math
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.modules.catalog.maps.arcgis_webmap.cim import classic_symbol
 from app.modules.catalog.maps.arcgis_webmap.keys import (
     CLASS_BREAK_INFO_KEYS,
     OUTLINE_KEYS,
@@ -169,6 +171,10 @@ def _fill(symbol: dict, result: _Symbol, path: str, loss: LossReport) -> None:
 
 def _symbol(raw: Any, path: str, loss: LossReport) -> _Symbol | None:
     symbol = _d(raw)
+    if symbol.get("type") == "CIMSymbolReference":
+        symbol = classic_symbol(symbol, path, loss) or {}
+        if not symbol:
+            return None
     symbol_type = symbol.get("type")
     kind = _KIND_BY_SYMBOL.get(symbol_type) if isinstance(symbol_type, str) else None
     if kind is None:
@@ -323,12 +329,19 @@ def _typed_value(value: Any, field_kind: str | None) -> str | int | float:
     return int(number) if number.is_integer() and abs(number) < 2**53 else number
 
 
+def _unusable(kind: str, field_name: Any) -> str:
+    if not isinstance(field_name, str) or not field_name:
+        return f"{kind} without a field"
+    return f"{kind} with no symbol that could be drawn"
+
+
 def _categorical(
     r: dict,
     path: str,
     loss: LossReport,
     hint: str | None,
-    numeric_fields: dict[str, str] | None = None,
+    numeric_fields: dict[str, str],
+    resolve: Callable[[str], str],
 ) -> Styled:
     field_name = r.get("field1")
     infos = _l(r.get("uniqueValueInfos"))
@@ -349,8 +362,9 @@ def _categorical(
         loss.add(path, "arcade", "valueExpression")
         return _simple(base, hint)
     if not isinstance(field_name, str) or not field_name or base is None:
-        loss.add(path, "unsupported_renderer", "uniqueValue without a field or symbols")
+        loss.add(path, "unsupported_renderer", _unusable("uniqueValue", field_name))
         return _simple(base, hint)
+    field_name = resolve(field_name)
 
     fallback = _css_color(default_sym) if default_sym else HIDDEN_COLOR
     if default_sym:
@@ -367,7 +381,7 @@ def _categorical(
         if key is None or len(categories) >= MAX_CLASSES:
             dropped += 1
             continue
-        typed = _typed_value(value, (numeric_fields or {}).get(field_name))
+        typed = _typed_value(value, numeric_fields.get(field_name))
         paint_key = _js_string(typed)
         if paint_key in seen:
             dropped += 1
@@ -489,7 +503,13 @@ def _authored_break_labels(classes: list, renderer_min: float | None) -> int:
     return authored
 
 
-def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled:
+def _graduated(
+    r: dict,
+    path: str,
+    loss: LossReport,
+    hint: str | None,
+    resolve: Callable[[str], str],
+) -> Styled:
     field_name = r.get("field")
     classes, skipped = _classes(
         _l(r.get("classBreakInfos")),
@@ -514,8 +534,9 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
         loss.add(path, "normalization", describe(r.get("normalizationType")))
         return _simple(next((s for _, _, s in ranked if s), None), hint)
     if not isinstance(field_name, str) or not field_name or base is None:
-        loss.add(path, "unsupported_renderer", "classBreaks without a field or symbols")
+        loss.add(path, "unsupported_renderer", _unusable("classBreaks", field_name))
         return _simple(next((s for _, _, s in ranked if s), None), hint)
+    field_name = resolve(field_name)
     distinct = [
         item
         for index, item in enumerate(usable)
@@ -582,7 +603,9 @@ def _graduated(r: dict, path: str, loss: LossReport, hint: str | None) -> Styled
     return Styled(_paint(base, expression, 1.0), config, base.kind)
 
 
-def _heatmap(r: dict, path: str, loss: LossReport) -> Styled:
+def _heatmap(
+    r: dict, path: str, loss: LossReport, resolve: Callable[[str], str]
+) -> Styled:
     if r.get("colorStops"):
         loss.add(path, "heatmap_ramp", "colour stops replaced by the default ramp")
     if r.get("minPixelIntensity") or r.get("maxPixelIntensity"):
@@ -597,6 +620,7 @@ def _heatmap(r: dict, path: str, loss: LossReport) -> Styled:
     builder: dict = {"heatmap_ramp": _HEATMAP_RAMP}
     weight = r.get("field")
     if isinstance(weight, str) and weight:
+        weight = resolve(weight)
         paint["heatmap-weight"] = ["get", weight]
         builder["heatmap_weight_column"] = weight
     config = {"render_mode": "heatmap", "ramp": _HEATMAP_RAMP, "builder": builder}
@@ -607,10 +631,14 @@ def translate_renderer(
     renderer: Any,
     path: str,
     loss: LossReport,
-    geometry_type: Any = None,
-    numeric_fields: dict[str, str] | None = None,
+    geometry_type: Any,
+    numeric_fields: dict[str, str],
+    resolve: Callable[[str], str],
 ) -> Styled:
-    """Paint and style for a layer's renderer; empty when GeoLens defaults apply."""
+    """Paint and style for a layer's renderer; empty when GeoLens defaults apply.
+
+    *resolve* maps each field the paint reads to the dataset's column.
+    """
     hint = geometry_kind(geometry_type)
     r = _d(renderer)
     kind = r.get("type")
@@ -629,10 +657,10 @@ def translate_renderer(
         _report_labels(path, loss, default_label=r.get("label"))
         return _simple(_symbol(r.get("symbol"), f"{path}.symbol", loss), hint)
     if kind == "uniqueValue":
-        return _categorical(r, path, loss, hint, numeric_fields)
+        return _categorical(r, path, loss, hint, numeric_fields, resolve)
     if kind == "classBreaks":
-        return _graduated(r, path, loss, hint)
+        return _graduated(r, path, loss, hint, resolve)
     if kind == "heatmap":
-        return _heatmap(r, path, loss)
+        return _heatmap(r, path, loss, resolve)
     loss.add(path, "unsupported_renderer", f"renderer type {describe(kind)}")
     return Styled(geometry=hint)

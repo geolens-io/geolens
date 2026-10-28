@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from app.modules.catalog.maps.arcgis_webmap.keys import (
@@ -44,6 +45,8 @@ _LINE_PLACEMENTS = {
     "esriServerLinePlacementCenterAlong": "line-center",
 }
 _MAX_POPUP_FIELDS = 100
+# The placeholders the map viewers substitute.
+_TITLE_FIELD = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _DEFAULT_PLACEMENT = "esriServerPolygonPlacementAlwaysHorizontal"
 
 
@@ -120,7 +123,11 @@ def _label_style(first: dict, path: str, loss: LossReport) -> dict:
 
 
 def label_config(
-    layer: dict, drawing_info: dict, path: str, loss: LossReport
+    layer: dict,
+    drawing_info: dict,
+    path: str,
+    loss: LossReport,
+    resolve: Callable[[str], str],
 ) -> dict | None:
     infos = drawing_info.get("labelingInfo")
     if not isinstance(infos, list) or not infos:
@@ -139,7 +146,7 @@ def label_config(
     if column is None:
         loss.add(f"{base}[0]", "label_expression", "not a single field")
         return None
-    return {"column": column, **_label_style(first, f"{base}[0]", loss)}
+    return {"column": resolve(column), **_label_style(first, f"{base}[0]", loss)}
 
 
 def _has_formatted_field(title: str) -> bool:
@@ -149,7 +156,9 @@ def _has_formatted_field(title: str) -> bool:
     )
 
 
-def _popup_fields(fields: list, base: str, loss: LossReport) -> list[str] | None:
+def _popup_fields(
+    fields: list, base: str, loss: LossReport, resolve: Callable[[str], str]
+) -> list[str] | None:
     if not fields:
         return None
     visible: list[str] = []
@@ -166,13 +175,14 @@ def _popup_fields(fields: list, base: str, loss: LossReport) -> list[str] | None
         if len(name) > 128:
             overflow += 1
             continue
-        if name in seen:
+        column = resolve(name)
+        if column in seen:
             continue
-        seen.add(name)
+        seen.add(column)
         if len(visible) >= _MAX_POPUP_FIELDS:
             overflow += 1
             continue
-        visible.append(name)
+        visible.append(column)
         relabeled += item.get("label") not in (None, name)
         formatted += bool(item.get("format"))
     if overflow:
@@ -226,7 +236,9 @@ def _element_fields(info: dict, base: str, loss: LossReport) -> list:
     return collected
 
 
-def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
+def popup_config(
+    layer: dict, path: str, loss: LossReport, resolve: Callable[[str], str]
+) -> dict | None:
     if layer.get("disablePopup") is True:
         return {"enabled": False}
     info = layer.get("popupInfo")
@@ -241,8 +253,10 @@ def popup_config(layer: dict, path: str, loss: LossReport) -> dict | None:
         if "expression/" in title or len(title) > 500 or _has_formatted_field(title):
             loss.add(base, "popup_expression", "title is not a plain field template")
         else:
-            config["expression"] = title
-    visible = _popup_fields(_element_fields(info, base, loss), base, loss)
+            config["expression"] = _TITLE_FIELD.sub(
+                lambda match: "{" + resolve(match.group(1)) + "}", title
+            )
+    visible = _popup_fields(_element_fields(info, base, loss), base, loss, resolve)
     if visible is not None:
         config["visible_fields"] = visible
     elif info.get("popupElements"):

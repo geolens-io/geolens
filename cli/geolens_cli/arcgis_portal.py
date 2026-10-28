@@ -453,6 +453,12 @@ class PortalClient:
             path, f"{parts.scheme}://{parts.netloc}{parts.path}", hop_query, array_ok
         )
 
+    def get_service_json(self, url: str) -> Any:
+        """GET the ArcGIS REST resource at *url*, with no query or userinfo,
+        as a JSON object, carrying the token like ``get_json``. The caller
+        decides that *url*'s host may receive the token."""
+        return self._get_json_renewing(urlsplit(url).path, url, {"f": "json"}, False)
+
     def _get_json_renewing(
         self, path: str, url: str, query: dict[str, Any], array_ok: bool
     ) -> Any:
