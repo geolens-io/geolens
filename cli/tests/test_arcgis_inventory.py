@@ -3126,7 +3126,7 @@ def test_markdown_header_says_a_non_admin_inventory_lists_only_shared_items():
 
     markdown = arcgis_report.render_markdown(report)
 
-    assert "only items shared with that account are listed" in markdown
+    assert "only items that account can see are listed" in markdown
     assert "Groups whose members could not be read (1): Hidden team" in markdown
     report["auth"]["role"] = "org_admin"
     assert "only items shared with" not in arcgis_report.render_markdown(report)

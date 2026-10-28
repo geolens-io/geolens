@@ -168,8 +168,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             else "an anonymous or role-less sign-in"
         )
         lines.append(
-            f"Read by {who}: only items shared with that account are listed, and "
-            "some groups and folders may be missing.  "
+            f"Read by {who}: only items that account can see are listed, so "
+            "other items, groups and folders may be missing.  "
         )
     lines.append(
         f"Generated {md_escape(report['generated_at'])} by geolens-cli "
