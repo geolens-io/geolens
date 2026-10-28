@@ -164,6 +164,24 @@ def test_a_name_held_with_and_without_the_prefix_stops_the_run_before_any_import
     assert not any(s.method != "GET" for s in geolens.seen)
 
 
+def test_an_unlisted_item_whose_collection_names_are_held_does_not_stop_the_run(
+    runner, tmp_path, geolens
+):
+    _services(geolens)
+    FakeCollections(geolens, taken=("Hydrology", "Example County GIS - Hydrology"))
+
+    def unlist(plan):
+        for item in plan["items"]:
+            if item["id"] == A2:
+                item["unlisted"] = True
+                item["target"]["collections"] = ["Hydrology"]
+
+    result, _ = _migrate(runner, _plan(tmp_path, unlist), "--only", A2)
+
+    assert result.exit_code == 1, result.output
+    assert "collections named" not in result.output
+
+
 def test_a_collection_the_state_records_is_reused_even_when_both_names_are_held(
     runner, tmp_path, geolens
 ):
