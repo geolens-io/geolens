@@ -47,6 +47,25 @@ class SMTPTransport(socketserver.ThreadingTCPServer):
         monkeypatch.setattr(settings, "smtp_from_address", "alerts@example.com")
 
 
+async def warm_up_smtp_send(monkeypatch):
+    """Send one message through the deadline path to an ungated peer.
+
+    The first send in a process and event loop pays for imports, the TLS
+    context and the worker threads. On a loaded runner that alone can outlast
+    a sub-second deadline before the peer sees the command a test gates on.
+    """
+    from app.platform.extensions.protocols import Notification
+    from app.platform.notifications.deadline import notification_deadline
+    from app.platform.notifications.smtp_channel import send_email
+
+    with SMTPTransport() as peer:
+        peer.configure(monkeypatch)
+        with notification_deadline(time.monotonic() + 30):
+            await send_email(
+                Notification(event_type="health_alert", subject="warm", body="up")
+            )
+
+
 class _SMTPHandler(socketserver.StreamRequestHandler):
     def _gate(self, entered, release, code):
         entered.set()
