@@ -943,3 +943,27 @@ def test_the_public_policy_is_read_before_any_group_is_made(runner, tmp_path, te
     assert not [
         s for s in team.seen if s.method == "POST" and "/admin/groups/" in s.url
     ]
+
+
+def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    reads = iter([[{"id": EXISTING}], [{"id": OTHER}]])
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(
+            groups=[SimpleNamespace(id=g["id"]) for g in next(reads)]
+        ),
+    )
+    sent: list[dict] = []
+    geolens = SimpleNamespace(
+        call=lambda fn, **kwargs: sent.append(kwargs["body"].to_dict())
+    )
+    ctx = SimpleNamespace(geolens=geolens, save=lambda: None, operator_id=OPERATOR)
+    entry = ItemState(dataset_ids=[DATASETS[0]])
+
+    share(ctx, {"target": {"geolens_groups": [CREATED]}}, entry)
+
+    # A grant changed to OTHER after the first read is kept, not reverted.
+    assert sent == [{"group_ids": sorted([CREATED, OTHER])}]

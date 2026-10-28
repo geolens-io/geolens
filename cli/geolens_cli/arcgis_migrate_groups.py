@@ -503,7 +503,10 @@ def share(
                     f"dataset {dataset_id} was {changed}, so it wasn't shared with "
                     "its new groups; it was left as it is"
                 )
-            current = _dataset_groups(before)
+            # The write replaces the whole list and takes no precondition, so
+            # the grants are read again right before it; a change landing
+            # between that read and the write is still overwritten.
+            current = _dataset_groups(get_dataset(ctx, dataset_id))
             if not new <= current:
                 ctx.geolens.call(
                     put_dataset.sync_detailed,
