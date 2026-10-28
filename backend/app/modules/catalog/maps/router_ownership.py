@@ -15,6 +15,7 @@ from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps._router_helpers import (
     _build_map_response,
     _layers_from_tuples,
+    _stored_images_readable,
 )
 from app.modules.catalog.maps.schemas import MapResponse
 from app.modules.catalog.maps.service import (
@@ -96,4 +97,5 @@ async def patch_map_endpoint(
         forked_from_name=forked_name,
         created_by_username=owner_username,
         include_notes=True,
+        stored_images_readable=await _stored_images_readable(db, map_obj, user),
     )

@@ -29,6 +29,7 @@ from app.modules.catalog.maps.dashboard import (
     merge_dashboard,
 )
 from app.modules.catalog.maps.service_diff import _replace_layers, _unreadable_layer_ids
+from app.modules.catalog.maps.sharing import readable_thumbnail_urls
 from app.modules.catalog.maps.service_layers import (
     MAP_WRITE_DENIED,
     bulk_check_dataset_access,
@@ -375,6 +376,9 @@ async def list_maps(
     layer_counts = await _layer_counts_for_maps(
         session, [row[0].id for row in rows], user, user_roles
     )
+    thumbnail_urls = await readable_thumbnail_urls(
+        session, [row[0] for row in rows], user
+    )
 
     maps = []
     for row in rows:
@@ -385,9 +389,7 @@ async def list_maps(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
+                "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": layer_counts.get(map_obj.id, 0),
                 "created_by": map_obj.created_by,

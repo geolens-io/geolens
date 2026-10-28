@@ -335,11 +335,10 @@ async def dataset_maps(
         )
     user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    user_id = user.id if user else None
     maps, total = await get_maps_for_dataset(
         db,
         dataset_id,
-        user_id=user_id,
+        user=user,
         user_roles=user_roles,
         skip=skip,
         limit=limit,

@@ -55,6 +55,7 @@ from app.modules.catalog.maps.models import (
     MapLayer,
     MapShareToken,
 )
+from app.modules.catalog.maps.sharing import readable_thumbnail_urls
 from app.modules.catalog.maps.sharing_policy import (
     ShareExpirationPresetDays,
     resolve_share_expiration as _resolve_share_expiration,
@@ -968,7 +969,7 @@ async def revoke_share_token(
 async def get_maps_for_dataset(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-    user_id: uuid.UUID | None = None,
+    user: Identity | None = None,
     user_roles: set[str] | None = None,
     skip: int = 0,
     limit: int = 50,
@@ -977,8 +978,9 @@ async def get_maps_for_dataset(
 
     - Admins see all maps.
     - Authenticated users see own + internal + public + restricted to their groups.
-    - Anonymous (user_id is None) see public only.
+    - Anonymous (user is None) see public only.
     """
+    user_id = user.id if user is not None else None
     if user_roles is None:
         user_roles = set()
 
@@ -1017,6 +1019,9 @@ async def get_maps_for_dataset(
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
+    thumbnail_urls = await readable_thumbnail_urls(
+        session, [row[0] for row in rows], user
+    )
 
     maps = []
     for row in rows:
@@ -1027,9 +1032,7 @@ async def get_maps_for_dataset(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
+                "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": row[1],
                 "created_by_username": row[2],
