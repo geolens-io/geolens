@@ -22,49 +22,34 @@ from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_embed_token_creator_access import _embed
 
 
-def _indicator(layer_id, widget_id=None, **extra) -> dict:
-    return {
-        "id": str(widget_id or uuid.uuid4()),
-        "type": "indicator",
-        "v": 1,
-        "layer_id": str(layer_id),
-        "config": {"stat": "count"},
-        **extra,
-    }
-
-
-def _bar_chart(layer_id, widget_id=None) -> dict:
-    return {
-        "id": str(widget_id or uuid.uuid4()),
-        "type": "bar_chart",
-        "v": 1,
-        "layer_id": str(layer_id),
+_WIDGET_DEFAULTS = {
+    "indicator": {"config": {"stat": "count"}},
+    "bar_chart": {
         "scope": "view",
         "config": {"column": "kind", "stat": "sum", "stat_column": "area"},
-    }
+    },
+    "histogram": {"config": {"column": "height"}},
+    "gauge": {},
+}
 
 
-def _future(widget_id=None) -> dict:
-    return {"id": str(widget_id or uuid.uuid4()), "type": "gauge", "v": 1}
-
-
-def _histogram(layer_id, widget_id=None) -> dict:
+def _widget(type, layer_id=None, widget_id=None, **extra) -> dict:
     return {
         "id": str(widget_id or uuid.uuid4()),
-        "type": "histogram",
+        "type": type,
         "v": 1,
-        "layer_id": str(layer_id),
-        "config": {"column": "height"},
+        **({} if layer_id is None else {"layer_id": str(layer_id)}),
+        **_WIDGET_DEFAULTS[type],
+        **extra,
     }
 
 
 def _merge(sent, stored, readable=(), hidden=(), repointed=()):
     return merge_dashboard(
         None if sent is None else DashboardConfigInput.model_validate(sent),
-        stored,
-        readable_layer_ids=set(readable),
+        drop_repointed(stored, set(repointed)),
+        layer_ids=set(readable) | set(hidden),
         hidden_layer_ids=set(hidden),
-        repointed_layer_ids=set(repointed),
     )
 
 
@@ -78,14 +63,12 @@ def _ids(widgets) -> list[str]:
 class TestMergeDashboard:
     def test_kept_widgets_go_back_next_to_the_widget_stored_before_them(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
-        a, b = _indicator(shown), _indicator(shown)
-        on_hidden, future = _indicator(hidden), _future()
+        a, b = _widget("indicator", shown), _widget("indicator", shown)
+        on_hidden, future = _widget("indicator", hidden), _widget("gauge")
         stored = {"version": 1, "widgets": [a, on_hidden, b, future]}
         sent = DashboardConfigInput.model_validate({"widgets": [b, a]})
 
-        merged = merge_dashboard(
-            sent, stored, readable_layer_ids={shown}, hidden_layer_ids={hidden}
-        )
+        merged = _merge(sent, stored, readable={shown}, hidden={hidden})
 
         assert [w["id"] for w in merged["widgets"]] == [
             b["id"],
@@ -96,30 +79,28 @@ class TestMergeDashboard:
 
     def test_widgets_on_layers_the_map_no_longer_has_are_dropped(self):
         shown = uuid.uuid4()
-        stored = {"version": 1, "widgets": [_indicator(uuid.uuid4())]}
-        sent = DashboardConfigInput.model_validate({"widgets": [_indicator(shown)]})
-
-        merged = merge_dashboard(
-            sent, stored, readable_layer_ids={shown}, hidden_layer_ids=set()
+        stored = {"version": 1, "widgets": [_widget("indicator", uuid.uuid4())]}
+        sent = DashboardConfigInput.model_validate(
+            {"widgets": [_widget("indicator", shown)]}
         )
+
+        merged = _merge(sent, stored, readable={shown})
 
         assert [w["layer_id"] for w in merged["widgets"]] == [str(shown)]
 
     def test_null_removes_what_the_editor_sees_and_keeps_the_rest(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
-        on_hidden = _indicator(hidden)
-        stored = {"version": 1, "widgets": [_indicator(shown), on_hidden]}
+        on_hidden = _widget("indicator", hidden)
+        stored = {"version": 1, "widgets": [_widget("indicator", shown), on_hidden]}
 
-        merged = merge_dashboard(
-            None, stored, readable_layer_ids={shown}, hidden_layer_ids={hidden}
-        )
+        merged = _merge(None, stored, readable={shown}, hidden={hidden})
         assert merged == {"version": 1, "widgets": [on_hidden]}
         assert (
-            merge_dashboard(
+            _merge(
                 None,
-                {"version": 1, "widgets": [_indicator(shown)]},
-                readable_layer_ids={shown},
-                hidden_layer_ids={hidden},
+                {"version": 1, "widgets": [_widget("indicator", shown)]},
+                readable={shown},
+                hidden={hidden},
             )
             is None
         )
@@ -127,25 +108,22 @@ class TestMergeDashboard:
     @pytest.mark.parametrize("hidden", [True, False])
     def test_a_sent_widget_must_be_on_a_layer_the_editor_can_read(self, hidden):
         layer = uuid.uuid4()
-        sent = DashboardConfigInput.model_validate({"widgets": [_indicator(layer)]})
+        sent = DashboardConfigInput.model_validate(
+            {"widgets": [_widget("indicator", layer)]}
+        )
         with pytest.raises(HTTPException) as exc:
-            merge_dashboard(
-                sent,
-                None,
-                readable_layer_ids=set(),
-                hidden_layer_ids={layer} if hidden else set(),
-            )
+            _merge(sent, None, hidden={layer} if hidden else ())
         assert exc.value.status_code == 422
         assert exc.value.detail["widget_ids"] == [str(sent.widgets[0].id)]
 
     def test_a_sent_widget_cannot_replace_a_widget_on_a_hidden_layer(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
-        on_hidden, future = _indicator(hidden), _future()
+        on_hidden, future = _widget("indicator", hidden), _widget("gauge")
         stored = {"version": 1, "widgets": [on_hidden, future]}
 
         with pytest.raises(HTTPException) as exc:
             _merge(
-                {"widgets": [_indicator(shown, widget_id=on_hidden["id"])]},
+                {"widgets": [_widget("indicator", shown, widget_id=on_hidden["id"])]},
                 stored,
                 readable={shown},
                 hidden={hidden},
@@ -155,7 +133,7 @@ class TestMergeDashboard:
 
         # An item this server can't parse may be replaced by its id.
         merged = _merge(
-            {"widgets": [_indicator(shown, widget_id=future["id"])]},
+            {"widgets": [_widget("indicator", shown, widget_id=future["id"])]},
             stored,
             readable={shown},
             hidden={hidden},
@@ -165,8 +143,8 @@ class TestMergeDashboard:
 
     def test_the_cap_counts_kept_widgets_without_naming_them(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
-        stored = {"version": 1, "widgets": [_indicator(hidden)]}
-        sent = {"widgets": [_indicator(shown) for _ in range(50)]}
+        stored = {"version": 1, "widgets": [_widget("indicator", hidden)]}
+        sent = {"widgets": [_widget("indicator", shown) for _ in range(50)]}
 
         with pytest.raises(HTTPException) as exc:
             _merge(sent, stored, readable={shown}, hidden={hidden})
@@ -176,10 +154,14 @@ class TestMergeDashboard:
 
     def test_widgets_on_a_repointed_layer_are_dropped(self):
         moved, hidden_moved, kept = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-        future = _future()
+        future = _widget("gauge")
         stored = {
             "version": 1,
-            "widgets": [_indicator(moved), _indicator(hidden_moved), future],
+            "widgets": [
+                _widget("indicator", moved),
+                _widget("indicator", hidden_moved),
+                future,
+            ],
         }
         merged = _merge(
             {"widgets": []},
@@ -196,28 +178,25 @@ class TestMergeDashboard:
             future["id"],
         ]
         assert drop_repointed(stored, {kept}) is stored
-        newer = {"version": 2, "widgets": [_indicator(moved)]}
+        newer = {"version": 2, "widgets": [_widget("indicator", moved)]}
         assert drop_repointed(newer, {moved}) is newer
 
     def test_types_clients_cannot_show_yet_are_kept_and_refused_on_write(self):
         shown = uuid.uuid4()
-        histogram = _histogram(shown)
+        histogram = _widget("histogram", shown)
         stored = {"version": 1, "widgets": [histogram]}
 
         assert render_dashboard(stored, [shown]) is None
         merged = _merge({"widgets": []}, stored, readable={shown})
         assert merged["widgets"] == [histogram]
         with pytest.raises(ValueError):
-            DashboardConfigInput.model_validate({"widgets": [_histogram(shown)]})
+            DashboardConfigInput.model_validate(
+                {"widgets": [_widget("histogram", shown)]}
+            )
 
     def test_a_dashboard_a_newer_server_saved_is_not_overwritten(self):
         with pytest.raises(HTTPException) as exc:
-            merge_dashboard(
-                DashboardConfigInput(),
-                {"version": 2, "widgets": []},
-                readable_layer_ids=set(),
-                hidden_layer_ids=set(),
-            )
+            _merge(DashboardConfigInput(), {"version": 2, "widgets": []})
         assert exc.value.status_code == 409
 
 
@@ -227,8 +206,11 @@ def _shape(widgets) -> list[tuple[str, str, str]]:
 
 def test_render_keeps_only_widgets_on_the_given_layers_and_parseable_ones():
     shown, other = uuid.uuid4(), uuid.uuid4()
-    keep = _bar_chart(shown)
-    stored = {"version": 1, "widgets": [keep, _indicator(other), _future()]}
+    keep = _widget("bar_chart", shown)
+    stored = {
+        "version": 1,
+        "widgets": [keep, _widget("indicator", other), _widget("gauge")],
+    }
 
     rendered = render_dashboard(stored, [str(shown)]).model_dump(mode="json")
     assert render_dashboard(stored, [str(other)]).widgets[0].layer_id == other
@@ -242,10 +224,10 @@ def test_render_keeps_only_widgets_on_the_given_layers_and_parseable_ones():
 
 def test_fork_remaps_layers_and_drops_what_it_cannot_copy():
     kept_layer, skipped_layer, copy = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    widget = _indicator(kept_layer)
+    widget = _widget("indicator", kept_layer)
     stored = {
         "version": 1,
-        "widgets": [widget, _indicator(skipped_layer), _future()],
+        "widgets": [widget, _widget("indicator", skipped_layer), _widget("gauge")],
     }
 
     forked = fork_dashboard(stored, {kept_layer: copy})
@@ -314,7 +296,10 @@ class TestDashboardConfigApi:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(test_db_session, created_by=admin_id)
         map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
-        widgets = [_indicator(layer_id, title="Parcels"), _bar_chart(layer_id)]
+        widgets = [
+            _widget("indicator", layer_id, title="Parcels"),
+            _widget("bar_chart", layer_id),
+        ]
 
         resp = await client.put(
             f"/maps/{map_id}",
@@ -366,12 +351,17 @@ class TestDashboardConfigApi:
         )
 
         for widgets in (
-            [{**_indicator(layer_id), "type": "gauge"}],
-            [_histogram(layer_id)],
-            [{**_indicator(layer_id), "extra": True}],
-            [{**_indicator(layer_id), "config": {"stat": "sum", "column": "c" * 64}}],
-            [_indicator(layer_id) for _ in range(51)],
-            [_indicator(other_layer)],
+            [{**_widget("indicator", layer_id), "type": "gauge"}],
+            [_widget("histogram", layer_id)],
+            [{**_widget("indicator", layer_id), "extra": True}],
+            [
+                {
+                    **_widget("indicator", layer_id),
+                    "config": {"stat": "sum", "column": "c" * 64},
+                }
+            ],
+            [_widget("indicator", layer_id) for _ in range(51)],
+            [_widget("indicator", other_layer)],
         ):
             resp = await client.put(
                 f"/maps/{map_id}",
@@ -395,7 +385,7 @@ class TestDashboardConfigApi:
             f"/maps/{map_id}",
             json={
                 "layers": [{"id": layer_a, "dataset_id": str(a.id)}],
-                "dashboard_config": {"widgets": [_indicator(layer_b)]},
+                "dashboard_config": {"widgets": [_widget("indicator", layer_b)]},
             },
             headers=admin_auth_header,
         )
@@ -405,7 +395,7 @@ class TestDashboardConfigApi:
             f"/maps/{map_id}",
             json={
                 "layers": [{"id": layer_a, "dataset_id": str(a.id)}],
-                "dashboard_config": {"widgets": [_indicator(layer_a)]},
+                "dashboard_config": {"widgets": [_widget("indicator", layer_a)]},
             },
             headers=admin_auth_header,
         )
@@ -418,7 +408,7 @@ class TestDashboardConfigApi:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(test_db_session, created_by=admin_id)
         map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
-        first, future = _indicator(layer_id), _future()
+        first, future = _widget("indicator", layer_id), _widget("gauge")
         await _store(
             test_db_session, map_id, {"version": 1, "widgets": [first, future]}
         )
@@ -426,7 +416,7 @@ class TestDashboardConfigApi:
         got = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
         assert [w["id"] for w in got["dashboard_config"]["widgets"]] == [first["id"]]
 
-        added = _bar_chart(layer_id)
+        added = _widget("bar_chart", layer_id)
         resp = await client.put(
             f"/maps/{map_id}",
             json={"dashboard_config": {"widgets": [first, added]}},
@@ -453,7 +443,10 @@ class TestDashboardConfigApi:
         map_id, (public_layer, private_layer) = await _map_with_layers(
             client, admin_auth_header, public_ds, private_ds, visibility="public"
         )
-        shown, hidden = _indicator(public_layer), _indicator(private_layer)
+        shown, hidden = (
+            _widget("indicator", public_layer),
+            _widget("indicator", private_layer),
+        )
         resp = await client.put(
             f"/maps/{map_id}",
             json={"dashboard_config": {"widgets": [shown, hidden]}},
@@ -485,7 +478,7 @@ class TestDashboardConfigApi:
         map_id, (layer_a, layer_b) = await _map_with_layers(
             client, editor, readable, later_private
         )
-        on_a, on_b = _indicator(layer_a), _indicator(layer_b)
+        on_a, on_b = _widget("indicator", layer_a), _widget("indicator", layer_b)
         resp = await client.put(
             f"/maps/{map_id}",
             json={"dashboard_config": {"widgets": [on_a, on_b]}},
@@ -499,12 +492,12 @@ class TestDashboardConfigApi:
         # The editor can't add a widget on the layer they can no longer read.
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"dashboard_config": {"widgets": [_indicator(layer_b)]}},
+            json={"dashboard_config": {"widgets": [_widget("indicator", layer_b)]}},
             headers=editor,
         )
         assert resp.status_code == 422
 
-        added = _bar_chart(layer_a)
+        added = _widget("bar_chart", layer_a)
         resp = await client.put(
             f"/maps/{map_id}",
             json={"dashboard_config": {"widgets": [added]}},
@@ -540,7 +533,10 @@ class TestDashboardConfigApi:
         map_id, (public_layer, private_layer) = await _map_with_layers(
             client, admin_auth_header, public_ds, private_ds, visibility="internal"
         )
-        shown, hidden = _bar_chart(public_layer), _indicator(private_layer)
+        shown, hidden = (
+            _widget("bar_chart", public_layer),
+            _widget("indicator", private_layer),
+        )
         resp = await client.put(
             f"/maps/{map_id}",
             json={"dashboard_config": {"widgets": [shown, hidden]}},
@@ -568,7 +564,7 @@ class TestDashboardConfigApi:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(test_db_session, created_by=admin_id)
         map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
-        widget = _indicator(layer_id)
+        widget = _widget("indicator", layer_id)
 
         resp = await client.put(
             f"/maps/{map_id}",
@@ -598,7 +594,7 @@ class TestDashboardConfigApi:
         map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, a)
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"dashboard_config": {"widgets": [_indicator(layer_id)]}},
+            json={"dashboard_config": {"widgets": [_widget("indicator", layer_id)]}},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
@@ -631,7 +627,7 @@ class TestDashboardConfigApi:
             text("SELECT id FROM catalog.map_layers WHERE dataset_id = :d"),
             {"d": scoped.id},
         )
-        widget = _indicator(layer_id)
+        widget = _widget("indicator", layer_id)
         await _store(test_db_session, str(map_id), {"version": 1, "widgets": [widget]})
 
         anonymous = (await client.get(f"/maps/shared/{share_token}")).json()
@@ -655,7 +651,7 @@ class TestDashboardConfigApi:
         map_id, (layer_a, layer_b) = await _map_with_layers(
             client, editor_headers, readable, later_private
         )
-        on_a, on_b = _indicator(layer_a), _indicator(layer_b)
+        on_a, on_b = _widget("indicator", layer_a), _widget("indicator", layer_b)
         await _make_private(test_db_session, later_private)
         editor = await test_db_session.get(User, uuid.UUID(editor_id))
 

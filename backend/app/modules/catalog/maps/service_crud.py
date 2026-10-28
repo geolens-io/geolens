@@ -505,11 +505,10 @@ async def update_map(
     # Replace layers if provided
     datasets_before: dict[uuid.UUID, uuid.UUID] = {}
     if layers is not None:
-        datasets_before = await _layer_datasets(session, map_id)
+        if map_obj.dashboard_config is not None:
+            datasets_before = await _layer_datasets(session, map_id)
         await _replace_layers(session, map_id, layers, user)
-    if dashboard_config is not _UNSET or (
-        datasets_before and map_obj.dashboard_config is not None
-    ):
+    if dashboard_config is not _UNSET or datasets_before:
         map_obj.dashboard_config = await _saved_dashboard(
             session, map_obj, dashboard_config, user, datasets_before
         )
@@ -556,15 +555,14 @@ async def _saved_dashboard(
         for layer in layers
         if datasets_before.get(layer.id, layer.dataset_id) != layer.dataset_id
     }
+    stored = drop_repointed(map_obj.dashboard_config, repointed)
     if sent is _UNSET:
-        return drop_repointed(map_obj.dashboard_config, repointed)
-    hidden = await _unreadable_layer_ids(session, layers, user)
+        return stored
     return merge_dashboard(
         None if sent is None else DashboardConfigInput.model_validate(sent),
-        map_obj.dashboard_config,
-        readable_layer_ids={layer.id for layer in layers} - hidden,
-        hidden_layer_ids=hidden,
-        repointed_layer_ids=repointed,
+        stored,
+        layer_ids={layer.id for layer in layers},
+        hidden_layer_ids=await _unreadable_layer_ids(session, layers, user),
     )
 
 

@@ -8,7 +8,7 @@ parse.
 
 import uuid
 from collections.abc import Collection, Mapping
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from fastapi import HTTPException, status
 from pydantic import (
@@ -33,9 +33,10 @@ MAX_DASHBOARD_WIDGETS = 50
 # The dashboard types clients register. A stored widget of another type is set
 # aside and put back on save, like one this server can't parse, so a client
 # that can't show it never drops it by leaving it out.
-_ACCEPTED = (IndicatorWidget, BarChartWidget)
+_Registered = IndicatorWidget | BarChartWidget
+_ACCEPTED = get_args(_Registered)
 AcceptedWidget = Annotated[
-    IndicatorWidget | BarChartWidget,
+    _Registered,
     Field(discriminator="type"),
     BeforeValidator(upgrade),
 ]
@@ -108,19 +109,17 @@ def merge_dashboard(
     sent: DashboardConfigInput | None,
     stored: Any,
     *,
-    readable_layer_ids: Collection[uuid.UUID],
+    layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
-    repointed_layer_ids: Collection[uuid.UUID] = (),
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
-    ``readable_layer_ids`` and ``hidden_layer_ids`` are the map's layers after
-    the save, split by whether the editor can read their dataset;
-    ``repointed_layer_ids`` are layers the save moved to another dataset.
+    ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
+    those among them whose dataset the editor can't read.
 
     A stored widget on a hidden layer, or one the editor's client can't show,
     goes back next to the widget stored before it. A stored widget on a layer
-    the map no longer has, or on a repointed layer, is dropped. A sent widget
+    the map no longer has is dropped. A sent widget
     must be on a readable layer and may replace a stored widget only when that
     one isn't on a hidden layer (422). The result holds at most
     ``MAX_DASHBOARD_WIDGETS`` widgets (422).
@@ -134,9 +133,9 @@ def merge_dashboard(
             ),
         )
     sent_widgets = sent.widgets if sent is not None else []
-    readable = {str(layer_id) for layer_id in readable_layer_ids}
+    known = {str(layer_id) for layer_id in layer_ids}
     hidden = {str(layer_id) for layer_id in hidden_layer_ids}
-    repointed = {str(layer_id) for layer_id in repointed_layer_ids}
+    readable = known - hidden
 
     kept: list[KeptWidget] = []
     locked_ids: set[str] = set()
@@ -145,7 +144,7 @@ def merge_dashboard(
         widget = _parsed(raw)
         if widget is not None:
             layer_id = str(widget.layer_id)
-            if layer_id in repointed or layer_id not in readable | hidden:
+            if layer_id not in known:
                 continue
             if layer_id in readable and isinstance(widget, _ACCEPTED):
                 shown_before.append(str(widget.id))
