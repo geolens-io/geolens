@@ -9,8 +9,8 @@ from uuid import UUID
 import shapely
 
 
-# Import helpers from chat_service
-from app.processing.ai.chat_service import (
+# Import helpers from chat_geojson
+from app.processing.ai.chat_geojson import (
     _is_geom_value,
     _detect_geom_column,
     _safe_value,

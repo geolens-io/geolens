@@ -305,7 +305,6 @@ async def _generate_structured(
             temperature=0.3,
         )
     await record_token_usage(
-        db,
         user_id=user_id,
         subsystem="metadata",
         model=model,

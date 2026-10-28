@@ -293,7 +293,6 @@ async def _stream_anthropic_chat(
             # bypassable by aborting streaming chats. record_token_usage
             # self-commits, so completed rounds always count.
             await record_token_usage(
-                session,
                 user_id=user.id,
                 subsystem="chat_stream",
                 model=model,
@@ -501,7 +500,6 @@ async def _stream_openai_chat(
                 # skips end-of-function accounting, so aborted streaming chats
                 # would otherwise bypass the daily cap.
                 await record_token_usage(
-                    session,
                     user_id=user.id,
                     subsystem="chat_stream",
                     model=model,

@@ -123,7 +123,7 @@ def _offline_metadata(monkeypatch):
     metadata_service._dataset_context_cache.clear()
     calls: list[int] = []
 
-    async def record_token_usage(_db, *, input_tokens, output_tokens, **_kwargs):
+    async def record_token_usage(*, input_tokens, output_tokens, **_kwargs):
         calls.append(input_tokens + output_tokens)
         _spent["tokens"] += input_tokens + output_tokens
 

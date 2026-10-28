@@ -137,10 +137,7 @@ async def test_record_token_usage_commits_own_session(monkeypatch):
         lambda: _FakeSession(),
     )
 
-    # First arg (caller session) is intentionally ignored — pass a sentinel that
-    # would blow up if used, proving independence.
     await record_token_usage(
-        object(),
         user_id=uuid.uuid4(),
         subsystem="chat",
         model="test",
@@ -186,9 +183,7 @@ async def test_metadata_path_records_usage(monkeypatch):
 
     captured: dict = {}
 
-    async def _fake_record(
-        _db, *, user_id, subsystem, model, input_tokens, output_tokens
-    ):
+    async def _fake_record(*, user_id, subsystem, model, input_tokens, output_tokens):
         captured.update(
             user_id=user_id,
             subsystem=subsystem,
