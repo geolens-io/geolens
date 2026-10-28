@@ -211,3 +211,13 @@ async def test_a_csv_in_a_single_folder_zip_keeps_its_z_values(
         assert ndims == 3
     finally:
         await _drop(test_db_session, table)
+
+
+def test_a_csv_beside_a_geodatabase_is_not_the_source(tmp_path):
+    archive = tmp_path / "export.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("roads.csv", "x,y\n1,2\n")
+        zf.writestr("data/d.gdb/a00000001.gdbtable", b"")
+
+    assert ogr._is_csv_source(str(archive), "roads") is False
+    assert ogr._is_csv_source(str(archive)) is False

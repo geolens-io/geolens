@@ -671,6 +671,9 @@ def _is_csv_source(file_path: str, layer_name: str | None = None) -> bool:
         return True
     if not lower.endswith(".zip"):
         return False
+    # GDAL opens the geodatabase in such a zip, never a CSV beside it.
+    if (zip_dataset_root(file_path) or "").lower().endswith(".gdb"):
+        return False
     try:
         with zipfile.ZipFile(file_path) as archive:
             names = [n for n in archive.namelist() if not n.endswith("/")]
