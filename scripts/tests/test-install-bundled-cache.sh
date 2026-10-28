@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 cd "$work"
 
 fns="$work/fns.sh"
-for fn in generate_jwt_secret get_env_value update_env_value enable_bundled_cache; do
+for fn in generate_jwt_secret get_env_value update_env_value enable_bundled_cache drop_bundled_cache_url; do
   awk -v fn="$fn" '$0 ~ "^" fn "\\(\\) \\{" {f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" >>"$fns"
 done
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -43,6 +43,15 @@ enable_bundled_cache
 
 grep -q 'enable_bundled_cache$' "$INSTALL_SH" || fail "install.sh never calls enable_bundled_cache"
 
-grep -q 'cleared REDIS_URL' "$INSTALL_SH" || fail "source-build fallback does not clear the bundled REDIS_URL"
+warn() { :; }
+printf 'REDIS_URL=redis://:pw@valkey:6379/0\nVALKEY_PASSWORD=pw\nCOMPOSE_PROFILES=cache\n' >.env
+drop_bundled_cache_url
+[ -z "$(get_env_value REDIS_URL)" ] || fail "bundled REDIS_URL not cleared"
+[ "$(get_env_value VALKEY_PASSWORD)" = "pw" ] || fail "VALKEY_PASSWORD not kept"
+[ "$(get_env_value COMPOSE_PROFILES)" = "cache" ] || fail "COMPOSE_PROFILES not kept"
+printf 'REDIS_URL=redis://own:6379/1\n' >.env
+drop_bundled_cache_url
+[ "$(get_env_value REDIS_URL)" = "redis://own:6379/1" ] || fail "operator REDIS_URL cleared"
+grep -q 'drop_bundled_cache_url$' "$INSTALL_SH" || fail "install.sh never calls drop_bundled_cache_url"
 
 echo "PASS: install.sh enables the bundled cache"

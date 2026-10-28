@@ -117,6 +117,17 @@ enable_bundled_cache() {
   esac
 }
 
+# The source build has no password-protected `cache` service, so a REDIS_URL
+# written by an earlier release install would point nowhere.
+drop_bundled_cache_url() {
+  case "$(get_env_value REDIS_URL)" in
+    *@valkey:* | redis://valkey:*)
+      update_env_value REDIS_URL ""
+      warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
+      ;;
+  esac
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -605,14 +616,7 @@ main() {
       # Overwrite any stale prod pin from a previous run so bare `docker compose`
       # matches the source build we actually ran.
       update_env_value COMPOSE_FILE "docker-compose.yml"
-      # The source build has no password-protected `cache` service, so a
-      # REDIS_URL written by an earlier release install would point nowhere.
-      case "$(get_env_value REDIS_URL)" in
-        *@valkey:* | redis://valkey:*)
-          update_env_value REDIS_URL ""
-          warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
-          ;;
-      esac
+      drop_bundled_cache_url
     fi
   fi
 
