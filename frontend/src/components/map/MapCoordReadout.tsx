@@ -41,10 +41,21 @@ export const MapCoordReadout = memo(function MapCoordReadout({
       });
     };
 
-    const onMouseMove = (e: MapMouseEvent) => {
-      cancelAnimationFrame(rafRef.current);
+    // One frame runs the latest event's update. A frame already queued is
+    // kept: cancelling it on every event would starve the readout for as long
+    // as an animated move keeps firing.
+    let latest = updateFromCenter;
+    const schedule = (update: () => void) => {
+      latest = update;
+      if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0;
+        latest();
+      });
+    };
+
+    const onMouseMove = (e: MapMouseEvent) =>
+      schedule(() => {
         if (disposed) return;
         const lat = parseFloat(e.lngLat.lat.toFixed(2));
         const lng = parseFloat(e.lngLat.lng.toFixed(2));
@@ -54,18 +65,9 @@ export const MapCoordReadout = memo(function MapCoordReadout({
           return { lat, lng, zoom };
         });
       });
-    };
 
     // `move` also covers programmatic camera changes before the first hover.
-    // A frame already queued is kept: cancelling it on every event would starve
-    // the readout for as long as an animated move keeps firing.
-    const onMove = () => {
-      if (rafRef.current) return;
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = 0;
-        updateFromCenter();
-      });
-    };
+    const onMove = () => schedule(updateFromCenter);
 
     const onMouseLeave = () => {
       if (disposed) return;
@@ -80,6 +82,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     return () => {
       disposed = true;
       cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
       map.off('move', onMove);
       map.off('mousemove', onMouseMove);
       canvas?.removeEventListener('mouseleave', onMouseLeave);
