@@ -87,6 +87,14 @@ def _parsed(raw: Any) -> Any | None:
     return widgets[0] if widgets else None
 
 
+def _raw_id(raw: Any) -> str | None:
+    """The id of a stored widget this server can't parse, as a parsed id reads."""
+    try:
+        return str(uuid.UUID(str(raw["id"])))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def render_dashboard(
     stored: Any, layer_ids: Collection[uuid.UUID | str]
 ) -> DashboardConfig | None:
@@ -120,8 +128,8 @@ def merge_dashboard(
     A stored widget on a hidden layer, or one the editor's client can't show,
     goes back next to the widget stored before it. A stored widget on a layer
     the map no longer has is dropped. A sent widget
-    must be on a readable layer and may replace a stored widget only when that
-    one isn't on a hidden layer (422). The result holds at most
+    must be on a readable layer and may not reuse the id of a widget that goes
+    back unseen (422). The result holds at most
     ``MAX_DASHBOARD_WIDGETS`` widgets (422).
     """
     if _stored_version(stored) > DASHBOARD_CONFIG_VERSION:
@@ -149,8 +157,11 @@ def merge_dashboard(
             if layer_id in readable and isinstance(widget, _ACCEPTED):
                 shown_before.append(str(widget.id))
                 continue
-            if layer_id in hidden:
-                locked_ids.add(str(widget.id))
+            locked_ids.add(str(widget.id))
+        else:
+            unseen_id = _raw_id(raw)
+            if unseen_id is not None:
+                locked_ids.add(unseen_id)
         kept.append(KeptWidget(tuple(reversed(shown_before)), raw))
 
     refused = sorted(

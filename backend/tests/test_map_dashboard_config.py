@@ -118,8 +118,8 @@ class TestMergeDashboard:
 
     def test_a_sent_widget_cannot_replace_a_widget_on_a_hidden_layer(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
-        on_hidden, future = _widget("indicator", hidden), _widget("gauge")
-        stored = {"version": 1, "widgets": [on_hidden, future]}
+        on_hidden = _widget("indicator", hidden)
+        stored = {"version": 1, "widgets": [on_hidden]}
 
         with pytest.raises(HTTPException) as exc:
             _merge(
@@ -130,16 +130,6 @@ class TestMergeDashboard:
             )
         assert exc.value.status_code == 422
         assert exc.value.detail["widget_ids"] == [on_hidden["id"]]
-
-        # An item this server can't parse may be replaced by its id.
-        merged = _merge(
-            {"widgets": [_widget("indicator", shown, widget_id=future["id"])]},
-            stored,
-            readable={shown},
-            hidden={hidden},
-        )
-        assert _ids(merged["widgets"]) == [on_hidden["id"], future["id"]]
-        assert merged["widgets"][1]["type"] == "indicator"
 
     def test_the_cap_counts_kept_widgets_without_naming_them(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
@@ -193,6 +183,27 @@ class TestMergeDashboard:
             DashboardConfigInput.model_validate(
                 {"widgets": [_widget("histogram", shown)]}
             )
+
+    @pytest.mark.parametrize("kind", ["unparseable", "unshown_type"])
+    def test_a_widget_that_goes_back_unseen_cannot_be_replaced_by_id(self, kind):
+        shown = uuid.uuid4()
+        if kind == "unparseable":
+            unseen = _widget("indicator", shown, v=2)
+        else:
+            unseen = _widget("histogram", shown)
+        stored = {"version": 1, "widgets": [unseen]}
+
+        with pytest.raises(HTTPException) as exc:
+            _merge(
+                {"widgets": [_widget("indicator", shown, widget_id=unseen["id"])]},
+                stored,
+                readable={shown},
+            )
+        assert exc.value.status_code == 422
+        assert exc.value.detail["widget_ids"] == [unseen["id"]]
+
+        merged = _merge({"widgets": []}, stored, readable={shown})
+        assert merged["widgets"] == [unseen]
 
     def test_a_dashboard_a_newer_server_saved_is_not_overwritten(self):
         with pytest.raises(HTTPException) as exc:
