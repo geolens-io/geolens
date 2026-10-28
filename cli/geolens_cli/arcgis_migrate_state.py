@@ -218,6 +218,9 @@ class ItemState:
     # Dataset or map id -> the groups among those that this command's own
     # writes added, the only ones a rerun removes when the plan drops them.
     granted: dict[str, list[str]] = field(default_factory=dict)
+    # Dataset or map id -> groups left on it that the plan no longer names and
+    # that no write of this command is known to have added, already reported.
+    kept: dict[str, list[str]] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None

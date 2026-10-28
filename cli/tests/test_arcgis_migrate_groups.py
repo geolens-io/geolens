@@ -1001,10 +1001,12 @@ def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
     geolens = SimpleNamespace(
         call=lambda fn, **kwargs: sent.append(kwargs["body"].to_dict())
     )
-    ctx = SimpleNamespace(geolens=geolens, save=lambda: None, operator_id=OPERATOR)
+    ctx = SimpleNamespace(
+        geolens=geolens, save=lambda: None, operator_id=OPERATOR, sharing=None
+    )
     entry = ItemState(dataset_ids=[DATASETS[0]])
 
-    share(ctx, {"target": {"geolens_groups": [CREATED]}}, entry)
+    share(ctx, {"id": "i1", "target": {"geolens_groups": [CREATED]}}, entry)
 
     # A grant changed to OTHER after the first read is kept, not reverted.
     assert sent == [{"group_ids": sorted([CREATED, OTHER])}]
@@ -1096,7 +1098,9 @@ def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
     geolens = SimpleNamespace(
         call=lambda fn, **kwargs: puts.append(kwargs["body"].to_dict()["group_ids"])
     )
-    ctx = SimpleNamespace(geolens=geolens, save=lambda: None, operator_id=OPERATOR)
+    ctx = SimpleNamespace(
+        geolens=geolens, save=lambda: None, operator_id=OPERATOR, sharing=None
+    )
     ds = DATASETS[0]
     entry = ItemState(
         dataset_ids=[ds],
@@ -1105,7 +1109,7 @@ def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
     )
     target = {"geolens_groups": wanted, "groups": ["g1"] if read else None}
 
-    assert share(ctx, {"target": target}, entry) == []
+    assert share(ctx, {"id": "i1", "target": target}, entry) == []
 
     assert puts == ([] if sent is None else [sorted(sent)])
     assert entry.groups.get(ds) == groups
@@ -1148,13 +1152,15 @@ def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
         ),
         save=lambda: None,
         operator_id=OPERATOR,
+        sharing=None,
     )
     ds = DATASETS[0]
     entry = ItemState(
         dataset_ids=[ds], groups={ds: granted} if granted else {}, granted={ds: granted}
     )
     item = {
-        "target": {"visibility": target, "geolens_groups": wanted, "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": target, "geolens_groups": wanted, "groups": ["g1"]},
     }
 
     if sent is None:
@@ -1182,11 +1188,13 @@ def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypat
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
+        sharing=None,
     )
     ds = DATASETS[0]
     entry = ItemState(dataset_ids=[ds], groups={ds: [C]}, granted={ds: [C]})
     keep = {
-        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]},
     }
     # An admin removes the group; a rerun with nothing to change sees it.
     share(ctx, keep, entry)
@@ -1194,7 +1202,8 @@ def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypat
     # The admin shares it again by hand, and the plan then drops it.
     held.append(C)
     drop = {
-        "target": {"visibility": "restricted", "geolens_groups": [], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [], "groups": ["g1"]},
     }
 
     share(ctx, drop, entry)
@@ -1208,18 +1217,20 @@ def test_a_map_group_removed_in_geolens_and_shared_again_is_theirs(monkeypatch):
         map_id=MAP, groups={MAP: [C, E]}, granted={MAP: [C, E]}, map_snapshot=dict(SEEN)
     )
     keep = {
+        "id": "i1",
         "target": {
             "visibility": "restricted",
             "geolens_groups": [C, E],
             "groups": ["g1"],
-        }
+        },
     }
     assert share(ctx, keep, entry, with_map=False) == []
     assert entry.granted == {MAP: [C]}
     # The admin shares the map with E again by hand; the plan then drops E.
     reads["map"] = _map_read("restricted", [C, E])
     drop = {
-        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]},
     }
 
     assert share(ctx, drop, entry, with_map=False) == []
@@ -1235,7 +1246,8 @@ def test_a_map_read_without_its_groups_is_left_as_it_is(monkeypatch):
         map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
     )
     item = {
-        "target": {"visibility": "restricted", "geolens_groups": [E], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [E], "groups": ["g1"]},
     }
 
     [reason] = share(ctx, item, entry, with_map=False)
@@ -1251,7 +1263,8 @@ def test_a_private_map_is_never_made_restricted_off_plan(monkeypatch):
         map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
     )
     item = {
-        "target": {"visibility": "private", "geolens_groups": [E], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "private", "geolens_groups": [E], "groups": ["g1"]},
     }
 
     [reason] = share(ctx, item, entry, with_map=False)
@@ -1267,7 +1280,7 @@ def test_a_share_without_a_sharing_decision_changes_nothing():
         granted={DATASETS[0]: [C]},
     )
 
-    share(SimpleNamespace(), {"target": {"groups": ["g1"]}}, entry)
+    share(SimpleNamespace(), {"id": "i1", "target": {"groups": ["g1"]}}, entry)
 
     assert entry.groups == entry.granted == {DATASETS[0]: [C]}
 
@@ -1294,9 +1307,10 @@ def test_a_dataset_changed_between_its_two_reads_isnt_shared(monkeypatch):
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
+        sharing=None,
     )
     entry = ItemState(dataset_ids=[DATASETS[0]], last_update={DATASETS[0]: {}})
-    item = {"target": {"geolens_groups": [C], "groups": ["g1"]}}
+    item = {"id": "i1", "target": {"geolens_groups": [C], "groups": ["g1"]}}
 
     with pytest.raises(ItemFailed, match="changed in GeoLens while its groups"):
         share(ctx, item, entry)
@@ -1341,7 +1355,10 @@ def _map_ctx(monkeypatch, found, after=None):
 
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: reads["map"])
     ctx = SimpleNamespace(
-        geolens=SimpleNamespace(call=put), save=lambda: None, operator_id=OPERATOR
+        geolens=SimpleNamespace(call=put),
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
     )
     return ctx, puts, reads
 
@@ -1468,7 +1485,8 @@ def test_a_rerun_shares_a_map_only_as_this_command_left_it(
     )
     groups = ["g1"] if read else None
     item = {
-        "target": {"visibility": target, "geolens_groups": wanted, "groups": groups}
+        "id": "i1",
+        "target": {"visibility": target, "geolens_groups": wanted, "groups": groups},
     }
 
     reasons = share(ctx, item, entry, with_map=False)
@@ -1492,16 +1510,18 @@ def test_a_group_geolens_shared_the_map_with_is_never_taken_as_its_own(monkeypat
     )
     # The portal shares with the group GeoLens already gave the map.
     item = {
+        "id": "i1",
         "target": {
             "visibility": "restricted",
             "geolens_groups": [C, GEO],
             "groups": ["g1", "g2"],
-        }
+        },
     }
     assert share(ctx, item, entry, with_map=False) == []
     # And drops it again.
     item = {
-        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]},
     }
     assert share(ctx, item, entry, with_map=False) == []
 
@@ -1536,11 +1556,12 @@ def test_the_map_after_a_rerun_share_is_adopted_only_as_the_write_left_it(
     ctx, puts, reads = _map_ctx(monkeypatch, _map_read(*found), after)
     entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={}, granted={})
     item = {
+        "id": "i1",
         "target": {
             "visibility": "restricted",
             "geolens_groups": [C, E],
             "groups": ["g1"],
-        }
+        },
     }
 
     share(ctx, item, entry, with_map=False)
@@ -1562,11 +1583,12 @@ def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
     )
     entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={MAP: [C]})
     item = {
+        "id": "i1",
         "target": {
             "visibility": "restricted",
             "geolens_groups": [C, E],
             "groups": ["g1"],
-        }
+        },
     }
 
     [reason] = share(ctx, item, entry, with_map=False)
@@ -1918,3 +1940,123 @@ def test_a_malformed_joined_record_is_refused(runner, tmp_path, team, joined):
 
     assert result.exit_code == 2
     assert "malformed group record" in result.output
+
+
+class _Say:
+    def __init__(self) -> None:
+        self.info_lines: list[str] = []
+        self.warn_lines: list[str] = []
+
+    def info(self, line: str) -> None:
+        self.info_lines.append(line)
+
+    def warn(self, line: str) -> None:
+        self.warn_lines.append(line)
+
+
+def test_members_without_an_account_print_as_one_line_however_many_groups():
+    pending = lambda *names: [  # noqa: E731
+        {"member": n, "reason": f"{n} is not a GeoLens user yet"} for n in names
+    ]
+    groups = migrate.GroupPlan(
+        groups={
+            "g1": {
+                "name": "One",
+                "created": True,
+                "added": [],
+                "pending": pending("a", "b"),
+            },
+            "g2": {
+                "name": "Two",
+                "created": True,
+                "added": [],
+                "pending": pending("a", "c"),
+            },
+            "g3": {
+                "name": "Three",
+                "created": True,
+                "added": [],
+                "pending": [{"member": "d", "reason": "d has another email"}],
+            },
+        }
+    )
+    say = _Say()
+
+    migrate._print_groups(say, groups, dry_run=True)
+
+    [summary] = [w for w in say.warn_lines if "aren't GeoLens users" in w]
+    assert summary.startswith("3 ArcGIS member(s)") and ": a, b, c." in summary
+    assert "admin users import --from-inventory" in summary
+    assert [w for w in say.warn_lines if w.startswith("d:")] == [
+        "d: d has another email (not in GeoLens group Three)"
+    ]
+    assert len(say.warn_lines) == 2
+
+
+def test_a_rerun_prints_and_reports_the_groups_it_shared_and_removed(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    _map_a_second_group(plan_file)
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert payload["item_sharing"] == [
+        {"item": A2, "shared": ["Other"], "removed": [], "left": []}
+    ]
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["sharing_changes"] == payload["item_sharing"]
+    markdown = (tmp_path / "arcgis-migration-report.md").read_text()
+    assert f"{A2}: shared with Other" in markdown
+
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1"]
+    plan_file.write_text(json.dumps(plan))
+    _result, payload = _run(runner, plan_file)
+    assert payload["item_sharing"] == [
+        {"item": A2, "shared": [], "removed": ["Other"], "left": []}
+    ]
+
+    # A rerun with nothing to change reports nothing.
+    _result, payload = _run(runner, plan_file)
+    assert payload["item_sharing"] == []
+
+
+def test_a_group_an_earlier_version_shared_is_listed_once_and_left(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    _map_a_second_group(plan_file)
+    assert _run(runner, plan_file)[0].exit_code == 0
+    # A version-3 state records every share but not which ones it wrote.
+    state_file = tmp_path / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["schema_version"] = "3"
+    for entry in state["items"].values():
+        entry.pop("granted", None)
+    state_file.write_text(json.dumps(state))
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1"]
+    plan_file.write_text(json.dumps(plan))
+    shares = len(api.shares)
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert len(api.shares) == shares
+    assert payload["item_sharing"] == [
+        {"item": A2, "shared": [], "removed": [], "left": ["Other"]}
+    ]
+    _result, payload = _run(runner, plan_file)
+    assert payload["item_sharing"] == []
+    assert len(api.shares) == shares

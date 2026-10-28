@@ -453,7 +453,10 @@ class _Directory:
     """GeoLens users by lower-cased username and email."""
 
     def __init__(
-        self, users: Iterable[Any], roles: Mapping[str, Mapping[str, bool]] | None
+        self,
+        users: Iterable[Any],
+        roles: Mapping[str, Mapping[str, bool]] | None,
+        owner_emails: Mapping[str, str] | None = None,
     ) -> None:
         self._by_name: dict[str, dict[str, Any]] = {}
         users_seen = list(users)
@@ -466,6 +469,22 @@ class _Directory:
             str(user.id) for user in users_seen if "admin" in (user.roles or [])
         )
         self.usernames = {str(user.id): user.username for user in users_seen}
+        # ArcGIS username -> the email the inventory read for them.
+        self.owner_emails = dict(owner_emails or {})
+
+    def same_account(self, owner: str) -> str | None:
+        """The GeoLens username that has *owner*'s name and the email the
+        inventory read for them, or None."""
+        email = self.owner_emails.get(owner)
+        if not email:
+            return None
+        try:
+            found = self.find(owner)
+        except UsageError:
+            return None
+        if found is not None and (found.email or "").lower() == email.lower():
+            return str(found.username)
+        return None
 
     def find(self, name: str) -> Any | None:
         """The one user *name* names, or None; ``UsageError`` when one user's
@@ -524,7 +543,15 @@ def _pending_reason(
     if name and user is None:
         return f"{name} is not a GeoLens user yet"
     if user is None:
-        return f"ArcGIS user {item['owner']} has no GeoLens owner in owner_map"
+        reason = f"ArcGIS user {item['owner']} has no GeoLens owner in owner_map"
+        same = directory.same_account(item["owner"])
+        if same:
+            reason += (
+                f" (GeoLens has an account {same} with the email the inventory "
+                f'read for them; if it is theirs, set "{item["owner"]}": "{same}" '
+                "in owner_map)"
+            )
+        return reason
     return directory.inactive(user)
 
 
@@ -541,8 +568,12 @@ def resolve_owners(
     to_run: list[Mapping[str, Any]],
     state: MigrationState,
     unmapped_owner: str | None,
+    emails: Mapping[str, str] | None = None,
 ) -> Owners:
     """The GeoLens owner of every importing item, or a ``UsageError``.
+
+    *emails* holds what the inventory read of ArcGIS users' addresses, so a
+    refusal can name a GeoLens account that looks like the owner.
 
     An item whose plan owner is empty, not a GeoLens user yet, inactive or,
     when the role matrix is known, without the permission the transfer needs
@@ -551,7 +582,7 @@ def resolve_owners(
     missing permission, which is a warning: the server has the last word, and
     a refused transfer fails only that item.
     """
-    directory = _Directory(_list_users(geolens), _role_permissions(geolens))
+    directory = _Directory(_list_users(geolens), _role_permissions(geolens), emails)
     fallback = directory.find(unmapped_owner) if unmapped_owner else None
     problems: set[str] = set()
     if unmapped_owner and fallback is None:
@@ -1090,6 +1121,7 @@ def _report_files(
             stopped=stopped,
             cutover=cutover,
             members_removed=groups.removed if groups else None,
+            sharing_changes=groups.sharing_rows() if groups else None,
         ),
         redact,
     )
@@ -1171,6 +1203,7 @@ def _report(
         "cutover": cutover,
         "groups": groups.groups,
         "group_warnings": groups.warnings,
+        "item_sharing": groups.sharing_rows(),
         "group_failures": groups.failures,
         "report": [str(p) for p in report_files] if report_files else None,
         "failed": failed,
@@ -1271,6 +1304,58 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
         )
 
 
+_NOT_A_USER = " is not a GeoLens user yet"
+_LISTED_MEMBERS = 20
+
+
+def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
+    """One line per ArcGIS member who is in no GeoLens group yet, however many
+    groups they are in; those with no GeoLens account are counted together."""
+    by_member: dict[str, tuple[set[str], set[str]]] = {}
+    for group in groups.groups.values():
+        for left in [*group.get("pending", []), *group.get("unsynced", [])]:
+            names, reasons = by_member.setdefault(left["member"], (set(), set()))
+            names.add(group["name"])
+            reasons.add(left["reason"])
+    no_account = []
+    for member, (names, reasons) in sorted(by_member.items()):
+        if all(r.endswith(_NOT_A_USER) for r in reasons):
+            no_account.append(member)
+            continue
+        fmt.warn(
+            f"{member}: {'; '.join(sorted(reasons))} "
+            f"(not in GeoLens group {', '.join(sorted(names))})"
+        )
+    if no_account:
+        shown = ", ".join(no_account[:_LISTED_MEMBERS])
+        if len(no_account) > _LISTED_MEMBERS:
+            shown += f" and {len(no_account) - _LISTED_MEMBERS} more"
+        fmt.warn(
+            f"{len(no_account)} ArcGIS member(s) aren't GeoLens users yet, so they "
+            f"aren't in their GeoLens groups: {shown}. Create them with `geolens "
+            "admin users import --from-inventory`, then rerun; the report lists "
+            "every group each is waiting for"
+        )
+
+
+def _print_item_sharing(fmt: _output.Formatter, groups: GroupPlan) -> None:
+    for row in groups.sharing_rows():
+        if row["shared"]:
+            fmt.info(f"{row['item']}: shared with {', '.join(row['shared'])}")
+        if row["removed"]:
+            fmt.info(
+                f"{row['item']}: removed {', '.join(row['removed'])}, which the plan "
+                "no longer names"
+            )
+        if row["left"]:
+            fmt.warn(
+                f"{row['item']} is still shared with {', '.join(row['left'])}, "
+                "which the plan no longer names; this command can't tell it "
+                "shared them (an earlier version didn't record that), so check "
+                "them by hand"
+            )
+
+
 def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> None:
     for arcgis_id, group in groups.groups.items():
         if not group["name"]:
@@ -1290,13 +1375,13 @@ def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> N
         # that is somebody else's can be caught before the run.
         for member, user in sorted(group.get("members", {}).items()):
             fmt.info(f"  ArcGIS {member} -> GeoLens {user}")
-        for pending in [*group.get("pending", []), *group.get("unsynced", [])]:
-            fmt.warn(f"{group['name']}: {pending['member']}: {pending['reason']}")
         for user in group.get("removed", []):
             verb = "would remove" if dry_run else "removed"
             fmt.info(f"{group['name']}: {verb} {user}, who left the ArcGIS group")
         if group.get("members_unread"):
             fmt.warn(f"{group['name']}: members not read: {group['members_unread']}")
+    _print_members_left_out(fmt, groups)
+    _print_item_sharing(fmt, groups)
     for line in groups.warnings:
         fmt.warn(line)
     for line in groups.failures:
@@ -1558,7 +1643,14 @@ def _run(
     geolens = GeoLens(sdk, instance, redact)
     try:
         operator_id = _require_admin(geolens)
-        owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)
+        emails = {
+            row["owner"]: row["owner_email"]
+            for row in rows.values()
+            if row.get("owner") and row.get("owner_email")
+        }
+        owners = resolve_owners(
+            geolens, plan, to_run, state, opts.unmapped_owner, emails
+        )
         # Read before any group is made, so a run it stops changes nothing.
         restrict_public = _restrict_public(geolens, touched)
         if not opts.start_fresh and not state.path.exists():
@@ -1578,16 +1670,19 @@ def _run(
             owners.directory,
             touched,
             dry_run=opts.dry_run,
-            emails={
-                row["owner"]: row["owner_email"]
-                for row in rows.values()
-                if row.get("owner") and row.get("owner_email")
-            },
+            emails=emails,
         )
         sharing = Sharing(
             groups={a: g["id"] for a, g in groups.groups.items()},
             restrict_public=restrict_public,
             admins=owners.directory.admins,
+            names={
+                g["id"]: g["name"]
+                for g in state.groups.values()
+                if g.get("id") and g.get("name")
+            }
+            | {g["id"]: g["name"] for g in groups.groups.values() if g["id"]},
+            changes=groups.item_sharing,
         )
     except (UsageError, GroupUsageError) as exc:
         fmt.error(str(exc))

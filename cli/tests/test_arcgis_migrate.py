@@ -191,8 +191,8 @@ def geolens(fake_geolens):
 
 def _allow_transfers(fake, *ids: str, map_ids: tuple[str, ...] = ()) -> None:
     for dataset_id in ids:
-        fake.routes[f"PATCH /datasets/{dataset_id}"] = (
-            lambda seen, d=dataset_id: _dataset(d, seen.json()["owner_id"])
+        fake.routes[f"PATCH /datasets/{dataset_id}"] = lambda seen, d=dataset_id: (
+            _dataset(d, seen.json()["owner_id"])
         )
         fake.routes[f"GET /datasets/{dataset_id}"] = _dataset(dataset_id, OPERATOR)
     for map_id in map_ids:
@@ -764,6 +764,33 @@ def test_an_unusable_owner_stops_the_run_before_any_import(
     assert handled == []
     assert all(s.method == "GET" for s in geolens.seen)
     assert not (tmp_path / "arcgis-migration-state.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("inventory_email", "named"),
+    [("agol_alice@example.org", True), ("someone@else.org", False), (None, False)],
+    ids=["same-email", "other-email", "no-email"],
+)
+def test_an_empty_owner_map_entry_names_the_account_with_the_same_username_and_email(
+    runner, tmp_path, geolens, handled, monkeypatch, inventory_email, named
+):
+    _users(
+        geolens, _user("00000000-0000-0000-0000-0000000000b1", "agol_alice", ["editor"])
+    )
+    row = {"owner": "agol_alice", "owner_email": inventory_email}
+    monkeypatch.setattr(migrate, "_inventory_rows", lambda *args: ({L1: row}, None, {}))
+
+    result, _ = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], owner_map={"agol_alice": ""}),
+        "--dry-run",
+    )
+
+    assert result.exit_code == 2
+    assert "has no GeoLens owner in owner_map" in result.output
+    assert ('\\"agol_alice\\": \\"agol_alice\\"' in result.output) is named
+    assert handled == []
 
 
 def test_unmapped_owner_takes_items_whose_owner_cannot_hold_them(
