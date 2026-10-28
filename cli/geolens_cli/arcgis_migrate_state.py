@@ -19,10 +19,11 @@ from . import arcgis_report as _report
 from .arcgis_portal import Redactor, redact_json
 
 STATE_FILENAME = "arcgis-migration-state.json"
-# v2 adds what a rerun compares and waits on; a CLI that reads only v1
-# refuses the file rather than rewriting it without them.
-STATE_VERSION = "2"
-_READABLE_VERSIONS = ("1", STATE_VERSION)
+# v2 adds what a rerun compares and waits on, and v3 the GeoLens groups made
+# for ArcGIS groups; an older CLI refuses the file rather than rewriting it
+# without them.
+STATE_VERSION = "3"
+_READABLE_VERSIONS = ("1", "2", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -75,6 +76,25 @@ def aware_time(value: Any) -> datetime | None:
     except ValueError:
         return None
     return when if when is not None and when.tzinfo is not None else None
+
+
+def _group_record(record: Any) -> bool:
+    """Whether *record* has the shape of a state file group record."""
+    return (
+        isinstance(record, dict)
+        and isinstance(record.get("id"), str | None)
+        and isinstance(record.get("name"), str | None)
+        and isinstance(record.get("created", False), bool)
+        and all(
+            isinstance(record.get(key, []), list)
+            for key in ("added", "pending", "unsynced")
+        )
+        and all(
+            isinstance(p, dict) and isinstance(p.get("member"), str)
+            for key in ("pending", "unsynced")
+            for p in record.get(key, [])
+        )
+    )
 
 
 def _now() -> str:
@@ -160,6 +180,9 @@ class ItemState:
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)
+    # Dataset or map id -> the GeoLens groups this command shared it with,
+    # which a rerun doesn't add again after someone removed one in GeoLens.
+    groups: dict[str, list[str]] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
@@ -194,6 +217,9 @@ class MigrationState:
         self.collections: dict[str, str] = {}
         # When `migrate --cutover` passed its checks, and the losses accepted.
         self.cutover: dict[str, Any] | None = None
+        # ArcGIS group id -> the GeoLens group this command created for it:
+        # its id and name, the members it added and those still pending.
+        self.groups: dict[str, dict[str, Any]] = {}
         self._redact = redact
         self._persist = persist
 
@@ -245,6 +271,11 @@ class MigrationState:
             cutover = data.get("cutover")
             if cutover is not None and not isinstance(cutover, dict):
                 raise ValueError("cutover is not an object")
+            groups = data.get("groups", {})
+            if not isinstance(groups, dict) or not all(
+                _group_record(g) for g in groups.values()
+            ):
+                raise ValueError("groups holds a malformed group record")
             recorded_portal = data["portal_url"]
             recorded_instance = data["geolens_instance"]
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -265,6 +296,7 @@ class MigrationState:
         state.items = items
         state.collections = collections
         state.cutover = cutover
+        state.groups = groups
         return state
 
     def _lock(self) -> None:
@@ -318,6 +350,7 @@ class MigrationState:
             "geolens_instance": self.instance,
             "collections": self.collections,
             "cutover": self.cutover,
+            "groups": self.groups,
             "items": {k: vars(v) for k, v in self.items.items()},
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

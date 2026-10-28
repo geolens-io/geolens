@@ -20,6 +20,7 @@ import typer
 from keyring.errors import KeyringError
 from rich.table import Table
 
+from . import admin_users as _admin_users
 from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
 from . import arcgis_migrate as _arcgis_migrate
@@ -56,6 +57,10 @@ arcgis_app = typer.Typer(
     no_args_is_help=True, help="ArcGIS Online and Portal for ArcGIS commands"
 )
 app.add_typer(arcgis_app, name="arcgis")
+admin_app = typer.Typer(no_args_is_help=True, help="Administration commands")
+app.add_typer(admin_app, name="admin")
+admin_users_app = typer.Typer(no_args_is_help=True, help="GeoLens user commands")
+admin_app.add_typer(admin_users_app, name="users")
 
 
 @dataclass
@@ -2268,7 +2273,15 @@ def arcgis_migrate(
         typer.Option(
             "--accept-unresolved-users",
             help="With --cutover, accept items whose plan owner isn't a GeoLens user "
-            "who can take them",
+            "who can take them, and ArcGIS group members who aren't GeoLens users yet",
+        ),
+    ] = False,
+    accept_under_sharing: Annotated[
+        bool,
+        typer.Option(
+            "--accept-under-sharing",
+            help="With --cutover, accept items shared only with ArcGIS groups that "
+            "may reach fewer people in GeoLens",
         ),
     ] = False,
 ) -> None:
@@ -2285,6 +2298,7 @@ def arcgis_migrate(
         _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
         _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
         _arcgis_cutover.USERS: accept_unresolved_users,
+        _arcgis_cutover.SHARING: accept_under_sharing,
     }
     options = _arcgis_migrate.MigrateOptions(
         plan_path=plan,
@@ -2306,6 +2320,84 @@ def arcgis_migrate(
     code = _arcgis_migrate.run_cli(
         state.output,
         options,
+        sdk_factory=state.sdk,
+        instance=state.active_instance() or "",
+    )
+    if code:
+        raise typer.Exit(code)
+
+
+@admin_users_app.command("import")
+def admin_users_import(
+    ctx: typer.Context,
+    csv_file: Annotated[
+        Optional[Path],
+        typer.Argument(
+            help="CSV with a header row naming username, email and role",
+            exists=True,
+            dir_okay=False,
+        ),
+    ] = None,
+    from_inventory: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--from-inventory",
+            help="Take the users from an ArcGIS inventory: item owners as editors, "
+            "members of groups items are shared with as viewers",
+            exists=True,
+            dir_okay=False,
+        ),
+    ] = None,
+    seed_csv: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--seed-csv",
+            help="With --from-inventory, write the users to this CSV to review "
+            "and create nothing",
+            dir_okay=False,
+        ),
+    ] = None,
+    print_passwords: Annotated[
+        bool,
+        typer.Option(
+            "--print-passwords",
+            help="Show each new user's generated password, once, on standard output",
+        ),
+    ] = False,
+    link_by_email: Annotated[
+        bool,
+        typer.Option(
+            "--link-by-email",
+            help="On an instance that signs in through an identity provider, create "
+            "the users for their first sign-in to link to by email; needs the "
+            "provider to send email_verified, and the emails reviewed, since one "
+            "an admin enters counts as verified",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Say what would be created; create nothing"),
+    ] = False,
+) -> None:
+    """Create GeoLens users in bulk, skipping the ones that already exist.
+
+    Needs a GeoLens admin session. Generated passwords are never written
+    anywhere; without --print-passwords nobody knows them, so set one for each
+    user through the admin password reset. An instance that signs in through
+    an identity provider creates its users at first sign-in, so nothing is
+    created there unless you pass --link-by-email.
+    """
+    state: AppState = ctx.obj
+    code = _admin_users.run_cli(
+        state.output,
+        _admin_users.ImportOptions(
+            csv_path=csv_file,
+            inventory_path=from_inventory,
+            seed_path=seed_csv,
+            print_passwords=print_passwords,
+            link_by_email=link_by_email,
+            dry_run=dry_run,
+        ),
         sdk_factory=state.sdk,
         instance=state.active_instance() or "",
     )

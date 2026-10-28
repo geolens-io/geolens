@@ -406,6 +406,75 @@ def test_no_groups_makes_no_group_requests(run):
     assert [s for s in portal.seen if s.path.endswith("/groups")] == []
     assert {r["groups"] for r in report["items"]} == {None}
     assert _read_errors(report) == []
+    assert "groups" not in report
+
+
+def _member_routes(role: str = "org_admin") -> dict[str, Any]:
+    portal_self = load("portal_self.json")
+    portal_self["user"]["role"] = role
+    return portal_routes(
+        {
+            "portals/self": portal_self,
+            f"content/items/{A1}/groups": {
+                "admin": [],
+                "member": [
+                    {"id": "g1", "title": "Planning", "access": "org"},
+                    {"id": "g2", "title": "Inspectors", "access": "private"},
+                ],
+                "other": [{"id": "g3", "title": "Partners", "access": "public"}],
+            },
+            "community/groups/g1": {"id": "g1", "hiddenMembers": False},
+            "community/groups/g1/users": {
+                "owner": "lead",
+                "admins": ["lead", "deputy"],
+                "users": ["staff_a", "staff_b"],
+            },
+            "community/groups/g2": {"id": "g2", "hiddenMembers": True},
+            "community/groups/g2/users": {"owner": "boss", "admins": [], "users": []},
+            "community/groups/g3": (403, {"error": {"code": 403}}),
+        }
+    )
+
+
+def test_the_members_of_every_shared_group_are_read(run):
+    result, _ = run(FakePortal(_member_routes()), "--scope", "org")
+    report = _report(result)
+
+    Draft202012Validator(
+        arcgis_report.inventory_schema(), format_checker=FormatChecker()
+    ).validate(report)
+    groups = {g["id"]: g for g in report["groups"]}
+    assert groups["g1"]["members"] == ["deputy", "lead", "staff_a", "staff_b"]
+    # An org admin is shown every member, hidden or not.
+    assert groups["g2"]["members"] == ["boss"]
+    assert groups["g3"]["members"] is None
+    assert groups["g3"]["members_unread"]
+    assert _read_errors(report) == []
+
+
+def test_a_group_member_read_failure_is_reported_but_fails_no_item(run):
+    routes = _member_routes()
+    routes["community/groups/g3"] = (404, {"error": {"code": 404}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        ("g3", "group_members")
+    ]
+    # Only the fixture's broken web map counts.
+    assert report["counts"]["failed"] == len(
+        {e["item_id"] for e in report["errors"] if e["phase"] == "item_data"}
+    )
+
+
+def test_hidden_members_are_unknown_to_anyone_but_an_org_admin(run):
+    result, _ = run(FakePortal(_member_routes("org_user")), "--scope", "org")
+    groups = {g["id"]: g for g in _report(result)["groups"]}
+
+    # The portal answers with the owner alone, which isn't the membership.
+    assert groups["g2"]["members"] is None
+    assert "hides its members" in groups["g2"]["members_unread"]
+    assert groups["g1"]["members"] == ["deputy", "lead", "staff_a", "staff_b"]
 
 
 def test_failed_item_read_keeps_the_search_result_fields(run):

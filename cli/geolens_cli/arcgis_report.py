@@ -84,7 +84,10 @@ def build_report(
             "by_class": by_class,
             "by_type": dict(sorted(by_type.items())),
             "retired": sum(by_retirement.values()),
-            "failed": len({e["item_id"] for e in inv.errors}),
+            # A group's members failing to read fails no item.
+            "failed": len(
+                {e["item_id"] for e in inv.errors if e["phase"] != "group_members"}
+            ),
         },
         "retirements": [
             {
@@ -101,6 +104,7 @@ def build_report(
         "items": inv.items,
         "dependencies": inv.dependencies,
         "errors": inv.errors,
+        **({"groups": inv.groups} if inv.groups is not None else {}),
     }
 
 

@@ -122,8 +122,16 @@ def test_groups_and_folders_become_collections():
         }
     )
     assert plan["group_map"] == {
-        "g1": {"collection": "GIS team", "visibility": "internal"},
-        "g2": {"collection": "Public maps", "visibility": "public"},
+        "g1": {
+            "collection": "GIS team",
+            "visibility": "internal",
+            "geolens_group": None,
+        },
+        "g2": {
+            "collection": "Public maps",
+            "visibility": "public",
+            "geolens_group": None,
+        },
     }
     target = _items(plan)[A1]["target"]
     assert target["collections"] == ["Apps"]
@@ -877,7 +885,7 @@ def test_a_plan_without_an_org_id_merges_on_the_portal_url_alone():
 def test_fresh_defaults_use_the_plans_fallback_visibility(runner, inventory_file):
     path = inventory_file.parent / "arcgis-migration-plan.json"
     report = inventory_report()
-    _row(report, A1)["sharing"]["access"] = "shared"
+    _row(report, A1)["sharing"]["access"] = "custom"
     inventory_file.write_text(json.dumps(report))
     _plan_cli(runner, str(inventory_file))
     plan = json.loads(path.read_text())
@@ -1177,3 +1185,23 @@ def test_a_member_read_after_an_admin_read_keeps_a_private_group():
     again, changes = _merge(merged, admin)
     assert _items(again)[A3]["target"]["groups"] == ["g1", "g2"]
     assert changes["groups_kept"] == []
+
+
+def test_each_under_sharing_reason_is_named_with_its_items(runner, inventory_file):
+    report = inventory_report()
+    report["auth"]["role"] = "org_user"
+    for row in report["items"]:
+        if row["id"] == A1:
+            row["sharing"]["access"] = "shared"
+            row["groups"] = None
+        if row["id"] == A2:
+            row["sharing"]["access"] = "shared"
+            row["groups"] = [{"id": "g1", "title": "Planning", "access": "org"}]
+    inventory_file.write_text(json.dumps(report))
+
+    result = runner.invoke(app, ["arcgis", "plan", str(inventory_file)])
+
+    assert result.exit_code == 0, result.output
+    text = " ".join(result.output.split())
+    assert f"group sharing wasn't read: {A1}" in text
+    assert f"which doesn't see private groups it isn't in: {A2}" in text

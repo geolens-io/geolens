@@ -743,3 +743,56 @@ def test_an_unusable_recorded_map_time_is_reported(
 
     assert result.exit_code == 1
     assert "doesn't record" in payload["not_up_to_date"][B1][0]
+
+
+def test_a_group_only_web_map_is_imported_private_then_shared(
+    runner, plan_file, geolens
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    group = "00000000-0000-0000-0005-000000000002"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["visibility"] = "restricted"
+            item["target"]["groups"] = ["g1"]
+    plan["group_map"]["g1"] = {
+        "collection": "Planning",
+        "visibility": "internal",
+        "geolens_group": "Planning",
+    }
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /admin/groups/"] = {
+        "groups": [
+            {
+                "id": group,
+                "name": "Planning",
+                "member_count": 0,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+        ],
+        "total": 1,
+    }
+    shares: list[dict] = []
+
+    def share(seen):
+        shares.append(seen.json())
+        return {
+            "visibility": "restricted",
+            "groups": [{"id": group, "name": "Planning"}],
+            "shared_dataset_ids": [],
+            "hidden_layers": [],
+        }
+
+    geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
+    geolens.routes[f"GET /admin/groups/{group}/members/"] = {"members": [], "total": 0}
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [request] = [s.json() for s in _sent(geolens)]
+    assert request["visibility"] == "private"
+    # Layers stay as their own items share them, not widened to the group.
+    assert shares == [{"group_ids": [group], "confirm": "map_only"}]
+    assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}

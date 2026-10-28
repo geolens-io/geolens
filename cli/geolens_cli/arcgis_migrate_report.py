@@ -21,7 +21,12 @@ from typing import Any
 
 from . import arcgis_report as _report
 from .arcgis_migrate_collections import DENIED
-from .arcgis_migrate_cutover import attachment_losses
+from .arcgis_migrate_cutover import (
+    attachment_losses,
+    groups_in_use,
+    in_use,
+    sharing_losses,
+)
 from .arcgis_migrate_export import item_replacement
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
@@ -96,21 +101,11 @@ def _follow_ups(
                 "missing from the inventory the plan was last merged from; merge a "
                 "complete inventory to run it",
             )
-        groups = item["target"].get("groups")
-        if made and groups is None:
+        for reason in sharing_losses(plan, state, item):
             add(
                 item["id"],
-                "group_unknown",
-                "its ArcGIS group sharing wasn't read; check who it should be "
-                "shared with and set its audience by hand",
-            )
-        elif made and groups:
-            add(
-                item["id"],
-                "group_sharing",
-                "shared with ArcGIS groups "
-                + ", ".join(groups)
-                + "; GeoLens groups are not migrated yet, so set its audience by hand",
+                "under_shared",
+                f"{reason}; check who it should be shared with in GeoLens",
             )
         layer = item.get("superseded_by")
         if layer:
@@ -160,6 +155,16 @@ def _follow_ups(
             add(item["id"], "relationships", text)
     for unresolved in owner_unresolved:
         add(unresolved["item"], "owner_unresolved", unresolved["reason"])
+    needed = groups_in_use(plan, state)
+    for group_id, group in sorted(state.groups.items()):
+        current = in_use(group) and group_id in needed
+        for pending in (group.get("pending") or []) if current else []:
+            add(
+                f"group {group_id}",
+                "member_pending",
+                f"{pending['member']} isn't in GeoLens group {group['name']} yet: "
+                f"{pending['reason']}; a later run adds them",
+            )
     for change in owner_changes:
         add(
             change["item"],
@@ -325,6 +330,20 @@ def build_run_report(
         "cutover": _cutover_section(state, cutover),
         "items": rows,
         "unsupported": _export_section(plan, state),
+        "groups": [
+            {
+                "arcgis_group": group_id,
+                "name": group.get("name") if in_use(group) else None,
+                "id": group.get("id"),
+                "created": bool(group.get("created")),
+                "members": dict(sorted((group.get("members") or {}).items())),
+                "members_added": len(group.get("added") or []),
+                "members_pending": len(group.get("pending") or []),
+                "members_unsynced": len(group.get("unsynced") or []),
+                "members_unread": group.get("members_unread"),
+            }
+            for group_id, group in sorted(state.groups.items())
+        ],
         "follow_ups": _follow_ups(
             plan, state, runnable, owner_changes, owner_unresolved
         ),
@@ -398,6 +417,42 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
             for r in report["items"]
         ),
     )
+    if report.get("groups"):
+        lines += ["", "## GeoLens groups for ArcGIS groups", ""]
+        lines += _report.md_table(
+            [
+                "ArcGIS group",
+                "GeoLens group",
+                "Made by this command",
+                "Members added",
+                "Pending",
+                "Not in it",
+                "Unread",
+            ],
+            (
+                [
+                    esc(g["arcgis_group"]),
+                    esc(g["name"] or ""),
+                    "yes" if g["created"] else "no",
+                    str(g["members_added"]),
+                    str(g["members_pending"]),
+                    str(g["members_unsynced"]),
+                    esc(g["members_unread"] or ""),
+                ]
+                for g in report["groups"]
+            ),
+        )
+        for g in report["groups"]:
+            if g["members"]:
+                lines += [
+                    "",
+                    f"ArcGIS members of {esc(g['arcgis_group'])} found in GeoLens:",
+                    "",
+                ]
+                lines += [
+                    f"- {esc(member)}: {esc(user)}"
+                    for member, user in g["members"].items()
+                ]
     for heading, superseded in (
         ("Items GeoLens can't host", False),
         ("Source files published as hosted layers", True),

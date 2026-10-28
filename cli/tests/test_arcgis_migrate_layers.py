@@ -253,6 +253,7 @@ def geolens(fake_geolens):
             "GET /auth/me/": operator,
             "GET /admin/users/": {"users": [operator], "total": 1},
             "GET /settings/all/": (403, _problem(403, "no")),
+            "GET /settings/feature-flags/": {"restrict_public_visibility": False},
         }
     )
     return fake_geolens

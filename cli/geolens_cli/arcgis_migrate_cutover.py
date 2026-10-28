@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import arcgis_plan as _plan
+from .arcgis_migrate_groups import wanted_groups
 from .arcgis_portal import PortalClient, PortalError
 from .arcgis_migrate_state import (
     FINISHED,
@@ -26,7 +27,8 @@ UNFINISHED = "unfinished-items"
 INVENTORY = "incomplete-inventory"
 ATTACHMENTS = "attachment-loss"
 USERS = "unresolved-users"
-CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS)
+SHARING = "under-sharing"
+CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
 
 
@@ -89,6 +91,73 @@ def _attachments(
     ]
 
 
+def in_use(made: Mapping[str, Any] | None) -> bool:
+    """Whether a state group record names a GeoLens group items are shared
+    with now: not unmapped in the plan and not deleted in GeoLens."""
+    return bool(
+        made and made.get("id") and not made.get("deleted") and not made.get("unmapped")
+    )
+
+
+def groups_in_use(plan: Mapping[str, Any], state: MigrationState) -> set[str]:
+    """The ArcGIS groups a restricted item still shares with: one still to
+    import, or one migrated and not removed, unlisted ones included, whose
+    GeoLens objects keep the group's grant. A group outside these waits on
+    nobody."""
+    needed = set(wanted_groups(plan, plan["items"]))
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        if (
+            not item.get("removed")
+            and item["target"]["visibility"] == "restricted"
+            and entry is not None
+            and (entry.dataset_ids or entry.map_id)
+        ):
+            needed.update(item["target"]["groups"] or [])
+    return needed
+
+
+def sharing_losses(
+    plan: Mapping[str, Any], state: MigrationState, item: Mapping[str, Any]
+) -> list[str]:
+    """Why a migrated item shared only with ArcGIS groups may reach fewer
+    people in GeoLens than in the portal."""
+    entry = state.items.get(item["id"])
+    if (
+        item.get("removed")
+        or item["target"]["visibility"] != "restricted"
+        or entry is None
+        or not (entry.dataset_ids or entry.map_id)
+    ):
+        return []
+    plan_reason = _plan.possibly_under_shared(plan, item)
+    out = [plan_reason] if plan_reason else []
+    for group in item["target"]["groups"] or []:
+        made = state.groups.get(group)
+        if not in_use(made):
+            out.append(f"ArcGIS group {group} maps to no GeoLens group")
+        elif made.get("members_unread"):
+            out.append(
+                f"the members of ArcGIS group {group} weren't read, so its GeoLens "
+                f"group {made['name']} lacks them: {made['members_unread']}"
+            )
+        elif made.get("unsynced"):
+            out.append(
+                f"{len(made['unsynced'])} ArcGIS member(s) of group {group} aren't "
+                f"in the existing GeoLens group {made['name']}, whose members this "
+                "command leaves as they are"
+            )
+    return out
+
+
+def _sharing(plan: Mapping[str, Any], state: MigrationState) -> list[dict[str, str]]:
+    return [
+        {"item": item["id"], "reason": reason}
+        for item in plan["items"]
+        for reason in sharing_losses(plan, state, item)
+    ]
+
+
 def _users(
     plan: Mapping[str, Any],
     state: MigrationState,
@@ -100,6 +169,18 @@ def _users(
         if entry is not None and entry.owner_pending and not item.get("removed"):
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
+    needed = groups_in_use(plan, state)
+    for group_id, made in sorted(state.groups.items()):
+        if not in_use(made) or group_id not in needed:
+            continue
+        for pending in made.get("pending") or []:
+            out.append(
+                {
+                    "item": f"group {group_id}",
+                    "reason": f"member {pending['member']} isn't in GeoLens group "
+                    f"{made['name']}: {pending['reason']}",
+                }
+            )
     return out
 
 
@@ -211,5 +292,6 @@ def failing_checks(
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
         USERS: _users(plan, state, unresolved),
+        SHARING: _sharing(plan, state),
     }
     return [{"check": name, "items": found[name]} for name in CHECKS if found[name]]
