@@ -93,6 +93,11 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
+    # Widgets on the map's layers, validated by maps/dashboard.py (null = none)
+    dashboard_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+
     # Visibility
     visibility: Mapped[str] = mapped_column(
         String(20), default="private", server_default="private"

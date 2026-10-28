@@ -31,7 +31,8 @@ from pydantic import (
 logger = structlog.stdlib.get_logger(__name__)
 
 WidgetHost = Literal["dashboard", "story"]
-ColumnName = Annotated[str, StringConstraints(min_length=1, max_length=128)]
+# The aggregate endpoint takes column names up to PostgreSQL's 63-character limit.
+ColumnName = Annotated[str, StringConstraints(min_length=1, max_length=63)]
 Statistic = Literal["count", "sum", "mean", "min", "max"]
 
 

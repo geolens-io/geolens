@@ -68,6 +68,7 @@ from app.modules.catalog.maps.service_shared import (
     _extract_dem_vertical_units,
     readable_dataset_ids,
 )
+from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.modules.embed_tokens.sharing import (
@@ -762,6 +763,9 @@ async def get_shared_map(
         "show_basemap_labels": map_row.show_basemap_labels,
         "basemap_config": map_row.basemap_config,
         "terrain_config": terrain_config,
+        "dashboard_config": render_dashboard(
+            map_row.dashboard_config, [layer["id"] for layer in layers]
+        ),
         "has_non_public_layers": has_non_public,
         "legend_title": map_row.legend_title,
     }

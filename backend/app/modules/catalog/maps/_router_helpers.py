@@ -37,6 +37,7 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
+from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.extensions import get_permission_extension
@@ -327,7 +328,8 @@ def _build_map_response(
 
     ``terrain_dataset_ids`` is for reads filtered by what the caller may see:
     the stored terrain binding then survives only when its DEM is one of those
-    ids, so a hidden DEM's id is not echoed.
+    ids, so a hidden DEM's id is not echoed. The dashboard keeps only the
+    widgets on ``layers``.
     """
     terrain_config = map_obj.terrain_config
     if terrain_dataset_ids is not None:
@@ -348,6 +350,9 @@ def _build_map_response(
         show_basemap_labels=map_obj.show_basemap_labels,
         basemap_config=map_obj.basemap_config,
         terrain_config=terrain_config,
+        dashboard_config=render_dashboard(
+            map_obj.dashboard_config, [layer.id for layer in layers]
+        ),
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
         og_image_url=og_image_url,

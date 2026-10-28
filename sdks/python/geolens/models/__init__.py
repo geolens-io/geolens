@@ -101,6 +101,10 @@ from .backfill_run_progress import BackfillRunProgress
 from .backfill_run_summary import BackfillRunSummary
 from .backfill_tenant_run import BackfillTenantRun
 from .backfill_tenant_run_status import BackfillTenantRunStatus
+from .bar_chart_config import BarChartConfig
+from .bar_chart_config_stat import BarChartConfigStat
+from .bar_chart_widget import BarChartWidget
+from .bar_chart_widget_scope import BarChartWidgetScope
 from .basemap_config import BasemapConfig
 from .basemap_config_sublayer_overrides_type_0 import (
     BasemapConfigSublayerOverridesType0,
@@ -278,6 +282,8 @@ from .create_feature_datasets_dataset_id_features_post_geo_json_feature_properti
 )
 from .create_layer_request import CreateLayerRequest
 from .create_layer_response import CreateLayerResponse
+from .dashboard_config import DashboardConfig
+from .dashboard_config_input import DashboardConfigInput
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
 from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
@@ -521,6 +527,10 @@ from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
 )
 from .import_result import ImportResult
+from .indicator_config import IndicatorConfig
+from .indicator_config_stat import IndicatorConfigStat
+from .indicator_widget import IndicatorWidget
+from .indicator_widget_scope import IndicatorWidgetScope
 from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
@@ -1119,6 +1129,10 @@ __all__ = (
     "BackfillRunSummary",
     "BackfillTenantRun",
     "BackfillTenantRunStatus",
+    "BarChartConfig",
+    "BarChartConfigStat",
+    "BarChartWidget",
+    "BarChartWidgetScope",
     "BasemapConfig",
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",
@@ -1250,6 +1264,8 @@ __all__ = (
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties",
     "CreateLayerRequest",
     "CreateLayerResponse",
+    "DashboardConfig",
+    "DashboardConfigInput",
     "DatasetApiKeyCreateRequest",
     "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",
@@ -1399,6 +1415,10 @@ __all__ = (
     "ImageWidget",
     "ImportConfigurationConfigOpsImportPostMode",
     "ImportResult",
+    "IndicatorConfig",
+    "IndicatorConfigStat",
+    "IndicatorWidget",
+    "IndicatorWidgetScope",
     "InfrastructureConfig",
     "InfrastructureResponse",
     "InfrastructureResponseHealth",

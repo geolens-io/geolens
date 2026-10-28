@@ -1520,6 +1520,67 @@ export type BackfillTenantRun = {
 };
 
 /**
+ * BarChartConfig
+ */
+export type BarChartConfig = {
+    /**
+     * Column
+     *
+     * The column whose values become bars.
+     */
+    column: string;
+    /**
+     * Stat
+     */
+    stat?: 'count' | 'sum' | 'mean' | 'min' | 'max';
+    /**
+     * Stat Column
+     */
+    stat_column?: string | null;
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
+ * BarChartWidget
+ */
+export type BarChartWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'bar_chart';
+    /**
+     * V
+     */
+    v: 1;
+    config: BarChartConfig;
+};
+
+/**
  * BasemapConfig
  */
 export type BasemapConfig = {
@@ -3546,6 +3607,38 @@ export type CreateLayerResponse = {
 };
 
 /**
+ * DashboardConfig
+ */
+export type DashboardConfig = {
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Widgets
+     *
+     * The widgets on layers this response shows, in panel order.
+     */
+    widgets: Array<IndicatorWidget | BarChartWidget>;
+};
+
+/**
+ * DashboardConfigInput
+ */
+export type DashboardConfigInput = {
+    /**
+     * Version
+     */
+    version?: 1;
+    /**
+     * Widgets
+     *
+     * Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+     */
+    widgets?: Array<IndicatorWidget | BarChartWidget>;
+};
+
+/**
  * DatasetApiKeyCreateRequest
  */
 export type DatasetApiKeyCreateRequest = {
@@ -5101,6 +5194,7 @@ export type DuplicateMapResponse = {
     show_basemap_labels: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
+    dashboard_config?: DashboardConfig | null;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -6227,6 +6321,57 @@ export type ImportResult = {
      * Number of dependent OAuth account links cascade-deleted in overwrite mode.
      */
     oauth_accounts_deleted?: number;
+};
+
+/**
+ * IndicatorConfig
+ */
+export type IndicatorConfig = {
+    /**
+     * Stat
+     */
+    stat: 'count' | 'sum' | 'mean' | 'min' | 'max';
+    /**
+     * Column
+     */
+    column?: string | null;
+};
+
+/**
+ * IndicatorWidget
+ */
+export type IndicatorWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'indicator';
+    /**
+     * V
+     */
+    v: 1;
+    config: IndicatorConfig;
 };
 
 /**
@@ -7765,6 +7910,7 @@ export type MapResponse = {
     show_basemap_labels: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
+    dashboard_config?: DashboardConfig | null;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -8104,6 +8250,10 @@ export type MapUpdate = {
      * Map-level terrain source and exaggeration preferences
      */
     terrain_config?: TerrainConfig | null;
+    /**
+     * The dashboard. Omit to keep it; null removes the widgets you see.
+     */
+    dashboard_config?: DashboardConfigInput | null;
     /**
      * private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group.
      */
@@ -11413,6 +11563,7 @@ export type SharedMapResponse = {
     show_basemap_labels?: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
+    dashboard_config?: DashboardConfig | null;
     /**
      * Has Non Public Layers
      */

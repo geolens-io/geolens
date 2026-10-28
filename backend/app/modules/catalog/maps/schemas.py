@@ -20,6 +20,7 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.auth.schemas import GroupRef
+from app.modules.catalog.maps.dashboard import DashboardConfig, DashboardConfigInput
 from app.modules.catalog.maps.filter_grammar import validate_filter
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_CONFIG_DESCRIPTION,
@@ -894,6 +895,10 @@ class MapUpdate(BaseModel):
         default=None,
         description="Map-level terrain source and exaggeration preferences",
     )
+    dashboard_config: DashboardConfigInput | None = Field(
+        default=None,
+        description="The dashboard. Omit to keep it; null removes the widgets you see.",
+    )
     visibility: MapVisibility | None = Field(
         default=None,
         description=(
@@ -1028,6 +1033,7 @@ class MapResponse(BaseModel):
     show_basemap_labels: bool
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
+    dashboard_config: DashboardConfig | None = None
     visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     og_image_url: str | None = None
@@ -1346,6 +1352,7 @@ class SharedMapResponse(BaseModel):
     show_basemap_labels: bool = True
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
+    dashboard_config: DashboardConfig | None = None
     has_non_public_layers: bool = False
     legend_title: str | None = None
     layers: list[SharedLayerResponse]
