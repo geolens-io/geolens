@@ -35,6 +35,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
 )
 from app.processing.ingest import catalog_projection
+from app.processing.ingest.arcgis_column_types import apply_arcgis_column_casts
 from app.processing.ingest.publication import (
     PUBLISH,
     Failure,
@@ -1098,7 +1099,13 @@ async def _refuse_over_live_writes(session, *, dataset, baseline: int | None) ->
 
 
 async def _stage_service_table(
-    session, job, dataset, *, table: str, schema: str
+    session,
+    job,
+    dataset,
+    *,
+    table: str,
+    schema: str,
+    column_casts: dict[str, str] | None = None,
 ) -> StagingResult:
     """Bring a fetched service layer's staging table to the shape first ingest builds."""
     from app.processing.ingest.metadata import rename_reserved_columns
@@ -1109,6 +1116,8 @@ async def _stage_service_table(
         from app.processing.ingest.warnings import make_reserved_rename_warning
 
         _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+    await apply_arcgis_column_casts(session, table, column_casts, schema=schema)
 
     # A service layer is fetched into 4326, and whether it has geometry is
     # learned from the staged table.
@@ -1159,6 +1168,7 @@ class _ServiceReupload:
         # contact.
         self.contacted = False
         self.field_labels: dict | None = None
+        self.column_casts: dict[str, str] | None = None
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
         self.verification: dict | None = None
@@ -1280,6 +1290,10 @@ class _ServiceReupload:
             if self.service_type == "arcgis_featureserver"
             else {}
         )
+        if self.service_type == "arcgis_featureserver":
+            self.column_casts = await _tv._fetch_arcgis_column_casts(
+                self.source_url_value, self.layer_id, self.token
+            )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
@@ -1296,7 +1310,12 @@ class _ServiceReupload:
             _tv._record_arcgis_order_field(job, self.order_field)
         schema = _current_tenant_schema()
         staged = await _stage_service_table(
-            session, job, dataset, table=self.staging_table, schema=schema
+            session,
+            job,
+            dataset,
+            table=self.staging_table,
+            schema=schema,
+            column_casts=self.column_casts,
         )
         self.metadata = staged.metadata
         self.measurement = await catalog_projection.measure(
