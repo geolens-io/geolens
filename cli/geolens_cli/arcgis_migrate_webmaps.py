@@ -21,8 +21,10 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
+import typer
+
 from . import arcgis_report as _report
-from ._sdk_helpers import long_request_timeout
+from ._sdk_helpers import EXIT_NETWORK, long_request_timeout
 from .arcgis_migrate_export import _modified, _safe_relative, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_layers import _trusted
@@ -331,6 +333,11 @@ def carry_thumbnail(
         return [f"{_THUMBNAIL_NOTE}: {exc}"]
     except GeoLensError as exc:
         return [f"{_THUMBNAIL_NOTE}: uploading it failed, {exc}"]
+    except typer.Exit as exc:
+        # How the SDK call reports a timeout or network failure.
+        if exc.exit_code != EXIT_NETWORK:
+            raise
+        return [f"{_THUMBNAIL_NOTE}: uploading it failed on the network"]
     return []
 
 

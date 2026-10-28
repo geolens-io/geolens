@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
@@ -1071,7 +1072,7 @@ def _thumbnail(portal, image: Any = PNG, path: Any = THUMBNAIL) -> None:
     item = f"content/items/{B1}"
     portal.routes[item] = {**portal.routes[item], "thumbnail": path}
     portal.routes[f"{item}/info/{THUMBNAIL}"] = (
-        image if isinstance(image, tuple) else (200, image)
+        (200, image) if isinstance(image, bytes) else image
     )
 
 
@@ -1175,6 +1176,48 @@ def test_a_refused_thumbnail_upload_is_reported_and_the_map_kept(
     assert _state(plan_file)["items"][B1]["status"] == "done"
     [note] = _thumbnail_notes(plan_file)
     assert "uploading it failed" in note
+
+
+@pytest.mark.parametrize(
+    "failure", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")]
+)
+def test_a_thumbnail_upload_lost_on_the_network_is_reported_and_the_run_goes_on(
+    runner, plan_file, geolens, portal, failure
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+
+    def lost(seen):
+        raise failure
+
+    geolens.routes[THUMBNAIL_PUT] = lost
+    _thumbnail(portal)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][B1]
+    assert entry["status"] == "done"
+    assert entry["owner_id"] == OPERATOR
+    [note] = _thumbnail_notes(plan_file)
+    assert "uploading it failed on the network" in note
+
+
+def test_a_thumbnail_download_lost_on_the_network_is_reported(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (204, None)
+    _thumbnail(portal, ConnectionResetError("reset"))
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["status"] == "done"
+    [note] = _thumbnail_notes(plan_file)
+    assert "reading it failed" in note
+    assert _uploads(geolens) == []
 
 
 def test_a_dry_run_says_it_would_upload_the_thumbnail(
