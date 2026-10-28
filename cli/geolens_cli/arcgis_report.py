@@ -155,6 +155,13 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     lines.append(
         f"Scope: {scope_text}. Sign-in: {md_escape(report['auth']['mode'])}.  "
     )
+    role = report["auth"].get("role")
+    if role and role != "org_admin":
+        lines.append(
+            f"Read by an account that isn't an org admin ({md_escape(role)}): only "
+            "items shared with that account are listed, and some groups and "
+            "folders may be missing.  "
+        )
     lines.append(
         f"Generated {md_escape(report['generated_at'])} by geolens-cli "
         f"{md_escape(report['tool_version'])}. Read-only: nothing was changed."
@@ -207,6 +214,15 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         + [["**Total**", str(counts["total"])]],
     )
     lines += ["", f"Items and owners that could not be read: {counts['failed']}.", ""]
+    unread_groups = [g for g in report.get("groups") or [] if g.get("members_unread")]
+    if unread_groups:
+        names = ", ".join(md_escape(g.get("title") or g["id"]) for g in unread_groups)
+        lines += [
+            f"Groups whose members could not be read ({len(unread_groups)}): "
+            f"{names}. Their members are not in this report, so a migration "
+            "can't add them to GeoLens groups.",
+            "",
+        ]
 
     for name, heading in _CLASS_HEADINGS.items():
         rows = [row for row in report["items"] if row["class"] == name]

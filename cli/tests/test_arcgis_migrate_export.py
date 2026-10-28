@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
+from geolens_cli import arcgis_migrate_export as export_module
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
@@ -1227,3 +1228,22 @@ def test_a_bundle_recorded_with_no_files_is_exported_again(
     assert result.exit_code == 0, result.output
     assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads + 1
     assert (folder / "item.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name", "expected"),
+    [
+        ("CSV", None, "data.csv"),
+        ("PDF", "Report.PDF", "data.pdf"),
+        ("Image Service", None, "data.bin"),
+        ("CSV", "../../etc/passwd", "data.csv"),
+        ("Feature Service", "notes.tar.gz", "data.gz"),
+        ("Image Service", "a/b\\evil.sh;rm", "data.bin"),
+        ("Image Service", "x.json", "data.bin"),
+        ("Image Service", "x.waytoolongext", "data.bin"),
+    ],
+)
+def test_a_raw_file_keeps_its_type_and_never_a_portal_path(item_type, name, expected):
+    full = {"name": name} if name is not None else {}
+
+    assert export_module._raw_name({"type": item_type}, full) == expected

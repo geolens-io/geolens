@@ -13,7 +13,7 @@ import copy
 import json
 import os
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -379,10 +379,10 @@ def possibly_under_shared(
     if item["target"]["visibility"] != "restricted":
         return None
     if item["target"]["groups"] is None:
-        return "its ArcGIS group sharing wasn't read"
+        return "the ArcGIS group sharing wasn't read"
     if (plan["inventory"].get("auth") or {}).get("role") != ORG_ADMIN:
         return (
-            "its ArcGIS groups were read by an account that isn't an org admin, "
+            "the ArcGIS groups were read by an account that isn't an org admin, "
             "which doesn't see private groups it isn't in"
         )
     return None
@@ -626,6 +626,12 @@ def _render(plan: Mapping[str, Any]) -> str:
     return json.dumps(plan, indent=2) + "\n"
 
 
+def _id_list(ids: Sequence[str], limit: int = 5) -> str:
+    """The first *limit* ids, and how many more there are."""
+    shown = ", ".join(ids[:limit])
+    return f"{shown}, and {len(ids) - limit} more" if len(ids) > limit else shown
+
+
 def _report_merge(
     fmt: _output.Formatter, path: Path, changes: Mapping[str, list[Any]]
 ) -> None:
@@ -637,23 +643,34 @@ def _report_merge(
     if changes["removed"]:
         fmt.warn(
             "marked removed, never run again; what they migrated stays in GeoLens: "
-            + ", ".join(changes["removed"][:5])
+            + _id_list(changes["removed"])
         )
     if changes["unlisted"]:
         fmt.warn(
             f"{len(changes['unlisted'])} plan item(s) are missing from this inventory "
             "and were marked unlisted, not removed, since only a complete --scope "
             "org inventory read by an org admin marks items removed: "
-            + ", ".join(changes["unlisted"][:5])
+            + _id_list(changes["unlisted"])
         )
     if changes["groups_kept"]:
         fmt.warn(
             f"{len(changes['groups_kept'])} item(s) keep groups this inventory "
             "didn't list: it wasn't read by an org admin, so it may not see every "
             "group, and a group removed in the portal isn't confirmed: "
-            + ", ".join(changes["groups_kept"][:5])
+            + _id_list(changes["groups_kept"])
         )
-    conflicts = changes["conflicts"]
+    # A Viewer sees no folders, so a merge of its inventory disagrees on every
+    # item's collections; one line says so.
+    folder_items = [
+        c["item"] for c in changes["conflicts"] if c["field"] == "target.collections"
+    ]
+    if folder_items:
+        fmt.warn(
+            f"{len(folder_items)} item(s) keep the plan's target.collections; this "
+            "inventory gives different ones (an account that isn't an org admin "
+            "may not see folders): " + _id_list(folder_items)
+        )
+    conflicts = [c for c in changes["conflicts"] if c["field"] != "target.collections"]
     for c in conflicts[:CONFLICT_LINES]:
         fmt.warn(
             f"{c['item']} {c['field']}: kept the plan's {json.dumps(c['plan'])}; "
@@ -715,21 +732,32 @@ def run_cli(
         if unknown:
             fmt.warn(
                 f"{len(unknown)} owner(s) in --owner-map own no inventory item "
-                f"and were ignored: {', '.join(unknown[:5])}"
+                f"and were ignored: {_id_list(unknown)}"
             )
     stats = summary(plan, inventory)
     unread = stats["dependency_read_errors"]
     if unread:
         fmt.warn(
             f"{len(unread)} item(s) have dependencies the inventory could not read, "
-            f"so depends_on may be incomplete: {', '.join(unread[:5])}"
+            f"so depends_on may be incomplete: {_id_list(unread)}"
         )
     unknown_groups = stats["group_sharing_unknown"]
     if unknown_groups:
         fmt.warn(
             f"{len(unknown_groups)} item(s) have no group sharing in the inventory, "
-            "so their group collections are missing; rerun the inventory signed in "
-            f"and without --no-groups: {', '.join(unknown_groups[:5])}"
+            "so GeoLens can't share them with their groups; rerun the inventory signed in "
+            f"and without --no-groups: {_id_list(unknown_groups)}"
+        )
+    hidden = [
+        str(g.get("title") or g["id"])
+        for g in inventory.get("groups") or []
+        if g.get("members_unread")
+    ]
+    if hidden:
+        fmt.warn(
+            f"{len(hidden)} group(s) could not have their members read, so the "
+            "migration can't add those members to the GeoLens groups: "
+            + _id_list(hidden)
         )
     by_reason: dict[str, list[str]] = {}
     for item in plan["items"]:
@@ -741,7 +769,7 @@ def run_cli(
     for reason, ids in by_reason.items():
         fmt.warn(
             f"{len(ids)} item(s) shared only with groups may reach fewer people in "
-            f"GeoLens: {reason}: " + ", ".join(ids[:5])
+            f"GeoLens: {reason}: " + _id_list(ids)
         )
     if not plan["inventory"]["complete"]:
         fmt.warn(

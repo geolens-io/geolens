@@ -45,6 +45,7 @@ from .arcgis_fake import (
     EMPTY_GROUPS,
     FOLDER,
     HYDRANTS,
+    inventory_report,
     NO_RELATED,
     ORG_ID,
     PORTAL,
@@ -3114,3 +3115,18 @@ def test_custom_parameters_objects_are_replaced_by_key_name():
         arcgis_portal.Redactor(),
     )
     assert cleaned == {"a": {"b": {"customParameters": "[REDACTED]"}}}
+
+
+def test_markdown_header_says_a_non_admin_inventory_lists_only_shared_items():
+    report = inventory_report()
+    report["auth"]["role"] = "org_user"
+    report["groups"] = [
+        {"id": "g1", "title": "Hidden team", "members": [], "members_unread": "hidden"}
+    ]
+
+    markdown = arcgis_report.render_markdown(report)
+
+    assert "only items shared with that account are listed" in markdown
+    assert "Groups whose members could not be read (1): Hidden team" in markdown
+    report["auth"]["role"] = "org_admin"
+    assert "only items shared with" not in arcgis_report.render_markdown(report)
