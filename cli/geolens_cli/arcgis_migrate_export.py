@@ -46,15 +46,12 @@ _NOT_JSON = object()
 # A portal answers these for an item that has no data of its own.
 _NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
-# The extension of an uploaded file whose portal item names none.
+# The extension of an uploaded file whose portal item names none; types that
+# can hold several formats (Image, the Office types) are left to .bin.
 _TYPE_EXTENSIONS = {
     "CSV": ".csv",
     "PDF": ".pdf",
     "KML": ".kml",
-    "Microsoft Excel": ".xlsx",
-    "Microsoft Word": ".docx",
-    "Microsoft Powerpoint": ".pptx",
-    "Image": ".img",
     "Shapefile": ".zip",
     "File Geodatabase": ".zip",
     "Code Sample": ".zip",

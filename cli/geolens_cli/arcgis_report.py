@@ -161,11 +161,15 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"Scope: {scope_text}. Sign-in: {md_escape(report['auth']['mode'])}.  "
     )
     role = report["auth"].get("role")
-    if role and role != "org_admin":
+    if role != "org_admin":
+        who = (
+            f"an account that isn't an org admin ({md_escape(role)})"
+            if role
+            else "an anonymous or role-less sign-in"
+        )
         lines.append(
-            f"Read by an account that isn't an org admin ({md_escape(role)}): only "
-            "items shared with that account are listed, and some groups and "
-            "folders may be missing.  "
+            f"Read by {who}: only items shared with that account are listed, and "
+            "some groups and folders may be missing.  "
         )
     lines.append(
         f"Generated {md_escape(report['generated_at'])} by geolens-cli "

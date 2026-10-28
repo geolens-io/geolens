@@ -615,6 +615,9 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
         "possibly_under_shared": sorted(
             item["id"] for item in present if possibly_under_shared(plan, item)
         ),
+        "groups_members_unread": sorted(
+            g["id"] for g in _report.groups_without_members(inventory)
+        ),
         "dependency_read_errors": sorted(
             row["id"] for row in inventory["items"] if _unread_dependencies(row)
         ),

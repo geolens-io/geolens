@@ -3130,3 +3130,10 @@ def test_markdown_header_says_a_non_admin_inventory_lists_only_shared_items():
     assert "Groups whose members could not be read (1): Hidden team" in markdown
     report["auth"]["role"] = "org_admin"
     assert "only items shared with" not in arcgis_report.render_markdown(report)
+
+
+def test_markdown_header_flags_a_sign_in_with_no_role():
+    report = inventory_report()
+    report["auth"].pop("role", None)
+
+    assert "role-less sign-in" in arcgis_report.render_markdown(report)

@@ -1237,6 +1237,8 @@ def test_a_bundle_recorded_with_no_files_is_exported_again(
         ("CSV", None, "data.csv"),
         ("PDF", "Report.PDF", "data.pdf"),
         ("Image Service", None, "data.bin"),
+        ("Image", None, "data.bin"),
+        ("Microsoft Excel", None, "data.bin"),
         ("CSV", "../../etc/passwd", "data.csv"),
         ("Feature Service", "notes.tar.gz", "data.gz"),
         ("Image Service", "a/b\\evil.sh;rm", "data.bin"),

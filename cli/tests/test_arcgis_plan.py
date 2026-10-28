@@ -1244,3 +1244,5 @@ def test_groups_whose_members_were_not_read_are_named(runner, inventory_file):
         result.output.split()
     )
     assert "Planning" in result.output
+    as_json = _plan_cli(runner, str(inventory_file), json_mode=True)
+    assert json.loads(as_json.output)["groups_members_unread"] == ["g1"]
