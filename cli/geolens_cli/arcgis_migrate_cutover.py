@@ -173,15 +173,17 @@ def _users(
     needed = groups_in_use(plan, state)
     for group_id in sorted(needed):
         recorded = state.groups.get(group_id)
+        if not in_use(recorded):
+            recorded = None
         planned = (prepared or {}).get(group_id)
-        if planned is None and not in_use(recorded):
+        if planned is None and recorded is None:
             continue
         made = planned or recorded
         # A dry run records no group, so what this run resolved joins the
         # members an earlier run left pending.
         pending = {
             p["member"]: p
-            for source in (recorded if in_use(recorded) else None, planned)
+            for source in (recorded, planned)
             for p in (source or {}).get("pending") or []
         }
         for member, pending_member in pending.items():
