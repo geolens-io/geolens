@@ -20,6 +20,7 @@ from app.platform.dataset_origin import (
     BoundPointer,
     bound_pointer,
     classify_origin,
+    clear_source_probe_state,
     service_layer_identity,
     still_bound,
 )
@@ -409,27 +410,52 @@ class _LiveComparison:
     def unchanged(self) -> bool:
         return bool(self.verification and self.verification.get("data_unchanged"))
 
+    async def _digest_staged(self, session, *, has_geometry: bool) -> None:
+        """Digest the staged table in a savepoint; on an error nothing is compared."""
+        from app.processing.ingest.metadata import compute_table_content_digest
+
+        # A flush error belongs to the publication, not to the comparison.
+        await session.flush()
+        try:
+            async with session.begin_nested():
+                self.content_digest = await compute_table_content_digest(
+                    session,
+                    self.staging_table,
+                    schema=_current_tenant_schema(),
+                    has_geometry=has_geometry,
+                )
+        except Exception:  # broad: an unread digest only means the run publishes
+            structlog.get_logger().warning(
+                "reupload_staged_digest_failed", table=self.staging_table, exc_info=True
+            )
+
     async def _compare_live(self, session, dataset) -> None:
         """Record whether the staged table holds the live table's columns and rows.
 
         Call holding the live table. The digested live rows stand while its
-        witness is unchanged.
+        witness is unchanged. A read error counts as a difference.
         """
-        if self.live_content is None:
-            self.verification["data_unchanged"] = False
+        self.verification["data_unchanged"] = False
+        if self.live_content is None or self.live_content[1] != self.content_digest:
             return
-        witness, digest = self.live_content
+        witness = self.live_content[0]
         schema = _current_tenant_schema()
-        self.verification["data_unchanged"] = (
-            digest == self.content_digest
-            and witness
-            == await _live_table_witness(
-                session, dataset.id, dataset.table_name, schema=schema
+        await session.flush()
+        try:
+            async with session.begin_nested():
+                self.verification["data_unchanged"] = witness == (
+                    await _live_table_witness(
+                        session, dataset.id, dataset.table_name, schema=schema
+                    )
+                ) and await _same_columns(
+                    session, self.staging_table, dataset.table_name, schema=schema
+                )
+        except Exception:  # broad: an unread comparison only means the run publishes
+            structlog.get_logger().warning(
+                "reupload_live_comparison_failed",
+                dataset_id=str(dataset.id),
+                exc_info=True,
             )
-            and await _same_columns(
-                session, self.staging_table, dataset.table_name, schema=schema
-            )
-        )
 
     async def _publish_unchanged(
         self, session, dataset, *, field_labels, **published
@@ -437,13 +463,14 @@ class _LiveComparison:
         """Date a run that found the live data current.
 
         The catalog projection still runs, since a source's labels can change
-        without its data, and the record names who confirmed the data last, as
-        a publish does.
+        without its data. As a publish does, the record names who confirmed the
+        data last and the stored source health, now stale, is cleared.
         """
         schema_diff = await catalog_projection.project(
             session, dataset, self.measurement, field_labels=field_labels
         )
         dataset.record.updated_by = uuid.UUID(self.user_id)
+        clear_source_probe_state(dataset)
         dataset.last_refreshed_at = datetime.now(timezone.utc)
         return Published(
             dataset_version_id=None,
@@ -625,7 +652,6 @@ class _FileReupload(_LiveComparison):
         # Before the post-process steps, so no source column clashes with a
         # GeoLens-internal name.
         from app.processing.ingest.metadata import (
-            compute_table_content_digest,
             get_geometry_types,
             rename_reserved_columns,
         )
@@ -684,12 +710,7 @@ class _FileReupload(_LiveComparison):
             session, self.staging_table, schema=_current_tenant_schema()
         )
         if self.live_content is not None:
-            self.content_digest = await compute_table_content_digest(
-                session,
-                self.staging_table,
-                schema=_current_tenant_schema(),
-                has_geometry=staging_result.has_geometry,
-            )
+            await self._digest_staged(session, has_geometry=staging_result.has_geometry)
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:

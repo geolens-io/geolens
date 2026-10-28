@@ -378,6 +378,19 @@ def build_origin_ref(kind: str, **fields: Any) -> dict[str, Any] | None:
     return {"kind": kind, **payload}
 
 
+def clear_source_probe_state(dataset: Any) -> None:
+    """Forget the stored probe verdict, for a successful ingest or refresh commit.
+
+    The data now names a different origin, or one a pre-swap failure verdict
+    is stale about. NULL (projected as unknown) is honest either way;
+    "healthy" would be a second, weaker classifier beside the probe's. Refresh
+    paths re-stamp ``last_checked_at`` after this call.
+    """
+    dataset.source_health = None
+    dataset.source_health_detail = None
+    dataset.last_checked_at = None
+
+
 def set_dataset_origin(
     dataset: Any, kind: str, *, uri: str | None = None, **ref_fields: Any
 ) -> list[str]:
@@ -395,15 +408,7 @@ def set_dataset_origin(
         raise ValueError(
             f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
         )
-    # Every caller here is a successful-ingest commit, so the stored probe
-    # verdict no longer describes anything real: the binding names a
-    # DIFFERENT origin, or re-stamps the SAME one a pre-swap failure verdict
-    # is stale about. NULL (projected as unknown) is honest either way;
-    # "healthy" would be a second, weaker classifier beside the probe's.
-    # Refresh paths re-stamp ``last_checked_at`` after this call.
-    dataset.source_health = None
-    dataset.source_health_detail = None
-    dataset.last_checked_at = None
+    clear_source_probe_state(dataset)
     dataset.origin_uri = uri
     losses: list[str] = []
     if kind in _PORTAL_LINK_KINDS and all(
