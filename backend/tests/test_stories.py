@@ -8,6 +8,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from fastapi import HTTPException
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select, update
 
 from app.modules.catalog.stories.models import Story, StoryMap
@@ -84,6 +85,16 @@ async def _saved(client, headers, story, chapters) -> dict:
     resp = await _save(client, headers, story, chapters)
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+async def _discard(client, headers, story_id: str, revision: int | None = None):
+    """Discard at the current draft revision unless one is given."""
+    if revision is None:
+        draft = await client.get(f"/stories/{story_id}/draft", headers=headers)
+        revision = draft.json()["revision"] if draft.status_code == 200 else 0
+    return await client.post(
+        f"/stories/{story_id}/discard", json={"revision": revision}, headers=headers
+    )
 
 
 async def _publish(client, headers, story_id: str, revision: int | None = None):
@@ -306,7 +317,7 @@ async def test_only_the_owner_or_an_admin_writes(client: AsyncClient, people):
         await _save(client, other, story, []),
         await client.patch(f"/stories/{sid}", json={"title": "x"}, headers=other),
         await _publish(client, other, sid),
-        await client.post(f"/stories/{sid}/discard", headers=other),
+        await _discard(client, other, sid),
         await client.delete(f"/stories/{sid}", headers=other),
     ):
         assert resp.status_code == 403, resp.text
@@ -438,7 +449,7 @@ async def test_discard_reverts_to_the_published_document(client: AsyncClient, pe
     await _publish(client, owner, story["id"])
     await _saved(client, owner, story, [_chapter(blocks=[_block("scratch")])])
 
-    reverted = await client.post(f"/stories/{story['id']}/discard", headers=owner)
+    reverted = await _discard(client, owner, story["id"])
 
     assert reverted.status_code == 200, reverted.text
     texts = [
@@ -466,9 +477,7 @@ async def test_discard_points_story_maps_back_at_the_published_maps(
         return {str(r) for r in rows}
 
     assert await listed() == {kept_map, scratch_map}
-    assert (
-        await client.post(f"/stories/{story['id']}/discard", headers=owner)
-    ).status_code == 200
+    assert (await _discard(client, owner, story["id"])).status_code == 200
     assert await listed() == {kept_map}
 
 
@@ -818,5 +827,136 @@ async def test_the_lock_rechecks_the_writer_it_admitted(
         # Ownership moves after the guard admitted the writer.
         await _store(test_db_session, story["id"], created_by=uuid.UUID(other_id))
         with pytest.raises(HTTPException) as refused:
-            await lock_story(session, uuid.UUID(story["id"]))
+            await lock_story(session, uuid.UUID(story["id"]), owner)
         assert refused.value.status_code == 403
+
+
+@pytest.mark.parametrize("published", [True, False])
+async def test_a_stale_or_retried_discard_cannot_erase_a_newer_draft(
+    client: AsyncClient, people, published
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    story = await _saved(client, owner, story, [_chapter(blocks=[_block("base")])])
+    if published:
+        assert (await _publish(client, owner, story["id"])).status_code == 200
+    stale_tab = story["revision"]
+    newer = await _saved(client, owner, story, [_chapter(blocks=[_block("newer")])])
+
+    stale = await _discard(client, owner, story["id"], revision=stale_tab)
+    assert stale.status_code == 409, stale.text
+    assert _detail(stale)["code"] == "stale_revision"
+
+    done = await _discard(client, owner, story["id"], revision=newer["revision"])
+    assert done.status_code == 200, done.text
+    after = await _saved(
+        client, owner, done.json(), [_chapter(blocks=[_block("later")])]
+    )
+    retried = await _discard(client, owner, story["id"], revision=newer["revision"])
+    assert retried.status_code == 409, retried.text
+
+    draft = (await client.get(f"/stories/{story['id']}/draft", headers=owner)).json()
+    assert draft["revision"] == after["revision"]
+    texts = [
+        b["config"]["text"] for c in draft["document"]["chapters"] for b in c["blocks"]
+    ]
+    assert texts == ["later"]
+
+
+async def test_discard_drops_scenes_on_deleted_maps_from_the_stored_draft(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    map_id = await _map(client, owner)
+    story = await _story(client, owner)
+    story = await _saved(
+        client, owner, story, [_chapter(map_id, blocks=[_block("kept")])]
+    )
+    assert (await _publish(client, owner, story["id"])).status_code == 200
+    assert (await client.delete(f"/maps/{map_id}", headers=owner)).status_code == 204
+
+    assert (await _discard(client, owner, story["id"])).status_code == 200
+
+    (chapter,) = (await _stored_draft(test_db_session, story["id"]))["chapters"]
+    assert chapter["scene"] is None
+    assert chapter["blocks"][0]["config"]["text"] == "kept"
+
+
+@pytest.fixture
+async def demoted_in_the_lock_window(client: AsyncClient, people, monkeypatch):
+    """An admin who owns a story, and a switch that turns them into an editor
+    after the guard admits a write but before it takes the story lock."""
+    import app.core.db as db_module
+    from app.modules.auth.models import Role, UserRole
+    from app.modules.catalog.stories import router as stories_router
+
+    admin, admin_id = await create_user(client, people["admin"], "admin")
+    real_lock = stories_router.lock_story
+    armed = {"on": False}
+
+    async def demote() -> None:
+        async with db_module.async_session() as session:
+            roles = {r.name: r.id for r in (await session.scalars(select(Role))).all()}
+            await session.execute(
+                sa_delete(UserRole).where(UserRole.user_id == uuid.UUID(admin_id))
+            )
+            session.add(UserRole(user_id=uuid.UUID(admin_id), role_id=roles["editor"]))
+            await session.commit()
+
+    async def lock_after_demotion(db, story_id, user):
+        if armed["on"]:
+            armed["on"] = False
+            await demote()
+        return await real_lock(db, story_id, user)
+
+    monkeypatch.setattr(stories_router, "lock_story", lock_after_demotion)
+    return admin, armed
+
+
+async def test_a_write_uses_the_roles_rechecked_under_the_lock(
+    client: AsyncClient, people, demoted_in_the_lock_window
+):
+    admin, armed = demoted_in_the_lock_window
+    their_map = await _map(client, people["other"])
+    story = await _story(client, admin)
+    story = await _saved(client, admin, story, [_chapter(their_map)])
+    assert (await _publish(client, admin, story["id"])).status_code == 200
+    # Rendering: the response hides the scene the demoted owner can't read.
+    armed["on"] = True
+    renamed = await client.patch(
+        f"/stories/{story['id']}", json={"title": "Renamed"}, headers=admin
+    )
+    assert renamed.status_code == 200, renamed.text
+    (chapter,) = renamed.json()["document"]["chapters"]
+    assert chapter["scene"] is None and chapter["scene_hidden"] is True
+
+
+async def test_a_demoted_writer_cannot_add_a_map_they_lost(
+    client: AsyncClient, people, demoted_in_the_lock_window
+):
+    admin, armed = demoted_in_the_lock_window
+    their_map = await _map(client, people["other"])
+    story = await _story(client, admin)
+
+    # Admission: the scene's map is checked with the editor's roles.
+    armed["on"] = True
+    refused = await _save(client, admin, story, [_chapter(their_map)])
+    assert refused.status_code == 422, refused.text
+    assert _detail(refused)["code"] == "story_maps_not_found"
+
+
+async def test_a_demoted_publisher_is_not_told_the_map_name(
+    client: AsyncClient, people, demoted_in_the_lock_window
+):
+    admin, armed = demoted_in_the_lock_window
+    their_map = await _map(client, people["other"])
+    story = await _story(client, admin)
+    await _saved(client, admin, story, [_chapter(their_map)])
+
+    # Redaction: the owner, now an editor, can't read the map, so the private
+    # story can't publish it and the refusal doesn't name it.
+    armed["on"] = True
+    refused = await _publish(client, admin, story["id"])
+    assert refused.status_code == 409, refused.text
+    assert _detail(refused)["maps"] == []
+    assert _detail(refused)["unreadable_maps"] == 1

@@ -970,8 +970,8 @@ from .story_document_input import StoryDocumentInput
 from .story_draft_response import StoryDraftResponse
 from .story_draft_update import StoryDraftUpdate
 from .story_list_response import StoryListResponse
-from .story_publish import StoryPublish
 from .story_response import StoryResponse
+from .story_revision import StoryRevision
 from .story_scene import StoryScene
 from .story_scene_layer_visibility import StorySceneLayerVisibility
 from .story_summary import StorySummary
@@ -1720,8 +1720,8 @@ __all__ = (
     "StoryDraftResponse",
     "StoryDraftUpdate",
     "StoryListResponse",
-    "StoryPublish",
     "StoryResponse",
+    "StoryRevision",
     "StoryScene",
     "StorySceneLayerVisibility",
     "StorySummary",

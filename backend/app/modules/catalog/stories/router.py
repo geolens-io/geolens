@@ -21,7 +21,7 @@ from app.modules.catalog.stories.schemas import (
     StoryDraftResponse,
     StoryDraftUpdate,
     StoryListResponse,
-    StoryPublish,
+    StoryRevision,
     StoryResponse,
     StorySummary,
     StoryUpdate,
@@ -98,8 +98,8 @@ async def _owned_story(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
         )
-    roles = await check_story_ownership(db, story, user)
-    return await lock_story(db, story_id), roles
+    await check_story_ownership(db, story, user)
+    return await lock_story(db, story_id, user)
 
 
 def _reach_conflict(exc: StoryReachError) -> HTTPException:
@@ -292,7 +292,7 @@ async def update_story_endpoint(
         await check_public_visibility_allowed(db, user, visibility, user_roles=roles)
         or roles
     )
-    story = await lock_story(db, story_id)
+    story, roles = await lock_story(db, story_id, user)
     changes = body.model_dump(exclude_unset=True, mode="json")
     if visibility is not None and visibility != story.visibility:
         try:
@@ -332,7 +332,7 @@ async def update_story_endpoint(
 )
 async def publish_story_endpoint(
     story_id: uuid.UUID,
-    body: StoryPublish,
+    body: StoryRevision,
     request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
@@ -372,14 +372,19 @@ async def publish_story_endpoint(
 @router.post("/{story_id}/discard", response_model=StoryDraftResponse)
 async def discard_story_draft_endpoint(
     story_id: uuid.UUID,
+    body: StoryRevision,
     request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StoryDraftResponse:
     """Revert the draft to the published document, or to an empty one for a
-    story never published (owner or admin)."""
+    story never published (owner or admin).
+
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+    """
     story, roles = await _owned_story(db, story_id, user)
-    await discard(db, story)
+    await discard(db, story, body.revision)
     await audit_emit(
         db,
         AuditEvent(

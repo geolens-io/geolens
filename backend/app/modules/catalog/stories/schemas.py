@@ -147,8 +147,10 @@ class StoryUpdate(_Strict):
     )
 
 
-class StoryPublish(_Strict):
-    revision: int = Field(description="The draft revision to publish.")
+class StoryRevision(_Strict):
+    revision: int = Field(
+        description="The draft revision this publish or discard acts on."
+    )
 
 
 class StoryDraftUpdate(_Strict):

@@ -10,12 +10,16 @@ from ... import errors
 
 from ...models.problem_detail import ProblemDetail
 from ...models.story_draft_response import StoryDraftResponse
+from ...models.story_revision import StoryRevision
 from uuid import UUID
 
 
 def _get_kwargs(
     story_id: UUID,
+    *,
+    body: StoryRevision,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -24,6 +28,11 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -101,14 +110,19 @@ def sync_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryRevision,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
     """Discard Story Draft Endpoint
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
 
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+
     Args:
         story_id (UUID):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -120,6 +134,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         story_id=story_id,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -133,14 +148,19 @@ def sync(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryRevision,
 ) -> ProblemDetail | StoryDraftResponse | None:
     """Discard Story Draft Endpoint
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
 
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+
     Args:
         story_id (UUID):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,6 +173,7 @@ def sync(
     return sync_detailed(
         story_id=story_id,
         client=client,
+        body=body,
     ).parsed
 
 
@@ -160,14 +181,19 @@ async def asyncio_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryRevision,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
     """Discard Story Draft Endpoint
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
 
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+
     Args:
         story_id (UUID):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -179,6 +205,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         story_id=story_id,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -190,14 +217,19 @@ async def asyncio(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryRevision,
 ) -> ProblemDetail | StoryDraftResponse | None:
     """Discard Story Draft Endpoint
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
 
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+
     Args:
         story_id (UUID):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -211,5 +243,6 @@ async def asyncio(
         await asyncio_detailed(
             story_id=story_id,
             client=client,
+            body=body,
         )
     ).parsed

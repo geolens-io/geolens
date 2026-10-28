@@ -6,14 +6,14 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 
 
-T = TypeVar("T", bound="StoryPublish")
+T = TypeVar("T", bound="StoryRevision")
 
 
 @_attrs_define
-class StoryPublish:
+class StoryRevision:
     """
     Attributes:
-        revision (int): The draft revision to publish.
+        revision (int): The draft revision this publish or discard acts on.
     """
 
     revision: int
@@ -36,8 +36,8 @@ class StoryPublish:
         d = dict(src_dict)
         revision = d.pop("revision")
 
-        story_publish = cls(
+        story_revision = cls(
             revision=revision,
         )
 
-        return story_publish
+        return story_revision

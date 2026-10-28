@@ -163,11 +163,15 @@ async def _bounded_lock(db: AsyncSession, stmt: Select[Any]) -> list[Any]:
     return rows
 
 
-async def lock_story(db: AsyncSession, story_id: uuid.UUID) -> Story:
-    """Lock the story row for a write and return it as committed now.
+async def lock_story(
+    db: AsyncSession, story_id: uuid.UUID, user: Identity
+) -> tuple[Story, set[str]]:
+    """Lock the story row for a write; return it and ``user``'s roles as
+    committed now.
 
-    Re-checks the writer ``check_story_ownership`` admitted. A wait past the
-    lock timeout answers 409.
+    Re-checks the writer ``check_story_ownership`` admitted. Everything after
+    the lock uses the roles returned here, since a role can change while the
+    write waits. A wait past the lock timeout answers 409.
     """
     locked = await _bounded_lock(
         db,
@@ -178,20 +182,26 @@ async def lock_story(db: AsyncSession, story_id: uuid.UUID) -> Story:
     )
     story = locked[0] if locked else None
 
-    async def enforce(user: Identity, row: Any) -> None:
+    rechecked: set[str] | None = None
+
+    async def enforce(writer: Identity, row: Any) -> None:
+        nonlocal rechecked
         if row is None:
             raise _not_found()
-        if not row.active or (row.created_by != user.id and "admin" not in row.roles):
+        if not row.active or (row.created_by != writer.id and "admin" not in row.roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=STORY_WRITE_DENIED
             )
+        rechecked = set(row.roles)
 
     await recheck_admitted_writer(
         db, ("story", story_id), (Story.created_by,), Story.id == story_id, enforce
     )
     if story is None:
         raise _not_found()
-    return story
+    if rechecked is None:
+        rechecked = await get_user_roles(db, user)
+    return story, rechecked
 
 
 async def list_stories(
@@ -588,10 +598,14 @@ async def check_visibility_change(
     )
 
 
-async def discard(db: AsyncSession, story: Story) -> None:
-    """Revert the draft to the published document. Call holding ``lock_story``."""
+async def discard(db: AsyncSession, story: Story, revision: int) -> None:
+    """Revert the draft to the published document, without scenes on maps
+    deleted since. Call holding ``lock_story``; 409 on a stale revision."""
+    refuse_stale_revision(story, revision)
     story.draft = (
-        copy.deepcopy(story.published) if story.published else empty_document()
+        await _without_deleted_maps(db, copy.deepcopy(story.published))
+        if story.published
+        else empty_document()
     )
     story.draft_revision += 1
     await sync_story_maps(db, story)

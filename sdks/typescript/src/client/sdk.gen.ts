@@ -6616,6 +6616,9 @@ export const updateStoryEndpointStoriesStoryIdPatch = <ThrowOnError extends bool
  *
  * Revert the draft to the published document, or to an empty one for a
  * story never published (owner or admin).
+ *
+ * `revision` must match the stored draft's, or 409 `stale_revision`, so a
+ * stale tab or a retry can't erase a draft saved since.
  */
 export const discardStoryDraftEndpointStoriesStoryIdDiscardPost = <ThrowOnError extends boolean = false>(options: Options<DiscardStoryDraftEndpointStoriesStoryIdDiscardPostData, ThrowOnError>): RequestResult<DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses, DiscardStoryDraftEndpointStoriesStoryIdDiscardPostErrors, ThrowOnError> => (options.client ?? client).post<DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses, DiscardStoryDraftEndpointStoriesStoryIdDiscardPostErrors, ThrowOnError>({
     security: [
@@ -6628,7 +6631,11 @@ export const discardStoryDraftEndpointStoriesStoryIdDiscardPost = <ThrowOnError 
         }
     ],
     url: '/stories/{story_id}/discard',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**

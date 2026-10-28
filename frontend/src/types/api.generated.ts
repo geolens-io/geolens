@@ -6012,6 +6012,9 @@ export interface paths {
          * Discard Story Draft Endpoint
          * @description Revert the draft to the published document, or to an empty one for a
          *     story never published (owner or admin).
+         *
+         *     `revision` must match the stored draft's, or 409 `stale_revision`, so a
+         *     stale tab or a retry can't erase a draft saved since.
          */
         post: operations["discard_story_draft_endpoint_stories__story_id__discard_post"];
         delete?: never;
@@ -16060,14 +16063,6 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** StoryPublish */
-        StoryPublish: {
-            /**
-             * Revision
-             * @description The draft revision to publish.
-             */
-            revision: number;
-        };
         /** StoryResponse */
         StoryResponse: {
             /**
@@ -16101,6 +16096,14 @@ export interface components {
             can_edit: boolean;
             /** @description The published document; null until the story is published. */
             document: components["schemas"]["StoryDocument"] | null;
+        };
+        /** StoryRevision */
+        StoryRevision: {
+            /**
+             * Revision
+             * @description The draft revision this publish or discard acts on.
+             */
+            revision: number;
         };
         /** StoryScene */
         StoryScene: {
@@ -47463,7 +47466,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryRevision"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -47889,7 +47896,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StoryPublish"];
+                "application/json": components["schemas"]["StoryRevision"];
             };
         };
         responses: {

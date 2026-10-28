@@ -12913,18 +12913,6 @@ export type StoryListResponse = {
 };
 
 /**
- * StoryPublish
- */
-export type StoryPublish = {
-    /**
-     * Revision
-     *
-     * The draft revision to publish.
-     */
-    revision: number;
-};
-
-/**
  * StoryResponse
  */
 export type StoryResponse = {
@@ -12967,6 +12955,18 @@ export type StoryResponse = {
      * The published document; null until the story is published.
      */
     document: StoryDocument | null;
+};
+
+/**
+ * StoryRevision
+ */
+export type StoryRevision = {
+    /**
+     * Revision
+     *
+     * The draft revision this publish or discard acts on.
+     */
+    revision: number;
 };
 
 /**
@@ -33237,7 +33237,7 @@ export type UpdateStoryEndpointStoriesStoryIdPatchResponses = {
 export type UpdateStoryEndpointStoriesStoryIdPatchResponse = UpdateStoryEndpointStoriesStoryIdPatchResponses[keyof UpdateStoryEndpointStoriesStoryIdPatchResponses];
 
 export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostData = {
-    body?: never;
+    body: StoryRevision;
     path: {
         /**
          * Story Id
@@ -33485,7 +33485,7 @@ export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses = {
 export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponse = DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses[keyof DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses];
 
 export type PublishStoryEndpointStoriesStoryIdPublishPostData = {
-    body: StoryPublish;
+    body: StoryRevision;
     path: {
         /**
          * Story Id

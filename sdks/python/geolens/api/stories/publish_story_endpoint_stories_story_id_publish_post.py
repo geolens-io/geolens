@@ -9,15 +9,15 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
-from ...models.story_publish import StoryPublish
 from ...models.story_response import StoryResponse
+from ...models.story_revision import StoryRevision
 from uuid import UUID
 
 
 def _get_kwargs(
     story_id: UUID,
     *,
-    body: StoryPublish,
+    body: StoryRevision,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -110,7 +110,7 @@ def sync_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryPublish,
+    body: StoryRevision,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
@@ -123,7 +123,7 @@ def sync_detailed(
 
     Args:
         story_id (UUID):
-        body (StoryPublish):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -149,7 +149,7 @@ def sync(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryPublish,
+    body: StoryRevision,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
@@ -162,7 +162,7 @@ def sync(
 
     Args:
         story_id (UUID):
-        body (StoryPublish):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryPublish,
+    body: StoryRevision,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
@@ -196,7 +196,7 @@ async def asyncio_detailed(
 
     Args:
         story_id (UUID):
-        body (StoryPublish):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -220,7 +220,7 @@ async def asyncio(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryPublish,
+    body: StoryRevision,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
@@ -233,7 +233,7 @@ async def asyncio(
 
     Args:
         story_id (UUID):
-        body (StoryPublish):
+        body (StoryRevision):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

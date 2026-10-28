@@ -22089,21 +22089,6 @@
         "title": "StoryListResponse",
         "type": "object"
       },
-      "StoryPublish": {
-        "additionalProperties": false,
-        "properties": {
-          "revision": {
-            "description": "The draft revision to publish.",
-            "title": "Revision",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "revision"
-        ],
-        "title": "StoryPublish",
-        "type": "object"
-      },
       "StoryResponse": {
         "properties": {
           "id": {
@@ -22193,6 +22178,21 @@
           "document"
         ],
         "title": "StoryResponse",
+        "type": "object"
+      },
+      "StoryRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "description": "The draft revision this publish or discard acts on.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "StoryRevision",
         "type": "object"
       },
       "StoryScene": {
@@ -69637,7 +69637,7 @@
     },
     "/stories/{story_id}/discard": {
       "post": {
-        "description": "Revert the draft to the published document, or to an empty one for a\nstory never published (owner or admin).",
+        "description": "Revert the draft to the published document, or to an empty one for a\nstory never published (owner or admin).\n\n`revision` must match the stored draft's, or 409 `stale_revision`, so a\nstale tab or a retry can't erase a draft saved since.",
         "operationId": "discard_story_draft_endpoint_stories__story_id__discard_post",
         "parameters": [
           {
@@ -69651,6 +69651,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryRevision"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -70239,7 +70249,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StoryPublish"
+                "$ref": "#/components/schemas/StoryRevision"
               }
             }
           },
