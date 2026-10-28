@@ -423,6 +423,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-install-bundled-cache.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-upgrade-order.sh'
               - 'scripts/tests/test-upgrading-doc-consistency.sh'

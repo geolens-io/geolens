@@ -96,6 +96,26 @@ generate_password() {
   printf 'Aa%s_1\n' "$(generate_jwt_secret)"
 }
 
+# Token-protected service imports hand the token to the worker through a shared
+# cache, so a stock install runs the bundled Valkey (docker-compose.prod.yml,
+# profile `cache`). An operator-supplied REDIS_URL is left alone, as are the
+# profile and password they already chose.
+enable_bundled_cache() {
+  if [ -z "$(get_env_value REDIS_URL)" ]; then
+    cache_pw="$(get_env_value VALKEY_PASSWORD)"
+    if [ -z "$cache_pw" ]; then
+      cache_pw="$(generate_jwt_secret)"
+      update_env_value VALKEY_PASSWORD "$cache_pw"
+    fi
+    update_env_value REDIS_URL "redis://:${cache_pw}@valkey:6379/0"
+  fi
+  profiles="$(get_env_value COMPOSE_PROFILES)"
+  case ",${profiles}," in
+    *,cache,*) ;;
+    *) update_env_value COMPOSE_PROFILES "${profiles:+${profiles},}cache" ;;
+  esac
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -576,6 +596,7 @@ main() {
       # docker-compose.yml (the dev source-build file) and silently rebuilds.
       update_env_value GEOLENS_VERSION "$RELEASE_VERSION"
       update_env_value COMPOSE_FILE "docker-compose.prod.yml"
+      enable_bundled_cache
     else
       warn "Could not pull prebuilt images; building from source instead."
       COMPOSE_FILE="docker-compose.yml"

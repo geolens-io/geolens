@@ -61,6 +61,16 @@ in `.env` (comma-separated, `host` or `host:port`) and restart `api` and
 charts and the cloud templates, must pass the variable to both the api and
 worker containers.
 
+Importing, re-uploading or refreshing a service that needs a token (an
+org-shared or private ArcGIS layer, for example) needs the bundled Valkey cache,
+and without it those requests fail with `credential_store_unavailable` (503).
+`install.sh` now enables it. An install made earlier doesn't have it: add
+`COMPOSE_PROFILES=cache`, `VALKEY_PASSWORD=<openssl rand -hex 32>` and
+`REDIS_URL=redis://:<that password>@valkey:6379/0` to `.env`, then run
+`docker compose up -d`. Re-running `install.sh` from the install directory sets
+the same values when they are missing. Installs that already set `REDIS_URL`
+need no change.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.
