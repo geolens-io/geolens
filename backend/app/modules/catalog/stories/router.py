@@ -208,15 +208,18 @@ async def get_story_endpoint(
     )
 
 
-@router.get(
-    "/{story_id}/draft", response_model=StoryDraftResponse, include_in_schema=False
-)
+@router.get("/{story_id}/draft", response_model=StoryDraftResponse)
 async def get_story_draft_endpoint(
     story_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StoryDraftResponse:
-    """The draft, for the story's owner and admins only."""
+    """Read the draft with its revision (owner or admin).
+
+    Scenes on maps you can't read come back without their scene, marked
+    `scene_hidden`. 404 when you can't read the story, 403 when you can but
+    don't own it.
+    """
     story = await get_story(db, story_id)
     if story is None:
         raise HTTPException(

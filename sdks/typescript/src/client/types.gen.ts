@@ -33298,6 +33298,68 @@ export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses = {
 
 export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponse = DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses[keyof DiscardStoryDraftEndpointStoriesStoryIdDiscardPostResponses];
 
+export type GetStoryDraftEndpointStoriesStoryIdDraftGetData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/draft';
+};
+
+export type GetStoryDraftEndpointStoriesStoryIdDraftGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetStoryDraftEndpointStoriesStoryIdDraftGetError = GetStoryDraftEndpointStoriesStoryIdDraftGetErrors[keyof GetStoryDraftEndpointStoriesStoryIdDraftGetErrors];
+
+export type GetStoryDraftEndpointStoriesStoryIdDraftGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryDraftResponse;
+};
+
+export type GetStoryDraftEndpointStoriesStoryIdDraftGetResponse = GetStoryDraftEndpointStoriesStoryIdDraftGetResponses[keyof GetStoryDraftEndpointStoriesStoryIdDraftGetResponses];
+
 export type SaveStoryDraftEndpointStoriesStoryIdDraftPutData = {
     body: StoryDraftUpdate;
     path: {
