@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import stat
 import string
@@ -537,3 +538,43 @@ def test_a_seed_keeps_rows_sharing_an_email_for_review(runner, tmp_path, fake_ge
     assert "gina_personal,gina@example.org,editor" in lines
     assert imported.exit_code == 2
     assert users.sent == []
+
+
+def _backend_password_policy():
+    """The server's password validator, loaded from the backend source; the
+    module has no dependencies outside the standard library."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "backend/app/modules/auth/password_policy.py"
+    )
+    if not path.exists():
+        pytest.skip("the backend source isn't next to the CLI")
+    spec = importlib.util.spec_from_file_location("_backend_password_policy", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_generated_password_meets_the_strictest_policy_the_server_takes():
+    policy = _backend_password_policy()
+
+    for _ in range(50):
+        # 72 bytes is bcrypt's limit, so no longer minimum can be met at all.
+        policy.validate_password_complexity(
+            admin_users.generate_password(), min_length=72, require_classes=4
+        )
+
+
+@pytest.mark.parametrize("lead", ["=", "+", "-", "@"])
+def test_an_unedited_seed_reads_back_as_written(tmp_path, lead):
+    rows = [admin_users.Row(f"{lead}planner", f"{lead}planner@example.org", "viewer")]
+    out = tmp_path / "seed.csv"
+
+    admin_users.write_seed(out, rows)
+
+    assert admin_users.read_csv(out) == rows
+
+
+@pytest.mark.parametrize("value", ["=x", "+x", "-x", "@x", "\tx", "\rx", "'x", "x"])
+def test_seed_escaping_is_undone_exactly(value):
+    assert admin_users._uncell(admin_users._cell(value)) == value

@@ -53,8 +53,9 @@ EXIT_INTERRUPTED = 130
 USER_PAGE_SIZE = 200
 # A spreadsheet reads a cell starting with one of these as a formula.
 _FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
-# Well past the default 12-character policy and under bcrypt's 72 bytes.
-PASSWORD_LENGTH = 32
+# bcrypt's 72-byte limit, the longest password GeoLens accepts, so it meets
+# any PASSWORD_MIN_LENGTH the server can enforce; the CLI can't read the policy.
+PASSWORD_LENGTH = 72
 _PASSWORD_CLASSES = (
     string.ascii_lowercase,
     string.ascii_uppercase,
@@ -92,6 +93,13 @@ def generate_password() -> str:
     chars += [secrets.choice(alphabet) for _ in range(PASSWORD_LENGTH - len(chars))]
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)
+
+
+def _uncell(value: str) -> str:
+    """*value* as ``_cell`` found it: one ``'`` before a formula lead dropped."""
+    return (
+        value[1:] if value[:1] == "'" and value[1:].startswith(_FORMULA_LEAD) else value
+    )
 
 
 def _row(username: str, email: str, role: str, where: str) -> Row:
@@ -136,8 +144,8 @@ def read_csv(path: Path) -> list[Row]:
                 if any((value or "").strip() for value in record.values()):
                     rows.append(
                         _row(
-                            record.get("username") or "",
-                            record.get("email") or "",
+                            _uncell(record.get("username") or ""),
+                            _uncell(record.get("email") or ""),
                             record.get("role") or "",
                             where,
                         )
