@@ -29,37 +29,43 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     const center = map.getCenter();
     setCoords({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
 
+    const show = (lat: number, lng: number) => {
+      const zoom = parseFloat(map.getZoom().toFixed(1));
+      const next = { lat: parseFloat(lat.toFixed(2)), lng: parseFloat(lng.toFixed(2)), zoom };
+      setCoords((prev) =>
+        prev && prev.lat === next.lat && prev.lng === next.lng && prev.zoom === next.zoom
+          ? prev
+          : next,
+      );
+    };
+
     const updateFromCenter = () => {
       if (disposed) return;
       const c = map.getCenter();
-      const lat = parseFloat(c.lat.toFixed(2));
-      const lng = parseFloat(c.lng.toFixed(2));
-      const zoom = parseFloat(map.getZoom().toFixed(1));
-      setCoords((prev) => {
-        if (prev && prev.lat === lat && prev.lng === lng && prev.zoom === zoom) return prev;
-        return { lat, lng, zoom };
+      show(c.lat, c.lng);
+    };
+
+    // One frame runs the latest event's update. A frame already queued is
+    // kept: cancelling it on every event would starve the readout for as long
+    // as an animated move keeps firing.
+    let latest = updateFromCenter;
+    const schedule = (update: () => void) => {
+      latest = update;
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        latest();
       });
     };
 
-    const onMouseMove = (e: MapMouseEvent) => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
+    const onMouseMove = (e: MapMouseEvent) =>
+      schedule(() => {
         if (disposed) return;
-        const lat = parseFloat(e.lngLat.lat.toFixed(2));
-        const lng = parseFloat(e.lngLat.lng.toFixed(2));
-        const zoom = parseFloat(map.getZoom().toFixed(1));
-        setCoords((prev) => {
-          if (prev && prev.lat === lat && prev.lng === lng && prev.zoom === zoom) return prev;
-          return { lat, lng, zoom };
-        });
+        show(e.lngLat.lat, e.lngLat.lng);
       });
-    };
 
     // `move` also covers programmatic camera changes before the first hover.
-    const onMove = () => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(updateFromCenter);
-    };
+    const onMove = () => schedule(updateFromCenter);
 
     const onMouseLeave = () => {
       if (disposed) return;
@@ -74,6 +80,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     return () => {
       disposed = true;
       cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
       map.off('move', onMove);
       map.off('mousemove', onMouseMove);
       canvas?.removeEventListener('mouseleave', onMouseLeave);

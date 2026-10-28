@@ -276,14 +276,14 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
                   {/* Specs row */}
                   {cardSpecs.length > 0 && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dataset-card-specs">
+                    <div className="flex flex-wrap gap-y-1" data-testid="dataset-card-specs">
                       {cardSpecs.map((item, index) => (
                         <span key={item.label} className="inline-flex items-center gap-1 text-xs font-medium font-mono tracking-wide text-muted-foreground">
-                          {index > 0 && (
-                            <span className="me-1 text-muted-foreground/40">&middot;</span>
-                          )}
                           <item.icon className="size-3 shrink-0" aria-hidden="true" />
                           {item.label}
+                          {index < cardSpecs.length - 1 && (
+                            <span className="mx-1.5 text-muted-foreground/40" aria-hidden="true">&middot;</span>
+                          )}
                         </span>
                       ))}
                     </div>

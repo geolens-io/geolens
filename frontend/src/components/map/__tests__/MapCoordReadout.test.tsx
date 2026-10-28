@@ -115,6 +115,67 @@ describe('MapCoordReadout move-event subscription', () => {
     expect(screen.queryByText(/20\.00° N/)).not.toBeInTheDocument();
   });
 
+  it('keeps updating while an animated move fires `move` every frame', () => {
+    const pending = new Map<number, () => void>();
+    let nextId = 1;
+    globalThis.requestAnimationFrame = ((cb: () => void) => {
+      pending.set(nextId, cb);
+      return nextId++;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number) => {
+      pending.delete(id);
+    }) as typeof cancelAnimationFrame;
+    const { map, fire, setCenter } = makeFakeMap({ lat: 20, lng: 0, zoom: 2 });
+    render(<MapCoordReadout map={map} />);
+
+    act(() => {
+      // The map fires `move` during its own frame callback, ahead of the
+      // callbacks that were queued in the previous frame.
+      for (let frame = 0; frame < 5; frame += 1) {
+        const lastFrame = [...pending.entries()];
+        setCenter(21 + frame, 10 * frame);
+        fire('move');
+        lastFrame.forEach(([id, cb]) => {
+          if (pending.has(id)) cb();
+        });
+      }
+    });
+
+    expect(screen.queryByText(/20\.00° N/)).not.toBeInTheDocument();
+  });
+
+  it('shows the camera center when `move` follows a queued `mousemove`', () => {
+    const { map, state, fire, setCenter } = makeFakeMap({ lat: 20, lng: 0, zoom: 2 });
+    render(<MapCoordReadout map={map} />);
+    const mouseMove = state.handlers.mousemove[0] as unknown as (e: unknown) => void;
+
+    act(() => {
+      mouseMove({ lngLat: { lat: 10, lng: 10 } });
+      setCenter(36.2, -112.3);
+      fire('move');
+      flushRaf();
+    });
+
+    expect(screen.getByText(/36\.20° N/)).toBeInTheDocument();
+  });
+
+  it('follows a new map after the old one changed with a frame queued', () => {
+    const first = makeFakeMap({ lat: 20, lng: 0, zoom: 2 });
+    const { rerender } = render(<MapCoordReadout map={first.map} />);
+    act(() => first.fire('move'));
+    const second = makeFakeMap({ lat: 30, lng: 0, zoom: 2 });
+    rerender(<MapCoordReadout map={second.map} />);
+    rafCallbacks = [];
+
+    act(() => {
+      second.setCenter(36.2, -112.3);
+      second.fire('move');
+      flushRaf();
+    });
+
+    expect(screen.getByText(/36\.20° N/)).toBeInTheDocument();
+  });
+
   it('unsubscribes from `move` on unmount', () => {
     const { map, state } = makeFakeMap({ lat: 0, lng: 0, zoom: 2 });
     const { unmount } = render(<MapCoordReadout map={map} />);
