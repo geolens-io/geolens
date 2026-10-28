@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 cd "$work"
 
 fns="$work/fns.sh"
-for fn in generate_jwt_secret get_env_value update_env_value enable_bundled_cache drop_bundled_cache_url; do
+for fn in generate_jwt_secret get_env_value update_env_value get_env_value_decoded enable_bundled_cache drop_bundled_cache_url; do
   awk -v fn="$fn" '$0 ~ "^" fn "\\(\\) \\{" {f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" >>"$fns"
 done
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -34,8 +34,13 @@ enable_bundled_cache
 printf 'REDIS_URL=redis://own:6379/1\nCOMPOSE_PROFILES=backup\n' >.env
 enable_bundled_cache
 [ "$(get_env_value REDIS_URL)" = "redis://own:6379/1" ] || fail "operator REDIS_URL overwritten"
-[ "$(get_env_value COMPOSE_PROFILES)" = "backup,cache" ] || fail "profiles not appended"
 [ -z "$(get_env_value VALKEY_PASSWORD)" ] || fail "password generated for an external REDIS_URL"
+[ "$(get_env_value COMPOSE_PROFILES)" = "backup" ] || fail "cache profile enabled for an external REDIS_URL"
+
+printf 'REDIS_URL=""\nCOMPOSE_PROFILES=backup\n' >.env
+enable_bundled_cache
+[ "$(get_env_value COMPOSE_PROFILES)" = "backup,cache" ] || fail "profiles not appended"
+case "$(get_env_value REDIS_URL)" in redis://:*@valkey:6379/0) ;; *) fail "quoted-empty REDIS_URL treated as set" ;; esac
 
 printf 'VALKEY_PASSWORD="quoted.pw-1"\n' >.env
 enable_bundled_cache

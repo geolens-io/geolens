@@ -96,21 +96,29 @@ generate_password() {
   printf 'Aa%s_1\n' "$(generate_jwt_secret)"
 }
 
+# get_env_value with the matching quotes stripped, as Compose reads .env.
+get_env_value_decoded() {
+  get_env_value "$1" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 # Token-protected service imports hand the token to the worker through a shared
 # cache, so a stock install runs the bundled Valkey (docker-compose.prod.yml,
-# profile `cache`). An operator-supplied REDIS_URL is left alone, as are the
-# profile and password they already chose.
+# profile `cache`). An operator-supplied REDIS_URL is left alone, and the
+# bundled service starts only when that URL points at it.
 enable_bundled_cache() {
-  if [ -z "$(get_env_value REDIS_URL)" ]; then
-    # Compose strips matching quotes from .env values, so the URL must too.
-    cache_pw="$(get_env_value VALKEY_PASSWORD | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+  if [ -z "$(get_env_value_decoded REDIS_URL)" ]; then
+    cache_pw="$(get_env_value_decoded VALKEY_PASSWORD)"
     if [ -z "$cache_pw" ]; then
       cache_pw="$(generate_jwt_secret)"
       update_env_value VALKEY_PASSWORD "$cache_pw"
     fi
     update_env_value REDIS_URL "redis://:${cache_pw}@valkey:6379/0"
   fi
-  profiles="$(get_env_value COMPOSE_PROFILES)"
+  case "$(get_env_value_decoded REDIS_URL)" in
+    *@valkey:* | redis://valkey:*) ;;
+    *) return 0 ;;
+  esac
+  profiles="$(get_env_value_decoded COMPOSE_PROFILES)"
   case ",${profiles}," in
     *,cache,*) ;;
     *) update_env_value COMPOSE_PROFILES "${profiles:+${profiles},}cache" ;;
@@ -120,7 +128,7 @@ enable_bundled_cache() {
 # The source build has no password-protected `cache` service, so a REDIS_URL
 # written by an earlier release install would point nowhere.
 drop_bundled_cache_url() {
-  case "$(get_env_value REDIS_URL)" in
+  case "$(get_env_value_decoded REDIS_URL)" in
     *@valkey:* | redis://valkey:*)
       update_env_value REDIS_URL ""
       warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."

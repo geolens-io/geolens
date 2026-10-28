@@ -612,6 +612,9 @@ jobs:
       - name: Installer secret-generation regression test
         run: sh scripts/tests/test-install-secret-generation.sh
 
+      - name: Installer bundled-cache regression test
+        run: sh scripts/tests/test-install-bundled-cache.sh
+
       - name: Installer main() wrapper regression test
         run: sh scripts/tests/test-install-main-wrapper.sh
 
