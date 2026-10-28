@@ -76,6 +76,15 @@ def _kinds(result) -> set[str]:
     return set(result.loss.summary)
 
 
+def _field_details(result) -> dict[str, str]:
+    """The popup field-count loss details, by kind."""
+    return {
+        i.kind: i.detail
+        for i in result.loss.items
+        if i.kind.startswith("popup_") and "field" in i.detail
+    }
+
+
 def _point(color=None, size=9, outline_width=1) -> dict:
     return {
         "type": "esriSMS",
@@ -978,8 +987,27 @@ class TestPopups:
             "popup_field_label",
             "popup_field_format",
         }
-        formatted = next(i for i in result.loss.items if i.kind == "popup_field_format")
-        assert formatted.detail == "1 field"
+        assert _field_details(result) == {
+            "popup_field_label": "1 field uses an alias",
+            "popup_field_format": "1 field",
+            "popup_expression": "1 computed or related field",
+        }
+
+    def test_field_loss_details_count_in_the_plural(self) -> None:
+        field = {"visible": True, "label": "Alias", "format": {"places": 2}}
+        popup = {
+            "fieldInfos": [
+                *({"fieldName": f"F{i}", **field} for i in range(102)),
+                {"fieldName": "expression/a", "visible": True},
+                {"fieldName": "expression/b", "visible": True},
+            ]
+        }
+        assert _field_details(_translate(_webmap({"popupInfo": popup}))) == {
+            "popup_field_cap": "2 fields",
+            "popup_field_label": "100 fields use an alias",
+            "popup_field_format": "100 fields",
+            "popup_expression": "2 computed or related fields",
+        }
 
     def test_field_list_is_capped(self) -> None:
         popup = {
@@ -1611,7 +1639,7 @@ class TestLabelAndPopupSweep:
         popup = {"fieldInfos": [{"fieldName": "F" * 200, "visible": True}]}
         result = _translate(_webmap({"popupInfo": popup}))
         assert result.layers[0].popup_config.visible_fields == []
-        assert "popup_field_cap" in _kinds(result)
+        assert _field_details(result) == {"popup_field_cap": "1 field"}
 
 
 class TestLayerSettingsSweep:

@@ -186,18 +186,19 @@ def _popup_fields(
         relabeled += item.get("label") not in (None, name)
         formatted += bool(item.get("format"))
     if overflow:
-        loss.add(base, "popup_field_cap", f"{overflow} fields")
+        loss.add(base, "popup_field_cap", _fields(overflow))
     if relabeled:
-        loss.add(base, "popup_field_label", f"{relabeled} fields use an alias")
+        verb = "uses" if relabeled == 1 else "use"
+        loss.add(base, "popup_field_label", f"{_fields(relabeled)} {verb} an alias")
     if formatted:
-        loss.add(
-            base,
-            "popup_field_format",
-            f"{formatted} field{'' if formatted == 1 else 's'}",
-        )
+        loss.add(base, "popup_field_format", _fields(formatted))
     if computed:
-        loss.add(base, "popup_expression", f"{computed} computed or related fields")
+        loss.add(base, "popup_expression", _fields(computed, "computed or related "))
     return visible
+
+
+def _fields(count: int, kind: str = "") -> str:
+    return f"{count} {kind}field{'' if count == 1 else 's'}"
 
 
 _ELEMENT_LOSSES = {
