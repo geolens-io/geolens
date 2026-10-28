@@ -30,16 +30,14 @@ class FieldNames:
         cols = [c for c in columns or () if isinstance(c, Mapping)]
         names = [c.get("name") for c in cols]
         self._columns = {name for name in names if isinstance(name, str)}
-        sources = [(c.get("source_name"), c.get("name")) for c in cols]
-        self._sourced = bool(sources) and all(
-            isinstance(s, str) and isinstance(n, str) for s, n in sources
-        )
         self._by_source: dict[str, set[str]] = {}
         self._by_source_folded: dict[str, set[str]] = {}
-        if self._sourced:
-            for source, stored in sources:
+        for c in cols:
+            source, stored = c.get("source_name"), c.get("name")
+            if isinstance(source, str) and isinstance(stored, str):
                 self._by_source.setdefault(source, set()).add(stored)
                 self._by_source_folded.setdefault(source.casefold(), set()).add(stored)
+        self._sourced = bool(self._by_source)
         self._folded: dict[str, set[str]] = {}
         for name in self._columns:
             self._folded.setdefault(name.casefold(), set()).add(name)
@@ -49,9 +47,10 @@ class FieldNames:
 
     def stored(self, name: str) -> str | None:
         """The column *name* is stored as: the column whose source field it is
-        when the columns record source names (an ambiguous match is None),
-        else the same name, the name ingest gives the field, or the one
-        column equal to it ignoring case."""
+        when columns record source names (an ambiguous match is None, and a
+        column without one is matched by its own name), else the same name,
+        the name ingest gives the field, or the one column equal to it
+        ignoring case."""
         if not self._columns:
             return name
         if self._sourced:
