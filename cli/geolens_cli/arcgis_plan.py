@@ -750,8 +750,7 @@ def run_cli(
         )
     hidden = [
         str(g.get("title") or g["id"])
-        for g in inventory.get("groups") or []
-        if g.get("members_unread")
+        for g in _report.groups_without_members(inventory)
     ]
     if hidden:
         fmt.warn(

@@ -133,6 +133,11 @@ def _item_link(report: Mapping[str, Any], item_id: str) -> str:
     return f"[{md_escape(item_id)}]({target})"
 
 
+def groups_without_members(report: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The report's groups whose members the reading account couldn't see."""
+    return [g for g in report.get("groups") or [] if g.get("members_unread")]
+
+
 def md_table(header: list[str], rows: Iterable[list[str]]) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines.extend("| " + " | ".join(row) + " |" for row in rows)
@@ -214,7 +219,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         + [["**Total**", str(counts["total"])]],
     )
     lines += ["", f"Items and owners that could not be read: {counts['failed']}.", ""]
-    unread_groups = [g for g in report.get("groups") or [] if g.get("members_unread")]
+    unread_groups = groups_without_members(report)
     if unread_groups:
         names = ", ".join(md_escape(g.get("title") or g["id"]) for g in unread_groups)
         lines += [
