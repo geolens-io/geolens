@@ -243,9 +243,8 @@ def read_stored(stored: Sequence[Any] | None, host: WidgetHost) -> StoredWidgets
     unreadable: list[KeptWidget] = []
     for index, raw in enumerate(stored or ()):
         parsed = None
-        uneditable = isinstance(raw, dict) and raw.get("type") in _UNEDITABLE.get(
-            host, ()
-        )
+        kind = raw.get("type") if isinstance(raw, dict) else None
+        uneditable = isinstance(kind, str) and kind in _UNEDITABLE.get(host, ())
         if not uneditable:
             try:
                 parsed = adapter.validate_python(raw)

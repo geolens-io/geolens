@@ -281,6 +281,17 @@ class TestOlderInstancesUpgradeOnReadAndOnWrite:
         assert read.widgets == []
         assert [item.raw for item in read.unreadable] == [before]
 
+    @pytest.mark.parametrize("host", ["dashboard", "story"])
+    def test_a_stored_item_whose_type_is_not_a_string_is_set_aside(
+        self, host: str
+    ) -> None:
+        stored = [{"type": [], "v": 1}, {"type": {"a": 1}, "v": 1}]
+
+        read = read_stored(copy.deepcopy(stored), host)
+
+        assert read.widgets == []
+        assert [item.raw for item in read.unreadable] == stored
+
     def test_a_sent_item_whose_upgrader_raises_is_a_validation_error(
         self, histogram_v0: dict[str, Any]
     ) -> None:
