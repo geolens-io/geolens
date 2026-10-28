@@ -333,6 +333,28 @@ def _setting(geolens: GeoLens, key: str) -> Any:
     return None
 
 
+def _restrict_public(geolens: GeoLens, items: Iterable[Mapping[str, Any]]) -> bool:
+    """Whether ``restrict_public_visibility`` is on, read only when an item
+    is public. One it can't read is a ``GeoLensError`` rather than a guess,
+    since guessing off could publish what the instance forbids."""
+    if not any(
+        i["target"]["visibility"] == "public" for i in items if not i.get("removed")
+    ):
+        return False
+    from geolens.api.admin import get_feature_flags_settings_feature_flags_get as get
+
+    try:
+        flags = geolens.call(get.sync_detailed)
+    except GeoLensError as exc:
+        raise GeoLensError(
+            f"restrict_public_visibility, which decides whether public items stay "
+            f"public, can't be read: {exc}",
+            exc.status,
+            exc.detail,
+        ) from None
+    return flags.restrict_public_visibility is True
+
+
 def _role_permissions(geolens: GeoLens) -> Mapping[str, Mapping[str, bool]] | None:
     """The instance's role permissions, or None when the setting can't be read."""
     value = _setting(geolens, "role_permissions")
@@ -832,13 +854,15 @@ def refresh_finished(
     for item in items:
         entry = state.items[item["id"]]
         summary.refreshed.append(item["id"])
-        item, _notes = _sharing_target(ctx, item, entry.owner_id)
+        item, notes = _sharing_target(ctx, item, entry.owner_id)
+        # A rerun can narrow an item the portal still shares, so it says why.
+        entry.notes.extend(n for n in map(state.clean, notes) if n not in entry.notes)
         try:
             reasons = REFRESHERS[item["action"]](ctx, item, entry)
             if not reasons:
                 try:
-                    # A rerun leaves a map as it is; its refresh reports a difference.
-                    share(ctx, item, entry, with_map=False)
+                    # A rerun leaves a map as it is, so its missing groups are reported.
+                    reasons = share(ctx, item, entry, with_map=False)
                 except ItemFailed as exc:
                     reasons = [str(exc)]
         except StopRun as exc:
@@ -1056,6 +1080,7 @@ def _report(
         or summary.stopped
         or stale
         or summary.handover_failed
+        or groups.failures
         or (cutover is not None and cutover["refused"])
     )
     return EXIT_GENERIC if failed or left or report_failed else EXIT_OK
@@ -1096,18 +1121,24 @@ def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> N
             fmt.info(
                 f"ArcGIS group {arcgis_id}: shared with GeoLens group {group['name']}"
             )
-            continue
-        verb = "would get" if dry_run else "is"
-        fmt.info(
-            f"ArcGIS group {arcgis_id} {verb} GeoLens group {group['name']} with "
-            f"{len(group['added'])} member(s)"
-        )
-        for pending in group["pending"]:
-            fmt.warn(f"{group['name']}: {pending['member']} waits: {pending['reason']}")
-        if group["members_unread"]:
+        else:
+            verb = "would get" if dry_run else "is"
+            fmt.info(
+                f"ArcGIS group {arcgis_id} {verb} GeoLens group {group['name']} "
+                f"with {len(group['added'])} member(s)"
+            )
+        # Members found by their ArcGIS name are shown, so a same-named account
+        # that is somebody else's can be caught before the run.
+        for member, user in sorted(group.get("members", {}).items()):
+            fmt.info(f"  ArcGIS {member} -> GeoLens {user}")
+        for pending in [*group.get("pending", []), *group.get("unsynced", [])]:
+            fmt.warn(f"{group['name']}: {pending['member']}: {pending['reason']}")
+        if group.get("members_unread"):
             fmt.warn(f"{group['name']}: members not read: {group['members_unread']}")
     for line in groups.warnings:
         fmt.warn(line)
+    for line in groups.failures:
+        fmt.error(line)
 
 
 def _print_cutover(
@@ -1373,17 +1404,22 @@ def _run(
             owners.directory,
             touched,
             dry_run=opts.dry_run,
+            emails={
+                row["owner"]: row["owner_email"]
+                for row in rows.values()
+                if row.get("owner") and row.get("owner_email")
+            },
         )
         sharing = Sharing(
             groups={a: g["id"] for a, g in groups.groups.items()},
-            restrict_public=_setting(geolens, "restrict_public_visibility") is True,
+            restrict_public=_restrict_public(geolens, touched),
             admins=owners.directory.admins,
         )
     except (UsageError, GroupUsageError) as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
     except GeoLensError as exc:
-        fmt.error(redact(f"can't check the GeoLens session and users: {exc}"))
+        fmt.error(redact(f"can't check the GeoLens session, users and settings: {exc}"))
         if exc.status in (401, 403):
             return EXIT_AUTH
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC

@@ -78,6 +78,25 @@ def aware_time(value: Any) -> datetime | None:
     return when if when is not None and when.tzinfo is not None else None
 
 
+def _group_record(record: Any) -> bool:
+    """Whether *record* has the shape of a state file group record."""
+    return (
+        isinstance(record, dict)
+        and isinstance(record.get("id"), str | None)
+        and isinstance(record.get("name"), str | None)
+        and isinstance(record.get("created", False), bool)
+        and all(
+            isinstance(record.get(key, []), list)
+            for key in ("added", "pending", "unsynced")
+        )
+        and all(
+            isinstance(p, dict) and isinstance(p.get("member"), str)
+            for key in ("pending", "unsynced")
+            for p in record.get(key, [])
+        )
+    )
+
+
 def _now() -> str:
     return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
@@ -161,9 +180,9 @@ class ItemState:
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)
-    # The GeoLens groups this command shared the item with, which a rerun
-    # doesn't add again after someone removed one in GeoLens.
-    groups: list[str] = field(default_factory=list)
+    # Dataset or map id -> the GeoLens groups this command shared it with,
+    # which a rerun doesn't add again after someone removed one in GeoLens.
+    groups: dict[str, list[str]] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
@@ -254,9 +273,9 @@ class MigrationState:
                 raise ValueError("cutover is not an object")
             groups = data.get("groups", {})
             if not isinstance(groups, dict) or not all(
-                isinstance(g, dict) for g in groups.values()
+                _group_record(g) for g in groups.values()
             ):
-                raise ValueError("groups is not an object of objects")
+                raise ValueError("groups holds a malformed group record")
             recorded_portal = data["portal_url"]
             recorded_instance = data["geolens_instance"]
         except (ValueError, KeyError, TypeError, AttributeError) as exc:

@@ -6,15 +6,17 @@ visibility ``restricted``. Before the items run, each such group resolves to
 a GeoLens group through ``group_map``: the existing group its
 ``geolens_group`` names, or one this command creates, named after the
 ArcGIS group, and fills with the group's members. Members resolve like
-owners, through ``owner_map`` or else by the same name in GeoLens; one that
-doesn't resolve yet stays pending and is added by a later run. Members of an
-existing group are left as they are, since adding to it would also give them
-everything else that group can read.
+owners, through ``owner_map`` or else by the same name in GeoLens, when the
+email the inventory read for them is the account's; one that doesn't resolve
+yet, or whose add GeoLens refused, stays pending and is added by a later run.
+Members of an existing group are left as they are, since adding to it would
+also give them everything else that group can read; the ArcGIS members it
+lacks are recorded instead.
 
 An item's datasets and map are then shared with those groups as the
 operator, an admin. Groups are only ever added, never removed, and one this
-command shared an item with is not added again, so a group someone removed
-in GeoLens stays removed. A restricted item none of whose groups maps to a
+command shared a dataset or map with is not added to it again, so a group
+someone removed in GeoLens stays removed. A restricted item none of whose groups maps to a
 GeoLens group becomes private. Under ``restrict_public_visibility`` a public
 item whose owner isn't an admin becomes internal, as GeoLens would refuse
 that owner public.
@@ -22,6 +24,7 @@ that owner public.
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -97,25 +100,68 @@ def _list_groups(geolens: Any) -> list[Any]:
             return groups
 
 
+def _member_ids(geolens: Any, group_id: str) -> set[str]:
+    from geolens.api.admin import (
+        list_group_members_admin_groups_group_id_members_get as list_members,
+    )
+
+    members: list[Any] = []
+    while True:
+        page = geolens.call(
+            list_members.sync_detailed,
+            group_id=UUID(group_id),
+            skip=len(members),
+            limit=GROUP_PAGE,
+        )
+        members.extend(page.members)
+        if not page.members or len(members) >= page.total:
+            return {str(m.id) for m in members}
+
+
+def _nfc(name: str) -> str:
+    # GeoLens stores group names stripped and NFC-normalized.
+    return unicodedata.normalize("NFC", name.strip())
+
+
 def _find(groups: Iterable[Any], name: str) -> Any | None:
-    wanted = name.strip().casefold()
-    return next((g for g in groups if g.name.casefold() == wanted), None)
+    """The group *name* names: the one with exactly that name, else the only
+    one whose name differs from it in case alone. Names are unique only as
+    written, so several of those is a ``GroupUsageError``."""
+    wanted = _nfc(name)
+    groups = list(groups)
+    exact = next((g for g in groups if g.name == wanted), None)
+    if exact is not None:
+        return exact
+    folded = [g for g in groups if g.name.casefold() == wanted.casefold()]
+    if len(folded) > 1:
+        raise GroupUsageError(
+            f"GeoLens has several groups named {name} apart from case ("
+            + ", ".join(sorted(g.name for g in folded))
+            + "); set geolens_group to the exact name"
+        )
+    return folded[0] if folded else None
 
 
-def _create(geolens: Any, name: str) -> str | None:
-    """The new group's id, or None when the name is taken."""
+def _taken(groups: Iterable[Any], name: str) -> bool:
+    """Whether creating a group named *name* would collide, as the server
+    compares names."""
+    wanted = _nfc(name[:MAX_NAME])
+    return any(g.name == wanted for g in groups)
+
+
+def _create(geolens: Any, name: str) -> Any | None:
+    """The new group, or None when the name is taken."""
     from geolens.api.admin import create_group_admin_groups_post as create
     from geolens.models.group_write import GroupWrite
 
     try:
-        created = geolens.call(
+        return geolens.call(
             create.sync_detailed, body=GroupWrite(name=name[:MAX_NAME]), expected=201
         )
     except GeoLensError as exc:
         if exc.status == 409:
             return None
         raise
-    return str(created.id)
 
 
 def _exists(geolens: Any, group_id: str) -> bool:
@@ -158,77 +204,136 @@ def wanted_groups(
 class GroupPlan:
     """What preparing the groups did, or in a dry run would do."""
 
-    # ArcGIS group id -> {"name", "id", "created", "added", "pending", ...}.
+    # ArcGIS group id -> {"name", "id", "created", "members", ...}.
     groups: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Requests that failed; the run exits non-zero.
+    failures: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _Members:
+    """How an ArcGIS group's members resolve to GeoLens users."""
+
+    users: list[tuple[str, Any]] = field(default_factory=list)
+    pending: list[dict[str, str]] = field(default_factory=list)
+    unread: str | None = None
 
 
 def _resolve_member(
-    directory: Any, plan: Mapping[str, Any], username: str
+    directory: Any, plan: Mapping[str, Any], emails: Mapping[str, str], username: str
 ) -> tuple[Any, str | None]:
-    """The active GeoLens user an ArcGIS member is, or why there's none yet."""
+    """The active GeoLens user an ArcGIS member is, or why there's none yet.
+
+    A member found by their ArcGIS name rather than through ``owner_map`` is
+    taken only when the email the inventory read for them, if any, is the
+    account's, since a same-named account may be somebody else's.
+    """
     from .arcgis_migrate import UsageError
 
-    name = plan["owner_map"].get(username) or username
+    mapped = plan["owner_map"].get(username)
+    name = mapped or username
     try:
         user = directory.find(name)
     except UsageError as exc:
         return None, str(exc)
     if user is None:
         return None, f"{name} is not a GeoLens user yet"
+    known = emails.get(username)
+    if not mapped and known and (user.email or "").lower() != known.lower():
+        return None, (
+            f"GeoLens user {user.username} has another email than ArcGIS user "
+            f"{username}; map them in owner_map if they are the same person"
+        )
     inactive = directory.inactive(user)
     return (None, inactive) if inactive else (user, None)
 
 
-def _add_members(geolens: Any, group_id: str, user_ids: list[str]) -> None:
-    from geolens.api.admin import (
-        add_group_members_admin_groups_group_id_members_post as add,
-    )
-    from geolens.models.group_members_add import GroupMembersAdd
-
-    for start in range(0, len(user_ids), MEMBER_BATCH):
-        geolens.call(
-            add.sync_detailed,
-            group_id=UUID(group_id),
-            body=GroupMembersAdd(
-                user_ids=[UUID(u) for u in user_ids[start : start + MEMBER_BATCH]]
-            ),
+def _resolve_members(
+    directory: Any,
+    plan: Mapping[str, Any],
+    emails: Mapping[str, str],
+    members: Mapping[str, Any],
+) -> _Members:
+    out = _Members()
+    if members.get("members") is None:
+        out.unread = (
+            members.get("members_unread") or "the inventory didn't read its members"
         )
+    for username in members.get("members") or []:
+        user, reason = _resolve_member(directory, plan, emails, username)
+        if user is None:
+            out.pending.append({"member": username, "reason": str(reason)})
+        else:
+            out.users.append((username, user))
+    return out
 
 
 def _fill(
     geolens: Any,
     record: dict[str, Any],
-    members: Mapping[str, Any],
-    plan: Mapping[str, Any],
-    directory: Any,
+    members: _Members,
     dry_run: bool,
 ) -> str | None:
-    """Add the ArcGIS group's members who resolve to the group this command
-    created, and record those who don't yet; why adding them failed, or None."""
-    record["members_unread"] = (
-        None
-        if members.get("members") is not None
-        else members.get("members_unread") or "the inventory didn't read its members"
+    """Add the members who resolve to the group this command created, and
+    record those who don't yet, a refused add among them; why adding failed,
+    or None."""
+    from geolens.api.admin import (
+        add_group_members_admin_groups_group_id_members_post as add,
     )
-    record["pending"] = []
-    new: list[str] = []
-    for username in members.get("members") or []:
-        user, reason = _resolve_member(directory, plan, username)
-        if user is None:
-            record["pending"].append({"member": username, "reason": reason})
-        elif str(user.id) not in record["added"] and str(user.id) not in new:
-            new.append(str(user.id))
-    if new and not dry_run:
-        try:
-            _add_members(geolens, record["id"], new)
-        except GeoLensError as exc:
-            return (
-                f"adding members to GeoLens group {record['name']} failed, {exc}; "
-                "a later run tries again"
+    from geolens.models.group_members_add import GroupMembersAdd
+
+    record["members_unread"] = members.unread
+    record["pending"] = list(members.pending)
+    record["members"] = {name: user.username for name, user in members.users}
+    added = set(record.get("added") or [])
+    new = [(n, str(u.id)) for n, u in members.users if str(u.id) not in added]
+    new = list({user_id: (n, user_id) for n, user_id in new}.values())
+    failed = None
+    for start in range(0, len(new), MEMBER_BATCH):
+        batch = new[start : start + MEMBER_BATCH]
+        if not dry_run:
+            try:
+                geolens.call(
+                    add.sync_detailed,
+                    group_id=UUID(record["id"]),
+                    body=GroupMembersAdd(user_ids=[UUID(u) for _n, u in batch]),
+                )
+            except GeoLensError as exc:
+                failed = (
+                    f"adding members to GeoLens group {record['name']} failed, {exc}"
+                )
+                for name, _user_id in new[start:]:
+                    record["members"].pop(name, None)
+                    record["pending"].append(
+                        {"member": name, "reason": f"{failed}; a later run tries again"}
+                    )
+                break
+        added.update(user_id for _n, user_id in batch)
+    record["added"] = sorted(added)
+    return failed
+
+
+def _named(geolens: Any, found: Any, members: _Members) -> dict[str, Any]:
+    """The record of an existing group ``group_map`` names: which ArcGIS
+    members it lacks, since this command leaves its members as they are."""
+    in_group = _member_ids(geolens, str(found.id))
+    record: dict[str, Any] = {
+        "id": str(found.id),
+        "name": found.name,
+        "created": False,
+        "members_unread": members.unread,
+        "members": {},
+        "unsynced": list(members.pending),
+    }
+    for name, user in members.users:
+        if str(user.id) in in_group:
+            record["members"][name] = user.username
+        else:
+            record["unsynced"].append(
+                {"member": name, "reason": f"GeoLens user {user.username} isn't in it"}
             )
-    record["added"] = sorted({*record["added"], *new})
-    return None
+    return record
 
 
 def prepare_groups(
@@ -240,15 +345,17 @@ def prepare_groups(
     items: Iterable[Mapping[str, Any]],
     *,
     dry_run: bool,
+    emails: Mapping[str, str] | None = None,
 ) -> GroupPlan:
     """Resolve every ArcGIS group *items* need to a GeoLens group, creating
     and filling it unless ``group_map`` points at an existing one.
 
-    Each group this command creates is recorded in the state as soon as it
-    exists, so a rerun fills it rather than creating another. A
-    ``GroupUsageError`` when ``group_map`` names a group GeoLens doesn't have,
-    or a group's name and its prefixed form are both taken by groups this
-    command didn't create.
+    *emails* holds what the inventory read of ArcGIS users' addresses. Each
+    group this command creates is recorded in the state as soon as it exists,
+    so a rerun fills it rather than creating another. A ``GroupUsageError``
+    when ``group_map`` names a group GeoLens doesn't have, or one several
+    groups' names match apart from case, or a group's name and its prefixed
+    form are both taken by groups this command didn't create.
     """
     out = GroupPlan()
     wanted = wanted_groups(plan, items)
@@ -263,6 +370,9 @@ def prepare_groups(
         if named == "":
             out.groups[arcgis_id] = {"id": None, "name": None, "created": False}
             continue
+        members = _resolve_members(
+            directory, plan, emails or {}, inventory_groups.get(arcgis_id) or {}
+        )
         if named:
             found = _find(existing, named)
             if found is None:
@@ -270,11 +380,11 @@ def prepare_groups(
                     f"group_map {arcgis_id} names GeoLens group {named}, which "
                     "doesn't exist; create it or change geolens_group"
                 )
-            out.groups[arcgis_id] = {
-                "id": str(found.id),
-                "name": found.name,
-                "created": False,
-            }
+            record = _named(geolens, found, members)
+            if not dry_run:
+                state.groups[arcgis_id] = record
+                state.save()
+            out.groups[arcgis_id] = record
             continue
         title = _title(arcgis_id, entry, inventory_groups)
         if recorded and recorded.get("created") and recorded.get("id"):
@@ -292,8 +402,9 @@ def prepare_groups(
                 out.groups[arcgis_id] = {"id": None, "name": None, "created": False}
                 continue
         elif dry_run:
-            taken = [n for n in (title, f"{prefix} - {title}") if _find(existing, n)]
-            if len(taken) == 2:
+            names = (title, f"{prefix} - {title}")
+            free = [n for n in names if not _taken(existing, n)]
+            if not free:
                 out.warnings.append(
                     f"GeoLens already has groups named {title} and {prefix} - "
                     f"{title}, so the run will stop; set group_map {arcgis_id} "
@@ -301,7 +412,7 @@ def prepare_groups(
                 )
             record = {
                 "id": None,
-                "name": f"{prefix} - {title}" if title in taken else title,
+                "name": free[0] if free else title,
                 "created": True,
                 "added": [],
             }
@@ -309,10 +420,10 @@ def prepare_groups(
             record = None
             for name in (title, f"{prefix} - {title}"):
                 created = _create(geolens, name)
-                if created:
+                if created is not None:
                     record = {
-                        "id": created,
-                        "name": name[:MAX_NAME],
+                        "id": str(created.id),
+                        "name": created.name,
                         "created": True,
                         "added": [],
                     }
@@ -325,16 +436,9 @@ def prepare_groups(
                 )
             state.groups[arcgis_id] = record
             state.save()
-        failed = _fill(
-            geolens,
-            record,
-            inventory_groups.get(arcgis_id) or {},
-            plan,
-            directory,
-            dry_run,
-        )
+        failed = _fill(geolens, record, members, dry_run)
         if failed:
-            out.warnings.append(failed)
+            out.failures.append(failed)
         if not dry_run:
             state.groups[arcgis_id] = record
             state.save()
@@ -353,10 +457,12 @@ def share(
     entry: ItemState,
     *,
     with_map: bool = True,
-) -> None:
-    """Share the item's datasets, and with *with_map* its map, with the GeoLens
-    groups its target names that this command hasn't shared it with yet;
-    each keeps the groups it already has."""
+) -> list[str]:
+    """Share each of the item's datasets, and with *with_map* its map, with the
+    GeoLens groups its target names that this command hasn't shared that one
+    with yet; each keeps the groups it already has. Each share is recorded as
+    it lands. Returns why the map lacks groups it would get, when *with_map*
+    is false."""
     from geolens.api.datasets_metadata import (
         set_dataset_groups_endpoint_datasets_dataset_id_groups_put as put_dataset,
     )
@@ -364,29 +470,43 @@ def share(
 
     from .arcgis_migrate_refresh import get_dataset, record
 
-    new = set(item["target"].get("geolens_groups") or []) - set(entry.groups)
-    if not new:
-        return
+    wanted = set(item["target"].get("geolens_groups") or [])
+    if not wanted:
+        return []
     try:
         for dataset_id in entry.dataset_ids:
-            current = _dataset_groups(get_dataset(ctx, dataset_id))
-            if new <= current:
+            given = set(entry.groups.get(dataset_id) or [])
+            new = wanted - given
+            if not new:
                 continue
-            ctx.geolens.call(
-                put_dataset.sync_detailed,
-                dataset_id=UUID(dataset_id),
-                body=DatasetGroupsUpdate(
-                    group_ids=[UUID(g) for g in sorted(current | new)]
-                ),
-            )
-            if dataset_id in entry.last_update:
-                record(entry, dataset_id, get_dataset(ctx, dataset_id))
-        if with_map and entry.map_id:
-            _share_map(ctx, entry.map_id, new)
+            current = _dataset_groups(get_dataset(ctx, dataset_id))
+            if not new <= current:
+                ctx.geolens.call(
+                    put_dataset.sync_detailed,
+                    dataset_id=UUID(dataset_id),
+                    body=DatasetGroupsUpdate(
+                        group_ids=[UUID(g) for g in sorted(current | new)]
+                    ),
+                )
+                if dataset_id in entry.last_update:
+                    record(entry, dataset_id, get_dataset(ctx, dataset_id))
+            entry.groups[dataset_id] = sorted(given | new)
+            ctx.save()
+        map_id = entry.map_id
+        new = wanted - set(entry.groups.get(map_id) or []) if map_id else set()
+        if map_id and new and not with_map:
+            return [
+                "its GeoLens map isn't shared with groups "
+                + ", ".join(sorted(new))
+                + ", and a rerun leaves the map as it is; share it by hand"
+            ]
+        if map_id and new:
+            _share_map(ctx, map_id, new)
+            entry.groups[map_id] = sorted(set(entry.groups.get(map_id) or []) | new)
+            ctx.save()
     except GeoLensError as exc:
         raise ItemFailed(f"sharing it with its GeoLens groups failed, {exc}") from None
-    entry.groups = sorted({*entry.groups, *new})
-    ctx.save()
+    return []
 
 
 def _share_map(ctx: MigrationContext, map_id: str, new: set[str]) -> None:

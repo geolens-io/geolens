@@ -786,6 +786,7 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
         }
 
     geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
+    geolens.routes[f"GET /admin/groups/{group}/members/"] = {"members": [], "total": 0}
 
     result, _ = _run(runner, plan_file)
 
@@ -794,4 +795,4 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
     assert request["visibility"] == "private"
     # Layers stay as their own items share them, not widened to the group.
     assert shares == [{"group_ids": [group], "confirm": "map_only"}]
-    assert _state(plan_file)["items"][B1]["groups"] == [group]
+    assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}

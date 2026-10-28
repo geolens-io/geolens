@@ -328,8 +328,11 @@ def build_run_report(
                 "arcgis_group": group_id,
                 "name": group.get("name"),
                 "id": group.get("id"),
+                "created": bool(group.get("created")),
+                "members": dict(sorted((group.get("members") or {}).items())),
                 "members_added": len(group.get("added") or []),
                 "members_pending": len(group.get("pending") or []),
+                "members_unsynced": len(group.get("unsynced") or []),
                 "members_unread": group.get("members_unread"),
             }
             for group_id, group in sorted(state.groups.items())
@@ -408,20 +411,41 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
         ),
     )
     if report.get("groups"):
-        lines += ["", "## GeoLens groups made for ArcGIS groups", ""]
+        lines += ["", "## GeoLens groups for ArcGIS groups", ""]
         lines += _report.md_table(
-            ["ArcGIS group", "GeoLens group", "Members added", "Pending", "Unread"],
+            [
+                "ArcGIS group",
+                "GeoLens group",
+                "Made by this command",
+                "Members added",
+                "Pending",
+                "Not in it",
+                "Unread",
+            ],
             (
                 [
                     esc(g["arcgis_group"]),
                     esc(g["name"] or ""),
+                    "yes" if g["created"] else "no",
                     str(g["members_added"]),
                     str(g["members_pending"]),
+                    str(g["members_unsynced"]),
                     esc(g["members_unread"] or ""),
                 ]
                 for g in report["groups"]
             ),
         )
+        for g in report["groups"]:
+            if g["members"]:
+                lines += [
+                    "",
+                    f"ArcGIS members of {esc(g['arcgis_group'])} found in GeoLens:",
+                    "",
+                ]
+                lines += [
+                    f"- {esc(member)}: {esc(user)}"
+                    for member, user in g["members"].items()
+                ]
     for heading, superseded in (
         ("Items GeoLens can't host", False),
         ("Source files published as hosted layers", True),

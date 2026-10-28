@@ -11,12 +11,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from types import SimpleNamespace
 
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_plan as plan_mod
-from geolens_cli.arcgis_migrate_groups import Sharing
+from geolens_cli.main import app
+from geolens_cli.arcgis_migrate_groups import Sharing, share
+from geolens_cli.arcgis_migrate_state import ItemState
 
-from .arcgis_fake import A2, inventory_report
+from .arcgis_fake import A1, A2, inventory_report
+from .conftest import GEOLENS_INSTANCE
 from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
     NOW,
     OPERATOR,
@@ -151,10 +155,17 @@ class GroupsApi:
         self.fake.routes[f"POST /admin/groups/{group_id}/members/"] = lambda seen: (
             self.add(seen, group_id)
         )
+        self.fake.routes[f"GET /admin/groups/{group_id}/members/"] = lambda seen: {
+            "members": [
+                {"id": u, "username": u} for u in self.members.get(group_id, [])
+            ],
+            "total": len(self.members.get(group_id, [])),
+        }
 
     def create(self, seen):
         name = seen.json()["name"]
-        if any(g["name"].casefold() == name.casefold() for g in self.groups):
+        # Names are unique as written, as on the server.
+        if any(g["name"] == name for g in self.groups):
             return (409, _problem(409, f"A group named '{name}' already exists"))
         group = _group(CREATED, name)
         self.groups.append(group)
@@ -184,6 +195,7 @@ def _write(
     unread: str | None = None,
     role: str = "org_admin",
     group_map: dict[str, Any] | None = None,
+    eve_email: str | None = None,
 ) -> Path:
     report = inventory_report()
     report["auth"]["role"] = role
@@ -191,6 +203,9 @@ def _write(
         if row["id"] == A2:
             row["sharing"] = {"access": "shared", "groups": ["g1"]}
             row["groups"] = [{"id": "g1", "title": "Planners", "access": "org"}]
+        if row["id"] == A1 and eve_email:
+            # The inventory reads an owner's email, here for a member too.
+            row["owner"], row["owner_email"] = "agol_eve", eve_email
     report["groups"] = [
         {
             "id": "g1",
@@ -264,7 +279,7 @@ def test_a_group_only_item_is_restricted_to_a_group_made_with_its_members(
     group = _state(plan_file)["groups"]["g1"]
     assert group["id"] == CREATED and group["added"] == sorted([BOB, EVE])
     assert [p["member"] for p in group["pending"]] == ["agol_ghost"]
-    assert _state(plan_file)["items"][A2]["groups"] == [CREATED]
+    assert _state(plan_file)["items"][A2]["groups"] == {d: [CREATED] for d in DATASETS}
     assert payload["groups"]["g1"]["name"] == "Planners"
 
 
@@ -429,19 +444,7 @@ def test_public_is_internal_under_the_policy_for_a_non_admin_owner(
     runner, tmp_path, team
 ):
     service = _service(team)
-    team.routes["GET /settings/all/"] = {
-        "env_only": False,
-        "tabs": {
-            "security": [
-                {
-                    "key": "restrict_public_visibility",
-                    "value": True,
-                    "source": "database",
-                    "label": "Restrict public visibility",
-                }
-            ]
-        },
-    }
+    team.routes["GET /settings/feature-flags/"] = {"restrict_public_visibility": True}
     plan_file = _write(tmp_path, members=[])
     plan = json.loads(plan_file.read_text())
     plan["owner_map"]["gis_admin"] = "bob"
@@ -545,7 +548,7 @@ def test_a_group_deleted_in_geolens_is_not_made_again_and_counts_at_cutover(
     assert "maps to no GeoLens group" in checks["under-sharing"][0]["reason"]
 
 
-def test_a_refused_member_add_is_a_warning_and_the_run_goes_on(runner, tmp_path, team):
+def test_a_refused_member_add_stays_pending_and_fails_the_run(runner, tmp_path, team):
     service = _service(team)
     api = GroupsApi(team, service, existing=[])
     api.add = lambda seen, group_id: (
@@ -556,9 +559,250 @@ def test_a_refused_member_add_is_a_warning_and_the_run_goes_on(runner, tmp_path,
 
     result, payload = _run(runner, plan_file)
 
-    assert result.exit_code == 0, result.output
-    assert (
-        "adding members to GeoLens group Planners failed"
-        in (payload["group_warnings"][0])
+    assert result.exit_code == 1
+    group = _state(plan_file)["groups"]["g1"]
+    assert group["added"] == []
+    assert [p["member"] for p in group["pending"]] == ["agol_bob"]
+    assert "a VRT would reach past" in group["pending"][0]["reason"]
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+    checks = {c["check"]: c["items"] for c in payload["cutover"]["checks"]}
+    assert [i["item"] for i in checks["unresolved-users"]] == ["group g1"]
+
+
+OTHER = "00000000-0000-0000-0005-000000000009"
+
+
+def test_an_existing_group_reports_the_arcgis_members_it_lacks(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(EXISTING, "Planning")])
+    plan_file = _write(
+        tmp_path,
+        members=["agol_bob", "agol_eve"],
+        group_map={"g1": {"geolens_group": "Planning"}},
     )
-    assert _state(plan_file)["groups"]["g1"]["added"] == []
+    api.members[EXISTING] = [BOB]
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    checks = {c["check"]: c["items"] for c in payload["cutover"]["checks"]}
+    [loss] = checks["under-sharing"]
+    assert (
+        "1 ArcGIS member(s) of group g1 aren't in the existing GeoLens group"
+        in (loss["reason"])
+    )
+    group = _state(plan_file)["groups"]["g1"]
+    assert group["created"] is False and group["members"] == {"agol_bob": "bob"}
+    assert [u["member"] for u in group["unsynced"]] == ["agol_eve"]
+    assert "unresolved-users" not in checks
+
+
+def test_an_existing_group_holding_every_member_is_no_loss(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(EXISTING, "Planning")])
+    api.members[EXISTING] = [BOB]
+    plan_file = _write(
+        tmp_path, members=["agol_bob"], group_map={"g1": {"geolens_group": "Planning"}}
+    )
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    assert "under-sharing" not in {c["check"] for c in payload["cutover"]["checks"]}
+
+
+def test_group_map_takes_the_group_named_exactly(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(
+        team,
+        service,
+        existing=[_group(OTHER, "PLANNING"), _group(EXISTING, "planning")],
+    )
+    plan_file = _write(
+        tmp_path, members=[], group_map={"g1": {"geolens_group": "planning"}}
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.shares == [(d, [EXISTING]) for d in DATASETS]
+
+
+def test_group_map_matching_several_groups_by_case_alone_is_refused(
+    runner, tmp_path, team
+):
+    service = _service(team)
+    GroupsApi(
+        team,
+        service,
+        existing=[_group(OTHER, "PLANNING"), _group(EXISTING, "Planning")],
+    )
+    plan_file = _write(
+        tmp_path, members=[], group_map={"g1": {"geolens_group": "planning"}}
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 2
+    assert "several groups named planning" in result.output
+    assert service.bodies("POST /ingest/commit/") == []
+
+
+def test_a_dry_run_makes_no_group_and_lists_the_member_mapping(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(EXISTING, "Planners")])
+    plan_file = _write(tmp_path, members=["agol_bob", "agol_eve"])
+
+    result = runner.invoke(
+        app, ["arcgis", "migrate", str(plan_file), "--only", A2, "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(api.groups) == 1 and api.members == {}
+    assert "would get GeoLens group ArcGIS - Planners" in result.output
+    assert "ArcGIS agol_bob -> GeoLens bob" in result.output
+    assert "ArcGIS agol_eve -> GeoLens agol_eve" in result.output
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
+
+
+def test_the_report_lists_the_member_mapping(runner, tmp_path, team):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+
+    assert report["groups"][0]["members"] == {"agol_bob": "bob"}
+    text = (tmp_path / "arcgis-migration-report.md").read_text()
+    assert "agol\\_bob: bob" in text
+
+
+def test_a_same_named_account_with_another_email_stays_pending(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_eve"], eve_email="eve@elsewhere.org")
+
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    group = _state(plan_file)["groups"]["g1"]
+    assert api.members.get(CREATED, []) == []
+    assert "another email" in group["pending"][0]["reason"]
+
+
+def test_a_same_named_account_with_the_inventory_email_resolves(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_eve"], eve_email="AGOL_EVE@example.org")
+
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    assert api.members[CREATED] == [EVE]
+
+
+def test_a_share_keeps_the_groups_a_dataset_already_has(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    for dataset in DATASETS:
+        service.fields[dataset] = {"groups": [{"id": OTHER, "name": "Other"}]}
+    plan_file = _write(tmp_path, members=[])
+
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    assert api.shares == [(d, sorted([CREATED, OTHER])) for d in DATASETS]
+
+
+def test_pending_members_reach_unresolved_users(runner, tmp_path, team):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob", "agol_ghost"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    checks = {c["check"]: c["items"] for c in payload["cutover"]["checks"]}
+    [pending] = checks["unresolved-users"]
+    assert pending["item"] == "group g1" and "agol_ghost" in pending["reason"]
+
+
+def test_a_retried_share_skips_datasets_already_shared(runner, tmp_path, team):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    refused = (422, _problem(422, "a VRT would reach past one of its sources"))
+    team.routes[f"PUT /datasets/{DATASETS[1]}/groups/"] = refused
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["groups"] == {DATASETS[0]: [CREATED]}
+    # An admin takes the first dataset back out of the group meanwhile.
+    service.fields[DATASETS[0]]["groups"] = []
+    team.routes[f"PUT /datasets/{DATASETS[1]}/groups/"] = lambda seen: api.share(
+        seen, DATASETS[1]
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.shares == [(d, [CREATED]) for d in DATASETS]
+
+
+def test_a_rerun_reports_a_group_its_map_lacks_and_records_none():
+    entry = ItemState(map_id="m1", groups={"m1": [CREATED]})
+    item = {"target": {"geolens_groups": [CREATED, EXISTING]}}
+
+    reasons = share(SimpleNamespace(save=lambda: None), item, entry, with_map=False)
+
+    assert EXISTING in reasons[0] and "share it by hand" in reasons[0]
+    assert entry.groups == {"m1": [CREATED]}
+
+
+def test_an_unreadable_public_policy_stops_the_run(runner, tmp_path, team):
+    service = _service(team)
+    team.routes["GET /settings/feature-flags/"] = (500, _problem(500, "boom"))
+    plan_file = _write(tmp_path, members=[])
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["visibility"] = "public"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code != 0
+    assert "restrict_public_visibility" in result.output
+    assert service.bodies("POST /ingest/commit/") == []
+
+
+def test_a_malformed_group_record_in_the_state_is_refused(runner, tmp_path, team):
+    _service(team)
+    plan_file = _write(tmp_path, members=[])
+    (tmp_path / "arcgis-migration-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "3",
+                "portal_url": json.loads(plan_file.read_text())["portal"]["url"],
+                "geolens_instance": GEOLENS_INSTANCE,
+                "groups": {"g1": {"id": CREATED, "pending": ["agol_bob"]}},
+                "items": {},
+            }
+        )
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 2
+    assert "malformed group record" in result.output
+
+
+def test_a_rerun_says_why_it_narrowed_an_item(runner, tmp_path, team, up_to_date):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    plan = json.loads(plan_file.read_text())
+    plan["group_map"]["g1"]["geolens_group"] = ""
+    plan_file.write_text(json.dumps(plan))
+
+    assert _run(runner, plan_file)[0].exit_code == 0
+
+    notes = _state(plan_file)["items"][A2]["notes"]
+    assert any("made private" in note for note in notes)

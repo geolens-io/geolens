@@ -114,6 +114,12 @@ def sharing_losses(
                 f"the members of ArcGIS group {group} weren't read, so its GeoLens "
                 f"group {made['name']} lacks them: {made['members_unread']}"
             )
+        elif made.get("unsynced"):
+            out.append(
+                f"{len(made['unsynced'])} ArcGIS member(s) of group {group} aren't "
+                f"in the existing GeoLens group {made['name']}, whose members this "
+                "command leaves as they are"
+            )
     return out
 
 

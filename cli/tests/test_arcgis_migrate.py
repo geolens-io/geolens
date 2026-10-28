@@ -179,6 +179,7 @@ def geolens(fake_geolens):
             "GET /auth/me/": users[0],
             "GET /admin/users/": {"users": users, "total": len(users)},
             "GET /settings/all/": _settings(DEFAULT_ROLES),
+            "GET /settings/feature-flags/": {"restrict_public_visibility": False},
         }
     )
     return fake_geolens
