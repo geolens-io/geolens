@@ -191,13 +191,23 @@ def get_map(geolens: GeoLens, map_id: str) -> Any:
     return geolens.call(get.sync_detailed, map_id=UUID(map_id))
 
 
+def map_state(found: Any) -> dict[str, str]:
+    """What a later run compares to tell whether GeoLens changed a map."""
+    return {"owner": str(found.created_by), "updated_at": found.updated_at.isoformat()}
+
+
+def map_visibility(found: Any) -> str:
+    return str(getattr(found.visibility, "value", found.visibility))
+
+
 def _map_problem(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> str | None:
     """Why the GeoLens map recorded for the item doesn't stand as migrated:
     gone, unreadable, owned by someone else than it was handed to, or with a
-    visibility other than the plan's. A map
-    isn't updated by a rerun, so a difference is reported for the operator."""
+    visibility other than the plan's that its groups can't settle. A rerun
+    changes only a map's groups, so any other difference is reported for the
+    operator."""
     gone = "the migrated map is gone from GeoLens"
     if not entry.map_id:
         return gone
@@ -215,8 +225,10 @@ def _map_problem(
             "it over; check who should own it"
         )
     wanted = item["target"]["visibility"]
-    current = getattr(found.visibility, "value", found.visibility)
-    if current != wanted:
+    current = map_visibility(found)
+    # Between private and restricted the map's groups decide, which sharing
+    # the item brings up to date afterwards.
+    if current != wanted and not {current, wanted} <= {"private", "restricted"}:
         return (
             f"the plan gives the web map visibility {wanted} but the GeoLens map "
             f"is {current}; set it by hand or rerun with the plan matching"
@@ -228,9 +240,10 @@ def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
     """Why a migrated web map may not match its portal item: gone from
-    GeoLens, shared differently than the plan says, changed in the portal
-    since it was read for the import, or with no way to tell. A web map isn't
-    translated again; the operator updates the GeoLens map."""
+    GeoLens, shared differently than the plan says in a way its groups can't
+    settle, changed in the portal since it was read for the import, or with no
+    way to tell. A web map isn't translated again; the operator updates the
+    GeoLens map."""
     problem = _map_problem(ctx, item, entry)
     if problem:
         return [problem]

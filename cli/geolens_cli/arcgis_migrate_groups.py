@@ -9,15 +9,20 @@ ArcGIS group, and fills with the group's members. Members resolve like
 owners, through ``owner_map`` or else by the same name in GeoLens, when the
 email the inventory read for them is the account's; one that doesn't resolve
 yet, or whose add GeoLens refused, stays pending and is added by a later run.
+A member this command added to a group it created is removed again once
+none of the ArcGIS names it added them for is listed; members added or
+removed in GeoLens stay as they are.
 Members of an existing group are left as they are, since adding to it would
 also give them everything else that group can read; the ArcGIS members it
 lacks are recorded instead.
 
 An item's datasets and map are then shared with those groups as the
-operator, an admin. Groups are only ever added, never removed, and one this
-command shared a dataset or map with is not added to it again, so a group
-someone removed in GeoLens stays removed. A restricted item none of whose groups maps to a
-GeoLens group becomes private. Under ``restrict_public_visibility`` a public
+operator, an admin. A rerun follows the plan: it adds the groups the item now
+names and removes those its own writes added that the item no longer names.
+Groups shared in GeoLens stay, and one this command shared a dataset or map
+with is not added to it again, so a group someone removed in GeoLens stays
+removed. A restricted item none of whose groups maps to a GeoLens group
+becomes private. Under ``restrict_public_visibility`` a public
 item whose owner isn't an admin becomes internal, as GeoLens would refuse
 that owner public.
 """
@@ -215,6 +220,8 @@ class GroupPlan:
     warnings: list[str] = field(default_factory=list)
     # Requests that failed; the run exits non-zero.
     failures: list[str] = field(default_factory=list)
+    # ArcGIS group id -> the GeoLens users this run removed from its group.
+    removed: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -224,6 +231,8 @@ class _Members:
     users: list[tuple[str, Any]] = field(default_factory=list)
     pending: list[dict[str, str]] = field(default_factory=list)
     unread: str | None = None
+    # Every ArcGIS username the inventory listed, resolved or not, folded.
+    listed: set[str] = field(default_factory=set)
 
 
 def _resolve_member(
@@ -267,6 +276,7 @@ def _resolve_members(
             members.get("members_unread") or "the inventory didn't read its members"
         )
     for username in members.get("members") or []:
+        out.listed.add(username.casefold())
         user, reason = _resolve_member(directory, plan, emails, username)
         if user is None:
             out.pending.append({"member": username, "reason": str(reason)})
@@ -283,7 +293,14 @@ def _fill(
 ) -> str | None:
     """Add the members who resolve to the group this command created, and
     record those who don't yet, a refused add among them; why adding failed,
-    or None."""
+    or None.
+
+    Every user it adds, or finds already in the group, is recorded in
+    ``added`` and never added again, so a member someone removes in GeoLens
+    stays removed. Only those it adds itself go in ``joined``, with the
+    ArcGIS names they were added for; one no longer in the group is dropped
+    from it, so a member someone removed and added back by hand is theirs.
+    """
     from geolens.api.admin import (
         add_group_members_admin_groups_group_id_members_post as add,
     )
@@ -293,31 +310,117 @@ def _fill(
     record["pending"] = list(members.pending)
     record["members"] = {name: user.username for name, user in members.users}
     added = set(record.get("added") or [])
-    new = [(n, str(u.id)) for n, u in members.users if str(u.id) not in added]
-    new = list({user_id: (n, user_id) for n, user_id in new}.values())
+    joined = {u: set(names) for u, names in (record.get("joined") or {}).items()}
+    present = _member_ids(geolens, record["id"]) if record.get("id") else None
+    if present is not None:
+        joined = {u: names for u, names in joined.items() if u in present}
+    new: dict[str, set[str]] = {}
+    for name, user in members.users:
+        user_id = str(user.id)
+        if user_id in joined:
+            joined[user_id].add(name)
+        elif user_id in added:
+            continue
+        elif present is not None and user_id in present:
+            added.add(user_id)
+        else:
+            new.setdefault(user_id, set()).add(name)
+    pending = list(new.items())
     failed = None
-    for start in range(0, len(new), MEMBER_BATCH):
-        batch = new[start : start + MEMBER_BATCH]
+    for start in range(0, len(pending), MEMBER_BATCH):
+        batch = pending[start : start + MEMBER_BATCH]
         if not dry_run:
             try:
                 geolens.call(
                     add.sync_detailed,
                     group_id=UUID(record["id"]),
-                    body=GroupMembersAdd(user_ids=[UUID(u) for _n, u in batch]),
+                    body=GroupMembersAdd(user_ids=[UUID(u) for u, _n in batch]),
                 )
             except GeoLensError as exc:
                 failed = (
                     f"adding members to GeoLens group {record['name']} failed, {exc}"
                 )
-                for name, _user_id in new[start:]:
-                    record["members"].pop(name, None)
-                    record["pending"].append(
-                        {"member": name, "reason": f"{failed}; a later run tries again"}
-                    )
+                for _user_id, names in pending[start:]:
+                    for name in sorted(names):
+                        record["members"].pop(name, None)
+                        record["pending"].append(
+                            {
+                                "member": name,
+                                "reason": f"{failed}; a later run tries again",
+                            }
+                        )
                 break
-        added.update(user_id for _n, user_id in batch)
+        for user_id, names in batch:
+            added.add(user_id)
+            joined[user_id] = names
     record["added"] = sorted(added)
+    record["joined"] = {u: sorted(names) for u, names in sorted(joined.items())}
     return failed
+
+
+def _prune(
+    geolens: Any,
+    record: dict[str, Any],
+    members: _Members,
+    names: Mapping[str, str],
+    dry_run: bool,
+    earlier: list[str] | None = None,
+) -> tuple[list[str], str | None, list[str]]:
+    """Remove from the group this command created each member it added once
+    none of the ArcGIS names they were added for is listed any more. Returns
+    who it removed, why a removal failed or None, and warnings.
+
+    Nothing is removed while the ArcGIS members weren't read, and a listed
+    member who no longer resolves keeps the user they were added as.
+    *earlier* lists the members a group record from before ``joined`` was
+    kept says this command added, which it can't tell from anyone else's: it
+    removes none of them and says so, once, since the record then has
+    ``joined``. *names* maps GeoLens user ids to usernames for the report.
+    """
+    from geolens.api.admin import (
+        remove_group_member_admin_groups_group_id_members_user_id_delete as remove,
+    )
+
+    warnings = []
+    if earlier:
+        warnings.append(
+            f"GeoLens group {record['name']} has members an earlier version of "
+            "this command added without recording which ArcGIS member each was "
+            "for, so none of them is removed when they leave the ArcGIS group; "
+            "check them by hand: " + ", ".join(names.get(u, u) for u in earlier)
+        )
+    if members.unread is not None:
+        return [], None, warnings
+    joined = dict(record.get("joined") or {})
+    removed: list[str] = []
+    for user_id, given in sorted(joined.items()):
+        if any(name.casefold() in members.listed for name in given):
+            continue
+        if not dry_run:
+            try:
+                geolens.call(
+                    remove.sync_detailed,
+                    group_id=UUID(record["id"]),
+                    user_id=UUID(user_id),
+                    expected=204,
+                )
+            except GeoLensError as exc:
+                if exc.status != 404:
+                    return (
+                        removed,
+                        f"removing a member who left ArcGIS group "
+                        f"{record['name']} from its GeoLens group failed, {exc}",
+                        warnings,
+                    )
+                # Someone removed them in GeoLens already; that stays.
+                del joined[user_id]
+                record["joined"] = joined
+                continue
+            del joined[user_id]
+            record["joined"] = joined
+            record["added"] = sorted(set(record.get("added") or []) - {user_id})
+        removed.append(names.get(user_id, user_id))
+    return removed, None, warnings
 
 
 def _named(geolens: Any, found: Any, members: _Members) -> dict[str, Any]:
@@ -429,6 +532,7 @@ def prepare_groups(
                 "name": free[0] if free else title,
                 "created": True,
                 "added": [],
+                "joined": {},
             }
         else:
             record = None
@@ -440,6 +544,7 @@ def prepare_groups(
                         "name": created.name,
                         "created": True,
                         "added": [],
+                        "joined": {},
                     }
                     break
             if record is None:
@@ -450,19 +555,69 @@ def prepare_groups(
                 )
             state.groups[arcgis_id] = record
             state.save()
+        earlier = None if "joined" in record else sorted(record.get("added") or [])
         failed = _fill(geolens, record, members, dry_run)
+        if failed:
+            out.failures.append(failed)
+        removed, failed, notes = _prune(
+            geolens,
+            record,
+            members,
+            getattr(directory, "usernames", {}),
+            dry_run,
+            earlier,
+        )
+        out.warnings.extend(notes)
         if failed:
             out.failures.append(failed)
         if not dry_run:
             state.groups[arcgis_id] = record
             state.save()
-        out.groups[arcgis_id] = record
+        out.removed[arcgis_id] = removed
+        out.groups[arcgis_id] = {**record, "removed": removed}
     return out
 
 
 def _dataset_groups(dataset: Any) -> set[str]:
     groups = getattr(dataset, "groups", None)
     return {str(g.id) for g in groups} if isinstance(groups, list) else set()
+
+
+def _changes(
+    target: Mapping[str, Any], entry: ItemState, object_id: str
+) -> tuple[set[str], set[str]]:
+    """The groups to add to one of the item's objects, those this command
+    hasn't shared it with yet, and those to remove: groups its own writes
+    added that the target no longer names, none while the item's ArcGIS
+    groups weren't read."""
+    wanted = set(target["geolens_groups"] or [])
+    new = wanted - set(entry.groups.get(object_id) or [])
+    granted = set(entry.granted.get(object_id) or [])
+    gone = granted - wanted if target.get("groups") is not None else set()
+    return new, gone
+
+
+def pending_sharing(item: Mapping[str, Any], entry: ItemState) -> list[str]:
+    """Why a rerun that didn't share the item leaves its groups behind the
+    plan: the groups each of its objects would gain or lose."""
+    target = item["target"]
+    if "geolens_groups" not in target:
+        return []
+    out = []
+    for object_id in [*entry.dataset_ids, *([entry.map_id] if entry.map_id else [])]:
+        new, gone = _changes(target, entry, object_id)
+        changes = [
+            f"{verb} {', '.join(sorted(ids))}"
+            for verb, ids in (("add", new), ("remove", gone))
+            if ids
+        ]
+        if changes:
+            what = "map" if object_id == entry.map_id else "dataset"
+            out.append(
+                f"{what} {object_id} still needs its groups changed "
+                f"({'; '.join(changes)}), which waits until the item is up to date"
+            )
+    return out
 
 
 def share(
@@ -472,67 +627,193 @@ def share(
     *,
     with_map: bool = True,
 ) -> list[str]:
-    """Share each of the item's datasets, and with *with_map* its map, with the
-    GeoLens groups its target names that this command hasn't shared that one
-    with yet; each keeps the groups it already has. Each share is recorded as
-    it lands. Returns why the map lacks groups it would get, when *with_map*
-    is false."""
+    """Bring the groups each of the item's datasets, and its map, is shared
+    with to the ones its target names: add those this command hasn't shared
+    that object with yet, and remove those its own writes added that the
+    target no longer names. Groups shared in GeoLens stay, and so does a group
+    someone removed there. Nothing is removed while the item's ArcGIS groups
+    weren't read. Each share is recorded as it lands.
+
+    With *with_map* (the import) the map only gains groups; without it (a
+    rerun) the map is changed only while it is as this command left it, and
+    the reasons it couldn't be are returned.
+    """
     from geolens.api.datasets_metadata import (
         set_dataset_groups_endpoint_datasets_dataset_id_groups_put as put_dataset,
     )
     from geolens.models.dataset_groups_update import DatasetGroupsUpdate
 
-    from .arcgis_migrate_refresh import changed_in_geolens, get_dataset
+    from .arcgis_migrate_refresh import changed_in_geolens, get_dataset, snapshot
 
-    wanted = set(item["target"].get("geolens_groups") or [])
-    if not wanted:
+    target = item["target"]
+    if "geolens_groups" not in target:
         return []
     try:
         for dataset_id in entry.dataset_ids:
-            given = set(entry.groups.get(dataset_id) or [])
-            new = wanted - given
-            if not new:
+            new, gone = _changes(target, entry, dataset_id)
+            if not new and not gone and not entry.granted.get(dataset_id):
                 continue
             before = get_dataset(ctx, dataset_id)
+            gone &= _held(ctx, entry, dataset_id, _dataset_groups(before))
+            if not new and not gone:
+                continue
             baseline = dataset_id in entry.last_update
             changed = (
                 changed_in_geolens(ctx, entry, dataset_id, before) if baseline else None
             )
             if changed:
                 raise ItemFailed(
-                    f"dataset {dataset_id} was {changed}, so it wasn't shared with "
-                    "its new groups; it was left as it is"
+                    f"dataset {dataset_id} was {changed}, so its groups weren't "
+                    "changed; it was left as it is"
                 )
             # The write replaces the whole list and takes no precondition, so
             # the grants are read again right before it; a change landing
             # between that read and the write is still overwritten.
-            current = _dataset_groups(get_dataset(ctx, dataset_id))
-            if not new <= current:
+            again = get_dataset(ctx, dataset_id)
+            if baseline and snapshot(again) != snapshot(before):
+                raise ItemFailed(
+                    f"dataset {dataset_id} changed in GeoLens while its groups were "
+                    "read; it was left as it is"
+                )
+            current = _dataset_groups(again)
+            groups = (current | new) - gone
+            # GeoLens makes a private dataset shared with any group restricted.
+            if (
+                groups != current
+                and groups
+                and getattr(again, "visibility", None) == "private"
+                and target["visibility"] != RESTRICTED
+            ):
+                raise ItemFailed(
+                    f"dataset {dataset_id} is private, and keeping groups "
+                    f"{', '.join(sorted(groups))} on it would make it restricted; "
+                    "it was left as it is. Remove those groups from it by hand"
+                )
+            if groups != current:
                 ctx.geolens.call(
                     put_dataset.sync_detailed,
                     dataset_id=UUID(dataset_id),
                     body=DatasetGroupsUpdate(
-                        group_ids=[UUID(g) for g in sorted(current | new)]
+                        group_ids=[UUID(g) for g in sorted(groups)]
                     ),
                 )
                 if baseline:
                     _record_share(ctx, entry, dataset_id, before)
-            entry.groups[dataset_id] = sorted(given | new)
+            _shared(entry, dataset_id, new, gone, added=new - current)
             ctx.save()
         map_id = entry.map_id
-        new = wanted - set(entry.groups.get(map_id) or []) if map_id else set()
-        if map_id and new and not with_map:
-            return [
-                "its GeoLens map isn't shared with groups "
-                + ", ".join(sorted(new))
-                + ", and a rerun leaves the map as it is; share it by hand"
-            ]
-        if map_id and new:
-            _share_map(ctx, map_id, new)
-            entry.groups[map_id] = sorted(set(entry.groups.get(map_id) or []) | new)
-            ctx.save()
+        if not map_id:
+            return []
+        new, gone = _changes(target, entry, map_id)
+        if with_map:
+            if new:
+                added = _share_map(ctx, map_id, new, set())
+                _shared(entry, map_id, new, set(), added=added)
+                ctx.save()
+            return []
+        return _merge_map(ctx, target, entry, map_id, new, gone)
     except GeoLensError as exc:
         raise ItemFailed(f"sharing it with its GeoLens groups failed, {exc}") from None
+
+
+def _held(
+    ctx: MigrationContext, entry: ItemState, object_id: str, current: set[str]
+) -> set[str]:
+    """The groups this command's writes gave the object that it still has.
+    One someone removed in GeoLens is no longer counted as this command's, so
+    a later run never removes it after they share it again; ``entry.groups``
+    still keeps it from being added back."""
+    granted = set(entry.granted.get(object_id) or [])
+    held = granted & current
+    if held != granted:
+        if held:
+            entry.granted[object_id] = sorted(held)
+        else:
+            entry.granted.pop(object_id, None)
+        ctx.save()
+    return held
+
+
+def _shared(
+    entry: ItemState, object_id: str, new: set[str], gone: set[str], *, added: set[str]
+) -> None:
+    """Record a share of one object: *new* groups it now has from this
+    command, *gone* ones it removed, and the groups its write *added*."""
+    for record, groups in (
+        (entry.groups, (set(entry.groups.get(object_id) or []) | new) - gone),
+        (entry.granted, (set(entry.granted.get(object_id) or []) | added) - gone),
+    ):
+        if groups:
+            record[object_id] = sorted(groups)
+        else:
+            record.pop(object_id, None)
+
+
+def _merge_map(
+    ctx: MigrationContext,
+    target: Mapping[str, Any],
+    entry: ItemState,
+    map_id: str,
+    new: set[str],
+    gone: set[str],
+) -> list[str]:
+    """On a rerun, add *new* groups to the item's map and remove *gone* ones
+    while the map is as this command left it and its sharing is a matter of
+    groups (private or restricted, here and in the target); why the map isn't
+    shared as the target says."""
+    from .arcgis_migrate_webmaps import get_map, map_state, map_visibility
+
+    found = get_map(ctx.geolens, map_id)
+    gone &= _held(ctx, entry, map_id, _dataset_groups(found))
+    wanted = target["visibility"]
+    if new or gone:
+        if entry.map_snapshot is None:
+            return [
+                "the state doesn't record how this command left its GeoLens map, "
+                "so its groups were left as they are; share it by hand"
+            ]
+        if map_state(found) != entry.map_snapshot:
+            return [
+                "its GeoLens map was changed in GeoLens since the last run, so its "
+                "groups were left as they are; share it by hand"
+            ]
+        groups = (_dataset_groups(found) | new) - gone
+        if map_visibility(found) == "private" and groups and wanted != RESTRICTED:
+            return [
+                "its GeoLens map is private, and sharing it with groups "
+                f"{', '.join(sorted(groups))} would make it restricted, which the "
+                "plan doesn't say; its groups were left as they are"
+            ]
+        if {map_visibility(found), wanted} <= {"private", RESTRICTED}:
+            added = _share_map(ctx, map_id, new, gone, entry.map_snapshot)
+            if added is None:
+                return [
+                    "its GeoLens map changed in GeoLens while its groups were "
+                    "read, so they were left as they are; share it by hand"
+                ]
+            after = get_map(ctx.geolens, map_id)
+            # A grant change moves the map's timestamp only when it flips the
+            # map between private and restricted; any other move is someone
+            # else's edit, which a later run reports.
+            made = RESTRICTED if groups else "private"
+            if (
+                str(after.created_by) == str(found.created_by)
+                and map_visibility(after) == made
+                and (
+                    after.updated_at == found.updated_at
+                    or map_visibility(found) != made
+                )
+            ):
+                entry.map_snapshot = map_state(after)
+            _shared(entry, map_id, new, gone, added=added)
+            ctx.save()
+            found = after
+    current = map_visibility(found)
+    if current != wanted:
+        return [
+            f"the plan gives the web map visibility {wanted} but the GeoLens map "
+            f"is {current}; set it by hand"
+        ]
     return []
 
 
@@ -565,21 +846,35 @@ def _record_share(
     record(entry, dataset_id, after)
 
 
-def _share_map(ctx: MigrationContext, map_id: str, new: set[str]) -> None:
+def _share_map(
+    ctx: MigrationContext,
+    map_id: str,
+    new: set[str],
+    gone: set[str],
+    left: Mapping[str, Any] | None = None,
+) -> set[str] | None:
+    """Share the map with its current groups plus *new* minus *gone*; the
+    groups the write added. With *left*, the map as this command left it,
+    nothing is written and None returned once the map no longer matches."""
     from geolens.api.maps import set_map_groups_endpoint_maps_map_id_groups_put as put
     from geolens.models.map_groups_update import MapGroupsUpdate
 
-    from .arcgis_migrate_webmaps import get_map
+    from .arcgis_migrate_webmaps import get_map, map_state
 
-    current = _dataset_groups(get_map(ctx.geolens, map_id))
-    if new <= current:
-        return
+    read = get_map(ctx.geolens, map_id)
+    if left is not None and map_state(read) != left:
+        return None
+    current = _dataset_groups(read)
+    groups = (current | new) - gone
+    if groups == current:
+        return set()
     # Each layer's dataset is shared as its own plan item says, so layers
     # a group can't read stay hidden from it rather than being widened.
     ctx.geolens.call(
         put.sync_detailed,
         map_id=UUID(map_id),
         body=MapGroupsUpdate(
-            group_ids=[UUID(g) for g in sorted(current | new)], confirm="map_only"
+            group_ids=[UUID(g) for g in sorted(groups)], confirm="map_only"
         ),
     )
+    return groups - current

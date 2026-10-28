@@ -300,8 +300,10 @@ def build_run_report(
     stopped: str | None = None,
     cutover: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
+    members_removed: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
-    """The report of the whole plan as of *state*."""
+    """The report of the whole plan as of *state*; *members_removed* holds the
+    users this run removed from each ArcGIS group's GeoLens group."""
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -341,6 +343,7 @@ def build_run_report(
                 "members_pending": len(group.get("pending") or []),
                 "members_unsynced": len(group.get("unsynced") or []),
                 "members_unread": group.get("members_unread"),
+                "members_removed": list((members_removed or {}).get(group_id, [])),
             }
             for group_id, group in sorted(state.groups.items())
         ],
@@ -452,6 +455,13 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
                 lines += [
                     f"- {esc(member)}: {esc(user)}"
                     for member, user in g["members"].items()
+                ]
+            if g["members_removed"]:
+                lines += [
+                    "",
+                    f"Removed from {esc(g['name'] or g['arcgis_group'])} after "
+                    "leaving the ArcGIS group: "
+                    + ", ".join(esc(user) for user in g["members_removed"]),
                 ]
     for heading, superseded in (
         ("Items GeoLens can't host", False),

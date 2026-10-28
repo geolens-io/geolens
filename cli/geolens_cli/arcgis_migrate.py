@@ -50,6 +50,7 @@ from .arcgis_migrate_groups import (
     GroupPlan,
     GroupUsageError,
     Sharing,
+    pending_sharing,
     prepare_groups,
     share,
 )
@@ -65,7 +66,7 @@ from .arcgis_migrate_refresh import (
     refresh_layers,
     snapshot,
 )
-from .arcgis_migrate_webmaps import get_map, import_map, refresh_map
+from .arcgis_migrate_webmaps import get_map, import_map, map_state, refresh_map
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -86,6 +87,7 @@ from .arcgis_migrate_state import (
     MigrationState,
     StateError,
     _now,
+    aware_time,
     release_locks,
 )
 from .publish import _web_origin
@@ -377,6 +379,7 @@ class _Directory:
         self.admins = frozenset(
             str(user.id) for user in users_seen if "admin" in (user.roles or [])
         )
+        self.usernames = {str(user.id): user.username for user in users_seen}
 
     def find(self, name: str) -> Any | None:
         """The one user *name* names, or None; ``UsageError`` when one user's
@@ -623,6 +626,21 @@ def mark_cutover(
     }
 
 
+def _handover(geolens: GeoLens, owner: Owner, what: str, **kwargs: Any) -> Any:
+    """The ownership write for *what*; a new owner whose role can't hold it
+    is asked to be promoted rather than reported as GeoLens's refusal."""
+    try:
+        return geolens.write(during=f"{what} was handed over", **kwargs)
+    except GeoLensError as exc:
+        if exc.status == 422 and "role does not grant" in str(exc.detail):
+            raise ItemFailed(
+                f"{what} wasn't handed to {owner.username}, whose role can't own "
+                f"it; promote {owner.username} to editor in GeoLens and run "
+                "again, or pass --unmapped-owner to hold it meanwhile"
+            ) from None
+        raise
+
+
 def transfer_dataset(
     geolens: GeoLens, dataset_id: str, owner: Owner, read: Any = None
 ) -> Any:
@@ -636,37 +654,53 @@ def transfer_dataset(
 
     if read is None:
         read = geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
-    return geolens.write(
-        patch_dataset.sync_detailed,
-        during=f"dataset {dataset_id} was handed over",
+    return _handover(
+        geolens,
+        owner,
+        f"dataset {dataset_id}",
+        fn=patch_dataset.sync_detailed,
         dataset_id=UUID(dataset_id),
         body=DatasetMeta(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
     )
 
 
-def _map_state(found: Any) -> dict[str, str]:
-    return {"owner": str(found.created_by), "updated_at": found.updated_at.isoformat()}
-
-
-def _transfer_map(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
+def _transfer_map(
+    geolens: GeoLens, entry: ItemState, owner: Owner, *, handover: bool = False
+) -> None:
     """Hand the item's map to *owner*, unless somebody changed it in GeoLens
-    since this command left it; the map as the transfer left it is recorded."""
+    since this command left it; the map as the transfer left it is recorded.
+
+    A *handover* of a finished item whose state records no map snapshot moves
+    the map only while it still has the owner this command gave it and wasn't
+    changed after the item finished.
+    """
     from geolens.api.maps import patch_map_endpoint_maps_map_id_patch as patch_map
     from geolens.models.map_patch import MapPatch
 
     map_id = entry.map_id or ""
     read = get_map(geolens, map_id)
     seen = entry.map_snapshot
-    if seen is None or _map_state(read) == seen:
-        read = geolens.write(
-            patch_map.sync_detailed,
-            during=f"map {map_id} was handed over",
+    if seen is None and handover:
+        finished = aware_time(entry.finished_at)
+        untouched = (
+            finished is not None
+            and str(read.created_by) == entry.owner_id
+            and read.updated_at <= finished
+        )
+    else:
+        untouched = seen is None or map_state(read) == seen
+    if untouched:
+        read = _handover(
+            geolens,
+            owner,
+            f"map {map_id}",
+            fn=patch_map.sync_detailed,
             map_id=UUID(map_id),
             body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
         )
     elif str(read.created_by) != owner.id:
         raise ItemFailed(f"map {map_id} was changed in GeoLens since the last run")
-    entry.map_snapshot = _map_state(read)
+    entry.map_snapshot = map_state(read)
 
 
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
@@ -817,7 +851,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
         )
         ctx.save()
     if entry.map_id:
-        _transfer_map(ctx.geolens, entry, owner)
+        _transfer_map(ctx.geolens, entry, owner, handover=True)
     entry.owner_id = owner.id
 
 
@@ -850,7 +884,13 @@ def refresh_finished(
     items: Sequence[Mapping[str, Any]],
     summary: RunSummary,
 ) -> None:
-    """Bring each finished item up to date and record why any isn't."""
+    """Bring each finished item up to date and record why any isn't.
+
+    GeoLens refuses to take a group from a dataset while one of its owner's
+    maps shared with that group still shows it, so an item whose share failed
+    is shared again once every map has had its turn.
+    """
+    refused: list[tuple[Mapping[str, Any], ItemState]] = []
     for item in items:
         entry = state.items[item["id"]]
         summary.refreshed.append(item["id"])
@@ -859,16 +899,26 @@ def refresh_finished(
         entry.notes.extend(n for n in map(state.clean, notes) if n not in entry.notes)
         try:
             reasons = REFRESHERS[item["action"]](ctx, item, entry)
-            if not reasons:
+            if reasons:
+                reasons += pending_sharing(item, entry)
+            else:
                 try:
-                    # A rerun leaves a map as it is, so its missing groups are reported.
                     reasons = share(ctx, item, entry, with_map=False)
                 except ItemFailed as exc:
                     reasons = [str(exc)]
+                    refused.append((item, entry))
         except StopRun as exc:
             entry.stale = [state.clean(str(exc))]
             summary.stopped = entry.stale[0]
-            break
+            return
+        entry.stale = [state.clean(reason) for reason in reasons]
+        state.save()
+    for item, entry in refused:
+        try:
+            reasons = share(ctx, item, entry, with_map=False)
+        except ItemFailed:
+            # The first refusal says best what went wrong.
+            continue
         entry.stale = [state.clean(reason) for reason in reasons]
         state.save()
 
@@ -928,6 +978,7 @@ def _report_files(
     redact: Redactor,
     stopped: str | None,
     cutover: Mapping[str, Any] | None = None,
+    groups: GroupPlan | None = None,
 ) -> tuple[Path, Path]:
     return write_run_report(
         state.path.parent,
@@ -939,6 +990,7 @@ def _report_files(
             owner_unresolved=owners.unresolved,
             stopped=stopped,
             cutover=cutover,
+            members_removed=groups.removed if groups else None,
         ),
         redact,
     )
@@ -992,7 +1044,7 @@ def _report(
     if not opts.dry_run:
         try:
             report_files = _report_files(
-                state, plan, owners, redact, summary.stopped, cutover
+                state, plan, owners, redact, summary.stopped, cutover, groups
             )
         except OSError as exc:
             report_failed = True
@@ -1020,6 +1072,7 @@ def _report(
         "cutover": cutover,
         "groups": groups.groups,
         "group_warnings": groups.warnings,
+        "group_failures": groups.failures,
         "report": [str(p) for p in report_files] if report_files else None,
         "failed": failed,
     }
@@ -1133,6 +1186,9 @@ def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> N
             fmt.info(f"  ArcGIS {member} -> GeoLens {user}")
         for pending in [*group.get("pending", []), *group.get("unsynced", [])]:
             fmt.warn(f"{group['name']}: {pending['member']}: {pending['reason']}")
+        for user in group.get("removed", []):
+            verb = "would remove" if dry_run else "removed"
+            fmt.info(f"{group['name']}: {verb} {user}, who left the ArcGIS group")
         if group.get("members_unread"):
             fmt.warn(f"{group['name']}: members not read: {group['members_unread']}")
     for line in groups.warnings:
@@ -1508,7 +1564,7 @@ def _run(
             try:
                 state.save()
                 _json_path, md_path = _report_files(
-                    state, plan, owners, redact, stopped
+                    state, plan, owners, redact, stopped, groups=groups
                 )
                 fmt.info(f"Report: {md_path}")
             except OSError as exc:
