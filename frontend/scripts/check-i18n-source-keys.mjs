@@ -47,6 +47,7 @@ const NAMESPACES = [
   'admin',
   'builder',
   'report',
+  'widgets',
 ];
 
 const bundles = Object.fromEntries(NAMESPACES.map((ns) => [ns, loadBundle(ns)]));
