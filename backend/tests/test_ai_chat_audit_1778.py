@@ -99,15 +99,14 @@ def _layer(**overrides) -> ChatMapLayer:
 class _RecordingUsage:
     """Capture usage-recording calls instead of writing to the DB.
 
-    Stands in for both ``record_token_usage`` (db + keywords) and
-    ``record_token_usage_from_error`` (db, exception, keywords).
+    Stands in for ``record_token_usage`` (keywords only).
     """
 
     def __init__(self):
         self.calls: list[dict] = []
         self.errors: list[BaseException] = []
 
-    async def __call__(self, _db, *args, **kwargs):
+    async def __call__(self, *args, **kwargs):
         if args:
             self.errors.append(args[0])
         self.calls.append(kwargs)

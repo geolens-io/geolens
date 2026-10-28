@@ -471,7 +471,6 @@ async def generate_sql(
     # rows.
     if user_id is not None:
         await record_token_usage(
-            db,
             user_id=user_id,
             subsystem="sql_gen",
             model=model,

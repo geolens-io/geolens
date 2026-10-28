@@ -423,6 +423,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-install-bundled-cache.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-upgrade-order.sh'
               - 'scripts/tests/test-upgrading-doc-consistency.sh'
@@ -610,6 +611,9 @@ jobs:
 
       - name: Installer secret-generation regression test
         run: sh scripts/tests/test-install-secret-generation.sh
+
+      - name: Installer bundled-cache regression test
+        run: sh scripts/tests/test-install-bundled-cache.sh
 
       - name: Installer main() wrapper regression test
         run: sh scripts/tests/test-install-main-wrapper.sh

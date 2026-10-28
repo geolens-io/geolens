@@ -695,8 +695,9 @@ async def test_threaded_delivery_keeps_ownership_until_the_send_terminates(
     from app.core.config import settings
     from app.platform import notifications
     from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
-    from tests.fixtures.smtp_transport import SMTPTransport
+    from tests.fixtures.smtp_transport import SMTPTransport, warm_up_smtp_send
 
+    await warm_up_smtp_send(monkeypatch)
     active = 0
     overlap = False
     lock = threading.Lock()
@@ -730,13 +731,21 @@ async def test_threaded_delivery_keeps_ownership_until_the_send_terminates(
         transport.configure(monkeypatch)
         first = await health_svc.claim_health_alert(["database"])
         assert first is not None and first.shared
+        sent_at = time.monotonic()
         task = asyncio.create_task(
             health_svc._deliver_health_alert(
-                first.token, True, time.monotonic(), "database", "degraded"
+                first.token, True, sent_at, "database", "degraded"
             )
         )
         try:
-            assert await asyncio.to_thread(transport.data.wait, 1)
+            gated = await asyncio.to_thread(transport.data.wait, 1)
+            assert gated, (
+                "the first send never reached the DATA gate: "
+                f"{time.monotonic() - sent_at:.3f}s after it started against a "
+                f"{health_svc.HEALTH_ALERT_DELIVERY_TIMEOUT}s deadline, "
+                f"delivery finished={task.done()}, "
+                f"peer connections={transport.connections}"
+            )
             with _replica({}):
                 assert await health_svc.claim_health_alert(["database"]) is None
             # Pass the original lease while the peer is gated. A hard abort must
@@ -744,14 +753,20 @@ async def test_threaded_delivery_keeps_ownership_until_the_send_terminates(
             await asyncio.sleep(0.75)
             first_finished = task.done()
             live_before_successor = active
+            # Only the first send's deadline is under test; on a loaded runner
+            # the successor's whole send must not race its own lease or deadline.
+            monkeypatch.setattr(health_svc, "HEALTH_ALERT_DELIVERY_TIMEOUT", 30)
+            monkeypatch.setattr(health_svc, "HEALTH_ALERT_CLAIM_SECS", 60)
             with _replica({}):
                 successor = await health_svc.claim_health_alert(["database"])
             transport.release_data.set()
             await task
             assert successor is not None
+            successor_started = time.monotonic()
             await health_svc._deliver_health_alert(
-                successor.token, True, time.monotonic(), "database", "degraded"
+                successor.token, True, successor_started, "database", "degraded"
             )
+            successor_finished = time.monotonic()
         finally:
             transport.release_data.set()
             await task
@@ -760,17 +775,13 @@ async def test_threaded_delivery_keeps_ownership_until_the_send_terminates(
         assert not overlap, "a successor sent while the first SMTP worker was live"
         assert first_finished and live_before_successor == 0
         assert active == 0
-        remaining = (
-            get_cache()._store[health_svc._HEALTH_ALERT_KEY][1] - time.monotonic()
+        expiry = get_cache()._store[health_svc._HEALTH_ALERT_KEY][1]
+        ttl = (
+            health_svc.HEALTH_ALERT_RETRY_SECS
+            if fail_after_send
+            else health_svc.HEALTH_ALERT_COOLDOWN_SECS
         )
-        if fail_after_send:
-            assert 0 < remaining <= health_svc.HEALTH_ALERT_RETRY_SECS
-        else:
-            assert (
-                health_svc.HEALTH_ALERT_COOLDOWN_SECS - 1
-                < remaining
-                <= health_svc.HEALTH_ALERT_COOLDOWN_SECS
-            )
+        assert successor_started + ttl <= expiry <= successor_finished + ttl
 
 
 async def test_success_renews_a_redis_claim_with_one_second_left(monkeypatch, sent):
