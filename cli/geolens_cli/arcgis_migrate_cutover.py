@@ -162,6 +162,7 @@ def _users(
     plan: Mapping[str, Any],
     state: MigrationState,
     unresolved: Iterable[Mapping[str, str]],
+    prepared: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     out = []
     for item in plan["items"]:
@@ -170,15 +171,25 @@ def _users(
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
     needed = groups_in_use(plan, state)
-    for group_id, made in sorted(state.groups.items()):
-        if not in_use(made) or group_id not in needed:
+    for group_id in sorted(needed):
+        recorded = state.groups.get(group_id)
+        planned = (prepared or {}).get(group_id)
+        if planned is None and not in_use(recorded):
             continue
-        for pending in made.get("pending") or []:
+        made = planned or recorded
+        # A dry run records no group, so what this run resolved joins the
+        # members an earlier run left pending.
+        pending = {
+            p["member"]: p
+            for source in (recorded if in_use(recorded) else None, planned)
+            for p in (source or {}).get("pending") or []
+        }
+        for member, pending_member in pending.items():
             out.append(
                 {
                     "item": f"group {group_id}",
-                    "reason": f"member {pending['member']} isn't in GeoLens group "
-                    f"{made['name']}: {pending['reason']}",
+                    "reason": f"member {member} isn't in GeoLens group "
+                    f"{made['name']}: {pending_member['reason']}",
                 }
             )
     return out
@@ -285,13 +296,14 @@ def failing_checks(
     state: MigrationState,
     unresolved: Sequence[Mapping[str, str]] = (),
     inventory_changed: str | None = None,
+    prepared_groups: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Every check that fails as of *state*, with the items it names."""
     found = {
         UNFINISHED: _unfinished(plan, state),
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
-        USERS: _users(plan, state, unresolved),
+        USERS: _users(plan, state, unresolved, prepared_groups),
         SHARING: _sharing(plan, state),
     }
     return [{"check": name, "items": found[name]} for name in CHECKS if found[name]]

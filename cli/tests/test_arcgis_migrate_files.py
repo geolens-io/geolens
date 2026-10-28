@@ -182,6 +182,37 @@ def test_a_public_csv_is_downloaded_uploaded_and_committed(
     }
 
 
+@pytest.mark.parametrize("earlier", ["export_only", "skip"])
+def test_a_finished_item_whose_action_became_an_import_is_imported(
+    runner, tmp_path, geolens, portal, earlier
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+
+    def set_action(action: str) -> None:
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] == D3:
+                item["action"] = action
+        plan_file.write_text(json.dumps(plan))
+
+    set_action(earlier)
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
+    assert not files.uploads
+    set_action("import_file")
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    [job] = files.commits
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["dataset_ids"] == [dataset_id(job)]
+    assert entry["export"] is None
+
+    _migrate(runner, plan_file, "--only", D3)
+    assert len(files.commits) == 1
+
+
 def test_a_private_file_is_downloaded_with_the_token(runner, tmp_path, geolens, portal):
     FakeFiles(geolens)
     plan_file = _plan(tmp_path, public=False)
