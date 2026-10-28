@@ -18,7 +18,8 @@ def zip_single_folder(file_path: str) -> str | None:
     try:
         with zipfile.ZipFile(file_path) as archive:
             names = [
-                n.replace("\\", "/")
+                # GDAL lists members without a leading "./".
+                n.replace("\\", "/").removeprefix("./")
                 for n in archive.namelist()
                 if not n.startswith("__MACOSX/")
             ]

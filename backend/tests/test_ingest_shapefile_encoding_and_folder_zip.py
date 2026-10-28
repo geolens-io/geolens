@@ -138,6 +138,7 @@ def test_zip_with_root_files_or_several_folders_is_not_descended(tmp_path):
         (["d.gdb/", "d.gdb/a00000001.gdbtable"], "d.gdb"),
         (["export/d.gdb/a00000001.gdbtable"], "export/d.gdb"),
         (["d.gdb/a00000001.gdbtable", "readme.txt"], "d.gdb"),
+        (["./d.gdb/", "./d.gdb/a00000001.gdbtable"], "d.gdb"),
     ],
 )
 def test_a_zip_holding_one_geodatabase_opens_its_gdb_folder(tmp_path, members, folder):
@@ -163,6 +164,18 @@ async def test_a_geodatabase_zip_named_without_gdb_previews_and_loads(
         assert count == 3
     finally:
         await _drop(test_db_session, table)
+
+
+async def test_a_geodatabase_zip_with_dot_slash_members_previews(tmp_path):
+    source = tmp_path / "export.zip"
+    with (
+        zipfile.ZipFile(FIXTURES / "tier1_points_gdb.zip") as src,
+        zipfile.ZipFile(source, "w") as out,
+    ):
+        for info in src.infolist():
+            out.writestr(f"./{info.filename}", src.read(info))
+    preview = await ogr.run_ogrinfo_preview(str(source))
+    assert len(preview["sample_rows"]) == 3
 
 
 async def test_macos_metadata_does_not_count_as_a_declared_encoding(
