@@ -1338,9 +1338,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_common.py": 1881,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
-    # live-edit comparison each publication makes, and a service re-upload's
-    # review of the changes its preview showed.
-    "backend/app/processing/ingest/tasks_reupload.py": 1632,
+    # live-edit comparison each publication makes, a service re-upload's
+    # review of the changes its preview showed, and the live-table comparison
+    # that lets a refresh or file re-upload of unchanged data publish nothing.
+    "backend/app/processing/ingest/tasks_reupload.py": 1851,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1394,7 +1395,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 696,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 2005,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 2016,
     # Records, datasets and their grant, translation and attribute children map
     # one catalog schema.
     "backend/app/modules/catalog/datasets/domain/models.py": 1003,

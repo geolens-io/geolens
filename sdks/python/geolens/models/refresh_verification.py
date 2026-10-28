@@ -77,6 +77,10 @@ class RefreshVerification:
         review_acknowledged_by (None | RefreshVerificationReviewAcknowledgedByType0 | Unset): Why a replacement judged
             on its preview published: its commit carried the preview's fingerprint, or a person accepted a blocked run with
             the same changes.
+        data_unchanged (bool | None | Unset): True when this service refresh or file re-upload brought exactly the
+            columns and rows the dataset already held, so it published no new version; last_refreshed_at still moves. False
+            when the data differed or could not be compared. Null when the run made no comparison: a service re-upload, a
+            file replacing data that came from another origin, or a run verification held back.
         acceptance_consumed_by_run_id (None | Unset | UUID):
         data_revision (int | None | Unset): The dataset's data revision when this run checked its live table. A run
             accepted after a live edit publishes over this revision.
@@ -101,6 +105,7 @@ class RefreshVerification:
     review_acknowledged_by: (
         None | RefreshVerificationReviewAcknowledgedByType0 | Unset
     ) = UNSET
+    data_unchanged: bool | None | Unset = UNSET
     acceptance_consumed_by_run_id: None | Unset | UUID = UNSET
     data_revision: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -199,6 +204,12 @@ class RefreshVerification:
         else:
             review_acknowledged_by = self.review_acknowledged_by
 
+        data_unchanged: bool | None | Unset
+        if isinstance(self.data_unchanged, Unset):
+            data_unchanged = UNSET
+        else:
+            data_unchanged = self.data_unchanged
+
         acceptance_consumed_by_run_id: None | str | Unset
         if isinstance(self.acceptance_consumed_by_run_id, Unset):
             acceptance_consumed_by_run_id = UNSET
@@ -244,6 +255,8 @@ class RefreshVerification:
             field_dict["geometry_contract"] = geometry_contract
         if review_acknowledged_by is not UNSET:
             field_dict["review_acknowledged_by"] = review_acknowledged_by
+        if data_unchanged is not UNSET:
+            field_dict["data_unchanged"] = data_unchanged
         if acceptance_consumed_by_run_id is not UNSET:
             field_dict["acceptance_consumed_by_run_id"] = acceptance_consumed_by_run_id
         if data_revision is not UNSET:
@@ -443,6 +456,15 @@ class RefreshVerification:
             d.pop("review_acknowledged_by", UNSET)
         )
 
+        def _parse_data_unchanged(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        data_unchanged = _parse_data_unchanged(d.pop("data_unchanged", UNSET))
+
         def _parse_acceptance_consumed_by_run_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -489,6 +511,7 @@ class RefreshVerification:
             staged_coordinate_dimension=staged_coordinate_dimension,
             geometry_contract=geometry_contract,
             review_acknowledged_by=review_acknowledged_by,
+            data_unchanged=data_unchanged,
             acceptance_consumed_by_run_id=acceptance_consumed_by_run_id,
             data_revision=data_revision,
         )

@@ -13998,6 +13998,11 @@ export interface components {
             review_acknowledged_by?: ("preview" | "accepted_run") | null;
             /** Accepted Blocked Run Id */
             accepted_blocked_run_id: string | null;
+            /**
+             * Data Unchanged
+             * @description True when this service refresh or file re-upload brought exactly the columns and rows the dataset already held, so it published no new version; last_refreshed_at still moves. False when the data differed or could not be compared. Null when the run made no comparison: a service re-upload, a file replacing data that came from another origin, or a run verification held back.
+             */
+            data_unchanged?: boolean | null;
             /** Acceptance Consumed By Run Id */
             acceptance_consumed_by_run_id?: string | null;
             /**

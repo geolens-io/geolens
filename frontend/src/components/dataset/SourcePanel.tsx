@@ -546,6 +546,9 @@ function RefreshRunHistory({
                   {run.origin_kind !== 'upload' && run.verification.identity_check === 'unavailable' && (
                     <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
                   )}
+                  {run.status === 'succeeded' && run.verification.data_unchanged && (
+                    <p>{t('sourcePanel.refresh.history.dataUnchanged')}</p>
+                  )}
                   {typeof run.verification.source_binding.url === 'string'
                     && safeHttpPointer(run.verification.source_binding.url) && (
                     <p className="break-all">

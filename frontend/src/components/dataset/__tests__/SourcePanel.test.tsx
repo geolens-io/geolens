@@ -1287,6 +1287,58 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('button', { name: 'Review and retry' })).toBeInTheDocument();
   });
 
+  it.each([true, false])('says when a succeeded refresh found the data unchanged (%s)', (unchanged) => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-unchanged',
+          dataset_id: 'dataset-1',
+          dataset_version_id: unchanged ? null : 'version-2',
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'cli',
+          status: 'succeeded',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 9,
+          feature_count_after: 9,
+          schema_diff: null,
+          verification: {
+            decision: 'allowed',
+            source_binding: { service_type: 'arcgis_featureserver', url: 'https://services.example.com/arcgis/rest/services/Roads/FeatureServer', layer_id: '0' },
+            source_count: 9,
+            fetched_count: 9,
+            count_status: 'matched',
+            identity_check: 'content_digest',
+            review_reasons: [],
+            review_fingerprint: null,
+            accepted_blocked_run_id: null,
+            data_unchanged: unchanged,
+          },
+          error_code: null,
+          error_message: null,
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset({ origin: 'service' })} canEdit />);
+
+    const notice = screen.queryByText(
+      'The data matched what the dataset already holds, so no new version was published.',
+    );
+    if (unchanged) {
+      expect(notice).toBeInTheDocument();
+    } else {
+      expect(notice).not.toBeInTheDocument();
+    }
+  });
+
   it('disables blocked-run retry while a refresh is busy', () => {
     const onAcceptBlockedRun = vi.fn();
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({
