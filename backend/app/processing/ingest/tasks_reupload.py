@@ -393,60 +393,83 @@ async def _table_row_count(table_name: str, *, schema: str) -> int | None:
         return None
 
 
-async def _matches_live(
-    session, dataset, *, live_content, staging_table: str, staged_digest: str
-) -> bool:
-    """Whether the staged table holds the live table's columns and rows.
+class _LiveComparison:
+    """The live-table comparison a service refresh and a file re-upload share.
 
-    Call holding the live table. ``live_content`` is what
-    ``_live_content_digest`` read before the hold; its rows stand while the
-    live table's witness is unchanged.
+    A run that staged exactly the live data publishes nothing: no version, no
+    swap. ``live_content`` is the live table's witness and digest, read
+    before the hold by ``_live_content_digest``, and ``content_digest`` the
+    staged table's.
     """
-    if live_content is None:
-        return False
-    witness, digest = live_content
-    schema = _current_tenant_schema()
-    return (
-        digest == staged_digest
-        and witness
-        == await _live_table_witness(
-            session, dataset.id, dataset.table_name, schema=schema
+
+    live_content: tuple | None = None
+    content_digest: str | None = None
+
+    @property
+    def unchanged(self) -> bool:
+        return bool(self.verification and self.verification.get("data_unchanged"))
+
+    async def _compare_live(self, session, dataset) -> None:
+        """Record whether the staged table holds the live table's columns and rows.
+
+        Call holding the live table. The digested live rows stand while its
+        witness is unchanged.
+        """
+        if self.live_content is None:
+            self.verification["data_unchanged"] = False
+            return
+        witness, digest = self.live_content
+        schema = _current_tenant_schema()
+        self.verification["data_unchanged"] = (
+            digest == self.content_digest
+            and witness
+            == await _live_table_witness(
+                session, dataset.id, dataset.table_name, schema=schema
+            )
+            and await _same_columns(
+                session, self.staging_table, dataset.table_name, schema=schema
+            )
         )
-        and await _table_columns(session, staging_table, schema=schema)
-        == await _table_columns(session, dataset.table_name, schema=schema)
-    )
+
+    async def _publish_unchanged(
+        self, session, dataset, *, field_labels, **published
+    ) -> Published:
+        """Date a run that found the live data current.
+
+        The catalog projection still runs, since a source's labels can change
+        without its data, and the record names who confirmed the data last, as
+        a publish does.
+        """
+        schema_diff = await catalog_projection.project(
+            session, dataset, self.measurement, field_labels=field_labels
+        )
+        dataset.record.updated_by = uuid.UUID(self.user_id)
+        dataset.last_refreshed_at = datetime.now(timezone.utc)
+        return Published(
+            dataset_version_id=None,
+            schema_diff=schema_diff,
+            verification=self.verification,
+            tiles_changed=False,
+            **published,
+        )
 
 
-async def _project_unchanged(
-    session, dataset, measurement, *, field_labels, user_id: str
-) -> dict:
-    """Date a replacement that found the live data current; no version, no swap.
-
-    The catalog projection still runs, since a source's labels can change
-    without its data, and the record names who confirmed the data last, as
-    a publish does. Returns the schema diff.
-    """
-    schema_diff = await catalog_projection.project(
-        session, dataset, measurement, field_labels=field_labels
-    )
-    dataset.record.updated_by = uuid.UUID(user_id)
-    dataset.last_refreshed_at = datetime.now(timezone.utc)
-    return schema_diff
-
-
-async def _table_columns(session, table_name: str, *, schema: str) -> list[tuple]:
-    """The table's column names and declared types, in column order."""
+async def _same_columns(session, table_a: str, table_b: str, *, schema: str) -> bool:
+    """Whether both tables have the same column names and declared types, in order."""
     rows = await session.execute(
         text(
-            "SELECT a.attname, format_type(a.atttypid, a.atttypmod) "
+            "SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod) "
             "FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = :schema AND c.relname = :table "
+            "WHERE n.nspname = :schema AND c.relname IN (:a, :b) "
             "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
         ),
-        {"schema": schema, "table": table_name},
+        {"schema": schema, "a": table_a, "b": table_b},
     )
-    return [tuple(row) for row in rows]
+    columns: dict[str, list[tuple]] = {table_a: [], table_b: []}
+    for relname, name, column_type in rows:
+        columns[relname].append((name, column_type))
+    return columns[table_a] == columns[table_b]
 
 
 async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
@@ -478,7 +501,7 @@ async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
         return True
 
 
-class _FileReupload:
+class _FileReupload(_LiveComparison):
     """A browser upload's bytes, loaded by ogr2ogr into this attempt's table."""
 
     task = "reupload_file"
@@ -497,11 +520,6 @@ class _FileReupload:
         self.verification: dict | None = None
         # Kept while a person can still accept this upload's blocked run.
         self.held = False
-        # As the service strategy's: the live table's witness and digest, the
-        # staged digest, and whether the upload held exactly the live data.
-        self.live_content: tuple | None = None
-        self.content_digest: str | None = None
-        self.unchanged = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -724,14 +742,7 @@ class _FileReupload:
         self.verification["live_version"] = dataset.current_version
         if self.verification["decision"] == "allowed":
             if self.compares_live:
-                self.unchanged = await _matches_live(
-                    session,
-                    dataset,
-                    live_content=self.live_content,
-                    staging_table=self.staging_table,
-                    staged_digest=self.content_digest,
-                )
-                self.verification["data_unchanged"] = self.unchanged
+                await self._compare_live(session, dataset)
             return PUBLISH
         self.held = True
         return Verdict(
@@ -766,24 +777,17 @@ class _FileReupload:
 
     async def write(self, session, dataset) -> Published:
         if self.unchanged:
-            schema_diff = await _project_unchanged(
+            # Nothing was installed, so there is no original to archive.
+            published = await self._publish_unchanged(
                 session,
                 dataset,
-                self.measurement,
                 field_labels={},
-                user_id=self.user_id,
-            )
-            await self._apply_manifest(session, dataset)
-            # Nothing was installed, so there is no original to archive.
-            return Published(
-                dataset_version_id=None,
                 feature_count=self.measurement.metadata.get("feature_count"),
-                schema_diff=schema_diff,
                 contacted_origin=False,
-                verification=self.verification,
-                tiles_changed=False,
                 reaps_staged_upload=True,
             )
+            await self._apply_manifest(session, dataset)
+            return published
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,
@@ -1308,7 +1312,7 @@ async def _stage_service_table(
     return staged
 
 
-class _ServiceReupload:
+class _ServiceReupload(_LiveComparison):
     """A remote service layer, fetched by ogr2ogr into this attempt's table.
 
     A refresh is verified against its source binding, and a re-upload against
@@ -1346,11 +1350,6 @@ class _ServiceReupload:
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
         self.verification: dict | None = None
-        # The live table's witness and digest, when a refresh fetched as many
-        # rows as it holds.
-        self.live_content: tuple | None = None
-        # The refresh fetched exactly the live data, so it publishes nothing.
-        self.unchanged = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
@@ -1585,14 +1584,7 @@ class _ServiceReupload:
         if self.is_refresh:
             self.verification = await self._verify_refresh(session, dataset, live)
             if self.verification["decision"] == "allowed":
-                self.unchanged = await _matches_live(
-                    session,
-                    dataset,
-                    live_content=self.live_content,
-                    staging_table=self.staging_table,
-                    staged_digest=self.content_digest,
-                )
-                self.verification["data_unchanged"] = self.unchanged
+                await self._compare_live(session, dataset)
         else:
             self.verification = refresh_policy.verify_reviewed_replacement(
                 schema_diff=self.measured_schema_diff,
@@ -1725,19 +1717,12 @@ class _ServiceReupload:
                 baseline=self.verification["data_revision_baseline"],
             )
         if self.unchanged:
-            return Published(
-                dataset_version_id=None,
+            return await self._publish_unchanged(
+                session,
+                dataset,
+                field_labels=self.field_labels,
                 feature_count=self.measured_feature_count,
-                schema_diff=await _project_unchanged(
-                    session,
-                    dataset,
-                    self.measurement,
-                    field_labels=self.field_labels,
-                    user_id=self.user_id,
-                ),
                 contacted_origin=True,
-                verification=self.verification,
-                tiles_changed=False,
                 reembed=False,
             )
         version, schema_diff = await _write_reupload_catalog(

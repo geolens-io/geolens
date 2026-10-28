@@ -2480,7 +2480,7 @@ _PAIR_WRITER_EXEMPTIONS = {
     # --- writes both rows under its callers' acquisition -------------------
     "app.processing.ingest.catalog_projection.project": "the settlement seam takes the job row and the pair before a strategy projects",
     "app.processing.ingest.tasks_common._write_reupload_catalog": "the settlement seam takes the job row and the pair before a strategy writes",
-    "app.processing.ingest.tasks_reupload._project_unchanged": "the file and service strategies' write step calls it, holding the job row and the pair the settlement seam took",
+    "app.processing.ingest.tasks_reupload._publish_unchanged": "the file and service strategies' write step calls it, holding the job row and the pair the settlement seam took",
     "app.processing.ingest.tasks_reupload.write": "the file and service strategies' write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_raster_replace.write": "the raster strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
     "app.processing.ingest.tasks_postgis_refresh.write": "the PostGIS strategy's write step, which the settlement seam calls holding the job row and the pair",
