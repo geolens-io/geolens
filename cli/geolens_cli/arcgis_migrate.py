@@ -48,6 +48,8 @@ from .arcgis_migrate_export import (
 from .arcgis_migrate_cutover import failing_checks, inventory_changes
 from .arcgis_migrate_groups import (
     GroupPlan,
+    NOT_A_USER,
+    SHARING_LABELS,
     GroupUsageError,
     Sharing,
     pending_sharing,
@@ -541,7 +543,7 @@ def _pending_reason(
     """Why *item* can't go to *user*, the GeoLens user its plan owner *name*
     names, or None."""
     if name and user is None:
-        return f"{name} is not a GeoLens user yet"
+        return f"{name}{NOT_A_USER}"
     if user is None:
         reason = f"ArcGIS user {item['owner']} has no GeoLens owner in owner_map"
         same = directory.same_account(item["owner"])
@@ -1304,7 +1306,6 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
         )
 
 
-_NOT_A_USER = " is not a GeoLens user yet"
 _LISTED_MEMBERS = 20
 
 
@@ -1319,7 +1320,7 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
             reasons.add(left["reason"])
     no_account = []
     for member, (names, reasons) in sorted(by_member.items()):
-        if all(r.endswith(_NOT_A_USER) for r in reasons):
+        if all(r.endswith(NOT_A_USER) for r in reasons):
             no_account.append(member)
             continue
         fmt.warn(
@@ -1340,20 +1341,10 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
 
 def _print_item_sharing(fmt: _output.Formatter, groups: GroupPlan) -> None:
     for row in groups.sharing_rows():
-        if row["shared"]:
-            fmt.info(f"{row['item']}: shared with {', '.join(row['shared'])}")
-        if row["removed"]:
-            fmt.info(
-                f"{row['item']}: removed {', '.join(row['removed'])}, which the plan "
-                "no longer names"
-            )
-        if row["left"]:
-            fmt.warn(
-                f"{row['item']} is still shared with {', '.join(row['left'])}, "
-                "which the plan no longer names; this command can't tell it "
-                "shared them (an earlier version didn't record that), so check "
-                "them by hand"
-            )
+        for kind, label in SHARING_LABELS.items():
+            if row[kind]:
+                say = fmt.warn if kind == "left" else fmt.info
+                say(f"{row['item']}: {label} {', '.join(row[kind])}")
 
 
 def _print_groups(fmt: _output.Formatter, groups: GroupPlan, dry_run: bool) -> None:

@@ -28,6 +28,7 @@ from .arcgis_migrate_cutover import (
     sharing_losses,
 )
 from .arcgis_migrate_export import item_replacement
+from .arcgis_migrate_groups import SHARING_LABELS
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
     DONE,
@@ -470,11 +471,7 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
     if report.get("sharing_changes"):
         lines += ["", "## Item sharing changed by this run", ""]
         for row in report["sharing_changes"]:
-            for key, text in (
-                ("shared", "shared with"),
-                ("removed", "removed from it, as the plan no longer names them:"),
-                ("left", "still on it but not in the plan; check by hand:"),
-            ):
+            for key, text in SHARING_LABELS.items():
                 if row[key]:
                     lines.append(
                         f"- {esc(row['item'])}: {text} "

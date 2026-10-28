@@ -32,13 +32,21 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, MigrationState
 
 RESTRICTED = "restricted"
+NOT_A_USER = " is not a GeoLens user yet"
+# What a rerun did to an item's groups, and how the output and report say it.
+SHARING_LABELS = {
+    "shared": "shared with",
+    "removed": "removed, as the plan no longer names them:",
+    "left": "still on it but not in the plan; check by hand:",
+}
+SharingKind = Literal["shared", "removed", "left"]
 MAX_NAME = 255
 GROUP_PAGE = 200
 # The most users one add-members request accepts.
@@ -235,9 +243,7 @@ class GroupPlan:
         return [
             {
                 "item": item_id,
-                **{
-                    k: sorted(changes.get(k, ())) for k in ("shared", "removed", "left")
-                },
+                **{k: sorted(changes.get(k, ())) for k in SHARING_LABELS},
             }
             for item_id, changes in sorted(self.item_sharing.items())
         ]
@@ -272,7 +278,7 @@ def _resolve_member(
     except UsageError as exc:
         return None, str(exc)
     if user is None:
-        return None, f"{name} is not a GeoLens user yet"
+        return None, f"{name}{NOT_A_USER}"
     known = emails.get(username)
     if not mapped and known and (user.email or "").lower() != known.lower():
         return None, (
@@ -615,7 +621,7 @@ def _changes(
     return new, gone
 
 
-def _log(ctx: MigrationContext, item_id: str, kind: str, ids: set[str]) -> None:
+def _log(ctx: MigrationContext, item_id: str, kind: SharingKind, ids: set[str]) -> None:
     sharing = ctx.sharing
     if sharing is not None and ids:
         sharing.changes.setdefault(item_id, {}).setdefault(kind, set()).update(
@@ -819,15 +825,17 @@ def _shared(
             record.pop(object_id, None)
 
 
+def _listed_groups(found: Any) -> set[str] | None:
+    """The groups a read map lists, or None when GeoLens didn't list them."""
+    if isinstance(getattr(found, "groups", None), list):
+        return _dataset_groups(found)
+    return None
+
+
 def _map_groups(ctx: MigrationContext, map_id: str) -> set[str] | None:
     from .arcgis_migrate_webmaps import get_map
 
-    found = get_map(ctx.geolens, map_id)
-    return (
-        _dataset_groups(found)
-        if isinstance(getattr(found, "groups", None), list)
-        else None
-    )
+    return _listed_groups(get_map(ctx.geolens, map_id))
 
 
 def _merge_map(
@@ -846,7 +854,7 @@ def _merge_map(
     from .arcgis_migrate_webmaps import get_map, map_state, map_visibility
 
     found = get_map(ctx.geolens, map_id)
-    if not isinstance(getattr(found, "groups", None), list):
+    if _listed_groups(found) is None:
         # An empty baseline would drop the groups shared in GeoLens.
         if not (new or gone):
             return []
