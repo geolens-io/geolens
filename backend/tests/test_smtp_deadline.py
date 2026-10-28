@@ -10,7 +10,7 @@ import pytest
 from app.platform.extensions.protocols import Notification
 from app.platform.notifications import smtp_channel as smtp
 from app.platform.notifications.deadline import _send_deadline, notification_deadline
-from tests.fixtures.smtp_transport import SMTPTransport
+from tests.fixtures.smtp_transport import SMTPTransport, warm_up_smtp_send
 
 pytestmark = pytest.mark.anyio
 MESSAGE = Notification(event_type="health_alert", subject="Health", body="Degraded")
@@ -22,6 +22,7 @@ async def test_deadline_aborts_continuation_replies_and_joins_the_worker(
 ):
     import smtplib
 
+    await warm_up_smtp_send(monkeypatch)
     workers = []
     quits = []
     original = smtp._SocketAbort
@@ -67,6 +68,7 @@ async def test_deadline_aborts_continuation_replies_and_joins_the_worker(
 
 
 async def test_a_live_send_can_succeed_near_its_deadline(monkeypatch):
+    await warm_up_smtp_send(monkeypatch)
     with SMTPTransport(data=True) as transport:
         transport.configure(monkeypatch)
         with notification_deadline(time.monotonic() + 1):
@@ -88,6 +90,7 @@ async def test_deadline_aborts_a_tls_handshake_after_socket_ownership_transfer(
 ):
     from app.core.config import settings
 
+    await warm_up_smtp_send(monkeypatch)
     open_socket = smtp._open_deadline_socket
     with SMTPTransport(greeting=True) as transport:
         transport.configure(monkeypatch)
