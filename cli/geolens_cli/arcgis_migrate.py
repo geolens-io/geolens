@@ -824,8 +824,10 @@ def _migrate_one(
 ) -> None:
     entry = state.start(item["id"])
     if item["action"] != _plan.EXPORT_ONLY:
-        # An item exported earlier and imported now is no longer an export.
+        # An item exported earlier and imported now is no longer an export,
+        # and its export's refresh failures no longer apply.
         entry.export = None
+        entry.stale = []
     item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
     try:
         result = handler(ctx, item, entry)
