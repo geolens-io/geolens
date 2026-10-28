@@ -1555,7 +1555,7 @@ def run_inventory(
         raise PortalError(
             "the portal did not report an organization id. Use the "
             "organization's own URL (https://<org>.maps.arcgis.com, or "
-            "https://<host>/portal for ArcGIS Enterprise).",
+            "https://<host>/portal for a self-hosted portal).",
             kind="usage",
         )
     inv = Inventory(

@@ -54,7 +54,7 @@ app.add_typer(export_app, name="export")
 analysis_app = typer.Typer(no_args_is_help=True, help="Analysis commands")
 app.add_typer(analysis_app, name="analysis")
 arcgis_app = typer.Typer(
-    no_args_is_help=True, help="ArcGIS Online and Portal for ArcGIS commands"
+    no_args_is_help=True, help="ArcGIS Online and self-hosted ArcGIS portal commands"
 )
 app.add_typer(arcgis_app, name="arcgis")
 admin_app = typer.Typer(no_args_is_help=True, help="Administration commands")
@@ -1998,7 +1998,7 @@ def arcgis_inventory(
         str,
         typer.Option(
             "--portal-url",
-            help="ArcGIS Online organization URL, or https://<host>/portal for ArcGIS Enterprise",
+            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
     token: Annotated[
@@ -2155,9 +2155,7 @@ def arcgis_plan(
         raise typer.Exit(code)
 
 
-# Hidden until it can run every plan action: it imports service layers, while
-# data files and web maps are still left pending.
-@arcgis_app.command("migrate", hidden=True)
+@arcgis_app.command("migrate")
 def arcgis_migrate(
     ctx: typer.Context,
     plan: Annotated[
@@ -2342,7 +2340,8 @@ def admin_users_import(
     csv_file: Annotated[
         Optional[Path],
         typer.Argument(
-            help="CSV with a header row naming username, email and role",
+            help="CSV with a header row naming username, email and role; "
+            "leave it out when using --from-inventory",
             exists=True,
             dir_okay=False,
         ),

@@ -7,9 +7,12 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-- A dataset's Data table sizes each column to its header and values instead
-  of a fixed filter-box width, so more columns fit on screen, and its filter
-  row is shorter and set in the body font.
+## [1.28.0] - 2026-10-29
+
+### Added
+
+- The map builder opens a read-only attribute table for a layer, with the
+  layer's filter applied. Clicking a row finds the feature on the map. (#3388)
 - ArcGIS Pro can open private datasets through its Server Authentication
   login. Point an OGC API connection at `/api/desktop`, enter any username and
   an API key as the password, and save the login. The route answers `401`
@@ -21,19 +24,201 @@ and releases use semantic versioning.
   asks for a new login. Account passwords are never accepted
   this way. Before this release any Basic login was answered `401`, which
   broke every other connection Pro had open to the same server once it had
-  sent one.
+  sent one. (#3426)
+- Stories backend. A story is a draft document of chapters; each chapter can
+  hold a scene on a saved map (camera and layer visibility) and Markdown
+  blocks. There is no web UI yet, so this release adds only the API.
+  Editors save the whole draft against a revision (`PUT /stories/{id}/draft`);
+  publishing and discarding each take that revision and answer 409
+  `stale_revision` when it is out of date. Publishing checks that every map a
+  scene uses reaches the story's audience and otherwise answers 409, naming the
+  blocking maps the publisher can read and counting the rest. Every read
+  resolves scene maps with the reader's own access, so a map the reader can't
+  open drops out of the story, including after a map is narrowed. A story's
+  visibility can always be narrowed; widening runs the same reach check.
+  A document is capped at 2 MB. `restricted` visibility is refused on input
+  until stories can be shared with groups. Migration 0095 adds the
+  `catalog.stories` and `catalog.story_maps` tables. New audit actions are
+  `story.create`, `story.update`, `story.publish`, `story.delete` and
+  `story.duplicate`. The REST changes are listed under Changed. (#3451)
+- `geolens arcgis migrate` is listed in `geolens arcgis --help`. With
+  `inventory` and `plan` it moves an ArcGIS Online organization or a
+  self-hosted ArcGIS portal into GeoLens: hosted layers and tables, CSV,
+  GeoJSON, Shapefile and File Geodatabase items, and web maps, with their
+  owners, folders and sharing. Items GeoLens can't host are saved as an
+  export bundle. Reruns bring migrated items up to date, and `--cutover`
+  lists what wouldn't carry over. Attachments aren't imported yet.
+- `geolens arcgis migrate` carries ArcGIS sharing over. Private, organization
+  and public items become private, internal and public; with
+  `restrict_public_visibility` on, a public item whose owner isn't an admin
+  becomes internal, and a run that can't read that setting stops. Items shared
+  only with groups become `restricted` and are shared with GeoLens groups that
+  migrate creates and fills from the members the inventory read, or with an
+  existing group named exactly in `group_map.geolens_group`. Members resolve
+  through `owner_map`, or to a same-named account whose email matches the
+  inventory's; members who don't resolve, or whom GeoLens refused to add, stay
+  pending for a rerun. The dry run and the report list the mapping. A rerun
+  never overwrites a GeoLens edit when it shares a dataset with a new group.
+  `--cutover` now reports under-sharing and pending members, and
+  `--accept-under-sharing` accepts them. Plan files gain `restricted` and
+  `group_map.geolens_group`, inventory files gain a top-level `groups` list
+  with members. (#3450)
+- A rerun of `geolens arcgis migrate` follows the plan's sharing. A migrated
+  item gains the GeoLens groups its plan entry adds and loses the groups
+  `migrate` itself added that the entry drops, while groups shared in GeoLens
+  stay. A member `migrate` added to a group it created is removed once they
+  leave the ArcGIS group. The state file is now version 4, which older CLIs
+  refuse. (#3450, #3457)
+- `geolens arcgis migrate` gives each web map it creates the ArcGIS item's
+  thumbnail, so migrated maps no longer show a placeholder on the maps page
+  until someone opens them in the Builder. A rerun adds one to a migrated map
+  that has none and never replaces an existing thumbnail. A thumbnail that
+  can't be read or uploaded is noted on the item and never fails it. (#3469)
+- `geolens admin users import` creates users from a CSV or an ArcGIS
+  inventory. Generated 72-character passwords are shown once, only with
+  `--print-passwords`, including after a failure partway through. Rows that
+  clash with existing accounts are reported. On an instance with an identity
+  provider (OIDC, SAML or an extension) it creates nobody unless
+  `--link-by-email` is given, which trusts the CSV's emails as verified.
+  `--seed-csv` writes the rows for review. (#3450)
+- A dataset's Data table sizes each column to its header and values instead
+  of a fixed filter-box width, so more columns fit on screen, and its filter
+  row is shorter and set in the body font. (#3429)
+- A map can store a dashboard. `dashboard_config` on a map holds up to 50
+  widgets of two types, `indicator` and `bar_chart`, each tied to one of the
+  map's layers, and readers get only the widgets on layers they can read,
+  share links and embed tokens included. There is no dashboard panel in the
+  viewer or the Builder yet, and a Builder save leaves a stored dashboard as
+  it is. Migration 0096 adds the nullable `catalog.maps.dashboard_config`
+  column. (#3461)
+
+### Changed
+
+- `GET /maps/shared/{token}` returns `has_saved_view`, true when the map stores
+  a center and zoom. This is an additive REST change. (#3411)
+- `GET /datasets/{id}/rows/` takes an optional CQL2-JSON `filter` parameter,
+  compiled with the same helpers the OGC items route uses and combined with the
+  column filters, sort and keyset paging. A malformed filter or one naming an
+  unknown column returns 400. The map builder uses it to open a read-only
+  attribute table for a layer, with the layer's filter applied and a clicked
+  row found on the map. (#3388)
+- `GET /datasets/{id}/rows/` returns `total_kind`: `estimate` for an unfiltered
+  request (the table's row estimate, as before), `exact` when a `filter[...]`
+  matches 10,000 rows or fewer, and `at_least` when it matches more, in which
+  case `approximate_total` is 10,000. The attribute table footer reads "of
+  ~4,200 rows", "of 100 rows" or "of 10,000+ rows" to match. The new string is
+  in all five locales. (#3396)
+- `GET /maps/shared/{token}` includes `semantic_role` on each exposed column
+  in `layers[].column_info` that has one. Additive. (#3397)
+- The service probe's `LayerInfo` gains a `relationships` list (default
+  empty): the service's relationship classes, each with its id, name, related
+  layer, cardinality and role. Additive. (#3439)
+- The new `/stories` routes are all additive: `GET` and `POST /stories/`,
+  `GET` and `PATCH /stories/{id}`, `GET` and `PUT /stories/{id}/draft`,
+  `POST /stories/{id}/publish`, `/discard` and `/duplicate`, and `DELETE
+  /stories/{id}`. Publish-scoped API keys are refused on every story write.
+  Making a story public follows `restrict_public_visibility`. (#3451)
+- Importing an ArcGIS feature service layer now stores BigInteger fields as
+  `bigint`, DateOnly fields as `date` and TimestampOffset fields as
+  `timestamptz`, as a file geodatabase import does. Before, all three were
+  stored as `text`. Values above 2^53 stay exact, and a column whose values
+  don't convert stays text. The conversion runs on first import, on refresh and
+  on re-upload, and the import preview now reports `Date` and `DateTime` for
+  DateOnly and TimestampOffset fields. TimeOnly fields stay text, because the
+  feature APIs and CQL2 don't support a time type yet. See Upgrade notes for
+  datasets imported earlier. (#3444)
+- Map popups and the accessible map data panel show years and identifiers
+  without digit grouping: a "Year Built" of 1952 no longer reads "1,952", and a
+  parcel number reads 30012. Other numbers keep their grouping. A field is
+  ungrouped when its attribute metadata marks it `identifier` or `temporal`;
+  ingest infers those roles, and an owner can change them. (#3397)
+- The admin audit log uses one term per language in the sidebar, the page
+  heading and the tab title ("Audit Log" in English, "Audit-Protokoll" in
+  German, "Registro de auditoría" in Spanish). (#3409)
+- `MapUpdate`, `MapResponse`, `SharedMapResponse` and `DuplicateMapResponse`
+  gain `dashboard_config`. Additive; leaving it out of an update keeps the
+  stored dashboard. (#3461)
+- Map responses (`GET /maps/`, `GET /maps/{id}`, `GET /datasets/{id}/maps/`)
+  leave `thumbnail_url`, and `og_image_url` on a map read, null for a reader
+  the image routes would answer 404: one who can open the map but not every
+  dataset it draws. Lists used to advertise a URL that then failed. (#3468)
+- `geolens arcgis migrate` exit codes: a `--cutover` whose every failing check
+  was accepted with its `--accept-*` flag exits 0 (it exited 1), and so does
+  its `--dry-run`. `--dry-run --username` can now exit 3, when the portal
+  refuses the password. (#3467)
+
+### Fixed
+
+- A map with layers and no saved view opened at the world view in the Builder
+  and in the shared and embedded viewers. Both now open fitted to the visible
+  layers, and opening such a map in the Builder leaves it with no unsaved
+  changes. A `center` or `zoom` in a share link still sets the view. Going
+  from one map to another inside the Builder now opens the next map the same
+  way, at its saved view or fitted to its layers, instead of keeping the
+  previous map's view. (#3411)
+- Panning or zooming the Builder map with nothing else changed no longer asks
+  before you leave the page. Save stays enabled and still stores the new view.
+  Any other unsaved edit, with or without a pan, still asks. (#3411)
+- A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2. (#3411)
+- A zipped file geodatabase now imports whatever the zip is called. Only zips
+  named `*.gdb.zip` or `*_gdb.zip` opened before; any other name, such as an
+  ArcGIS Online export or `geolens arcgis migrate` naming the upload after the
+  item title, failed with "Unable to preview file". The `.gdb` folder may also
+  sit inside another folder or beside other files in the zip. (#3455)
+- On a globe map, fitting the view to a single point often left the map where
+  it was, and MapLibre logged "Map cannot fit within canvas". Zoom to layer on
+  a one-point layer, a shared map's first view of one, the analysis preview
+  and a row click in the attribute table now move the map. (#3454)
+- The map's coordinate and zoom readout keeps updating during animated camera
+  moves such as Zoom to layer. The Ask AI launcher no longer covers the
+  dataset page's footer, and a search card whose details wrap no longer starts
+  a line with a separator dot. (#3460)
+- The dataset Data tab's Previous and Next buttons no longer sit under the
+  Ask AI launcher. (#3470)
+- A service refresh or file re-upload whose data matches the published
+  version publishes nothing: no new version and no kept table copy. The run
+  still succeeds, the dataset's refresh time moves, and the Source tab and
+  re-upload dialog say the data was unchanged. Repeated `geolens arcgis
+  migrate` reruns no longer pile up identical versions. (#3462)
 - A file geodatabase feature class whose rows hold circular arcs now imports.
   Polygon and polyline classes drawn or edited in ArcGIS Pro often have arc
   segments, and every such class failed with `ogr2ogr failed (exit 1)`. Arcs
   are densified to line segments on import. Layers that declare a curved
   geometry type, such as a GeoPackage `CurvePolygon` layer, are stored as
-  before.
+  before. (#3428)
+- A file geodatabase upload no longer offers its `__ATTACH` and `__ATTACHREL`
+  tables as layers, and no longer imports one of them when it is the first
+  table listed. A geodatabase that holds only attachment tables still
+  previews one of them. (#3438)
 - Changing a dataset's visibility to Public on its Access tab now asks for
   confirmation first, from any current level. The dialog says anonymous users
   will reach the dataset's features through the OGC API, its map tiles, its
   downloads and its catalog record, and that groups it is shared with keep
   their access. Cancelling leaves the visibility as it was. Narrowing a
   dataset, or moving it to Internal or Private, applies without a prompt.
+  (#3410)
+- A numeric layer filter such as `n == 0` or `n < 3` no longer draws features
+  whose value is null. MapLibre read a null as 0, so those rows matched. The
+  filter now excludes null and missing values, and so do the table, analysis
+  and OGC queries built from it, so they agree with the map. A `!=` filter on
+  a numeric column also excludes nulls, as SQL does. Saved filters are
+  rewritten when the map opens. (#3440)
+- A filtered Data table reported the whole table's row estimate as its total:
+  a filter matching 100 of 600 rows read "of ~600", and one matching nothing
+  still said "~600". It now counts the matches; see `total_kind` under
+  Changed. (#3396)
+- A service dataset whose stored source URL ended in `/` was refused as
+  `source_changed` on every scheduled refresh, after fetching the whole layer.
+  The Source tab also hid "Review and retry" on those blocked runs. A trailing
+  slash is now ignored when comparing a service's source. (#3392)
+- The ArcGIS service import skipped row-bearing layers whose type was neither
+  Feature Layer nor Table, such as an Oriented Imagery Layer, with a "not
+  imported" note. Every layer the probe marks importable is imported now.
+  (#3399)
+- `geolens arcgis migrate` sends the ArcGIS item id and portal address when it
+  imports an item, so a migrated dataset links back to its item and shows
+  "Open in ArcGIS" on the Source tab. The server has accepted these fields
+  since 1.27.0; the CLI never sent them. (#3395)
 - A rerun of `geolens arcgis migrate` no longer probes an item's service before
   it retries a step the item still needs. When the state file records that an
   item's import stage finished, the rerun applies the plan's current title and
@@ -45,36 +230,100 @@ and releases use semantic versioning.
   date still refreshes from the source, and that refresh keeps demanding one.
   A plan whose service URL changed still falls back to the full
   probe and import, and the rerun imports no layer the recorded import didn't.
+  (#3389)
+- `geolens arcgis migrate` no longer draws web map layers in the default
+  blue when their style lives on the service or uses Map Viewer symbols. A
+  layer the web map leaves to its source takes the style saved on its layer
+  item, or else the service layer's own renderer. The command reads the
+  item's style from the portal, and reads a service layer only from the
+  hosts it already trusts with the run's token: the organization's own
+  service hosts and any named with `--trust-service-host`. CIM symbols, which
+  Map Viewer and ArcGIS Pro save, are translated when they use a solid fill,
+  a solid outline, a solid line or a single circle marker, so a classed
+  layer keeps its class colours. Any other part of such a symbol is listed
+  in the loss report. The field names a renderer, label, popup or layer
+  filter uses now match the dataset's stored columns, so a field ArcGIS
+  spells `REC_Score` reads the `rec_score` column instead of drawing every
+  feature transparent; a field the dataset doesn't have is listed in the loss
+  report. A renderer that can't be used is now reported as missing its field
+  or as having no symbol that could be drawn, instead of "without a field or
+  symbols". (#3456)
+- `geolens arcgis migrate` run without its state file (lost, or a wrong
+  `--state`) no longer imports everything a second time. When GeoLens already
+  holds datasets migrated from the plan's items, the dry run and the run exit
+  2 and name them; `--start-fresh` runs anyway. A collection whose name and
+  prefixed name are both taken stops the run before any import, instead of
+  failing each item with HTTP 409 after its layers were imported. A dry run
+  that finds both of a group's names taken exits 2, as the run does. (#3458)
+- A finished `export_only` item whose plan action changes to an import
+  imports on the next rerun, instead of stopping with "nothing to replace".
+  `migrate --dry-run --cutover` lists pending group members under
+  `unresolved-users`, as the cutover does. (#3459)
+- `geolens arcgis migrate` exports keep their file type (`data.csv`,
+  `data.pdf`) instead of `data.bin`, and its StoryMap and Dashboard notes
+  describe the stories and map dashboards GeoLens now has through its API. A
+  dropped connection exits 4 with "Network error" in every command, `geolens
+  login` included, instead of a traceback. `plan` and the inventory name
+  groups whose members couldn't be read and say how many ids a cut list
+  leaves out. (#3466)
+- `geolens arcgis migrate --dry-run --username` signs in once, as the run
+  does. A dry run shows an item set to `skip` as skipped instead of failed.
+  "Brought N up to date" counts only the items it brought up to date, a state
+  file from a newer CLI says to upgrade, and a refused empty `owner_map` entry
+  names the matching GeoLens account. Members without an account print as one
+  counted line, a rerun prints and reports the groups it shared an item with
+  or took off it, and the loss report agrees with its counts ("1 field"). Map
+  links in an exported `story.md` use the instance's `PUBLIC_APP_URL`. (#3467)
+- The migration report lists each ArcGIS relationship class once, with its
+  two layers and cardinality, as something GeoLens doesn't import. (#3439)
+- The migration report no longer lists a CSV or GeoJSON item that a hosted
+  layer supersedes under "Items GeoLens can't host". It appears under "Source
+  files published as hosted layers", migrated with its layer. (#3437)
+- `geolens arcgis inventory` follows one redirect on the portal's own host
+  when it reads a Notebook item's data, so the notebook's dependencies are
+  parsed. A redirect to another host is still refused. (#3441)
+- A health-alert claim could be lost or overwritten when the cache failed
+  during delivery, and a stalled SMTP server could hold the send open past its
+  lease. The claim now changes state atomically under a short lease, and the
+  SMTP send has a hard total deadline. (#3351)
+- On a prebuilt-image install, a token-protected ArcGIS import (an
+  organization-shared or private hosted layer) answered 503
+  `credential_store_unavailable`, because the install ran without a shared
+  cache. `install.sh` now turns on the bundled Valkey service (capped at 256
+  MB) and sets `COMPOSE_PROFILES`, `VALKEY_PASSWORD` and `REDIS_URL` in `.env`.
+  Values you already set are kept, and a re-run changes nothing. See Upgrade
+  notes for installs made earlier. (#3443)
 
-### Fixed
+### Security
 
-- A map with layers and no saved view opened at the world view in the Builder
-  and in the shared and embedded viewers. Both now open fitted to the visible
-  layers, and opening such a map in the Builder leaves it with no unsaved
-  changes. A `center` or `zoom` in a share link still sets the view. Going
-  from one map to another inside the Builder now opens the next map the same
-  way, at its saved view or fitted to its layers, instead of keeping the
-  previous map's view.
-- Panning or zooming the Builder map with nothing else changed no longer asks
-  before you leave the page. Save stays enabled and still stores the new view.
-  Any other unsaved edit, with or without a pan, still asks.
-- A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2.
-- A zipped file geodatabase now imports whatever the zip is called. Only zips
-  named `*.gdb.zip` or `*_gdb.zip` opened before; any other name, such as an
-  ArcGIS Online export or `geolens arcgis migrate` naming the upload after the
-  item title, failed with "Unable to preview file". The `.gdb` folder may also
-  sit inside another folder or beside other files in the zip.
+- Python dependencies: dnspython 2.9.0, for CVE-2026-114605 (a runtime
+  dependency), and starlette 1.9.0, which percent-encodes `?`, `#`, `\` and a
+  leading `//` in the request path and matches host names case-insensitively.
+  (#3447, #3415)
 
-### Changed
+### Upgrade notes
 
-- `GET /maps/shared/{token}` returns `has_saved_view`, true when the map stores
-  a center and zoom. This is an additive REST change.
-- `GET /datasets/{id}/rows/` takes an optional CQL2-JSON `filter` parameter,
-  compiled with the same helpers the OGC items route uses and combined with the
-  column filters, sort and keyset paging. A malformed filter or one naming an
-  unknown column returns 400. The map builder uses it to open a read-only
-  attribute table for a layer, with the layer's filter applied and a clicked
-  row found on the map.
+- Migration 0095 adds the stories tables. It only adds tables. (#3451)
+- Migration 0096 adds the nullable `catalog.maps.dashboard_config` column. It
+  only adds a column. (#3461)
+- Datasets imported from an ArcGIS service before this release hold BigInteger,
+  DateOnly and TimestampOffset fields as text. Their next refresh is held for
+  review once, with the type changes listed; accepting it switches the columns
+  to `bigint`, `date` and `timestamptz`. TimeOnly fields stay text. (#3444)
+- Installs made before this release don't run the bundled cache. If you
+  import or refresh token-protected services, add `cache` to the end of any
+  existing `COMPOSE_PROFILES`, plus `VALKEY_PASSWORD=<openssl rand -hex 32>`
+  and `REDIS_URL=redis://:<that password>@valkey:6379/0`, to `.env`, then run
+  `docker compose up -d`; or re-run `install.sh`. Source builds and installs
+  with their own cache set `REDIS_URL` to that cache. `UPGRADING.md` has the
+  steps. (#3443)
+- Overlay authors: `EXTENSION_API_VERSION` is now 20. `CacheProvider` gains
+  required `compare_and_set` and `compare_and_delete` methods, which take a
+  token and act only when it matches. A cache extension needs a release that
+  implements both. (#3351)
+- ArcGIS migration state files written by this release are version 4; an older
+  CLI refuses them. Upgrade the CLI before resuming a migration on another
+  machine. (#3450, #3457)
 
 ## [1.27.1] - 2026-10-24
 
@@ -6592,7 +6841,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.27.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.28.0...HEAD
+[1.28.0]: https://github.com/geolens-io/geolens/compare/v1.27.1...v1.28.0
 [1.27.1]: https://github.com/geolens-io/geolens/compare/v1.27.0...v1.27.1
 [1.27.0]: https://github.com/geolens-io/geolens/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/geolens-io/geolens/compare/v1.25.1...v1.26.0
