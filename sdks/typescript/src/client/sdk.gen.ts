@@ -6590,7 +6590,8 @@ export const getStoryEndpointStoriesStoryIdGet = <ThrowOnError extends boolean =
  * Change a story's title, summary or visibility (owner or admin).
  *
  * These apply at once, without Publish. A visibility wider than a map the
- * published story uses answers 409 `maps_narrower_than_story`.
+ * published story uses answers 409 `maps_narrower_than_story`; a narrower
+ * one is always allowed.
  */
 export const updateStoryEndpointStoriesStoryIdPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateStoryEndpointStoriesStoryIdPatchData, ThrowOnError>): RequestResult<UpdateStoryEndpointStoriesStoryIdPatchResponses, UpdateStoryEndpointStoriesStoryIdPatchErrors, ThrowOnError> => (options.client ?? client).patch<UpdateStoryEndpointStoriesStoryIdPatchResponses, UpdateStoryEndpointStoriesStoryIdPatchErrors, ThrowOnError>({
     security: [
@@ -6686,8 +6687,10 @@ export const duplicateStoryEndpointStoriesStoryIdDuplicatePost = <ThrowOnError e
  *
  * Publish the draft (owner or admin): readers get it from now on.
  *
- * 409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
- * can't be read by everyone the story's visibility reaches.
+ * `revision` must match the stored draft's, or 409 `stale_revision`. 409
+ * `maps_narrower_than_story` when a map a scene uses can't be read by
+ * everyone the story's visibility reaches: `detail.maps` names the ones you
+ * can read and `detail.unreadable_maps` counts the rest.
  */
 export const publishStoryEndpointStoriesStoryIdPublishPost = <ThrowOnError extends boolean = false>(options: Options<PublishStoryEndpointStoriesStoryIdPublishPostData, ThrowOnError>): RequestResult<PublishStoryEndpointStoriesStoryIdPublishPostResponses, PublishStoryEndpointStoriesStoryIdPublishPostErrors, ThrowOnError> => (options.client ?? client).post<PublishStoryEndpointStoriesStoryIdPublishPostResponses, PublishStoryEndpointStoriesStoryIdPublishPostErrors, ThrowOnError>({
     security: [
@@ -6700,7 +6703,11 @@ export const publishStoryEndpointStoriesStoryIdPublishPost = <ThrowOnError exten
         }
     ],
     url: '/stories/{story_id}/publish',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**

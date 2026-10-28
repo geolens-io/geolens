@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from fastapi import HTTPException
 from sqlalchemy import select, update
 
 from app.modules.catalog.stories.models import Story, StoryMap
@@ -85,8 +86,14 @@ async def _saved(client, headers, story, chapters) -> dict:
     return resp.json()
 
 
-async def _publish(client, headers, story_id: str):
-    return await client.post(f"/stories/{story_id}/publish", headers=headers)
+async def _publish(client, headers, story_id: str, revision: int | None = None):
+    """Publish at the current draft revision unless one is given."""
+    if revision is None:
+        draft = await client.get(f"/stories/{story_id}/draft", headers=headers)
+        revision = draft.json()["revision"] if draft.status_code == 200 else 0
+    return await client.post(
+        f"/stories/{story_id}/publish", json={"revision": revision}, headers=headers
+    )
 
 
 @pytest.fixture
@@ -130,6 +137,9 @@ async def test_unpublished_story_is_readable_only_by_its_owner_and_admins(
     assert (await client.get(url, headers=people["other"])).status_code == 200
     listed = await client.get("/stories/", headers=people["other"])
     assert story["id"] in {s["id"] for s in listed.json()["stories"]}
+    anon = await client.get("/stories/")
+    assert story["id"] not in {s["id"] for s in anon.json()["stories"]}
+    assert (await client.get(url)).status_code == 404
 
 
 async def test_public_story_drops_a_scene_whose_map_turned_private(
@@ -213,6 +223,27 @@ async def test_widening_visibility_past_a_published_map_is_refused(
     assert (await client.get(f"/stories/{story['id']}")).status_code == 404
 
 
+async def test_narrowing_visibility_is_allowed_after_a_map_narrows(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    map_id = await _map(client, owner, "public")
+    story = await _story(client, owner)
+    await _saved(client, owner, story, [_chapter(map_id)])
+    url = f"/stories/{story['id']}"
+    await client.patch(url, json={"visibility": "public"}, headers=owner)
+    assert (await _publish(client, owner, story["id"])).status_code == 200
+    await _set_map_visibility(client, owner, map_id, "private")
+
+    for visibility in ("internal", "private"):
+        narrowed = await client.patch(
+            url, json={"visibility": visibility}, headers=owner
+        )
+        assert narrowed.status_code == 200, narrowed.text
+    widened = await client.patch(url, json={"visibility": "internal"}, headers=owner)
+    assert widened.status_code == 409, widened.text
+
+
 async def test_private_story_cannot_publish_a_map_its_owner_lost(
     client: AsyncClient, people
 ):
@@ -225,8 +256,9 @@ async def test_private_story_cannot_publish_a_map_its_owner_lost(
     refused = await _publish(client, owner, story["id"])
 
     assert refused.status_code == 409, refused.text
-    # The owner can't read the map, so its name isn't disclosed.
-    assert _detail(refused)["maps"] == [{"id": their_map, "name": None}]
+    # The owner can't read the map, so it's only counted.
+    assert _detail(refused)["maps"] == []
+    assert _detail(refused)["unreadable_maps"] == 1
 
 
 async def test_draft_is_only_for_editors(client: AsyncClient, people):
@@ -499,3 +531,269 @@ async def test_delete_removes_the_story(client: AsyncClient, people):
     assert (
         await client.get(f"/stories/{story['id']}", headers=people["owner"])
     ).status_code == 404
+
+
+async def test_a_reader_copies_only_the_published_document(client: AsyncClient, people):
+    owner, other = people["owner"], people["other"]
+    story = await _story(client, owner)
+    story = await _saved(client, owner, story, [_chapter(blocks=[_block("published")])])
+    await client.patch(
+        f"/stories/{story['id']}", json={"visibility": "internal"}, headers=owner
+    )
+    assert (await _publish(client, owner, story["id"])).status_code == 200
+    await _saved(client, owner, story, [_chapter(blocks=[_block("unpublished")])])
+
+    def texts(resp) -> list[str]:
+        return [
+            b["config"]["text"]
+            for c in resp.json()["document"]["chapters"]
+            for b in c["blocks"]
+        ]
+
+    theirs = await client.post(f"/stories/{story['id']}/duplicate", headers=other)
+    assert theirs.status_code == 201, theirs.text
+    assert texts(theirs) == ["published"]
+    mine = await client.post(f"/stories/{story['id']}/duplicate", headers=owner)
+    assert texts(mine) == ["unpublished"]
+
+
+@pytest.fixture
+def _restrict_public_visibility(monkeypatch):
+    import app.core.persistent_config as pc
+
+    class _AlwaysOn:
+        async def get(self, _db):
+            return True
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
+
+
+async def test_restrict_public_visibility_stops_a_non_admin_making_a_story_public(
+    client: AsyncClient, people, _restrict_public_visibility
+):
+    story = await _story(client, people["owner"])
+    url = f"/stories/{story['id']}"
+
+    refused = await client.patch(
+        url, json={"visibility": "public"}, headers=people["owner"]
+    )
+    assert refused.status_code == 403, refused.text
+    allowed = await client.patch(
+        url, json={"visibility": "public"}, headers=people["admin"]
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
+async def test_publish_needs_the_current_revision(client: AsyncClient, people):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    await _saved(client, owner, story, [_chapter()])
+    stale = await _publish(client, owner, story["id"], revision=story["revision"])
+    assert stale.status_code == 409, stale.text
+    assert _detail(stale)["code"] == "stale_revision"
+    missing = await client.post(f"/stories/{story['id']}/publish", headers=owner)
+    assert missing.status_code == 422
+
+
+async def test_document_size_is_capped(client: AsyncClient, people):
+    story = await _story(client, people["owner"])
+    big = [_chapter(blocks=[_block("x" * 20_000)]) for _ in range(120)]
+    resp = await _save(client, people["owner"], story, big)
+    assert resp.status_code == 422, resp.text[:300]
+    assert "too large" in resp.text
+
+
+async def test_image_blocks_and_repeated_chapter_ids_are_refused(
+    client: AsyncClient, people
+):
+    story = await _story(client, people["owner"])
+    image = {
+        "id": str(uuid.uuid4()),
+        "type": "image",
+        "v": 1,
+        "asset_id": str(uuid.uuid4()),
+        "config": {"alt": ""},
+    }
+    resp = await _save(client, people["owner"], story, [_chapter(blocks=[image])])
+    assert resp.status_code == 422 and "image blocks" in resp.text
+    twice = str(uuid.uuid4())
+    resp = await _save(
+        client,
+        people["owner"],
+        story,
+        [_chapter(chapter_id=twice), _chapter(chapter_id=twice)],
+    )
+    assert resp.status_code == 422 and "unique" in resp.text
+
+
+async def _store(session, story_id: str, **values) -> None:
+    await session.execute(
+        update(Story).where(Story.id == uuid.UUID(story_id)).values(**values)
+    )
+    await session.commit()
+
+
+async def _stored_draft(session, story_id: str) -> dict:
+    session.expire_all()
+    return await session.scalar(
+        select(Story.draft).where(Story.id == uuid.UUID(story_id))
+    )
+
+
+async def test_a_scene_this_server_cannot_parse_is_hidden_kept_and_reach_checked(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    private_map = await _map(client, owner)
+    story = await _story(client, owner)
+    chapter_id = str(uuid.uuid4())
+    future_scene = {"map_id": private_map, "camera": {"orbit": 3}, "tour": [1]}
+    draft = {
+        "version": 1,
+        "chapters": [
+            {"id": chapter_id, "title": "T", "scene": future_scene, "blocks": []}
+        ],
+    }
+    await _store(test_db_session, story["id"], draft=draft, visibility="public")
+
+    read = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    (chapter,) = read.json()["document"]["chapters"]
+    assert chapter["scene"] is None and chapter["scene_hidden"] is True
+
+    await _saved(client, owner, read.json(), [chapter])
+    assert (await _stored_draft(test_db_session, story["id"]))["chapters"][0][
+        "scene"
+    ] == future_scene
+
+    refused = await _publish(client, owner, story["id"])
+    assert refused.status_code == 409, refused.text
+    assert [m["id"] for m in _detail(refused)["maps"]] == [private_map]
+
+    draft["chapters"][0]["scene"] = {"place": "somewhere"}
+    await _store(test_db_session, story["id"], draft=draft)
+    unplaced = await _publish(client, owner, story["id"])
+    assert unplaced.status_code == 409
+    assert _detail(unplaced)["code"] == "scenes_unreadable"
+
+
+async def test_a_save_over_chapters_this_server_cannot_identify_is_refused(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    for draft in (
+        {"version": 1, "chapters": [{"id": "intro", "blocks": []}]},
+        {"version": 2, "chapters": []},
+    ):
+        await _store(test_db_session, story["id"], draft=draft)
+        current = (
+            await client.get(f"/stories/{story['id']}/draft", headers=owner)
+        ).json()
+        resp = await _save(client, owner, current, [_chapter()])
+        assert resp.status_code == 409, resp.text
+        assert await _stored_draft(test_db_session, story["id"]) == draft
+
+
+async def test_a_stored_restricted_story_reads_and_refuses_publishing(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    await _store(test_db_session, story["id"], visibility="restricted")
+
+    read = await client.get(f"/stories/{story['id']}", headers=owner)
+    assert read.status_code == 200 and read.json()["visibility"] == "restricted"
+    assert (
+        await client.get(f"/stories/{story['id']}", headers=people["other"])
+    ).status_code == 404
+    refused = await _publish(client, owner, story["id"])
+    assert refused.status_code == 409
+    assert _detail(refused)["code"] == "visibility_unsupported"
+    bad = await client.patch(
+        f"/stories/{story['id']}", json={"visibility": "restricted"}, headers=owner
+    )
+    assert bad.status_code == 422
+
+
+async def test_an_internal_story_cannot_publish_a_restricted_map(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    map_id = await _map(client, owner)
+    story = await _story(client, owner)
+    await _saved(client, owner, story, [_chapter(map_id)])
+    # A restricted map reaches only its groups; the shape is all this check reads.
+    from app.modules.catalog.maps.models import Map
+
+    await test_db_session.execute(
+        update(Map).where(Map.id == uuid.UUID(map_id)).values(visibility="restricted")
+    )
+    await test_db_session.commit()
+    await client.patch(
+        f"/stories/{story['id']}", json={"visibility": "internal"}, headers=owner
+    )
+    refused = await _publish(client, owner, story["id"])
+    assert refused.status_code == 409, refused.text
+    assert [m["id"] for m in _detail(refused)["maps"]] == [map_id]
+
+
+async def test_an_admin_publishes_another_admins_private_story_by_the_owners_roles(
+    client: AsyncClient, people
+):
+    owner_admin, _ = await create_user(client, people["admin"], "admin")
+    their_map = await _map(client, people["other"])
+    story = await _story(client, owner_admin)
+    await _saved(client, owner_admin, story, [_chapter(their_map)])
+
+    published = await _publish(client, people["admin"], story["id"])
+    assert published.status_code == 200, published.text
+
+    plain = await _story(client, people["owner"])
+    await _saved(client, people["owner"], plain, [])
+    # The owner isn't an admin, so an admin can't publish a map they can't read.
+    plain_draft = (
+        await client.get(f"/stories/{plain['id']}/draft", headers=people["admin"])
+    ).json()
+    await _saved(client, people["admin"], plain_draft, [_chapter(their_map)])
+    refused = await _publish(client, people["admin"], plain["id"])
+    assert refused.status_code == 409, refused.text
+    assert [m["id"] for m in _detail(refused)["maps"]] == [their_map]
+
+
+async def test_a_held_story_lock_answers_409(
+    client: AsyncClient, people, test_db_session
+):
+    story = await _story(client, people["owner"])
+    await test_db_session.execute(
+        select(Story.id).where(Story.id == uuid.UUID(story["id"])).with_for_update()
+    )
+    try:
+        resp = await _save(client, people["owner"], story, [])
+        assert resp.status_code == 409, resp.text
+        assert "in progress" in resp.text
+    finally:
+        await test_db_session.rollback()
+
+
+async def test_the_lock_rechecks_the_writer_it_admitted(
+    client: AsyncClient, people, test_db_session
+):
+    import app.core.db as db_module
+    from app.modules.auth.models import User
+    from app.modules.catalog.stories.service import (
+        check_story_ownership,
+        get_story,
+        lock_story,
+    )
+
+    story = await _story(client, people["owner"])
+    other_id = (await client.get("/auth/me", headers=people["other"])).json()["id"]
+    async with db_module.async_session() as session:
+        owner = await session.get(User, uuid.UUID(people["owner_id"]))
+        loaded = await get_story(session, uuid.UUID(story["id"]))
+        await check_story_ownership(session, loaded, owner)
+        # Ownership moves after the guard admitted the writer.
+        await _store(test_db_session, story["id"], created_by=uuid.UUID(other_id))
+        with pytest.raises(HTTPException) as refused:
+            await lock_story(session, uuid.UUID(story["id"]))
+        assert refused.value.status_code == 403

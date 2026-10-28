@@ -12711,6 +12711,14 @@ export type StatusUpdateResponse = {
 };
 
 /**
+ * StoredStoryVisibility
+ *
+ * A story's visibility as stored. ``restricted`` is reserved for story
+ * group sharing, which no route sets yet.
+ */
+export type StoredStoryVisibility = 'private' | 'internal' | 'public' | 'restricted';
+
+/**
  * StoryCamera
  */
 export type StoryCamera = {
@@ -12847,7 +12855,7 @@ export type StoryDraftResponse = {
      * Summary
      */
     summary: string | null;
-    visibility: StoryVisibility;
+    visibility: StoredStoryVisibility;
     /**
      * Created By
      */
@@ -12905,6 +12913,18 @@ export type StoryListResponse = {
 };
 
 /**
+ * StoryPublish
+ */
+export type StoryPublish = {
+    /**
+     * Revision
+     *
+     * The draft revision to publish.
+     */
+    revision: number;
+};
+
+/**
  * StoryResponse
  */
 export type StoryResponse = {
@@ -12920,7 +12940,7 @@ export type StoryResponse = {
      * Summary
      */
     summary: string | null;
-    visibility: StoryVisibility;
+    visibility: StoredStoryVisibility;
     /**
      * Created By
      */
@@ -12984,7 +13004,7 @@ export type StorySummary = {
      * Summary
      */
     summary: string | null;
-    visibility: StoryVisibility;
+    visibility: StoredStoryVisibility;
     /**
      * Created By
      */
@@ -33403,7 +33423,7 @@ export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses = {
 export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponse = DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses[keyof DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses];
 
 export type PublishStoryEndpointStoriesStoryIdPublishPostData = {
-    body?: never;
+    body: StoryPublish;
     path: {
         /**
          * Story Id

@@ -21702,6 +21702,17 @@
         "title": "StatusUpdateResponse",
         "type": "object"
       },
+      "StoredStoryVisibility": {
+        "description": "A story's visibility as stored. ``restricted`` is reserved for story\ngroup sharing, which no route sets yet.",
+        "enum": [
+          "private",
+          "internal",
+          "public",
+          "restricted"
+        ],
+        "title": "StoredStoryVisibility",
+        "type": "string"
+      },
       "StoryCamera": {
         "additionalProperties": false,
         "properties": {
@@ -21973,7 +21984,7 @@
             "title": "Summary"
           },
           "visibility": {
-            "$ref": "#/components/schemas/StoryVisibility"
+            "$ref": "#/components/schemas/StoredStoryVisibility"
           },
           "created_by": {
             "anyOf": [
@@ -22078,6 +22089,21 @@
         "title": "StoryListResponse",
         "type": "object"
       },
+      "StoryPublish": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "description": "The draft revision to publish.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "StoryPublish",
+        "type": "object"
+      },
       "StoryResponse": {
         "properties": {
           "id": {
@@ -22101,7 +22127,7 @@
             "title": "Summary"
           },
           "visibility": {
-            "$ref": "#/components/schemas/StoryVisibility"
+            "$ref": "#/components/schemas/StoredStoryVisibility"
           },
           "created_by": {
             "anyOf": [
@@ -22223,7 +22249,7 @@
             "title": "Summary"
           },
           "visibility": {
-            "$ref": "#/components/schemas/StoryVisibility"
+            "$ref": "#/components/schemas/StoredStoryVisibility"
           },
           "created_by": {
             "anyOf": [
@@ -69457,7 +69483,7 @@
         ]
       },
       "patch": {
-        "description": "Change a story's title, summary or visibility (owner or admin).\n\nThese apply at once, without Publish. A visibility wider than a map the\npublished story uses answers 409 `maps_narrower_than_story`.",
+        "description": "Change a story's title, summary or visibility (owner or admin).\n\nThese apply at once, without Publish. A visibility wider than a map the\npublished story uses answers 409 `maps_narrower_than_story`; a narrower\none is always allowed.",
         "operationId": "update_story_endpoint_stories__story_id__patch",
         "parameters": [
           {
@@ -70053,7 +70079,7 @@
     },
     "/stories/{story_id}/publish": {
       "post": {
-        "description": "Publish the draft (owner or admin): readers get it from now on.\n\n409 `maps_narrower_than_story`, listing the maps, when a map a scene uses\ncan't be read by everyone the story's visibility reaches.",
+        "description": "Publish the draft (owner or admin): readers get it from now on.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 409\n`maps_narrower_than_story` when a map a scene uses can't be read by\neveryone the story's visibility reaches: `detail.maps` names the ones you\ncan read and `detail.unreadable_maps` counts the rest.",
         "operationId": "publish_story_endpoint_stories__story_id__publish_post",
         "parameters": [
           {
@@ -70067,6 +70093,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryPublish"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

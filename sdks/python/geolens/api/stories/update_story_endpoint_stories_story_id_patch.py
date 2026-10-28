@@ -117,7 +117,8 @@ def sync_detailed(
      Change a story's title, summary or visibility (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
-    published story uses answers 409 `maps_narrower_than_story`.
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed.
 
     Args:
         story_id (UUID):
@@ -154,7 +155,8 @@ def sync(
      Change a story's title, summary or visibility (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
-    published story uses answers 409 `maps_narrower_than_story`.
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed.
 
     Args:
         story_id (UUID):
@@ -186,7 +188,8 @@ async def asyncio_detailed(
      Change a story's title, summary or visibility (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
-    published story uses answers 409 `maps_narrower_than_story`.
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed.
 
     Args:
         story_id (UUID):
@@ -221,7 +224,8 @@ async def asyncio(
      Change a story's title, summary or visibility (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
-    published story uses answers 409 `maps_narrower_than_story`.
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed.
 
     Args:
         story_id (UUID):

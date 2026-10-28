@@ -19,9 +19,12 @@ from pydantic import ValidationError
 from sqlalchemy import Select, and_, delete, func, insert, literal, or_, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
+from app.modules.auth.permissions import get_user_roles as get_account_roles
+from app.modules.auth.service import get_user_identity
 from app.modules.catalog.authorization import (
     apply_map_visibility_filter,
     get_user_roles,
@@ -48,11 +51,13 @@ STORY_WRITE_DENIED = "Only the story's owner or an admin can change it"
 ANONYMOUS_STORY_VISIBILITIES = ("public",)
 SIGNED_IN_STORY_VISIBILITIES = ("internal", "public")
 # The map visibilities that reach everyone a story of each visibility reaches.
-# A private story reaches only its owner and admins; see ``maps_blocking``.
+# A private story reaches only its owner and admins; see ``check_reach``.
 _MAP_VISIBILITIES_FOR_STORY = {
     "public": ("public",),
     "internal": ("internal", "public"),
 }
+# How far each visibility reaches; only a change to a wider one is checked.
+_REACH_ORDER = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
 
 _LOCK_TIMEOUT = "2s"
 
@@ -138,23 +143,14 @@ def apply_story_visibility_filter(
     )
 
 
-async def lock_story(db: AsyncSession, story_id: uuid.UUID) -> Story:
-    """Lock the story row for a write and return it as committed now.
-
-    Re-checks the writer ``check_story_ownership`` admitted. A wait past the
-    lock timeout answers 409.
-    """
+async def _bounded_lock(db: AsyncSession, stmt: Select[Any]) -> list[Any]:
+    """Run a locking select, answering 409 when the wait outlasts the timeout."""
     await db.execute(
         text("SELECT set_config('lock_timeout', :timeout, true)"),
         {"timeout": _LOCK_TIMEOUT},
     )
     try:
-        story = await db.scalar(
-            select(Story)
-            .where(Story.id == story_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        rows = list((await db.scalars(stmt)).all())
     except DBAPIError as exc:
         if not is_lock_conflict(exc):
             raise
@@ -164,6 +160,23 @@ async def lock_story(db: AsyncSession, story_id: uuid.UUID) -> Story:
             detail="Another change to this story is in progress. Retry shortly.",
         ) from exc
     await db.execute(text("RESET lock_timeout"))
+    return rows
+
+
+async def lock_story(db: AsyncSession, story_id: uuid.UUID) -> Story:
+    """Lock the story row for a write and return it as committed now.
+
+    Re-checks the writer ``check_story_ownership`` admitted. A wait past the
+    lock timeout answers 409.
+    """
+    locked = await _bounded_lock(
+        db,
+        select(Story)
+        .where(Story.id == story_id)
+        .with_for_update()
+        .execution_options(populate_existing=True),
+    )
+    story = locked[0] if locked else None
 
     async def enforce(user: Identity, row: Any) -> None:
         if row is None:
@@ -191,7 +204,9 @@ async def list_stories(
     owned_only: bool,
 ) -> tuple[list[Story], int]:
     stmt = apply_story_visibility_filter(
-        select(Story), user.id if user is not None else None, "admin" in roles
+        select(Story).options(defer(Story.draft), defer(Story.published)),
+        user.id if user is not None else None,
+        "admin" in roles,
     )
     if owned_only:
         if user is None:
@@ -221,14 +236,25 @@ def _scene(raw: Any) -> StoryScene | None:
         return None
 
 
+def _scene_map_id(raw: Any) -> uuid.UUID | None:
+    """The map a stored scene names. Read leniently, so a scene this server
+    can't parse is still reach-checked and filtered."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return uuid.UUID(str(raw.get("map_id")))
+    except ValueError:
+        return None
+
+
 def scene_map_ids(*documents: Any) -> set[uuid.UUID]:
     """The maps the scenes of ``documents`` use."""
     ids = set()
     for document in documents:
         for chapter in _chapters(document):
-            scene = _scene(chapter.get("scene"))
-            if scene is not None:
-                ids.add(scene.map_id)
+            map_id = _scene_map_id(chapter.get("scene"))
+            if map_id is not None:
+                ids.add(map_id)
     return ids
 
 
@@ -261,8 +287,9 @@ def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:
     """A stored document as one reader sees it.
 
     A scene on a map outside ``readable`` (one the reader can't read, or one
-    since deleted) is left out and the chapter marked ``scene_hidden``. Blocks
-    this server can't parse are left out too.
+    since deleted), or one this server can't parse, is left out and the
+    chapter marked ``scene_hidden``. Blocks and chapters this server can't
+    parse are left out too.
     """
     chapters = []
     for raw in _chapters(document):
@@ -270,8 +297,11 @@ def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:
             chapter_id = uuid.UUID(str(raw.get("id")))
         except ValueError:
             continue
-        scene = _scene(raw.get("scene"))
-        hidden = scene is not None and scene.map_id not in readable
+        stored_scene = raw.get("scene")
+        scene = _scene(stored_scene)
+        hidden = stored_scene is not None and (
+            scene is None or scene.map_id not in readable
+        )
         title = raw.get("title")
         chapters.append(
             StoryChapter(
@@ -309,18 +339,28 @@ class StoryMapsNotFoundError(Exception):
         self.map_ids = map_ids
 
 
+def _unreadable_by_this_version() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "This story was saved by a newer version of GeoLens and can't be "
+            "changed here."
+        ),
+    )
+
+
 def _refuse_newer_document(stored: Any) -> None:
-    """Refuse to overwrite a document a newer server wrote, which this one
-    would save without the fields it doesn't know."""
+    """Refuse to overwrite a document a newer server wrote, or one holding
+    chapters this server can't identify: a save would drop what it can't read."""
     version = stored.get("version") if isinstance(stored, dict) else None
     if isinstance(version, int) and version > STORY_DOCUMENT_VERSION:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "This story was saved by a newer version of GeoLens and can't "
-                "be changed here."
-            ),
-        )
+        raise _unreadable_by_this_version()
+    chapters = stored.get("chapters") if isinstance(stored, dict) else None
+    for chapter in chapters or ():
+        try:
+            uuid.UUID(str(chapter.get("id")))
+        except (AttributeError, ValueError):
+            raise _unreadable_by_this_version() from None
 
 
 async def merge_document(
@@ -333,8 +373,9 @@ async def merge_document(
     """The document to store for a draft save.
 
     A sent scene must be on a map the editor can read. A chapter sent with
-    ``scene_hidden`` keeps its stored scene, so a save never drops a scene on
-    a map the editor can no longer read. Blocks the server can't parse go back
+    ``scene_hidden`` keeps its stored scene as stored, so a save never drops a
+    scene on a map the editor can no longer read, or one this server can't
+    parse. Blocks the server can't parse go back
     where they were (``to_store``). Scenes on deleted maps are dropped.
     """
     _refuse_newer_document(stored)
@@ -351,7 +392,7 @@ async def merge_document(
         scene: dict[str, Any] | None = None
         if chapter.scene is not None:
             scene = chapter.scene.model_dump(mode="json")
-        elif chapter.scene_hidden and _scene(prior.get("scene")) is not None:
+        elif chapter.scene_hidden and prior.get("scene") is not None:
             scene = prior["scene"]
         kept = read_stored(prior.get("blocks"), "story").unreadable
         chapters.append(
@@ -370,16 +411,32 @@ async def _without_deleted_maps(
     db: AsyncSession, document: dict[str, Any]
 ) -> dict[str, Any]:
     existing = await _existing_map_ids(db, scene_map_ids(document))
-    for chapter in document["chapters"]:
-        scene = _scene(chapter.get("scene"))
-        if scene is not None and scene.map_id not in existing:
+    for chapter in _chapters(document):
+        map_id = _scene_map_id(chapter.get("scene"))
+        if map_id is not None and map_id not in existing:
             chapter["scene"] = None
     return document
 
 
 async def sync_story_maps(db: AsyncSession, story: Story) -> None:
-    """Point ``story_maps`` at the maps the draft and published scenes use."""
+    """Point ``story_maps`` at the maps the draft and published scenes use.
+
+    Takes the maps involved FOR KEY SHARE, in id order, before touching
+    ``story_maps``. A map delete locks its map row and then cascades into
+    ``story_maps``; locking maps first keeps the two in one order.
+    """
     map_ids = scene_map_ids(story.draft, story.published)
+    listed = set(
+        await db.scalars(select(StoryMap.map_id).where(StoryMap.story_id == story.id))
+    )
+    if map_ids | listed:
+        await _bounded_lock(
+            db,
+            select(Map.id)
+            .where(Map.id.in_(map_ids | listed))
+            .order_by(Map.id)
+            .with_for_update(read=True, key_share=True),
+        )
     await db.execute(delete(StoryMap).where(StoryMap.story_id == story.id))
     if map_ids:
         # Selecting from maps skips one deleted since the document was read.
@@ -393,54 +450,94 @@ async def sync_story_maps(db: AsyncSession, story: Story) -> None:
         )
 
 
-async def maps_blocking(
+class StoryReachError(Exception):
+    """Maps the story uses are narrower than its visibility."""
+
+    def __init__(self, maps: list[BlockingMap], unreadable: int) -> None:
+        super().__init__("maps are narrower than the story's visibility")
+        self.maps = maps
+        self.unreadable = unreadable
+
+
+async def _owner_reads(
+    db: AsyncSession, map_ids: set[uuid.UUID], owner_id: uuid.UUID
+) -> set[uuid.UUID] | None:
+    """The maps the story's owner can read, or None when the owner can't sign
+    in, which leaves a private story to admins."""
+    owner = await get_user_identity(db, owner_id)
+    if owner is None or not owner.is_active:
+        return None
+    is_admin = "admin" in await get_account_roles(db, owner)
+    return await readable_map_ids(db, map_ids, owner_id, is_admin)
+
+
+async def check_reach(
     db: AsyncSession,
     map_ids: set[uuid.UUID],
     visibility: str,
     owner_id: uuid.UUID | None,
     publisher: Identity,
     publisher_roles: set[str],
-) -> list[BlockingMap]:
-    """Maps narrower than the audience a story with ``visibility`` reaches.
+) -> None:
+    """Raise ``StoryReachError`` for maps narrower than the audience a story
+    with ``visibility`` reaches.
 
-    A private story reaches its owner and admins, so its maps must be ones
-    the owner can read. Names are given only for maps the publisher can read.
+    A private story reaches its owner and admins, so its maps must be ones the
+    owner can read. The error names only maps the publisher can read and
+    counts the rest. A visibility this server has no rule for is refused.
     """
+    allowed = _MAP_VISIBILITIES_FOR_STORY.get(visibility)
+    if allowed is None and visibility != "private":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "visibility_unsupported",
+                "message": f"Stories can't be published as {visibility} yet.",
+            },
+        )
     if not map_ids:
-        return []
+        return
     rows = (
         await db.execute(
             select(Map.id, Map.name, Map.visibility).where(Map.id.in_(map_ids))
         )
     ).all()
-    allowed = _MAP_VISIBILITIES_FOR_STORY.get(visibility)
     if allowed is not None:
         blocking = {row.id for row in rows if row.visibility not in allowed}
-    elif owner_id is None:
-        blocking = set()
     else:
-        # The owner's own admin role is known only when the owner publishes.
-        owner_is_admin = owner_id == publisher.id and "admin" in publisher_roles
-        owner_reads = await readable_map_ids(db, map_ids, owner_id, owner_is_admin)
-        blocking = {row.id for row in rows} - owner_reads
+        owner_reads = (
+            await _owner_reads(db, map_ids, owner_id) if owner_id is not None else None
+        )
+        blocking = set() if owner_reads is None else {r.id for r in rows} - owner_reads
     if not blocking:
-        return []
+        return
     visible = await readable_map_ids(
         db, blocking, publisher.id, "admin" in publisher_roles
     )
-    return [
-        BlockingMap(id=row.id, name=row.name if row.id in visible else None)
+    named = [
+        BlockingMap(id=row.id, name=row.name)
         for row in sorted(rows, key=lambda r: str(r.id))
-        if row.id in blocking
+        if row.id in visible
     ]
+    raise StoryReachError(named, len(blocking - visible))
 
 
-class StoryReachError(Exception):
-    """Maps the story uses are narrower than its visibility."""
-
-    def __init__(self, maps: list[BlockingMap]) -> None:
-        super().__init__("maps are narrower than the story's visibility")
-        self.maps = maps
+def _refuse_unplaced_scenes(document: Any) -> None:
+    """Refuse to publish a scene whose map can't be found in it, since its
+    reach can't be checked."""
+    for chapter in _chapters(document):
+        raw = chapter.get("scene")
+        if raw is not None and _scene_map_id(raw) is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "scenes_unreadable",
+                    "message": (
+                        "Some scenes were saved by a newer version of GeoLens "
+                        "and can't be published here."
+                    ),
+                },
+            )
 
 
 async def publish(
@@ -450,7 +547,8 @@ async def publish(
     the story's audience. Call holding ``lock_story``."""
     _refuse_newer_document(story.draft)
     document = await _without_deleted_maps(db, copy.deepcopy(story.draft))
-    blocking = await maps_blocking(
+    _refuse_unplaced_scenes(document)
+    await check_reach(
         db,
         scene_map_ids(document),
         story.visibility,
@@ -458,8 +556,6 @@ async def publish(
         publisher,
         roles,
     )
-    if blocking:
-        raise StoryReachError(blocking)
     story.draft = document
     story.published = copy.deepcopy(document)
     story.published_at = datetime.now(UTC)
@@ -473,10 +569,16 @@ async def check_visibility_change(
     editor: Identity,
     roles: set[str],
 ) -> None:
-    """Refuse a visibility the published document's maps don't reach."""
+    """Refuse a wider visibility the published document's maps don't reach.
+
+    A narrower one always passes, so a story can be pulled back after one of
+    its maps is.
+    """
     if story.published is None:
         return
-    blocking = await maps_blocking(
+    if _REACH_ORDER.get(visibility, 0) <= _REACH_ORDER.get(story.visibility, 0):
+        return
+    await check_reach(
         db,
         scene_map_ids(story.published),
         visibility,
@@ -484,8 +586,6 @@ async def check_visibility_change(
         editor,
         roles,
     )
-    if blocking:
-        raise StoryReachError(blocking)
 
 
 def discard(story: Story) -> None:
@@ -494,6 +594,19 @@ def discard(story: Story) -> None:
         copy.deepcopy(story.published) if story.published else empty_document()
     )
     story.draft_revision += 1
+
+
+def refuse_stale_revision(story: Story, revision: int) -> None:
+    """409 ``stale_revision`` unless ``revision`` is the stored draft's."""
+    if revision != story.draft_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "stale_revision",
+                "message": "The draft changed since you loaded it. Reload it and try again.",
+                "revision": story.draft_revision,
+            },
+        )
 
 
 async def save_draft(
@@ -505,15 +618,7 @@ async def save_draft(
     roles: set[str],
 ) -> None:
     """Replace the draft. Call holding ``lock_story``; 409 on a stale revision."""
-    if revision != story.draft_revision:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "stale_revision",
-                "message": "The draft changed since you loaded it. Reload it and try again.",
-                "revision": story.draft_revision,
-            },
-        )
+    refuse_stale_revision(story, revision)
     story.draft = await merge_document(db, sent, story.draft, editor, roles)
     story.draft_revision += 1
     await sync_story_maps(db, story)
@@ -562,8 +667,8 @@ async def duplicate_story(
         db, scene_map_ids(document), user.id, "admin" in roles
     )
     for chapter in _chapters(document):
-        scene = _scene(chapter.get("scene"))
-        if scene is not None and scene.map_id not in readable:
+        raw = chapter.get("scene")
+        if raw is not None and _scene_map_id(raw) not in readable:
             chapter["scene"] = None
     return await create_story(
         db,

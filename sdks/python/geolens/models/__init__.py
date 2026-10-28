@@ -960,6 +960,7 @@ from .stats_response import StatsResponse
 from .stats_result import StatsResult
 from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
+from .stored_story_visibility import StoredStoryVisibility
 from .story_camera import StoryCamera
 from .story_chapter import StoryChapter
 from .story_chapter_input import StoryChapterInput
@@ -969,6 +970,7 @@ from .story_document_input import StoryDocumentInput
 from .story_draft_response import StoryDraftResponse
 from .story_draft_update import StoryDraftUpdate
 from .story_list_response import StoryListResponse
+from .story_publish import StoryPublish
 from .story_response import StoryResponse
 from .story_scene import StoryScene
 from .story_scene_layer_visibility import StorySceneLayerVisibility
@@ -1708,6 +1710,7 @@ __all__ = (
     "StatsResult",
     "StatusUpdate",
     "StatusUpdateResponse",
+    "StoredStoryVisibility",
     "StoryCamera",
     "StoryChapter",
     "StoryChapterInput",
@@ -1717,6 +1720,7 @@ __all__ = (
     "StoryDraftResponse",
     "StoryDraftUpdate",
     "StoryListResponse",
+    "StoryPublish",
     "StoryResponse",
     "StoryScene",
     "StorySceneLayerVisibility",

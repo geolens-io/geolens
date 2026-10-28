@@ -21,6 +21,7 @@ from app.modules.catalog.stories.schemas import (
     StoryDraftResponse,
     StoryDraftUpdate,
     StoryListResponse,
+    StoryPublish,
     StoryResponse,
     StorySummary,
     StoryUpdate,
@@ -40,6 +41,7 @@ from app.modules.catalog.stories.service import (
     list_stories,
     lock_story,
     publish,
+    refuse_stale_revision,
     render_for,
     save_draft,
 )
@@ -107,6 +109,7 @@ def _reach_conflict(exc: StoryReachError) -> HTTPException:
             "code": "maps_narrower_than_story",
             "message": "Some maps this story uses can't be read by everyone the story reaches.",
             "maps": [m.model_dump(mode="json") for m in exc.maps],
+            "unreadable_maps": exc.unreadable,
         },
     )
 
@@ -272,7 +275,8 @@ async def update_story_endpoint(
     """Change a story's title, summary or visibility (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
-    published story uses answers 409 `maps_narrower_than_story`.
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed.
     """
     story = await get_story(db, story_id)
     if story is None:
@@ -325,16 +329,20 @@ async def update_story_endpoint(
 )
 async def publish_story_endpoint(
     story_id: uuid.UUID,
+    body: StoryPublish,
     request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StoryResponse:
     """Publish the draft (owner or admin): readers get it from now on.
 
-    409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-    can't be read by everyone the story's visibility reaches.
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest.
     """
     story, roles = await _owned_story(db, story_id, user)
+    refuse_stale_revision(story, body.revision)
     try:
         await publish(db, story, user, roles)
     except StoryReachError as exc:
@@ -361,6 +369,7 @@ async def publish_story_endpoint(
 @router.post("/{story_id}/discard", response_model=StoryDraftResponse)
 async def discard_story_draft_endpoint(
     story_id: uuid.UUID,
+    request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StoryDraftResponse:
@@ -368,6 +377,17 @@ async def discard_story_draft_endpoint(
     story never published (owner or admin)."""
     story, roles = await _owned_story(db, story_id, user)
     discard(story)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.update",
+            resource_type="story",
+            resource_id=story.id,
+            details={"discarded_draft": True},
+            ip_address=_ip(request),
+        ),
+    )
     await db.commit()
     await db.refresh(story)
     return await _draft_response(db, story, user, roles)

@@ -9,6 +9,7 @@ story's draft and, once published, as its published copy.
 from __future__ import annotations
 
 import enum
+import json
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -18,6 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.modules.catalog.widgets.schemas import ImageWidget, StoryBlock, StoryBlocks
 
 STORY_DOCUMENT_VERSION = 1
+# Each block's text is capped too, but 200 chapters of 100 blocks would still
+# allow hundreds of megabytes; real stories stay far below this.
+MAX_STORY_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 
 class _Strict(BaseModel):
@@ -30,6 +34,16 @@ class StoryVisibility(str, enum.Enum):
     private = "private"
     internal = "internal"
     public = "public"
+
+
+class StoredStoryVisibility(str, enum.Enum):
+    """A story's visibility as stored. ``restricted`` is reserved for story
+    group sharing, which no route sets yet."""
+
+    private = "private"
+    internal = "internal"
+    public = "public"
+    restricted = "restricted"
 
 
 Longitude = Annotated[float, Field(ge=-180, le=180)]
@@ -83,10 +97,17 @@ class StoryDocumentInput(_Strict):
     chapters: list[StoryChapterInput] = Field(default_factory=list, max_length=200)
 
     @model_validator(mode="after")
-    def _unique_chapter_ids(self) -> StoryDocumentInput:
+    def _check(self) -> StoryDocumentInput:
         ids = [chapter.id for chapter in self.chapters]
         if len(set(ids)) != len(ids):
             raise ValueError("chapter ids must be unique")
+        size = len(
+            json.dumps(self.model_dump(mode="json"), separators=(",", ":")).encode()
+        )
+        if size > MAX_STORY_DOCUMENT_BYTES:
+            raise ValueError(
+                f"document too large (>{MAX_STORY_DOCUMENT_BYTES} bytes serialized)"
+            )
         return self
 
 
@@ -126,6 +147,10 @@ class StoryUpdate(_Strict):
     )
 
 
+class StoryPublish(_Strict):
+    revision: int = Field(description="The draft revision to publish.")
+
+
 class StoryDraftUpdate(_Strict):
     revision: int = Field(description="The draft revision this save replaces.")
     document: StoryDocumentInput
@@ -135,7 +160,7 @@ class StorySummary(BaseModel):
     id: uuid.UUID
     title: str
     summary: str | None
-    visibility: StoryVisibility
+    visibility: StoredStoryVisibility
     created_by: uuid.UUID | None
     published_at: datetime | None = Field(
         description="When the story was last published; null if never."
@@ -163,4 +188,4 @@ class StoryListResponse(BaseModel):
 
 class BlockingMap(BaseModel):
     id: uuid.UUID
-    name: str | None = Field(description="Null for a map you can't read.")
+    name: str

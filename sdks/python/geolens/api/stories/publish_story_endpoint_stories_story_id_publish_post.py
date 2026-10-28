@@ -9,13 +9,17 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...models.story_publish import StoryPublish
 from ...models.story_response import StoryResponse
 from uuid import UUID
 
 
 def _get_kwargs(
     story_id: UUID,
+    *,
+    body: StoryPublish,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -24,6 +28,11 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -101,16 +110,20 @@ def sync_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
      Publish the draft (owner or admin): readers get it from now on.
 
-    409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-    can't be read by everyone the story's visibility reaches.
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest.
 
     Args:
         story_id (UUID):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -122,6 +135,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         story_id=story_id,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -135,16 +149,20 @@ def sync(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
      Publish the draft (owner or admin): readers get it from now on.
 
-    409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-    can't be read by everyone the story's visibility reaches.
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest.
 
     Args:
         story_id (UUID):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -157,6 +175,7 @@ def sync(
     return sync_detailed(
         story_id=story_id,
         client=client,
+        body=body,
     ).parsed
 
 
@@ -164,16 +183,20 @@ async def asyncio_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
      Publish the draft (owner or admin): readers get it from now on.
 
-    409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-    can't be read by everyone the story's visibility reaches.
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest.
 
     Args:
         story_id (UUID):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -185,6 +208,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         story_id=story_id,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -196,16 +220,20 @@ async def asyncio(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
      Publish the draft (owner or admin): readers get it from now on.
 
-    409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-    can't be read by everyone the story's visibility reaches.
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest.
 
     Args:
         story_id (UUID):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -219,5 +247,6 @@ async def asyncio(
         await asyncio_detailed(
             story_id=story_id,
             client=client,
+            body=body,
         )
     ).parsed

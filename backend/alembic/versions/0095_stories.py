@@ -29,6 +29,9 @@ _STAMP_FUNCTION = "catalog.stamp_current_tenant_on_insert"
 # the tenant the stamp trigger set.
 _MAP_TRIGGER = "trg_validate_story_map_tenant"
 _MAP_FUNCTION = "catalog.enforce_story_map_tenant"
+# The foreign keys take a lock on users and maps; don't queue behind a long
+# transaction holding them.
+_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
 def _tenant_boundary(table: str) -> None:
@@ -44,6 +47,7 @@ def _tenant_boundary(table: str) -> None:
 
 
 def upgrade() -> None:
+    op.execute(_LOCK_TIMEOUT)
     op.create_table(
         "stories",
         sa.Column(

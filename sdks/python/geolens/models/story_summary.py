@@ -7,8 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-from ..models.story_visibility import check_story_visibility
-from ..models.story_visibility import StoryVisibility
+from ..models.stored_story_visibility import check_stored_story_visibility
+from ..models.stored_story_visibility import StoredStoryVisibility
 from dateutil.parser import isoparse
 from typing import cast
 from uuid import UUID
@@ -25,7 +25,8 @@ class StorySummary:
         id (UUID):
         title (str):
         summary (None | str):
-        visibility (StoryVisibility): Who may read a published story, besides its owner and admins.
+        visibility (StoredStoryVisibility): A story's visibility as stored. ``restricted`` is reserved for story
+            group sharing, which no route sets yet.
         created_by (None | UUID):
         published_at (datetime.datetime | None): When the story was last published; null if never.
         created_at (datetime.datetime):
@@ -36,7 +37,7 @@ class StorySummary:
     id: UUID
     title: str
     summary: None | str
-    visibility: StoryVisibility
+    visibility: StoredStoryVisibility
     created_by: None | UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime
@@ -104,7 +105,7 @@ class StorySummary:
 
         summary = _parse_summary(d.pop("summary"))
 
-        visibility = check_story_visibility(d.pop("visibility"))
+        visibility = check_stored_story_visibility(d.pop("visibility"))
 
         def _parse_created_by(data: object) -> None | UUID:
             if data is None:

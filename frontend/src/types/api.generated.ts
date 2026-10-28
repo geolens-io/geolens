@@ -5993,7 +5993,8 @@ export interface paths {
          * @description Change a story's title, summary or visibility (owner or admin).
          *
          *     These apply at once, without Publish. A visibility wider than a map the
-         *     published story uses answers 409 `maps_narrower_than_story`.
+         *     published story uses answers 409 `maps_narrower_than_story`; a narrower
+         *     one is always allowed.
          */
         patch: operations["update_story_endpoint_stories__story_id__patch"];
         trace?: never;
@@ -6081,8 +6082,10 @@ export interface paths {
          * Publish Story Endpoint
          * @description Publish the draft (owner or admin): readers get it from now on.
          *
-         *     409 `maps_narrower_than_story`, listing the maps, when a map a scene uses
-         *     can't be read by everyone the story's visibility reaches.
+         *     `revision` must match the stored draft's, or 409 `stale_revision`. 409
+         *     `maps_narrower_than_story` when a map a scene uses can't be read by
+         *     everyone the story's visibility reaches: `detail.maps` names the ones you
+         *     can read and `detail.unreadable_maps` counts the rest.
          */
         post: operations["publish_story_endpoint_stories__story_id__publish_post"];
         delete?: never;
@@ -15904,6 +15907,13 @@ export interface components {
              */
             metadata_warnings?: string[] | null;
         };
+        /**
+         * StoredStoryVisibility
+         * @description A story's visibility as stored. ``restricted`` is reserved for story
+         *     group sharing, which no route sets yet.
+         * @enum {string}
+         */
+        StoredStoryVisibility: "private" | "internal" | "public" | "restricted";
         /** StoryCamera */
         StoryCamera: {
             /**
@@ -16002,7 +16012,7 @@ export interface components {
             title: string;
             /** Summary */
             summary: string | null;
-            visibility: components["schemas"]["StoryVisibility"];
+            visibility: components["schemas"]["StoredStoryVisibility"];
             /** Created By */
             created_by: string | null;
             /**
@@ -16042,6 +16052,14 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** StoryPublish */
+        StoryPublish: {
+            /**
+             * Revision
+             * @description The draft revision to publish.
+             */
+            revision: number;
+        };
         /** StoryResponse */
         StoryResponse: {
             /**
@@ -16053,7 +16071,7 @@ export interface components {
             title: string;
             /** Summary */
             summary: string | null;
-            visibility: components["schemas"]["StoryVisibility"];
+            visibility: components["schemas"]["StoredStoryVisibility"];
             /** Created By */
             created_by: string | null;
             /**
@@ -16103,7 +16121,7 @@ export interface components {
             title: string;
             /** Summary */
             summary: string | null;
-            visibility: components["schemas"]["StoryVisibility"];
+            visibility: components["schemas"]["StoredStoryVisibility"];
             /** Created By */
             created_by: string | null;
             /**
@@ -47756,7 +47774,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryPublish"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
