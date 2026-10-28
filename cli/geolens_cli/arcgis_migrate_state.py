@@ -84,11 +84,13 @@ def aware_time(value: Any) -> datetime | None:
 
 
 def _uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
     try:
         UUID(value)
-    except (TypeError, ValueError, AttributeError):
+    except ValueError:
         return False
-    return isinstance(value, str)
+    return True
 
 
 def _joined(record: Mapping[str, Any]) -> bool:
