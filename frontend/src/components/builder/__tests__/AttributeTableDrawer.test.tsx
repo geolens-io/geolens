@@ -23,6 +23,7 @@ import { canOpenAttributeTable } from '@/lib/layer-capabilities';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
+import { toFitBounds } from '@/lib/bbox';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -869,7 +870,7 @@ describe('docked attribute table (round 4)', () => {
     const row2 = screen.getByRole('row', { name: 'Show row 2 on the map' });
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(1, [[12.5, 48.1], [12.5, 48.1]], { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
 
     // Vary the table height through the resize contract; the fit options must
     // not depend on it.
@@ -878,13 +879,13 @@ describe('docked attribute table (round 4)', () => {
     const afterUp = valuenow();
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(2));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(2, [[12.5, 48.1], [12.5, 48.1]], { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(2, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
 
     fireEvent.keyDown(resizeHandle(), { key: 'ArrowDown' });
     expect(valuenow()).not.toBe(afterUp);
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(3));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(3, [[12.5, 48.1], [12.5, 48.1]], { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(3, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
   });
 
   it('resize: keyboard steps and past-bound drags clamp, and aria-value* track the height', () => {
@@ -1220,7 +1221,30 @@ describe('docked attribute table (round 4)', () => {
     },
   ];
 
-  it.each(BOUNDS_CASES)('bounds of $name reach fitBounds as the exact envelope', async ({ geometry, fits }) => {
+  // MapLibre's globe fit returns no camera for a zero-size box and the map
+  // stays put, so a point row has to reach fitBounds with width and height.
+  it('fits a point row with a box that has width and height', async () => {
+    vi.mocked(getFeature).mockResolvedValueOnce({
+      type: 'Feature',
+      id: 2,
+      geometry: { type: 'Point', coordinates: [165.5558, -13.9561] },
+      properties: {},
+    });
+    const map = makeFakeMap();
+    render(<AttributeTableDrawer layer={makeLayer()} open onClose={vi.fn()} mapRef={{ current: map }} />);
+
+    fireEvent.click(screen.getByRole('row', { name: 'Show row 2 on the map' }));
+    await act(async () => {});
+
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    const [[west, south], [east, north]] = vi.mocked(map.fitBounds).mock.calls[0][0] as [[number, number], [number, number]];
+    expect(east - west).toBeGreaterThan(0);
+    expect(north - south).toBeGreaterThan(0);
+    expect((west + east) / 2).toBeCloseTo(165.5558, 6);
+    expect((south + north) / 2).toBeCloseTo(-13.9561, 6);
+  });
+
+  it.each(BOUNDS_CASES)('bounds of $name reach fitBounds as the envelope\'s fit corners', async ({ geometry, fits }) => {
     vi.mocked(getFeature).mockResolvedValueOnce({
       type: 'Feature',
       id: 2,
@@ -1242,7 +1266,7 @@ describe('docked attribute table (round 4)', () => {
     }
     const [w, s, e, n] = fits;
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
-    expect(map.fitBounds).toHaveBeenNthCalledWith(1, [[w, s], [e, n]], { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([w, s, e, n]), { padding: 40, maxZoom: 18 });
     // The highlight source carries the clicked geometry.
     expect(map.addSource).toHaveBeenCalledWith('attribute-table-highlight', {
       type: 'geojson',
@@ -2112,7 +2136,7 @@ describe('row response during a basemap style load', () => {
       expect.soft(rowError).toBeUndefined();
       expect(map.fitBounds).toHaveBeenCalledTimes(1);
       expect(map.fitBounds).toHaveBeenCalledWith(
-        [[12.5, 48.1], [12.5, 48.1]],
+        toFitBounds([12.5, 48.1, 12.5, 48.1]),
         { padding: 40, maxZoom: 18 },
       );
     } finally {
@@ -2137,7 +2161,7 @@ describe('style readiness after style.load', () => {
     expect(map.getLayer('attribute-table-highlight-line')).toBeTruthy();
     expect(map.getLayer('attribute-table-highlight-point')).toBeTruthy();
     expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(
-      [[12.5, 48.1], [12.5, 48.1]],
+      toFitBounds([12.5, 48.1, 12.5, 48.1]),
       { padding: 40, maxZoom: 18 },
     );
     expect(map.once).not.toHaveBeenCalled();
@@ -2226,7 +2250,7 @@ describe('style readiness after style.load', () => {
       type: 'geojson',
       data: { type: 'Feature', geometry: { type: 'Point', coordinates: [3, 4] }, properties: {} },
     });
-    expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith([[3, 4], [3, 4]], { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(toFitBounds([3, 4, 3, 4]), { padding: 40, maxZoom: 18 });
   });
 });
 
@@ -2285,7 +2309,7 @@ describe('fit padding across an in-flight breakpoint change', () => {
     });
 
     expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(
-      [[12.5, 48.1], [12.5, 48.1]],
+      toFitBounds([12.5, 48.1, 12.5, 48.1]),
       {
         padding: sheet ? { top: 40, right: 40, left: 40, bottom: 40 + sheetHeight } : 40,
         maxZoom: 18,
@@ -2338,7 +2362,7 @@ describe('below-800px attribute table height', () => {
         fireEvent.click(screen.getByRole('row', { name: 'Show row 2 on the map' }));
       });
       expect(map.fitBounds).toHaveBeenLastCalledWith(
-        [[12.5, 48.1], [12.5, 48.1]],
+        toFitBounds([12.5, 48.1, 12.5, 48.1]),
         { padding: { top: 40, right: 40, left: 40, bottom: 40 + sheetHeight }, maxZoom: 18 },
       );
     };
