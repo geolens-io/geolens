@@ -17,7 +17,9 @@ from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_plan as plan_mod
 from geolens_cli.main import app
 from geolens_cli.arcgis_migrate_groups import Sharing, share, wanted_groups
-from geolens_cli.arcgis_migrate_state import ItemState
+from geolens_cli.arcgis_migrate_report import build_run_report
+from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
+from geolens_cli.arcgis_portal import Redactor
 
 from .arcgis_fake import A1, A2, inventory_report
 from .conftest import GEOLENS_INSTANCE
@@ -967,3 +969,35 @@ def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
 
     # A grant changed to OTHER after the first read is kept, not reverted.
     assert sent == [{"group_ids": sorted([CREATED, OTHER])}]
+
+
+@pytest.mark.parametrize("change", ["removed", "private"])
+def test_a_group_no_item_needs_any_more_blocks_no_cutover(
+    runner, tmp_path, team, change
+):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_ghost"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            if change == "removed":
+                item["removed"] = True
+            else:
+                item["target"]["visibility"] = "private"
+    plan_file.write_text(json.dumps(plan))
+
+    _result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    checks = {c["check"] for c in payload["cutover"]["checks"]}
+    assert "unresolved-users" not in checks
+    state = MigrationState.load(
+        tmp_path / "arcgis-migration-state.json",
+        plan["portal"]["url"],
+        GEOLENS_INSTANCE,
+        Redactor(),
+        persist=False,
+    )
+    report = build_run_report(plan, state)
+    assert "member_pending" not in {f["kind"] for f in report["follow_ups"]}

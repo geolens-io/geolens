@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import arcgis_plan as _plan
+from .arcgis_migrate_groups import wanted_groups
 from .arcgis_portal import PortalClient, PortalError
 from .arcgis_migrate_state import (
     FINISHED,
@@ -150,8 +151,10 @@ def _users(
         if entry is not None and entry.owner_pending and not item.get("removed"):
             out.append({"item": item["id"], "reason": entry.owner_pending})
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
+    needed = set(wanted_groups(plan, plan["items"]))
     for group_id, made in sorted(state.groups.items()):
-        if not in_use(made):
+        # A group no item to import is shared with any more waits on nobody.
+        if not in_use(made) or group_id not in needed:
             continue
         for pending in made.get("pending") or []:
             out.append(
