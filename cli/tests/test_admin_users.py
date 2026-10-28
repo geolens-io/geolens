@@ -278,8 +278,9 @@ def test_link_by_email_misuse_is_refused(runner, tmp_path, fake_geolens, args, m
         "username,email,role\nbob,,owner\n",
         "username,email,role\nbob,,\nBOB,,\n",
         "username,email,role\nx,,\n",
+        "username,email,role\nbob,bob@example.org,editor,\n",
     ],
-    ids=["no-header", "unknown-role", "repeated-user", "short-name"],
+    ids=["no-header", "unknown-role", "repeated-user", "short-name", "extra-field"],
 )
 def test_a_malformed_csv_creates_nothing(runner, tmp_path, fake_geolens, text):
     users = Users(fake_geolens)
@@ -489,3 +490,50 @@ def test_a_transport_failure_still_shows_the_passwords_already_made(
     [made] = payload["created"]
     assert made["username"] == "bob" and made["password"] == users.passwords[0]
     assert users.passwords[1] not in result.output
+
+
+def test_an_extra_field_is_refused_with_its_line(runner, tmp_path, fake_geolens):
+    Users(fake_geolens)
+    path = _csv(tmp_path, "username,email,role\ncarol,,\nbob,bob@example.org,editor,\n")
+
+    result = runner.invoke(app, ["admin", "users", "import", str(path)])
+
+    assert result.exit_code == 2
+    assert "line 3 has more fields than the header's 3" in " ".join(
+        result.output.split()
+    )
+
+
+def test_a_seed_keeps_rows_sharing_an_email_for_review(runner, tmp_path, fake_geolens):
+    users = Users(fake_geolens)
+    report = json.loads(_inventory(tmp_path).read_text())
+    for row in report["items"]:
+        if row["owner"] == "gis_admin":
+            row["owner"], row["owner_email"] = "gina_personal", "gina@example.org"
+            break
+    report["items"].append({**report["items"][0], "id": "f0" * 16})
+    report["items"][-1].update(owner="gina_admin", owner_email="gina@example.org")
+    inventory = tmp_path / "shared-email-inventory.json"
+    inventory.write_text(json.dumps(report))
+    out = tmp_path / "seed.csv"
+
+    seeded = runner.invoke(
+        app,
+        [
+            "admin",
+            "users",
+            "import",
+            "--from-inventory",
+            str(inventory),
+            "--seed-csv",
+            str(out),
+        ],
+    )
+    imported, _ = _run(runner, "--from-inventory", str(inventory))
+
+    assert seeded.exit_code == 0, seeded.output
+    lines = out.read_text().splitlines()
+    assert "gina_admin,gina@example.org,editor" in lines
+    assert "gina_personal,gina@example.org,editor" in lines
+    assert imported.exit_code == 2
+    assert users.sent == []

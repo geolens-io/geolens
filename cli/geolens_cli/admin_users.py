@@ -125,21 +125,28 @@ def read_csv(path: Path) -> list[Row]:
                     f"{path} needs a header row naming the columns {','.join(COLUMNS)}"
                 )
             reader.fieldnames = header
-            rows = [
-                _row(
-                    record.get("username") or "",
-                    record.get("email") or "",
-                    record.get("role") or "",
-                    f"{path} line {reader.line_num}",
-                )
-                for record in reader
-                if any((value or "").strip() for value in record.values())
-            ]
+            rows = []
+            for record in reader:
+                where = f"{path} line {reader.line_num}"
+                # DictReader files fields past the header's under None.
+                if None in record:
+                    raise UsageError(
+                        f"{where} has more fields than the header's {len(header)}"
+                    )
+                if any((value or "").strip() for value in record.values()):
+                    rows.append(
+                        _row(
+                            record.get("username") or "",
+                            record.get("email") or "",
+                            record.get("role") or "",
+                            where,
+                        )
+                    )
     except OSError as exc:
         raise UsageError(f"can't read {path}: {exc.strerror}") from None
     except (UnicodeDecodeError, csv.Error) as exc:
         raise UsageError(f"{path} is not a CSV file: {exc}") from None
-    return _unique(rows)
+    return rows
 
 
 def rows_from_inventory(inventory: Mapping[str, Any]) -> list[Row]:
@@ -154,12 +161,10 @@ def rows_from_inventory(inventory: Mapping[str, Any]) -> list[Row]:
     for group in inventory.get("groups", []):
         for member in group["members"] or []:
             roles.setdefault(member, MEMBER_ROLE)
-    return _unique(
-        [
-            _row(name, emails.get(name) or "", role, f"inventory user {name}")
-            for name, role in sorted(roles.items())
-        ]
-    )
+    return [
+        _row(name, emails.get(name) or "", role, f"inventory user {name}")
+        for name, role in sorted(roles.items())
+    ]
 
 
 def _cell(value: str) -> str:
@@ -230,12 +235,16 @@ def _load_rows(opts: ImportOptions) -> list[Row]:
             "their passwords are never printed; drop --print-passwords"
         )
     if opts.inventory_path is None:
-        return read_csv(opts.csv_path) if opts.csv_path else []
-    try:
-        inventory = _plan.load_inventory(opts.inventory_path)
-    except _plan.PlanError as exc:
-        raise UsageError(str(exc)) from None
-    return rows_from_inventory(inventory)
+        rows = read_csv(opts.csv_path) if opts.csv_path else []
+    else:
+        try:
+            inventory = _plan.load_inventory(opts.inventory_path)
+        except _plan.PlanError as exc:
+            raise UsageError(str(exc)) from None
+        rows = rows_from_inventory(inventory)
+    # A seed is for the operator to review, so rows sharing a name or email
+    # are written for them to resolve; only an import refuses them.
+    return rows if opts.seed_path is not None else _unique(rows)
 
 
 def _pending_reason(row: Row, opts: ImportOptions, provider: bool) -> str | None:
