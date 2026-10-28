@@ -62,6 +62,9 @@ drop_bundled_cache_url
 printf 'REDIS_URL=redis://valkey:6379/0\nCOMPOSE_PROFILES=cloud-dev\n' >.env
 drop_bundled_cache_url
 [ "$(get_env_value REDIS_URL)" = "redis://valkey:6379/0" ] || fail "working dev URL cleared"
+printf 'REDIS_URL=redis://:pw@valkey:6379/0\nCOMPOSE_PROFILES=cloud-dev\n' >.env
+drop_bundled_cache_url
+[ -z "$(get_env_value REDIS_URL)" ] || fail "passworded URL kept for the passwordless dev valkey"
 printf 'REDIS_URL=redis://valkey:6379/0\n' >.env
 drop_bundled_cache_url
 [ -z "$(get_env_value REDIS_URL)" ] || fail "URL without cloud-dev not cleared"
