@@ -39,17 +39,19 @@ class FieldNames:
                 self._by_source_folded.setdefault(source.casefold(), set()).add(stored)
         self._sourced = bool(self._by_source)
         self._folded: dict[str, set[str]] = {}
-        for name in self._columns:
-            self._folded.setdefault(name.casefold(), set()).add(name)
+        for c in cols:
+            name = c.get("name")
+            if isinstance(name, str) and not isinstance(c.get("source_name"), str):
+                self._folded.setdefault(name.casefold(), set()).add(name)
         self._path = path
         self._loss = loss
         self._reported: set[str] = set()
 
     def stored(self, name: str) -> str | None:
         """The column *name* is stored as: the column whose source field it is
-        when columns record source names (an ambiguous match is None, and a
-        column without one is matched by its own name), else the same name,
-        the name ingest gives the field, or the one column equal to it
+        when columns record source names (an ambiguous match is None), else
+        the same name, the name ingest gives the field when no column records
+        a source name, or the one column without a source name equal to it
         ignoring case."""
         if not self._columns:
             return name
@@ -60,12 +62,12 @@ class FieldNames:
             ):
                 if found:
                     return next(iter(found)) if len(found) == 1 else None
-            return name if name in self._columns else None
         if name in self._columns:
             return name
-        laundered = stored_column_names([name])[0]
-        if laundered in self._columns:
-            return laundered
+        if not self._sourced:
+            laundered = stored_column_names([name])[0]
+            if laundered in self._columns:
+                return laundered
         folded = self._folded.get(name.casefold(), set())
         return next(iter(folded)) if len(folded) == 1 else None
 
