@@ -2382,6 +2382,20 @@ class TestCimSymbols:
         assert paint == {"fill-color": "#ff0000", "fill-opacity": 0.502}
         assert details == []
 
+    def test_primitive_overrides_are_reported(self) -> None:
+        symbol = _cim("CIMPolygonSymbol", _cim_fill([255, 0, 0, 255]))
+        symbol["primitiveOverrides"] = [
+            {
+                "type": "CIMPrimitiveOverride",
+                "primitiveName": "fill",
+                "propertyName": "Color",
+                "valueExpressionInfo": {"expression": "$feature.COLOR"},
+            }
+        ]
+        paint, details = self._symbol_kinds(symbol)
+        assert paint == {"fill-color": "#ff0000", "fill-opacity": 1.0}
+        assert details == ["symbol properties set from feature values"]
+
     def test_an_outline_only_polygon_has_no_fill(self) -> None:
         result = _translate(
             _with_renderer(

@@ -168,6 +168,8 @@ def classic_symbol(reference: dict, path: str, loss: LossReport) -> dict | None:
     """The classic symbol a ``CIMSymbolReference`` draws like, or None (reported)."""
     symbol = _d(reference.get("symbol"))
     kind = symbol.get("type")
+    if _l(reference.get("primitiveOverrides")):
+        loss.add(path, "symbol_style", "symbol properties set from feature values")
     if kind == "CIMPolygonSymbol":
         classic = _polygon(symbol, path, loss)
     elif kind == "CIMLineSymbol":
