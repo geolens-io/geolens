@@ -1185,3 +1185,23 @@ def test_a_member_read_after_an_admin_read_keeps_a_private_group():
     again, changes = _merge(merged, admin)
     assert _items(again)[A3]["target"]["groups"] == ["g1", "g2"]
     assert changes["groups_kept"] == []
+
+
+def test_each_under_sharing_reason_is_named_with_its_items(runner, inventory_file):
+    report = inventory_report()
+    report["auth"]["role"] = "org_user"
+    for row in report["items"]:
+        if row["id"] == A1:
+            row["sharing"]["access"] = "shared"
+            row["groups"] = None
+        if row["id"] == A2:
+            row["sharing"]["access"] = "shared"
+            row["groups"] = [{"id": "g1", "title": "Planning", "access": "org"}]
+    inventory_file.write_text(json.dumps(report))
+
+    result = runner.invoke(app, ["arcgis", "plan", str(inventory_file)])
+
+    assert result.exit_code == 0, result.output
+    text = " ".join(result.output.split())
+    assert f"group sharing wasn't read: {A1}" in text
+    assert f"which doesn't see private groups it isn't in: {A2}" in text

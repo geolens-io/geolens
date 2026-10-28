@@ -731,13 +731,17 @@ def run_cli(
             "so their group collections are missing; rerun the inventory signed in "
             f"and without --no-groups: {', '.join(unknown_groups[:5])}"
         )
-    under_shared = stats["possibly_under_shared"]
-    if under_shared:
+    by_reason: dict[str, list[str]] = {}
+    for item in plan["items"]:
+        reason = item["id"] in stats["possibly_under_shared"] and possibly_under_shared(
+            plan, item
+        )
+        if reason:
+            by_reason.setdefault(reason, []).append(item["id"])
+    for reason, ids in by_reason.items():
         fmt.warn(
-            f"{len(under_shared)} item(s) shared only with groups may reach fewer "
-            "people in GeoLens: the inventory wasn't read by an org admin, who "
-            "alone sees every group an item is shared with: "
-            + ", ".join(under_shared[:5])
+            f"{len(ids)} item(s) shared only with groups may reach fewer people in "
+            f"GeoLens: {reason}: " + ", ".join(ids[:5])
         )
     if not plan["inventory"]["complete"]:
         fmt.warn(

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_plan as plan_mod
 from geolens_cli.main import app
-from geolens_cli.arcgis_migrate_groups import Sharing, share
+from geolens_cli.arcgis_migrate_groups import Sharing, share, wanted_groups
 from geolens_cli.arcgis_migrate_state import ItemState
 
 from .arcgis_fake import A1, A2, inventory_report
@@ -834,3 +834,112 @@ def test_unmapping_a_migrated_group_counts_at_cutover_and_a_remap_reuses_it(
     assert _run(runner, plan_file)[0].exit_code == 0
     assert [g["id"] for g in api.groups] == [CREATED]
     assert "unmapped" not in _state(plan_file)["groups"]["g1"]
+
+
+def _map_a_second_group(plan_file: Path) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1", "g2"]
+    plan["group_map"]["g2"] = {
+        "collection": "Other",
+        "visibility": "private",
+        "geolens_group": "Other",
+    }
+    plan_file.write_text(json.dumps(plan))
+
+
+def test_an_edit_landing_during_a_rerun_share_is_never_adopted(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    baseline = _state(plan_file)["items"][A2]["last_update"][DATASETS[0]]
+    _map_a_second_group(plan_file)
+    share = api.share
+
+    def edit_after_share(seen, dataset):
+        answer = share(seen, dataset)
+        if dataset == DATASETS[0]:
+            # Someone edits the data between the share and the read after it.
+            service.fields[dataset].update(data_revision=7, updated_by=BOB)
+        return answer
+
+    api.share = edit_after_share
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["last_update"][DATASETS[0]] == baseline
+    assert (
+        "changed in GeoLens while it was shared" in (payload["not_up_to_date"][A2][0])
+    )
+
+
+def test_a_dataset_changed_since_the_last_run_isnt_shared_on_a_rerun(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    baseline = _state(plan_file)["items"][A2]["last_update"][DATASETS[0]]
+    _map_a_second_group(plan_file)
+    service.fields[DATASETS[0]].update(data_revision=3, updated_by=BOB)
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert [s for s in api.shares if OTHER in s[1]] == []
+    assert _state(plan_file)["items"][A2]["last_update"][DATASETS[0]] == baseline
+    assert "wasn't shared with its new groups" in payload["not_up_to_date"][A2][0]
+
+
+def test_only_items_to_import_get_groups():
+    def item(action: str, **extra: Any) -> dict:
+        return {
+            "action": action,
+            "target": {"visibility": "restricted", "groups": [action]},
+            **extra,
+        }
+
+    items = [
+        item("import_layers"),
+        item("import_file"),
+        item("import_map"),
+        item("export_only"),
+        item("skip"),
+        {
+            **item("import_layers"),
+            "target": {"visibility": "restricted", "groups": ["gone"]},
+            "removed": True,
+        },
+        {
+            **item("import_layers"),
+            "target": {"visibility": "restricted", "groups": ["unlisted"]},
+            "unlisted": True,
+        },
+    ]
+
+    assert wanted_groups({}, items) == ["import_file", "import_layers", "import_map"]
+
+
+def test_the_public_policy_is_read_before_any_group_is_made(runner, tmp_path, team):
+    GroupsApi(team, _service(team), existing=[])
+    team.routes["GET /settings/feature-flags/"] = (500, _problem(500, "boom"))
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    plan = json.loads(plan_file.read_text())
+    for entry in plan["items"]:
+        if entry["id"] == A1:
+            entry["target"]["visibility"] = "public"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _run(runner, plan_file, "--only", A1)
+
+    assert result.exit_code != 0
+    assert not [
+        s for s in team.seen if s.method == "POST" and "/admin/groups/" in s.url
+    ]

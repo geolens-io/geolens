@@ -452,6 +452,21 @@ def test_the_members_of_every_shared_group_are_read(run):
     assert _read_errors(report) == []
 
 
+def test_a_group_member_read_failure_is_reported_but_fails_no_item(run):
+    routes = _member_routes()
+    routes["community/groups/g3"] = (404, {"error": {"code": 404}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        ("g3", "group_members")
+    ]
+    # Only the fixture's broken web map counts.
+    assert report["counts"]["failed"] == len(
+        {e["item_id"] for e in report["errors"] if e["phase"] == "item_data"}
+    )
+
+
 def test_hidden_members_are_unknown_to_anyone_but_an_org_admin(run):
     result, _ = run(FakePortal(_member_routes("org_user")), "--scope", "org")
     groups = {g["id"]: g for g in _report(result)["groups"]}

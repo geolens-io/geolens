@@ -39,6 +39,8 @@ GROUP_PAGE = 200
 # The most users one add-members request accepts.
 MEMBER_BATCH = 500
 FALLBACK_PREFIX = "ArcGIS"
+# The plan actions whose datasets or map are shared with groups.
+_SHARED_ACTIONS = ("import_layers", "import_file", "import_map")
 
 
 class GroupUsageError(Exception):
@@ -189,12 +191,16 @@ def _title(
 def wanted_groups(
     plan: Mapping[str, Any], items: Iterable[Mapping[str, Any]]
 ) -> list[str]:
-    """The ArcGIS groups that *items* shared only with groups are shared with."""
+    """The ArcGIS groups that *items* to import, shared only with groups, are
+    shared with; an item left out, exported or not run makes no group."""
     return sorted(
         {
             group
             for item in items
-            if not item.get("removed") and item["target"]["visibility"] == RESTRICTED
+            if item["action"] in _SHARED_ACTIONS
+            and not item.get("removed")
+            and not item.get("unlisted")
+            and item["target"]["visibility"] == RESTRICTED
             for group in item["target"]["groups"] or []
         }
     )
@@ -476,7 +482,7 @@ def share(
     )
     from geolens.models.dataset_groups_update import DatasetGroupsUpdate
 
-    from .arcgis_migrate_refresh import get_dataset, record
+    from .arcgis_migrate_refresh import changed_in_geolens, get_dataset
 
     wanted = set(item["target"].get("geolens_groups") or [])
     if not wanted:
@@ -487,7 +493,17 @@ def share(
             new = wanted - given
             if not new:
                 continue
-            current = _dataset_groups(get_dataset(ctx, dataset_id))
+            before = get_dataset(ctx, dataset_id)
+            baseline = dataset_id in entry.last_update
+            changed = (
+                changed_in_geolens(ctx, entry, dataset_id, before) if baseline else None
+            )
+            if changed:
+                raise ItemFailed(
+                    f"dataset {dataset_id} was {changed}, so it wasn't shared with "
+                    "its new groups; it was left as it is"
+                )
+            current = _dataset_groups(before)
             if not new <= current:
                 ctx.geolens.call(
                     put_dataset.sync_detailed,
@@ -496,8 +512,8 @@ def share(
                         group_ids=[UUID(g) for g in sorted(current | new)]
                     ),
                 )
-                if dataset_id in entry.last_update:
-                    record(entry, dataset_id, get_dataset(ctx, dataset_id))
+                if baseline:
+                    _record_share(ctx, entry, dataset_id, before)
             entry.groups[dataset_id] = sorted(given | new)
             ctx.save()
         map_id = entry.map_id
@@ -515,6 +531,35 @@ def share(
     except GeoLensError as exc:
         raise ItemFailed(f"sharing it with its GeoLens groups failed, {exc}") from None
     return []
+
+
+def _record_share(
+    ctx: MigrationContext, entry: ItemState, dataset_id: str, before: Any
+) -> None:
+    """Record the dataset as the share left it as this command's write, only
+    while the share is the one change since *before*: the same data and
+    feature count, and no other writer. Anything else stays unrecorded, so a
+    rerun sees it as a change made in GeoLens and leaves the dataset alone."""
+    from .arcgis_migrate_refresh import get_dataset, record, snapshot
+    from .refresh import _value
+
+    after = get_dataset(ctx, dataset_id)
+    was, now = snapshot(before), snapshot(after)
+    writer = str(_value(getattr(after, "updated_by", None)))
+    same_writer = writer in (
+        str(_value(getattr(before, "updated_by", None))),
+        str(ctx.operator_id),
+    )
+    if (
+        now["data_revision"] != was["data_revision"]
+        or now["feature_count"] != was["feature_count"]
+        or not same_writer
+    ):
+        raise ItemFailed(
+            f"dataset {dataset_id} changed in GeoLens while it was shared with "
+            "its new groups; it was left as it is"
+        )
+    record(entry, dataset_id, after)
 
 
 def _share_map(ctx: MigrationContext, map_id: str, new: set[str]) -> None:

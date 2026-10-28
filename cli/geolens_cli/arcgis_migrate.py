@@ -1396,6 +1396,8 @@ def _run(
     try:
         operator_id = _require_admin(geolens)
         owners = resolve_owners(geolens, plan, to_run, state, opts.unmapped_owner)
+        # Read before any group is made, so a run it stops changes nothing.
+        restrict_public = _restrict_public(geolens, touched)
         groups = prepare_groups(
             geolens,
             plan,
@@ -1412,7 +1414,7 @@ def _run(
         )
         sharing = Sharing(
             groups={a: g["id"] for a, g in groups.groups.items()},
-            restrict_public=_restrict_public(geolens, touched),
+            restrict_public=restrict_public,
             admins=owners.directory.admins,
         )
     except (UsageError, GroupUsageError) as exc:
