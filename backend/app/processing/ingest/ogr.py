@@ -21,7 +21,7 @@ from app.core.runtime.staging import (
 )
 from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
-    zip_single_folder,
+    zip_dataset_root,
 )
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
@@ -652,7 +652,7 @@ def _tenant_reader_subprocess_env(
 def _resolve_source_path(file_path: str) -> str:
     """Wrap file path with /vsizip/ if it is a zip file."""
     if file_path.endswith(".zip"):
-        folder = zip_single_folder(file_path)
+        folder = zip_dataset_root(file_path)
         return f"/vsizip/{file_path}" + (f"/{folder}" if folder else "")
     return file_path
 

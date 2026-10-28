@@ -5,7 +5,7 @@ import zipfile
 from pathlib import PurePosixPath
 
 
-def zip_single_folder(file_path: str) -> str | None:
+def zip_dataset_root(file_path: str) -> str | None:
     """The folder inside a zip that GDAL has to be pointed at, else None.
 
     A zip holding one ``.gdb`` folder, at any depth, gets that folder:
