@@ -18,10 +18,14 @@ import { randomId } from '@/lib/random-id';
 
 /** Set on the document root while the Ask AI launcher is showing. */
 const FLOATING_DOCK_INSET_VAR = '--floating-dock-inset';
+/** Width the launcher covers from the inline end edge, for rows it floats over. */
+const FLOATING_DOCK_REACH_VAR = '--floating-dock-reach';
 
 // Launcher offset (bottom-10, or bottom-44 when lifted above the pending-edits bar) plus its height and a margin.
 const DOCK_INSET = '5.5rem';
 const LIFTED_DOCK_INSET = '14rem';
+// The launcher's end-16 offset plus room for its widest label.
+const DOCK_REACH = '12rem';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -147,8 +151,10 @@ export function DatasetChatPanel({
     if (!launcherVisible) return undefined;
     const root = document.documentElement;
     root.style.setProperty(FLOATING_DOCK_INSET_VAR, abovePendingBar ? LIFTED_DOCK_INSET : DOCK_INSET);
+    root.style.setProperty(FLOATING_DOCK_REACH_VAR, DOCK_REACH);
     return () => {
       root.style.removeProperty(FLOATING_DOCK_INSET_VAR);
+      root.style.removeProperty(FLOATING_DOCK_REACH_VAR);
     };
   }, [launcherVisible, abovePendingBar]);
 
