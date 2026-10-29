@@ -6,6 +6,10 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
+from ..models.dashboard_config_panel import check_dashboard_config_panel
+from ..models.dashboard_config_panel import DashboardConfigPanel
 
 if TYPE_CHECKING:
     from ..models.bar_chart_widget import BarChartWidget
@@ -21,10 +25,13 @@ class DashboardConfig:
     Attributes:
         version (int):
         widgets (list[BarChartWidget | IndicatorWidget]): The widgets on layers this response shows, in panel order.
+        panel (DashboardConfigPanel | Unset): Where the panel sits beside the map: `right` or `bottom`. On narrow
+            screens it is always below the map. Default: 'right'.
     """
 
     version: int
     widgets: list[BarChartWidget | IndicatorWidget]
+    panel: DashboardConfigPanel | Unset = "right"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +49,10 @@ class DashboardConfig:
 
             widgets.append(widgets_item)
 
+        panel: str | Unset = UNSET
+        if not isinstance(self.panel, Unset):
+            panel = self.panel
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -50,6 +61,8 @@ class DashboardConfig:
                 "widgets": widgets,
             }
         )
+        if panel is not UNSET:
+            field_dict["panel"] = panel
 
         return field_dict
 
@@ -84,9 +97,17 @@ class DashboardConfig:
 
             widgets.append(widgets_item)
 
+        _panel = d.pop("panel", UNSET)
+        panel: DashboardConfigPanel | Unset
+        if isinstance(_panel, Unset):
+            panel = UNSET
+        else:
+            panel = check_dashboard_config_panel(_panel)
+
         dashboard_config = cls(
             version=version,
             widgets=widgets,
+            panel=panel,
         )
 
         dashboard_config.additional_properties = d

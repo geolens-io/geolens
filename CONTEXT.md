@@ -19,6 +19,13 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Companion drawing**: A label, arrow or extrusion associated with a saved layer. It belongs to that layer's presentation rather than representing another saved layer.
 
+**Dashboard**: A panel of widgets saved with a map, shown beside or below it. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read.
+
+**Widget**: One summary in a dashboard of a single saved layer, such as an indicator or a bar chart. It always applies the layer's saved filter.
+_Avoid_: Chart, when the widget is a number.
+
+**View scope**: A widget's choice to cover only the features in the current map view rather than the whole layer. A layer with no geometry is always covered whole.
+
 **Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
 _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
 

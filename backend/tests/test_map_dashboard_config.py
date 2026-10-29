@@ -16,6 +16,7 @@ from app.modules.catalog.maps.dashboard import (
     fork_dashboard,
     merge_dashboard,
     render_dashboard,
+    shows_widgets,
 )
 from app.modules.catalog.maps.service_crud import get_map, update_map
 from tests.factories import create_dataset, create_user, get_user_id
@@ -231,6 +232,33 @@ def test_render_keeps_only_widgets_on_the_given_layers_and_parseable_ones():
     assert _shape(rendered["widgets"]) == _shape([keep])
     assert rendered["widgets"][0]["config"]["stat_column"] == "area"
     assert render_dashboard(None, [shown]) is None
+
+
+def test_the_list_flag_agrees_with_what_a_read_renders():
+    shown, other = uuid.uuid4(), uuid.uuid4()
+    upper = {**_widget("indicator", shown), "layer_id": str(shown).upper()}
+    cases = [
+        None,
+        {"version": 1, "widgets": []},
+        {"version": 1, "widgets": [_widget("indicator", other)]},
+        {"version": 1, "widgets": [_widget("indicator", shown)]},
+        {"version": 1, "widgets": [upper]},
+        # Types this server reads but doesn't show, unknown types, broken rows.
+        {"version": 1, "widgets": [_widget("histogram", shown)]},
+        {"version": 1, "widgets": [_widget("gauge", shown)]},
+        {
+            "version": 1,
+            "widgets": [{**_widget("indicator", shown), "config": {"stat": 7}}],
+        },
+        {"version": 1, "widgets": ["not a widget", {"layer_id": None}]},
+        {
+            "version": 1,
+            "widgets": [_widget("gauge", shown), _widget("bar_chart", shown)],
+        },
+    ]
+    for stored in cases:
+        expected = render_dashboard(stored, [shown]) is not None
+        assert shows_widgets(stored, [shown]) is expected, stored
 
 
 def test_fork_remaps_layers_and_drops_what_it_cannot_copy():
@@ -688,3 +716,127 @@ class TestDashboardConfigApi:
                 on_a["id"],
                 on_b["id"],
             ]
+
+
+class TestDashboardPanel:
+    def test_the_panel_is_stored_only_when_it_is_not_the_default(self):
+        layer = uuid.uuid4()
+        widget = _widget("indicator", layer)
+
+        right = _merge({"widgets": [widget]}, None, readable={layer})
+        bottom = _merge(
+            {"panel": "bottom", "widgets": [widget]}, None, readable={layer}
+        )
+
+        assert "panel" not in right
+        assert bottom["panel"] == "bottom"
+        assert render_dashboard(right, [layer]).panel == "right"
+        assert render_dashboard(bottom, [layer]).panel == "bottom"
+
+    def test_a_row_saved_before_the_panel_existed_reads_as_right(self):
+        layer = uuid.uuid4()
+        stored = {"version": 1, "widgets": [_widget("indicator", layer)]}
+        assert render_dashboard(stored, [layer]).panel == "right"
+
+    def test_saves_that_send_no_panel_keep_the_stored_one(self):
+        shown, hidden, repointed, copy = (uuid.uuid4() for _ in range(4))
+        on_hidden = _widget("indicator", hidden)
+        stored = {
+            "version": 1,
+            "panel": "bottom",
+            "widgets": [_widget("indicator", shown), on_hidden],
+        }
+
+        assert _merge(None, stored, readable={shown}, hidden={hidden})["panel"] == (
+            "bottom"
+        )
+        moved = {
+            **stored,
+            "widgets": [*stored["widgets"], _widget("indicator", repointed)],
+        }
+        assert drop_repointed(moved, {repointed})["panel"] == "bottom"
+        assert fork_dashboard(stored, {shown: copy})["panel"] == "bottom"
+
+    def test_a_save_that_names_no_panel_keeps_the_stored_one(self):
+        layer = uuid.uuid4()
+        stored = {"version": 1, "panel": "bottom", "widgets": []}
+        sent = {"widgets": [_widget("indicator", layer)]}
+
+        assert _merge(sent, stored, readable={layer})["panel"] == "bottom"
+        moved_right = _merge({**sent, "panel": "right"}, stored, readable={layer})
+        assert "panel" not in moved_right
+
+    async def test_an_api_save_without_a_panel_keeps_a_bottom_panel(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
+        widget = _widget("indicator", layer_id)
+        for body in (
+            {"panel": "bottom", "widgets": [widget]},
+            {"widgets": [widget, _widget("indicator", layer_id)]},
+        ):
+            resp = await client.put(
+                f"/maps/{map_id}",
+                json={"dashboard_config": body},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["dashboard_config"]["panel"] == "bottom"
+
+    def test_an_unknown_panel_is_refused_on_write(self):
+        with pytest.raises(ValueError):
+            DashboardConfigInput.model_validate({"panel": "left", "widgets": []})
+
+
+class TestMapListDashboardFlag:
+    async def test_a_map_is_flagged_only_where_the_reader_sees_a_widget(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        public_ds = await create_dataset(test_db_session, created_by=admin_id)
+        private_ds = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, (public_layer, private_layer) = await _map_with_layers(
+            client, admin_auth_header, public_ds, private_ds, visibility="public"
+        )
+        plain_id, _ = await _map_with_layers(
+            client, admin_auth_header, public_ds, visibility="public"
+        )
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "dashboard_config": {"widgets": [_widget("indicator", private_layer)]}
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        await _make_private(test_db_session, private_ds)
+
+        async def flags(headers: dict, path: str = "/maps/?limit=200") -> dict:
+            got = await client.get(path, headers=headers)
+            assert got.status_code == 200, got.text
+            return {m["id"]: m["has_dashboard"] for m in got.json()["maps"]}
+
+        owner = await flags(admin_auth_header)
+        assert owner[map_id] is True
+        assert owner[plain_id] is False
+        for headers in (viewer_auth_header, {}):
+            assert (await flags(headers))[map_id] is False
+        by_dataset = f"/datasets/{public_ds.id}/maps/"
+        assert (await flags(admin_auth_header, by_dataset))[map_id] is True
+        assert (await flags(viewer_auth_header, by_dataset))[map_id] is False
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "dashboard_config": {"widgets": [_widget("indicator", public_layer)]}
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert (await flags(viewer_auth_header))[map_id] is True

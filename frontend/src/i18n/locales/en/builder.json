@@ -955,7 +955,10 @@
     "bulkGroupSkippedGroupRow": "Groups can't be grouped — remove any group rows from your selection and try again",
     "bulkDeleteOnlyGroupRows": "Group rows can't be bulk-deleted — use a group's row menu to delete it",
     "bulkGrouped": "Grouped {{count}} layers into \"{{name}}\"",
-    "bulkUngrouped": "Ungrouped {{count}} groups"
+    "bulkUngrouped": "Ungrouped {{count}} groups",
+    "dashboardWidgetInvalid": "Can't save: a dashboard widget reads “{{column}}”, a column that its layer doesn't have or that isn't numeric. Fix it in the Dashboard panel.",
+    "dashboardViewWithoutGeometry": "Can't save: a dashboard widget follows the map view on a layer with no geometry. Set it to cover the whole layer in the Dashboard panel.",
+    "dashboardChangedElsewhere": "This map's dashboard was changed somewhere else. Your unsaved dashboard edits are kept, and saving replaces that change."
   },
   "builderMap": {
     "loading": "Loading map...",
@@ -1210,7 +1213,9 @@
     "askAi": "Ask AI",
     "history": "History",
     "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map..."
+    "notesPlaceholder": "Add notes about this map...",
+    "dashboard": "Dashboard",
+    "dashboardDescription": "Widgets readers see beside the map"
   },
   "leaveWarning": {
     "title": "Unsaved changes",

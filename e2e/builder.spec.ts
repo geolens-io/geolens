@@ -1,15 +1,9 @@
-import { test, expect, type Page, type Response, getAuthToken } from './helpers/session';
+import { test, expect, type Page, getAuthToken } from './helpers/session';
+import { isMapUpdateResponse } from './helpers/maps';
 import path from 'path';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
-
-function isMapUpdateResponse(response: Response, mapId: string): boolean {
-  return (
-    response.request().method() === 'PUT' &&
-    new URL(response.url()).pathname === `/api/maps/${mapId}`
-  );
-}
 
 interface DatasetListItem {
   id?: string;

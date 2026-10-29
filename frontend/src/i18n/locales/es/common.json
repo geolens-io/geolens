@@ -386,7 +386,10 @@
     "storyLocked": "Hay otro cambio en curso en esta historia. Vuelve a intentarlo en un momento.",
     "storyNewerVersion": "Esta historia se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
     "storyScenesUnreadable": "Algunas escenas se guardaron con una versión más reciente de GeoLens y no se pueden publicar aquí.",
-    "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad."
+    "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad.",
+    "dashboardTooNew": "Este panel se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
+    "dashboardTooManyWidgets": "Un panel admite como máximo 50 widgets. Quita algunos antes de guardar.",
+    "dashboardWidgetsRefused": "Algunos widgets del panel usan capas de este mapa que no puedes leer. Quítalos o elige otras capas."
   },
   "settings": {
     "apiKeys": {
@@ -565,7 +568,8 @@
     "card": {
       "previewAlt": "Vista previa de {{name}}",
       "updated": "Actualizado {{date}}",
-      "delete": "Eliminar mapa"
+      "delete": "Eliminar mapa",
+      "dashboard": "Panel"
     }
   },
   "enums": {

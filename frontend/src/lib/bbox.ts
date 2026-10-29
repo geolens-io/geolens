@@ -91,11 +91,11 @@ export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
 
 /**
  * The map wraps around, so a box drawn across the antimeridian carries
- * longitudes beyond +/-180. The search API reads west > east as a crossing box.
+ * longitudes beyond +/-180. Wraps them into [-180, 180]; a crossing box comes
+ * back with west > east, which the search and aggregate APIs read as one.
  */
-export function normalizeBboxLongitudes(bbox: string): string {
-  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  if (maxX - minX >= 360) return `-180,${minY},180,${maxY}`;
+export function wrapBboxLongitudes([minX, minY, maxX, maxY]: Bbox): Bbox {
+  if (maxX - minX >= 360) return [-180, minY, 180, maxY];
   const wrap = (lng: number) =>
     lng >= -180 && lng <= 180
       ? lng
@@ -103,5 +103,10 @@ export function normalizeBboxLongitudes(bbox: string): string {
   const west = wrap(minX);
   // A box whose east edge is the seam itself ends at +180, not -180.
   const east = wrap(maxX) === -180 && maxX > minX ? 180 : wrap(maxX);
-  return `${west},${minY},${east},${maxY}`;
+  return [west, minY, east, maxY];
+}
+
+/** `wrapBboxLongitudes` for a `minx,miny,maxx,maxy` string. */
+export function normalizeBboxLongitudes(bbox: string): string {
+  return wrapBboxLongitudes(bbox.split(',').map(Number) as Bbox).join(',');
 }

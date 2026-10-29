@@ -136,10 +136,41 @@ describe('PublicViewerPage', () => {
 
     mockedUseViewerLayers.mockReturnValue({
       visibleLayers: new Set(['shared-layer-1']),
+      hiddenByReader: new Set<string>(),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
+  });
+
+  it.each([
+    ['open', '/m/share-token?embed=true', 'Hide dashboard'],
+    ['collapsed when the embed asks', '/m/share-token?embed=true&dashboard=collapsed', 'Open dashboard'],
+  ])('starts an embed\'s dashboard %s', (_label, route, button) => {
+    mockedUseSharedMap.mockReturnValue({
+      data: {
+        ...SHARED_MAP,
+        dashboard_config: {
+          version: 1,
+          panel: 'right',
+          widgets: [
+            {
+              id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+              type: 'indicator',
+              v: 1,
+              layer_id: 'shared-layer-1',
+              scope: 'layer',
+              config: { stat: 'count', column: null },
+            },
+          ],
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSharedMap>);
+    renderPage(route);
+    expect(screen.getByRole('button', { name: button })).toBeInTheDocument();
   });
 
   it('titles the document with the shared map name', () => {

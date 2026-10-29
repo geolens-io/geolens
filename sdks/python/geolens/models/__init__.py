@@ -284,6 +284,8 @@ from .create_layer_request import CreateLayerRequest
 from .create_layer_response import CreateLayerResponse
 from .dashboard_config import DashboardConfig
 from .dashboard_config_input import DashboardConfigInput
+from .dashboard_config_input_panel_type_0 import DashboardConfigInputPanelType0
+from .dashboard_config_panel import DashboardConfigPanel
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
 from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
@@ -1266,6 +1268,8 @@ __all__ = (
     "CreateLayerResponse",
     "DashboardConfig",
     "DashboardConfigInput",
+    "DashboardConfigInputPanelType0",
+    "DashboardConfigPanel",
     "DatasetApiKeyCreateRequest",
     "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",

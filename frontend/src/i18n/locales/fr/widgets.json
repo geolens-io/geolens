@@ -29,5 +29,55 @@
       "other": "Autres",
       "roleDescription": "diagramme en barres"
     }
+  },
+  "dashboard": {
+    "title": "Tableau de bord",
+    "open": "Ouvrir le tableau de bord",
+    "hide": "Masquer le tableau de bord",
+    "followsView": "Suit la vue de la carte",
+    "filterIgnored": "Affiche toutes les entités : le filtre de la couche ne peut pas s'appliquer à ces chiffres.",
+    "tooWide": "Trop d'entités dans la vue. Zoomez pour voir ces chiffres.",
+    "loadFailed": "Impossible de charger ces chiffres.",
+    "allHidden": "Les couches que résument ces widgets sont masquées. Affichez-en une dans la légende pour voir ses widgets.",
+    "retry": "Réessayer",
+    "someFailed": "Certains widgets n'ont pas pu charger leurs chiffres."
+  },
+  "editor": {
+    "panelPosition": "Position du panneau",
+    "panelRight": "À droite de la carte",
+    "panelBottom": "Sous la carte",
+    "empty": "Aucun widget pour l'instant.",
+    "noLayers": "Ajoutez à la carte une couche vectorielle ou une table pour lui donner des widgets.",
+    "add": "Ajouter : {{type}}",
+    "title": "Titre",
+    "layer": "Couche",
+    "pickLayer": "Choisissez une couche",
+    "scope": "Porte sur",
+    "scopeLayer": "Toute la couche",
+    "scopeView": "Ce qui est dans la vue de la carte",
+    "moveUp": "Monter {{name}}",
+    "moveDown": "Descendre {{name}}",
+    "remove": "Supprimer {{name}}",
+    "preview": "Aperçu",
+    "stat": "Statistique",
+    "statNames": {
+      "count": "Nombre",
+      "sum": "Somme",
+      "mean": "Moyenne",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "noNumericColumns": "Cette couche n'a pas de colonne numérique : seul un comptage est possible.",
+    "column": "Colonne",
+    "groupBy": "Regrouper par",
+    "limit": "Barres",
+    "pickColumn": "Choisissez une colonne",
+    "problem": {
+      "layerRemoved": "Sa couche n'est plus sur la carte : l'enregistrement supprimera ce widget.",
+      "missingColumn": "La couche n'a pas de colonne « {{column}} ». Choisissez-en une autre avant d'enregistrer.",
+      "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
+      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche."
+    },
+    "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets."
   }
 }

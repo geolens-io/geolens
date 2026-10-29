@@ -1,6 +1,6 @@
 import i18n from '@/i18n/i18n';
 import { formatNumber } from '@/lib/format';
-import type { components } from '@/types/api.generated';
+import type { AggregateResponse } from '@/api/aggregate';
 
 /** A dashboard widget's statistic, as `widgets/schemas.py` stores it. */
 export type Statistic = 'count' | 'sum' | 'mean' | 'min' | 'max';
@@ -36,13 +36,6 @@ export const STAT_LABEL_KEYS = {
   min: 'stats.min',
   max: 'stats.max',
 } as const satisfies Record<Statistic, string>;
-
-type AggregateResponse =
-  | components['schemas']['CountResponse']
-  | components['schemas']['StatsResponse']
-  | components['schemas']['ValueCountsResponse']
-  | components['schemas']['HistogramResponse']
-  | components['schemas']['GroupByResponse'];
 
 type AggregateResults = { [R in AggregateResponse as R['op']]: R['result'] };
 

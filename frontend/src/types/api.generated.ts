@@ -9052,6 +9052,13 @@ export interface components {
             /** Version */
             version: number;
             /**
+             * Panel
+             * @description Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map.
+             * @default right
+             * @enum {string}
+             */
+            panel: "right" | "bottom";
+            /**
              * Widgets
              * @description The widgets on layers this response shows, in panel order.
              */
@@ -9065,6 +9072,11 @@ export interface components {
              * @constant
              */
             version: 1;
+            /**
+             * Panel
+             * @description Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map. Leave it out to keep the stored panel.
+             */
+            panel?: ("right" | "bottom") | null;
             /**
              * Widgets
              * @description Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
@@ -12443,6 +12455,12 @@ export interface components {
             thumbnail_updated_at?: string | null;
             /** Layer Count */
             layer_count: number;
+            /**
+             * Has Dashboard
+             * @description True when the map shows you at least one dashboard widget.
+             * @default false
+             */
+            has_dashboard: boolean;
             /** Created By Username */
             created_by_username?: string | null;
             /**

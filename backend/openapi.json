@@ -5932,6 +5932,16 @@
             "title": "Version",
             "type": "integer"
           },
+          "panel": {
+            "default": "right",
+            "description": "Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map.",
+            "enum": [
+              "right",
+              "bottom"
+            ],
+            "title": "Panel",
+            "type": "string"
+          },
           "widgets": {
             "description": "The widgets on layers this response shows, in panel order.",
             "items": {
@@ -5970,6 +5980,22 @@
             "default": 1,
             "title": "Version",
             "type": "integer"
+          },
+          "panel": {
+            "anyOf": [
+              {
+                "enum": [
+                  "right",
+                  "bottom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map. Leave it out to keep the stored panel.",
+            "title": "Panel"
           },
           "widgets": {
             "description": "Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.",
@@ -14027,6 +14053,12 @@
           "layer_count": {
             "title": "Layer Count",
             "type": "integer"
+          },
+          "has_dashboard": {
+            "default": false,
+            "description": "True when the map shows you at least one dashboard widget.",
+            "title": "Has Dashboard",
+            "type": "boolean"
           },
           "created_by_username": {
             "anyOf": [

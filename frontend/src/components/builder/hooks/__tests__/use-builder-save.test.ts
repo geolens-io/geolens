@@ -225,6 +225,9 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     localDescription: 'A test',
     legendTitle: null,
     dockNotes: '',
+    dashboard: { panel: 'right', widgets: [] },
+    savedDashboard: { panel: 'right', widgets: [] },
+    dashboardEdited: false,
     mapInstanceRef: { current: createMockMap() } as unknown as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
@@ -1509,6 +1512,143 @@ describe('useBuilderSave', () => {
     );
     expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
     expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+  });
+
+  describe('dashboard', () => {
+    const widgetLayer = () =>
+      makeLayer({
+        id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+        dataset_column_info: [
+          { name: 'kind', type: 'text' },
+          { name: 'area', type: 'double precision' },
+        ],
+      });
+    const barChart = (config: Record<string, unknown>) => ({
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 1,
+      title: '  Land use  ',
+      layer_id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+      scope: 'layer' as const,
+      config: { column: 'kind', stat: 'count', stat_column: null, limit: 10, ...config },
+    });
+
+    async function save(state: SaveState) {
+      const { result } = renderHook(() => useBuilderSave(state));
+      await act(async () => {
+        await result.current.handleSave();
+      });
+    }
+
+    it('sends the edited dashboard with the map metadata', async () => {
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [widgetLayer()],
+          dashboard: { panel: 'bottom', widgets: [barChart({})] },
+          savedDashboard: { panel: 'right', widgets: [] },
+          dashboardEdited: true,
+        }),
+      );
+
+      expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toEqual({
+        version: 1,
+        panel: 'bottom',
+        widgets: [{ ...barChart({}), title: 'Land use' }],
+      });
+    });
+
+    it('leaves the dashboard out of a save that would not change it', async () => {
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [widgetLayer()],
+          dashboard: { panel: 'right', widgets: [{ ...barChart({}), title: 'Land use' }] },
+          savedDashboard: { panel: 'right', widgets: [{ ...barChart({}), title: 'Land use' }] },
+          dashboardEdited: false,
+        }),
+      );
+
+      expect(mockUpdateMapMutateAsync).toHaveBeenCalled();
+      expect(mockUpdateMapMutateAsync.mock.calls[0][0].data).not.toHaveProperty('dashboard_config');
+    });
+
+    it.each([
+      ['refused widgets', 422, { message: "Some dashboard widgets can't be saved on this map", widget_ids: ['x'] }],
+      ['too many widgets', 422, 'A dashboard holds at most 50 widgets'],
+      ['a dashboard from a newer GeoLens', 409, "This dashboard was saved by a newer version of GeoLens and can't be changed here."],
+    ])('says why the server refused %s', async (_label, status, detail) => {
+      const { toast } = await import('sonner');
+      mockUpdateMapMutateAsync.mockRejectedValueOnce(new ApiError('Localized reason', status, detail));
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [widgetLayer()],
+          dashboard: { panel: 'right', widgets: [barChart({})] },
+          savedDashboard: { panel: 'right', widgets: [] },
+          dashboardEdited: true,
+        }),
+      );
+
+      expect(toast.error).toHaveBeenCalledWith('Localized reason');
+      expect(toast.error).not.toHaveBeenCalledWith('toasts.saveFailed');
+    });
+
+    it('refuses to save a widget following the view of a layer without geometry', async () => {
+      const { toast } = await import('sonner');
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [{ ...widgetLayer(), dataset_geometry_type: null }],
+          dashboard: { panel: 'right', widgets: [{ ...barChart({}), scope: 'view' }] },
+          savedDashboard: { panel: 'right', widgets: [] },
+          dashboardEdited: true,
+        }),
+      );
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardViewWithoutGeometry',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('keeps the generic message for a failure that isn\'t the dashboard\'s', async () => {
+      const { toast } = await import('sonner');
+      mockUpdateMapMutateAsync.mockRejectedValueOnce(new ApiError('Localized reason', 409, 'Some other conflict'));
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [widgetLayer()],
+          dashboard: { panel: 'right', widgets: [barChart({})] },
+          savedDashboard: { panel: 'right', widgets: [] },
+          dashboardEdited: true,
+        }),
+      );
+      expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+    });
+
+    it.each([
+      ['a column its layer lacks', { column: 'name' }],
+      ['a text column summed', { stat: 'sum', stat_column: 'kind' }],
+    ])('refuses to save a widget reading %s', async (_label, config) => {
+      const { toast } = await import('sonner');
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [widgetLayer()],
+          dashboard: { panel: 'right', widgets: [barChart(config)] },
+          savedDashboard: { panel: 'right', widgets: [] },
+          dashboardEdited: true,
+        }),
+      );
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardWidgetInvalid',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    });
   });
 
   it('surfaces popupConfigInvalidNamed toast with fallback name when display_name is null (Test B)', async () => {

@@ -150,6 +150,7 @@ describe('PublicMapViewerPage', () => {
 
     mockedUseViewerLayers.mockReturnValue({
       visibleLayers: new Set(['layer-1']),
+      hiddenByReader: new Set<string>(),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),

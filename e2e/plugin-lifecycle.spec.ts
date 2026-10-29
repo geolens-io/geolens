@@ -14,26 +14,14 @@
  * behind. Runs serially so the global mutation never overlaps another test.
  */
 
-import { test, expect, type Page, type APIRequestContext, getAuthToken } from './helpers/session';
+import { test, expect, type Page, type APIRequestContext } from './helpers/session';
+import { authHeaders, createMap as createMapNamed, deleteMap } from './helpers/maps';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-// --- Auth ---
-function authHeaders() {
-  return { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
-}
-
 // --- API helpers ---
-async function createMap(request: APIRequestContext, name: string): Promise<string> {
-  const res = await request.post(`${BASE_URL}/api/maps/`, {
-    headers: authHeaders(),
-    data: { name, description: 'Temporary map for plugin-lifecycle E2E' },
-  });
-  expect(res.ok(), `Create map failed: ${res.status()} ${await res.text()}`).toBe(true);
-  return ((await res.json()) as { id: string }).id;
-}
-async function deleteMap(request: APIRequestContext, mapId: string) {
-  await request.delete(`${BASE_URL}/api/maps/${mapId}`, { headers: authHeaders() });
+function createMap(request: APIRequestContext, name: string): Promise<string> {
+  return createMapNamed(request, name, 'Temporary map for plugin-lifecycle E2E');
 }
 async function getMapPlugins(request: APIRequestContext, mapId: string): Promise<string[] | null> {
   const res = await request.get(`${BASE_URL}/api/maps/${mapId}`, { headers: authHeaders() });

@@ -955,7 +955,10 @@
     "bulkGroupSkippedGroupRow": "Los grupos no se pueden agrupar; quita las filas de grupo de tu selección e inténtalo de nuevo",
     "bulkDeleteOnlyGroupRows": "Las filas de grupo no se pueden eliminar en bloque; usa el menú de la fila del grupo para eliminarlo",
     "bulkGrouped": "{{count}} capas agrupadas en «{{name}}»",
-    "bulkUngrouped": "{{count}} grupos desagrupados"
+    "bulkUngrouped": "{{count}} grupos desagrupados",
+    "dashboardWidgetInvalid": "No se puede guardar: un widget del panel lee «{{column}}», una columna que su capa no tiene o que no es numérica. Corrígelo en Panel.",
+    "dashboardViewWithoutGeometry": "No se puede guardar: un widget del panel sigue la vista del mapa en una capa sin geometría. En Panel, haz que abarque toda la capa.",
+    "dashboardChangedElsewhere": "El panel de este mapa se cambió en otro lugar. Tus cambios sin guardar se conservan y, al guardar, reemplazan ese cambio."
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -1206,7 +1209,9 @@
     "askAi": "Preguntar a IA",
     "history": "Historial",
     "notes": "Notas",
-    "notesPlaceholder": "Agregar notas sobre este mapa..."
+    "notesPlaceholder": "Agregar notas sobre este mapa...",
+    "dashboard": "Panel",
+    "dashboardDescription": "Widgets que los lectores ven junto al mapa"
   },
   "leaveWarning": {
     "title": "Cambios sin guardar",

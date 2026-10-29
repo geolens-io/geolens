@@ -517,7 +517,10 @@
     "storyLocked": "此故事正在进行另一项更改，请稍后重试。",
     "storyNewerVersion": "此故事由更新版本的 GeoLens 保存，无法在这里更改。",
     "storyScenesUnreadable": "部分场景由更新版本的 GeoLens 保存，无法在这里发布。",
-    "storyVisibilityUnsupported": "故事暂时无法以此可见范围发布。"
+    "storyVisibilityUnsupported": "故事暂时无法以此可见范围发布。",
+    "dashboardTooNew": "此仪表板由较新版本的 GeoLens 保存，无法在此更改。",
+    "dashboardTooManyWidgets": "一个仪表板最多包含 50 个小组件。保存前请移除一些。",
+    "dashboardWidgetsRefused": "部分仪表板小组件使用了此地图上您无法读取的图层。请移除它们或选择其他图层。"
   },
   "settings": {
     "apiKeys": {
@@ -581,7 +584,8 @@
     "card": {
       "previewAlt": "{{name}} 预览",
       "updated": "更新于 {{date}}",
-      "delete": "删除地图"
+      "delete": "删除地图",
+      "dashboard": "仪表板"
     }
   },
   "enums": {

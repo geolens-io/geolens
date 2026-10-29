@@ -29,5 +29,55 @@
       "other": "其他",
       "roleDescription": "条形图"
     }
+  },
+  "dashboard": {
+    "title": "仪表板",
+    "open": "打开仪表板",
+    "hide": "隐藏仪表板",
+    "followsView": "跟随地图视图",
+    "filterIgnored": "显示全部要素：图层的筛选条件无法应用于这些数字。",
+    "tooWide": "视图中的要素过多。请放大地图以查看这些数字。",
+    "loadFailed": "无法加载这些数字。",
+    "allHidden": "这些小组件汇总的图层已隐藏。在图例中显示一个图层即可看到其小组件。",
+    "retry": "重试",
+    "someFailed": "部分小组件无法加载数字。"
+  },
+  "editor": {
+    "panelPosition": "面板位置",
+    "panelRight": "地图右侧",
+    "panelBottom": "地图下方",
+    "empty": "还没有小组件。",
+    "noLayers": "向地图添加矢量或表格图层后即可添加小组件。",
+    "add": "添加{{type}}",
+    "title": "标题",
+    "layer": "图层",
+    "pickLayer": "选择图层",
+    "scope": "统计范围",
+    "scopeLayer": "整个图层",
+    "scopeView": "地图视图内的内容",
+    "moveUp": "上移{{name}}",
+    "moveDown": "下移{{name}}",
+    "remove": "移除{{name}}",
+    "preview": "预览",
+    "stat": "统计量",
+    "statNames": {
+      "count": "计数",
+      "sum": "总和",
+      "mean": "平均值",
+      "min": "最小值",
+      "max": "最大值"
+    },
+    "noNumericColumns": "此图层没有数值列，只能计数。",
+    "column": "列",
+    "groupBy": "分组依据",
+    "limit": "条数",
+    "pickColumn": "选择列",
+    "problem": {
+      "layerRemoved": "其图层已不在地图上，保存时会移除此小组件。",
+      "missingColumn": "该图层没有“{{column}}”列。保存前请另选一列。",
+      "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
+      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。"
+    },
+    "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。"
   }
 }

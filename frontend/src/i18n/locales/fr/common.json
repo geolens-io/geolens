@@ -386,7 +386,10 @@
     "storyLocked": "Une autre modification de ce récit est en cours. Réessayez dans un instant.",
     "storyNewerVersion": "Ce récit a été enregistré par une version plus récente de GeoLens et ne peut pas être modifié ici.",
     "storyScenesUnreadable": "Certaines scènes ont été enregistrées par une version plus récente de GeoLens et ne peuvent pas être publiées ici.",
-    "storyVisibilityUnsupported": "Les récits ne peuvent pas encore être publiés avec cette visibilité."
+    "storyVisibilityUnsupported": "Les récits ne peuvent pas encore être publiés avec cette visibilité.",
+    "dashboardTooNew": "Ce tableau de bord a été enregistré par une version plus récente de GeoLens et ne peut pas être modifié ici.",
+    "dashboardTooManyWidgets": "Un tableau de bord contient au plus 50 widgets. Supprimez-en avant d'enregistrer.",
+    "dashboardWidgetsRefused": "Certains widgets du tableau de bord utilisent des couches de cette carte que vous ne pouvez pas lire. Supprimez-les ou choisissez d'autres couches."
   },
   "settings": {
     "apiKeys": {
@@ -565,7 +568,8 @@
     "card": {
       "previewAlt": "Aperçu de {{name}}",
       "updated": "Mis à jour {{date}}",
-      "delete": "Supprimer la carte"
+      "delete": "Supprimer la carte",
+      "dashboard": "Tableau de bord"
     }
   },
   "enums": {

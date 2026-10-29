@@ -119,6 +119,27 @@ describe('apiFetch', () => {
     );
   });
 
+  it('carries a 429\'s Retry-After on the error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ...errorResponse(429, '10 per 1 second'),
+      headers: new Headers({ 'Retry-After': '3' }),
+    } as Response);
+
+    await expect(apiFetch('/datasets/x/aggregate/')).rejects.toMatchObject({ status: 429, retryAfterMs: 3000 });
+  });
+
+  it('reads a Retry-After given as an HTTP date', async () => {
+    const at = new Date(Date.now() + 5000).toUTCString();
+    mockFetch.mockResolvedValueOnce({
+      ...errorResponse(429, '10 per 1 second'),
+      headers: new Headers({ 'Retry-After': at }),
+    } as Response);
+
+    const error = await apiFetch('/datasets/x/aggregate/').catch((err: ApiError) => err);
+    expect((error as ApiError).retryAfterMs).toBeGreaterThan(3000);
+    expect((error as ApiError).retryAfterMs).toBeLessThanOrEqual(5000);
+  });
+
   it('returns undefined for 204 No Content', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

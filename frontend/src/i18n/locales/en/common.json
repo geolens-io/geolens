@@ -517,7 +517,10 @@
     "storyLocked": "Another change to this story is in progress. Try again in a moment.",
     "storyNewerVersion": "This story was saved by a newer version of GeoLens and can't be changed here.",
     "storyScenesUnreadable": "Some scenes were saved by a newer version of GeoLens and can't be published here.",
-    "storyVisibilityUnsupported": "Stories can't be published with this visibility yet."
+    "storyVisibilityUnsupported": "Stories can't be published with this visibility yet.",
+    "dashboardTooNew": "This dashboard was saved by a newer version of GeoLens and can't be changed here.",
+    "dashboardTooManyWidgets": "A dashboard holds at most 50 widgets. Remove some before saving.",
+    "dashboardWidgetsRefused": "Some dashboard widgets name layers you can't read on this map. Remove them or pick other layers."
   },
   "settings": {
     "apiKeys": {
@@ -581,7 +584,8 @@
     "card": {
       "previewAlt": "{{name}} preview",
       "updated": "Updated {{date}}",
-      "delete": "Delete map"
+      "delete": "Delete map",
+      "dashboard": "Dashboard"
     }
   },
   "enums": {

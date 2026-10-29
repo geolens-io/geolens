@@ -51,6 +51,22 @@ describe('useViewerLayers', () => {
     expect(result.current.visibleLayers).toEqual(new Set(['layer-a']));
   });
 
+  it('lists by id only the layers the reader turned off, not those saved hidden', () => {
+    const layers = [
+      layer({ id: 'shown', dataset_id: 'dataset-a' }),
+      layer({ id: 'saved-hidden', dataset_id: 'dataset-b', visible: false }),
+    ];
+    const { result } = renderHook(() => useViewerLayers(layers));
+    expect(result.current.hiddenByReader).toEqual(new Set());
+
+    act(() => result.current.handleToggleVisibility('shown'));
+    expect(result.current.hiddenByReader).toEqual(new Set(['shown']));
+
+    // Turning on a layer saved hidden hides nothing.
+    act(() => result.current.handleToggleVisibility('saved-hidden'));
+    expect(result.current.hiddenByReader).toEqual(new Set(['shown']));
+  });
+
   it('starts a different map from its saved visibility', () => {
     const mapA = [layer({ id: 'a1' }), layer({ id: 'a2' })];
     const mapB = [layer({ id: 'b1' }), layer({ id: 'b2' })];

@@ -21,6 +21,18 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 const MAP_VISIBILITY_HEADER = 'X-GeoLens-Map-Visibility';
 
+/**
+ * How long a response's Retry-After asks the caller to wait, given in seconds
+ * or as an HTTP date; undefined when it names no usable wait.
+ */
+export function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('Retry-After')?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value) > 0 ? Number(value) * 1000 : undefined;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+}
+
 export class ApiError extends Error {
   status: number;
   body?: unknown;
@@ -425,11 +437,13 @@ async function apiFetchResponse(
       detailRaw = body.detail;
     }
 
-    throw new ApiError(
+    const error = new ApiError(
       translateApiErrorDetail(detailRaw, response.status),
       response.status,
       detailRaw,
     );
+    if (response.status === 429) error.retryAfterMs = retryAfterMs(response);
+    throw error;
   }
 
   return response;

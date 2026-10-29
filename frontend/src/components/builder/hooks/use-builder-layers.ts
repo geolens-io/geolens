@@ -47,6 +47,8 @@ import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers'
 import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
 import { useTileConfig } from '@/hooks/use-settings';
+import { useDashboardDraft } from '@/components/builder/hooks/use-dashboard-draft';
+import type { DashboardDraft } from '@/components/builder/dashboard-draft';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 // A camera reading is only meaningful with the map it was read for.
@@ -175,6 +177,12 @@ export function useBuilderLayers(
   const [localDescription, setLocalDescription] = useState('');
   // Map-level custom legend title. Null means no override.
   const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
+  const warnDashboardChanged = useCallback(
+    () => toast.warning(t('toasts.dashboardChangedElsewhere'), { id: 'dashboard-changed-elsewhere' }),
+    [t],
+  );
+  const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
+    useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -1003,6 +1011,7 @@ export function useBuilderLayers(
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
+    if (dashboardEdited) return false;
 
     // Folder expansion is persisted (prepareLayersForPersistence reads
     // groupMeta) and handleToggleGroupExpand dirties the map, so an
@@ -1018,7 +1027,7 @@ export function useBuilderLayers(
     return true;
   }, [
     mapData, localName, localDescription, localLegendTitle, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, dashboardEdited,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
@@ -1039,6 +1048,13 @@ export function useBuilderLayers(
     recheckPendingRef.current = false;
     setHasUnsavedChanges(false);
   }, [recheckNonce, computeMapIsClean, saveFenced]);
+
+  // A dashboard edit can put back the saved dashboard, so each one asks too.
+  const handleDashboardChange = useCallback((next: DashboardDraft) => {
+    setDashboard(next);
+    setHasUnsavedChanges(true);
+    requestCleanRecheck();
+  }, [setDashboard, requestCleanRecheck]);
 
   // A visibility toggle is the only edit a user routinely undoes by repeating
   // it, so each one asks whether the map is back to the saved state.
@@ -1217,6 +1233,11 @@ export function useBuilderLayers(
     localLegendTitle, setLocalLegendTitle,
     handleLegendTitleChange,
     handleLegendLabelChange,
+    dashboard,
+    savedDashboard,
+    dashboardEdited,
+    handleDashboardChange,
+    beginDashboardSave,
     localLayers,
     layersMapId,
     freshLayerId,

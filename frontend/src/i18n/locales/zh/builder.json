@@ -955,7 +955,10 @@
     "bulkGroupSkippedGroupRow": "分组行无法再分组——请从选择中移除分组行后重试",
     "bulkDeleteOnlyGroupRows": "分组行无法批量删除——请使用分组的行菜单删除",
     "bulkGrouped": "已将 {{count}} 个图层分组为“{{name}}”",
-    "bulkUngrouped": "已取消 {{count}} 个分组"
+    "bulkUngrouped": "已取消 {{count}} 个分组",
+    "dashboardWidgetInvalid": "无法保存：某个仪表板小组件读取的“{{column}}”列在其图层中不存在或不是数值列。请在仪表板面板中修正。",
+    "dashboardViewWithoutGeometry": "无法保存：某个仪表板小组件在没有几何的图层上跟随地图视图。请在仪表板面板中将其设为统计整个图层。",
+    "dashboardChangedElsewhere": "此地图的仪表板已在别处更改。您未保存的仪表板编辑会保留，保存时将替换该更改。"
   },
   "builderMap": {
     "loading": "正在加载地图...",
@@ -1210,7 +1213,9 @@
     "askAi": "询问 AI",
     "history": "历史记录",
     "notes": "备注",
-    "notesPlaceholder": "添加关于此地图的备注..."
+    "notesPlaceholder": "添加关于此地图的备注...",
+    "dashboard": "仪表板",
+    "dashboardDescription": "读者在地图旁看到的小组件"
   },
   "leaveWarning": {
     "title": "未保存的更改",

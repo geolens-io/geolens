@@ -38,6 +38,9 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Layer not found': 'errors.layerNotFound',
   'User not found': 'errors.userNotFound',
   'Group not found': 'errors.groupNotFound',
+  "This dashboard was saved by a newer version of GeoLens and can't be changed here.":
+    'errors.dashboardTooNew',
+  'A dashboard holds at most 50 widgets': 'errors.dashboardTooManyWidgets',
   'Another change to this map is in progress. Retry shortly.': 'errors.mapChangeInProgress',
   'Share the map with a group before making it restricted.': 'errors.mapRestrictedNeedsGroups',
   'You can share a dataset only with groups you belong to.': 'errors.groupNotJoined',
@@ -564,6 +567,10 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
             values: { ...values, allowed: allowed.join(', ') },
           }
         : { key: 'errors.workflowTransitionDeniedNoneAllowed', values };
+    }
+    // A map save refusing dashboard widgets names them by id, which a reader can't act on.
+    if (Array.isArray(value.widget_ids)) {
+      return { key: 'errors.dashboardWidgetsRefused' };
     }
     if (value.code === 'duplicate_source') {
       return {
