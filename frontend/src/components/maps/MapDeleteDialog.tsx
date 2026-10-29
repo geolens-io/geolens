@@ -62,7 +62,7 @@ export function MapDeleteDialog({
         ) : total > 0 && (
           <div className="space-y-2 text-sm">
             <p>{t('mapDelete.storiesUsing', { count: total })}</p>
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="max-h-48 list-disc space-y-1 overflow-y-auto pl-5">
               {stories.map((story) => (
                 <li key={story.id}>
                   <Link to={`/stories/${story.id}`} className="text-primary hover:underline">
