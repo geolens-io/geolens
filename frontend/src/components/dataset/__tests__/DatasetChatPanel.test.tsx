@@ -65,6 +65,14 @@ describe('floating dock inset', () => {
     expect(readReach()).toBe('');
   });
 
+  it('reserves the measured width of the launcher', () => {
+    setAvailable(true);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 176 } as DOMRect);
+    renderPanel();
+    expect(readReach()).toBe('calc(176px + 4.5rem)');
+    spy.mockRestore();
+  });
+
   it('reserves the lifted launcher position above the pending-edits bar', () => {
     setAvailable(true);
     render(
