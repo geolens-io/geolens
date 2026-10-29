@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
@@ -125,8 +125,20 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
   const panelRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   const frame = useRef<number | null>(null);
+  // The panel's scroll position after it scrolled to the open chapter on mount.
+  const restoredTop = useRef<number | null>(null);
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
+  }, []);
+
+  // Opening this layout on a later chapter (a phone stepper widened past the
+  // breakpoint) starts with that chapter in view, so text and scene agree.
+  useLayoutEffect(() => {
+    const section = sectionRefs.current[active];
+    if (active === 0 || !section) return;
+    section.scrollIntoView({ block: 'start', behavior: 'instant' });
+    restoredTop.current = panelRef.current?.scrollTop ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount; afterwards scrolling sets the chapter
   }, []);
 
   // Measures every chapter against the line once per frame while scrolling,
@@ -137,6 +149,10 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
       frame.current = null;
       const panel = panelRef.current;
       if (!panel) return;
+      // The scroll from that restore isn't the reader's: a short chapter would
+      // otherwise hand the scene to the one after it.
+      if (restoredTop.current !== null && panel.scrollTop === restoredTop.current) return;
+      restoredTop.current = null;
       const line = panel.getBoundingClientRect().top + panel.clientHeight * ACTIVE_LINE;
       const crossed = sectionRefs.current
         .slice(0, chapters.length)

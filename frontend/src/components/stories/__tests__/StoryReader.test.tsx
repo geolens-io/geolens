@@ -186,6 +186,67 @@ describe('wide scrolling panel', () => {
   });
 });
 
+describe('switching layouts', () => {
+  const realScrollIntoView = Element.prototype.scrollIntoView;
+  afterEach(() => {
+    Element.prototype.scrollIntoView = realScrollIntoView;
+  });
+
+  it('opens the wide layout scrolled to the chapter the stepper was on, and keeps it there', async () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element, options?: boolean | ScrollIntoViewOptions) {
+      expect(options).toEqual({ block: 'start', behavior: 'instant' });
+      scrolled.push(this);
+    });
+    const user = userEvent.setup();
+    const { rerender } = renderReader();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+
+    layout.narrow = false;
+    rerender(<StoryReader title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
+    const third = screen.getByRole('region', { name: 'Chapter 3' });
+    expect(scrolled).toEqual([third]);
+    expect(third).toHaveAttribute('aria-current', 'step');
+
+    // The scroll event from that restore measures chapters as if at the top; it must not move the reader.
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: 600 + i * 900 }) as DOMRect;
+    });
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(third).toHaveAttribute('aria-current', 'step');
+
+    // The reader's own scroll is measured as usual.
+    panel.scrollTop = 40;
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'The tracks' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('opens the stepper on the chapter the wide layout was on', async () => {
+    layout.narrow = false;
+    const { rerender } = renderReader();
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const tops = [-500, 300, 1400, 2400];
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: tops[i] }) as DOMRect;
+    });
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+    layout.narrow = true;
+    rerender(<StoryReader title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
+    expect(screen.getByRole('heading', { level: 2, name: 'The coasts' })).toBeInTheDocument();
+    expect(pane.resolved?.chapterId).toBe('c2');
+  });
+});
+
 describe('chapters shrinking under the reader', () => {
   it('clamps to the last chapter left instead of failing', async () => {
     const user = userEvent.setup();
