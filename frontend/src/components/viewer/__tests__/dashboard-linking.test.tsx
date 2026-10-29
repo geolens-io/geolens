@@ -216,6 +216,36 @@ describe('dashboard linking', () => {
     expect(writes).toContain('');
   });
 
+  it('offers picks only on columns the map\'s features carry', async () => {
+    const pickHint = /Press Enter to filter the map by a bar/;
+    const chartFor = async (changes: Partial<SharedLayerResponse>) => {
+      const view = render(
+        <ViewerWithDashboard config={dashboard()} layers={[{ ...layer(parcelsId, 'Parcels'), ...changes }, layer(roadsId, 'Roads')]}>
+          {() => <div />}
+        </ViewerWithDashboard>,
+      );
+      const chart = await screen.findByRole('group', { name: 'Count by land_use' });
+      const description = chart.getAttribute('aria-describedby');
+      const hint = document.getElementById(description ?? '')?.textContent ?? '';
+      view.unmount();
+      return pickHint.test(hint);
+    };
+
+    // The tiles carry only the allowlist, so a pick on another column would hide every feature.
+    expect(await chartFor({ dataset_tile_columns: ['zone'] })).toBe(false);
+    expect(await chartFor({ dataset_tile_columns: ['zone', 'land_use'] })).toBe(true);
+    expect(await chartFor({ dataset_tile_columns: null })).toBe(true);
+    // A small clustered point layer loads every property as GeoJSON, whatever the allowlist.
+    expect(
+      await chartFor({
+        dataset_tile_columns: [],
+        geometry_type: 'POINT',
+        feature_count: 100,
+        style_config: { render_mode: 'cluster' },
+      }),
+    ).toBe(true);
+  });
+
   it('offers no picks on a column the server can’t filter on', async () => {
     const config = {
       version: 1,

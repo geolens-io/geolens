@@ -20000,6 +20000,21 @@
               }
             ],
             "title": "Dataset Extent Bbox"
+          },
+          "dataset_tile_columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset tile attribute allowlist, as on MapLayerResponse: null allows all queryable columns, [] exposes none.",
+            "title": "Dataset Tile Columns"
           }
         },
         "required": [

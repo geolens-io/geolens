@@ -11671,6 +11671,12 @@ export type SharedLayerResponse = {
      * Dataset Extent Bbox
      */
     dataset_extent_bbox?: Array<number> | null;
+    /**
+     * Dataset Tile Columns
+     *
+     * Dataset tile attribute allowlist, as on MapLayerResponse: null allows all queryable columns, [] exposes none.
+     */
+    dataset_tile_columns?: Array<string> | null;
 };
 
 /**

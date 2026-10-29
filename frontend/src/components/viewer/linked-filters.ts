@@ -1,5 +1,6 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
+import { shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import type { WidgetSelection } from '@/components/widgets/contract';
 import { isIntegerColumn } from '@/lib/column-utils';
 import {
@@ -89,6 +90,17 @@ export function linkMapLayers(
     const parts = [...saved, ...picked];
     return { ...layer, filter: (parts.length === 1 ? parts[0] : ['all', ...parts]) as FilterSpecification };
   });
+}
+
+/**
+ * Whether the viewer's map holds `column` on the layer's features, so a pick
+ * on it can filter them there. A bounded cluster loads its points as GeoJSON
+ * with every property; tiles carry only the dataset's allowlist, when it has one.
+ */
+export function mapCarriesColumn(layer: SharedLayerResponse, column: string): boolean {
+  if (shouldFetchClusterGeoJson(layer)) return true;
+  const allowlist = layer.dataset_tile_columns;
+  return allowlist == null || allowlist.includes(column);
 }
 
 /** The pick as CQL2 for `layer`'s rows, or null when the server can't take it, such as an unusual timestamp. */

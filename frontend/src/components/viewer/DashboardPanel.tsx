@@ -17,7 +17,7 @@ import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
 import { usePicks } from './hooks/use-picks';
-import { NO_PICKS, type LinkedPick } from './linked-filters';
+import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
 import { layerDisplayName } from './shared-layer';
 
 type ReadyWidget = Extract<ParsedWidget, { ok: true }>;
@@ -203,9 +203,14 @@ function DashboardWidgetList({
         const layer = parsed.ok ? layersById.get(parsed.instance.layer_id ?? '') : undefined;
         if (parsed.ok && layer) {
           const { id: widgetId, config } = parsed.instance;
-          // A column the server can't filter on takes no picks, so the widget doesn't offer them.
+          // A pick must filter both the numbers and the map, so the server has to
+          // filter on its column and the map's features have to carry it.
           const column = parsed.definition.picksColumn?.(config);
-          const pickable = !!onChoose && column !== undefined && isCql2QueryableColumn(column, layer.column_info);
+          const pickable =
+            !!onChoose &&
+            column !== undefined &&
+            isCql2QueryableColumn(column, layer.column_info) &&
+            mapCarriesColumn(layer, column);
           return (
             <li key={key}>
               <DashboardWidget

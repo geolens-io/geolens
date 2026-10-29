@@ -67,6 +67,9 @@ and releases use semantic versioning.
   server reads a stored bottom panel as right and drops it on its next save.
 - `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
   least one dashboard widget. Additive.
+- `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile
+  attribute allowlist as `MapLayerResponse` already reports it, so share links
+  and embeds can tell which columns their tiles carry. Additive.
 
 ### Fixed
 

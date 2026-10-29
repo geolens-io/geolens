@@ -50,7 +50,7 @@ import {
   createViewerLayerEntries,
   isTerrainBackingLiveVisible,
 } from '@/components/viewer/layer-identity';
-import { getClusterSourceEligibility, getClusterSourceKey, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
+import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
 import {
   toAccessibleMapFeatures,
@@ -252,13 +252,16 @@ export const ViewerMap = memo(function ViewerMap({
   );
   const boundedGeoJsonLayersRef = useRef(boundedGeoJsonLayers);
   boundedGeoJsonLayersRef.current = boundedGeoJsonLayers;
-  // A filter change, such as a dashboard pick, makes new layer objects but
-  // fetches nothing new; the source filters the fetched points itself.
-  const clusterSourceKey = useMemo(() => getClusterSourceKey(layers), [layers]);
+  // What the fetch reads: which layers, their datasets and their data
+  // versions. A filter change, such as a dashboard pick, makes new layer
+  // objects but fetches nothing new; the source filters the fetched points itself.
+  const boundedGeoJsonKey = boundedGeoJsonLayers
+    .map(({ layer, key }) => `${key}|${layer.dataset_id}|${layer.tile_version ?? ''}`)
+    .join(',');
   const boundedGeoJsonRequest = useMemo(() => ({
-    clusterSourceKey,
+    boundedGeoJsonKey,
     embedToken,
-  }), [clusterSourceKey, embedToken]);
+  }), [boundedGeoJsonKey, embedToken]);
   const completedBoundedGeoJsonRequestRef = useRef<object | null>(null);
   const [geojsonVersion, setGeojsonVersion] = useState(0);
 
@@ -398,7 +401,7 @@ export const ViewerMap = memo(function ViewerMap({
       cancelled = true;
       controller.abort();
     };
-    // The layers are read through boundedGeoJsonLayersRef; the request's key covers what changes the fetch.
+    // The layers are read through boundedGeoJsonLayersRef; boundedGeoJsonKey covers what changes the fetch.
   }, [boundedGeoJsonRequest, embedToken, t]);
 
   useEffect(() => {

@@ -40,6 +40,8 @@ export function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     // The adapter drops unlisted fields; without this copy /maps/{id} renders
     // no attribution while the share link does.
     dataset_attribution: layer.dataset_attribution ?? null,
+    // A dashboard offers picks only on columns the map's tiles carry.
+    dataset_tile_columns: layer.dataset_tile_columns ?? null,
     tile_url: '',
   };
 }

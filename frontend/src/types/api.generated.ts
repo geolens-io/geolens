@@ -15138,6 +15138,11 @@ export interface components {
             dataset_attribution?: string | null;
             /** Dataset Extent Bbox */
             dataset_extent_bbox?: number[] | null;
+            /**
+             * Dataset Tile Columns
+             * @description Dataset tile attribute allowlist, as on MapLayerResponse: null allows all queryable columns, [] exposes none.
+             */
+            dataset_tile_columns?: string[] | null;
         };
         /** SharedMapResponse */
         SharedMapResponse: {
