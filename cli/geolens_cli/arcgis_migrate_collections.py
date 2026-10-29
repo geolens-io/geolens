@@ -9,7 +9,8 @@ item's notes instead of imitating a group with a collection.
 Collections are created and filled as the operator, who needs
 ``manage_collections``. Names are unique across the instance, so a folder
 whose name a collection this run did not create already holds is filed
-under the portal's name as a prefix.
+under the portal's name as a prefix. When that name is held too, the run
+stops before any item imports.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
+from . import arcgis_plan as _plan
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -30,8 +32,85 @@ GROUP = "group"
 MAX_NAME = 255
 # The most datasets one add-datasets request accepts.
 ADD_BATCH = 100
+COLLECTION_PAGE = 200
 FALLBACK_PREFIX = "ArcGIS"
 DENIED = "not filed into collections: the operator can't manage collections"
+# The plan actions whose datasets are filed into collections.
+_FILED_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
+
+
+def _prefix(portal_info: Mapping[str, Any] | None) -> str:
+    return str((portal_info or {}).get("name") or "") or FALLBACK_PREFIX
+
+
+def _names(geolens: Any) -> set[str]:
+    from geolens.api.datasets import (
+        list_collections_endpoint_catalog_collections_get as list_collections,
+    )
+
+    names: list[str] = []
+    while True:
+        page = geolens.call(
+            list_collections.sync_detailed, skip=len(names), limit=COLLECTION_PAGE
+        )
+        names.extend(c.name for c in page.collections)
+        if not page.collections or len(names) >= page.total:
+            return set(names)
+
+
+def _may_manage(geolens: Any) -> bool:
+    """Whether the operator holds ``manage_collections``; True when that
+    can't be read, so the check runs."""
+    from geolens.api.auth import me_permissions_auth_me_permissions_get as get
+
+    try:
+        granted = geolens.call(get.sync_detailed).permissions.to_dict()
+    except GeoLensError:
+        return True
+    return granted.get("manage_collections") is not False
+
+
+def taken_collections(
+    geolens: Any,
+    plan: Mapping[str, Any],
+    items: list[Mapping[str, Any]],
+    known: Mapping[str, str],
+    portal_info: Mapping[str, Any] | None,
+) -> str | None:
+    """Why *items* can't be filed, read before any of them imports: a
+    collection they need whose name and prefixed name are both held by
+    collections this command didn't create; None when nothing collides.
+    *known* holds the collections the state records as made for the plan's
+    names."""
+    if plan["defaults"]["collection_from"] != FOLDER:
+        return None
+    wanted = [
+        name
+        for item in items
+        if item["action"] in _FILED_ACTIONS and not item.get("unlisted")
+        for name in item["target"]["collections"]
+        if name and name not in known
+    ]
+    # Without the permission filing is skipped with a note, so no name can
+    # fail an item.
+    if not wanted or not _may_manage(geolens):
+        return None
+    existing = _names(geolens)
+    prefix = _prefix(portal_info)
+    taken = [
+        name
+        for name in dict.fromkeys(wanted)
+        if name[:MAX_NAME] in existing and f"{prefix} - {name}"[:MAX_NAME] in existing
+    ]
+    if not taken:
+        return None
+    return (
+        "GeoLens already has collections named "
+        + "; ".join(f"{name} and {prefix} - {name}" for name in taken)
+        + ", so the items filed there would fail after their import; rename "
+        "them in the plan items' target collections, or set "
+        "defaults.collection_from to none"
+    )
 
 
 def _create(ctx: MigrationContext, name: str) -> str:
@@ -52,7 +131,7 @@ def _collection_id(ctx: MigrationContext, name: str) -> str | None:
     known = ctx.collections.get(name)
     if known:
         return known
-    prefix = str((ctx.portal_info or {}).get("name") or "") or FALLBACK_PREFIX
+    prefix = _prefix(ctx.portal_info)
     try:
         try:
             created = _create(ctx, name[:MAX_NAME])

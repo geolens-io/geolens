@@ -9,6 +9,7 @@ import stat
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -181,6 +182,8 @@ def geolens(fake_geolens):
             "GET /admin/users/": {"users": users, "total": len(users)},
             "GET /settings/all/": _settings(DEFAULT_ROLES),
             "GET /settings/feature-flags/": {"restrict_public_visibility": False},
+            "GET /datasets/": {"datasets": [], "total": 0},
+            "GET /catalog/collections/": {"collections": [], "total": 0},
         }
     )
     return fake_geolens
@@ -403,6 +406,88 @@ def test_dry_run_writes_no_state_and_changes_nothing(
     assert not (tmp_path / "arcgis-migration-state.json").exists()
     assert handled == []
     assert all(s.method == "GET" for s in geolens.seen)
+
+
+def _migrated(dataset_id: str, item_id: str, kind: str = "service") -> dict:
+    return {
+        **_dataset(dataset_id, ALICE),
+        "title": f"Copy of {item_id[:2]}",
+        "origin_ref": {"kind": kind, "item_id": item_id, "portal_url": PORTAL},
+    }
+
+
+def _catalog(fake, monkeypatch, *datasets: dict) -> None:
+    """GeoLens holds *datasets*, listed one per page."""
+    monkeypatch.setattr(migrate, "DATASET_PAGE", 1)
+    fake.routes["GET /datasets/"] = lambda seen: {
+        "datasets": list(
+            datasets[int(parse_qs(urlsplit(seen.url).query)["skip"][0]) :][:1]
+        ),
+        "total": len(datasets),
+    }
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_run_without_its_state_file_refuses_to_import_migrated_items_again(
+    runner, tmp_path, geolens, handled, monkeypatch, dry_run
+):
+    copy = "00000000-0000-0000-0002-000000000001"
+    _catalog(
+        geolens,
+        monkeypatch,
+        _migrated("00000000-0000-0000-0002-000000000002", "ff" * 16),
+        # Another catalog's item id, which names no portal item.
+        _migrated("00000000-0000-0000-0002-000000000003", L1, kind="stac"),
+        _migrated(copy, L1),
+    )
+    state_file = tmp_path / "lost" / "arcgis-migration-state.json"
+
+    result, _ = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1), _item(L2)]),
+        "--state",
+        str(state_file),
+        *(["--dry-run"] if dry_run else []),
+    )
+
+    assert result.exit_code == 2
+    assert f"no state file at {state_file}" in result.output
+    assert (
+        f"1 dataset(s) migrated from 1 of the plan's items (Copy of 11 ({copy}))"
+        in result.output
+    )
+    assert "--start-fresh" in result.output
+    assert handled == [] and not state_file.exists()
+    assert all(s.method == "GET" for s in geolens.seen)
+
+
+def test_start_fresh_runs_without_the_state_file_anyway(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    _allow_transfers(geolens, _created_id(L1))
+    _catalog(
+        geolens, monkeypatch, _migrated("00000000-0000-0000-0002-000000000001", L1)
+    )
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]), "--start-fresh")
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1]
+
+
+def test_a_rerun_with_its_state_file_doesnt_look_for_earlier_copies(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    _allow_transfers(geolens, _created_id(L2))
+    _catalog(geolens, monkeypatch, _migrated(_created_id(L1), L1))
+    _write_state(tmp_path, {})
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L2)]))
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L2]
+    assert not any(urlsplit(s.url).path.endswith("/datasets/") for s in geolens.seen)
 
 
 def test_an_action_without_a_handler_is_left_pending(

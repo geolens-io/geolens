@@ -2185,6 +2185,14 @@ def arcgis_migrate(
     no_retry: Annotated[
         bool, typer.Option("--no-retry", help="Leave items that failed before alone")
     ] = False,
+    start_fresh: Annotated[
+        bool,
+        typer.Option(
+            "--start-fresh",
+            help="Run without a state file even though GeoLens already holds "
+            "datasets migrated from the plan's items, importing them again",
+        ),
+    ] = False,
     unmapped_owner: Annotated[
         Optional[str],
         typer.Option(
@@ -2306,6 +2314,7 @@ def arcgis_migrate(
         only=only or [],
         dry_run=dry_run,
         no_retry=no_retry,
+        start_fresh=start_fresh,
         unmapped_owner=unmapped_owner,
         token=token,
         token_stdin=token_stdin,
