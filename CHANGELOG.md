@@ -38,16 +38,29 @@ and releases use semantic versioning.
   when it can't, and a widget set to follow the map view updates once the map
   stops moving. Widgets on a layer the reader turns off in the legend leave
   the panel.
-- Dashboard authoring in the Builder. The Dashboard panel adds indicator and
-  bar chart widgets, picks each one's layer, columns and scope, orders them,
-  places the panel and previews each widget against the map. A save is held
-  while a widget reads a column its layer lacks or isn't numeric, or follows
-  the map view on a layer without geometry.
+- Dashboard authoring in the Builder. The Dashboard panel adds indicator, bar
+  chart, histogram and category selector widgets, picks each one's layer,
+  columns and scope, orders them, places the panel and previews each widget
+  against the map. A save is held while a widget reads a column its layer
+  lacks or isn't numeric, or follows the map view on a layer without geometry.
+  A new bar chart or selector starts on a text column with few sampled values
+  where the layer has one, rather than a nearly unique one such as a place name.
+- Linked dashboard widgets. Clicking a bar or a histogram bin, or choosing
+  values in a category selector, filters that layer on the map and its other
+  widgets until the reader clears it. Each filter shows as a chip that clears
+  it, and the chips stay while the panel is collapsed. A filter applies on
+  top of the layer's saved filter and is never saved. The widget a filter
+  came from keeps showing every value, with the pick marked. Bars and bins
+  take Enter or Space from the keyboard, widgets on a column the server can't
+  filter by don't offer picks, and linking works on share links and in embeds.
 - The Maps page marks a map with a dashboard you can see with a Dashboard
   badge, in the list and grid views.
 
 ### Changed
 
+- `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
+  `category_selector` widgets, whose schemas already existed. A 1.28.0 server
+  refuses them on save and keeps stored ones out of its responses. Additive.
 - `DashboardConfig` gains `panel`, `right` or `bottom` (default `right`). A
   save may send it; leaving it out keeps the stored panel. GeoLens sends it
   only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0

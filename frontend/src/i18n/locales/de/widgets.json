@@ -3,6 +3,9 @@
   "noData": "Noch keine Daten",
   "noRows": "Keine Daten",
   "showTable": "Datentabelle anzeigen",
+  "picked": "ausgewählt",
+  "noValue": "(kein Wert)",
+  "other": "Sonstige",
   "stats": {
     "count": "Anzahl",
     "sum": "Summe von {{column}}",
@@ -24,23 +27,48 @@
       "label": "Balkendiagramm",
       "summary": "{{stat}} nach {{column}}",
       "keyboardHint": "Mit den Pfeiltasten zwischen den Balken wechseln.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um die Karte nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
       "bar": "{{label}}: {{value}}",
-      "noValue": "(kein Wert)",
-      "other": "Sonstige",
       "roleDescription": "Balkendiagramm"
+    },
+    "histogram": {
+      "label": "Histogramm",
+      "summary": "Verteilung von {{column}}",
+      "keyboardHint": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen. Drücken Sie die Eingabetaste, um die Karte nach einer Klasse zu filtern, und erneut, um den Filter zu entfernen.",
+      "bin": "{{range}}: {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Bereich",
+      "roleDescription": "Histogramm"
+    },
+    "category_selector": {
+      "label": "Kategorieauswahl",
+      "summary": "Nach {{column}} filtern",
+      "all": "Alle",
+      "other": "Andere Werte: {{value}}"
     }
   },
   "dashboard": {
     "title": "Dashboard",
     "open": "Dashboard öffnen",
+    "openWithFilters_one": "Dashboard öffnen, {{count}} Filter angewendet",
+    "openWithFilters_many": "Dashboard öffnen, {{count}} Filter angewendet",
+    "openWithFilters_other": "Dashboard öffnen, {{count}} Filter angewendet",
     "hide": "Dashboard ausblenden",
     "followsView": "Folgt dem Kartenausschnitt",
     "filterIgnored": "Zeigt alle Objekte: Der Filter der Ebene lässt sich auf diese Zahlen nicht anwenden.",
+    "filterIgnoredWithPicks": "Wendet Ihre Filter an, aber nicht den eigenen Filter der Ebene, der sich auf diese Zahlen nicht anwenden lässt.",
     "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
     "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
     "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
     "retry": "Erneut versuchen",
-    "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden."
+    "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden.",
+    "filters": "Filter",
+    "filterChip": "{{column}}: {{value}}",
+    "removeFilter": "Filter {{filter}} auf {{layer}} entfernen",
+    "filterApplied": "{{layer}} nach {{filter}} gefiltert.",
+    "filterCleared": "Filter {{filter}} auf {{layer}} entfernt.",
+    "cantFilter": "„{{value}}“ kann nicht als Filter verwendet werden."
   },
   "editor": {
     "panelPosition": "Position des Bereichs",
@@ -71,6 +99,9 @@
     "column": "Spalte",
     "groupBy": "Gruppieren nach",
     "limit": "Balken",
+    "bins": "Klassen",
+    "multiple": "Leser können mehr als einen Wert wählen",
+    "histogramNeedsNumbers": "Diese Ebene hat keine numerischen Spalten, die sich in Klassen einteilen lassen.",
     "pickColumn": "Spalte wählen",
     "problem": {
       "layerRemoved": "Sein Layer ist nicht mehr auf der Karte; beim Speichern wird dieses Widget entfernt.",

@@ -34,7 +34,12 @@ const PREVIEW_DEBOUNCE_MS = 400;
 function startingConfig(definition: AnyWidgetDefinition, layer: MapLayerResponse): unknown {
   return {
     ...(definition.defaultConfig as object),
-    ...(definition.initialConfig?.(layer.dataset_column_info ?? []) as object | undefined),
+    ...(definition.initialConfig?.(
+      (layer.dataset_column_info ?? []).map((column) => ({
+        ...column,
+        samples: layer.dataset_sample_values?.[column.name],
+      })),
+    ) as object | undefined),
   };
 }
 

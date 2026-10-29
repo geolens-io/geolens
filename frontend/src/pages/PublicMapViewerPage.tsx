@@ -73,14 +73,14 @@ function PublicMapViewer() {
       hiddenLayers={hiddenByReader}
       mapId={id}
     >
-      {(onMapReady) => (
+      {({ onMapReady, mapLayers }) => (
         /* Inside AppLayout's <main id="main-content">, so not a second <main>
            landmark. The id stays: MapErrorBoundary and CSS target #map-viewport. */
         <div id="map-viewport" className="w-full min-w-0 flex-1 min-h-0 relative overflow-hidden">
           <MapErrorBoundary className="absolute inset-0">
             <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
               <ViewerMap
-                layers={layers}
+                layers={mapLayers}
                 basemapStyle={basemapId ?? data.basemap_style}
                 basemapConfig={data.basemap_config ?? null}
                 showBasemapLabels={data.show_basemap_labels ?? true}

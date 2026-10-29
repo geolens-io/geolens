@@ -183,13 +183,13 @@ function PublicViewer() {
         embedToken={embedToken}
         startCollapsed={startDashboardCollapsed}
       >
-        {(onMapReady) => (
+        {({ onMapReady, mapLayers }) => (
           <main id="map-viewport" className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
             {/* Full-viewport map */}
             <MapErrorBoundary>
               <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
                 <ViewerMap
-                  layers={data.layers}
+                  layers={mapLayers}
                   basemapStyle={basemapId ?? data.basemap_style}
                   basemapConfig={data.basemap_config ?? null}
                   showBasemapLabels={data.show_basemap_labels ?? true}

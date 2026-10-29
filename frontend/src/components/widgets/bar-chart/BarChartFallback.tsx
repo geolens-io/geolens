@@ -1,8 +1,8 @@
 import type { WidgetRenderProps } from '../contract';
+import { ValueTable } from '../ValueTable';
 import type { BarChartConfig } from './definition';
-import { useBarChartText } from './bar-chart-rows';
-import { BarChartTable } from './BarChartTable';
+import { barTableProps, useBarChartText } from './bar-chart-rows';
 
-export function BarChartFallback({ config, data }: WidgetRenderProps<BarChartConfig>) {
-  return <BarChartTable config={config} text={useBarChartText(config, data)} />;
+export function BarChartFallback({ config, data, selection }: WidgetRenderProps<BarChartConfig>) {
+  return <ValueTable {...barTableProps(config, useBarChartText(config, data), selection)} />;
 }

@@ -3,6 +3,9 @@
   "noData": "暂无数据",
   "noRows": "无数据",
   "showTable": "显示数据表",
+  "picked": "已选择",
+  "noValue": "（无值）",
+  "other": "其他",
   "stats": {
     "count": "计数",
     "sum": "{{column}} 总和",
@@ -24,23 +27,48 @@
       "label": "条形图",
       "summary": "按 {{column}} 统计的{{stat}}",
       "keyboardHint": "使用方向键在各条之间移动。",
+      "keyboardHintPick": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选地图，再按一次清除筛选。",
       "bar": "{{label}}：{{value}}",
-      "noValue": "（无值）",
-      "other": "其他",
       "roleDescription": "条形图"
+    },
+    "histogram": {
+      "label": "直方图",
+      "summary": "{{column}} 的分布",
+      "keyboardHint": "使用方向键在分组之间移动。",
+      "keyboardHintPick": "使用方向键在分组之间移动。按 Enter 键按某个分组筛选地图，再按一次清除筛选。",
+      "bin": "{{range}}：{{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "范围",
+      "roleDescription": "直方图"
+    },
+    "category_selector": {
+      "label": "类别选择器",
+      "summary": "按 {{column}} 筛选",
+      "all": "全部",
+      "other": "其他值：{{value}}"
     }
   },
   "dashboard": {
     "title": "仪表板",
     "open": "打开仪表板",
+    "openWithFilters_one": "打开仪表板，已应用 {{count}} 个筛选条件",
+    "openWithFilters_many": "打开仪表板，已应用 {{count}} 个筛选条件",
+    "openWithFilters_other": "打开仪表板，已应用 {{count}} 个筛选条件",
     "hide": "隐藏仪表板",
     "followsView": "跟随地图视图",
     "filterIgnored": "显示全部要素：图层的筛选条件无法应用于这些数字。",
+    "filterIgnoredWithPicks": "已应用你的筛选条件，但未应用图层自身的筛选条件，因为它无法用于这些数字。",
     "tooWide": "视图中的要素过多。请放大地图以查看这些数字。",
     "loadFailed": "无法加载这些数字。",
     "allHidden": "这些小组件汇总的图层已隐藏。在图例中显示一个图层即可看到其小组件。",
     "retry": "重试",
-    "someFailed": "部分小组件无法加载数字。"
+    "someFailed": "部分小组件无法加载数字。",
+    "filters": "筛选条件",
+    "filterChip": "{{column}}：{{value}}",
+    "removeFilter": "移除 {{layer}} 上的筛选 {{filter}}",
+    "filterApplied": "已按 {{filter}} 筛选 {{layer}}。",
+    "filterCleared": "已移除 {{layer}} 上的筛选 {{filter}}。",
+    "cantFilter": "“{{value}}”无法用作筛选条件。"
   },
   "editor": {
     "panelPosition": "面板位置",
@@ -71,6 +99,9 @@
     "column": "列",
     "groupBy": "分组依据",
     "limit": "条数",
+    "bins": "分组数",
+    "multiple": "读者可以选择多个值",
+    "histogramNeedsNumbers": "此图层没有可分组的数值列。",
     "pickColumn": "选择列",
     "problem": {
       "layerRemoved": "其图层已不在地图上，保存时会移除此小组件。",

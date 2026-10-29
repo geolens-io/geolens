@@ -470,6 +470,12 @@ const CQL2_QUERYABLE_TYPES = new Set([
   'timestamp with time zone',
   'uuid',
 ]);
+/** Whether a server-side CQL2 filter can read `column`: one `columns` lists, of a type CQL2 compares. */
+export function isCql2QueryableColumn(column: string, columns: readonly FilterColumn[] | null | undefined): boolean {
+  const type = columns?.find((candidate) => candidate.name === column)?.type;
+  return CQL2_COLUMN_NAME_RE.test(column) && !!type && CQL2_QUERYABLE_TYPES.has(type.toLowerCase());
+}
+
 // The map compares a date or timestamp as the text PostgreSQL wrote into the
 // tile, so only a value in that exact form compares the same way in SQL.
 const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -2265,6 +2265,57 @@ export type CatalogStatsResponse = {
 };
 
 /**
+ * CategorySelectorConfig
+ */
+export type CategorySelectorConfig = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Multiple
+     */
+    multiple?: boolean;
+};
+
+/**
+ * CategorySelectorWidget
+ */
+export type CategorySelectorWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'category_selector';
+    /**
+     * V
+     */
+    v: 1;
+    config: CategorySelectorConfig;
+};
+
+/**
  * ChangePasswordRequest
  */
 export type ChangePasswordRequest = {
@@ -3625,7 +3676,7 @@ export type DashboardConfig = {
      *
      * The widgets on layers this response shows, in panel order.
      */
-    widgets: Array<IndicatorWidget | BarChartWidget>;
+    widgets: Array<IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**
@@ -3647,7 +3698,7 @@ export type DashboardConfigInput = {
      *
      * Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
      */
-    widgets?: Array<IndicatorWidget | BarChartWidget>;
+    widgets?: Array<IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**
@@ -6169,6 +6220,20 @@ export type HistogramBin = {
 };
 
 /**
+ * HistogramConfig
+ */
+export type HistogramConfig = {
+    /**
+     * Column
+     */
+    column: string;
+    /**
+     * Bins
+     */
+    bins?: number;
+};
+
+/**
  * HistogramRequest
  */
 export type HistogramRequest = {
@@ -6236,6 +6301,43 @@ export type HistogramResult = {
      * Equal-width bins over the finite values; empty with none.
      */
     bins: Array<HistogramBin>;
+};
+
+/**
+ * HistogramWidget
+ */
+export type HistogramWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'histogram';
+    /**
+     * V
+     */
+    v: 1;
+    config: HistogramConfig;
 };
 
 /**

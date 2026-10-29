@@ -3618,6 +3618,88 @@
         "title": "CatalogStatsResponse",
         "type": "object"
       },
+      "CategorySelectorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "multiple": {
+            "default": true,
+            "title": "Multiple",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "column"
+        ],
+        "title": "CategorySelectorConfig",
+        "type": "object"
+      },
+      "CategorySelectorWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "category_selector",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/CategorySelectorConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "CategorySelectorWidget",
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -5948,6 +6030,8 @@
               "discriminator": {
                 "mapping": {
                   "bar_chart": "#/components/schemas/BarChartWidget",
+                  "category_selector": "#/components/schemas/CategorySelectorWidget",
+                  "histogram": "#/components/schemas/HistogramWidget",
                   "indicator": "#/components/schemas/IndicatorWidget"
                 },
                 "propertyName": "type"
@@ -5958,6 +6042,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/BarChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/HistogramWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/CategorySelectorWidget"
                 }
               ]
             },
@@ -6003,6 +6093,8 @@
               "discriminator": {
                 "mapping": {
                   "bar_chart": "#/components/schemas/BarChartWidget",
+                  "category_selector": "#/components/schemas/CategorySelectorWidget",
+                  "histogram": "#/components/schemas/HistogramWidget",
                   "indicator": "#/components/schemas/IndicatorWidget"
                 },
                 "propertyName": "type"
@@ -6013,6 +6105,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/BarChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/HistogramWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/CategorySelectorWidget"
                 }
               ]
             },
@@ -10378,6 +10476,29 @@
         "title": "HistogramBin",
         "type": "object"
       },
+      "HistogramConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "bins": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 2.0,
+            "title": "Bins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "column"
+        ],
+        "title": "HistogramConfig",
+        "type": "object"
+      },
       "HistogramRequest": {
         "additionalProperties": false,
         "properties": {
@@ -10482,6 +10603,67 @@
           "bins"
         ],
         "title": "HistogramResult",
+        "type": "object"
+      },
+      "HistogramWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "histogram",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/HistogramConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "HistogramWidget",
         "type": "object"
       },
       "ImageConfig": {

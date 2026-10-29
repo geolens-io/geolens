@@ -1,5 +1,10 @@
 import type { MapLayerResponse, SharedLayerResponse } from '@/types/api';
 
+/** The name readers see for a layer. */
+export function layerDisplayName(layer: { display_name?: string | null; dataset_name: string }): string {
+  return layer.display_name || layer.dataset_name;
+}
+
 /**
  * Transform a MapLayerResponse (from GET /maps/{id}) into the SharedLayerResponse
  * format that ViewerMap consumes.

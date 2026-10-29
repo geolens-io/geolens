@@ -3,6 +3,9 @@
   "noData": "Aún no hay datos",
   "noRows": "Sin datos",
   "showTable": "Mostrar tabla de datos",
+  "picked": "seleccionado",
+  "noValue": "(sin valor)",
+  "other": "Otros",
   "stats": {
     "count": "Recuento",
     "sum": "Suma de {{column}}",
@@ -24,23 +27,48 @@
       "label": "Gráfico de barras",
       "summary": "{{stat}} por {{column}}",
       "keyboardHint": "Usa las flechas para moverte entre las barras.",
+      "keyboardHintPick": "Usa las flechas para moverte entre las barras. Pulsa Intro para filtrar el mapa por una barra y vuelve a pulsarlo para quitar el filtro.",
       "bar": "{{label}}: {{value}}",
-      "noValue": "(sin valor)",
-      "other": "Otros",
       "roleDescription": "gráfico de barras"
+    },
+    "histogram": {
+      "label": "Histograma",
+      "summary": "Distribución de {{column}}",
+      "keyboardHint": "Usa las flechas para moverte entre los intervalos.",
+      "keyboardHintPick": "Usa las flechas para moverte entre los intervalos. Pulsa Intro para filtrar el mapa por un intervalo y vuelve a pulsarlo para quitar el filtro.",
+      "bin": "{{range}}: {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Intervalo",
+      "roleDescription": "histograma"
+    },
+    "category_selector": {
+      "label": "Selector de categorías",
+      "summary": "Filtrar por {{column}}",
+      "all": "Todos",
+      "other": "Otros valores: {{value}}"
     }
   },
   "dashboard": {
     "title": "Panel",
     "open": "Abrir panel",
+    "openWithFilters_one": "Abrir panel, {{count}} filtro aplicado",
+    "openWithFilters_many": "Abrir panel, {{count}} filtros aplicados",
+    "openWithFilters_other": "Abrir panel, {{count}} filtros aplicados",
     "hide": "Ocultar panel",
     "followsView": "Sigue la vista del mapa",
     "filterIgnored": "Muestra todos los elementos: el filtro de la capa no se puede aplicar a estas cifras.",
+    "filterIgnoredWithPicks": "Aplica tus filtros, pero no el filtro propio de la capa, que no se puede aplicar a estas cifras.",
     "tooWide": "Hay demasiados elementos en la vista. Acerca el zoom para ver estas cifras.",
     "loadFailed": "No se pudieron cargar estas cifras.",
     "allHidden": "Las capas que resumen estos widgets están ocultas. Muestra una en la leyenda para ver sus widgets.",
     "retry": "Reintentar",
-    "someFailed": "Algunos widgets no pudieron cargar sus cifras."
+    "someFailed": "Algunos widgets no pudieron cargar sus cifras.",
+    "filters": "Filtros",
+    "filterChip": "{{column}}: {{value}}",
+    "removeFilter": "Quitar el filtro {{filter}} de {{layer}}",
+    "filterApplied": "{{layer}} filtrada por {{filter}}.",
+    "filterCleared": "Filtro {{filter}} quitado de {{layer}}.",
+    "cantFilter": "«{{value}}» no se puede usar como filtro."
   },
   "editor": {
     "panelPosition": "Posición del panel",
@@ -71,6 +99,9 @@
     "column": "Columna",
     "groupBy": "Agrupar por",
     "limit": "Barras",
+    "bins": "Intervalos",
+    "multiple": "Los lectores pueden elegir más de un valor",
+    "histogramNeedsNumbers": "Esta capa no tiene columnas numéricas que agrupar en intervalos.",
     "pickColumn": "Elige una columna",
     "problem": {
       "layerRemoved": "Su capa ya no está en el mapa, así que al guardar se quitará este widget.",

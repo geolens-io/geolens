@@ -140,6 +140,33 @@ describe('DashboardEditorPanel', () => {
     expect(screen.queryByText(/Pick another before saving/)).not.toBeInTheDocument();
   });
 
+  it('starts each new widget on a column that suits it, using the layer\'s sampled values', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const quakes = layer({
+      ...parcels,
+      dataset_column_info: [
+        { name: 'place', type: 'text' },
+        { name: 'mag_type', type: 'text' },
+        { name: 'mag', type: 'double precision' },
+      ],
+      dataset_sample_values: {
+        place: Array.from({ length: 10 }, (_, index) => `place ${index}`),
+        mag_type: ['md', 'ml'],
+      },
+    });
+    render(<Harness layers={[quakes]} onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Bar chart' }));
+    await user.click(screen.getByRole('button', { name: 'Add Histogram' }));
+    await user.click(screen.getByRole('button', { name: 'Add Category selector' }));
+    expect(lastDraft(onChange).widgets.map((widget) => [widget.type, widget.config])).toEqual([
+      ['bar_chart', { column: 'mag_type', stat: 'count', stat_column: null, limit: 10 }],
+      ['histogram', { column: 'mag', bins: 20 }],
+      ['category_selector', { column: 'mag_type', multiple: true }],
+    ]);
+    expect(screen.queryByText(/Pick another before saving/)).not.toBeInTheDocument();
+  });
+
   it('holds a bar chart on a column its layer lacks until another is picked', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

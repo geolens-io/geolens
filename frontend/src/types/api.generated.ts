@@ -8141,6 +8141,51 @@ export interface components {
              */
             total_users: number;
         };
+        /** CategorySelectorConfig */
+        CategorySelectorConfig: {
+            /** Column */
+            column: string;
+            /**
+             * Multiple
+             * @default true
+             */
+            multiple: boolean;
+        };
+        /** CategorySelectorWidget */
+        CategorySelectorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "category_selector";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["CategorySelectorConfig"];
+        };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
             /** Current Password */
@@ -9087,7 +9132,7 @@ export interface components {
              * Widgets
              * @description The widgets on layers this response shows, in panel order.
              */
-            widgets: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"])[];
+            widgets: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DashboardConfigInput */
         DashboardConfigInput: {
@@ -9106,7 +9151,7 @@ export interface components {
              * Widgets
              * @description Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
              */
-            widgets?: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"])[];
+            widgets?: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {
@@ -11034,6 +11079,16 @@ export interface components {
             /** Count */
             count: number;
         };
+        /** HistogramConfig */
+        HistogramConfig: {
+            /** Column */
+            column: string;
+            /**
+             * Bins
+             * @default 20
+             */
+            bins: number;
+        };
         /** HistogramRequest */
         HistogramRequest: {
             /**
@@ -11086,6 +11141,41 @@ export interface components {
              * @description Equal-width bins over the finite values; empty with none.
              */
             bins: components["schemas"]["HistogramBin"][];
+        };
+        /** HistogramWidget */
+        HistogramWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "histogram";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["HistogramConfig"];
         };
         /** ImageConfig */
         ImageConfig: {
