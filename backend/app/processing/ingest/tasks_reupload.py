@@ -20,6 +20,7 @@ from app.platform.dataset_origin import (
     BoundPointer,
     bound_pointer,
     classify_origin,
+    clear_source_probe_state,
     service_layer_identity,
     still_bound,
 )
@@ -344,6 +345,160 @@ async def _held_live_geometry_types(
     return await get_geometry_types(session, table_name, schema=schema)
 
 
+async def _live_content_digest(
+    table_name: str, *, schema: str, dataset_id, has_geometry: bool
+):
+    """The live table's witness and content digest, read on a connection of its own.
+
+    The witness is read first, so a write the digest missed changes it. None
+    when the digest can't be read.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import compute_table_content_digest
+
+    try:
+        async with async_session() as session:
+            witness = await _live_table_witness(
+                session, dataset_id, table_name, schema=schema
+            )
+            digest = await compute_table_content_digest(
+                session,
+                table_name,
+                schema=schema,
+                has_geometry=has_geometry,
+                lock=False,
+            )
+    except Exception:  # broad: without the digest the replacement publishes as before
+        structlog.get_logger().warning(
+            "reupload_live_digest_failed", dataset_id=str(dataset_id), exc_info=True
+        )
+        return None
+    return witness, digest
+
+
+async def _table_row_count(table_name: str, *, schema: str) -> int | None:
+    """The table's row count, read on a connection of its own; None when unreadable."""
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable
+
+    try:
+        async with async_session() as session:
+            return await session.scalar(
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                text(f"SELECT count(*) FROM {_qtable(table_name, schema=schema)}")
+            )
+    except Exception:  # broad: an unread count only means the replacement publishes
+        structlog.get_logger().warning(
+            "reupload_row_count_failed", table=table_name, exc_info=True
+        )
+        return None
+
+
+class _LiveComparison:
+    """The live-table comparison a service refresh and a file re-upload share.
+
+    A run that staged exactly the live data publishes nothing: no version, no
+    swap. ``live_content`` is the live table's witness and digest, read
+    before the hold by ``_live_content_digest``, and ``content_digest`` the
+    staged table's.
+    """
+
+    live_content: tuple | None = None
+    content_digest: str | None = None
+
+    @property
+    def unchanged(self) -> bool:
+        return bool(self.verification and self.verification.get("data_unchanged"))
+
+    async def _digest_staged(self, session, *, has_geometry: bool) -> None:
+        """Digest the staged table in a savepoint; on an error nothing is compared."""
+        from app.processing.ingest.metadata import compute_table_content_digest
+
+        # A flush error belongs to the publication, not to the comparison.
+        await session.flush()
+        try:
+            async with session.begin_nested():
+                self.content_digest = await compute_table_content_digest(
+                    session,
+                    self.staging_table,
+                    schema=_current_tenant_schema(),
+                    has_geometry=has_geometry,
+                )
+        except Exception:  # broad: an unread digest only means the run publishes
+            structlog.get_logger().warning(
+                "reupload_staged_digest_failed", table=self.staging_table, exc_info=True
+            )
+
+    async def _compare_live(self, session, dataset) -> None:
+        """Record whether the staged table holds the live table's columns and rows.
+
+        Call holding the live table. The digested live rows stand while its
+        witness is unchanged. A read error counts as a difference.
+        """
+        self.verification["data_unchanged"] = False
+        if self.live_content is None or self.live_content[1] != self.content_digest:
+            return
+        witness = self.live_content[0]
+        schema = _current_tenant_schema()
+        await session.flush()
+        try:
+            async with session.begin_nested():
+                self.verification["data_unchanged"] = witness == (
+                    await _live_table_witness(
+                        session, dataset.id, dataset.table_name, schema=schema
+                    )
+                ) and await _same_columns(
+                    session, self.staging_table, dataset.table_name, schema=schema
+                )
+        except Exception:  # broad: an unread comparison only means the run publishes
+            structlog.get_logger().warning(
+                "reupload_live_comparison_failed",
+                dataset_id=str(dataset.id),
+                exc_info=True,
+            )
+
+    async def _publish_unchanged(
+        self, session, dataset, *, field_labels, **published
+    ) -> Published:
+        """Date a run that found the live data current.
+
+        The catalog projection still runs, since a source's labels can change
+        without its data. As a publish does, the record names who confirmed the
+        data last and the stored source health, now stale, is cleared.
+        """
+        schema_diff = await catalog_projection.project(
+            session, dataset, self.measurement, field_labels=field_labels
+        )
+        dataset.record.updated_by = uuid.UUID(self.user_id)
+        clear_source_probe_state(dataset)
+        dataset.last_refreshed_at = datetime.now(timezone.utc)
+        return Published(
+            dataset_version_id=None,
+            schema_diff=schema_diff,
+            verification=self.verification,
+            tiles_changed=False,
+            **published,
+        )
+
+
+async def _same_columns(session, table_a: str, table_b: str, *, schema: str) -> bool:
+    """Whether both tables have the same column names and declared types, in order."""
+    rows = await session.execute(
+        text(
+            "SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod) "
+            "FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :schema AND c.relname IN (:a, :b) "
+            "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
+        ),
+        {"schema": schema, "a": table_a, "b": table_b},
+    )
+    columns: dict[str, list[tuple]] = {table_a: [], table_b: []}
+    for relname, name, column_type in rows:
+        columns[relname].append((name, column_type))
+    return columns[table_a] == columns[table_b]
+
+
 async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
     """Whether another job still needs this staged upload, such as a blocked run's.
 
@@ -373,7 +528,7 @@ async def _staged_input_needed_elsewhere(job_id: str, file_path: str) -> bool:
         return True
 
 
-class _FileReupload:
+class _FileReupload(_LiveComparison):
     """A browser upload's bytes, loaded by ogr2ogr into this attempt's table."""
 
     task = "reupload_file"
@@ -406,6 +561,15 @@ class _FileReupload:
             == "postgis"
         )
         self.witness_for = None if registered else dataset.id
+        # A file replacing another origin's data rebinds the dataset to the
+        # upload, so only an upload-origin dataset can skip the publish.
+        self.compares_live = (
+            not registered
+            and classify_origin(dataset.source_format, dataset.record.record_type)
+            == "upload"
+        )
+        self.live_feature_count = dataset.feature_count
+        self.live_has_geometry = dataset.geometry_type is not None
         self.attempt_id = job.attempt_id
         self.source_filename = job.source_filename
         self.user_metadata = job.user_metadata or {}
@@ -469,6 +633,20 @@ class _FileReupload:
             schema=_current_tenant_schema(),
             dataset_id=self.witness_for,
         )
+        if (
+            self.compares_live
+            and self.live_feature_count is not None
+            and await _table_row_count(
+                self.staging_table, schema=_current_tenant_schema()
+            )
+            == self.live_feature_count
+        ):
+            self.live_content = await _live_content_digest(
+                self.live_table,
+                schema=_current_tenant_schema(),
+                dataset_id=self.witness_for,
+                has_geometry=self.live_has_geometry,
+            )
 
     async def stage(self, session, job, dataset) -> Verdict:
         # Before the post-process steps, so no source column clashes with a
@@ -531,6 +709,8 @@ class _FileReupload:
         self.staged_geometry_types = await get_geometry_types(
             session, self.staging_table, schema=_current_tenant_schema()
         )
+        if self.live_content is not None:
+            await self._digest_staged(session, has_geometry=staging_result.has_geometry)
         return Verdict(verify=self._verify)
 
     async def _verify(self, session, dataset) -> Verdict:
@@ -582,6 +762,8 @@ class _FileReupload:
         # What an acceptance of this run must still find live.
         self.verification["live_version"] = dataset.current_version
         if self.verification["decision"] == "allowed":
+            if self.compares_live:
+                await self._compare_live(session, dataset)
             return PUBLISH
         self.held = True
         return Verdict(
@@ -605,6 +787,8 @@ class _FileReupload:
         )
 
     async def install(self, session, dataset) -> None:
+        if self.unchanged:
+            return
         await _install_reupload_table(
             session,
             dataset=dataset,
@@ -613,6 +797,18 @@ class _FileReupload:
         )
 
     async def write(self, session, dataset) -> Published:
+        if self.unchanged:
+            # Nothing was installed, so there is no original to archive.
+            published = await self._publish_unchanged(
+                session,
+                dataset,
+                field_labels={},
+                feature_count=self.measurement.metadata.get("feature_count"),
+                contacted_origin=False,
+                reaps_staged_upload=True,
+            )
+            await self._apply_manifest(session, dataset)
+            return published
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,
@@ -627,14 +823,7 @@ class _FileReupload:
             origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
             field_labels={},
         )
-        # A manifest re-apply lands here carrying the manifest's current
-        # attribution, which replaces the old credit.
-        await apply_manifest_record_metadata(
-            session, dataset.record, self.user_metadata
-        )
-        await apply_manifest_publication(
-            session, dataset, self.user_metadata, actor_id=uuid.UUID(self.user_id)
-        )
+        await self._apply_manifest(session, dataset)
         # The bytes came from the browser, so nothing remote was contacted.
         return Published(
             dataset_version_id=version.id,
@@ -648,6 +837,16 @@ class _FileReupload:
             upload_archive_key=original_archive_key(
                 dataset.id, self.file_path, self._archive_name()
             ),
+        )
+
+    async def _apply_manifest(self, session, dataset) -> None:
+        # A manifest re-apply lands here carrying the manifest's current
+        # attribution, which replaces the old credit.
+        await apply_manifest_record_metadata(
+            session, dataset.record, self.user_metadata
+        )
+        await apply_manifest_publication(
+            session, dataset, self.user_metadata, actor_id=uuid.UUID(self.user_id)
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -1134,7 +1333,7 @@ async def _stage_service_table(
     return staged
 
 
-class _ServiceReupload:
+class _ServiceReupload(_LiveComparison):
     """A remote service layer, fetched by ogr2ogr into this attempt's table.
 
     A refresh is verified against its source binding, and a re-upload against
@@ -1177,6 +1376,8 @@ class _ServiceReupload:
         self.staging_table = staging_table
         self.live_table = dataset.table_name
         self.dataset_id = dataset.id
+        self.live_feature_count = dataset.feature_count
+        self.live_has_geometry = dataset.geometry_type is not None
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = bound_pointer(dataset)
@@ -1298,6 +1499,17 @@ class _ServiceReupload:
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
         )
+        if (
+            self.is_refresh
+            and self.expected_feature_count is not None
+            and self.expected_feature_count == self.live_feature_count
+        ):
+            self.live_content = await _live_content_digest(
+                self.live_table,
+                schema=_current_tenant_schema(),
+                dataset_id=self.dataset_id,
+                has_geometry=self.live_has_geometry,
+            )
 
     async def stage(self, session, job, dataset) -> Verdict:
         from app.processing.ingest.metadata import (
@@ -1392,6 +1604,8 @@ class _ServiceReupload:
         )
         if self.is_refresh:
             self.verification = await self._verify_refresh(session, dataset, live)
+            if self.verification["decision"] == "allowed":
+                await self._compare_live(session, dataset)
         else:
             self.verification = refresh_policy.verify_reviewed_replacement(
                 schema_diff=self.measured_schema_diff,
@@ -1499,6 +1713,8 @@ class _ServiceReupload:
             )
 
     async def install(self, session, dataset) -> None:
+        if self.unchanged:
+            return
         await _install_reupload_table(
             session,
             dataset=dataset,
@@ -1520,6 +1736,15 @@ class _ServiceReupload:
                 session,
                 dataset=dataset,
                 baseline=self.verification["data_revision_baseline"],
+            )
+        if self.unchanged:
+            return await self._publish_unchanged(
+                session,
+                dataset,
+                field_labels=self.field_labels,
+                feature_count=self.measured_feature_count,
+                contacted_origin=True,
+                reembed=False,
             )
         version, schema_diff = await _write_reupload_catalog(
             session,

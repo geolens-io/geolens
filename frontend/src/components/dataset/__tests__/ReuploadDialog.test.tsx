@@ -11,7 +11,7 @@ import {
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
 import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
-import { getDataset } from '@/api/datasets';
+import { getDataset, getDatasetRefreshRuns } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
 import { changeTestLanguage } from '@/test/i18n';
@@ -55,6 +55,7 @@ vi.mock('@/api/ingest', () => ({
 vi.mock('@/api/datasets', () => ({
   reuploadPresigned: vi.fn(),
   getDataset: vi.fn(),
+  getDatasetRefreshRuns: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -1552,6 +1553,39 @@ describe('ReuploadDialog raster reupload', () => {
     await waitFor(() => {
       expect(onReplaceComplete).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it.each([
+    [true, 'Nothing changed'],
+    [false, 'Re-upload complete!'],
+  ])('reads a completed replacement whose data_unchanged is %s as "%s"', async (unchanged, title) => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'complete' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    vi.mocked(getDatasetRefreshRuns).mockResolvedValue({
+      runs: [{ ingest_job_id: 'raster-job', verification: { data_unchanged: unchanged } }],
+      total: 1,
+    } as unknown as Awaited<ReturnType<typeof getDatasetRefreshRuns>>);
+
+    render(<ReuploadDialog dataset={makeRasterDataset()} open onOpenChange={vi.fn()} />);
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    // The header never claims an update the replacement didn't make.
+    const updated = screen.queryByText('The dataset has been updated successfully.');
+    if (unchanged) {
+      expect(updated).not.toBeInTheDocument();
+      expect(
+        screen.getByText('The re-upload finished without changing the dataset.'),
+      ).toBeInTheDocument();
+    } else {
+      expect(updated).toBeInTheDocument();
+    }
   });
 
   it('keeps watching for the new thumbnail when the job completes before its quicklook lands', async () => {

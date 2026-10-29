@@ -165,16 +165,24 @@ async def _assert_live_row(table: str, name: str) -> None:
     assert rows == [name], f"the live table holds {rows}, not the replacement"
 
 
-async def _fake_ogr2ogr(file_path, staging_table, db_conn_str, **kwargs):
-    import app.core.db as db_module
+def _fake_ogr2ogr(name: str):
+    async def _stage(file_path, staging_table, db_conn_str, **kwargs):
+        import app.core.db as db_module
 
-    async with db_module.async_session() as staging_session:
-        await _create_point_table(staging_session, staging_table, "after")
-        await staging_session.commit()
+        async with db_module.async_session() as staging_session:
+            await _create_point_table(staging_session, staging_table, name)
+            await staging_session.commit()
+
+    return _stage
 
 
 async def _run_file_reupload(
-    job: IngestJob, dataset_id: uuid.UUID, admin_id: uuid.UUID, file_path: str
+    job: IngestJob,
+    dataset_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    file_path: str,
+    *,
+    staged: str = "after",
 ) -> None:
     with ExitStack() as stack:
         stack.enter_context(
@@ -200,7 +208,7 @@ async def _run_file_reupload(
         stack.enter_context(
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr",
-                new=AsyncMock(side_effect=_fake_ogr2ogr),
+                new=AsyncMock(side_effect=_fake_ogr2ogr(staged)),
             )
         )
         await reupload_file.func(
@@ -1117,8 +1125,9 @@ async def test_a_superseded_publish_never_overwrites_the_live_versions_archive(
     )
     try:
         with _quiet_embedding():
+            # Other rows, since a replacement of unchanged data publishes nothing.
             await _run_file_reupload(
-                second, first.dataset_id, admin_id, str(second_upload)
+                second, first.dataset_id, admin_id, str(second_upload), staged="later"
             )
         live_archive = await _archives(first, storage)
         assert list(live_archive.values()) == [second_bytes]
