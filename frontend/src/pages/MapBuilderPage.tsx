@@ -326,6 +326,7 @@ export function MapBuilderPage() {
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
     saveBaselineSyncRef,
+    saveFence: layers.saveFence,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {

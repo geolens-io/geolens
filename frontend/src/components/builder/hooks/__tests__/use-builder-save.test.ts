@@ -233,6 +233,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     // The real MapBuilderPage owns this ref; tests that don't
     // exercise the layer-create → save-baseline bridge get a plain no-op ref.
     saveBaselineSyncRef: { current: { add: () => {}, remove: () => {} } },
+    saveFence: { inFlight: () => false, begin: () => {}, settle: () => {} },
     ...overrides,
   };
 }

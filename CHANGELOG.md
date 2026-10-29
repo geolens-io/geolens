@@ -7,6 +7,12 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Turning a Builder layer, group or several layers off and back on no longer
+  leaves the map marked "Unsaved changes" when it matches the saved map, so
+  leaving the page no longer asks for confirmation. (#3465)
+
 ## [1.28.0] - 2026-10-29
 
 ### Added

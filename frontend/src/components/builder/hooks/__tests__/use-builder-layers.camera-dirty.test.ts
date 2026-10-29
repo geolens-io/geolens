@@ -206,6 +206,7 @@ function useCombinedBuilder(
     hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
+    saveFence: layers.saveFence,
   });
 
   return { ...layers, ...save };

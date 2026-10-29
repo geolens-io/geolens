@@ -1,5 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
@@ -11,6 +12,7 @@ import {
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import { queryKeys } from '@/lib/query-keys';
 import {
   hasSavedMapCamera,
   readMapCamera,
@@ -23,7 +25,7 @@ import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig,
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
-import type { SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
+import type { SaveBaselineSync, SaveFence } from '@/components/builder/hooks/use-builder-save';
 import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
@@ -79,6 +81,9 @@ function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null 
     exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
   };
 }
+
+const detailDataVersion = (queryClient: QueryClient, id: string | undefined): number =>
+  queryClient.getQueryState(queryKeys.maps.detail(id))?.dataUpdateCount ?? 0;
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -173,6 +178,37 @@ export function useBuilderLayers(
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
+  // Maps fenced by a save: null while the save is in flight, then the detail
+  // query's data version when it settled. From the save's start until data
+  // fetched after it settles, mapData may not match the server, whether the
+  // save succeeded, failed or half-failed.
+  const saveFenceRef = useRef(new Map<string, number | null>());
+  const queryClient = useQueryClient();
+  // Counts every data delivery, including a refetch whose data is unchanged.
+  const detailVersion = useSyncExternalStore(
+    useCallback((onChange) => queryClient.getQueryCache().subscribe(onChange), [queryClient]),
+    () => detailDataVersion(queryClient, mapId),
+  );
+  const saveFenced = useCallback((): boolean => {
+    const settled = mapId ? saveFenceRef.current.get(mapId) : undefined;
+    return settled !== undefined && (settled === null || detailVersion <= settled);
+  }, [mapId, detailVersion]);
+  const saveFence = useMemo<SaveFence>(
+    () => ({
+      inFlight: (id) => saveFenceRef.current.get(id) === null,
+      begin: (id) => {
+        saveFenceRef.current.set(id, null);
+      },
+      // Taken after the save's own cache write, so only data delivered later
+      // lifts the fence. The refetch makes sure some arrives, even after a
+      // failure, without restarting one already in flight.
+      settle: (id) => {
+        saveFenceRef.current.set(id, detailDataVersion(queryClient, id));
+        void queryClient.invalidateQueries({ queryKey: queryKeys.maps.detail(id) }, { cancelRefetch: false });
+      },
+    }),
+    [queryClient],
+  );
 
   // Mirror current layers in a ref so stable callbacks read fresh state without
   // invalidating on every mutation, which would defeat React.memo() on StackRow.
@@ -190,7 +226,7 @@ export function useBuilderLayers(
 
   // Live map sync handlers
   const {
-    handleToggleVisibility,
+    handleToggleVisibility: toggleLayerVisibility,
     handlePaintChange,
     handleStyleConfigChange,
     handleOpacityChange,
@@ -219,7 +255,7 @@ export function useBuilderLayers(
   // ungroup / delete) and in-flight isDeleting state.
   const {
     handleBulkApplyStyle,
-    handleBulkVisibility,
+    handleBulkVisibility: bulkToggleVisibility,
     handleBulkOpacity,
     handleBulkGroup,
     handleBulkUngroup,
@@ -247,7 +283,7 @@ export function useBuilderLayers(
     handleCreateGroupWithLayer,
     handleRenameGroup,
     handleUngroup,
-    handleToggleGroupVisibility,
+    handleToggleGroupVisibility: toggleGroupVisibility,
     handleDeleteGroup,
     handleAddLayerToExistingGroup,
     handleMoveLayerOutOfGroup,
@@ -339,18 +375,21 @@ export function useBuilderLayers(
   // Sync layers from API when they change (after add/remove mutations)
   const apiLayers = mapData?.layers;
   useEffect(() => {
-    if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
-      const hydrated = hydrateFolderGroupLayers(apiLayers);
-      setLocalLayers(hydrated.layers);
-      layersMapIdRef.current = mapData?.id ?? null;
-      setLayersMapId(mapData?.id ?? null);
-      savedLayerBaselineRef.current = hydrated.layers;
-      setGroupMeta({
-        ...hydrated.groupMeta,
-        ...((mapData as { group_meta?: Record<string, { expanded: boolean }> } | undefined)?.group_meta ?? {}),
-      });
-    }
-  }, [apiLayers, hasUnsavedChanges, mapData]);
+    if (!apiLayers || !initializedRef.current || saveFenced()) return;
+    const fenceLifted = mapId !== undefined && saveFenceRef.current.delete(mapId);
+    if (hasUnsavedChanges && !fenceLifted) return;
+    const hydrated = hydrateFolderGroupLayers(apiLayers);
+    savedLayerBaselineRef.current = hydrated.layers;
+    // A dirty map keeps its edits; only the clean check learns the saved layers.
+    if (hasUnsavedChanges) return;
+    setLocalLayers(hydrated.layers);
+    layersMapIdRef.current = mapData?.id ?? null;
+    setLayersMapId(mapData?.id ?? null);
+    setGroupMeta({
+      ...hydrated.groupMeta,
+      ...((mapData as { group_meta?: Record<string, { expanded: boolean }> } | undefined)?.group_meta ?? {}),
+    });
+  }, [apiLayers, hasUnsavedChanges, mapData, mapId, saveFenced]);
 
   // Compute initial view state only once
   const initialViewState = useMemo(() => {
@@ -928,7 +967,11 @@ export function useBuilderLayers(
     for (let i = 0; i < current.length; i += 1) {
       const saved = savedById.get(current[i].id);
       // Order matters (sort_order is persisted), so compare position too.
-      if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
+      if (!saved || saved.id !== baseline[i].id) return false;
+      // A folder row is never persisted and its own `visible` can lag its
+      // children, so only the children's visibility counts.
+      const layer = isFolderGroupLayer(current[i]) ? { ...current[i], visible: saved.visible } : current[i];
+      if (!deepEqual(layer, saved)) return false;
     }
 
     // Compare the save payload's normalization, not the raw local strings:
@@ -974,14 +1017,29 @@ export function useBuilderLayers(
     setRecheckNonce((n) => n + 1);
   }, []);
   // A request stays pending until it finds the map clean, and re-runs when the
-  // saved baselines change: a save invalidates the map-detail query, and a
-  // revert racing the refetch would otherwise compare stale server data once.
+  // saved baselines change, so one made behind a save fence waits for the
+  // refetch.
   useEffect(() => {
     if (recheckNonce === 0 || !recheckPendingRef.current) return;
-    if (!computeMapIsClean()) return;
+    if (saveFenced() || !computeMapIsClean()) return;
     recheckPendingRef.current = false;
     setHasUnsavedChanges(false);
-  }, [recheckNonce, computeMapIsClean]);
+  }, [recheckNonce, computeMapIsClean, saveFenced]);
+
+  // A visibility toggle is the only edit a user routinely undoes by repeating
+  // it, so each one asks whether the map is back to the saved state.
+  const handleToggleVisibility = useCallback((layerId: string, visible?: boolean) => {
+    toggleLayerVisibility(layerId, visible);
+    requestCleanRecheck();
+  }, [toggleLayerVisibility, requestCleanRecheck]);
+  const handleToggleGroupVisibility = useCallback((groupId: string) => {
+    toggleGroupVisibility(groupId);
+    requestCleanRecheck();
+  }, [toggleGroupVisibility, requestCleanRecheck]);
+  const handleBulkVisibility = useCallback((selectedIds: Set<string>) => {
+    bulkToggleVisibility(selectedIds);
+    requestCleanRecheck();
+  }, [bulkToggleVisibility, requestCleanRecheck]);
 
   // Re-read on every identity change and map instance. MapBuilderPage gives
   // each map its own BuilderMap, which positions it (saved view or a fit) in a
@@ -1149,6 +1207,7 @@ export function useBuilderLayers(
     layersMapId,
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
+    saveFence,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges: setHasUnsavedChangesTracked,
     hasUnsavedEdits,

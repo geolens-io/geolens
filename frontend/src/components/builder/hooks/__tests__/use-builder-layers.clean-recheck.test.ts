@@ -45,6 +45,58 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('is dirty after a visibility toggle off and clean once toggled back on', () => {
+    const layer = makeBuilderLayer({ visible: true });
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => result.current.handleToggleVisibility(layer.id));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleToggleVisibility(layer.id));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('is dirty after a bulk hide and clean once the bulk show undoes it', () => {
+    const a = makeBuilderLayer({ id: 'layer-a', visible: true });
+    const b = makeBuilderLayer({ id: 'layer-b', visible: true });
+    const { result } = render(makeBuilderMap([a, b]));
+    const ids = new Set(['layer-a', 'layer-b']);
+
+    act(() => result.current.handleBulkVisibility(ids));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleBulkVisibility(ids));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('is clean once a hidden folder has each child shown again', () => {
+    const group = { ...makeBuilderLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const a = { ...makeBuilderLayer({ id: 'layer-a' }), parent_group_id: 'group-1' } as MapLayerResponse;
+    const b = { ...makeBuilderLayer({ id: 'layer-b' }), parent_group_id: 'group-1' } as MapLayerResponse;
+    const { result } = render(makeBuilderMap([group, a, b]));
+
+    act(() => result.current.dispatchLayerAction({ type: 'toggle_group_visibility', source: 'manual', groupId: 'group-1' }));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleToggleVisibility('layer-a'));
+    act(() => result.current.handleToggleVisibility('layer-b'));
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('keeps the flag when a visibility toggle is undone but another edit remains', () => {
+    const layer = makeBuilderLayer({ visible: true });
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => {
+      result.current.setLocalName('Renamed');
+      result.current.handleToggleVisibility(layer.id);
+    });
+    act(() => result.current.handleToggleVisibility(layer.id));
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('keeps the flag when another layer still has pending edits', () => {
     const a = makeBuilderLayer({ id: 'layer-a' });
     const b = makeBuilderLayer({ id: 'layer-b' });
