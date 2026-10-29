@@ -3,7 +3,8 @@
 
 Hand-maintained. Reads a Web Map's configuration from the portal, matches its
 operational layers to the datasets the run imported for the services they
-point at, and has GeoLens translate it into a map. The layer-to-map-layer ids
+point at, fills in the renderer of each layer the web map leaves to its source,
+and has GeoLens translate it into a map. The layer-to-map-layer ids
 GeoLens returns are kept in the item's state, and the loss report is written
 next to the state file.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -22,6 +23,7 @@ from . import arcgis_report as _report
 from ._sdk_helpers import long_request_timeout
 from .arcgis_migrate_export import _modified, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
+from .arcgis_migrate_layers import _trusted
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -133,6 +135,84 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
         if dataset:
             matches[layer_id] = dataset
     return matches
+
+
+def _read_object(read: Callable[[], Any], *, portal: bool = False) -> dict[str, Any]:
+    """*read*'s JSON object, or an empty one when it fails: missing styling
+    leaves a layer with GeoLens's default rather than failing the map. A
+    portal read the token is refused on stops the run instead."""
+    try:
+        data = read()
+    except PortalError as exc:
+        if portal:
+            _stop_if_token_refused(exc)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _item_drawing(
+    ctx: MigrationContext, item_id: Any, index: str, cache: dict[str, dict[str, Any]]
+) -> Any:
+    """The drawing info saved on the layer's item for service layer *index*."""
+    if not isinstance(item_id, str) or not _ITEM_ID.fullmatch(item_id):
+        return None
+    if item_id not in cache:
+        cache[item_id] = _read_object(
+            lambda: ctx.portal.client.get_json(f"content/items/{item_id}/data"),
+            portal=True,
+        )
+    layers = cache[item_id].get("layers")
+    for entry in layers if isinstance(layers, list) else []:
+        if isinstance(entry, dict) and str(entry.get("id")) == index:
+            definition = entry.get("layerDefinition")
+            return (
+                definition.get("drawingInfo") if isinstance(definition, dict) else None
+            )
+    return None
+
+
+def fill_source_styling(
+    ctx: MigrationContext, webmap: dict[str, Any], matches: Mapping[str, str]
+) -> None:
+    """Give each matched layer that the web map leaves to its source the
+    renderer ArcGIS draws it with: the one saved on its layer item, else the
+    service layer's own. The service is read only on a host trusted with the
+    token, as for the import."""
+    items: dict[str, dict[str, Any]] = {}
+    services: dict[str, dict[str, Any]] = {}
+    for layer in _walk(webmap.get("operationalLayers")):
+        definition = layer.get("layerDefinition")
+        definition = definition if isinstance(definition, dict) else {}
+        drawing = definition.get("drawingInfo")
+        drawing = drawing if isinstance(drawing, dict) else {}
+        url = sanitize_url(layer.get("url"))
+        sub = _TRAILING_LAYER.search(urlsplit(url).path) if url else None
+        if (
+            not isinstance(layer.get("id"), str)
+            or layer["id"] not in matches
+            or drawing.get("renderer")
+            or sub is None
+        ):
+            continue
+        source = _item_drawing(ctx, layer.get("itemId"), sub.group(1), items)
+        if not isinstance(source, dict) or not source.get("renderer"):
+            if not _trusted(ctx, url):
+                continue
+            if url not in services:
+                services[url] = _read_object(
+                    lambda: ctx.portal.client.get_service_json(url)
+                )
+            source = services[url].get("drawingInfo")
+        if not isinstance(source, dict) or not isinstance(source.get("renderer"), dict):
+            continue
+        filled = redact_json(
+            {k: source[k] for k in ("renderer", "transparency") if k in source},
+            ctx.redact,
+        )
+        layer["layerDefinition"] = {
+            **definition,
+            "drawingInfo": {**filled, **drawing, "renderer": filled["renderer"]},
+        }
 
 
 def _basemap_entries(
@@ -318,6 +398,7 @@ def import_map(
     modified = _read_modified(ctx, item["id"])
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
+    fill_source_styling(ctx, webmap, matches)
     title = item["target"]["title"] or item["title"]
     visibility = item["target"]["visibility"]
     body = ArcgisWebmapImportRequest(

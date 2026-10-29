@@ -2330,3 +2330,403 @@ class TestLegendLabels:
         assert "class_label" not in self._kinds(
             {"type": "simple", "symbol": _fill(), "label": " "}
         )
+
+
+def _cim(kind: str, *layers: dict, **extra) -> dict:
+    return {
+        "type": "CIMSymbolReference",
+        "symbol": {"type": kind, "symbolLayers": list(layers), **extra},
+    }
+
+
+def _cim_fill(color: list) -> dict:
+    return {"type": "CIMSolidFill", "enable": True, "color": color}
+
+
+def _cim_stroke(color: list, width: float = 0.7) -> dict:
+    return {"type": "CIMSolidStroke", "enable": True, "color": color, "width": width}
+
+
+class TestCimSymbols:
+    def _symbol_kinds(self, symbol: dict) -> tuple[dict | None, list]:
+        result = _translate(_with_renderer({"type": "simple", "symbol": symbol}))
+        details = [i.detail for i in result.loss.items if i.kind == "symbol_style"]
+        return result.layers[0].paint, details
+
+    def test_map_viewer_class_breaks_keep_their_classes(self) -> None:
+        webmap = json.loads((FIXTURES / "cim_class_breaks.json").read_text())
+        result = _translate(webmap, {"conservation_18": uuid.uuid4()})
+
+        config = result.layers[0].style_config
+        assert config["mode"] == "graduated"
+        assert config["column"] == "REC_WaterbodyAccessScore"
+        assert config["breaks"] == [1.0, 3.0, 5.0, 7.0, 9.0]
+        assert config["colors"] == [
+            "#ffffff",
+            "#dadaeb",
+            "#bcbddc",
+            "#9e9ac8",
+            "#756bb1",
+            "#54278f",
+        ]
+        assert config["builder"] == {"outline_color": "#6e6e6e", "outline_width": 0.93}
+        assert {"symbol_style", "unsupported_renderer"}.isdisjoint(_kinds(result))
+
+    def test_polygon_fill_and_stroke(self) -> None:
+        symbol = _cim(
+            "CIMPolygonSymbol",
+            _cim_stroke([110, 110, 110, 255]),
+            _cim_fill([255, 0, 0, 128]),
+        )
+        paint, details = self._symbol_kinds(symbol)
+        assert paint == {"fill-color": "#ff0000", "fill-opacity": 0.502}
+        assert details == []
+
+    def test_primitive_overrides_are_reported(self) -> None:
+        symbol = _cim("CIMPolygonSymbol", _cim_fill([255, 0, 0, 255]))
+        symbol["primitiveOverrides"] = [
+            {
+                "type": "CIMPrimitiveOverride",
+                "primitiveName": "fill",
+                "propertyName": "Color",
+                "valueExpressionInfo": {"expression": "$feature.COLOR"},
+            }
+        ]
+        paint, details = self._symbol_kinds(symbol)
+        assert paint == {"fill-color": "#ff0000", "fill-opacity": 1.0}
+        assert details == ["symbol properties set from feature values"]
+
+    def test_an_outline_only_polygon_has_no_fill(self) -> None:
+        result = _translate(
+            _with_renderer(
+                {
+                    "type": "simple",
+                    "symbol": _cim("CIMPolygonSymbol", _cim_stroke([0, 0, 255, 255])),
+                }
+            )
+        )
+        layer = result.layers[0]
+        assert layer.paint["fill-opacity"] == 0.0
+        assert layer.style_config["builder"]["fill_disabled"] is True
+        assert layer.style_config["builder"]["outline_color"] == "#0000ff"
+
+    def test_line_stroke(self) -> None:
+        symbol = _cim("CIMLineSymbol", _cim_stroke([0, 0, 255, 255], width=3))
+        paint, details = self._symbol_kinds(symbol)
+        assert paint == {
+            "line-color": "#0000ff",
+            "line-opacity": 1.0,
+            "line-width": 4.0,
+        }
+        assert details == []
+
+    def test_map_viewer_circle_marker(self) -> None:
+        ring = [
+            [8.5, 0], [14.5, 2.5], [17, 8.5], [14.5, 14.5],
+            [8.5, 17], [2.5, 14.5], [0, 8.5], [2.5, 2.5], [8.5, 0],
+        ]  # fmt: skip
+        marker = {
+            "type": "CIMVectorMarker",
+            "enable": True,
+            "size": 8,
+            "markerGraphics": [
+                {
+                    "type": "CIMMarkerGraphic",
+                    "geometry": {"rings": [ring]},
+                    "symbol": _cim(
+                        "CIMPolygonSymbol",
+                        _cim_stroke([255, 255, 255, 255]),
+                        _cim_fill([150, 150, 150, 255]),
+                    )["symbol"],
+                }
+            ],
+        }
+        paint, details = self._symbol_kinds(_cim("CIMPointSymbol", marker))
+        assert paint["circle-color"] == "#969696"
+        assert paint["circle-radius"] == 5.33
+        assert paint["circle-stroke-color"] == "#ffffff"
+        assert details == []
+
+    def test_a_stroke_only_circle_marker_stays_hollow(self) -> None:
+        ring = [
+            [8.5, 0], [14.5, 2.5], [17, 8.5], [14.5, 14.5],
+            [8.5, 17], [2.5, 14.5], [0, 8.5], [2.5, 2.5], [8.5, 0],
+        ]  # fmt: skip
+        marker = {
+            "type": "CIMVectorMarker",
+            "size": 8,
+            "markerGraphics": [
+                {
+                    "geometry": {"rings": [ring]},
+                    "symbol": _cim("CIMPolygonSymbol", _cim_stroke([255, 0, 0, 255]))[
+                        "symbol"
+                    ],
+                }
+            ],
+        }
+        paint, _ = self._symbol_kinds(_cim("CIMPointSymbol", marker))
+        assert paint["circle-opacity"] == 0.0
+        assert paint["circle-stroke-color"] == "#ff0000"
+
+    def test_a_square_marker_is_reported(self) -> None:
+        marker = {
+            "type": "CIMVectorMarker",
+            "size": 8,
+            "markerGraphics": [
+                {
+                    "geometry": {
+                        "rings": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]
+                    },
+                    "symbol": _cim("CIMPolygonSymbol", _cim_fill([1, 2, 3, 255]))[
+                        "symbol"
+                    ],
+                }
+            ],
+        }
+        _, details = self._symbol_kinds(_cim("CIMPointSymbol", marker))
+        assert details == ["vector marker shape drawn as a circle"]
+
+    def _marker_with(self, geometry: dict, inner: dict):
+        marker = {
+            "type": "CIMVectorMarker",
+            "size": 8,
+            "markerGraphics": [{"geometry": geometry, "symbol": inner}],
+        }
+        return self._symbol_kinds(_cim("CIMPointSymbol", marker))
+
+    def test_a_curved_circle_marker_is_not_reported(self) -> None:
+        ring = [
+            [8.5, 0],
+            {"a": [[8.5, 17], [8.5, 8.5], 0, 1]},
+            {"a": [[8.5, 0], [8.5, 8.5], 0, 1]},
+        ]
+        inner = _cim("CIMPolygonSymbol", _cim_fill([1, 2, 3, 255]))["symbol"]
+        paint, details = self._marker_with({"curveRings": [ring]}, inner)
+        assert paint["circle-color"] == "#010203"
+        assert details == []
+
+    def test_a_curved_shape_that_is_not_a_circle_is_reported(self) -> None:
+        ring = [[0, 0], {"a": [[10, 0], [5, 0], 0, 1]}, {"a": [[0, 0], [5, -4], 0, 1]}]
+        inner = _cim("CIMPolygonSymbol", _cim_fill([1, 2, 3, 255]))["symbol"]
+        _, details = self._marker_with({"curveRings": [ring]}, inner)
+        assert details == ["vector marker shape drawn as a circle"]
+
+    def test_a_marker_with_nothing_drawable_has_no_symbol(self) -> None:
+        ring = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+        hatch = _cim("CIMPolygonSymbol", {"type": "CIMHatchFill", "enable": True})
+        paint, details = self._marker_with({"rings": [ring]}, hatch["symbol"])
+        assert paint is None
+        assert "CIMPointSymbol with nothing that could be drawn" in details
+
+    def test_untranslatable_layers_are_reported_per_symbol(self) -> None:
+        hatch = {"type": "CIMHatchFill", "enable": True}
+        symbol = _cim("CIMPolygonSymbol", _cim_stroke([0, 0, 0, 255]), hatch)
+        paint, details = self._symbol_kinds(symbol)
+        assert details == ["CIM symbol layer CIMHatchFill"]
+        assert paint["fill-opacity"] == 0.0
+
+        paint, details = self._symbol_kinds(_cim("CIMPolygonSymbol", hatch))
+        assert details == [
+            "CIM symbol layer CIMHatchFill",
+            "CIMPolygonSymbol with nothing that could be drawn",
+        ]
+        assert paint is None
+
+    def test_disabled_layers_are_skipped(self) -> None:
+        off = {**_cim_fill([255, 0, 0, 255]), "enable": False}
+        symbol = _cim("CIMPolygonSymbol", off, _cim_fill([0, 255, 0, 255]))
+        paint, details = self._symbol_kinds(symbol)
+        assert paint["fill-color"] == "#00ff00"
+        assert details == []
+
+    def test_cim_rgb_colour_alpha_is_a_percentage(self) -> None:
+        color = {"type": "CIMRGBColor", "values": [0, 0, 255, 50]}
+        paint, _ = self._symbol_kinds(_cim("CIMPolygonSymbol", _cim_fill(color)))
+        assert paint == {"fill-color": "#0000ff", "fill-opacity": 0.5}
+
+
+class TestUnusableRendererMessage:
+    def _details(self, renderer: dict) -> list[str]:
+        result = _translate(_with_renderer(renderer))
+        return [i.detail for i in result.loss.items if i.kind == "unsupported_renderer"]
+
+    @pytest.mark.parametrize(
+        ("kind", "field_key", "infos_key"),
+        [
+            ("classBreaks", "field", "classBreakInfos"),
+            ("uniqueValue", "field1", "uniqueValueInfos"),
+        ],
+    )
+    def test_says_which_part_is_missing(self, kind, field_key, infos_key) -> None:
+        info = {"value": "a", "classMaxValue": 1}
+        drawn = {**info, "symbol": _fill()}
+        undrawable = {**info, "symbol": {"type": "esriTS"}}
+        assert self._details({"type": kind, infos_key: [drawn]}) == [
+            f"{kind} without a field"
+        ]
+        assert self._details(
+            {"type": kind, field_key: "F", infos_key: [undrawable]}
+        ) == [f"{kind} with no symbol that could be drawn"]
+
+
+class TestStoredFieldNames:
+    """Field references use the column ingest stored the field under."""
+
+    def _columns(self, *names: str) -> list[dict]:
+        return [{"name": name, "type": "double precision"} for name in names]
+
+    def _translate_with(self, webmap: dict, *columns: str):
+        dataset = uuid.uuid4()
+        layer_id = webmap["operationalLayers"][0]["id"]
+        return _translate(
+            webmap,
+            {layer_id: dataset},
+            dataset_columns={dataset: self._columns(*columns)},
+        )
+
+    def test_mixed_case_service_fields_read_the_lower_case_columns(self) -> None:
+        webmap = json.loads((FIXTURES / "cim_class_breaks.json").read_text())
+        result = self._translate_with(
+            webmap, "objectid", "prop_loc", "rec_waterbodyaccessscore"
+        )
+
+        layer = result.layers[0]
+        step = layer.paint["fill-color"]
+        assert step[1] == ["==", ["get", "rec_waterbodyaccessscore"], None]
+        assert step[3][1] == ["get", "rec_waterbodyaccessscore"]
+        assert layer.style_config["column"] == "rec_waterbodyaccessscore"
+        assert layer.popup_config.visible_fields == [
+            "prop_loc",
+            "rec_waterbodyaccessscore",
+        ]
+        assert "field_unmatched" not in _kinds(result)
+
+    def test_labels_titles_filters_and_categories_are_resolved(self) -> None:
+        renderer = {
+            "type": "uniqueValue",
+            "field1": "Zone",
+            "uniqueValueInfos": [{"value": "R1", "symbol": _fill()}],
+        }
+        layer = {
+            "showLabels": True,
+            "layerDefinition": {
+                "definitionExpression": "Zone IN ('R1') AND [Max Height] > 3",
+                "drawingInfo": {
+                    "renderer": renderer,
+                    "labelingInfo": [{"labelExpression": "[PARCEL_ID]"}],
+                },
+            },
+            "popupInfo": {
+                "title": "Parcel {PARCEL_ID} in {Zone}",
+                "fieldInfos": [{"fieldName": "Zone", "visible": True}],
+            },
+        }
+        result = self._translate_with(_webmap(layer), "zone", "parcel_id", "max height")
+
+        out = result.layers[0]
+        assert out.style_config["column"] == "zone"
+        assert out.paint["fill-color"][1] == ["==", ["get", "zone"], None]
+        assert out.label_config["column"] == "parcel_id"
+        assert out.popup_config.expression == "Parcel {parcel_id} in {zone}"
+        assert out.popup_config.visible_fields == ["zone"]
+        assert out.filter == [
+            "all",
+            ["in", ["get", "zone"], ["literal", ["R1"]]],
+            [">", ["get", "max height"], 3],
+        ]
+
+    def test_an_exact_match_wins_and_ingest_renames_are_followed(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "GEOM",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _fill()},
+                {"classMaxValue": 2, "symbol": _fill()},
+            ],
+        }
+        reserved = self._translate_with(_with_renderer(renderer), "src_geom")
+        assert reserved.layers[0].style_config["column"] == "src_geom"
+
+        exact = self._translate_with(_with_renderer(renderer), "GEOM", "geom")
+        assert exact.layers[0].style_config["column"] == "GEOM"
+
+    def test_source_names_pick_the_column_when_ingest_renamed_both(self) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": "GEOM",
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _fill()},
+                {"classMaxValue": 2, "symbol": _fill()},
+            ],
+        }
+        dataset = uuid.uuid4()
+        webmap = _with_renderer(renderer)
+        columns = [
+            {"name": "src_geom_2", "source_name": "GEOM"},
+            {"name": "src_geom", "source_name": "src_geom"},
+        ]
+        result = _translate(
+            webmap,
+            {webmap["operationalLayers"][0]["id"]: dataset},
+            dataset_columns={dataset: columns},
+        )
+        assert result.layers[0].style_config["column"] == "src_geom_2"
+
+    @pytest.mark.parametrize(
+        ("field", "column"), [("GEOM", "src_geom_2"), ("ELEV", "elev")]
+    )
+    def test_source_names_survive_a_column_ingest_generated(
+        self, field: str, column: str
+    ) -> None:
+        renderer = {
+            "type": "classBreaks",
+            "field": field,
+            "classBreakInfos": [
+                {"classMaxValue": 1, "symbol": _fill()},
+                {"classMaxValue": 2, "symbol": _fill()},
+            ],
+        }
+        dataset = uuid.uuid4()
+        webmap = _with_renderer(renderer)
+        columns = [
+            {"name": "src_geom_2", "source_name": "GEOM"},
+            {"name": "src_geom", "source_name": "src_geom"},
+            {"name": "elev", "source_name": None},
+        ]
+        result = _translate(
+            webmap,
+            {webmap["operationalLayers"][0]["id"]: dataset},
+            dataset_columns={dataset: columns},
+        )
+        assert result.layers[0].style_config["column"] == column
+
+    def test_an_unknown_field_is_kept_and_reported_once(self) -> None:
+        layer = {
+            "showLabels": True,
+            "layerDefinition": {
+                "definitionExpression": "Missing = 1",
+                "drawingInfo": {
+                    "labelingInfo": [{"labelExpression": "[Missing]"}],
+                },
+            },
+        }
+        result = self._translate_with(_webmap(layer), "other")
+
+        assert result.layers[0].label_config["column"] == "Missing"
+        assert result.layers[0].filter == ["==", ["get", "Missing"], 1]
+        unmatched = [i for i in result.loss.items if i.kind == "field_unmatched"]
+        assert [(i.path, i.detail) for i in unmatched] == [
+            ("operationalLayers[0]", "Missing is not a column of the dataset")
+        ]
+
+    def test_columns_differing_only_in_case_are_not_guessed(self) -> None:
+        layer = {
+            "showLabels": True,
+            "layerDefinition": {
+                "drawingInfo": {"labelingInfo": [{"labelExpression": "[naMe]"}]}
+            },
+        }
+        result = self._translate_with(_webmap(layer), "Name", "NAME")
+
+        assert result.layers[0].label_config["column"] == "naMe"
+        assert "field_unmatched" in _kinds(result)

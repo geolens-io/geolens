@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
 from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
     definition_expression_to_filter,
     is_match_all,
@@ -216,11 +217,13 @@ def _zoom_range(
     return layout
 
 
-def _filter(definition: dict, path: str, loss: LossReport) -> list | None:
+def _filter(
+    definition: dict, path: str, loss: LossReport, fields: FieldNames
+) -> list | None:
     expression = definition.get("definitionExpression")
     if not isinstance(expression, str) or is_match_all(expression):
         return None
-    translated = definition_expression_to_filter(expression)
+    translated = definition_expression_to_filter(expression, fields)
     if translated is None:
         loss.add(
             f"{path}.layerDefinition.definitionExpression",
@@ -251,9 +254,9 @@ _NUMERIC_COLUMN_KINDS = {
 
 
 def _numeric_fields(
-    definition: dict, columns: Sequence[Mapping[str, Any]] | None
+    definition: dict, columns: Sequence[Mapping[str, Any]] | None, fields: FieldNames
 ) -> dict[str, str]:
-    """Numeric kind by field name; the web map's field types win over the
+    """Numeric kind by column name; the web map's field types win over the
     dataset's, except on a numeric column, whose values read back as decimals."""
     kinds = {
         column["name"]: _NUMERIC_COLUMN_KINDS[column["type"]]
@@ -261,16 +264,16 @@ def _numeric_fields(
         if isinstance(column.get("name"), str)
         and column.get("type") in _NUMERIC_COLUMN_KINDS
     }
-    kinds.update(
-        {
-            field["name"]: _NUMERIC_FIELD_KINDS[field["type"]]
-            for field in _l(definition.get("fields"))
-            if isinstance(field, dict)
-            and isinstance(field.get("name"), str)
-            and field.get("type") in _NUMERIC_FIELD_KINDS
-            and kinds.get(field["name"]) != "numeric"
-        }
-    )
+    for esri in _l(definition.get("fields")):
+        if (
+            not isinstance(esri, dict)
+            or not isinstance(esri.get("name"), str)
+            or esri.get("type") not in _NUMERIC_FIELD_KINDS
+        ):
+            continue
+        column = fields.stored(esri["name"]) or esri["name"]
+        if kinds.get(column) != "numeric":
+            kinds[column] = _NUMERIC_FIELD_KINDS[esri["type"]]
     return kinds
 
 
@@ -284,6 +287,7 @@ def _layer_input(
 ) -> dict:
     definition = _d(layer.get("layerDefinition"))
     drawing = _d(definition.get("drawingInfo"))
+    fields = FieldNames(columns, path, loss)
     report_unknown_keys([layer], LAYER_KEYS, path, loss)
     report_unknown_keys(
         [definition], LAYER_DEFINITION_KEYS, f"{path}.layerDefinition", loss
@@ -296,7 +300,8 @@ def _layer_input(
         f"{path}.layerDefinition.drawingInfo.renderer",
         loss,
         definition.get("geometryType"),
-        _numeric_fields(definition, columns),
+        _numeric_fields(definition, columns, fields),
+        fields,
     )
 
     style_config = styled.style_config
@@ -326,11 +331,11 @@ def _layer_input(
         "display_name": _text(layer.get("title"), 255) or None,
         "paint": styled.paint,
         "layout": zoom_layout or None,
-        "filter": _filter(definition, path, loss),
+        "filter": _filter(definition, path, loss, fields),
         "label_config": label_config(
-            layer, drawing, f"{path}.layerDefinition.drawingInfo", loss
+            layer, drawing, f"{path}.layerDefinition.drawingInfo", loss, fields
         ),
-        "popup_config": popup_config(layer, path, loss),
+        "popup_config": popup_config(layer, path, loss, fields),
         "style_config": style_config,
         "show_in_legend": layer.get("showLegend") is not False
         and (group is None or group.show_legend),
