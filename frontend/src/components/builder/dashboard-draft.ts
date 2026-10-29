@@ -1,4 +1,4 @@
-import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
+import { deepEqual } from '@/lib/deep-equal';
 import { dashboardPanelPosition, type PanelPosition } from '@/components/viewer/DashboardPanel';
 import type { WidgetInstance } from '@/components/widgets/contract';
 import { getWidgetDefinition, parseStoredWidget } from '@/components/widgets/registry';
