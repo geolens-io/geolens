@@ -103,6 +103,7 @@ _RLS_TABLES = [
     "map_group_grants",
     "stories",
     "story_maps",
+    "story_assets",
 ]
 
 # Roles under test (geolens_readonly may be absent in the test DB — handled via
@@ -284,7 +285,8 @@ class TestIso05RolePrivileges:
                                 'catalog.dataset_group_grants'::regclass,
                                 'catalog.map_group_grants'::regclass,
                                 'catalog.stories'::regclass,
-                                'catalog.story_maps'::regclass
+                                'catalog.story_maps'::regclass,
+                                'catalog.story_assets'::regclass
                             ])
                             ORDER BY c.relname
                             """

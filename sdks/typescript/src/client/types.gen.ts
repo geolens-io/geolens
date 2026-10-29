@@ -6347,9 +6347,9 @@ export type ImageConfig = {
     /**
      * Alt
      *
-     * Empty for decorative.
+     * Text that stands in for the image.
      */
-    alt?: string;
+    alt: string;
     /**
      * Caption
      */
@@ -13034,6 +13034,36 @@ export type StatusUpdateResponse = {
 export type StoredStoryVisibility = 'private' | 'internal' | 'public' | 'restricted';
 
 /**
+ * StoryAssetResponse
+ */
+export type StoryAssetResponse = {
+    /**
+     * Id
+     *
+     * Served at `/stories/{story_id}/assets/{id}` as WebP.
+     */
+    id: string;
+    /**
+     * Width
+     */
+    width: number;
+    /**
+     * Height
+     */
+    height: number;
+    /**
+     * Byte Size
+     *
+     * Size of the stored WebP.
+     */
+    byte_size: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * StoryCamera
  */
 export type StoryCamera = {
@@ -13182,6 +13212,12 @@ export type StoryDraftResponse = {
      */
     published_at: string | null;
     /**
+     * Cover Asset Id
+     *
+     * The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+     */
+    cover_asset_id: string | null;
+    /**
      * Created At
      */
     created_at: string;
@@ -13254,6 +13290,12 @@ export type StoryResponse = {
      * When the story was last published; null if never.
      */
     published_at: string | null;
+    /**
+     * Cover Asset Id
+     *
+     * The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+     */
+    cover_asset_id: string | null;
     /**
      * Created At
      */
@@ -13331,6 +13373,12 @@ export type StorySummary = {
      */
     published_at: string | null;
     /**
+     * Cover Asset Id
+     *
+     * The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+     */
+    cover_asset_id: string | null;
+    /**
      * Created At
      */
     created_at: string;
@@ -13360,6 +13408,12 @@ export type StoryUpdate = {
      * Refused with 409 when a map the published story uses is narrower than the new visibility.
      */
     visibility?: StoryVisibility | null;
+    /**
+     * Cover Asset Id
+     *
+     * An image uploaded to this story to use as its cover, or null for none. 422 `story_assets_not_found` for an image this story doesn't have.
+     */
+    cover_asset_id?: string | null;
 };
 
 /**
@@ -33613,6 +33667,148 @@ export type UpdateStoryEndpointStoriesStoryIdPatchResponses = {
 
 export type UpdateStoryEndpointStoriesStoryIdPatchResponse = UpdateStoryEndpointStoriesStoryIdPatchResponses[keyof UpdateStoryEndpointStoriesStoryIdPatchResponses];
 
+export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostData = {
+    body: {
+        file: Blob | File;
+    };
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/assets';
+};
+
+export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock.
+     */
+    409: ProblemDetail;
+    /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
+     * Not a PNG, JPEG or WebP image
+     */
+    415: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Other images are being processed (`detail.code` `story_image_busy`); retry after `Retry-After` seconds.
+     */
+    503: ProblemDetail;
+};
+
+export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostError = UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors[keyof UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors];
+
+export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: StoryAssetResponse;
+};
+
+export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponse = UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponses[keyof UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponses];
+
+export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+        /**
+         * Asset Id
+         */
+        asset_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/assets/{asset_id}';
+};
+
+export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetError = GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetErrors[keyof GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetErrors];
+
+export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetResponses = {
+    /**
+     * The image
+     */
+    200: Blob | File;
+};
+
+export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetResponse = GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetResponses[keyof GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetResponses];
+
 export type DiscardStoryDraftEndpointStoriesStoryIdDiscardPostData = {
     body: StoryRevision;
     path: {
@@ -33844,6 +34040,10 @@ export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
     /**
      * Service unavailable — the database could not serve the request
      */

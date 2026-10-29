@@ -41,6 +41,13 @@ from app.modules.catalog.authorization import (
     get_user_roles,
 )
 from app.modules.catalog.maps.models import Map
+from app.modules.catalog.stories.assets import (
+    chapters_of,
+    copy_story_assets,
+    image_ids,
+    mentioned_ids,
+    require_story_assets,
+)
 from app.modules.catalog.stories.models import Story, StoryMap
 from app.modules.catalog.stories.schemas import (
     STORY_DOCUMENT_VERSION,
@@ -50,8 +57,9 @@ from app.modules.catalog.stories.schemas import (
     StoryDocumentInput,
     StoryScene,
 )
-from app.modules.catalog.widgets.schemas import read_stored, to_store
+from app.modules.catalog.widgets.schemas import ImageWidget, read_stored, to_store
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
+from app.platform.storage.publication import AssetPublication
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -263,11 +271,6 @@ async def stories_using_map(
 # Documents -----------------------------------------------------------------
 
 
-def _chapters(document: Any) -> list[dict[str, Any]]:
-    chapters = document.get("chapters") if isinstance(document, dict) else None
-    return [c for c in chapters or () if isinstance(c, dict)]
-
-
 def _scene(raw: Any) -> StoryScene | None:
     if raw is None:
         return None
@@ -290,7 +293,7 @@ def _scene_map_id(raw: Any) -> uuid.UUID | None:
 
 def _scene_map_ids_in(document: Any) -> Iterator[uuid.UUID]:
     """The maps the scenes of ``document`` use, in chapter order."""
-    for chapter in _chapters(document):
+    for chapter in chapters_of(document):
         map_id = _scene_map_id(chapter.get("scene"))
         if map_id is not None:
             yield map_id
@@ -349,7 +352,7 @@ def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:
     parse are left out too.
     """
     chapters = []
-    for raw in _chapters(document):
+    for raw in chapters_of(document):
         try:
             chapter_id = uuid.UUID(str(raw.get("id")))
         except ValueError:
@@ -426,8 +429,9 @@ async def merge_document(
     stored: Any,
     editor: Identity,
     roles: set[str],
-) -> dict[str, Any]:
-    """The document to store for a draft save.
+) -> tuple[dict[str, Any], set[uuid.UUID]]:
+    """The document to store for a draft save, and every id in the blocks it
+    keeps because this server can't parse them.
 
     A sent scene must be on a map the editor can read. A chapter sent with
     ``scene_hidden`` keeps its stored scene as stored, so a save never drops a
@@ -436,7 +440,7 @@ async def merge_document(
     where they were (``to_store``). Scenes on deleted maps are dropped.
     """
     _refuse_newer_document(stored)
-    stored_by_id = {str(c.get("id")): c for c in _chapters(stored)}
+    stored_by_id = {str(c.get("id")): c for c in chapters_of(stored)}
     sent_maps = {c.scene.map_id for c in sent.chapters if c.scene is not None}
     readable = await readable_map_ids(db, sent_maps, editor.id, "admin" in roles)
     missing = sorted(sent_maps - readable)
@@ -444,6 +448,7 @@ async def merge_document(
         raise StoryMapsNotFoundError(missing)
 
     chapters: list[dict[str, Any]] = []
+    kept_ids: set[uuid.UUID] = set()
     for chapter in sent.chapters:
         prior = stored_by_id.get(str(chapter.id), {})
         scene: dict[str, Any] | None = None
@@ -452,6 +457,7 @@ async def merge_document(
         elif chapter.scene_hidden and prior.get("scene") is not None:
             scene = prior["scene"]
         kept = read_stored(prior.get("blocks"), "story").unreadable
+        kept_ids |= mentioned_ids(*(item.raw for item in kept))
         chapters.append(
             {
                 "id": str(chapter.id),
@@ -461,14 +467,14 @@ async def merge_document(
             }
         )
     document = {"version": STORY_DOCUMENT_VERSION, "chapters": chapters}
-    return await _without_deleted_maps(db, document)
+    return await _without_deleted_maps(db, document), kept_ids
 
 
 async def _without_deleted_maps(
     db: AsyncSession, document: dict[str, Any]
 ) -> dict[str, Any]:
     existing = await _existing_map_ids(db, scene_map_ids(document))
-    for chapter in _chapters(document):
+    for chapter in chapters_of(document):
         map_id = _scene_map_id(chapter.get("scene"))
         if map_id is not None and map_id not in existing:
             chapter["scene"] = None
@@ -582,7 +588,7 @@ async def check_reach(
 def _refuse_unplaced_scenes(document: Any) -> None:
     """Refuse to publish a scene whose map can't be found in it, since its
     reach can't be checked."""
-    for chapter in _chapters(document):
+    for chapter in chapters_of(document):
         raw = chapter.get("scene")
         if raw is not None and _scene_map_id(raw) is None:
             raise HTTPException(
@@ -599,9 +605,10 @@ def _refuse_unplaced_scenes(document: Any) -> None:
 
 async def publish(
     db: AsyncSession, story: Story, publisher: Identity, roles: set[str]
-) -> None:
+) -> set[uuid.UUID]:
     """Copy the draft to the published document, if every map it uses reaches
-    the story's audience. Call holding ``lock_story``."""
+    the story's audience, and return the images the replaced published
+    document showed. Call holding ``lock_story``."""
     _refuse_newer_document(story.draft)
     document = await _without_deleted_maps(db, copy.deepcopy(story.draft))
     _refuse_unplaced_scenes(document)
@@ -613,10 +620,12 @@ async def publish(
         publisher,
         roles,
     )
+    released = image_ids(story.published)
     story.draft = document
     story.published = copy.deepcopy(document)
     story.published_at = datetime.now(UTC)
     await sync_story_maps(db, story)
+    return released
 
 
 async def check_visibility_change(
@@ -678,12 +687,23 @@ async def save_draft(
     sent: StoryDocumentInput,
     editor: Identity,
     roles: set[str],
-) -> None:
-    """Replace the draft. Call holding ``lock_story``; 409 on a stale revision."""
+) -> set[uuid.UUID]:
+    """Replace the draft and return the images it shows. Call holding
+    ``lock_story``; 409 on a stale revision, 422 ``story_assets_not_found``
+    for an image block naming an image this story doesn't have.
+    """
     refuse_stale_revision(story, revision)
-    story.draft = await merge_document(db, sent, story.draft, editor, roles)
+    images = {
+        block.asset_id
+        for chapter in sent.chapters
+        for block in chapter.blocks
+        if isinstance(block, ImageWidget)
+    }
+    await require_story_assets(db, story.id, images)
+    story.draft, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
     story.draft_revision += 1
     await sync_story_maps(db, story)
+    return images | kept_ids
 
 
 async def create_story(
@@ -713,34 +733,38 @@ async def duplicate_story(
     source: Story,
     user: Identity,
     roles: set[str],
+    publication: AssetPublication,
 ) -> Story:
     """Copy a story the caller can read into a new private draft they own.
 
     An editor copies the draft; anyone else the published document. Scenes on
     maps the caller can't read are dropped, as ``duplicate_map`` drops layers.
+    The copy gets its own copies of the images it uses and of the cover.
     """
+    editor = can_edit_story(source, user, roles)
     document = (
-        copy.deepcopy(
-            source.draft if can_edit_story(source, user, roles) else source.published
-        )
-        or empty_document()
+        copy.deepcopy(source.draft if editor else source.published) or empty_document()
     )
     readable = await readable_map_ids(
         db, scene_map_ids(document), user.id, "admin" in roles
     )
-    for chapter in _chapters(document):
+    for chapter in chapters_of(document):
         raw = chapter.get("scene")
         if raw is not None and _scene_map_id(raw) not in readable:
             chapter["scene"] = None
-    return await create_story(
+    duplicate = await create_story(
         db,
         title=f"{source.title} (copy)"[:200],
         summary=source.summary,
         owner_id=user.id,
         draft=document,
     )
+    await copy_story_assets(db, source, duplicate, document, publication, editor=editor)
+    return duplicate
 
 
 async def delete_story(db: AsyncSession, story: Story) -> None:
-    """Delete a story; its ``story_maps`` rows go with it. Does NOT commit."""
+    """Delete a story; its ``story_maps`` and ``story_assets`` rows go with it,
+    and the caller discards the asset objects after the commit. Does NOT
+    commit."""
     await db.delete(story)

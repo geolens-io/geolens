@@ -39,8 +39,9 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
-from app.platform.http.ranges import if_none_match_matches
 from app.platform.extensions import get_permission_extension
+from app.platform.http.ranges import stored_object_response
+from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
 def _build_frame_ancestors(origins: list[str] | None) -> str:
@@ -291,15 +292,25 @@ async def _stored_images_readable(
     return await can_read_every_map_dataset(db, map_obj, user)
 
 
-def _stored_image_response(
-    request: Request, data: bytes, media_type: str, cache_control: str
+async def _stored_image_response(
+    request: Request, storage_key: str, cache_control: str, missing: str
 ) -> Response:
-    """The stored image, or a 304 when the caller's copy matches it."""
-    etag = '"' + hashlib.sha256(data).hexdigest() + '"'
-    headers = {"Cache-Control": cache_control, "ETag": etag}
-    if if_none_match_matches(request.headers.get("if-none-match"), etag):
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-    return Response(content=data, media_type=media_type, headers=headers)
+    """A map's stored image, or a 304 decided from its key before reading it:
+    each upload is written once under its own key."""
+    from app.platform.storage.provider import get_storage
+
+    try:
+        return await stored_object_response(
+            request,
+            lambda: get_storage().get(resolve_current_storage_key(storage_key)),
+            etag='"' + hashlib.sha256(storage_key.encode()).hexdigest() + '"',
+            media_type="image/jpeg" if storage_key.endswith(".jpg") else "image/png",
+            cache_control=cache_control,
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=missing
+        ) from None
 
 
 async def _can_edit_map(

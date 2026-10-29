@@ -6,8 +6,10 @@ Lives here because ``processing/`` may not import
 """
 
 import re
+from collections.abc import Awaitable, Callable
 
 from fastapi import status
+from starlette.requests import Request
 from starlette.responses import Response
 
 # bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX. `[0-9]` not `\d`: Python's
@@ -203,3 +205,23 @@ def not_modified_response(etag: str | None) -> Response:
     if etag is not None:
         headers["ETag"] = etag
     return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+
+async def stored_object_response(
+    request: Request,
+    read: Callable[[], Awaitable[bytes]],
+    *,
+    etag: str,
+    media_type: str,
+    cache_control: str,
+) -> Response:
+    """A stored object, or a 304 without calling ``read`` when the caller's
+    copy matches ``etag``.
+
+    ``etag`` must change whenever the object can, so derive it from something
+    that names one version, such as a key that is written only once.
+    """
+    headers = {"Cache-Control": cache_control, "ETag": etag}
+    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return Response(content=await read(), media_type=media_type, headers=headers)

@@ -29,8 +29,7 @@ class AssetPublication:
         Call before awaiting the write: a PUT can land and still fail the
         client, which would orphan an object per retry. Recording first is
         free, since rollback either deletes what this request wrote or no-ops
-        on an unwritten key. For map assets,
-        ``test_every_object_write_records_before_putting_1778`` enforces this.
+        on an unwritten key.
         """
         self._pending.append(physical_key)
 
@@ -47,8 +46,7 @@ class AssetPublication:
         costs more. Same trade as the post-commit liveness read that map asset
         cleanup makes.
 
-        Call immediately before the commit. For map assets,
-        ``test_every_publication_marks_before_committing_1778`` enforces this.
+        Call immediately before the commit.
         """
         self._outcome_known = False
 
@@ -56,8 +54,7 @@ class AssetPublication:
         """The row naming every recorded object is committed. Stop tracking.
 
         Call this as the next statement after the commit, and as the last
-        statement of the block. For map assets,
-        ``test_every_publication_settles_at_the_commit`` enforces this.
+        statement of the block.
         """
         self._pending.clear()
         self._outcome_known = True
@@ -80,7 +77,7 @@ async def asset_publication() -> AsyncIterator[AssetPublication]:
     publications need no rollback; an indeterminate commit outcome also skips
     cleanup because the object may already be referenced by a committed row.
     """
-    from app.platform.storage.provider import get_storage
+    from app.platform.storage.reap import delete_objects_best_effort
 
     publication = AssetPublication()
     try:
@@ -94,13 +91,7 @@ async def asset_publication() -> AsyncIterator[AssetPublication]:
                 storage_keys=list(publication.pending),
             )
             raise
-        for physical_key in publication.pending:
-            try:
-                await get_storage().delete(physical_key)
-            except Exception:  # broad: storage backends raise varied errors
-                logger.warning(
-                    "map_asset_publication_rollback_failed",
-                    storage_key=physical_key,
-                    exc_info=True,
-                )
+        await delete_objects_best_effort(
+            publication.pending, "map_asset_publication_rollback_failed"
+        )
         raise

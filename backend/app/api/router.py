@@ -76,6 +76,7 @@ from app.modules.catalog.stories.router import router as stories_router
 from app.modules.catalog.stories.router_map_stories import (
     router as map_stories_router,
 )
+from app.modules.catalog.stories.router_assets import router as story_assets_router
 from app.modules.catalog.search.router import collections_router, search_router
 from app.modules.catalog.sources.router import router as services_router
 from app.modules.catalog.sources.stac_asset_size_router import (
@@ -146,6 +147,7 @@ api_router.include_router(maps_link_preview_router)
 api_router.include_router(maps_sprites_router)
 api_router.include_router(stories_router)
 api_router.include_router(map_stories_router)
+api_router.include_router(story_assets_router)
 api_router.include_router(ai_router)
 # Raw sandbox SQL endpoint (POST /query/), consumed by the MCP
 # `query` tool. Auth-only; see processing/ai/query_router.py.

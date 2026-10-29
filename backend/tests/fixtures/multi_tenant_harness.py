@@ -77,6 +77,7 @@ _RLS_TABLES = [
     "map_group_grants",
     "stories",
     "story_maps",
+    "story_assets",
 ]
 
 

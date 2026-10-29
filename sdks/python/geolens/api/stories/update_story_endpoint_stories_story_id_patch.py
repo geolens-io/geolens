@@ -114,7 +114,7 @@ def sync_detailed(
 ) -> Response[ProblemDetail | StoryResponse]:
     """Update Story Endpoint
 
-     Change a story's title, summary or visibility (owner or admin).
+     Change a story's title, summary, visibility or cover (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
@@ -152,7 +152,7 @@ def sync(
 ) -> ProblemDetail | StoryResponse | None:
     """Update Story Endpoint
 
-     Change a story's title, summary or visibility (owner or admin).
+     Change a story's title, summary, visibility or cover (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
@@ -185,7 +185,7 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | StoryResponse]:
     """Update Story Endpoint
 
-     Change a story's title, summary or visibility (owner or admin).
+     Change a story's title, summary, visibility or cover (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
@@ -221,7 +221,7 @@ async def asyncio(
 ) -> ProblemDetail | StoryResponse | None:
     """Update Story Endpoint
 
-     Change a story's title, summary or visibility (owner or admin).
+     Change a story's title, summary, visibility or cover (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower

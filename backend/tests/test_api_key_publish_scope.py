@@ -206,6 +206,7 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("POST", "/stories/{story_id}/publish"),
             ("POST", "/stories/{story_id}/discard"),
             ("POST", "/stories/{story_id}/duplicate"),
+            ("POST", "/stories/{story_id}/assets"),
         ],
         "story authoring, not publishing",
     ),

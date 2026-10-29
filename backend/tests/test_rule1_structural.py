@@ -15,7 +15,7 @@ This module closes those gaps structurally. It walks the real FastAPI route
 table, parses each handler's source (plus one level of directly-called
 ``app.*`` helper functions) into an AST, and asserts that any handler whose
 effective source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
-``Story``, ``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
+``Story``, ``StoryAsset``, ``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
 resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
@@ -384,7 +384,7 @@ def _parse(source: str) -> ast.Module | None:
 def _guarded_model_classes() -> tuple[type, ...]:
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.models import Map
-    from app.modules.catalog.stories.models import Story
+    from app.modules.catalog.stories.models import Story, StoryAsset
     from app.platform.jobs.models import IngestJob
     from app.processing.embeddings.models import RecordEmbedding
 
@@ -392,7 +392,7 @@ def _guarded_model_classes() -> tuple[type, ...]:
     # uploader's filename and the failure text of their run, and every
     # job-row endpoint reported "no fetch detected" while it was outside.
     # A whole class of read was invisible to this gate rather than clean.
-    return (Dataset, Record, Map, Story, RecordEmbedding, IngestJob)
+    return (Dataset, Record, Map, Story, StoryAsset, RecordEmbedding, IngestJob)
 
 
 # ProcessingPort accessors that hand a guarded ORM class to processing/ code
@@ -1141,7 +1141,7 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
     """AGENTS.md Rule 1, enforced per handler across the whole route table.
 
     A handler whose effective source (own body + one level of directly-called
-    app.* helpers) fetches Record/Dataset/Map/Story/RecordEmbedding/IngestJob must
+    app.* helpers) fetches Record/Dataset/Map/Story/StoryAsset/RecordEmbedding/IngestJob must
     CALL one
     of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
     entry — and the allowlist must stay exact, so guarded-later or renamed
@@ -1161,7 +1161,7 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
             )
         pytest.fail(
             "Rule 1 violation: route handler(s) fetch a guarded model "
-            "(Record/Dataset/Map/Story/RecordEmbedding/IngestJob) without a "
+            "(Record/Dataset/Map/Story/StoryAsset/RecordEmbedding/IngestJob) without a "
             "sanctioned access "
             "check. Add check_dataset_access_or_anonymous / "
             "check_dataset_access / check_dataset_write_access / "

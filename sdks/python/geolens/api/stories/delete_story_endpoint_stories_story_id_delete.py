@@ -102,7 +102,8 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Story Endpoint
 
-     Delete a story (owner or admin). The maps it uses are untouched.
+     Delete a story and its images (owner or admin). The maps it uses are
+    untouched.
 
     Args:
         story_id (UUID):
@@ -133,7 +134,8 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Delete Story Endpoint
 
-     Delete a story (owner or admin). The maps it uses are untouched.
+     Delete a story and its images (owner or admin). The maps it uses are
+    untouched.
 
     Args:
         story_id (UUID):
@@ -159,7 +161,8 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Story Endpoint
 
-     Delete a story (owner or admin). The maps it uses are untouched.
+     Delete a story and its images (owner or admin). The maps it uses are
+    untouched.
 
     Args:
         story_id (UUID):
@@ -188,7 +191,8 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Delete Story Endpoint
 
-     Delete a story (owner or admin). The maps it uses are untouched.
+     Delete a story and its images (owner or admin). The maps it uses are
+    untouched.
 
     Args:
         story_id (UUID):

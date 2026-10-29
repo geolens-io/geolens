@@ -17,11 +17,11 @@ T = TypeVar("T", bound="ImageConfig")
 class ImageConfig:
     """
     Attributes:
-        alt (str | Unset): Empty for decorative. Default: ''.
+        alt (str): Text that stands in for the image.
         caption (None | str | Unset):
     """
 
-    alt: str | Unset = ""
+    alt: str
     caption: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
@@ -35,9 +35,11 @@ class ImageConfig:
 
         field_dict: dict[str, Any] = {}
 
-        field_dict.update({})
-        if alt is not UNSET:
-            field_dict["alt"] = alt
+        field_dict.update(
+            {
+                "alt": alt,
+            }
+        )
         if caption is not UNSET:
             field_dict["caption"] = caption
 
@@ -46,7 +48,7 @@ class ImageConfig:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        alt = d.pop("alt", UNSET)
+        alt = d.pop("alt")
 
         def _parse_caption(data: object) -> None | str | Unset:
             if data is None:

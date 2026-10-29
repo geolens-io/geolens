@@ -1,4 +1,4 @@
-"""Stories and the maps their scenes use stay inside one tenant."""
+"""Stories, the maps their scenes use and their images stay inside one tenant."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.modules.catalog.stories.models import Story, StoryMap
+from app.modules.catalog.stories.models import Story, StoryAsset, StoryMap
 
 pytestmark = [pytest.mark.rls, pytest.mark.xdist_group("tenancy_global_state")]
 
@@ -27,9 +27,20 @@ async def _privileged(db_url: str):
         await engine.dispose()
 
 
+def _asset(story_id: uuid.UUID) -> dict:
+    return {
+        "story_id": story_id,
+        "storage_key": f"stories/assets/{story_id}-{uuid.uuid4().hex}.webp",
+        "byte_size": 10,
+        "width": 1,
+        "height": 1,
+    }
+
+
 @pytest.fixture
 async def stories(multi_tenant_rls):
-    """One story per tenant, each with a scene on that tenant's map."""
+    """One story per tenant, each with a scene on that tenant's map and an
+    image."""
     ctx = multi_tenant_rls
     ids = {
         tenant: (uuid.uuid4(), uuid.uuid4()) for tenant in (ctx.tenant_a, ctx.tenant_b)
@@ -51,10 +62,11 @@ async def stories(multi_tenant_rls):
                 ),
                 {"id": story_id, "tenant": tenant},
             )
-            # No tenant_id: the validator takes it from the story.
+            # No tenant_id: the validators take it from the story.
             await conn.execute(
                 sa.insert(StoryMap).values(story_id=story_id, map_id=map_id)
             )
+            await conn.execute(sa.insert(StoryAsset).values(**_asset(story_id)))
     yield ctx, ids
     async with _privileged(ctx.db_url) as conn:
         await conn.execute(
@@ -103,4 +115,34 @@ async def test_privileged_sql_cannot_add_another_tenants_map(stories):
         async with _privileged(ctx.db_url) as conn:
             await conn.execute(
                 sa.insert(StoryMap).values(story_id=story_a, map_id=map_b)
+            )
+
+
+async def test_a_tenant_sees_only_its_own_story_images(stories):
+    ctx, ids = stories
+    story_a, _ = ids[ctx.tenant_a]
+    story_b, _ = ids[ctx.tenant_b]
+
+    async with ctx.tenant_session(ctx.tenant_a) as session:
+        owners = set(await session.scalars(select(StoryAsset.story_id)))
+    assert story_a in owners
+    assert story_b not in owners
+
+    async with _privileged(ctx.db_url) as conn:
+        tenant = await conn.scalar(
+            sa.text("SELECT tenant_id FROM catalog.story_assets WHERE story_id = :id"),
+            {"id": story_a},
+        )
+    assert str(tenant) == str(ctx.tenant_a)
+
+
+async def test_privileged_sql_cannot_file_an_image_under_another_tenant(stories):
+    ctx, ids = stories
+    story_a, _ = ids[ctx.tenant_a]
+    with pytest.raises(sa.exc.DBAPIError, match="does not match story tenant"):
+        async with _privileged(ctx.db_url) as conn:
+            await conn.execute(
+                sa.insert(StoryAsset).values(
+                    **_asset(story_a), tenant_id=uuid.UUID(str(ctx.tenant_b))
+                )
             )

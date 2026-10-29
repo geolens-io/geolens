@@ -2017,3 +2017,23 @@ async def test_typescript_png_icon_and_sprite_bytes(
             text("DELETE FROM catalog.map_icon_assets WHERE id = :id"), {"id": icon_id}
         )
         await test_db_session.commit()
+
+
+def test_the_python_sdk_accepts_a_revalidated_story_image() -> None:
+    """A 304 for a story image is a success, even for a strict client."""
+    from geolens.api.stories import (
+        get_story_asset_endpoint_stories_story_id_assets_asset_id_get as get_image,
+    )
+
+    def not_modified(request: httpx.Request) -> httpx.Response:
+        assert request.headers["if-none-match"] == '"etag"'
+        return httpx.Response(304, headers={"ETag": '"etag"'})
+
+    client = Client(
+        base_url="http://test",
+        raise_on_unexpected_status=True,
+        headers={"If-None-Match": '"etag"'},
+        httpx_args={"transport": httpx.MockTransport(not_modified)},
+    )
+    response = get_image.sync_detailed(uuid4(), uuid4(), client=client)
+    assert response.status_code == 304

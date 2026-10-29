@@ -10670,9 +10670,9 @@
         "additionalProperties": false,
         "properties": {
           "alt": {
-            "default": "",
-            "description": "Empty for decorative.",
+            "description": "Text that stands in for the image.",
             "maxLength": 500,
+            "minLength": 1,
             "title": "Alt",
             "type": "string"
           },
@@ -10689,6 +10689,9 @@
             "title": "Caption"
           }
         },
+        "required": [
+          "alt"
+        ],
         "title": "ImageConfig",
         "type": "object"
       },
@@ -22314,6 +22317,43 @@
         "title": "StoredStoryVisibility",
         "type": "string"
       },
+      "StoryAssetResponse": {
+        "properties": {
+          "id": {
+            "description": "Served at `/stories/{story_id}/assets/{id}` as WebP.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "byte_size": {
+            "description": "Size of the stored WebP.",
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "height",
+          "byte_size",
+          "created_at"
+        ],
+        "title": "StoryAssetResponse",
+        "type": "object"
+      },
       "StoryCamera": {
         "additionalProperties": false,
         "properties": {
@@ -22612,6 +22652,19 @@
             "description": "When the story was last published; null if never.",
             "title": "Published At"
           },
+          "cover_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.",
+            "title": "Cover Asset Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -22641,6 +22694,7 @@
           "visibility",
           "created_by",
           "published_at",
+          "cover_asset_id",
           "created_at",
           "updated_at",
           "can_edit",
@@ -22740,6 +22794,19 @@
             "description": "When the story was last published; null if never.",
             "title": "Published At"
           },
+          "cover_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.",
+            "title": "Cover Asset Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -22773,6 +22840,7 @@
           "visibility",
           "created_by",
           "published_at",
+          "cover_asset_id",
           "created_at",
           "updated_at",
           "can_edit",
@@ -22877,6 +22945,19 @@
             "description": "When the story was last published; null if never.",
             "title": "Published At"
           },
+          "cover_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.",
+            "title": "Cover Asset Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -22899,6 +22980,7 @@
           "visibility",
           "created_by",
           "published_at",
+          "cover_asset_id",
           "created_at",
           "updated_at",
           "can_edit"
@@ -22944,6 +23026,19 @@
               }
             ],
             "description": "Refused with 409 when a map the published story uses is narrower than the new visibility."
+          },
+          "cover_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An image uploaded to this story to use as its cover, or null for none. 422 `story_assets_not_found` for an image this story doesn't have.",
+            "title": "Cover Asset Id"
           }
         },
         "title": "StoryUpdate",
@@ -69950,7 +70045,7 @@
     },
     "/stories/{story_id}": {
       "delete": {
-        "description": "Delete a story (owner or admin). The maps it uses are untouched.",
+        "description": "Delete a story and its images (owner or admin). The maps it uses are\nuntouched.",
         "operationId": "delete_story_endpoint_stories__story_id__delete",
         "parameters": [
           {
@@ -70228,7 +70323,7 @@
         ]
       },
       "patch": {
-        "description": "Change a story's title, summary or visibility (owner or admin).\n\nThese apply at once, without Publish. A visibility wider than a map the\npublished story uses answers 409 `maps_narrower_than_story`; a narrower\none is always allowed.",
+        "description": "Change a story's title, summary, visibility or cover (owner or admin).\n\nThese apply at once, without Publish. A visibility wider than a map the\npublished story uses answers 409 `maps_narrower_than_story`; a narrower\none is always allowed.",
         "operationId": "update_story_endpoint_stories__story_id__patch",
         "parameters": [
           {
@@ -70375,6 +70470,358 @@
           }
         ],
         "summary": "Update Story Endpoint",
+        "tags": [
+          "Stories"
+        ]
+      }
+    },
+    "/stories/{story_id}/assets": {
+      "post": {
+        "description": "Upload an image, the multipart part `file`, for the story's blocks or\ncover (owner or admin).\n\nPNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP\nwithout its metadata. 400 `story_image_unreadable`, 413\n`story_image_too_large`, 415 `story_image_unsupported`, 409\n`story_asset_limit`, 503 `story_image_busy`. Readers get it once a\npublished block or the cover uses it.",
+        "operationId": "upload_story_asset_endpoint_stories__story_id__assets_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "story_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Story Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryAssetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Payload too large"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not a PNG, JPEG or WebP image"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Other images are being processed (`detail.code` `story_image_busy`); retry after `Retry-After` seconds."
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Upload Story Asset Endpoint",
+        "tags": [
+          "Stories"
+        ]
+      }
+    },
+    "/stories/{story_id}/assets/{asset_id}": {
+      "get": {
+        "description": "Serve one of the story's images as WebP.\n\nIts owner and admins get any of them. Anyone else who can read the story\ngets the cover and the images its published document uses. 404 otherwise.",
+        "operationId": "get_story_asset_endpoint_stories__story_id__assets__asset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "story_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Story Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The image"
+          },
+          "304": {
+            "description": "Your copy, named by `If-None-Match`, is current."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Story Asset Endpoint",
         "tags": [
           "Stories"
         ]
@@ -70678,7 +71125,7 @@
         ]
       },
       "put": {
-        "description": "Replace the whole draft (owner or admin). Readers keep the published\ndocument until Publish.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 422\nfor an unknown or invalid block, or for a scene on a map you can't read\n(`detail.code` `story_maps_not_found`). Blocks you can't see and scenes\nsent back with `scene_hidden` are kept as stored.",
+        "description": "Replace the whole draft (owner or admin). Readers keep the published\ndocument until Publish.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 422\nfor an unknown or invalid block, for a scene on a map you can't read\n(`detail.code` `story_maps_not_found`), or for an image block naming an\nimage this story doesn't have (`story_assets_not_found`). Blocks you\ncan't see and scenes sent back with `scene_hidden` are kept as stored.",
         "operationId": "save_story_draft_endpoint_stories__story_id__draft_put",
         "parameters": [
           {
@@ -70832,7 +71279,7 @@
     },
     "/stories/{story_id}/duplicate": {
       "post": {
-        "description": "Copy a story you can read into a new private draft you own.\n\nIts owner or an admin copies the draft; anyone else the published\ndocument. Scenes on maps you can't read are left out of the copy.",
+        "description": "Copy a story you can read into a new private draft you own.\n\nIts owner or an admin copies the draft; anyone else the published\ndocument. Scenes on maps you can't read are left out of the copy. The\ncopy gets its own copies of the images it uses and of the cover.",
         "operationId": "duplicate_story_endpoint_stories__story_id__duplicate_post",
         "parameters": [
           {
@@ -70945,6 +71392,16 @@
               }
             },
             "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
           },
           "503": {
             "content": {

@@ -43,6 +43,7 @@ _SHARED_TABLES = [
     "map_group_grants",
     "stories",
     "story_maps",
+    "story_assets",
 ]
 
 _TENANT_TABLES = [

@@ -23,6 +23,14 @@ from app.modules.catalog.link_preview import (
     site_card_image_url,
 )
 from app.modules.catalog.maps.sharing import get_share_card_image_url
+from app.modules.catalog.stories.assets import (
+    commit_pruning,
+    discard_story_asset_objects,
+    image_ids,
+    require_story_assets,
+    story_asset_keys,
+    touch_story_assets,
+)
 from app.modules.catalog.stories.models import Story
 from app.modules.catalog.stories.schemas import (
     StoryCreate,
@@ -54,7 +62,12 @@ from app.modules.catalog.stories.service import (
     render_for,
     save_draft,
 )
-from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_WRITE
+from app.platform.storage.publication import asset_publication
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    CONFLICT_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+)
 
 router = APIRouter(prefix="/stories", tags=["Stories"], responses=ERROR_RESPONSES_WRITE)
 
@@ -77,6 +90,7 @@ def _summary(story: Story, can_edit: bool) -> dict:
         "visibility": story.visibility,
         "created_by": story.created_by,
         "published_at": story.published_at,
+        "cover_asset_id": story.cover_asset_id,
         "created_at": story.created_at,
         "updated_at": story.updated_at,
         "can_edit": can_edit,
@@ -289,13 +303,17 @@ async def save_story_draft_endpoint(
     document until Publish.
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
-    for an unknown or invalid block, or for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`). Blocks you can't see and scenes
-    sent back with `scene_hidden` are kept as stored.
+    for an unknown or invalid block, for a scene on a map you can't read
+    (`detail.code` `story_maps_not_found`), or for an image block naming an
+    image this story doesn't have (`story_assets_not_found`). Blocks you
+    can't see and scenes sent back with `scene_hidden` are kept as stored.
     """
     story, roles = await _owned_story(db, story_id, user)
+    before = story.draft
     try:
-        await save_draft(db, story, body.revision, body.document, user, roles)
+        draft_ids = await save_draft(
+            db, story, body.revision, body.document, user, roles
+        )
     except StoryMapsNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -305,7 +323,7 @@ async def save_story_draft_endpoint(
                 "map_ids": [str(map_id) for map_id in exc.map_ids],
             },
         ) from exc
-    await db.commit()
+    await commit_pruning(db, story, draft_ids=draft_ids, released=image_ids(before))
     await db.refresh(story)
     return await _draft_response(db, story, user, roles)
 
@@ -320,7 +338,7 @@ async def update_story_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StoryResponse:
-    """Change a story's title, summary or visibility (owner or admin).
+    """Change a story's title, summary, visibility or cover (owner or admin).
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
@@ -349,6 +367,11 @@ async def update_story_endpoint(
         story.title = body.title
     if "summary" in changes:
         story.summary = body.summary
+    if "cover_asset_id" in changes:
+        if body.cover_asset_id is not None:
+            await require_story_assets(db, story.id, [body.cover_asset_id])
+        await touch_story_assets(db, story.id, [story.cover_asset_id])
+        story.cover_asset_id = body.cover_asset_id
     await audit_emit(
         db,
         AuditEvent(
@@ -392,7 +415,7 @@ async def publish_story_endpoint(
     story, roles = await _owned_story(db, story_id, user)
     refuse_stale_revision(story, body.revision)
     try:
-        await publish(db, story, user, roles)
+        released = await publish(db, story, user, roles)
     except StoryReachError as exc:
         raise _reach_conflict(exc) from exc
     await audit_emit(
@@ -406,7 +429,7 @@ async def publish_story_endpoint(
             ip_address=_ip(request),
         ),
     )
-    await db.commit()
+    await commit_pruning(db, story, released=released)
     await db.refresh(story)
     return StoryResponse(
         **_summary(story, True),
@@ -429,6 +452,7 @@ async def discard_story_draft_endpoint(
     stale tab or a retry can't erase a draft saved since.
     """
     story, roles = await _owned_story(db, story_id, user)
+    before = story.draft
     await discard(db, story, body.revision)
     await audit_emit(
         db,
@@ -441,7 +465,7 @@ async def discard_story_draft_endpoint(
             ip_address=_ip(request),
         ),
     )
-    await db.commit()
+    await commit_pruning(db, story, released=image_ids(before))
     await db.refresh(story)
     return await _draft_response(db, story, user, roles)
 
@@ -453,8 +477,10 @@ async def delete_story_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a story (owner or admin). The maps it uses are untouched."""
+    """Delete a story and its images (owner or admin). The maps it uses are
+    untouched."""
     story, _ = await _owned_story(db, story_id, user)
+    images = await story_asset_keys(db, story.id)
     await audit_emit(
         db,
         AuditEvent(
@@ -468,6 +494,7 @@ async def delete_story_endpoint(
     )
     await delete_story(db, story)
     await db.commit()
+    await discard_story_asset_objects(images)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -475,6 +502,7 @@ async def delete_story_endpoint(
     "/{story_id}/duplicate",
     response_model=StoryDraftResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={502: BAD_GATEWAY_RESPONSE},
 )
 async def duplicate_story_endpoint(
     story_id: uuid.UUID,
@@ -485,21 +513,25 @@ async def duplicate_story_endpoint(
     """Copy a story you can read into a new private draft you own.
 
     Its owner or an admin copies the draft; anyone else the published
-    document. Scenes on maps you can't read are left out of the copy.
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
     """
     source, roles = await _readable_story(db, story_id, user)
-    copy = await duplicate_story(db, source, user, roles)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="story.duplicate",
-            resource_type="story",
-            resource_id=copy.id,
-            details={"source": str(source.id)},
-            ip_address=_ip(request),
-        ),
-    )
-    await db.commit()
+    async with asset_publication() as publication:
+        copy = await duplicate_story(db, source, user, roles, publication)
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="story.duplicate",
+                resource_type="story",
+                resource_id=copy.id,
+                details={"source": str(source.id)},
+                ip_address=_ip(request),
+            ),
+        )
+        publication.committing()
+        await db.commit()
+        publication.settled()
     await db.refresh(copy)
     return await _draft_response(db, copy, user, roles)

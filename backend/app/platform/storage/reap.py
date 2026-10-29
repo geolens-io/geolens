@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 
+import structlog
+
+from app.core.async_io import await_draining
 from app.platform.storage import provider as storage_provider
 from app.platform.storage.titiler_url import resolve_storage_key
+
+logger = structlog.stdlib.get_logger(__name__)
 
 # Enough deletes at once to overlap object-store round trips while staying
 # under boto3's pool of 10 connections per client. Each delete also holds a
@@ -52,3 +58,24 @@ async def delete_prefix(prefix: str, *, tenant_id: str | None) -> int:
             f"{failed} of {deleted + failed} deletes under {prefix} failed"
         ) from first_failure
     return deleted
+
+
+async def delete_objects_best_effort(physical_keys: Iterable[str], event: str) -> None:
+    """Delete these objects, at most ``MAX_DELETES_IN_FLIGHT`` at once.
+
+    For cleanup that runs after its request already succeeded or failed on
+    its own terms: a failed delete is logged as ``event`` and never raised,
+    and a cancelled caller waits for every delete first, since cleanup often
+    runs while a cancellation unwinds.
+    """
+    storage = storage_provider.get_storage()
+    gate = asyncio.Semaphore(MAX_DELETES_IN_FLIGHT)
+
+    async def delete(key: str) -> None:
+        async with gate:
+            try:
+                await storage.delete(key)
+            except Exception:  # broad: storage backends raise varied SDK/I/O errors
+                logger.warning(event, storage_key=key, exc_info=True)
+
+    await await_draining(asyncio.gather(*(delete(key) for key in physical_keys)))

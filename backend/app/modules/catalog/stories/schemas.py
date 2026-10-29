@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.modules.catalog.widgets.schemas import ImageWidget, StoryBlock, StoryBlocks
+from app.modules.catalog.widgets.schemas import StoryBlock, StoryBlocks
 
 STORY_DOCUMENT_VERSION = 1
 # Each block's text is capped too, but 200 chapters of 100 blocks would still
@@ -87,8 +87,6 @@ class StoryChapterInput(_Strict):
     def _check(self) -> StoryChapterInput:
         if self.scene_hidden and self.scene is not None:
             raise ValueError("scene_hidden needs scene to be null")
-        if any(isinstance(block, ImageWidget) for block in self.blocks):
-            raise ValueError("stories don't take image blocks yet")
         return self
 
 
@@ -145,6 +143,14 @@ class StoryUpdate(_Strict):
             "narrower than the new visibility."
         ),
     )
+    cover_asset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "An image uploaded to this story to use as its cover, or null for "
+            "none. 422 `story_assets_not_found` for an image this story "
+            "doesn't have."
+        ),
+    )
 
 
 class StoryRevision(_Strict):
@@ -167,6 +173,12 @@ class StorySummary(BaseModel):
     published_at: datetime | None = Field(
         description="When the story was last published; null if never."
     )
+    cover_asset_id: uuid.UUID | None = Field(
+        description=(
+            "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; "
+            "null without one."
+        )
+    )
     created_at: datetime
     updated_at: datetime
     can_edit: bool
@@ -186,6 +198,16 @@ class StoryDraftResponse(StorySummary):
 class StoryListResponse(BaseModel):
     stories: list[StorySummary]
     total: int
+
+
+class StoryAssetResponse(BaseModel):
+    id: uuid.UUID = Field(
+        description="Served at `/stories/{story_id}/assets/{id}` as WebP."
+    )
+    width: int
+    height: int
+    byte_size: int = Field(description="Size of the stored WebP.")
+    created_at: datetime
 
 
 class BlockingMap(BaseModel):

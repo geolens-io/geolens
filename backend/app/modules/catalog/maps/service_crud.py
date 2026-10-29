@@ -148,7 +148,7 @@ async def discard_map_asset_objects(
     delete are not atomic. A failed liveness read skips cleanup to protect live
     objects; storage failures must not fail an already-committed request.
     """
-    from app.platform.storage.provider import get_storage
+    from app.platform.storage.reap import delete_objects_best_effort
     from app.platform.storage.titiler_url import resolve_current_storage_key
 
     candidates = {key for key in storage_keys if key}
@@ -165,13 +165,10 @@ async def discard_map_asset_objects(
         )
         return
 
-    for key in sorted(candidates - live):
-        try:
-            await get_storage().delete(resolve_current_storage_key(key))
-        except Exception:  # broad: storage backends raise varied SDK/I/O errors
-            logger.warning(
-                "map_asset_object_delete_failed", storage_key=key, exc_info=True
-            )
+    await delete_objects_best_effort(
+        [resolve_current_storage_key(key) for key in sorted(candidates - live)],
+        "map_asset_object_delete_failed",
+    )
     for key in sorted(candidates & live):
         logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
 

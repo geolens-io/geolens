@@ -6008,20 +6008,71 @@ export interface paths {
         post?: never;
         /**
          * Delete Story Endpoint
-         * @description Delete a story (owner or admin). The maps it uses are untouched.
+         * @description Delete a story and its images (owner or admin). The maps it uses are
+         *     untouched.
          */
         delete: operations["delete_story_endpoint_stories__story_id__delete"];
         options?: never;
         head?: never;
         /**
          * Update Story Endpoint
-         * @description Change a story's title, summary or visibility (owner or admin).
+         * @description Change a story's title, summary, visibility or cover (owner or admin).
          *
          *     These apply at once, without Publish. A visibility wider than a map the
          *     published story uses answers 409 `maps_narrower_than_story`; a narrower
          *     one is always allowed.
          */
         patch: operations["update_story_endpoint_stories__story_id__patch"];
+        trace?: never;
+    };
+    "/stories/{story_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Story Asset Endpoint
+         * @description Upload an image, the multipart part `file`, for the story's blocks or
+         *     cover (owner or admin).
+         *
+         *     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
+         *     without its metadata. 400 `story_image_unreadable`, 413
+         *     `story_image_too_large`, 415 `story_image_unsupported`, 409
+         *     `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
+         *     published block or the cover uses it.
+         */
+        post: operations["upload_story_asset_endpoint_stories__story_id__assets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Story Asset Endpoint
+         * @description Serve one of the story's images as WebP.
+         *
+         *     Its owner and admins get any of them. Anyone else who can read the story
+         *     gets the cover and the images its published document uses. 404 otherwise.
+         */
+        get: operations["get_story_asset_endpoint_stories__story_id__assets__asset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/stories/{story_id}/discard": {
@@ -6070,9 +6121,10 @@ export interface paths {
          *     document until Publish.
          *
          *     `revision` must match the stored draft's, or 409 `stale_revision`. 422
-         *     for an unknown or invalid block, or for a scene on a map you can't read
-         *     (`detail.code` `story_maps_not_found`). Blocks you can't see and scenes
-         *     sent back with `scene_hidden` are kept as stored.
+         *     for an unknown or invalid block, for a scene on a map you can't read
+         *     (`detail.code` `story_maps_not_found`), or for an image block naming an
+         *     image this story doesn't have (`story_assets_not_found`). Blocks you
+         *     can't see and scenes sent back with `scene_hidden` are kept as stored.
          */
         put: operations["save_story_draft_endpoint_stories__story_id__draft_put"];
         post?: never;
@@ -6096,7 +6148,8 @@ export interface paths {
          * @description Copy a story you can read into a new private draft you own.
          *
          *     Its owner or an admin copies the draft; anyone else the published
-         *     document. Scenes on maps you can't read are left out of the copy.
+         *     document. Scenes on maps you can't read are left out of the copy. The
+         *     copy gets its own copies of the images it uses and of the cover.
          */
         post: operations["duplicate_story_endpoint_stories__story_id__duplicate_post"];
         delete?: never;
@@ -11181,8 +11234,7 @@ export interface components {
         ImageConfig: {
             /**
              * Alt
-             * @description Empty for decorative.
-             * @default
+             * @description Text that stands in for the image.
              */
             alt: string;
             /** Caption */
@@ -16222,6 +16274,29 @@ export interface components {
          * @enum {string}
          */
         StoredStoryVisibility: "private" | "internal" | "public" | "restricted";
+        /** StoryAssetResponse */
+        StoryAssetResponse: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Served at `/stories/{story_id}/assets/{id}` as WebP.
+             */
+            id: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /**
+             * Byte Size
+             * @description Size of the stored WebP.
+             */
+            byte_size: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** StoryCamera */
         StoryCamera: {
             /**
@@ -16329,6 +16404,11 @@ export interface components {
              */
             published_at: string | null;
             /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -16379,6 +16459,11 @@ export interface components {
              * @description When the story was last published; null if never.
              */
             published_at: string | null;
+            /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
             /**
              * Created At
              * Format: date-time
@@ -16438,6 +16523,11 @@ export interface components {
              */
             published_at: string | null;
             /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -16458,6 +16548,11 @@ export interface components {
             summary?: string | null;
             /** @description Refused with 409 when a map the published story uses is narrower than the new visibility. */
             visibility?: components["schemas"]["StoryVisibility"] | null;
+            /**
+             * Cover Asset Id
+             * @description An image uploaded to this story to use as its cover, or null for none. 422 `story_assets_not_found` for an image this story doesn't have.
+             */
+            cover_asset_id?: string | null;
         };
         /**
          * StoryVisibility
@@ -47859,6 +47954,258 @@ export interface operations {
             };
         };
     };
+    upload_story_asset_endpoint_stories__story_id__assets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryAssetResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not a PNG, JPEG or WebP image */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Other images are being processed (`detail.code` `story_image_busy`); retry after `Retry-After` seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_story_asset_endpoint_stories__story_id__assets__asset_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": string;
+                };
+            };
+            /** @description Your copy, named by `If-None-Match`, is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     discard_story_draft_endpoint_stories__story_id__discard_post: {
         parameters: {
             query?: never;
@@ -48269,6 +48616,15 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
