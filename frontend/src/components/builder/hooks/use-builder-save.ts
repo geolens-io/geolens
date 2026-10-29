@@ -1103,15 +1103,19 @@ export function useBuilderSave(state: SaveState) {
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
     const registrations: BaselineRegistration[] = [];
+    let sentFullReplacement = false;
     // A layer PATCH commits even when the metadata PUT after it fails, so the
     // baseline advances as soon as it lands; otherwise the retry re-sends
     // removals the server already applied. Layers created or deleted while the
-    // save was in flight are replayed onto the sent layers.
+    // save was in flight are replayed onto the sent layers, except deletions
+    // after a full replacement, which may have recreated them: the next save
+    // removes them again.
     const commitLayerBaseline = () => {
       // The hooks stay mounted across a map switch, so the baseline may
       // belong to another map by now.
       if (latestStateRef.current.mapId !== id) return;
-      baselineLayersRef.current = registrations.reduce(
+      const replayed = sentFullReplacement ? registrations.filter((r) => 'add' in r) : registrations;
+      baselineLayersRef.current = replayed.reduce(
         applyBaselineRegistration,
         // The save-diff baseline carries the sent collapse state (see the
         // baseline effect).
@@ -1167,6 +1171,7 @@ export function useBuilderSave(state: SaveState) {
       // avoids forcing every combined save through the lossy full-replacement
       // PUT (see below). The failed-save toast prompts a retry.
       if (unsupported) {
+        sentFullReplacement = true;
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {
         if (hasDiff(diff)) {
@@ -1207,6 +1212,7 @@ export function useBuilderSave(state: SaveState) {
             // style_config/paint round-trip, fresh layer-row UUIDs). It is
             // surfaced to the user rather than reported as a plain "Map saved",
             // so they double-check layer styling.
+            sentFullReplacement = true;
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
             commitSaved();
             toast.warning(t('toasts.mapSavedFullResync', {

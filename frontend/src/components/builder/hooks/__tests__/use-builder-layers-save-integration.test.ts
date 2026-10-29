@@ -768,4 +768,24 @@ describe('layer creates and deletes during a save', () => {
 
     for (const diff of await saveAgain(result)) expect(diff.removed).toBeUndefined();
   });
+
+  it('removes again a layer a full-replacement save may have restored', async () => {
+    const { result, removeMutate } = renderCombined(makeBuilderMap([keep, doomed]));
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(new ApiError('Method Not Allowed', 405, 'Method Not Allowed'));
+    let release!: () => void;
+    mockUpdateMapMutateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ id: 'map-1', layers: [] }); }),
+    );
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    await act(async () => { await Promise.resolve(); });
+    act(() => { result.current.handleRemove('doomed'); });
+    const [, handlers] = removeMutate.mock.calls[0];
+    act(() => { handlers.onSuccess(); });
+    await act(async () => { release(); await saving; });
+
+    const diffs = await saveAgain(result);
+    expect(diffs.map((diff) => diff.removed)).toEqual([['doomed']]);
+  });
 });
