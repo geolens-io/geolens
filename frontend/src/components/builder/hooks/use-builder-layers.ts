@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { hashKey, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
@@ -184,10 +184,24 @@ export function useBuilderLayers(
   // save succeeded, failed or half-failed.
   const saveFenceRef = useRef(new Map<string, number | null>());
   const queryClient = useQueryClient();
-  // Counts every data delivery, including a refetch whose data is unchanged.
+  // The detail query's data version as of its last fetch, counting a refetch
+  // whose data is unchanged. A manual cache write, such as a sharing change
+  // merging audience fields, bumps the version too but refreshes nothing the
+  // fence waits for, so it doesn't count.
+  const fetchedVersionRef = useRef(new Map<string, number>());
   const detailVersion = useSyncExternalStore(
-    useCallback((onChange) => queryClient.getQueryCache().subscribe(onChange), [queryClient]),
-    () => detailDataVersion(queryClient, mapId),
+    useCallback(
+      (onChange) =>
+        queryClient.getQueryCache().subscribe((event) => {
+          if (event.type !== 'updated' || event.action.type !== 'success' || event.action.manual) return;
+          const id = event.query.queryKey[1];
+          if (typeof id !== 'string' || event.query.queryHash !== hashKey(queryKeys.maps.detail(id))) return;
+          fetchedVersionRef.current.set(id, event.query.state.dataUpdateCount);
+          onChange();
+        }),
+      [queryClient],
+    ),
+    () => (mapId ? fetchedVersionRef.current.get(mapId) ?? 0 : 0),
   );
   const saveFenced = useCallback((): boolean => {
     const settled = mapId ? saveFenceRef.current.get(mapId) : undefined;

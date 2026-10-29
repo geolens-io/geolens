@@ -383,14 +383,19 @@ describe('clean checks after a save', () => {
       fetches.shift()!(map);
       await flush();
     });
-    // Delivers detail data with no fetch pending, as a refetch landing mid-save does.
+    // Fetches detail data outside the save's own refetch, as a refetch landing mid-save does.
     const deliver = (map: MapResponse) => act(async () => {
-      queryClient.setQueryData(detailKey, map);
+      await queryClient.fetchQuery({ queryKey: detailKey, queryFn: async () => map, staleTime: 0 });
+      await flush();
+    });
+    // Merges fields into the cached map without a fetch, as a sharing change does.
+    const writeCache = (fields: Partial<MapResponse>) => act(async () => {
+      queryClient.setQueryData<MapResponse>(detailKey, (old) => old && { ...old, ...fields });
       await flush();
     });
     const cachedMap = () => queryClient.getQueryData<MapResponse>(detailKey)!;
     const switchTo = (mapId: string) => act(() => rerender({ mapId }));
-    return { result, refetch, deliver, cachedMap, switchTo };
+    return { result, refetch, deliver, writeCache, cachedMap, switchTo };
   }
 
   // Start a save whose requests wait for finishSave().
@@ -433,6 +438,16 @@ describe('clean checks after a save', () => {
 
     expect(result.current.hasUnsavedChanges).toBe(true);
     expect(layerVisible(result.current.localLayers)).toBe(true);
+  });
+
+  it('keeps the fence through a cache write that is not a fetch', async () => {
+    const { result, writeCache } = await showDuringSave();
+    await writeCache({ visibility: 'public' });
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    toggle(result);
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
   it('compares a later toggle pair against the saved layers, not the pre-save ones', async () => {
