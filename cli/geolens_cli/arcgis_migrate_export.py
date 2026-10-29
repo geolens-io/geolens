@@ -430,10 +430,11 @@ def _web_app(ctx: MigrationContext) -> str:
         except GeoLensError:
             configured = None
         except typer.Exit as exc:
-            # How the SDK call reports a timeout or network failure.
+            # How the SDK call reports a timeout or network failure; not
+            # cached, so the next story asks again.
             if exc.exit_code != EXIT_NETWORK:
                 raise
-            configured = None
+            return ctx.web_origin
         if isinstance(configured, str) and configured.startswith(
             ("https://", "http://")
         ):

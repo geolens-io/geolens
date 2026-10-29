@@ -231,6 +231,42 @@ def test_a_story_links_to_the_geolens_map_made_from_its_web_map(
     assert len(reads) == 1
 
 
+def test_a_lookup_lost_on_the_network_is_asked_again_for_the_next_story():
+    from types import SimpleNamespace
+
+    import typer
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli._sdk_helpers import EXIT_NETWORK
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    replies: list[object] = [
+        typer.Exit(EXIT_NETWORK),
+        SimpleNamespace(public_app_url="https://maps.example.org"),
+    ]
+
+    class GeoLens:
+        def call(self, fn):
+            reply = replies.pop(0)
+            if isinstance(reply, BaseException):
+                raise reply
+            return reply
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    assert [export._map_link(ctx, i) for i in ("a", "b")] == [
+        "https://geolens.example.org/maps/m-1",
+        "https://maps.example.org/maps/m-2",
+    ]
+
+
 def test_the_web_app_url_is_read_once_for_every_story_link():
     from types import SimpleNamespace
 
