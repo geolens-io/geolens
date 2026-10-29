@@ -655,9 +655,12 @@ def _leftover(
     current = read()
     if current is None:
         return
-    entry.kept[object_id] = sorted(kept | left)
+    # A group no longer on the object stays eligible, so a share restored
+    # later is still reported.
+    still_there = left & current
+    entry.kept[object_id] = sorted(kept | still_there)
     ctx.save()
-    _log(ctx, item["id"], "left", left & current)
+    _log(ctx, item["id"], "left", still_there)
 
 
 def pending_sharing(item: Mapping[str, Any], entry: ItemState) -> list[str]:

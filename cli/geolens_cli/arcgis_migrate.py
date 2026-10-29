@@ -1334,7 +1334,7 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
         fmt.warn(
             f"{len(no_account)} ArcGIS member(s) aren't GeoLens users yet, so they "
             f"aren't in their GeoLens groups: {shown}. Create them with `geolens "
-            "admin users import --from-inventory`, then rerun; the report lists "
+            "admin users import --from-inventory <inventory file>`, then rerun; the report lists "
             "every group each is waiting for"
         )
 

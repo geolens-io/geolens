@@ -2028,6 +2028,42 @@ def test_a_rerun_prints_and_reports_the_groups_it_shared_and_removed(
     assert payload["item_sharing"] == []
 
 
+def test_a_group_unshared_in_geolens_is_still_reported_once_shared_again(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    _map_a_second_group(plan_file)
+    assert _run(runner, plan_file)[0].exit_code == 0
+    state_file = tmp_path / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["schema_version"] = "3"
+    for entry in state["items"].values():
+        entry.pop("granted", None)
+    state_file.write_text(json.dumps(state))
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1"]
+    plan_file.write_text(json.dumps(plan))
+    other = {"id": OTHER, "name": "Other"}
+    for fields in service.fields.values():
+        fields["groups"] = [g for g in fields.get("groups") or [] if g != other]
+
+    _result, payload = _run(runner, plan_file)
+    assert payload["item_sharing"] == []
+    for fields in service.fields.values():
+        if fields.get("groups"):
+            fields["groups"] = [*fields["groups"], other]
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert payload["item_sharing"] == [
+        {"item": A2, "shared": [], "removed": [], "left": ["Other"]}
+    ]
+
+
 def test_a_group_an_earlier_version_shared_is_listed_once_and_left(
     runner, tmp_path, team, up_to_date
 ):
