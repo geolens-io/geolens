@@ -806,6 +806,13 @@ type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 /** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
  *  `add` registers a layer in the baseline; `remove` is its inverse. */
+/** handleSave's side of useBuilderLayers' save fence. */
+export interface SaveFence {
+  inFlight: (mapId: string) => boolean;
+  begin: (mapId: string) => void;
+  settle: (mapId: string) => void;
+}
+
 export interface SaveBaselineSync {
   add: (layer: MapLayerResponse) => void;
   remove: (layerIds: Iterable<string>) => void;
@@ -924,6 +931,9 @@ interface SaveState {
    *  inserted. `remove` is the delete half, called by the single and bulk
    *  delete paths alongside their savedLayerBaselineRef prune. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
+  /** useBuilderLayers' save fence: begun when the round trip starts, settled
+   *  when it ends. */
+  saveFence: SaveFence;
   /** True when the builder was opened with a ?add_dataset URL param, so the
    *  first auto-capture is deferred until the layer-add effect has synced
    *  localLayers. */
@@ -1045,8 +1055,10 @@ export function useBuilderSave(state: SaveState) {
       showBasemapLabels,
       basemapConfig,
       terrainConfig,
+      saveFence,
     } = state;
-    if (!id) return;
+    // Overlapping saves can land out of order and let the older snapshot win.
+    if (!id || saveFence.inFlight(id)) return;
     setLastSaveFailed(false);
     // The plugin set the payload below serializes, so the post-await
     // comparison can detect a mid-save toggle.
@@ -1073,15 +1085,19 @@ export function useBuilderSave(state: SaveState) {
     // check also reads, so a pan that would change the stored view is exactly
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
-    // useUpdateMap only invalidates the detail query, so mapData keeps the
-    // pre-save camera until the refetch lands (and forever if it fails). The
-    // dirty check reads mapData, so publish what the server holds.
-    const commitSavedCamera = () => {
-      if (!id) return;
+    // The save-diff baseline carries the sent collapse state (see the baseline
+    // effect). useUpdateMap only invalidates the detail query, so mapData keeps
+    // the pre-save camera until the refetch lands (and forever if it fails).
+    // The dirty check reads mapData, so publish what the server holds.
+    const commitSaved = () => {
       queryClient.setQueryData<MapResponse>(
         queryKeys.maps.detail(id),
         (prev) => (prev ? { ...prev, ...camera } : prev),
       );
+      // The hooks stay mounted across a map switch, so the baseline may
+      // belong to another map by now.
+      if (latestStateRef.current.mapId !== id) return;
+      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
     };
 
     // basemap_position is a field of basemapConfig (MapBasemapConfig jsonb), so
@@ -1110,6 +1126,7 @@ export function useBuilderSave(state: SaveState) {
       layers: persistableLayers.map(toLayerInput),
     };
 
+    saveFence.begin(id);
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
       // The DEM hillshade overlay (style_config.render_mode) and the 3D terrain
@@ -1144,8 +1161,7 @@ export function useBuilderSave(state: SaveState) {
                 throw new StaleLayerDiffError();
               }
               await updateMap.mutateAsync({ id, data: metadataPayload });
-              baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-              commitSavedCamera();
+              commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
               if (!editedDuringSave(state, sentPluginSet, camera)) {
                 state.setHasUnsavedChanges(false);
@@ -1160,9 +1176,7 @@ export function useBuilderSave(state: SaveState) {
             // surfaced to the user rather than reported as a plain "Map saved",
             // so they double-check layer styling.
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
-            // Baseline carries the sent collapse state (see baseline effect).
-            baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-            commitSavedCamera();
+            commitSaved();
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
@@ -1178,9 +1192,7 @@ export function useBuilderSave(state: SaveState) {
         await updateMap.mutateAsync({ id, data: metadataPayload });
       }
 
-      // Baseline carries the sent collapse state (see baseline effect).
-      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-      commitSavedCamera();
+      commitSaved();
       toast.success(t('toasts.mapSaved'));
       // The baseline is the sent snapshot; clear the dirty flag only when
       // nothing was edited during the await, or the baseline effect would
@@ -1223,6 +1235,8 @@ export function useBuilderSave(state: SaveState) {
         }
       }
       toast.error(t('toasts.saveFailed'));
+    } finally {
+      saveFence.settle(id);
     }
   }
 

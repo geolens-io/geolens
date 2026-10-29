@@ -24,9 +24,13 @@
  * makes `diff.added` contain the created layer (see PR #392 description).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act } from '@testing-library/react';
-import { useRef } from 'react';
+import { act, renderHook as baseRenderHook } from '@testing-library/react';
+import { createElement, useRef, type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { renderHook } from '@/test/test-utils';
+import { queryKeys } from '@/lib/query-keys';
+import { resolveBasemapId } from '@/lib/basemap-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave, __resetThumbnailDebounceForTests, type SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
 import {
@@ -34,7 +38,7 @@ import {
   makeBuilderMap,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import type { MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
@@ -123,6 +127,7 @@ function useCombinedBuilder(
     hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
+    saveFence: layers.saveFence,
   });
 
   return { ...layers, ...save };
@@ -334,5 +339,281 @@ describe('delete prunes the Save-diff baseline on an already-dirty map', () => {
     const [{ diff }] = mockPatchMapLayersMutateAsync.mock.calls[0];
     expect(diff.removed).toBeUndefined();
     expect(diff.updated).toEqual([{ id: 'keep', opacity: 0.4 }]);
+  });
+});
+
+describe('clean checks after a save', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+  });
+
+  const layer = makeBuilderLayer({ id: 'layer-1', visible: true });
+  const detailKey = queryKeys.maps.detail('map-1');
+  const otherMap = makeBuilderMap([makeBuilderLayer({ id: 'layer-b', visible: true })], { id: 'map-2' });
+
+  // mapData comes from the detail query, as in MapBuilderPage. The query
+  // fetches only when invalidated, and each fetch waits for refetch(). With
+  // `observe: false` the harness reads the cache without subscribing, so only
+  // the hooks' own subscriptions can re-render it.
+  function renderCached({ observe = true } = {}) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(detailKey, makeBuilderMap([layer]));
+    queryClient.setQueryData(queryKeys.maps.detail('map-2'), otherMap);
+    const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+    const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, createElement(MemoryRouter, null, children));
+    const fetches: Array<(map: MapResponse) => void> = [];
+    const useObservedDetail = (mapId: string) => useQuery<MapResponse>({
+      queryKey: queryKeys.maps.detail(mapId),
+      queryFn: () => new Promise<MapResponse>((resolve) => { fetches.push(resolve); }),
+      staleTime: Infinity,
+    }).data;
+    const useUnobservedDetail = (mapId: string) => queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId));
+    const useDetail = observe ? useObservedDetail : useUnobservedDetail;
+    const { result, rerender } = baseRenderHook(({ mapId }: { mapId: string }) =>
+      useCombinedBuilder(useDetail(mapId), mapId, addLayerMutation, removeLayerMutation),
+    { wrapper, initialProps: { mapId: 'map-1' } });
+    // Query observers notify on a timer, so wait one out.
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    // Answers the detail fetch the save's invalidation started.
+    const refetch = (map: MapResponse) => act(async () => {
+      expect(fetches).toHaveLength(1);
+      fetches.shift()!(map);
+      await flush();
+    });
+    // Fetches detail data outside the save's own refetch, as a refetch landing mid-save does.
+    const deliver = (map: MapResponse) => act(async () => {
+      await queryClient.fetchQuery({ queryKey: detailKey, queryFn: async () => map, staleTime: 0 });
+      await flush();
+    });
+    // Merges fields into the cached map without a fetch, as a sharing change does.
+    const writeCache = (fields: Partial<MapResponse>) => act(async () => {
+      queryClient.setQueryData<MapResponse>(detailKey, (old) => old && { ...old, ...fields });
+      await flush();
+    });
+    const cachedMap = () => queryClient.getQueryData<MapResponse>(detailKey)!;
+    const switchTo = (mapId: string) => act(() => rerender({ mapId }));
+    return { result, refetch, deliver, writeCache, cachedMap, switchTo };
+  }
+
+  // Start a save whose requests wait for finishSave().
+  function startSave(result: { current: { handleSave: () => Promise<void> } }) {
+    const pending: Array<() => void> = [];
+    const hold = (payload: { id: string }) =>
+      new Promise((resolve) => { pending.push(() => resolve({ id: payload.id, layers: [] })); });
+    mockPatchMapLayersMutateAsync.mockImplementation(hold);
+    mockUpdateMapMutateAsync.mockImplementation(hold);
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    return () => act(async () => {
+      // The PATCH resolves before the metadata PUT is sent.
+      while (pending.length) {
+        pending.shift()!();
+        await Promise.resolve();
+      }
+      await saving;
+    });
+  }
+
+  const toggle = (result: { current: { handleToggleVisibility: (id: string) => void } }, layerId = 'layer-1') =>
+    act(() => result.current.handleToggleVisibility(layerId));
+  const layerVisible = (layers: MapLayerResponse[]) => layers.find((l) => l.id === 'layer-1')?.visible;
+  const savedMap = () => makeBuilderMap([{ ...layer, visible: false }]);
+
+  // Hide the layer, save, and show it again before the save resolves.
+  async function showDuringSave() {
+    const out = renderCached();
+    toggle(out.result);
+    const finishSave = startSave(out.result);
+    toggle(out.result);
+    await finishSave();
+    return out;
+  }
+
+  it('keeps a mid-save visibility edit unsaved through the refetch', async () => {
+    const { result, refetch } = await showDuringSave();
+    await refetch(savedMap());
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    expect(layerVisible(result.current.localLayers)).toBe(true);
+  });
+
+  it('keeps the fence through a cache write that is not a fetch', async () => {
+    const { result, writeCache } = await showDuringSave();
+    await writeCache({ visibility: 'public' });
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    toggle(result);
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('compares a later toggle pair against the saved layers, not the pre-save ones', async () => {
+    const { result, refetch } = await showDuringSave();
+    await refetch(savedMap());
+
+    toggle(result);
+    toggle(result);
+
+    expect(layerVisible(result.current.localLayers)).toBe(true);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('waits for the refetch before an undo can read as saved', async () => {
+    const { result, refetch } = await showDuringSave();
+
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    expect(layerVisible(result.current.localLayers)).toBe(false);
+
+    await refetch(savedMap());
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(layerVisible(result.current.localLayers)).toBe(false);
+  });
+
+  it('keeps showing the saved layers while the refetch is pending', async () => {
+    const { result } = renderCached();
+    toggle(result);
+    const finishSave = startSave(result);
+    await finishSave();
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(layerVisible(result.current.localLayers)).toBe(false);
+  });
+
+  it('fences the clean check after a save whose PATCH landed but whose PUT failed', async () => {
+    const { result, refetch } = renderCached();
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
+    mockUpdateMapMutateAsync.mockRejectedValue(new Error('metadata PUT failed'));
+    toggle(result);
+    await act(async () => { await result.current.handleSave(); });
+
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    await refetch(savedMap());
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    expect(layerVisible(result.current.localLayers)).toBe(true);
+
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('lifts the fence on data fetched after the save even when a refetch landed before it settled', async () => {
+    const { result, refetch, deliver } = renderCached();
+    toggle(result);
+    const finishSave = startSave(result);
+    await deliver(savedMap());
+    toggle(result);
+    await finishSave();
+
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    await refetch(savedMap());
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(layerVisible(result.current.localLayers)).toBe(false);
+  });
+
+  it('lifts the fence when the post-save refetch returns unchanged data', async () => {
+    const { result, deliver, cachedMap } = renderCached({ observe: false });
+    toggle(result);
+    const finishSave = startSave(result);
+    await deliver(savedMap());
+    await finishSave();
+
+    toggle(result);
+    toggle(result);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    const cached = cachedMap();
+    await deliver(structuredClone(cached));
+    // Structural sharing keeps the cached object, so mapData doesn't change.
+    expect(cachedMap()).toBe(cached);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  type Builder = ReturnType<typeof renderCached>['result']['current'];
+  it.each<[string, (b: Builder) => void, (b: Builder) => void]>([
+    ['rename', (b) => b.setLocalName('New Name'), (b) => b.setLocalName('Test Map')],
+    ['basemap change', (b) => b.setLocalBasemap('dark-matter'), (b) => b.setLocalBasemap(resolveBasemapId('positron'))],
+  ])('keeps a mid-save %s undone unsaved when a toggle pair follows before the refetch', async (_, edit, undo) => {
+    const { result } = renderCached();
+    act(() => {
+      edit(result.current);
+      result.current.setHasUnsavedChanges(true);
+    });
+    const finishSave = startSave(result);
+    act(() => undo(result.current));
+    await finishSave();
+
+    toggle(result);
+    toggle(result);
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  // Hide layer-1 on map-1, start its save, and switch to map-2 before it lands.
+  function switchDuringSave() {
+    const { result, switchTo } = renderCached();
+    toggle(result);
+    const finishSave = startSave(result);
+    switchTo('map-2');
+    return { result, finishSave };
+  }
+
+  it('leaves the next map clean-checkable when a save lands after a switch', async () => {
+    const { result, finishSave } = switchDuringSave();
+    await finishSave();
+
+    toggle(result, 'layer-b');
+    toggle(result, 'layer-b');
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('diffs the next map against its own layers when a save lands after a switch', async () => {
+    const { result, finishSave } = switchDuringSave();
+    await finishSave();
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-2', layers: [] });
+    mockUpdateMapMutateAsync.mockResolvedValue({ id: 'map-2', layers: [] });
+
+    toggle(result, 'layer-b');
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenLastCalledWith({
+      id: 'map-2',
+      diff: { updated: [{ id: 'layer-b', visible: false }] },
+    });
+  });
+
+  it('lets another map save and clean-check while one save is in flight', async () => {
+    const { result, finishSave } = switchDuringSave();
+
+    toggle(result, 'layer-b');
+    toggle(result, 'layer-b');
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    toggle(result, 'layer-b');
+    let second!: Promise<void>;
+    act(() => { second = result.current.handleSave(); });
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'map-2' }));
+    await finishSave();
+    await act(async () => { await second; });
+  });
+
+  it('ignores a second save while the first is in flight', async () => {
+    const { result } = renderCached();
+    toggle(result);
+    const finishSave = startSave(result);
+
+    let second!: Promise<void>;
+    act(() => { second = result.current.handleSave(); });
+    await finishSave();
+    await act(async () => { await second; });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
   });
 });
