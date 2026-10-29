@@ -154,6 +154,38 @@ describe('dashboard linking', () => {
     expect(document.activeElement).toBe(within(panel).getByRole('button', { name: 'Hide dashboard' }));
   });
 
+  it('drops a pick whose widget or dashboard a refreshed map no longer has', async () => {
+    const parcels = layer(parcelsId, 'Parcels');
+    const layers = [parcels, layer(roadsId, 'Roads')];
+    const mapLayers = vi.fn();
+    const viewer = (config: DashboardConfig | null) => (
+      <ViewerWithDashboard config={config} layers={layers}>
+        {({ mapLayers: linked }) => {
+          mapLayers(linked);
+          return <div />;
+        }}
+      </ViewerWithDashboard>
+    );
+    const latest = () => (mapLayers.mock.calls.at(-1)![0] as SharedLayerResponse[])[0];
+    const { rerender } = render(viewer(dashboard()));
+    await clickBar('Residential');
+    expect(latest().filter).not.toBeNull();
+    expect(screen.getByRole('group', { name: 'Filters' })).toBeInTheDocument();
+
+    // The author removed the chart that made the pick.
+    const withoutChart = { ...dashboard(), widgets: dashboard().widgets.filter((widget) => widget.id !== chartId) };
+    rerender(viewer(withoutChart));
+    expect(latest()).toBe(parcels);
+    expect(screen.queryByRole('group', { name: 'Filters' })).not.toBeInTheDocument();
+
+    // Picked again, then the whole dashboard goes.
+    rerender(viewer(dashboard()));
+    await clickBar('Commercial');
+    expect(latest().filter).not.toBeNull();
+    rerender(viewer(null));
+    expect(latest()).toBe(parcels);
+  });
+
   it('applies a pick with Enter on the focused bar', async () => {
     renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')]);
     const chart = await screen.findByRole('group', { name: 'Count by land_use' });

@@ -29,7 +29,17 @@ interface ViewerWithDashboardProps {
  */
 export function ViewerWithDashboard({ children, ...panel }: ViewerWithDashboardProps) {
   const [map, setMap] = useState<MaplibreMap | null>(null);
-  const [picks, setPicks] = useState<readonly LinkedPick[]>([]);
+  const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);
+  // A refreshed map can drop a picked widget or its layer; its pick goes too,
+  // since no chip would be left to clear it.
+  const picks = useMemo(() => {
+    const live = storedPicks.filter(
+      (pick) =>
+        panel.config?.widgets.some((widget) => widget.id === pick.widgetId && widget.layer_id === pick.layerId) &&
+        panel.layers.some((layer) => layer.id === pick.layerId),
+    );
+    return live.length === storedPicks.length ? storedPicks : live;
+  }, [storedPicks, panel.config, panel.layers]);
   const mapLayers = useMemo(() => linkMapLayers(panel.layers, picks), [panel.layers, picks]);
   return (
     <div
