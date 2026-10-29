@@ -14,6 +14,7 @@ Security tests (BLOCKING):
 """
 
 import base64
+import html
 import re
 import uuid
 from io import BytesIO
@@ -355,6 +356,27 @@ class TestCardRoute:
             "Expected HTML-escaped <script> tag in card HTML; title was not properly escaped"
         )
 
+    async def test_card_route_flattens_and_shortens_the_description(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        map_data = await _create_map(client, admin_auth_header, visibility="public")
+        resp = await client.put(
+            f"/maps/{map_data['id']}",
+            json={"description": "Line one\n\n  line two " + "long " * 100},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        token = await _create_share_token(client, admin_auth_header, map_data["id"])
+
+        resp = await client.get(f"/maps/shared/{token}/card")
+        assert resp.status_code == 200
+
+        match = re.search(r'property="og:description" content="([^"]*)"', resp.text)
+        assert match, resp.text
+        description = html.unescape(match.group(1))
+        assert description.startswith("Line one line two long")
+        assert len(description) <= 200
+
     async def test_card_route_404_for_private_map(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
@@ -509,12 +531,12 @@ class TestCardRoute:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Card route og:image falls back to /og-image.png when no images set."""
-        from app.modules.catalog.maps import sharing
+        from app.modules.catalog import link_preview
 
         async def _app_url(*_args, **_kwargs) -> str:
             return "https://tenant.example.test"
 
-        monkeypatch.setattr(sharing, "get_public_app_url", _app_url)
+        monkeypatch.setattr(link_preview, "get_public_app_url", _app_url)
         map_data = await _create_map(
             client, admin_auth_header, name="No Image Map", visibility="public"
         )

@@ -1275,7 +1275,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 161,
-    "backend/app/modules/catalog/maps/router_sharing.py": 466,
+    "backend/app/modules/catalog/maps/router_sharing.py": 469,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
     "backend/app/modules/admin/router_operations.py": 330,

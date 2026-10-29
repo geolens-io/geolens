@@ -120,12 +120,12 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
 ):
     """A public map that already draws a private dataset keeps its stored
     thumbnail and OG image from anyone who can't read that dataset."""
-    from app.modules.catalog.maps import sharing
+    from app.modules.catalog import link_preview
 
     async def _app_url(*_args, **_kwargs) -> str:
         return "https://app.example.test"
 
-    monkeypatch.setattr(sharing, "get_public_app_url", _app_url)
+    monkeypatch.setattr(link_preview, "get_public_app_url", _app_url)
 
     admin_id = await get_user_id(test_db_session, "admin")
     viewer_header, _ = await create_user(client, admin_auth_header, "editor")
