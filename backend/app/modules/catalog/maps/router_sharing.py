@@ -37,6 +37,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.catalog.authorization import ANONYMOUS_MAP_VISIBILITIES
 from app.modules.catalog.authorization import check_map_access, get_user_roles
+from app.modules.catalog.link_preview import preview_description
 from app.modules.catalog.maps._router_helpers import (
     _build_frame_ancestors,
     _layers_from_tuples,
@@ -113,7 +114,9 @@ async def shared_map_card_endpoint(
     image_url = await get_share_card_image_url(db, request, map_obj)
     image_url = html.escape(image_url, quote=True)
     title = html.escape(map_obj.name or "GeoLens Map")
-    description = html.escape(map_obj.description or "View this map on GeoLens")
+    description = html.escape(
+        preview_description(map_obj.description, "View this map on GeoLens")
+    )
     viewer_url = f"/m/{html.escape(token)}"
     card_html = (
         "<!doctype html>\n"

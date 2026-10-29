@@ -64,8 +64,16 @@ def _chapter(map_id: str | None = None, *, blocks=None, chapter_id=None) -> dict
     return chapter
 
 
-async def _story(client: AsyncClient, headers: dict) -> dict:
-    resp = await client.post("/stories/", json={"title": "A story"}, headers=headers)
+async def _story(
+    client: AsyncClient,
+    headers: dict,
+    *,
+    title: str = "A story",
+    summary: str | None = None,
+) -> dict:
+    resp = await client.post(
+        "/stories/", json={"title": title, "summary": summary}, headers=headers
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()
 

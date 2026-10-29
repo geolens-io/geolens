@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -257,15 +257,17 @@ def _scene_map_id(raw: Any) -> uuid.UUID | None:
         return None
 
 
+def _scene_map_ids_in(document: Any) -> Iterator[uuid.UUID]:
+    """The maps the scenes of ``document`` use, in chapter order."""
+    for chapter in _chapters(document):
+        map_id = _scene_map_id(chapter.get("scene"))
+        if map_id is not None:
+            yield map_id
+
+
 def scene_map_ids(*documents: Any) -> set[uuid.UUID]:
     """The maps the scenes of ``documents`` use."""
-    ids = set()
-    for document in documents:
-        for chapter in _chapters(document):
-            map_id = _scene_map_id(chapter.get("scene"))
-            if map_id is not None:
-                ids.add(map_id)
-    return ids
+    return {map_id for document in documents for map_id in _scene_map_ids_in(document)}
 
 
 async def readable_map_ids(
@@ -291,6 +293,20 @@ async def _existing_map_ids(
     if not wanted:
         return set()
     return set((await db.scalars(select(Map.id).where(Map.id.in_(wanted)))).all())
+
+
+async def preview_scene_map(db: AsyncSession, story: Story) -> Map | None:
+    """The first map in ``story``'s published scenes that anyone may read."""
+    ordered = list(dict.fromkeys(_scene_map_ids_in(story.published)))
+    if not ordered:
+        return None
+    readable = await db.scalars(
+        apply_map_visibility_filter(
+            select(Map).where(Map.id.in_(ordered)), None, is_admin=False
+        )
+    )
+    by_id = {map_obj.id: map_obj for map_obj in readable}
+    return next((by_id[map_id] for map_id in ordered if map_id in by_id), None)
 
 
 def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:

@@ -18,10 +18,10 @@ from app.core.identity import Identity
 from app.core.text import escape_ilike
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
+from app.modules.catalog.link_preview import site_card_image_url
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.core.public_urls import (
     get_public_api_url,
-    get_public_app_url,
     join_public_url,
 )
 
@@ -106,8 +106,7 @@ async def get_share_card_image_url(
         api_base = await get_public_api_url(session, request=request)
         kind = "og-image" if map_obj.og_image_uri else "thumbnail"
         return join_public_url(api_base, f"/maps/{map_obj.id}/{kind}/")
-    app_base = await get_public_app_url(session, request=request)
-    return join_public_url(app_base, "/og-image.png")
+    return await site_card_image_url(session, request)
 
 
 async def get_map_embed_scope(

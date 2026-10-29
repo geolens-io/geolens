@@ -5,9 +5,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
+from app.core.public_urls import get_shareable_app_url, join_public_url
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import get_optional_user, require_permission
@@ -15,6 +17,12 @@ from app.modules.catalog.authorization import (
     check_public_visibility_allowed,
     get_user_roles,
 )
+from app.modules.catalog.link_preview import (
+    link_preview_response,
+    preview_description,
+    site_card_image_url,
+)
+from app.modules.catalog.maps.sharing import get_share_card_image_url
 from app.modules.catalog.stories.models import Story
 from app.modules.catalog.stories.schemas import (
     StoryCreate,
@@ -40,6 +48,7 @@ from app.modules.catalog.stories.service import (
     get_story,
     list_stories,
     lock_story,
+    preview_scene_map,
     publish,
     refuse_stale_revision,
     render_for,
@@ -205,6 +214,42 @@ async def get_story_endpoint(
     )
     return StoryResponse(
         **_summary(story, can_edit_story(story, user, roles)), document=document
+    )
+
+
+@router.get(
+    "/{story_id}/link-preview", response_class=HTMLResponse, include_in_schema=False
+)
+async def story_link_preview_endpoint(
+    story_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Open Graph and Twitter tags for a story an anonymous caller may read,
+    which nginx serves to unfurl crawlers on ``/stories/<id>``.
+
+    Only a published public story gets its title and summary. Every other
+    story answers 404 with the same body as a missing one, as does a
+    deployment without a verified public app origin; nginx serves the SPA
+    shell for any 404. The card image is that of the first scene map anyone
+    may read, or the site image.
+    """
+    app_url = await get_shareable_app_url(db, request=request)
+    if app_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    story, _ = await _readable_story(db, story_id, None)
+    scene_map = await preview_scene_map(db, story)
+    return link_preview_response(
+        page_url=join_public_url(app_url, f"/stories/{story.id}"),
+        image_url=(
+            await get_share_card_image_url(db, request, scene_map)
+            if scene_map is not None
+            else await site_card_image_url(db, request)
+        ),
+        title=story.title,
+        description=preview_description(story.summary, "Read this story on GeoLens"),
     )
 
 
