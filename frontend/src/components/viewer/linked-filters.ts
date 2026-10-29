@@ -1,4 +1,5 @@
 import type { FilterSpecification } from 'maplibre-gl';
+import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import type { WidgetSelection } from '@/components/widgets/contract';
 import { isIntegerColumn } from '@/lib/column-utils';
 import {
@@ -78,6 +79,19 @@ function allOf(filters: readonly FilterSpecification[]): FilterSpecification {
 }
 
 /**
+ * `filter` in expression syntax. MapLibre reads a filter wholly as expressions
+ * or wholly as the legacy syntax, so a legacy saved filter must be converted
+ * before picks join it. One the converter refuses comes back unchanged.
+ */
+function expressionFilter(filter: FilterSpecification): FilterSpecification {
+  try {
+    return convertFilter(filter as Parameters<typeof convertFilter>[0]) as FilterSpecification;
+  } catch {
+    return filter;
+  }
+}
+
+/**
  * The layers as the viewer's map draws them: each layer with picks on it
  * gets a copy whose filter is its saved filter and every pick. The saved
  * layers are left as they are.
@@ -90,7 +104,7 @@ export function linkMapLayers(
   return layers.map((layer) => {
     const own = picks.filter((pick) => pick.layerId === layer.id);
     if (own.length === 0) return layer;
-    const saved = Array.isArray(layer.filter) && layer.filter.length > 0 ? [layer.filter] : [];
+    const saved = Array.isArray(layer.filter) && layer.filter.length > 0 ? [expressionFilter(layer.filter)] : [];
     const picked = own.map(({ selection }) => selectionFilter(selection, columnType(layer, selection.column)));
     return { ...layer, filter: allOf([...saved, ...picked]) };
   });

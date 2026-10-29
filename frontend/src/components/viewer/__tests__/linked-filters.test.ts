@@ -1,4 +1,5 @@
 import type { FilterSpecification } from 'maplibre-gl';
+import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
 import type { SelectionValue, WidgetSelection } from '@/components/widgets/contract';
 import { layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import type { SharedLayerResponse } from '@/types/api';
@@ -123,6 +124,24 @@ describe('linkMapLayers', () => {
       linkedPick('w1', 'a', pick(['Residential'])),
     ]);
     expect(linked.filter).toEqual(['all', opaque, ['in', ['get', 'land_use'], ['literal', ['Residential']]]]);
+  });
+
+  it('keeps a legacy saved filter working once a pick joins it', () => {
+    const matches = (filter: FilterSpecification | null | undefined, properties: Record<string, unknown>) =>
+      featureFilter(filter!, 'filter').filter({ zoom: 10 }, { type: 1, properties } as never);
+    const zoneA = { zone: 'A', land_use: 'Residential' };
+    const zoneB = { zone: 'B', land_use: 'Residential' };
+    for (const legacy of [
+      ['==', 'zone', 'A'],
+      ['in', 'zone', 'A', 'C'],
+      ['all', ['==', 'zone', 'A'], ['has', 'land_use']],
+    ] as FilterSpecification[]) {
+      expect(matches(legacy, zoneA)).toBe(true);
+      const [linked] = linkMapLayers([layer('a', legacy)], [linkedPick('w1', 'a', pick(['Residential']))]);
+      expect(matches(linked.filter, zoneA)).toBe(true);
+      expect(matches(linked.filter, zoneB)).toBe(false);
+      expect(matches(linked.filter, { zone: 'A', land_use: 'Commercial' })).toBe(false);
+    }
   });
 });
 
