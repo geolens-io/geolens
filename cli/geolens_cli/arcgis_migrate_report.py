@@ -28,6 +28,7 @@ from .arcgis_migrate_cutover import (
     sharing_losses,
 )
 from .arcgis_migrate_export import item_replacement
+from .arcgis_migrate_groups import SHARING_LABELS
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
     DONE,
@@ -108,7 +109,8 @@ def _follow_ups(
                 f"{reason}; check who it should be shared with in GeoLens",
             )
         layer = item.get("superseded_by")
-        if layer:
+        # An operator who changed the source file's action decided what it becomes.
+        if layer and item["action"] == (item.get("defaults") or item)["action"]:
             layer_entry = state.items.get(layer)
             ids = (
                 ", ".join(layer_entry.dataset_ids) if layer_entry else ""
@@ -301,9 +303,11 @@ def build_run_report(
     cutover: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
     members_removed: Mapping[str, Sequence[str]] | None = None,
+    sharing_changes: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The report of the whole plan as of *state*; *members_removed* holds the
-    users this run removed from each ArcGIS group's GeoLens group."""
+    users this run removed from each ArcGIS group's GeoLens group, and
+    *sharing_changes* the GeoLens groups it shared items with or took off."""
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -347,6 +351,7 @@ def build_run_report(
             }
             for group_id, group in sorted(state.groups.items())
         ],
+        "sharing_changes": [dict(row) for row in sharing_changes or []],
         "follow_ups": _follow_ups(
             plan, state, runnable, owner_changes, owner_unresolved
         ),
@@ -463,6 +468,15 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
                     "leaving the ArcGIS group: "
                     + ", ".join(esc(user) for user in g["members_removed"]),
                 ]
+    if report.get("sharing_changes"):
+        lines += ["", "## Item sharing changed by this run", ""]
+        for row in report["sharing_changes"]:
+            for key, text in SHARING_LABELS.items():
+                if row[key]:
+                    lines.append(
+                        f"- {esc(row['item'])}: {text} "
+                        + ", ".join(esc(g) for g in row[key])
+                    )
     for heading, superseded in (
         ("Items GeoLens can't host", False),
         ("Source files published as hosted layers", True),

@@ -218,6 +218,9 @@ class ItemState:
     # Dataset or map id -> the groups among those that this command's own
     # writes added, the only ones a rerun removes when the plan drops them.
     granted: dict[str, list[str]] = field(default_factory=dict)
+    # Dataset or map id -> groups left on it that the plan no longer names and
+    # that no write of this command is known to have added, already reported.
+    kept: dict[str, list[str]] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
@@ -296,7 +299,17 @@ class MigrationState:
             ) from None
         try:
             data = json.loads(raw)
-            if data.get("schema_version") not in _READABLE_VERSIONS:
+            version = data.get("schema_version")
+            if version not in _READABLE_VERSIONS:
+                if (
+                    isinstance(version, str)
+                    and version.isdecimal()
+                    and int(version) > int(STATE_VERSION)
+                ):
+                    raise StateError(
+                        f"the state file {path} was written by a newer geolens-cli "
+                        f"(state version {version}); upgrade geolens-cli to use it"
+                    )
                 raise ValueError("unknown schema_version")
             items = {
                 str(item_id): ItemState.from_dict(entry)

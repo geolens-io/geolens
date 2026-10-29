@@ -1604,12 +1604,16 @@ def test_cutover_refuses_unfinished_items_until_accepted(runner, plan_file, geol
         {"item": A2, "reason": "failed"}
     ]
 
-    result, payload = _migrate(
-        runner, plan_file, "--cutover", "--accept-unfinished-items", "--no-retry"
-    )
+    accept = ("--cutover", "--accept-unfinished-items", "--no-retry")
+    result, payload = _migrate(runner, plan_file, "--dry-run", *accept)
+    assert result.exit_code == 0, result.output
+    assert payload["cutover"]["refused"] == [] and payload["failed"] == [A2]
+
+    result, payload = _migrate(runner, plan_file, *accept)
     assert payload["cutover"]["marked"] is True
-    # The item is still failed, so the run says so even though it is marked.
-    assert result.exit_code == 1
+    # Still failed and reported, but the cutover accepted it.
+    assert payload["failed"] == [A2]
+    assert result.exit_code == 0, result.output
 
 
 def test_cutover_counts_a_finished_item_a_partial_merge_left_unlisted(

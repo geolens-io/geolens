@@ -217,7 +217,10 @@ class MigrationContext:
     # Every item's state, for the map a story's web map became.
     items: dict[str, Any] = field(default_factory=dict)
     export_cap: int = 0
+    # The instance URL without /api, and the web app's own URL when the
+    # instance configures one, read once the first time a story needs it.
     web_origin: str = ""
+    web_app: str | None = None
     # Esri basemap URL -> GeoLens basemap id, from the plan.
     basemap_map: dict[str, str] = field(default_factory=dict)
     # A skipped hosted view's item id -> the parent item whose datasets stand

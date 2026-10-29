@@ -191,8 +191,8 @@ def geolens(fake_geolens):
 
 def _allow_transfers(fake, *ids: str, map_ids: tuple[str, ...] = ()) -> None:
     for dataset_id in ids:
-        fake.routes[f"PATCH /datasets/{dataset_id}"] = (
-            lambda seen, d=dataset_id: _dataset(d, seen.json()["owner_id"])
+        fake.routes[f"PATCH /datasets/{dataset_id}"] = lambda seen, d=dataset_id: (
+            _dataset(d, seen.json()["owner_id"])
         )
         fake.routes[f"GET /datasets/{dataset_id}"] = _dataset(dataset_id, OPERATOR)
     for map_id in map_ids:
@@ -406,6 +406,49 @@ def test_dry_run_writes_no_state_and_changes_nothing(
     assert not (tmp_path / "arcgis-migration-state.json").exists()
     assert handled == []
     assert all(s.method == "GET" for s in geolens.seen)
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_failed_item_set_to_skip_shows_skipped_in_a_dry_run_too(
+    runner, tmp_path, geolens, handled, dry_run
+):
+    _write_state(tmp_path, {L1: {"status": "failed", "error": "HTTP 422"}})
+    flags = ("--dry-run",) if dry_run else ()
+
+    result, payload = _run(runner, tmp_path, _plan([_item(L1, "skip")]), *flags)
+
+    assert result.exit_code == 0, result.output
+    [row] = payload["items"]
+    assert (row["status"], row["error"]) == ("skipped", None)
+    assert payload["failed"] == []
+    assert _state(tmp_path)["items"][L1]["status"] == (
+        "failed" if dry_run else "skipped"
+    )
+
+
+def test_brought_up_to_date_counts_only_the_items_that_are(
+    runner, tmp_path, geolens, monkeypatch
+):
+    reasons = {L1: [], L2: ["changed in GeoLens since the last run"]}
+    for action in migrate.REFRESHERS:
+        monkeypatch.setitem(
+            migrate.REFRESHERS, action, lambda ctx, item, entry: reasons[item["id"]]
+        )
+    _write_state(
+        tmp_path,
+        {
+            item: {"status": "done", "dataset_ids": [_created_id(item)]}
+            for item in reasons
+        },
+    )
+    path = tmp_path / "arcgis-migration-plan.json"
+    path.write_text(json.dumps(_plan([_item(L1), _item(L2)])))
+
+    result = runner.invoke(app, ["arcgis", "migrate", str(path)])
+
+    assert result.exit_code == 1
+    assert "Brought 1 migrated item(s) up to date." in result.output
+    assert f"{L2} is not up to date" in result.output
 
 
 def _migrated(dataset_id: str, item_id: str, kind: str = "service") -> dict:
@@ -721,6 +764,33 @@ def test_an_unusable_owner_stops_the_run_before_any_import(
     assert handled == []
     assert all(s.method == "GET" for s in geolens.seen)
     assert not (tmp_path / "arcgis-migration-state.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("inventory_email", "named"),
+    [("agol_alice@example.org", True), ("someone@else.org", False), (None, False)],
+    ids=["same-email", "other-email", "no-email"],
+)
+def test_an_empty_owner_map_entry_names_the_account_with_the_same_username_and_email(
+    runner, tmp_path, geolens, handled, monkeypatch, inventory_email, named
+):
+    _users(
+        geolens, _user("00000000-0000-0000-0000-0000000000b1", "agol_alice", ["editor"])
+    )
+    row = {"owner": "agol_alice", "owner_email": inventory_email}
+    monkeypatch.setattr(migrate, "_inventory_rows", lambda *args: ({L1: row}, None, {}))
+
+    result, _ = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], owner_map={"agol_alice": ""}),
+        "--dry-run",
+    )
+
+    assert result.exit_code == 2
+    assert "has no GeoLens owner in owner_map" in result.output
+    assert ('\\"agol_alice\\": \\"agol_alice\\"' in result.output) is named
+    assert handled == []
 
 
 def test_unmapped_owner_takes_items_whose_owner_cannot_hold_them(
@@ -1867,6 +1937,29 @@ def test_a_state_file_that_is_not_utf8_is_a_usage_error(runner, tmp_path, geolen
     (tmp_path / "arcgis-migration-state.json").write_bytes(b"\xff\xfe\x00garbage")
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
     assert result.exit_code == 2 and "not UTF-8 text" in result.output
+
+
+@pytest.mark.parametrize(
+    ("version", "says"),
+    [("99", "written by a newer geolens-cli"), ("x", "unknown schema_version")],
+)
+def test_a_state_file_from_a_newer_cli_says_to_upgrade(
+    runner, tmp_path, geolens, handled, version, says
+):
+    (tmp_path / "arcgis-migration-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": version,
+                "portal_url": PORTAL,
+                "geolens_instance": GEOLENS_INSTANCE,
+                "items": {},
+            }
+        )
+    )
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
+    assert result.exit_code == 2
+    assert says in result.output
+    assert handled == []
 
 
 def test_no_configured_instance_stays_a_usage_error(

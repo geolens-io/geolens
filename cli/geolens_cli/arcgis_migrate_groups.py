@@ -30,15 +30,23 @@ that owner public.
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, MigrationState
 
 RESTRICTED = "restricted"
+NOT_A_USER = " is not a GeoLens user yet"
+# What a rerun did to an item's groups, and how the output and report say it.
+SHARING_LABELS = {
+    "shared": "shared with",
+    "removed": "removed, as the plan no longer names them:",
+    "left": "still on it but not in the plan; check by hand:",
+}
+SharingKind = Literal["shared", "removed", "left"]
 MAX_NAME = 255
 GROUP_PAGE = 200
 # The most users one add-members request accepts.
@@ -61,6 +69,11 @@ class Sharing:
     restrict_public: bool = False
     # GeoLens user ids holding the admin role.
     admins: frozenset[str] = frozenset()
+    # GeoLens group id -> name, for the sharing changes a rerun reports.
+    names: dict[str, str] = field(default_factory=dict)
+    # Item id -> "shared" | "removed" | "left" -> the GeoLens group names this
+    # run shared it with, took off it, or found on it and didn't touch.
+    changes: dict[str, dict[str, set[str]]] = field(default_factory=dict)
 
     def target(
         self, item: Mapping[str, Any], owner_id: str | None
@@ -222,6 +235,18 @@ class GroupPlan:
     failures: list[str] = field(default_factory=list)
     # ArcGIS group id -> the GeoLens users this run removed from its group.
     removed: dict[str, list[str]] = field(default_factory=dict)
+    # Shared with ``Sharing.changes``, which the run's sharing fills in.
+    item_sharing: dict[str, dict[str, set[str]]] = field(default_factory=dict)
+
+    def sharing_rows(self) -> list[dict[str, Any]]:
+        """One row per item whose groups this run changed or found left over."""
+        return [
+            {
+                "item": item_id,
+                **{k: sorted(changes.get(k, ())) for k in SHARING_LABELS},
+            }
+            for item_id, changes in sorted(self.item_sharing.items())
+        ]
 
 
 @dataclass
@@ -253,7 +278,7 @@ def _resolve_member(
     except UsageError as exc:
         return None, str(exc)
     if user is None:
-        return None, f"{name} is not a GeoLens user yet"
+        return None, f"{name}{NOT_A_USER}"
     known = emails.get(username)
     if not mapped and known and (user.email or "").lower() != known.lower():
         return None, (
@@ -596,6 +621,48 @@ def _changes(
     return new, gone
 
 
+def _log(ctx: MigrationContext, item_id: str, kind: SharingKind, ids: set[str]) -> None:
+    sharing = ctx.sharing
+    if sharing is not None and ids:
+        sharing.changes.setdefault(item_id, {}).setdefault(kind, set()).update(
+            sharing.names.get(g, g) for g in ids
+        )
+
+
+def _leftover(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    object_id: str,
+    read: Callable[[], set[str] | None],
+) -> None:
+    """Report, once, the groups the object still has that the item no longer
+    names and this command can't tell it added: a state file from before
+    version 4 records every share but not which ones were its writes. *read*
+    returns the object's groups now, or None when GeoLens didn't list them."""
+    target = item["target"]
+    if target.get("groups") is None:
+        return
+    kept = set(entry.kept.get(object_id) or [])
+    left = (
+        set(entry.groups.get(object_id) or [])
+        - set(entry.granted.get(object_id) or [])
+        - set(target["geolens_groups"] or [])
+        - kept
+    )
+    if not left:
+        return
+    current = read()
+    if current is None:
+        return
+    # A group no longer on the object stays eligible, so a share restored
+    # later is still reported.
+    still_there = left & current
+    entry.kept[object_id] = sorted(kept | still_there)
+    ctx.save()
+    _log(ctx, item["id"], "left", still_there)
+
+
 def pending_sharing(item: Mapping[str, Any], entry: ItemState) -> list[str]:
     """Why a rerun that didn't share the item leaves its groups behind the
     plan: the groups each of its objects would gain or lose."""
@@ -649,6 +716,15 @@ def share(
         return []
     try:
         for dataset_id in entry.dataset_ids:
+            _leftover(
+                ctx,
+                item,
+                entry,
+                dataset_id,
+                lambda dataset_id=dataset_id: _dataset_groups(
+                    get_dataset(ctx, dataset_id)
+                ),
+            )
             new, gone = _changes(target, entry, dataset_id)
             if not new and not gone and not entry.granted.get(dataset_id):
                 continue
@@ -698,11 +774,15 @@ def share(
                 )
                 if baseline:
                     _record_share(ctx, entry, dataset_id, before)
+                if not with_map:
+                    _log(ctx, item["id"], "shared", groups - current)
+                    _log(ctx, item["id"], "removed", current - groups)
             _shared(entry, dataset_id, new, gone, added=new - current)
             ctx.save()
         map_id = entry.map_id
         if not map_id:
             return []
+        _leftover(ctx, item, entry, map_id, lambda: _map_groups(ctx, map_id))
         new, gone = _changes(target, entry, map_id)
         if with_map:
             if new:
@@ -710,7 +790,7 @@ def share(
                 _shared(entry, map_id, new, set(), added=added)
                 ctx.save()
             return []
-        return _merge_map(ctx, target, entry, map_id, new, gone)
+        return _merge_map(ctx, item["id"], target, entry, map_id, new, gone)
     except GeoLensError as exc:
         raise ItemFailed(f"sharing it with its GeoLens groups failed, {exc}") from None
 
@@ -748,8 +828,22 @@ def _shared(
             record.pop(object_id, None)
 
 
+def _listed_groups(found: Any) -> set[str] | None:
+    """The groups a read map lists, or None when GeoLens didn't list them."""
+    if isinstance(getattr(found, "groups", None), list):
+        return _dataset_groups(found)
+    return None
+
+
+def _map_groups(ctx: MigrationContext, map_id: str) -> set[str] | None:
+    from .arcgis_migrate_webmaps import get_map
+
+    return _listed_groups(get_map(ctx.geolens, map_id))
+
+
 def _merge_map(
     ctx: MigrationContext,
+    item_id: str,
     target: Mapping[str, Any],
     entry: ItemState,
     map_id: str,
@@ -763,7 +857,7 @@ def _merge_map(
     from .arcgis_migrate_webmaps import get_map, map_state, map_visibility
 
     found = get_map(ctx.geolens, map_id)
-    if not isinstance(getattr(found, "groups", None), list):
+    if _listed_groups(found) is None:
         # An empty baseline would drop the groups shared in GeoLens.
         if not (new or gone):
             return []
@@ -798,6 +892,8 @@ def _merge_map(
                     "its GeoLens map changed in GeoLens while its groups were "
                     "read, so they were left as they are; share it by hand"
                 ]
+            _log(ctx, item_id, "shared", added)
+            _log(ctx, item_id, "removed", _dataset_groups(found) & gone)
             after = get_map(ctx.geolens, map_id)
             # A grant change moves the map's timestamp only when it flips the
             # map between private and restricted; any other move is someone

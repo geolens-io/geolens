@@ -12,19 +12,29 @@ passes through the redactor. The only host contacted is the plan's portal.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
+import typer
+
 from . import arcgis_report as _report
-from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
+from ._sdk_helpers import EXIT_NETWORK
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    ItemResult,
+    MigrationContext,
+    StopRun,
+)
 from .arcgis_migrate_state import (
     DONE,
     EXISTS,
@@ -410,11 +420,44 @@ def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> set
     return saved
 
 
-def _map_link(ctx: MigrationContext, item_id: str) -> str:
+def _web_app(ctx: MigrationContext) -> str:
+    """The configured PUBLIC_APP_URL, which a split-origin install serves the
+    web app from, else the instance URL without /api."""
+    if ctx.web_app is None:
+        from geolens.api.admin import get_tile_config_settings_tile_config_get as tiles
+
+        try:
+            configured = ctx.geolens.call(tiles.sync_detailed).public_app_url
+        except GeoLensError:
+            configured = None
+        except typer.Exit as exc:
+            # How the SDK call reports a timeout or network failure; not
+            # cached, so the next story asks again.
+            if exc.exit_code != EXIT_NETWORK:
+                raise
+            return ctx.web_origin
+        if isinstance(configured, str) and configured.startswith(
+            ("https://", "http://")
+        ):
+            ctx.web_app = configured.rstrip("/")
+        else:
+            ctx.web_app = ctx.web_origin
+    return ctx.web_app
+
+
+def _map_link(
+    ctx: MigrationContext, item_id: str, web_app: Callable[[], str] | None = None
+) -> str:
     migrated = ctx.items.get(item_id)
     if migrated is not None and migrated.map_id:
-        return f"{ctx.web_origin}/maps/{migrated.map_id}"
+        return f"{(web_app or (lambda: _web_app(ctx)))()}/maps/{migrated.map_id}"
     return f"{ctx.portal_root}/home/item.html?id={item_id}"
+
+
+def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
+    """Map links for one story, which asks for the app URL at most once."""
+    web_app = functools.cache(lambda: _web_app(ctx))
+    return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
 def _story(
@@ -427,8 +470,7 @@ def _story(
     if not isinstance(data, dict):
         return False
 
-    def link(item_id: str) -> str:
-        return _map_link(ctx, item_id)
+    link = _story_links(ctx)
 
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:
