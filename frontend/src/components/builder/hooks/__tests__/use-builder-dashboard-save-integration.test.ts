@@ -170,6 +170,28 @@ describe('Builder dashboard edits across a save', () => {
     expect(resent.widgets[0].title).toBe('Later');
   });
 
+  it('takes another editor\'s dashboard over an edit that was put back, and never sends the old one', async () => {
+    const { toast } = await import('sonner');
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
+      initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA]) },
+    });
+    act(() => result.current.handleDashboardChange({ ...result.current.dashboard, panel: 'bottom' }));
+    act(() => result.current.handleDashboardChange({ ...result.current.dashboard, panel: 'right' }));
+    expect(result.current.dashboardEdited).toBe(false);
+
+    // Another editor added a widget.
+    rerender({ mapData: mapWith([layerA, layerB], 'right', [onA, onB]) });
+    expect(result.current.dashboard.widgets.map((w) => w.id)).toEqual([onA.id, onB.id]);
+    expect(toast.warning).not.toHaveBeenCalled();
+
+    act(() => result.current.handlePaintChange(layerA.id, { 'fill-color': '#123456' }));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data).not.toHaveProperty('dashboard_config');
+  });
+
   it('keeps the dashboard edit when the layers saved and the dashboard did not', async () => {
     const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
       initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA, onB]) },

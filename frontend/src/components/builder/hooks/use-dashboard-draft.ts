@@ -12,8 +12,10 @@ const SENT_DRAFTS_KEPT = 5;
  * When the saved dashboard changes, an edit it already contains is done and
  * clears; any other edit stays and is now measured against the new saved
  * dashboard. That keeps an edit made while a save was in flight, and the
- * whole edit when a save stores only the layers. A change that came from
- * neither this session's saves nor its layer edits calls `onConflict`.
+ * whole edit when a save stores only the layers. An edit that had been put
+ * back to the old saved dashboard gives way to the new one. A change that
+ * came from neither this session's saves nor its layer edits, under a real
+ * edit, calls `onConflict`.
  */
 export function useDashboardDraft(
   saved: DashboardConfig | null | undefined,
@@ -57,10 +59,14 @@ export function useDashboardDraft(
       ...known,
       widgets: known.widgets.filter((widget) => !widgetLayerGone(widget, layers ?? [])),
     });
-    const expected = [before.savedDraft, ...sentRef.current].some(
-      (known) => !dashboardChanged(onLayers(known), savedDraft),
-    );
-    if (!expected) onConflictRef.current();
+    const ourSave = sentRef.current.some((sent) => !dashboardChanged(onLayers(sent), savedDraft));
+    // An edit put back to the old saved dashboard is no edit: take the new
+    // one, unless it is our own save and the edit was put back after sending.
+    if (!ourSave && !dashboardChanged(draft, before.savedDraft)) {
+      setEdit(null);
+      return;
+    }
+    if (!ourSave && dashboardChanged(onLayers(before.savedDraft), savedDraft)) onConflictRef.current();
   }, [mapId, savedDraft, layers]);
 
   const setDashboard = useCallback(

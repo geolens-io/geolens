@@ -86,6 +86,20 @@ describe('useDashboardDraft', () => {
     expect(onConflict).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an edit put back after sending once that save comes back', () => {
+    const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
+    act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
+    act(() => result.current.markSent(result.current.dashboard));
+    // Put back while the save was in flight.
+    act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'right' }));
+
+    rerender({ config: saved('bottom', [first]), mapId: 'map-1', layerIds: both });
+
+    expect(result.current.dashboard.panel).toBe('right');
+    expect(result.current.dashboardEdited).toBe(true);
+    expect(onConflict).not.toHaveBeenCalled();
+  });
+
   it('counts an edit put back to the saved dashboard as unedited', () => {
     const { result } = renderDraft(saved('right', [first]));
     act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
