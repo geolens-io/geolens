@@ -947,7 +947,8 @@ export function AttributeTable({
       </AlertDialog>
 
       {/* Pagination */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      {/* A floating launcher publishes the width it covers, so the buttons stop short of it. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pe-[var(--floating-dock-reach,0px)] text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {!renderHeader && countNode}
           {!renderHeader && (

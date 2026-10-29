@@ -48,16 +48,29 @@ beforeEach(() => {
 describe('floating dock inset', () => {
   const readInset = () => document.documentElement.style.getPropertyValue('--floating-dock-inset');
 
+  const readReach = () => document.documentElement.style.getPropertyValue('--floating-dock-reach');
+
   it('is set only while the launcher shows', async () => {
     setAvailable(true);
     const { unmount } = renderPanel();
     expect(readInset()).toBe('5.5rem');
+    expect(readReach()).toBe('12rem');
 
     await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
     expect(readInset()).toBe('');
+    expect(readReach()).toBe('');
 
     unmount();
     expect(readInset()).toBe('');
+    expect(readReach()).toBe('');
+  });
+
+  it('reserves the measured width of the launcher', () => {
+    setAvailable(true);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 176 } as DOMRect);
+    renderPanel();
+    expect(readReach()).toBe('calc(176px + 4.5rem)');
+    spy.mockRestore();
   });
 
   it('reserves the lifted launcher position above the pending-edits bar', () => {
