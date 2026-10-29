@@ -67,7 +67,7 @@ from app.core.db import release_connection
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
-from app.processing.tiles.admission import tile_render_slot
+from app.processing.tiles.admission import raster_render_slot, tile_render_slot
 from app.processing.tiles import cluster_filter as cluster_filters
 from app.processing.tiles.cache_key import (
     generation_table_key as _generation_table_key,
@@ -214,6 +214,7 @@ _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=10.0),
     follow_redirects=True,
 )
+_NOT_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 
 # In-memory TTL cache for dataset metadata: one DB read per TTL, not per tile.
 _DATASET_CACHE_TTL = 60  # seconds
@@ -562,7 +563,8 @@ async def _load_band_statistics(
     )
     bands: list[dict] | None = None
     try:
-        resp = await _titiler_client.get(stats_url)
+        async with raster_render_slot():
+            resp = await _titiler_client.get(stats_url)
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, dict) and data:
@@ -1126,6 +1128,7 @@ async def raster_auth_check(
                 "context"
             ),
         },
+        429: RATE_LIMIT_RESPONSE,
     },
 )
 @limiter.exempt
@@ -1201,9 +1204,10 @@ async def raster_tile_proxy(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
@@ -1379,12 +1383,15 @@ async def raster_tile_proxy(
     resp: httpx.Response | None = None
     for attempt in range(max_retries + 1):
         try:
-            resp = await _titiler_client.get(titiler_url)
+            async with raster_render_slot():
+                resp = await _titiler_client.get(titiler_url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            if attempt == max_retries:
+            # Once the request is sent, Titiler keeps rendering after we give
+            # up, so only a failure that never reached it is retried.
+            if attempt == max_retries or not isinstance(exc, _NOT_SENT_ERRORS):
                 # Lets operators tell "titiler down" from normal activity.
                 logger.warning(
-                    "Raster tile proxy exhausted retries",
+                    "Raster tile proxy could not get a tile from Titiler",
                     dataset_id=str(dataset_id),
                     z=z,
                     x=x,
