@@ -14,7 +14,11 @@ and releases use semantic versioning.
   leaving the page no longer asks for confirmation. (#3465)
 - Saving a Builder map again after a save that stored its layers but failed
   on the map's other settings no longer warns that layers changed in another
-  session when you had deleted a layer group. (#TBD)
+  session when you had deleted a layer group. (#3474)
+- A layer added or duplicated in the Builder while a save was still running
+  is no longer added a second time by the next save, and a layer deleted
+  during a save no longer makes the next save warn about changes from another
+  session. (#3474)
 
 ## [1.28.0] - 2026-10-29
 
