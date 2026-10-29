@@ -30,6 +30,8 @@ requirement instead of quietly reintroducing the bypass.
 
 import re
 
+import pytest
+
 from tests.repo_paths import repo_root
 
 NGINX_CONF = repo_root(__file__) / "frontend" / "nginx.conf"
@@ -209,4 +211,19 @@ def test_the_nested_location_restates_what_nginx_does_not_inherit():
             f"{inherited!r} is restated here. It is inherited from location "
             "/api/, and declaring add_header or proxy_hide_header at this level "
             "disables inheritance of the whole set rather than adding to it."
+        )
+
+
+@pytest.mark.parametrize("path", [API_SPELLING, EDGE_SPELLING])
+def test_both_spellings_answer_a_rate_limit_with_a_cors_visible_429(path):
+    """nginx's default limit_req status is 503, which map clients read as an outage."""
+    selected = _select(_tree(), path)
+    assert selected is not None, path
+    for directive in (
+        "limit_req_status 429;",
+        "error_page 429 = @tile_rate_limited;",
+    ):
+        assert directive in selected.own, (
+            f"{path} is served by `location{selected.header}`, which lacks "
+            f"{directive!r}, so its rate limit answers 503."
         )
