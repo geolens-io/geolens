@@ -827,11 +827,6 @@ def _migrate_one(
     pending: str | None = None,
 ) -> None:
     entry = state.start(item["id"])
-    if item["action"] != _plan.EXPORT_ONLY:
-        # An item exported earlier and imported now is no longer an export,
-        # and its export's refresh failures no longer apply.
-        entry.export = None
-        entry.stale = []
     item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
     try:
         result = handler(ctx, item, entry)
@@ -867,6 +862,12 @@ def _migrate_one(
     except typer.Exit:
         state.finish(item["id"], FAILED, "stopped by a failed request")
         raise
+    if item["action"] != _plan.EXPORT_ONLY and result.status in FINISHED:
+        # An item exported earlier and imported now is no longer an export,
+        # and its export's refresh failures no longer apply. A skipped or
+        # failed import keeps the bundle's record.
+        entry.export = None
+        entry.stale = []
     state.finish(item["id"], result.status)
 
 

@@ -217,6 +217,34 @@ def test_a_finished_item_whose_action_became_an_import_is_imported(
     assert len(files.commits) == 1
 
 
+def test_a_skipped_import_of_an_exported_item_keeps_its_export_record(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "export_only"
+    plan_file.write_text(json.dumps(plan))
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
+    exported = _state(plan_file)["items"][D3]["export"]
+    assert exported
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "import_file"
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /settings/all/"] = _limit_settings(1)
+    portal.routes[item_data_path(D3)] = b"x" * (2 * 1024 * 1024)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "skipped" and not files.uploads
+    assert entry["export"] == exported
+
+
 def test_a_private_file_is_downloaded_with_the_token(runner, tmp_path, geolens, portal):
     FakeFiles(geolens)
     plan_file = _plan(tmp_path, public=False)
