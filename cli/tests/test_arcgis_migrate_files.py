@@ -182,6 +182,69 @@ def test_a_public_csv_is_downloaded_uploaded_and_committed(
     }
 
 
+@pytest.mark.parametrize("earlier", ["export_only", "skip"])
+def test_a_finished_item_whose_action_became_an_import_is_imported(
+    runner, tmp_path, geolens, portal, earlier
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+
+    def set_action(action: str) -> None:
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] == D3:
+                item["action"] = action
+        plan_file.write_text(json.dumps(plan))
+
+    set_action(earlier)
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
+    assert not files.uploads
+    state_file = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["items"][D3]["stale"] = ["export failed: HTTP 500"]
+    state_file.write_text(json.dumps(state))
+    set_action("import_file")
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    [job] = files.commits
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["dataset_ids"] == [dataset_id(job)]
+    assert entry["export"] is None and entry["stale"] == []
+
+    _migrate(runner, plan_file, "--only", D3)
+    assert len(files.commits) == 1
+
+
+def test_a_skipped_import_of_an_exported_item_keeps_its_export_record(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "export_only"
+    plan_file.write_text(json.dumps(plan))
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
+    exported = _state(plan_file)["items"][D3]["export"]
+    assert exported
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "import_file"
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /settings/all/"] = _limit_settings(1)
+    portal.routes[item_data_path(D3)] = b"x" * (2 * 1024 * 1024)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "skipped" and not files.uploads
+    assert entry["export"] == exported
+
+
 def test_a_private_file_is_downloaded_with_the_token(runner, tmp_path, geolens, portal):
     FakeFiles(geolens)
     plan_file = _plan(tmp_path, public=False)

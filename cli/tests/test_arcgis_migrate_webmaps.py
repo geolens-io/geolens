@@ -1025,3 +1025,37 @@ def test_a_rerun_shares_a_migrated_map_with_a_group_the_portal_added(
     assert held["visibility"] == "restricted"
     assert [g["id"] for g in held["groups"]] == ids
     assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: ids}
+
+
+def test_only_a_web_map_imports_an_exported_service_whose_action_became_an_import(
+    runner, plan_file, geolens
+):
+    def set_action(action: str) -> None:
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] in (A1, A2):
+                item["action"] = action
+        plan_file.write_text(json.dumps(plan))
+
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    set_action("export_only")
+    token = secrets.token_urlsafe(16)
+    exported, _ = _migrate(
+        runner, plan_file, "--only", A1, "--only", A2, "--token", token
+    )
+    assert exported.exit_code == 0, exported.output
+    set_action("import_layers")
+    seen = len(geolens.seen)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    urls = [s.url for s in geolens.seen[seen:]]
+    probe = next(n for n, url in enumerate(urls) if url.endswith("/services/probe/"))
+    assert probe < next(n for n, url in enumerate(urls) if url.endswith(IMPORT[5:]))
+    [request] = [s.json() for s in _sent(geolens)]
+    assert request["dataset_matches"] == {
+        "parcels_0": dataset_id("Parcels"),
+        "view_0": dataset_id("Parcels"),
+    }
