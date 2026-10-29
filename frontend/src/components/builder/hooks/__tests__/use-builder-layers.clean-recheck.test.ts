@@ -47,15 +47,23 @@ describe('useBuilderLayers — clean-state recheck', () => {
 
   it('is clean again once a dashboard edit is put back', () => {
     const layer = makeBuilderLayer();
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator' as const,
+      v: 1 as const,
+      layer_id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+      scope: 'layer' as const,
+      config: { stat: 'count' as const, column: null },
+    };
     const { result } = render({
       ...makeBuilderMap([layer]),
-      dashboard_config: { version: 1, panel: 'right', widgets: [] },
+      dashboard_config: { version: 1, panel: 'right', widgets: [widget] },
     });
 
-    act(() => result.current.handleDashboardChange({ panel: 'bottom', widgets: [] }));
+    act(() => result.current.handleDashboardChange({ panel: 'bottom', widgets: [widget] }));
     expect(result.current.hasUnsavedChanges).toBe(true);
 
-    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [] }));
+    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [widget] }));
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
@@ -63,9 +71,18 @@ describe('useBuilderLayers — clean-state recheck', () => {
     const layer = makeBuilderLayer();
     const { result } = render(makeBuilderMap([layer]));
 
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+
     act(() => {
       result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
-      result.current.handleDashboardChange({ panel: 'bottom', widgets: [] });
+      result.current.handleDashboardChange({ panel: 'right', widgets: [widget] });
     });
     act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [] }));
 

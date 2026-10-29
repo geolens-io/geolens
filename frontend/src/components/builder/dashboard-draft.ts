@@ -35,6 +35,8 @@ function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
 
 /** Whether saving `draft` would change the dashboard saved as `saved`. */
 export function dashboardChanged(draft: DashboardDraft, saved: DashboardDraft): boolean {
+  // A dashboard with no widgets saves as none, which reads back as a right panel.
+  if (draft.widgets.length === 0 && saved.widgets.length === 0) return false;
   return (
     draft.panel !== saved.panel ||
     !deepEqual(draft.widgets.map(toSaved), saved.widgets.map(toSaved))

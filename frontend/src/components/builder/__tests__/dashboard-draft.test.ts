@@ -84,6 +84,8 @@ describe('dashboard drafts', () => {
     expect(dashboardChanged({ ...saved, widgets: [{ ...indicator({}), title: ' Parcels ' }] }, saved)).toBe(false);
     expect(dashboardChanged({ ...saved, widgets: [{ ...indicator({}), title: 'Lots' }] }, saved)).toBe(true);
     expect(dashboardChanged({ panel: 'right', widgets: [] }, { panel: 'right', widgets: [] })).toBe(false);
+    // No widgets saves as no dashboard, which reads back as a right panel.
+    expect(dashboardChanged({ panel: 'bottom', widgets: [] }, { panel: 'right', widgets: [] })).toBe(false);
   });
 
   it('save without the widgets whose layer left the map, and as null when none are left', () => {

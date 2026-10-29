@@ -195,6 +195,32 @@ describe('Builder dashboard edits across a save', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data).not.toHaveProperty('dashboard_config');
   });
 
+  it('settles a bottom dashboard emptied and saved, which the server stores as none', async () => {
+    const { toast } = await import('sonner');
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
+      initialProps: { mapData: mapWith([layerA], 'bottom', [onA]) },
+    });
+    act(() => result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [] }));
+
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toBeNull();
+    // The refetch: no dashboard at all.
+    rerender({ mapData: { ...mapWith([layerA], 'right', []), dashboard_config: null } as MapResponse });
+
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(result.current.dashboardEdited).toBe(false);
+
+    act(() => result.current.handlePaintChange(layerA.id, { 'fill-color': '#123456' }));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.calls[1][0].data).not.toHaveProperty('dashboard_config');
+  });
+
   it('keeps the dashboard edit when the layers saved and the dashboard did not', async () => {
     const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
       initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA, onB]) },
