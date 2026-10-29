@@ -1205,3 +1205,44 @@ def test_each_under_sharing_reason_is_named_with_its_items(runner, inventory_fil
     text = " ".join(result.output.split())
     assert f"group sharing wasn't read: {A1}" in text
     assert f"which doesn't see private groups it isn't in: {A2}" in text
+
+
+def test_id_lists_say_how_many_more_there_are():
+    ids = [f"id{n}" for n in range(8)]
+
+    assert plan_mod._id_list(ids[:5]) == "id0, id1, id2, id3, id4"
+    assert plan_mod._id_list(ids) == "id0, id1, id2, id3, id4, and 3 more"
+
+
+def test_a_folderless_merge_is_one_warning_not_one_per_item(runner, inventory_file):
+    path = inventory_file.parent / "arcgis-migration-plan.json"
+    _plan_cli(runner, str(inventory_file))
+    plan = json.loads(path.read_text())
+    for item in plan["items"]:
+        item["target"]["collections"] = ["Hand edited"]
+    path.write_text(json.dumps(_as_v1(plan)))
+
+    result = _plan_cli(runner, str(inventory_file))
+
+    out = " ".join(result.output.split())
+    assert result.exit_code == 0, out
+    assert out.count("target.collections") == 1
+    assert f"{len(plan['items'])} item(s) keep the plan's target.collections" in out
+
+
+def test_groups_whose_members_were_not_read_are_named(runner, inventory_file):
+    report = inventory_report()
+    report["groups"] = [
+        {"id": "g1", "title": "Planning", "access": "org", "members": []},
+    ]
+    report["groups"][0]["members_unread"] = "the group hides its members"
+    inventory_file.write_text(json.dumps(report))
+
+    result = _plan_cli(runner, str(inventory_file))
+
+    assert "1 group(s) could not have their members read" in " ".join(
+        result.output.split()
+    )
+    assert "Planning" in result.output
+    as_json = _plan_cli(runner, str(inventory_file), json_mode=True)
+    assert json.loads(as_json.output)["groups_members_unread"] == ["g1"]

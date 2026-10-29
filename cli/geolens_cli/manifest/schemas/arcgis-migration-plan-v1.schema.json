@@ -57,7 +57,7 @@
       "additionalProperties": {"type": "string"}
     },
     "group_map": {
-      "description": "ArcGIS group id to the collection its items join and the visibility that collection gets.",
+      "description": "ArcGIS group id to the group's title (collection) and a visibility.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -110,12 +110,12 @@
             },
             "visibility": {"enum": ["private", "internal", "public"]},
             "collections": {
-              "description": "Collections the item joins: its folder, plus any added by hand. Group collections come from groups and group_map.",
+              "description": "Collections the item joins: its folder, plus any added by hand. ArcGIS groups become GeoLens groups and visibility, not collections.",
               "type": "array",
               "items": {"type": "string"}
             },
             "groups": {
-              "description": "ArcGIS group ids the item is shared with; the executor adds each group's group_map collection. null means group sharing was not read, so the item's group collections are unknown.",
+              "description": "ArcGIS group ids the item is shared with; the executor shares a restricted item with each group's GeoLens group (group_map). null means group sharing was not read, so the groups the item is shared with are unknown.",
               "type": ["array", "null"],
               "items": {"type": "string"}
             },

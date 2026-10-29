@@ -46,6 +46,17 @@ _NOT_JSON = object()
 # A portal answers these for an item that has no data of its own.
 _NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
+# The extension of an uploaded file whose portal item names none; types that
+# can hold several formats (Image, the Office types) are left to .bin.
+_TYPE_EXTENSIONS = {
+    "CSV": ".csv",
+    "PDF": ".pdf",
+    "KML": ".kml",
+    "Shapefile": ".zip",
+    "File Geodatabase": ".zip",
+    "Code Sample": ".zip",
+}
+_EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,8}")
 _STORY = "Web Mapping Application"
 _NO_EQUIVALENT = "No equivalent in GeoLens."
 _APP_REBUILD = (
@@ -54,15 +65,19 @@ _APP_REBUILD = (
 )
 NOTES: dict[str, str] = {
     "StoryMap": (
-        "GeoLens has no narrative format yet. Maps carry over; the story text "
-        "and images are in story.md for use in a site or docs."
+        "Maps carry over. GeoLens stories are API-only for now (chapters with "
+        "map scenes and Markdown blocks, draft and publish, no web editor yet); "
+        "the story text and images are in story.md to recreate through the API "
+        "or reuse in a site or docs."
     ),
     _STORY: _APP_REBUILD,
     "Web Experience": _APP_REBUILD,
     "Dashboard": (
-        "Maps carry over. Indicators, charts, lists and filters have no GeoLens "
-        "equivalent; the data they summarize is in the imported datasets and "
-        "queryable through the API, OGC Features and the MCP server."
+        "Maps carry over. A GeoLens map can hold a dashboard_config with "
+        "indicator and bar chart widgets (API-only for now, no viewer panel "
+        "yet); lists, filters and other widgets have no equivalent. The data "
+        "they summarize is in the imported datasets and queryable through the "
+        "API, OGC Features and the MCP server."
     ),
     "Form": (
         "Results import as a dataset. The form has no equivalent; it is saved "
@@ -106,9 +121,13 @@ def item_replacement(
     item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
 ) -> str:
     """The note for *item*; a source file superseded by a hosted layer says so,
-    and says when that layer hasn't migrated, as the follow-ups do."""
+    and says when that layer hasn't migrated, as the follow-ups do. An item
+    whose action was changed from its recorded default is no longer the
+    layer's source file, so it gets its type's note; a plan with no recorded
+    defaults counts as unchanged."""
     layer = item.get("superseded_by")
-    if not layer:
+    default_action = (item.get("defaults") or {}).get("action", item["action"])
+    if not layer or item["action"] != default_action:
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)
@@ -272,7 +291,28 @@ def _looks_like_json(path: Path) -> bool:
     return not head.strip(b"\x00 \t\r\n\xef\xbb\xbf\xff\xfe") and bool(head)
 
 
-def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) -> Any:
+def _raw_name(item: Mapping[str, Any], full: Mapping[str, Any]) -> str:
+    """``data`` plus the extension of the portal's file name, else of the item
+    type, else ``.bin``. Only the extension is taken from the portal's name, so
+    it can't steer the path; ``.json`` is left out since that name is for
+    parsed data."""
+    name = full.get("name")
+    candidates = (
+        [PurePosixPath(name.replace("\\", "/")).suffix] if isinstance(name, str) else []
+    )
+    candidates.append(_TYPE_EXTENSIONS.get(item["type"], ""))
+    for suffix in candidates:
+        if _EXTENSION.fullmatch(suffix) and suffix.lower() != ".json":
+            return f"data{suffix.lower()}"
+    return "data.bin"
+
+
+def _save_data(
+    ctx: MigrationContext,
+    export: _Export,
+    item: Mapping[str, Any],
+    full: Mapping[str, Any],
+) -> Any:
     staged = export.download(f"content/items/{item['id']}/data", "data")
     if staged is None:
         return None
@@ -283,7 +323,7 @@ def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) 
         staged,
         "data",
         json_dest=folder / (name or "data.json"),
-        raw_dest=folder / (name or "data.bin"),
+        raw_dest=folder / (name or _raw_name(item, full)),
         required=bool(name and name.endswith(".ipynb")),
     )
 
@@ -600,7 +640,7 @@ def _export_into(
         else:
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
-        data = _save_data(ctx, export, item)
+        data = _save_data(ctx, export, item, full)
         saved = _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data, saved)
     swapped = not (export.failures and folder.exists())
