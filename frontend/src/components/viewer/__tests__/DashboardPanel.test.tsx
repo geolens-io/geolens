@@ -311,6 +311,16 @@ describe('DashboardPanel', () => {
     await waitFor(() => expect(screen.getByText('1,234').closest('.transition-opacity')).toHaveClass('opacity-50'));
   });
 
+  it('asks again once the dataset\'s contents change', async () => {
+    const props = { config: dashboard([countWidget]), map: null, mapId: 'map-1' };
+    const { rerender } = render(<DashboardPanel {...props} layers={[layer({ tile_version: 1 })]} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender(<DashboardPanel {...props} layers={[layer({ tile_version: 1 })]} />);
+    rerender(<DashboardPanel {...props} layers={[layer({ tile_version: 2 })]} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
   it('can start collapsed, as an embed asks, and still opens', async () => {
     const user = userEvent.setup();
     render(

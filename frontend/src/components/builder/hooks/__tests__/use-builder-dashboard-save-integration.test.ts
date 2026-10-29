@@ -75,7 +75,7 @@ function useCombinedBuilder(mapData: MapResponse) {
     dashboard: layers.dashboard,
     savedDashboard: layers.savedDashboard,
     dashboardEdited: layers.dashboardEdited,
-    onDashboardSent: layers.markDashboardSent,
+    onDashboardSave: layers.beginDashboardSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -161,6 +161,9 @@ describe('Builder dashboard edits across a save', () => {
 
     expect(result.current.dashboard.widgets[0].title).toBe('Later');
     expect(result.current.hasUnsavedChanges).toBe(true);
+    // The response was our own save, not another editor's change.
+    const { toast } = await import('sonner');
+    expect(toast.warning).not.toHaveBeenCalled();
 
     mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
     await act(async () => {

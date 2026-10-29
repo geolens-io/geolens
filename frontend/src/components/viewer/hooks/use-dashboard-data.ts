@@ -91,7 +91,7 @@ export function useWidgetAggregate({
   }, [definition, instance.config, filter, followsView, viewBbox]);
 
   const query = useQuery({
-    queryKey: queryKeys.dashboard.aggregate(layer.dataset_id, body, embedToken ?? ''),
+    queryKey: queryKeys.dashboard.aggregate(layer.dataset_id, layer.tile_version ?? null, body, embedToken ?? ''),
     queryFn: ({ signal }) => fetchAggregate(layer.dataset_id, body!, { embedToken, signal }),
     enabled: body !== null && (!followsView || viewBbox !== null),
     // A pan keeps the last numbers on screen until the new view's arrive.

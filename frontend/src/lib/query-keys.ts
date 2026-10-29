@@ -214,9 +214,11 @@ export const queryKeys = {
 
   dashboard: {
     // `auth` is the embed token, as in tileTokens.viewerBatch, so an aggregate
-    // one token authorized is never served to a viewer without it.
-    aggregate: (datasetId: string, body: AggregateRequest | null, auth: string) =>
-      ['dashboard-aggregate', datasetId, body, auth] as const,
+    // one token authorized is never served to a viewer without it. `version`
+    // is the dataset's tile version, so a refreshed dataset asks again.
+    aggregate: (datasetId: string, version: string | number | null, body: AggregateRequest | null, auth: string) =>
+      ['dashboard-aggregate', datasetId, version, body, auth] as const,
+    aggregatePrefix: (datasetId: string) => ['dashboard-aggregate', datasetId] as const,
   },
 
   tileTokens: {

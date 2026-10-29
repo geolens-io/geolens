@@ -41,7 +41,8 @@ describe('useDashboardDraft', () => {
     rerender({ config: saved('right', [first]), mapId: 'map-1', layerIds: both });
     expect(result.current.dashboard.panel).toBe('bottom');
 
-    act(() => result.current.markSent(result.current.dashboard));
+    const settle = result.current.beginSave(result.current.dashboard);
+    act(() => settle(true));
     rerender({ config: saved('bottom', [first]), mapId: 'map-1', layerIds: both });
     expect(result.current.dashboard.panel).toBe('bottom');
     expect(result.current.dashboardEdited).toBe(false);
@@ -52,7 +53,7 @@ describe('useDashboardDraft', () => {
     const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
     act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
     const sent = result.current.dashboard;
-    act(() => result.current.markSent(sent));
+    result.current.beginSave(sent);
     // Edited again before the save's response arrived.
     act(() => result.current.setDashboard({ ...sent, widgets: [first, second] }));
 
@@ -75,6 +76,41 @@ describe('useDashboardDraft', () => {
     expect(onConflict).not.toHaveBeenCalled();
   });
 
+  it('says so when another editor puts back a value from one of our earlier saves', () => {
+    const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
+    // Our first save stores the title "Ours".
+    act(() => result.current.setDashboard({ panel: 'right', widgets: [{ ...first, title: 'Ours' }] }));
+    const first_save = result.current.beginSave(result.current.dashboard);
+    act(() => first_save(true));
+    rerender({ config: saved('right', [{ ...first, title: 'Ours' }]), mapId: 'map-1', layerIds: both });
+    // A second save moves the panel.
+    act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
+    const second_save = result.current.beginSave(result.current.dashboard);
+    act(() => second_save(true));
+    rerender({ config: saved('bottom', [{ ...first, title: 'Ours' }]), mapId: 'map-1', layerIds: both });
+    expect(onConflict).not.toHaveBeenCalled();
+
+    // A local edit is open when another editor restores the first save's state.
+    act(() => result.current.setDashboard({ ...result.current.dashboard, widgets: [{ ...first, title: 'Mine' }] }));
+    rerender({ config: saved('right', [{ ...first, title: 'Ours' }]), mapId: 'map-1', layerIds: both });
+
+    expect(onConflict).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops counting a landed save as ours once its refetch has come back', () => {
+    const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
+    act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
+    const save = result.current.beginSave(result.current.dashboard);
+    act(() => save(true));
+    rerender({ config: saved('bottom', [first]), mapId: 'map-1', layerIds: both });
+    // Another editor moves it back, then to bottom again while a local edit is open.
+    rerender({ config: saved('right', [first]), mapId: 'map-1', layerIds: both });
+    act(() => result.current.setDashboard({ ...result.current.dashboard, widgets: [first, second] }));
+    rerender({ config: saved('bottom', [first]), mapId: 'map-1', layerIds: both });
+
+    expect(onConflict).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps local work and says so when another editor changes the dashboard', () => {
     const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
     act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
@@ -89,7 +125,7 @@ describe('useDashboardDraft', () => {
   it('keeps an edit put back after sending once that save comes back', () => {
     const { result, rerender, onConflict } = renderDraft(saved('right', [first]));
     act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'bottom' }));
-    act(() => result.current.markSent(result.current.dashboard));
+    result.current.beginSave(result.current.dashboard);
     // Put back while the save was in flight.
     act(() => result.current.setDashboard({ ...result.current.dashboard, panel: 'right' }));
 

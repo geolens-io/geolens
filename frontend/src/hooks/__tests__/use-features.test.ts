@@ -57,6 +57,32 @@ function invalidatedColumnCaches(spy: ReturnType<typeof spyInvalidate>, datasetI
   return { hasValues, hasStats };
 }
 
+describe('dashboard aggregates after a feature edit', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  function aggregatesInvalidated(spy: ReturnType<typeof spyInvalidate>) {
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] })?.queryKey);
+    return keys.some((key) => JSON.stringify(key) === JSON.stringify(queryKeys.dashboard.aggregatePrefix('ds-9')));
+  }
+
+  it('refetches the dataset\'s dashboard aggregates after an update', async () => {
+    const spy = spyInvalidate();
+    mockUpdateFeature.mockResolvedValueOnce({} as never);
+    const { result } = renderHook(() => useUpdateFeature());
+    await result.current.mutateAsync({ datasetId: 'ds-9', gid: 1, properties: { a: 2 } });
+    expect(aggregatesInvalidated(spy)).toBe(true);
+  });
+
+  it('refetches the dataset\'s dashboard aggregates after a delete', async () => {
+    const spy = spyInvalidate();
+    mockDeleteFeature.mockResolvedValueOnce(undefined as never);
+    const { result } = renderHook(() => useDeleteFeature());
+    await result.current.mutateAsync({ datasetId: 'ds-9', gid: 1 });
+    expect(aggregatesInvalidated(spy)).toBe(true);
+  });
+});
+
 describe('BUG-038: column-value/stats cache invalidation', () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());

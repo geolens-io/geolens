@@ -2,9 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
 import { dashboardChanged, toDashboardDraft, widgetLayerGone, type DashboardDraft } from '../dashboard-draft';
 
-// How many sent drafts are remembered; a few saves in quick succession are the most in flight at once.
-const SENT_DRAFTS_KEPT = 5;
-
 /**
  * The Builder's working copy of the map's dashboard: unsaved edits over the
  * saved dashboard.
@@ -27,11 +24,19 @@ export function useDashboardDraft(
   const [edit, setEdit] = useState<{ mapId?: string; draft: DashboardDraft } | null>(null);
   const edited = edit && edit.mapId === mapId ? edit.draft : null;
 
-  // What this session sent, so the save coming back isn't taken for someone
-  // else's change, even when another session's write lands during our save.
-  const sentRef = useRef<DashboardDraft[]>([]);
-  const markSent = useCallback((draft: DashboardDraft) => {
-    sentRef.current = [...sentRef.current.slice(1 - SENT_DRAFTS_KEPT), draft];
+  // This session's saves still in flight, and the last one that landed and
+  // whose refetch hasn't come back yet: only those can explain a change to
+  // the saved dashboard as our own. An older draft can't, since another
+  // editor could have put its values back.
+  const inFlightRef = useRef<DashboardDraft[]>([]);
+  const landedRef = useRef<DashboardDraft | null>(null);
+  /** Records a save of `draft`; call the result with whether the server stored it. */
+  const beginSave = useCallback((draft: DashboardDraft) => {
+    inFlightRef.current = [...inFlightRef.current, draft];
+    return (stored: boolean) => {
+      inFlightRef.current = inFlightRef.current.filter((sent) => sent !== draft);
+      if (stored) landedRef.current = draft;
+    };
   }, []);
 
   const previous = useRef({ mapId, savedDraft });
@@ -43,11 +48,14 @@ export function useDashboardDraft(
     const before = previous.current;
     previous.current = { mapId, savedDraft };
     if (before.mapId !== mapId) {
-      sentRef.current = [];
+      inFlightRef.current = [];
+      landedRef.current = null;
       setEdit(null);
       return;
     }
     if (!dashboardChanged(before.savedDraft, savedDraft)) return;
+    const ours = landedRef.current ? [...inFlightRef.current, landedRef.current] : inFlightRef.current;
+    landedRef.current = null;
     const draft = latestEdited.current;
     if (!draft) return;
     if (!dashboardChanged(draft, savedDraft)) {
@@ -59,7 +67,7 @@ export function useDashboardDraft(
       ...known,
       widgets: known.widgets.filter((widget) => !widgetLayerGone(widget, layers ?? [])),
     });
-    const ourSave = sentRef.current.some((sent) => !dashboardChanged(onLayers(sent), savedDraft));
+    const ourSave = ours.some((sent) => !dashboardChanged(onLayers(sent), savedDraft));
     // An edit put back to the old saved dashboard is no edit: take the new
     // one, unless it is our own save and the edit was put back after sending.
     if (!ourSave && !dashboardChanged(draft, before.savedDraft)) {
@@ -82,7 +90,7 @@ export function useDashboardDraft(
     dashboard: edited ?? savedDraft,
     savedDashboard: savedDraft,
     setDashboard,
-    markSent,
+    beginSave,
     dashboardEdited,
   };
 }

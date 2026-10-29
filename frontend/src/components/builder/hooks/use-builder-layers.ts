@@ -181,7 +181,7 @@ export function useBuilderLayers(
     () => toast.warning(t('toasts.dashboardChangedElsewhere'), { id: 'dashboard-changed-elsewhere' }),
     [t],
   );
-  const { dashboard, savedDashboard, setDashboard, markSent: markDashboardSent, dashboardEdited } =
+  const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
     useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, warnDashboardChanged);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1237,7 +1237,7 @@ export function useBuilderLayers(
     savedDashboard,
     dashboardEdited,
     handleDashboardChange,
-    markDashboardSent,
+    beginDashboardSave,
     localLayers,
     layersMapId,
     freshLayerId,

@@ -322,7 +322,7 @@ export function MapBuilderPage() {
     dashboard: layers.dashboard,
     savedDashboard: layers.savedDashboard,
     dashboardEdited: layers.dashboardEdited,
-    onDashboardSent: layers.markDashboardSent,
+    onDashboardSave: layers.beginDashboardSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,

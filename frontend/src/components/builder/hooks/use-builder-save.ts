@@ -938,8 +938,11 @@ interface SaveState {
   dashboard: DashboardDraft;
   savedDashboard: DashboardDraft;
   dashboardEdited: boolean;
-  /** Told what a save sends, so the saved dashboard coming back isn't taken for another editor's. */
-  onDashboardSent?: (draft: DashboardDraft) => void;
+  /**
+   * Told what a save sends, so the saved dashboard coming back isn't taken for
+   * another editor's; the returned callback hears whether the server stored it.
+   */
+  onDashboardSave?: (draft: DashboardDraft) => (stored: boolean) => void;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
@@ -1190,7 +1193,13 @@ export function useBuilderSave(state: SaveState) {
       layers: persistableLayers.map(toLayerInput),
     };
 
-    if (sendDashboard) state.onDashboardSent?.(dashboard);
+    const settleDashboard = sendDashboard ? state.onDashboardSave?.(dashboard) : undefined;
+    // Set once a PUT carrying the dashboard succeeds; every PUT below does.
+    let dashboardStored = false;
+    const putMap = async (data: MapUpdateRequest) => {
+      await updateMap.mutateAsync({ id, data });
+      dashboardStored = true;
+    };
     saveFence.begin(id);
     inFlightRegistrationsRef.current.add(registrations);
     try {
@@ -1204,7 +1213,7 @@ export function useBuilderSave(state: SaveState) {
       // PUT (see below). The failed-save toast prompts a retry.
       if (unsupported) {
         sentFullReplacement = true;
-        await updateMap.mutateAsync({ id, data: fullReplacementPayload });
+        await putMap(fullReplacementPayload);
       } else {
         if (hasDiff(diff)) {
           try {
@@ -1229,7 +1238,7 @@ export function useBuilderSave(state: SaveState) {
                 throw new StaleLayerDiffError();
               }
               commitLayerBaseline();
-              await updateMap.mutateAsync({ id, data: metadataPayload });
+              await putMap(metadataPayload);
               commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
               if (!editedDuringSave(state, sentPluginSet, camera)) {
@@ -1245,7 +1254,7 @@ export function useBuilderSave(state: SaveState) {
             // surfaced to the user rather than reported as a plain "Map saved",
             // so they double-check layer styling.
             sentFullReplacement = true;
-            await updateMap.mutateAsync({ id, data: fullReplacementPayload });
+            await putMap(fullReplacementPayload);
             commitSaved();
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
@@ -1259,7 +1268,7 @@ export function useBuilderSave(state: SaveState) {
             return;
           }
         }
-        await updateMap.mutateAsync({ id, data: metadataPayload });
+        await putMap(metadataPayload);
       }
 
       commitSaved();
@@ -1311,6 +1320,7 @@ export function useBuilderSave(state: SaveState) {
       }
       toast.error(t('toasts.saveFailed'));
     } finally {
+      settleDashboard?.(dashboardStored);
       inFlightRegistrationsRef.current.delete(registrations);
       saveFence.settle(id);
     }
