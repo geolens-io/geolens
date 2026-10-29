@@ -7,6 +7,7 @@ import os
 import secrets
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -701,6 +702,82 @@ def test_an_owner_not_in_geolens_yet_waits_and_is_handed_over_later(
     assert entry["owner_id"] == NEW and entry["owner_pending"] is None
 
 
+@pytest.mark.parametrize("raced", ["datasets", "maps"])
+def test_a_transfer_to_a_role_that_cant_own_it_asks_for_a_promotion(
+    runner, tmp_path, geolens, handled, raced
+):
+    _allow_transfers(geolens, _created_id(L1), map_ids=(_created_id(M1),))
+    refused_id = _created_id(L1 if raced == "datasets" else M1)
+    geolens.routes[f"PATCH /{raced}/{refused_id}"] = (
+        422,
+        {
+            "title": "Unprocessable Content",
+            "status": 422,
+            "detail": "The new owner's role does not grant the upload permission.",
+        },
+    )
+    # The role matrix can't be read, so only GeoLens can tell vic can't own it.
+    geolens.routes["GET /settings/all/"] = (
+        500,
+        {"title": "Error", "status": 500, "detail": "boom"},
+    )
+    item = _item(L1) if raced == "datasets" else _item(M1, "import_map")
+    plan = _plan([item], owner_map={"agol_alice": "vic"})
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1, result.output
+    error = _state(tmp_path)["items"][item["id"]]["error"]
+    assert error == (
+        f"{raced[:-1]} {refused_id} wasn't handed to vic, whose role can't own "
+        "it; promote vic to editor in GeoLens and run again, or pass "
+        "--unmapped-owner to hold it meanwhile"
+    )
+
+
+@pytest.mark.parametrize(
+    ("owner", "updated_at", "handed"),
+    [
+        (OPERATOR, "2026-10-01T00:00:00Z", True),
+        (OPERATOR, "2026-10-05T00:00:00Z", False),
+        (ALICE, "2026-10-01T00:00:00Z", False),
+    ],
+    ids=["untouched", "edited-after-the-run", "given-away"],
+)
+def test_a_waiting_map_without_a_snapshot_moves_only_as_the_run_left_it(
+    runner, tmp_path, geolens, handled, owner, updated_at, handed
+):
+    map_id = _created_id(M1)
+    _allow_transfers(geolens, map_ids=(map_id,))
+    geolens.routes[f"GET /maps/{map_id}"] = {
+        **_map(map_id, owner),
+        "updated_at": updated_at,
+    }
+    _write_state(
+        tmp_path,
+        {
+            M1: {
+                "status": "done",
+                "map_id": map_id,
+                "owner_id": OPERATOR,
+                "owner_pending": "newbie is not a GeoLens user yet",
+                "finished_at": "2026-10-02T00:00:00Z",
+            }
+        },
+    )
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    plan = _plan([_item(M1, "import_map")], owner_map={"agol_alice": "newbie"})
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert _owner_patches(geolens) == ([NEW] if handed else [])
+    assert (result.exit_code == 0) is handed, result.output
+    if not handed:
+        [failed] = payload["handover_failed"]
+        assert f"map {map_id} was changed in GeoLens since the last run" in failed
+        assert _state(tmp_path)["items"][M1]["owner_pending"]
+
+
 STALE = (
     409,
     {
@@ -1014,7 +1091,7 @@ def test_each_accept_flag_lifts_only_its_own_check(runner, tmp_path, geolens, ha
     assert payload["cutover"]["refused"] == ["unresolved-users"]
 
 
-def test_a_state_file_is_written_as_v3_and_v1_still_loads(
+def test_a_state_file_is_written_as_v4_and_v1_still_loads(
     runner, tmp_path, geolens, handled
 ):
     _allow_transfers(geolens, _created_id(L1), _created_id(L2))
@@ -1026,7 +1103,7 @@ def test_a_state_file_is_written_as_v3_and_v1_still_loads(
     result, _ = _run(runner, tmp_path, _plan([_item(L1), _item(L2)]))
 
     assert result.exit_code == 0, result.output
-    assert _state(tmp_path)["schema_version"] == "3"
+    assert _state(tmp_path)["schema_version"] == "4"
 
 
 def test_cutover_counts_an_item_whose_plan_owner_moved_to_another_user(
@@ -1715,3 +1792,62 @@ def test_no_configured_instance_stays_a_usage_error(
     result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
     assert result.exit_code == 2
     assert "No instance configured" in result.output
+
+
+def test_a_dataset_share_refused_while_a_map_needs_the_group_is_retried_after_maps(
+    monkeypatch, tmp_path
+):
+    from geolens_cli.arcgis_migrate_state import MigrationState
+    from geolens_cli.arcgis_portal import Redactor
+
+    narrowed: list[bool] = []
+    calls: list[str] = []
+
+    def share(ctx, item, entry, *, with_map=True):
+        calls.append(item["id"])
+        if item["action"] == "import_map":
+            narrowed.append(True)
+        elif not narrowed:
+            raise migrate.ItemFailed(
+                "sharing it with its GeoLens groups failed, Cannot restrict "
+                "visibility: dataset is used in shared maps: m"
+            )
+        return []
+
+    monkeypatch.setattr(migrate, "share", share)
+    state = MigrationState(
+        tmp_path / "state.json", PORTAL, GEOLENS_INSTANCE, Redactor(), persist=False
+    )
+    items = [_item(L1), _item(M1, "import_map")]
+    for item in items:
+        state.items[item["id"]] = migrate.ItemState(status="done")
+    summary = migrate.RunSummary()
+
+    migrate.refresh_finished(SimpleNamespace(sharing=None), state, items, summary)
+
+    assert calls == [L1, M1, L1]
+    assert state.items[L1].stale == [] and state.items[M1].stale == []
+
+
+def test_a_share_refused_again_after_the_maps_keeps_its_first_reason(
+    monkeypatch, tmp_path
+):
+    from geolens_cli.arcgis_migrate_state import MigrationState
+    from geolens_cli.arcgis_portal import Redactor
+
+    answers = iter(["changed in GeoLens while it was shared", "something else"])
+
+    def share(ctx, item, entry, *, with_map=True):
+        raise migrate.ItemFailed(next(answers))
+
+    monkeypatch.setattr(migrate, "share", share)
+    state = MigrationState(
+        tmp_path / "state.json", PORTAL, GEOLENS_INSTANCE, Redactor(), persist=False
+    )
+    state.items[L1] = migrate.ItemState(status="done")
+
+    migrate.refresh_finished(
+        SimpleNamespace(sharing=None), state, [_item(L1)], migrate.RunSummary()
+    )
+
+    assert state.items[L1].stale == ["changed in GeoLens while it was shared"]

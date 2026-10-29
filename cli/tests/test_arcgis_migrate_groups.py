@@ -17,6 +17,7 @@ from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_plan as plan_mod
 from geolens_cli.main import app
 from geolens_cli.arcgis_migrate_groups import Sharing, share, wanted_groups
+from geolens_cli.arcgis_migrate_session import ItemFailed
 from geolens_cli.arcgis_migrate_report import build_run_report
 from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
 from geolens_cli.arcgis_portal import Redactor
@@ -38,6 +39,7 @@ from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
 
 BOB = "00000000-0000-0000-0000-0000000000b0"
 EVE = "00000000-0000-0000-0000-0000000000e0"
+GHOST = "00000000-0000-0000-0000-0000000000c0"
 CREATED = "00000000-0000-0000-0005-000000000001"
 EXISTING = "00000000-0000-0000-0005-000000000002"
 DATASETS = (dataset_id("Parcels"), dataset_id("Owners"))
@@ -137,6 +139,7 @@ class GroupsApi:
         self.service = service
         self.groups = list(existing)
         self.members: dict[str, list[str]] = {}
+        self.removed: list[str] = []
         self.shares: list[tuple[str, list[str]]] = []
         fake.routes["GET /admin/groups/"] = lambda seen: {
             "groups": self.groups,
@@ -163,6 +166,17 @@ class GroupsApi:
             ],
             "total": len(self.members.get(group_id, [])),
         }
+        for user_id in (BOB, EVE, GHOST):
+            self.fake.routes[f"DELETE /admin/groups/{group_id}/members/{user_id}"] = (
+                lambda seen, u=user_id: self.remove(group_id, u)
+            )
+
+    def remove(self, group_id: str, user_id: str):
+        if user_id not in self.members.get(group_id, []):
+            return (404, _problem(404, "User is not a member of this group"))
+        self.members[group_id].remove(user_id)
+        self.removed.append(user_id)
+        return (204, None)
 
     def create(self, seen):
         name = seen.json()["name"]
@@ -184,10 +198,11 @@ class GroupsApi:
         refs = [
             {"id": g["id"], "name": g["name"]} for g in self.groups if g["id"] in ids
         ]
+        visibility = "restricted" if refs else "private"
         self.service.fields.setdefault(dataset, {}).update(
-            groups=refs, visibility="restricted"
+            groups=refs, visibility=visibility
         )
-        return {"visibility": "restricted", "groups": refs, "metadata_warnings": None}
+        return {"visibility": visibility, "groups": refs, "metadata_warnings": None}
 
 
 def _write(
@@ -329,7 +344,7 @@ def test_a_member_who_signs_up_later_is_added_on_a_rerun(
     api = GroupsApi(team, service, existing=[])
     plan_file = _write(tmp_path, members=["agol_bob", "agol_ghost"])
     assert _run(runner, plan_file)[0].exit_code == 0
-    ghost = "00000000-0000-0000-0000-0000000000c0"
+    ghost = GHOST
     users = team.routes["GET /admin/users/"]["users"]
     team.routes["GET /admin/users/"] = {
         "users": [*users, _user(ghost, "agol_ghost", ["viewer"])],
@@ -747,16 +762,6 @@ def test_a_retried_share_skips_datasets_already_shared(runner, tmp_path, team):
     assert api.shares == [(d, [CREATED]) for d in DATASETS]
 
 
-def test_a_rerun_reports_a_group_its_map_lacks_and_records_none():
-    entry = ItemState(map_id="m1", groups={"m1": [CREATED]})
-    item = {"target": {"geolens_groups": [CREATED, EXISTING]}}
-
-    reasons = share(SimpleNamespace(save=lambda: None), item, entry, with_map=False)
-
-    assert EXISTING in reasons[0] and "share it by hand" in reasons[0]
-    assert entry.groups == {"m1": [CREATED]}
-
-
 def test_an_unreadable_public_policy_stops_the_run(runner, tmp_path, team):
     service = _service(team)
     team.routes["GET /settings/feature-flags/"] = (500, _problem(500, "boom"))
@@ -897,7 +902,7 @@ def test_a_dataset_changed_since_the_last_run_isnt_shared_on_a_rerun(
     assert result.exit_code == 1
     assert [s for s in api.shares if OTHER in s[1]] == []
     assert _state(plan_file)["items"][A2]["last_update"][DATASETS[0]] == baseline
-    assert "wasn't shared with its new groups" in payload["not_up_to_date"][A2][0]
+    assert "its groups weren't changed" in payload["not_up_to_date"][A2][0]
 
 
 def test_only_items_to_import_get_groups():
@@ -1006,3 +1011,876 @@ def test_pending_members_count_while_a_migrated_or_planned_item_needs_the_group(
     )
     report = build_run_report(plan, state)
     assert ("member_pending" in {f["kind"] for f in report["follow_ups"]}) is counted
+
+
+# A rerun's sharing merge
+
+GEO = "00000000-0000-0000-0005-00000000000a"
+C, E = CREATED, EXISTING
+
+
+@pytest.mark.parametrize(
+    ("given", "granted", "current", "wanted", "read", "sent", "groups", "mine"),
+    [
+        ([C], [C], [C, GEO], [C, E], True, [C, E, GEO], [C, E], [C, E]),
+        ([C, E], [C, E], [C, E, GEO], [C], True, [C, GEO], [C], [C]),
+        ([C], [C], [C], [], True, [], None, None),
+        ([C, E], [C, E], [C, E], [C], False, None, [C, E], [C, E]),
+        ([C], [C], [], [C], True, None, [C], None),
+        ([C], [C], [GEO], [], True, None, [C], None),
+        ([], [], [GEO], [], True, None, None, None),
+        ([], [], [GEO], [GEO], True, None, [GEO], None),
+        ([GEO], [], [GEO], [], True, None, [GEO], None),
+        ([C], [], [C], [], True, None, [C], None),
+    ],
+    ids=[
+        "portal-adds-a-group",
+        "portal-drops-a-group",
+        "no-longer-group-only",
+        "groups-not-read",
+        "removed-in-geolens-stays-removed",
+        "removed-in-geolens-then-dropped",
+        "geolens-grant-alone",
+        "group-already-there-isnt-its-own",
+        "group-already-there-stays-when-dropped",
+        "state-without-its-own-groups-removes-none",
+    ],
+)
+def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
+    monkeypatch, given, granted, current, wanted, read, sent, groups, mine
+):
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(
+            groups=[SimpleNamespace(id=g) for g in current]
+        ),
+    )
+    puts: list[list[str]] = []
+    geolens = SimpleNamespace(
+        call=lambda fn, **kwargs: puts.append(kwargs["body"].to_dict()["group_ids"])
+    )
+    ctx = SimpleNamespace(geolens=geolens, save=lambda: None, operator_id=OPERATOR)
+    ds = DATASETS[0]
+    entry = ItemState(
+        dataset_ids=[ds],
+        groups={ds: given} if given else {},
+        granted={ds: granted} if granted else {},
+    )
+    target = {"geolens_groups": wanted, "groups": ["g1"] if read else None}
+
+    assert share(ctx, {"target": target}, entry) == []
+
+    assert puts == ([] if sent is None else [sorted(sent)])
+    assert entry.groups.get(ds) == groups
+    assert entry.granted.get(ds) == mine
+
+
+@pytest.mark.parametrize(
+    ("visibility", "target", "current", "granted", "wanted", "sent"),
+    [
+        ("private", "private", [GEO, C], [C], [], None),
+        ("private", "private", [C], [C], [], []),
+        ("private", "restricted", [], [], [C], [C]),
+        ("internal", "internal", [GEO, C], [C], [], [GEO]),
+        ("restricted", "restricted", [GEO, C], [C], [E], [E, GEO]),
+    ],
+    ids=[
+        "private-keeping-a-geolens-group",
+        "private-losing-its-last-group",
+        "private-becoming-restricted-as-planned",
+        "internal-keeps-its-audience",
+        "restricted-stays-restricted",
+    ],
+)
+def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
+    monkeypatch, visibility, target, current, granted, wanted, sent
+):
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(
+            groups=[SimpleNamespace(id=g) for g in current], visibility=visibility
+        ),
+    )
+    puts: list[list[str]] = []
+    ctx = SimpleNamespace(
+        geolens=SimpleNamespace(
+            call=lambda fn, **kw: puts.append(kw["body"].to_dict()["group_ids"])
+        ),
+        save=lambda: None,
+        operator_id=OPERATOR,
+    )
+    ds = DATASETS[0]
+    entry = ItemState(
+        dataset_ids=[ds], groups={ds: granted} if granted else {}, granted={ds: granted}
+    )
+    item = {
+        "target": {"visibility": target, "geolens_groups": wanted, "groups": ["g1"]}
+    }
+
+    if sent is None:
+        with pytest.raises(ItemFailed, match="would make it restricted"):
+            share(ctx, item, entry)
+        assert puts == [] and entry.granted == {ds: granted}
+    else:
+        share(ctx, item, entry)
+        assert puts == [sorted(sent)]
+
+
+def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypatch):
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    held: list[str] = []
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(
+            groups=[SimpleNamespace(id=g) for g in held]
+        ),
+    )
+    puts: list = []
+    ctx = SimpleNamespace(
+        geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
+        save=lambda: None,
+        operator_id=OPERATOR,
+    )
+    ds = DATASETS[0]
+    entry = ItemState(dataset_ids=[ds], groups={ds: [C]}, granted={ds: [C]})
+    keep = {
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+    }
+    # An admin removes the group; a rerun with nothing to change sees it.
+    share(ctx, keep, entry)
+    assert entry.granted == {} and entry.groups == {ds: [C]}
+    # The admin shares it again by hand, and the plan then drops it.
+    held.append(C)
+    drop = {
+        "target": {"visibility": "restricted", "geolens_groups": [], "groups": ["g1"]}
+    }
+
+    share(ctx, drop, entry)
+
+    assert puts == []
+
+
+def test_a_map_group_removed_in_geolens_and_shared_again_is_theirs(monkeypatch):
+    ctx, puts, reads = _map_ctx(monkeypatch, _map_read("restricted", [C]))
+    entry = ItemState(
+        map_id=MAP, groups={MAP: [C, E]}, granted={MAP: [C, E]}, map_snapshot=dict(SEEN)
+    )
+    keep = {
+        "target": {
+            "visibility": "restricted",
+            "geolens_groups": [C, E],
+            "groups": ["g1"],
+        }
+    }
+    assert share(ctx, keep, entry, with_map=False) == []
+    assert entry.granted == {MAP: [C]}
+    # The admin shares the map with E again by hand; the plan then drops E.
+    reads["map"] = _map_read("restricted", [C, E])
+    drop = {
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+    }
+
+    assert share(ctx, drop, entry, with_map=False) == []
+
+    assert puts == []
+
+
+def test_a_map_read_without_its_groups_is_left_as_it_is(monkeypatch):
+    found = _map_read("restricted", [GEO, C])
+    del found.groups
+    ctx, puts, _reads = _map_ctx(monkeypatch, found)
+    entry = ItemState(
+        map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
+    )
+    item = {
+        "target": {"visibility": "restricted", "geolens_groups": [E], "groups": ["g1"]}
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert "didn't list its map's groups" in reason
+    assert puts == []
+    assert entry.granted == entry.groups == {MAP: [C]}
+
+
+def test_a_private_map_is_never_made_restricted_off_plan(monkeypatch):
+    ctx, puts, _reads = _map_ctx(monkeypatch, _map_read("private", [GEO, C]))
+    entry = ItemState(
+        map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
+    )
+    item = {
+        "target": {"visibility": "private", "geolens_groups": [E], "groups": ["g1"]}
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert "would make it restricted" in reason
+    assert puts == []
+
+
+def test_a_share_without_a_sharing_decision_changes_nothing():
+    entry = ItemState(
+        dataset_ids=[DATASETS[0]],
+        groups={DATASETS[0]: [C]},
+        granted={DATASETS[0]: [C]},
+    )
+
+    share(SimpleNamespace(), {"target": {"groups": ["g1"]}}, entry)
+
+    assert entry.groups == entry.granted == {DATASETS[0]: [C]}
+
+
+def test_a_dataset_changed_between_its_two_reads_isnt_shared(monkeypatch):
+    from datetime import datetime
+
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    def read(updated_at):
+        return SimpleNamespace(
+            groups=[],
+            updated_at=datetime.fromisoformat(updated_at),
+            feature_count=0,
+            data_revision=1,
+            updated_by=OPERATOR,
+        )
+
+    reads = iter([read(LEFT_AT), read("2026-10-02T00:00:00+00:00")])
+    monkeypatch.setattr(refresh, "get_dataset", lambda ctx, d: next(reads))
+    monkeypatch.setattr(refresh, "changed_in_geolens", lambda *args: None)
+    puts: list = []
+    ctx = SimpleNamespace(
+        geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
+        save=lambda: None,
+        operator_id=OPERATOR,
+    )
+    entry = ItemState(dataset_ids=[DATASETS[0]], last_update={DATASETS[0]: {}})
+    item = {"target": {"geolens_groups": [C], "groups": ["g1"]}}
+
+    with pytest.raises(ItemFailed, match="changed in GeoLens while its groups"):
+        share(ctx, item, entry)
+
+    assert puts == [] and entry.groups == {}
+
+
+LEFT_AT = "2026-10-01T00:00:00+00:00"
+LATER = "2026-10-03T00:00:00+00:00"
+MAP = "00000000-0000-0000-0006-000000000001"
+
+
+def _map_read(visibility: str, groups: list[str], updated_at: str = LEFT_AT):
+    from datetime import datetime
+
+    return SimpleNamespace(
+        created_by=OPERATOR,
+        updated_at=datetime.fromisoformat(updated_at),
+        visibility=visibility,
+        groups=[SimpleNamespace(id=g) for g in groups],
+    )
+
+
+def _map_ctx(monkeypatch, found, after=None):
+    """A ctx whose map reads *found* until a group write, then what *after*
+    makes of the ids written (by default, what GeoLens would leave)."""
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    reads = {"map": found}
+    puts: list[list[str]] = []
+
+    def put(fn, **kwargs):
+        ids = kwargs["body"].to_dict()["group_ids"]
+        puts.append(ids)
+        before = reads["map"]
+        if after is not None:
+            reads["map"] = after(ids, before)
+            return
+        reads["map"] = _map_read("restricted" if ids else "private", ids)
+        if reads["map"].visibility == before.visibility:
+            reads["map"].updated_at = before.updated_at
+
+    monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: reads["map"])
+    ctx = SimpleNamespace(
+        geolens=SimpleNamespace(call=put), save=lambda: None, operator_id=OPERATOR
+    )
+    return ctx, puts, reads
+
+
+SEEN = {"owner": OPERATOR, "updated_at": LEFT_AT}
+
+
+@pytest.mark.parametrize(
+    (
+        "given",
+        "granted",
+        "wanted",
+        "target",
+        "found",
+        "snapshot",
+        "read",
+        "sent",
+        "reason",
+    ),
+    [
+        (
+            [C],
+            [C],
+            [C, E],
+            "restricted",
+            ("restricted", [C, GEO]),
+            SEEN,
+            True,
+            [C, E, GEO],
+            None,
+        ),
+        (
+            [C, E],
+            [C, E],
+            [C],
+            "restricted",
+            ("restricted", [C, E]),
+            SEEN,
+            True,
+            [C],
+            None,
+        ),
+        ([], [], [C], "restricted", ("private", []), SEEN, True, [C], None),
+        (
+            [C],
+            [C],
+            [C, E],
+            "restricted",
+            ("restricted", [C]),
+            {**SEEN, "updated_at": LATER},
+            True,
+            None,
+            "changed in GeoLens since",
+        ),
+        (
+            [C],
+            [C],
+            [C, E],
+            "restricted",
+            ("restricted", [C]),
+            None,
+            True,
+            None,
+            "doesn't record how this command left",
+        ),
+        (
+            [C],
+            [C],
+            [C],
+            "restricted",
+            ("private", []),
+            SEEN,
+            True,
+            None,
+            "the GeoLens map is private",
+        ),
+        ([C], [C], [], "internal", ("internal", [C]), SEEN, True, None, None),
+        (
+            [C, GEO],
+            [C],
+            [C],
+            "restricted",
+            ("restricted", [C, GEO]),
+            SEEN,
+            True,
+            None,
+            None,
+        ),
+        (
+            [C, E],
+            [C, E],
+            [C],
+            "restricted",
+            ("restricted", [C, E]),
+            SEEN,
+            False,
+            None,
+            None,
+        ),
+    ],
+    ids=[
+        "gains-a-group",
+        "loses-a-group",
+        "private-gains-its-first-group",
+        "changed-in-geolens",
+        "no-snapshot",
+        "group-removed-in-geolens",
+        "not-a-matter-of-groups",
+        "geolens-grant-stays",
+        "removals-wait-until-groups-are-read",
+    ],
+)
+def test_a_rerun_shares_a_map_only_as_this_command_left_it(
+    monkeypatch, given, granted, wanted, target, found, snapshot, read, sent, reason
+):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    ctx, puts, reads = _map_ctx(monkeypatch, _map_read(*found))
+    entry = ItemState(
+        map_id=MAP,
+        groups={MAP: given} if given else {},
+        granted={MAP: granted} if granted else {},
+        map_snapshot=snapshot,
+    )
+    groups = ["g1"] if read else None
+    item = {
+        "target": {"visibility": target, "geolens_groups": wanted, "groups": groups}
+    }
+
+    reasons = share(ctx, item, entry, with_map=False)
+
+    assert puts == ([] if sent is None else [sorted(sent)])
+    if reason is None:
+        assert reasons == []
+    else:
+        [only] = reasons
+        assert reason in only
+    if sent is not None:
+        assert entry.groups.get(MAP) == sorted(wanted)
+        assert entry.granted.get(MAP) == sorted(set(sent) - {GEO})
+        assert entry.map_snapshot == webmaps.map_state(reads["map"])
+
+
+def test_a_group_geolens_shared_the_map_with_is_never_taken_as_its_own(monkeypatch):
+    ctx, puts, _reads = _map_ctx(monkeypatch, _map_read("restricted", [C, GEO]))
+    entry = ItemState(
+        map_id=MAP, groups={MAP: [C]}, granted={MAP: [C]}, map_snapshot=dict(SEEN)
+    )
+    # The portal shares with the group GeoLens already gave the map.
+    item = {
+        "target": {
+            "visibility": "restricted",
+            "geolens_groups": [C, GEO],
+            "groups": ["g1", "g2"],
+        }
+    }
+    assert share(ctx, item, entry, with_map=False) == []
+    # And drops it again.
+    item = {
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+    }
+    assert share(ctx, item, entry, with_map=False) == []
+
+    assert puts == []
+    assert entry.granted == {MAP: [C]}
+
+
+def _changed_meanwhile(ids, before):
+    # Someone else edits the map right after the write.
+    return _map_read("restricted", ids, LATER)
+
+
+def _flipped_by_someone_else(ids, before):
+    return _map_read("internal", ids, LATER)
+
+
+@pytest.mark.parametrize(
+    ("found", "after", "adopted"),
+    [
+        (("private", []), None, True),
+        (("restricted", [C]), None, True),
+        (("restricted", [C]), _changed_meanwhile, False),
+        (("private", []), _flipped_by_someone_else, False),
+    ],
+    ids=["flip-to-restricted", "no-flip", "edited-after-the-write", "other-visibility"],
+)
+def test_the_map_after_a_rerun_share_is_adopted_only_as_the_write_left_it(
+    monkeypatch, found, after, adopted
+):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    ctx, puts, reads = _map_ctx(monkeypatch, _map_read(*found), after)
+    entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={}, granted={})
+    item = {
+        "target": {
+            "visibility": "restricted",
+            "geolens_groups": [C, E],
+            "groups": ["g1"],
+        }
+    }
+
+    share(ctx, item, entry, with_map=False)
+
+    assert puts
+    expected = webmaps.map_state(reads["map"]) if adopted else SEEN
+    assert entry.map_snapshot == expected
+
+
+def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    reads = iter([_map_read("restricted", [C]), _map_read("restricted", [C], LATER)])
+    monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: next(reads))
+    puts: list = []
+    ctx = SimpleNamespace(
+        geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
+        save=lambda: None,
+    )
+    entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={MAP: [C]})
+    item = {
+        "target": {
+            "visibility": "restricted",
+            "geolens_groups": [C, E],
+            "groups": ["g1"],
+        }
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert "changed in GeoLens while its groups were read" in reason
+    assert puts == [] and entry.groups == {MAP: [C]}
+
+
+def test_a_group_the_portal_stops_sharing_with_is_removed_on_a_rerun(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(
+        team, service, existing=[_group(OTHER, "Other"), _group(GEO, "Geo")]
+    )
+    plan_file = _write(tmp_path, members=[])
+    _map_a_second_group(plan_file)
+    assert _run(runner, plan_file)[0].exit_code == 0
+    # An admin shares the first dataset with another group in GeoLens.
+    groups = service.fields[DATASETS[0]]["groups"]
+    service.fields[DATASETS[0]]["groups"] = [*groups, {"id": GEO, "name": "Geo"}]
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["groups"] = ["g1"]
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.shares[-2:] == [
+        (DATASETS[0], sorted([CREATED, GEO])),
+        (DATASETS[1], [CREATED]),
+    ]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["groups"] == entry["granted"] == {d: [CREATED] for d in DATASETS}
+
+
+def test_a_rerun_that_cant_share_says_which_groups_wait(
+    runner, tmp_path, team, monkeypatch
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    _map_a_second_group(plan_file)
+    for action in migrate.REFRESHERS:
+        monkeypatch.setitem(
+            migrate.REFRESHERS,
+            action,
+            lambda ctx, item, entry: ["layer x was added to the service"],
+        )
+    shares = len(api.shares)
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert len(api.shares) == shares
+    reasons = payload["not_up_to_date"][A2]
+    assert reasons[0] == "layer x was added to the service"
+    assert [r for r in reasons[1:] if f"add {OTHER}" in r and "waits" in r]
+
+
+def _members_next_run(plan_file: Path, members: list[str] | None) -> None:
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    report["groups"][0]["members"] = members
+    report["groups"][0]["members_unread"] = (
+        None if members is not None else "the group hides its members"
+    )
+    inventory.write_text(json.dumps(report))
+
+
+@pytest.mark.parametrize(
+    ("members", "removed"),
+    [
+        (["agol_eve"], [BOB]),
+        ([], [BOB, EVE]),
+        (None, []),
+        (["agol_bob", "agol_eve"], []),
+        (["AGOL_BOB", "agol_eve"], []),
+    ],
+    ids=[
+        "one-left",
+        "all-left",
+        "members-not-read",
+        "still-members",
+        "name-in-another-case",
+    ],
+)
+def test_a_member_who_left_the_arcgis_group_is_removed_on_a_rerun(
+    runner, tmp_path, team, up_to_date, members, removed
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob", "agol_eve"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    assert _state(plan_file)["groups"]["g1"]["joined"] == {
+        BOB: ["agol_bob"],
+        EVE: ["agol_eve"],
+    }
+    _members_next_run(plan_file, members)
+    names = [{BOB: "bob", EVE: "agol_eve"}[u] for u in removed]
+    _dry, preview = _run(runner, plan_file, "--dry-run")
+    assert preview["groups"]["g1"]["removed"] == names and api.removed == []
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.removed == removed
+    group = _state(plan_file)["groups"]["g1"]
+    assert sorted(group["joined"]) == sorted({BOB, EVE} - set(removed))
+    assert "removed" not in group
+    assert payload["groups"]["g1"]["removed"] == names
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert report["groups"][0]["members_removed"] == names
+
+    # The next run reports no removal again.
+    _result, payload = _run(runner, plan_file)
+    assert payload["groups"]["g1"]["removed"] == []
+
+
+@pytest.mark.parametrize(
+    "why", ["deactivated", "name-matches-two-users", "owner-map-typo", "renamed"]
+)
+def test_a_member_still_listed_but_unresolved_is_not_removed(
+    runner, tmp_path, team, up_to_date, why
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    users = team.routes["GET /admin/users/"]["users"]
+    bob = next(u for u in users if u["id"] == BOB)
+    if why == "deactivated":
+        bob.update(is_active=False, status="deactivated")
+    elif why == "renamed":
+        bob.update(username="robert", email="robert@example.org")
+    elif why == "owner-map-typo":
+        plan = json.loads(plan_file.read_text())
+        plan["owner_map"]["agol_bob"] = "bobb"
+        plan_file.write_text(json.dumps(plan))
+    else:
+        # Another account's email is bob's username, so "bob" means either.
+        other = _user("00000000-0000-0000-0000-0000000000d0", "robert", ["viewer"])
+        users.append({**other, "email": "bob"})
+        team.routes["GET /admin/users/"]["total"] = len(users)
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.removed == []
+    assert [p["member"] for p in _state(plan_file)["groups"]["g1"]["pending"]] == [
+        "agol_bob"
+    ]
+    assert _state(plan_file)["groups"]["g1"]["joined"] == {BOB: ["agol_bob"]}
+
+
+def test_a_member_added_in_geolens_stays_after_leaving_the_arcgis_group(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    # An admin adds bob in GeoLens before he joins the ArcGIS group.
+    api.members[CREATED] = [BOB]
+    _members_next_run(plan_file, ["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    group = _state(plan_file)["groups"]["g1"]
+    assert group["joined"] == {} and group["added"] == [BOB]
+    _members_next_run(plan_file, [])
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.removed == [] and api.members[CREATED] == [BOB]
+
+
+def test_a_member_removed_in_geolens_isnt_added_again(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=[])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    api.members[CREATED] = [BOB]
+    _members_next_run(plan_file, ["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    # The admin takes bob out again, on purpose.
+    api.members[CREATED] = []
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.members[CREATED] == []
+    assert _state(plan_file)["groups"]["g1"]["joined"] == {}
+
+
+def test_a_member_removed_and_added_back_by_hand_is_theirs(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    api.members[CREATED] = []
+    assert _run(runner, plan_file)[0].exit_code == 0
+    assert api.members[CREATED] == []
+    # The admin adds bob back by hand, and he then leaves the ArcGIS group.
+    api.members[CREATED] = [BOB]
+    _members_next_run(plan_file, [])
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.removed == [] and api.members[CREATED] == [BOB]
+
+
+def test_a_member_removed_after_leaving_is_added_again_on_rejoining(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    _members_next_run(plan_file, [])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    assert api.removed == [BOB] and api.members[CREATED] == []
+    _members_next_run(plan_file, ["agol_bob"])
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.members[CREATED] == [BOB]
+    assert _state(plan_file)["groups"]["g1"]["joined"] == {BOB: ["agol_bob"]}
+
+
+def test_a_member_someone_removed_during_the_run_is_not_reported_as_removed(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    _members_next_run(plan_file, [])
+    # Gone by the time the removal lands.
+    team.routes[f"DELETE /admin/groups/{CREATED}/members/{BOB}"] = (
+        404,
+        _problem(404, "User is not a member of this group"),
+    )
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert payload["groups"]["g1"]["removed"] == [] and api.removed == []
+    group = _state(plan_file)["groups"]["g1"]
+    assert group["joined"] == {} and group["added"] == [BOB]
+
+
+@pytest.mark.parametrize("next_members", [[], None], ids=["read", "not-read"])
+def test_members_a_v3_state_added_are_reported_once_and_kept(
+    runner, tmp_path, team, up_to_date, next_members
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    state_file = tmp_path / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["schema_version"] = "3"
+    del state["groups"]["g1"]["joined"]
+    state_file.write_text(json.dumps(state))
+    _members_next_run(plan_file, next_members)
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert api.removed == []
+    [warning] = [w for w in payload["group_warnings"] if "check them by hand" in w]
+    assert "bob" in warning
+    assert _state(plan_file)["schema_version"] == "4"
+
+    # A later run that reads the members neither warns again nor removes bob.
+    _members_next_run(plan_file, [])
+    _result, payload = _run(runner, plan_file)
+    assert not [w for w in payload["group_warnings"] if "check them by hand" in w]
+    assert api.removed == []
+
+
+def test_a_refused_member_removal_fails_the_run_and_is_tried_again(
+    runner, tmp_path, team, up_to_date
+):
+    service = _service(team)
+    api = GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    assert _run(runner, plan_file)[0].exit_code == 0
+    _members_next_run(plan_file, [])
+    route = f"DELETE /admin/groups/{CREATED}/members/{BOB}"
+    allowed = team.routes[route]
+    team.routes[route] = (500, _problem(500, "boom"))
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 1
+    [failure] = payload["group_failures"]
+    assert failure.startswith("removing a member who left ArcGIS group Planners")
+    assert api.members[CREATED] == [BOB]
+    assert _state(plan_file)["groups"]["g1"]["joined"] == {BOB: ["agol_bob"]}
+
+    team.routes[route] = allowed
+    assert _run(runner, plan_file)[0].exit_code == 0
+    assert api.removed == [BOB]
+
+
+@pytest.mark.parametrize(
+    "joined",
+    [
+        {"not-a-uuid": ["agol_bob"]},
+        {EVE: ["agol_eve"]},
+        {BOB: "agol_bob"},
+        [BOB],
+    ],
+    ids=["not-a-uuid", "not-in-added", "names-not-a-list", "not-a-map"],
+)
+def test_a_malformed_joined_record_is_refused(runner, tmp_path, team, joined):
+    _service(team)
+    plan_file = _write(tmp_path, members=[])
+    (tmp_path / "arcgis-migration-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "4",
+                "portal_url": json.loads(plan_file.read_text())["portal"]["url"],
+                "geolens_instance": GEOLENS_INSTANCE,
+                "groups": {
+                    "g1": {
+                        "id": CREATED,
+                        "created": True,
+                        "added": [BOB],
+                        "joined": joined,
+                    }
+                },
+                "items": {},
+            }
+        )
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 2
+    assert "malformed group record" in result.output

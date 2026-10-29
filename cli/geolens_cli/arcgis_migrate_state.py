@@ -10,20 +10,25 @@ before they are stored, so the file never holds a token or password.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from . import arcgis_report as _report
 from .arcgis_portal import Redactor, redact_json
 
 STATE_FILENAME = "arcgis-migration-state.json"
-# v2 adds what a rerun compares and waits on, and v3 the GeoLens groups made
-# for ArcGIS groups; an older CLI refuses the file rather than rewriting it
-# without them.
-STATE_VERSION = "3"
-_READABLE_VERSIONS = ("1", "2", STATE_VERSION)
+# v2 adds what a rerun compares and waits on, v3 the GeoLens groups made for
+# ArcGIS groups, and v4 what this command's own writes added, which a rerun may
+# take away again: a made group's members (``joined``) and each object's
+# groups (``granted``). An older CLI refuses the file rather than rewriting it
+# without them. A v3 file records neither, so a rerun removes nothing it
+# added before.
+STATE_VERSION = "4"
+_READABLE_VERSIONS = ("1", "2", "3", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -78,6 +83,32 @@ def aware_time(value: Any) -> datetime | None:
     return when if when is not None and when.tzinfo is not None else None
 
 
+def _uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _joined(record: Mapping[str, Any]) -> bool:
+    """Whether a group record's ``joined`` maps user ids it also lists as
+    added to the ArcGIS names they were added for."""
+    joined = record.get("joined", {})
+    return (
+        isinstance(joined, dict)
+        and all(
+            _uuid(user_id)
+            and isinstance(names, list)
+            and all(isinstance(n, str) for n in names)
+            for user_id, names in joined.items()
+        )
+        and set(joined) <= set(record.get("added") or [])
+    )
+
+
 def _group_record(record: Any) -> bool:
     """Whether *record* has the shape of a state file group record."""
     return (
@@ -94,6 +125,7 @@ def _group_record(record: Any) -> bool:
             for key in ("pending", "unsynced")
             for p in record.get(key, [])
         )
+        and _joined(record)
     )
 
 
@@ -183,6 +215,9 @@ class ItemState:
     # Dataset or map id -> the GeoLens groups this command shared it with,
     # which a rerun doesn't add again after someone removed one in GeoLens.
     groups: dict[str, list[str]] = field(default_factory=dict)
+    # Dataset or map id -> the groups among those that this command's own
+    # writes added, the only ones a rerun removes when the plan drops them.
+    granted: dict[str, list[str]] = field(default_factory=dict)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
@@ -218,7 +253,9 @@ class MigrationState:
         # When `migrate --cutover` passed its checks, and the losses accepted.
         self.cutover: dict[str, Any] | None = None
         # ArcGIS group id -> the GeoLens group this command created for it:
-        # its id and name, the members it added and those still pending.
+        # its id and name, the members it added or found there (``added``),
+        # those it added itself with the ArcGIS names they were added for
+        # (``joined``), and those still pending.
         self.groups: dict[str, dict[str, Any]] = {}
         self._redact = redact
         self._persist = persist
