@@ -11,17 +11,21 @@ next to the state file.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
-from collections.abc import Callable, Mapping
+import tempfile
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
+import typer
+
 from . import arcgis_report as _report
-from ._sdk_helpers import long_request_timeout
-from .arcgis_migrate_export import _modified, _stop_if_token_refused
+from ._sdk_helpers import EXIT_NETWORK, long_request_timeout
+from .arcgis_migrate_export import _modified, _safe_relative, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_layers import _trusted
 from .arcgis_migrate_session import (
@@ -32,6 +36,7 @@ from .arcgis_migrate_session import (
     MigrationContext,
     StopRun,
 )
+from .arcgis_plan import IMPORT_MAP
 from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
 from .arcgis_portal import PortalError, redact_json, sanitize_url
 
@@ -45,6 +50,11 @@ _TOKEN_STATUSES = (498, 499)
 _MAX_MATCHES = 1000
 # The layer types the server translates; its translator is the source.
 _FEATURE_LAYER_TYPES = ("ArcGISFeatureLayer", "FeatureLayer")
+_THUMBNAIL_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+# The most image bytes whose data URI fits ThumbnailUploadRequest.data_uri's
+# max_length of 100,000 characters.
+_THUMBNAIL_MAX_BYTES = (100_000 - len("data:image/jpeg;base64,")) // 4 * 3
+_THUMBNAIL_NOTE = "the web map's thumbnail was not carried over"
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
@@ -254,15 +264,97 @@ def _fetch(ctx: MigrationContext, item_id: str) -> dict[str, Any]:
     return redact_json(data, ctx.redact)
 
 
-def _read_modified(ctx: MigrationContext, item_id: str) -> int | None:
-    """The portal item's modified time, or None when it can't be read."""
+def _read_item(ctx: MigrationContext, item_id: str) -> Mapping[str, Any]:
+    """The portal item, or an empty one when it can't be read."""
     if ctx.portal is None:
-        return None
+        return {}
     try:
-        return _modified(ctx.portal.client.get_json(f"content/items/{item_id}"))
+        info = ctx.portal.client.get_json(f"content/items/{item_id}")
     except PortalError as exc:
         _stop_if_token_refused(exc)
-        return None
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+class _NoThumbnail(Exception):
+    """Why the item's thumbnail isn't carried over."""
+
+
+def _thumbnail_data_uri(ctx: MigrationContext, item_id: str, path: Any) -> str:
+    """The item's thumbnail as a data URI GeoLens takes."""
+    if not isinstance(path, str) or not path:
+        raise _NoThumbnail("the web map has none")
+    if ctx.portal is None or _safe_relative(path) is None:
+        raise _NoThumbnail("its path can't be read from the portal")
+    try:
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder) / "thumbnail"
+            ctx.portal.client.download(
+                f"content/items/{item_id}/info/{quote(path)}",
+                dest,
+                _THUMBNAIL_MAX_BYTES,
+            )
+            image = dest.read_bytes()
+    except PortalError as exc:
+        if exc.kind == "too_large":
+            raise _NoThumbnail("it is larger than GeoLens takes") from None
+        raise _NoThumbnail(f"reading it failed, {exc}") from None
+    except OSError as exc:
+        raise _NoThumbnail(
+            f"reading it failed: {exc.strerror or type(exc).__name__}"
+        ) from None
+    media = next(
+        (t for magic, t in _THUMBNAIL_TYPES.items() if image.startswith(magic)), None
+    )
+    if media is None:
+        raise _NoThumbnail("it is not a PNG or JPEG image")
+    return f"data:{media};base64,{base64.b64encode(image).decode()}"
+
+
+def carry_thumbnail(
+    ctx: MigrationContext, item_id: str, info: Mapping[str, Any], map_id: str
+) -> list[str]:
+    """Upload the portal item's thumbnail to the GeoLens map, which has none.
+
+    A thumbnail never fails the item; the note says why it wasn't uploaded.
+    """
+    from geolens.api.maps import upload_thumbnail_maps_map_id_thumbnail_put as upload
+    from geolens.models.thumbnail_upload_request import ThumbnailUploadRequest
+
+    try:
+        data_uri = _thumbnail_data_uri(ctx, item_id, info.get("thumbnail"))
+        ctx.geolens.call(
+            upload.sync_detailed,
+            expected=204,
+            map_id=UUID(map_id),
+            body=ThumbnailUploadRequest(data_uri=data_uri),
+        )
+    except _NoThumbnail as exc:
+        return [f"{_THUMBNAIL_NOTE}: {exc}"]
+    except GeoLensError as exc:
+        return [f"{_THUMBNAIL_NOTE}: uploading it failed, {exc}"]
+    except typer.Exit as exc:
+        # How the SDK call reports a timeout or network failure.
+        if exc.exit_code != EXIT_NETWORK:
+            raise
+        return [f"{_THUMBNAIL_NOTE}: uploading it failed on the network"]
+    return []
+
+
+def thumbnail_dry_run_notes(
+    to_run: Sequence[Mapping[str, Any]],
+    inventory: Mapping[str, Mapping[str, Any]],
+    states: Mapping[str, ItemState],
+) -> dict[str, list[str]]:
+    """What a run would do with the thumbnail of each web map it would create."""
+    return {
+        item["id"]: ["would upload the web map's thumbnail to the new GeoLens map"]
+        for item in to_run
+        if item["action"] == IMPORT_MAP
+        and not (item["id"] in states and states[item["id"]].map_id)
+        and isinstance(path := inventory.get(item["id"], {}).get("thumbnail"), str)
+        and _safe_relative(path) is not None
+    }
 
 
 def get_map(geolens: GeoLens, map_id: str) -> Any:
@@ -282,28 +374,28 @@ def map_visibility(found: Any) -> str:
 
 def _map_problem(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
-) -> str | None:
+) -> tuple[str | None, Any]:
     """Why the GeoLens map recorded for the item doesn't stand as migrated:
     gone, unreadable, owned by someone else than it was handed to, or with a
-    visibility other than the plan's that its groups can't settle. A rerun
-    changes only a map's groups, so any other difference is reported for the
-    operator."""
+    visibility other than the plan's that its groups can't settle, and the map
+    when it could be read. A rerun changes only a map's groups and a missing
+    thumbnail, so any other difference is reported for the operator."""
     gone = "the migrated map is gone from GeoLens"
     if not entry.map_id:
-        return gone
+        return gone, None
     try:
         found = get_map(ctx.geolens, entry.map_id)
     except ValueError:
-        return gone
+        return gone, None
     except GeoLensError as exc:
         if exc.status == 404:
-            return gone
-        return f"reading the migrated map from GeoLens failed, {exc}"
+            return gone, None
+        return f"reading the migrated map from GeoLens failed, {exc}", None
     if entry.owner_id and str(found.created_by) != entry.owner_id:
         return (
             "the GeoLens map's owner changed in GeoLens since this command handed "
             "it over; check who should own it"
-        )
+        ), found
     wanted = item["target"]["visibility"]
     current = map_visibility(found)
     # Between private and restricted the map's groups decide, which sharing
@@ -312,8 +404,8 @@ def _map_problem(
         return (
             f"the plan gives the web map visibility {wanted} but the GeoLens map "
             f"is {current}; set it by hand or rerun with the plan matching"
-        )
-    return None
+        ), found
+    return None, found
 
 
 def refresh_map(
@@ -323,8 +415,8 @@ def refresh_map(
     GeoLens, shared differently than the plan says in a way its groups can't
     settle, changed in the portal since it was read for the import, or with no
     way to tell. A web map isn't translated again; the operator updates the
-    GeoLens map."""
-    problem = _map_problem(ctx, item, entry)
+    GeoLens map. A map with no thumbnail gets the item's."""
+    problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
     if ctx.portal is None:
@@ -332,10 +424,20 @@ def refresh_map(
             "the run can't read this web map from the portal to check it for changes"
         ]
     try:
-        modified = _modified(ctx.portal.client.get_json(f"content/items/{item['id']}"))
+        info = ctx.portal.client.get_json(f"content/items/{item['id']}")
     except PortalError as exc:
         _stop_if_token_refused(exc)
         return [f"reading the web map to check it for changes failed, {exc}"]
+    if found.thumbnail_url or isinstance(info, dict):
+        entry.notes = [
+            *(note for note in entry.notes if not note.startswith(_THUMBNAIL_NOTE)),
+            *(
+                []
+                if found.thumbnail_url
+                else carry_thumbnail(ctx, item["id"], info, entry.map_id)
+            ),
+        ]
+    modified = _modified(info)
     if modified is None:
         return ["the portal doesn't say when the web map last changed"]
     recorded = whole_number(entry.portal_modified)
@@ -395,7 +497,7 @@ def import_map(
     )
     from geolens.models.map_visibility import check_map_visibility
 
-    modified = _read_modified(ctx, item["id"])
+    info = _read_item(ctx, item["id"])
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
     fill_source_styling(ctx, webmap, matches)
@@ -426,7 +528,7 @@ def import_map(
         raise ItemFailed(f"the web map import failed, {exc}") from None
 
     entry.map_id = str(result.map_.id)
-    entry.portal_modified = modified
+    entry.portal_modified = _modified(info)
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
@@ -437,7 +539,10 @@ def import_map(
         "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
     }
     ctx.save()
-    return _finish_loss(ctx, item["id"], entry)
+    thumbnail_notes = carry_thumbnail(ctx, item["id"], info, entry.map_id)
+    finished = _finish_loss(ctx, item["id"], entry)
+    finished.notes.extend(thumbnail_notes)
+    return finished
 
 
 def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemResult:
