@@ -45,3 +45,16 @@ _Avoid_: Group, when meaning an audience.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Restricted**: The visibility of a dataset or map that only its owner, admins and members of the groups it is shared with can see. An item can be restricted with no group left, which leaves only its owner and admins.
+
+**Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
+
+**Chapter**: One step of a story: a title, blocks of text and an optional scene.
+
+**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
+_Avoid_: Slide, view (a map's own saved camera).
+
+**Draft**: The version of a story its owner edits. A save replaces the whole draft; readers don't see it until it's published.
+
+**Publish**: Copying a story's draft to its published version, once every map its scenes use reaches the story's audience.
+
+**Published version**: The copy of a story that readers see. It changes only when a draft is published.

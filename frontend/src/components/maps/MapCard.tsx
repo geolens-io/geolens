@@ -12,10 +12,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { formatDate } from '@/lib/format';
-import { getVisibilityLabel } from '@/i18n/labels';
-import { visibilityColors } from '@/lib/status-colors';
 import type { MapSummaryResponse } from '@/types/api';
-import { VisibilityIcon } from './VisibilityIcon';
+import { VisibilityBadge } from './VisibilityBadge';
 
 export interface MapCardProps {
   map: MapSummaryResponse;
@@ -66,14 +64,7 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
             >
               {map.name}
             </Link>
-            {/* Keep state perceivable without relying on color or hover. */}
-            <Badge
-              variant="outline"
-              className={`shrink-0 gap-1 ${visibilityColors[map.visibility] ?? 'border-border bg-muted text-muted-foreground'}`}
-            >
-              <VisibilityIcon visibility={map.visibility} withLabel={false} />
-              {getVisibilityLabel(t, map.visibility)}
-            </Badge>
+            <VisibilityBadge visibility={map.visibility} />
           </div>
 
           {map.description && (

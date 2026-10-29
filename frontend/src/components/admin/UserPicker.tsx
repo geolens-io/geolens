@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useId, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +22,17 @@ interface UserPickerProps {
   onOpenChange?: (open: boolean) => void;
   /** Wording for other kinds of pick (groups); defaults to the people wording. */
   text?: { placeholder: string; noMatches: string; results: (count: number) => string };
+  /**
+   * Server-side search: receives each query, and `users` is already the
+   * matches for it, so the list is neither filtered nor capped here.
+   */
+  onQueryChange?: (query: string) => void;
+  /** Called on ArrowDown from the last option, to load more matches. */
+  onReachEnd?: () => void;
+  /** An option's content; defaults to its username. */
+  renderOption?: (user: PickerUser) => ReactNode;
+  /** Shown under the open list, such as a control that loads more. */
+  footer?: ReactNode;
 }
 
 const MAX_OPTIONS = 50;
@@ -32,7 +43,7 @@ const MAX_OPTIONS = 50;
  * the list before it can close an enclosing dialog.
  */
 export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function UserPicker(
-  { label, users, onSelect, disabled, busy, onOpenChange, text },
+  { label, users, onSelect, disabled, busy, onOpenChange, text, onQueryChange, onReachEnd, renderOption, footer },
   ref,
 ) {
   const { t } = useTranslation('admin');
@@ -44,10 +55,11 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
   const [active, setActive] = useState(0);
 
   const matches = useMemo(() => {
+    if (onQueryChange) return users;
     const needle = query.trim().toLowerCase();
     const found = needle ? users.filter((u) => u.username.toLowerCase().includes(needle)) : users;
     return found.slice(0, MAX_OPTIONS);
-  }, [users, query]);
+  }, [users, query, onQueryChange]);
 
   useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
 
@@ -59,6 +71,7 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
     if (busy) return;
     onSelect(user);
     setQuery('');
+    onQueryChange?.('');
     setActive(0);
     setOpen(false);
   }
@@ -69,7 +82,9 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
       case 'ArrowUp':
         event.preventDefault();
         if (!open) setOpen(true);
-        else if (matches.length > 0) {
+        else if (event.key === 'ArrowDown' && onReachEnd && activeIndex === matches.length - 1) {
+          onReachEnd();
+        } else if (matches.length > 0) {
           const step = event.key === 'ArrowDown' ? 1 : -1;
           setActive((activeIndex + step + matches.length) % matches.length);
         }
@@ -120,39 +135,40 @@ export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function
           placeholder={wording.placeholder}
           onChange={(e) => {
             setQuery(e.target.value);
+            onQueryChange?.(e.target.value);
             setActive(0);
             setOpen(true);
           }}
           onKeyDown={handleKeyDown}
           onBlur={() => setOpen(false)}
         />
-        <ul
-          id={listId}
-          role="listbox"
-          aria-label={label}
+        <div
           hidden={!expanded}
-          className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          className="absolute inset-x-0 top-full z-10 mt-1 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
         >
-          {matches.map((user, index) => (
-            // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the combobox input owns keyboard selection; options are never focused
-            <li
-              key={user.id}
-              id={optionId(index)}
-              role="option"
-              aria-selected={index === activeIndex}
-              aria-disabled={busy || undefined}
-              // Keeps focus in the input so the click isn't preceded by a blur that closes the list.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => select(user)}
-              className={cn(
-                'cursor-pointer rounded-sm px-2 py-1.5 text-sm aria-disabled:cursor-progress aria-disabled:opacity-60',
-                index === activeIndex && 'bg-accent text-accent-foreground',
-              )}
-            >
-              {user.username}
-            </li>
-          ))}
-        </ul>
+          <ul id={listId} role="listbox" aria-label={label} className="max-h-48 overflow-auto">
+            {matches.map((user, index) => (
+              // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the combobox input owns keyboard selection; options are never focused
+              <li
+                key={user.id}
+                id={optionId(index)}
+                role="option"
+                aria-selected={index === activeIndex}
+                aria-disabled={busy || undefined}
+                // Keeps focus in the input so the click isn't preceded by a blur that closes the list.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => select(user)}
+                className={cn(
+                  'cursor-pointer rounded-sm px-2 py-1.5 text-sm aria-disabled:cursor-progress aria-disabled:opacity-60',
+                  index === activeIndex && 'bg-accent text-accent-foreground',
+                )}
+              >
+                {renderOption ? renderOption(user) : user.username}
+              </li>
+            ))}
+          </ul>
+          {footer}
+        </div>
       </div>
       {open && matches.length === 0 && (
         <p className="text-sm text-muted-foreground">{wording.noMatches}</p>

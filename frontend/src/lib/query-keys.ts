@@ -60,9 +60,18 @@ export const queryKeys = {
     maps: (id: string) => ['datasets', id, 'maps'] as const,
   },
 
+  stories: {
+    all: ['stories'] as const,
+    list: (params: { skip: number; limit: number }) => ['stories', params] as const,
+    detail: (id: string | undefined) => ['story', id] as const,
+    draft: (id: string | undefined) => ['story', id, 'draft'] as const,
+  },
+
   maps: {
     all: ['maps'] as const,
     list: (params: MapBrowseParams) => ['maps', params] as const,
+    // Under the maps root, so whatever refreshes map lists refreshes the story map picker.
+    picker: (search: string) => ['maps', 'picker', search] as const,
     detail: (id: string | undefined) => ['map', id] as const,
     // Under the detail key, so whatever refetches the map refetches its gaps.
     groupGaps: (id: string | undefined) => ['map', id, 'group-gaps'] as const,

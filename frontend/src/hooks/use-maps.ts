@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, useIsMutating, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, useIsMutating, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatMutationError } from '@/lib/error-map';
 import {
@@ -55,10 +55,11 @@ function invalidateDatasetMapLists(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
 }
 
-export function useMaps(params: MapBrowseParams = {}) {
+export function useMaps(params: MapBrowseParams = {}, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.maps.list(params),
     queryFn: () => listMaps(params),
+    enabled: opts?.enabled ?? true,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
@@ -102,6 +103,35 @@ export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: b
     retry: (failureCount, error) =>
       !(error instanceof ApiError && (error.status === 404 || error.status === 403)) && failureCount < 1,
   });
+}
+
+const MAP_SEARCH_PAGE = 25;
+
+/** Maps matching `search` by name or description, a page at a time, sorted by name. */
+export function useMapSearch(search: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.maps.picker(search),
+    queryFn: ({ pageParam }) =>
+      listMaps({ search: search || undefined, skip: pageParam, limit: MAP_SEARCH_PAGE, sort_by: 'name', sort_dir: 'asc' }),
+    initialPageParam: 0,
+    getNextPageParam: (last, _pages, lastPageParam) => {
+      const next = lastPageParam + last.maps.length;
+      return next < last.total ? next : undefined;
+    },
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+}
+
+/** The query `useMap` reads, for loading a map outside a component. */
+export function mapDetailQuery(id: string) {
+  return { queryKey: queryKeys.maps.detail(id), queryFn: () => getMap(id), staleTime: 60_000, retry: false };
+}
+
+/** Loads a map into the cache `useMap` reads, so opening it later shows no spinner. */
+export function prefetchMap(qc: QueryClient, id: string) {
+  return qc.prefetchQuery(mapDetailQuery(id));
 }
 
 export function useMapAccess(id: string | undefined, opts?: { enabled?: boolean }) {

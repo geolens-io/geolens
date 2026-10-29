@@ -891,3 +891,15 @@ describe('describeUploadRefusal', () => {
     expect(translateApiErrorDetail(detail, status)).toContain(text);
   });
 });
+
+describe('story write refusals', () => {
+  it.each([
+    [{ code: 'scenes_unreadable', message: 'x' }, 409, "Some scenes were saved by a newer version of GeoLens and can't be published here."],
+    [{ code: 'visibility_unsupported', message: "Stories can't be published as restricted yet." }, 409, "Stories can't be published with this visibility yet."],
+    ['Another change to this story is in progress. Retry shortly.', 409, 'Another change to this story is in progress. Try again in a moment.'],
+    ["This story was saved by a newer version of GeoLens and can't be changed here.", 409, "This story was saved by a newer version of GeoLens and can't be changed here."],
+    ['Story not found', 404, 'Story not found.'],
+  ])('localizes %j', (detail, status, expected) => {
+    expect(translateApiErrorDetail(detail, status)).toBe(expected);
+  });
+});

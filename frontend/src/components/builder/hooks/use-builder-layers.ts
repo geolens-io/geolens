@@ -20,7 +20,7 @@ import {
   savedMapCamera,
   type BuilderCamera,
 } from '@/components/builder/builder-camera';
-import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
+import { deepEqual } from '@/lib/deep-equal';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';

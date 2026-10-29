@@ -15,6 +15,7 @@ export const namespaces = [
   'builder',
   'report',
   'widgets',
+  'stories',
 ] as const;
 export type Namespace = (typeof namespaces)[number];
 

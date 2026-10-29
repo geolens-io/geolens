@@ -512,7 +512,12 @@
     "mapChangeInProgress": "Another change to this map is in progress. Try again shortly.",
     "groupMemberNotFound": "That person is not a member of this group",
     "groupNameTaken": "A group named \"{{name}}\" already exists",
-    "vrtAudienceExceedsSources": "A VRT dataset would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see."
+    "vrtAudienceExceedsSources": "A VRT dataset would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.",
+    "storyNotFound": "Story not found.",
+    "storyLocked": "Another change to this story is in progress. Try again in a moment.",
+    "storyNewerVersion": "This story was saved by a newer version of GeoLens and can't be changed here.",
+    "storyScenesUnreadable": "Some scenes were saved by a newer version of GeoLens and can't be published here.",
+    "storyVisibilityUnsupported": "Stories can't be published with this visibility yet."
   },
   "settings": {
     "apiKeys": {

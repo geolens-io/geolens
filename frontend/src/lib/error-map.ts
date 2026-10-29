@@ -16,6 +16,11 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Dataset not found': 'errors.datasetNotFound',
   'Collection not found': 'errors.collectionNotFound',
   'Map not found': 'errors.mapNotFound',
+  'Story not found': 'errors.storyNotFound',
+  "Only the story's owner or an admin can change it": 'errors.notAuthorizedResource',
+  'Another change to this story is in progress. Retry shortly.': 'errors.storyLocked',
+  "This story was saved by a newer version of GeoLens and can't be changed here.":
+    'errors.storyNewerVersion',
   'Incorrect username or password': 'errors.incorrectCredentials',
   'Your account is awaiting approval': 'errors.awaitingApproval',
   'Account not active': 'errors.accountNotActive',
@@ -305,6 +310,14 @@ function formatInteger(raw: string): string {
     return raw;
   }
 }
+
+// Story writes answer with a stable `code`; the message beside it is English
+// diagnostic text. The editor handles the stale-revision, blocking-map and
+// missing-map codes itself, so only these reach a message.
+const STORY_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  scenes_unreadable: 'errors.storyScenesUnreadable',
+  visibility_unsupported: 'errors.storyVisibilityUnsupported',
+};
 
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
@@ -638,6 +651,8 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }
+    const storyKey = typeof value.code === 'string' ? STORY_ERROR_KEYS[value.code] : undefined;
+    if (storyKey) return { key: storyKey };
 
     // Checked after the specific codes so it never shadows one; `geometry_loss`
     // wins first.

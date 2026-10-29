@@ -563,6 +563,17 @@ export type MapHistoryEntryResponse = components['schemas']['MapHistoryEventResp
 
 export type MapHistoryListResponse = components['schemas']['MapHistoryListResponse'];
 
+export type StorySummary = components['schemas']['StorySummary'];
+export type StoryListResponse = components['schemas']['StoryListResponse'];
+export type StoryResponse = components['schemas']['StoryResponse'];
+export type StoryChapter = components['schemas']['StoryChapter'];
+export type StoryScene = components['schemas']['StoryScene'];
+export type StoryCamera = components['schemas']['StoryCamera'];
+export type StoryDraftResponse = components['schemas']['StoryDraftResponse'];
+export type StoryCreate = components['schemas']['StoryCreate'];
+export type StoryUpdate = components['schemas']['StoryUpdate'];
+export type StoryVisibility = components['schemas']['StoryVisibility'];
+
 export interface MapBrowseParams {
   skip?: number;
   limit?: number;
