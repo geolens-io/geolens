@@ -29,5 +29,55 @@
       "other": "Sonstige",
       "roleDescription": "Balkendiagramm"
     }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "open": "Dashboard öffnen",
+    "hide": "Dashboard ausblenden",
+    "followsView": "Folgt dem Kartenausschnitt",
+    "filterIgnored": "Zeigt alle Objekte: Der Filter der Ebene lässt sich auf diese Zahlen nicht anwenden.",
+    "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
+    "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
+    "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
+    "retry": "Erneut versuchen",
+    "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden."
+  },
+  "editor": {
+    "panelPosition": "Position des Bereichs",
+    "panelRight": "Rechts neben der Karte",
+    "panelBottom": "Unter der Karte",
+    "empty": "Noch keine Widgets.",
+    "noLayers": "Fügen Sie der Karte einen Vektor- oder Tabellen-Layer hinzu, um Widgets anzulegen.",
+    "add": "{{type}} hinzufügen",
+    "title": "Titel",
+    "layer": "Layer",
+    "pickLayer": "Layer wählen",
+    "scope": "Umfasst",
+    "scopeLayer": "Den ganzen Layer",
+    "scopeView": "Den Kartenausschnitt",
+    "moveUp": "{{name}} nach oben",
+    "moveDown": "{{name}} nach unten",
+    "remove": "{{name}} entfernen",
+    "preview": "Vorschau",
+    "stat": "Kennzahl",
+    "statNames": {
+      "count": "Anzahl",
+      "sum": "Summe",
+      "mean": "Mittelwert",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "noNumericColumns": "Dieser Layer hat keine numerischen Spalten, daher ist nur eine Anzahl möglich.",
+    "column": "Spalte",
+    "groupBy": "Gruppieren nach",
+    "limit": "Balken",
+    "pickColumn": "Spalte wählen",
+    "problem": {
+      "layerRemoved": "Sein Layer ist nicht mehr auf der Karte; beim Speichern wird dieses Widget entfernt.",
+      "missingColumn": "Der Layer hat keine Spalte „{{column}}“. Wählen Sie vor dem Speichern eine andere.",
+      "notNumeric": "„{{column}}“ ist keine numerische Spalte. Wählen Sie vor dem Speichern eine andere.",
+      "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen."
+    },
+    "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets."
   }
 }

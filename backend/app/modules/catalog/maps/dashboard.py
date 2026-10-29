@@ -16,6 +16,8 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    TypeAdapter,
+    ValidationError,
     field_validator,
 )
 
@@ -41,12 +43,24 @@ AcceptedWidget = Annotated[
     BeforeValidator(upgrade),
 ]
 _REFUSED = "Some dashboard widgets can't be saved on this map"
+_ACCEPTED_ADAPTER: TypeAdapter[Any] = TypeAdapter(AcceptedWidget)
+# Where readers see the panel. Stored only when not the default, so a release
+# that doesn't know the key reads the row unchanged; its saves drop the key.
+PanelPosition = Literal["right", "bottom"]
+_PANEL_DESCRIPTION = (
+    "Where the panel sits beside the map: `right` or `bottom`. On narrow "
+    "screens it is always below the map."
+)
 
 
 class DashboardConfigInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = DASHBOARD_CONFIG_VERSION
+    panel: PanelPosition | None = Field(
+        default=None,
+        description=f"{_PANEL_DESCRIPTION} Leave it out to keep the stored panel.",
+    )
     widgets: list[AcceptedWidget] = Field(
         default_factory=list,
         max_length=MAX_DASHBOARD_WIDGETS,
@@ -67,6 +81,7 @@ class DashboardConfigInput(BaseModel):
 
 class DashboardConfig(BaseModel):
     version: int
+    panel: PanelPosition = Field(default="right", description=_PANEL_DESCRIPTION)
     widgets: list[AcceptedWidget] = Field(
         description="The widgets on layers this response shows, in panel order."
     )
@@ -80,6 +95,23 @@ def _stored_widgets(stored: Any) -> list[Any]:
 def _stored_version(stored: Any) -> int:
     version = stored.get("version") if isinstance(stored, dict) else None
     return version if type(version) is int else DASHBOARD_CONFIG_VERSION
+
+
+def _stored_panel(stored: Any) -> PanelPosition:
+    panel = stored.get("panel") if isinstance(stored, dict) else None
+    return "bottom" if panel == "bottom" else "right"
+
+
+def _stored_dashboard(
+    stored: Any, widgets: list[Any], panel: PanelPosition | None = None
+) -> dict[str, Any]:
+    """``widgets`` to store in place of ``stored``, keeping its panel unless ``panel`` is given."""
+    panel = _stored_panel(stored) if panel is None else panel
+    result: dict[str, Any] = {"version": DASHBOARD_CONFIG_VERSION}
+    if panel != "right":
+        result["panel"] = panel
+    result["widgets"] = widgets
+    return result
 
 
 def _parsed(raw: Any) -> Any | None:
@@ -110,7 +142,31 @@ def render_dashboard(
     ]
     if not widgets:
         return None
-    return DashboardConfig(version=_stored_version(stored), widgets=widgets)
+    return DashboardConfig(
+        version=_stored_version(stored), panel=_stored_panel(stored), widgets=widgets
+    )
+
+
+def shows_widgets(stored: Any, layer_ids: Collection[uuid.UUID | str]) -> bool:
+    """Whether ``render_dashboard(stored, layer_ids)`` would show a widget.
+
+    For lists: it stops at the first such widget, validates only widgets on
+    ``layer_ids`` and builds no response.
+    """
+    shown = {str(layer_id) for layer_id in layer_ids}
+    for raw in _stored_widgets(stored):
+        try:
+            layer_id = str(uuid.UUID(str(raw["layer_id"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if layer_id not in shown:
+            continue
+        try:
+            _ACCEPTED_ADAPTER.validate_python(raw)
+        except ValidationError:
+            continue
+        return True
+    return False
 
 
 def merge_dashboard(
@@ -182,7 +238,7 @@ def merge_dashboard(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"A dashboard holds at most {MAX_DASHBOARD_WIDGETS} widgets",
         )
-    return {"version": DASHBOARD_CONFIG_VERSION, "widgets": widgets}
+    return _stored_dashboard(stored, widgets, sent.panel if sent else None)
 
 
 def drop_repointed(stored: Any, repointed_layer_ids: Collection[uuid.UUID]) -> Any:
@@ -202,7 +258,7 @@ def drop_repointed(stored: Any, repointed_layer_ids: Collection[uuid.UUID]) -> A
             remaining.append(raw)
     if len(remaining) == len(widgets):
         return stored
-    return {"version": DASHBOARD_CONFIG_VERSION, "widgets": remaining}
+    return _stored_dashboard(stored, remaining)
 
 
 def fork_dashboard(
@@ -223,7 +279,6 @@ def fork_dashboard(
         copied = copied_layers.get(widget.layer_id)
         if copied is not None:
             widgets.append(widget.model_copy(update={"layer_id": copied}))
-    return {
-        "version": DASHBOARD_CONFIG_VERSION,
-        "widgets": [widget.model_dump(mode="json") for widget in widgets],
-    }
+    return _stored_dashboard(
+        stored, [widget.model_dump(mode="json") for widget in widgets]
+    )

@@ -17,6 +17,35 @@ export function isNumericColumn(type: string): boolean {
   return false;
 }
 
+// The column types the aggregate endpoint reads as numbers (column_stats._NUMERIC_TYPES),
+// as information_schema names them.
+const AGGREGATE_NUMERIC_TYPES = new Set([
+  'smallint',
+  'integer',
+  'bigint',
+  'decimal',
+  'numeric',
+  'real',
+  'double precision',
+  'money',
+]);
+
+/**
+ * True for a column type the aggregate endpoint sums, averages and compares.
+ * Exact, unlike `isNumericColumn`, whose substring match also takes
+ * "interval" and "point".
+ */
+export function isAggregateNumeric(type: string): boolean {
+  return AGGREGATE_NUMERIC_TYPES.has(type.toLowerCase());
+}
+
+/** information_schema's names for PostgreSQL's text types. */
+export const TEXT_COLUMN_TYPES: ReadonlySet<string> = new Set(['text', 'character varying', 'character']);
+
+export function isTextColumn(type: string | null | undefined): boolean {
+  return TEXT_COLUMN_TYPES.has((type ?? '').toLowerCase());
+}
+
 /** Check if a column type string represents a Postgres boolean. */
 export function isBooleanColumn(type: string): boolean {
   const t = type.toLowerCase();

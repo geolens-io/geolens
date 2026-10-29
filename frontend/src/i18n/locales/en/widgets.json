@@ -29,5 +29,55 @@
       "other": "Other",
       "roleDescription": "bar chart"
     }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "open": "Open dashboard",
+    "hide": "Hide dashboard",
+    "followsView": "Follows the map view",
+    "filterIgnored": "Shows all features: the layer's filter can't be applied to these numbers.",
+    "tooWide": "Too many features in view. Zoom in to see these numbers.",
+    "loadFailed": "These numbers couldn't be loaded.",
+    "allHidden": "The layers these widgets summarize are hidden. Show one in the legend to see its widgets.",
+    "retry": "Retry",
+    "someFailed": "Some widgets couldn't load their numbers."
+  },
+  "editor": {
+    "panelPosition": "Panel position",
+    "panelRight": "Right of the map",
+    "panelBottom": "Below the map",
+    "empty": "No widgets yet.",
+    "noLayers": "Add a vector or table layer to the map to give it widgets.",
+    "add": "Add {{type}}",
+    "title": "Title",
+    "layer": "Layer",
+    "pickLayer": "Pick a layer",
+    "scope": "Covers",
+    "scopeLayer": "The whole layer",
+    "scopeView": "What's in the map view",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}}",
+    "preview": "Preview",
+    "stat": "Statistic",
+    "statNames": {
+      "count": "Count",
+      "sum": "Sum",
+      "mean": "Average",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "noNumericColumns": "This layer has no numeric columns, so only a count is available.",
+    "column": "Column",
+    "groupBy": "Group by",
+    "limit": "Bars",
+    "pickColumn": "Pick a column",
+    "problem": {
+      "layerRemoved": "Its layer is no longer on the map, so saving removes this widget.",
+      "missingColumn": "The layer has no column “{{column}}”. Pick another before saving.",
+      "notNumeric": "“{{column}}” isn't a numeric column. Pick another before saving.",
+      "viewWithoutGeometry": "This layer has no geometry, so the widget can't follow the map view. Set it to cover the whole layer."
+    },
+    "maxWidgets": "A dashboard holds at most {{max}} widgets."
   }
 }

@@ -38,6 +38,12 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 - `loadRenderer`: `() => import('./my-widget/MyWidgetRenderer')`. Anything
   heavy, including a new dependency, is imported only from the renderer so it
   stays out of the main bundle.
+- `readsColumns(config)` (dashboard types): the columns the config reads, each
+  marked `numeric` when it must hold numbers. The Builder checks them against
+  the layer and holds the save until they match.
+- `loadEditor` (dashboard types): `() => import('./my-widget/MyWidgetEditor')`,
+  the config form the Builder's Dashboard panel shows, with the layer's
+  columns. `editor-fields.tsx` has the statistic and column pickers.
 - `Fallback`: an accessible text or table version of the widget. It renders
   while the renderer loads, if the renderer fails, and wherever a host offers
   a text view. A chart's fallback is its data table.
@@ -58,14 +64,15 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
   submitted instance must parse, or the server answers 422. There's no
   exception for stored instances.
 
-`defineWidget` wraps `loadRenderer` in `React.lazy` as the definition's
-`Renderer`. `WidgetView` renders a parsed instance with its fallback around
-that renderer.
+`defineWidget` wraps `loadRenderer` and `loadEditor` in `React.lazy` as the
+definition's `Renderer` and `Editor`. `WidgetView` renders a parsed instance
+with its fallback around that renderer.
 
 ## Adding a widget type
 
 1. Create `my-widget/definition.ts` with `defineWidget<MyConfig>({ ... })`,
-   plus `MyWidgetFallback.tsx` and `MyWidgetRenderer.tsx` (default export).
+   plus `MyWidgetFallback.tsx` and `MyWidgetRenderer.tsx` (default export),
+   and for a dashboard type `MyWidgetEditor.tsx` (default export).
 2. Add the definition to `widgetDefinitions` in `registry.ts`.
 3. Add its strings under `types.<type>` in `src/i18n/locales/*/widgets.json`
    for all five locales, and list them in `labelKey` and `i18nKeys`.

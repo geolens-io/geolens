@@ -13,6 +13,8 @@ const EMPTY_TOGGLES: ReadonlyMap<string, boolean> = new Map();
 
 interface UseViewerLayersResult {
   visibleLayers: Set<string>;
+  /** Ids of the layers the reader turned off in this session; layers saved hidden aren't among them. */
+  hiddenByReader: ReadonlySet<string>;
   handleToggleVisibility: (layerKey: string) => void;
   isLegendOpen: boolean;
   setIsLegendOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -55,6 +57,16 @@ export function useViewerLayers(
         layerEntries
           .filter(({ key, layer }) => toggles.get(key) ?? layer.visible)
           .map(({ key }) => key),
+      ),
+    [toggles, layerEntries],
+  );
+
+  const hiddenByReader = useMemo(
+    () =>
+      new Set(
+        layerEntries
+          .filter(({ key, layer }) => layer.id && toggles.get(key) === false)
+          .map(({ layer }) => layer.id as string),
       ),
     [toggles, layerEntries],
   );
@@ -111,5 +123,5 @@ export function useViewerLayers(
     };
   }, [showLegend]);
 
-  return { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen };
+  return { visibleLayers, hiddenByReader, handleToggleVisibility, isLegendOpen, setIsLegendOpen };
 }

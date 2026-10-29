@@ -71,7 +71,8 @@ async def test_page_statement_does_not_touch_the_layer_table_1778():
 @pytest.mark.anyio
 async def test_layer_counts_are_restricted_to_the_page_ids_1778():
     map_id = uuid.uuid4()
-    session = _RecordingSession([(_map(map_id), "ada")], [(map_id, 7)], 1)
+    visible_layers = [(map_id, uuid.uuid4()) for _ in range(7)]
+    session = _RecordingSession([(_map(map_id), "ada")], visible_layers, 1)
 
     maps, total = await list_maps(session, skip=0, limit=50)
 

@@ -955,7 +955,10 @@
     "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez",
     "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer",
     "bulkGrouped": "{{count}} couches regroupées dans « {{name}} »",
-    "bulkUngrouped": "{{count}} groupes dissociés"
+    "bulkUngrouped": "{{count}} groupes dissociés",
+    "dashboardWidgetInvalid": "Impossible d'enregistrer : un widget du tableau de bord lit « {{column}} », une colonne absente de sa couche ou non numérique. Corrigez-le dans le panneau Tableau de bord.",
+    "dashboardViewWithoutGeometry": "Impossible d'enregistrer : un widget du tableau de bord suit la vue de la carte sur une couche sans géométrie. Faites-le porter sur toute la couche dans le panneau Tableau de bord.",
+    "dashboardChangedElsewhere": "Le tableau de bord de cette carte a été modifié ailleurs. Vos modifications non enregistrées sont conservées, et l'enregistrement remplacera ce changement."
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -1206,7 +1209,9 @@
     "askAi": "Demander à l'IA",
     "history": "Historique",
     "notes": "Notes",
-    "notesPlaceholder": "Ajouter des notes sur cette carte..."
+    "notesPlaceholder": "Ajouter des notes sur cette carte...",
+    "dashboard": "Tableau de bord",
+    "dashboardDescription": "Widgets que les lecteurs voient à côté de la carte"
   },
   "leaveWarning": {
     "title": "Modifications non enregistrées",

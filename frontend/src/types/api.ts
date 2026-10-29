@@ -9,6 +9,7 @@ export type GeometryTypeName = string;
 export type MapLayerType = 'vector_geolens' | 'raster_geolens' | 'geojson';
 
 export type MapTerrainConfig = components['schemas']['TerrainConfig'];
+export type DashboardConfig = components['schemas']['DashboardConfig'];
 
 export type MapBasemapVisibilityMode = components['schemas']['BasemapSublayerVisibility'];
 export type MapBasemapLandWaterTone = components['schemas']['BasemapLandWaterTone'];

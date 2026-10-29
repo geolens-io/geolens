@@ -1,4 +1,5 @@
 import type { FilterSpecification } from 'maplibre-gl';
+import { isTextColumn, TEXT_COLUMN_TYPES } from './column-utils';
 
 /**
  * Single source of truth for the *editable* MapLibre filter-expression subset
@@ -455,9 +456,8 @@ interface FilterColumn {
 // Mirrors _FEATURE_QUERYABLE_NAME_RE and _PG_TYPE_TO_SCHEMA in
 // backend/app/standards/ogc/filtering.py: the columns a CQL2 filter can read.
 const CQL2_COLUMN_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,62}$/;
-const CQL2_STRING_TYPES = new Set(['text', 'character varying', 'character']);
 const CQL2_QUERYABLE_TYPES = new Set([
-  ...CQL2_STRING_TYPES,
+  ...TEXT_COLUMN_TYPES,
   'smallint',
   'integer',
   'bigint',
@@ -575,7 +575,7 @@ const CQL2_FLOAT4_MAX = 3.4028234663852886e38;
 /** Check scalar types and numeric ranges using the converter's temporal/UUID rules too. */
 export function isCql2LiteralCompatible(value: unknown, pgType: string | undefined): boolean {
   if (!isCql2Scalar(value) || cql2Literal(value, pgType) === null) return false;
-  if (CQL2_STRING_TYPES.has(pgType ?? '')) return typeof value === 'string';
+  if (isTextColumn(pgType)) return typeof value === 'string';
   const bounds = CQL2_PG_INTEGER_RANGES.get(pgType ?? '');
   if (bounds) {
     // Unsafe integers may already have rounded before the filter is serialized.
@@ -638,7 +638,7 @@ function conditionToCql2(
   }
   if (c.operator === 'contains') {
     if (typeof c.rawValue !== 'string') return null;
-    if (pgType !== undefined && !CQL2_STRING_TYPES.has(pgType)) return null;
+    if (pgType !== undefined && !isTextColumn(pgType)) return null;
     // MapLibre's `in` is a literal, case-sensitive substring test.
     const literal = c.rawValue.replace(/[\\%_]/g, '\\$&');
     return { op: 'like', args: [cql2Property(c.field), `%${literal}%`] };
@@ -703,4 +703,30 @@ export function maplibreFilterToCql2(
   if (parts.length === 0) return canonical.combinator === 'any' ? 'unsupported' : null;
   if (parts.length === 1) return parts[0];
   return { op: canonical.combinator === 'all' ? 'and' : 'or', args: parts };
+}
+
+/**
+ * A layer's filter as a dataset route that validates CQL2 against the live
+ * table accepts it. Stricter than `maplibreFilterToCql2`: a field `columns`
+ * doesn't list, or one literal its column's type can't hold, inside an `in`
+ * list included, makes the whole filter 'unsupported', because the route
+ * would refuse it with a 400 or 422.
+ */
+export function layerFilterToServerCql2(
+  filter: FilterSpecification | null | undefined,
+  columns: readonly FilterColumn[] | null | undefined,
+): Cql2Expression | null | 'unsupported' {
+  const converted = maplibreFilterToCql2(filter ?? null, columns, { requireKnownFields: true });
+  if (!converted || converted === 'unsupported') return converted;
+  const canonical = parseCanonicalFilter(filter ?? null);
+  const types = new Map(
+    (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
+  );
+  const incompatibleLiteral =
+    canonical.kind === 'editable' &&
+    canonical.conditions.some((condition) => {
+      const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
+      return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
+    });
+  return incompatibleLiteral ? 'unsupported' : converted;
 }

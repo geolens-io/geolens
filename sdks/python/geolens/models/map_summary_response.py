@@ -34,6 +34,7 @@ class MapSummaryResponse:
         updated_at (datetime.datetime):
         thumbnail_url (None | str | Unset):
         thumbnail_updated_at (datetime.datetime | None | Unset):
+        has_dashboard (bool | Unset): True when the map shows you at least one dashboard widget. Default: False.
         created_by_username (None | str | Unset):
         created_by (None | Unset | UUID):
     """
@@ -47,6 +48,7 @@ class MapSummaryResponse:
     updated_at: datetime.datetime
     thumbnail_url: None | str | Unset = UNSET
     thumbnail_updated_at: datetime.datetime | None | Unset = UNSET
+    has_dashboard: bool | Unset = False
     created_by_username: None | str | Unset = UNSET
     created_by: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -81,6 +83,8 @@ class MapSummaryResponse:
         else:
             thumbnail_updated_at = self.thumbnail_updated_at
 
+        has_dashboard = self.has_dashboard
+
         created_by_username: None | str | Unset
         if isinstance(self.created_by_username, Unset):
             created_by_username = UNSET
@@ -112,6 +116,8 @@ class MapSummaryResponse:
             field_dict["thumbnail_url"] = thumbnail_url
         if thumbnail_updated_at is not UNSET:
             field_dict["thumbnail_updated_at"] = thumbnail_updated_at
+        if has_dashboard is not UNSET:
+            field_dict["has_dashboard"] = has_dashboard
         if created_by_username is not UNSET:
             field_dict["created_by_username"] = created_by_username
         if created_by is not UNSET:
@@ -171,6 +177,8 @@ class MapSummaryResponse:
             d.pop("thumbnail_updated_at", UNSET)
         )
 
+        has_dashboard = d.pop("has_dashboard", UNSET)
+
         def _parse_created_by_username(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -209,6 +217,7 @@ class MapSummaryResponse:
             updated_at=updated_at,
             thumbnail_url=thumbnail_url,
             thumbnail_updated_at=thumbnail_updated_at,
+            has_dashboard=has_dashboard,
             created_by_username=created_by_username,
             created_by=created_by,
         )

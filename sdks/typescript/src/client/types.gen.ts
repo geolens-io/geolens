@@ -3615,6 +3615,12 @@ export type DashboardConfig = {
      */
     version: number;
     /**
+     * Panel
+     *
+     * Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map.
+     */
+    panel?: 'right' | 'bottom';
+    /**
      * Widgets
      *
      * The widgets on layers this response shows, in panel order.
@@ -3630,6 +3636,12 @@ export type DashboardConfigInput = {
      * Version
      */
     version?: 1;
+    /**
+     * Panel
+     *
+     * Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map. Leave it out to keep the stored panel.
+     */
+    panel?: 'right' | 'bottom' | null;
     /**
      * Widgets
      *
@@ -8168,6 +8180,12 @@ export type MapSummaryResponse = {
      * Layer Count
      */
     layer_count: number;
+    /**
+     * Has Dashboard
+     *
+     * True when the map shows you at least one dashboard widget.
+     */
+    has_dashboard?: boolean;
     /**
      * Created By Username
      */

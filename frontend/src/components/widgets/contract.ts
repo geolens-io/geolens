@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
-import type { components } from '@/types/api.generated';
+import type { AggregateRequest } from '@/api/aggregate';
 
 /** Where a widget type may be placed. Story blocks and dashboard widgets share one registry. */
 export type WidgetSurface = 'story' | 'dashboard';
@@ -24,13 +24,6 @@ export interface WidgetInstance<C = unknown> {
   config: C;
 }
 
-type AggregateRequest =
-  | components['schemas']['CountRequest']
-  | components['schemas']['StatsRequest']
-  | components['schemas']['ValueCountsRequest']
-  | components['schemas']['HistogramRequest']
-  | components['schemas']['GroupByRequest'];
-
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /**
@@ -46,6 +39,27 @@ export interface WidgetRenderProps<C> {
   data?: unknown;
 }
 
+/** A column of the layer a dashboard widget summarizes. */
+export interface WidgetColumn {
+  name: string;
+  type: string;
+}
+
+/** A column a config reads; a `numeric` one must hold numbers. */
+interface WidgetColumnUse {
+  name: string;
+  numeric: boolean;
+}
+
+export interface WidgetEditorProps<C> {
+  config: C;
+  onChange: (config: C) => void;
+  /** The layer's columns, for the editor's pickers. */
+  columns: readonly WidgetColumn[];
+  /** Unique per instance, for the editor's field ids. */
+  idPrefix: string;
+}
+
 export interface WidgetDefinition<C> {
   /** Stable id stored in each instance's `type`. Never rename a shipped type. */
   type: string;
@@ -58,6 +72,8 @@ export interface WidgetDefinition<C> {
   i18nKeys: readonly string[];
   /** Config for a newly added instance. */
   defaultConfig: C;
+  /** Changes to `defaultConfig` for an instance added to a layer with these columns, such as which column to read. */
+  initialConfig?: (columns: readonly WidgetColumn[]) => Partial<C>;
   /**
    * Validates a stored or submitted config written at version `v` (1 to this
    * definition's `v`) and returns it at the current version, or null when it's
@@ -65,6 +81,10 @@ export interface WidgetDefinition<C> {
    */
   parseConfig: (config: unknown, v: number) => C | null;
   dataRequest?: (config: C) => WidgetDataRequest | null;
+  /** The columns `config` reads, so an editor can check them against the layer before saving. */
+  readsColumns?: (config: C) => readonly WidgetColumnUse[];
+  /** Dynamic import of the config editor, for hosts that edit this type. */
+  loadEditor?: () => Promise<{ default: ComponentType<WidgetEditorProps<C>> }>;
   /** Dynamic import of the renderer, so its code and dependencies load only when shown. */
   loadRenderer: () => Promise<{ default: ComponentType<WidgetRenderProps<C>> }>;
   /**
@@ -75,9 +95,10 @@ export interface WidgetDefinition<C> {
   Fallback: ComponentType<WidgetRenderProps<C>>;
 }
 
-/** A definition as the registry holds it, with its renderer wrapped in `React.lazy`. */
+/** A definition as the registry holds it, with its renderer and editor wrapped in `React.lazy`. */
 interface RegisteredWidget<C> extends WidgetDefinition<C> {
   Renderer: LazyExoticComponent<ComponentType<WidgetRenderProps<C>>>;
+  Editor?: LazyExoticComponent<ComponentType<WidgetEditorProps<C>>>;
 }
 
 export type AnyWidgetDefinition = RegisteredWidget<unknown>;
@@ -89,6 +110,10 @@ export type AnyWidgetDefinition = RegisteredWidget<unknown>;
  * definition's `parseConfig` produced.
  */
 export function defineWidget<C>(definition: WidgetDefinition<C>): AnyWidgetDefinition {
-  const registered: RegisteredWidget<C> = { ...definition, Renderer: lazy(definition.loadRenderer) };
+  const registered: RegisteredWidget<C> = {
+    ...definition,
+    Renderer: lazy(definition.loadRenderer),
+    ...(definition.loadEditor ? { Editor: lazy(definition.loadEditor) } : {}),
+  };
   return registered as unknown as AnyWidgetDefinition;
 }

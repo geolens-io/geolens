@@ -1261,6 +1261,10 @@ class MapSummaryResponse(BaseModel):
     # Null for older thumbnails; the card falls back to `updated_at`.
     thumbnail_updated_at: datetime | None = None
     layer_count: int
+    has_dashboard: bool = Field(
+        default=False,
+        description="True when the map shows you at least one dashboard widget.",
+    )
     created_by_username: str | None = None
     created_at: datetime
     updated_at: datetime

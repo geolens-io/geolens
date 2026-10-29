@@ -3,19 +3,11 @@ import {
   test,
   type APIRequestContext,
   type Page,
-  type Response,
   AUTH_FILE,
-  getAuthToken,
 } from './helpers/session';
+import { authHeaders, createMap as createMapNamed, deleteMap, isMapUpdateResponse, waitForBuilder } from './helpers/maps';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
-
-function isMapUpdateResponse(response: Response, mapId: string): boolean {
-  return (
-    response.request().method() === 'PUT' &&
-    new URL(response.url()).pathname === `/api/maps/${mapId}`
-  );
-}
 
 interface DatasetListItem {
   id: string;
@@ -42,17 +34,6 @@ interface ConsoleGate {
   warnings: string[];
 }
 
-function authHeaders() {
-  return {
-    Authorization: `Bearer ${getAuthToken()}`,
-    'Content-Type': 'application/json',
-  };
-}
-
-async function waitForBuilder(page: Page) {
-  await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
-}
 
 function attachConsoleGate(page: Page): ConsoleGate {
   const errors: string[] = [];
@@ -99,19 +80,8 @@ async function getDatasets(request: APIRequestContext): Promise<DatasetListItem[
   return payload.datasets ?? payload.items ?? [];
 }
 
-async function createMap(request: APIRequestContext, name: string): Promise<string> {
-  const response = await request.post(`${BASE_URL}/api/maps/`, {
-    headers: authHeaders(),
-    data: { name, description: 'Temporary map for builder hardening coverage' },
-  });
-  expect(response.ok(), `Create map failed: ${response.status()} ${await response.text()}`).toBe(true);
-  return ((await response.json()) as { id: string }).id;
-}
-
-async function deleteMap(request: APIRequestContext, mapId: string) {
-  await request.delete(`${BASE_URL}/api/maps/${mapId}`, {
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
-  });
+function createMap(request: APIRequestContext, name: string): Promise<string> {
+  return createMapNamed(request, name, 'Temporary map for builder hardening coverage');
 }
 
 async function addLayer(request: APIRequestContext, mapId: string, datasetId: string) {

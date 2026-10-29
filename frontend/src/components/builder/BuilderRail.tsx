@@ -1,6 +1,6 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical } from 'lucide-react';
+import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical, LayoutDashboard } from 'lucide-react';
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
@@ -15,9 +15,13 @@ import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { Textarea } from '@/components/ui/textarea';
+import type { DashboardDraft } from '@/components/builder/dashboard-draft';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').then(m => ({ default: m.AnalysisPanel })));
+const DashboardEditorPanel = lazy(() =>
+  import('@/components/builder/DashboardEditorPanel').then((m) => ({ default: m.DashboardEditorPanel })),
+);
 
 /**
  * Structured disabled-state for the AI rail panel: per-reason copy, plus a
@@ -86,7 +90,7 @@ function AIDisabledState() {
   );
 }
 
-export type RailPanel = 'notes' | 'history' | 'analysis' | 'ai' | null;
+export type RailPanel = 'notes' | 'dashboard' | 'history' | 'analysis' | 'ai' | null;
 
 interface BuilderRailProps {
   activePanel: RailPanel;
@@ -96,6 +100,11 @@ interface BuilderRailProps {
   // Notes
   notes: string;
   onNotesChange: (value: string) => void;
+  // Dashboard
+  dashboard?: DashboardDraft;
+  onDashboardChange?: (draft: DashboardDraft) => void;
+  /** The Builder's map once loaded; the dashboard preview reads its view. */
+  map?: MaplibreMap | null;
   // AI Chat
   mapId?: string;
   layers?: MapLayerResponse[];
@@ -141,6 +150,9 @@ export function BuilderRail({
   aiAvailable,
   notes,
   onNotesChange,
+  dashboard,
+  onDashboardChange,
+  map,
   mapId,
   layers,
   layerActions,
@@ -197,6 +209,13 @@ export function BuilderRail({
       id: 'notes' as const,
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'dashboard' as const,
+      icon: LayoutDashboard,
+      label: t('dock.dashboard'),
       disabled: false,
       unavailable: false,
     },
@@ -312,6 +331,7 @@ export function BuilderRail({
             <div className="flex items-center gap-2">
               <span id="builder-rail-panel-title" className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
+                {activePanel === 'dashboard' && t('dock.dashboard')}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
                 {activePanel === 'analysis' && t('analysisTools.title', { defaultValue: 'Analysis' })}
                 {activePanel === 'ai' && (aiAvailable
@@ -343,6 +363,23 @@ export function BuilderRail({
                   }}
                 />
               </div>
+            )}
+
+            {activePanel === 'dashboard' && dashboard && onDashboardChange && layers && (
+              <LazyLoadErrorBoundary>
+                <Suspense fallback={
+                  <div className="flex-1 flex items-center justify-center p-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                }>
+                  <DashboardEditorPanel
+                    draft={dashboard}
+                    onChange={onDashboardChange}
+                    layers={layers}
+                    map={map ?? null}
+                  />
+                </Suspense>
+              </LazyLoadErrorBoundary>
             )}
 
             {activePanel === 'history' && (

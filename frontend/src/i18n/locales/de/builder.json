@@ -955,7 +955,10 @@
     "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut",
     "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile",
     "bulkGrouped": "{{count}} Ebenen in „{{name}}“ gruppiert",
-    "bulkUngrouped": "{{count}} Gruppen aufgelöst"
+    "bulkUngrouped": "{{count}} Gruppen aufgelöst",
+    "dashboardWidgetInvalid": "Speichern nicht möglich: Ein Dashboard-Widget liest „{{column}}“, eine Spalte, die seinem Layer fehlt oder nicht numerisch ist. Korrigieren Sie es im Bereich Dashboard.",
+    "dashboardViewWithoutGeometry": "Speichern nicht möglich: Ein Dashboard-Widget folgt dem Kartenausschnitt auf einem Layer ohne Geometrie. Lassen Sie es im Bereich Dashboard den ganzen Layer umfassen.",
+    "dashboardChangedElsewhere": "Das Dashboard dieser Karte wurde an anderer Stelle geändert. Ihre ungespeicherten Änderungen bleiben erhalten, und beim Speichern ersetzen sie diese Änderung."
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -1206,7 +1209,9 @@
     "askAi": "KI fragen",
     "history": "Verlauf",
     "notes": "Notizen",
-    "notesPlaceholder": "Notizen zu dieser Karte hinzufügen..."
+    "notesPlaceholder": "Notizen zu dieser Karte hinzufügen...",
+    "dashboard": "Dashboard",
+    "dashboardDescription": "Widgets, die Leser neben der Karte sehen"
   },
   "leaveWarning": {
     "title": "Nicht gespeicherte Änderungen",

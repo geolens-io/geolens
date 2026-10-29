@@ -21,6 +21,20 @@ vi.mock('@/components/builder/ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />,
 }));
 
+vi.mock('@/components/builder/DashboardEditorPanel', () => ({
+  DashboardEditorPanel: ({
+    draft,
+    onChange,
+  }: {
+    draft: { panel: string; widgets: unknown[] };
+    onChange: (draft: { panel: string; widgets: unknown[] }) => void;
+  }) => (
+    <button type="button" onClick={() => onChange({ ...draft, panel: 'bottom' })}>
+      {`editor ${draft.panel}`}
+    </button>
+  ),
+}));
+
 vi.mock('@/components/builder/AnalysisPanel', () => ({
   AnalysisPanel: () => <div data-testid="analysis-panel-mock" />,
 }));
@@ -94,6 +108,27 @@ function RailHarness({ showRail = true, aiAvailable = true }: { showRail?: boole
 }
 
 describe('BuilderRail', () => {
+  it('opens the dashboard editor on the draft and passes its edits up', async () => {
+    const onDashboardChange = vi.fn();
+    render(
+      <BuilderRail
+        activePanel="dashboard"
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes=""
+        onNotesChange={vi.fn()}
+        dashboard={{ panel: 'right', widgets: [] }}
+        onDashboardChange={onDashboardChange}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'dock.dashboard' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(await screen.findByRole('button', { name: 'editor right' }));
+    expect(onDashboardChange).toHaveBeenCalledWith({ panel: 'bottom', widgets: [] });
+  });
+
   it('opens and closes the history panel from the icon rail', () => {
     render(<RailHarness />);
 

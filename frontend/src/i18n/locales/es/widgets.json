@@ -29,5 +29,55 @@
       "other": "Otros",
       "roleDescription": "gráfico de barras"
     }
+  },
+  "dashboard": {
+    "title": "Panel",
+    "open": "Abrir panel",
+    "hide": "Ocultar panel",
+    "followsView": "Sigue la vista del mapa",
+    "filterIgnored": "Muestra todos los elementos: el filtro de la capa no se puede aplicar a estas cifras.",
+    "tooWide": "Hay demasiados elementos en la vista. Acerca el zoom para ver estas cifras.",
+    "loadFailed": "No se pudieron cargar estas cifras.",
+    "allHidden": "Las capas que resumen estos widgets están ocultas. Muestra una en la leyenda para ver sus widgets.",
+    "retry": "Reintentar",
+    "someFailed": "Algunos widgets no pudieron cargar sus cifras."
+  },
+  "editor": {
+    "panelPosition": "Posición del panel",
+    "panelRight": "A la derecha del mapa",
+    "panelBottom": "Debajo del mapa",
+    "empty": "Aún no hay widgets.",
+    "noLayers": "Añade al mapa una capa vectorial o de tabla para darle widgets.",
+    "add": "Añadir {{type}}",
+    "title": "Título",
+    "layer": "Capa",
+    "pickLayer": "Elige una capa",
+    "scope": "Abarca",
+    "scopeLayer": "Toda la capa",
+    "scopeView": "Lo que hay en la vista del mapa",
+    "moveUp": "Subir {{name}}",
+    "moveDown": "Bajar {{name}}",
+    "remove": "Quitar {{name}}",
+    "preview": "Vista previa",
+    "stat": "Estadística",
+    "statNames": {
+      "count": "Recuento",
+      "sum": "Suma",
+      "mean": "Media",
+      "min": "Mínimo",
+      "max": "Máximo"
+    },
+    "noNumericColumns": "Esta capa no tiene columnas numéricas, así que solo se puede contar.",
+    "column": "Columna",
+    "groupBy": "Agrupar por",
+    "limit": "Barras",
+    "pickColumn": "Elige una columna",
+    "problem": {
+      "layerRemoved": "Su capa ya no está en el mapa, así que al guardar se quitará este widget.",
+      "missingColumn": "La capa no tiene la columna «{{column}}». Elige otra antes de guardar.",
+      "notNumeric": "«{{column}}» no es una columna numérica. Elige otra antes de guardar.",
+      "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa."
+    },
+    "maxWidgets": "Un panel admite como máximo {{max}} widgets."
   }
 }

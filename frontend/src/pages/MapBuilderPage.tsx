@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, Info, FlaskConical, Loader2 } from 'lucide-react';
+import { FileText, History, Sparkles, Info, FlaskConical, Loader2, LayoutDashboard } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -319,6 +319,10 @@ export function MapBuilderPage() {
     localDescription: layers.localDescription,
     legendTitle: layers.localLegendTitle,
     dockNotes,
+    dashboard: layers.dashboard,
+    savedDashboard: layers.savedDashboard,
+    dashboardEdited: layers.dashboardEdited,
+    onDashboardSent: layers.markDashboardSent,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -991,6 +995,9 @@ export function MapBuilderPage() {
     aiAvailable: !!aiAvailable,
     notes: dockNotes,
     onNotesChange: setDockNotes,
+    dashboard: layers.dashboard,
+    onDashboardChange: layers.handleDashboardChange,
+    map: mapInstance,
     mapId: id,
     layers: layers.localLayers,
     layersMapId: layers.layersMapId,
@@ -1007,13 +1014,20 @@ export function MapBuilderPage() {
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
+  }), [railPanel, aiAvailable, dockNotes, layers.dashboard, layers.handleDashboardChange, mapInstance, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {
       id: 'notes' as const,
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'dashboard' as const,
+      icon: LayoutDashboard,
+      label: t('dock.dashboard'),
       disabled: false,
       unavailable: false,
     },
@@ -1042,7 +1056,9 @@ export function MapBuilderPage() {
     },
   ], [aiAvailable, t]);
 
-  const railSheetTitle = railPanel === 'history'
+  const railSheetTitle = railPanel === 'dashboard'
+    ? t('dock.dashboard')
+    : railPanel === 'history'
     ? t('dock.history', { defaultValue: 'History' })
     : railPanel === 'analysis'
     ? t('analysisTools.title', { defaultValue: 'Analysis' })
@@ -1051,7 +1067,9 @@ export function MapBuilderPage() {
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
         : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' })
       : t('dock.notes', { defaultValue: 'Notes' });
-  const railSheetDescription = railPanel === 'history'
+  const railSheetDescription = railPanel === 'dashboard'
+    ? t('dock.dashboardDescription')
+    : railPanel === 'history'
     ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
     : railPanel === 'analysis'
     ? t('analysisTools.description', { defaultValue: 'Run buffer, centroid, and clip operations on a layer' })

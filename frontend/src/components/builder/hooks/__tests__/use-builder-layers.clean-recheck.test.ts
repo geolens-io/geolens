@@ -45,6 +45,33 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('is clean again once a dashboard edit is put back', () => {
+    const layer = makeBuilderLayer();
+    const { result } = render({
+      ...makeBuilderMap([layer]),
+      dashboard_config: { version: 1, panel: 'right', widgets: [] },
+    });
+
+    act(() => result.current.handleDashboardChange({ panel: 'bottom', widgets: [] }));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [] }));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('keeps the flag when a dashboard edit is put back but a layer edit remains', () => {
+    const layer = makeBuilderLayer();
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => {
+      result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
+      result.current.handleDashboardChange({ panel: 'bottom', widgets: [] });
+    });
+    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [] }));
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('is dirty after a visibility toggle off and clean once toggled back on', () => {
     const layer = makeBuilderLayer({ visible: true });
     const { result } = render(makeBuilderMap([layer]));

@@ -386,7 +386,10 @@
     "storyLocked": "Eine andere Änderung an dieser Story läuft gerade. Versuchen Sie es gleich noch einmal.",
     "storyNewerVersion": "Diese Story wurde von einer neueren GeoLens-Version gespeichert und kann hier nicht geändert werden.",
     "storyScenesUnreadable": "Einige Szenen wurden von einer neueren GeoLens-Version gespeichert und können hier nicht veröffentlicht werden.",
-    "storyVisibilityUnsupported": "Storys können mit dieser Sichtbarkeit noch nicht veröffentlicht werden."
+    "storyVisibilityUnsupported": "Storys können mit dieser Sichtbarkeit noch nicht veröffentlicht werden.",
+    "dashboardTooNew": "Dieses Dashboard wurde mit einer neueren GeoLens-Version gespeichert und kann hier nicht geändert werden.",
+    "dashboardTooManyWidgets": "Ein Dashboard enthält höchstens 50 Widgets. Entfernen Sie vor dem Speichern einige.",
+    "dashboardWidgetsRefused": "Einige Dashboard-Widgets nutzen Layer dieser Karte, die Sie nicht lesen können. Entfernen Sie sie oder wählen Sie andere Layer."
   },
   "settings": {
     "apiKeys": {
@@ -565,7 +568,8 @@
     "card": {
       "previewAlt": "Vorschau von {{name}}",
       "updated": "Aktualisiert {{date}}",
-      "delete": "Karte löschen"
+      "delete": "Karte löschen",
+      "dashboard": "Dashboard"
     }
   },
   "enums": {

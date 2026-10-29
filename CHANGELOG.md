@@ -30,6 +30,30 @@ and releases use semantic versioning.
   it, you can load that version or keep yours with "Overwrite with my
   version". Chapters hold text only for now; image blocks come later.
   (#3483)
+- Map dashboards in the viewer. A map with a dashboard shows its widgets in a
+  panel to the right of the map or below it, as the author chose, and always
+  below on narrow screens. The panel appears on the map page, share links and
+  embeds; readers can collapse it, and an embed can open it collapsed with
+  `dashboard=collapsed`. Each widget applies its layer's saved filter, or says
+  when it can't, and a widget set to follow the map view updates once the map
+  stops moving. Widgets on a layer the reader turns off in the legend leave
+  the panel.
+- Dashboard authoring in the Builder. The Dashboard panel adds indicator and
+  bar chart widgets, picks each one's layer, columns and scope, orders them,
+  places the panel and previews each widget against the map. A save is held
+  while a widget reads a column its layer lacks or isn't numeric, or follows
+  the map view on a layer without geometry.
+- The Maps page marks a map with a dashboard you can see with a Dashboard
+  badge, in the list and grid views.
+
+### Changed
+
+- `DashboardConfig` gains `panel`, `right` or `bottom` (default `right`). A
+  save may send it; leaving it out keeps the stored panel. GeoLens sends it
+  only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0
+  server reads a stored bottom panel as right and drops it on its next save.
+- `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
+  least one dashboard widget. Additive.
 
 ### Fixed
 

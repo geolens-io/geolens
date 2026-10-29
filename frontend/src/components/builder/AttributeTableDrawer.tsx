@@ -8,11 +8,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { geometryBounds } from '@/components/viewer/accessible-map-data';
 import { getFeature } from '@/api/features';
-import {
-  isCql2LiteralCompatible,
-  maplibreFilterToCql2,
-  parseCanonicalFilter,
-} from '@/lib/maplibre-filter-utils';
+import { layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import { toFitBounds } from '@/lib/bbox';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse } from '@/types/api';
@@ -87,31 +83,9 @@ export function AttributeTableDrawer({
   const datasetId = layer.dataset_id;
   const columns = layer.dataset_column_info;
 
-  // Same conversion the builder analysis sends: null = no filter, a CQL2
-  // expression when it can be translated, 'unsupported' when it cannot. A
-  // converted filter only ships when every literal matches its column's PG
-  // type — one incompatible literal, inside an `in` list included, would be a
-  // 400 from the rows endpoint, so the whole filter falls back to the
-  // all-rows notice, exactly as serverClusterFilter guards the cluster route.
-  const cql2 = useMemo(() => {
-    const converted = maplibreFilterToCql2(layer.filter ?? null, columns, {
-      requireKnownFields: true,
-    });
-    if (!converted || converted === 'unsupported') return converted;
-    const canonical = parseCanonicalFilter(layer.filter ?? null);
-    const types = new Map(
-      (columns ?? [])
-        .filter((col) => col.type)
-        .map((col) => [col.name, String(col.type).toLowerCase()]),
-    );
-    const incompatibleLiteral =
-      canonical.kind === 'editable' &&
-      canonical.conditions.some((condition) => {
-        const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
-        return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
-      });
-    return incompatibleLiteral ? 'unsupported' : converted;
-  }, [layer.filter, columns]);
+  // null = no filter, 'unsupported' = the rows endpoint can't take it, so the
+  // drawer shows the all-rows notice instead.
+  const cql2 = useMemo(() => layerFilterToServerCql2(layer.filter, columns), [layer.filter, columns]);
   const filterUnsupported = cql2 === 'unsupported';
   const cql2Filter = cql2 && cql2 !== 'unsupported' ? JSON.stringify(cql2) : undefined;
 

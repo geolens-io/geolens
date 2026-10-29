@@ -10,6 +10,7 @@
 export const storageKeys = {
   mapsView: 'geolens-maps-view',
   mapNotes: (mapId: string) => `geolens-map-notes-${mapId}`,
+  dashboardCollapsed: (mapId: string) => `geolens-dashboard-collapsed-${mapId}`,
 } as const;
 
 export function readStorage(key: string): string | null {

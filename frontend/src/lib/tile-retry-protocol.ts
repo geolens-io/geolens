@@ -1,4 +1,5 @@
 import { AJAXError, type AddProtocolAction } from 'maplibre-gl';
+import { abortableDelay } from './abort';
 
 // Keep one browser below the default ten-render server budget.
 const MAX_CONCURRENT_TILES = 6;
@@ -56,21 +57,6 @@ function retryDelay(value: string | null): number {
   return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 2000;
 }
 
-function waitForRetry(delay: number, signal: AbortSignal): Promise<void> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', abort);
-      resolve();
-    }, delay);
-    signal.addEventListener('abort', abort, { once: true });
-  });
-}
-
 const fetchTile: AddProtocolAction = async (request, controller) => {
   const url = request.url.slice('geolens-tile://'.length);
   for (let attempt = 0; ; attempt++) {
@@ -96,7 +82,7 @@ const fetchTile: AddProtocolAction = async (request, controller) => {
       throw new AJAXError(response.status, response.statusText, url, new Blob());
     }
     // A small jitter spreads the next wave across maps sharing the same cooldown.
-    await waitForRetry(Math.max(250, delay) + Math.random() * 250, controller.signal);
+    await abortableDelay(Math.max(250, delay) + Math.random() * 250, controller.signal);
   }
 };
 

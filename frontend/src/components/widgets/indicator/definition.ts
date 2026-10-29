@@ -36,6 +36,9 @@ export const indicatorWidget = defineWidget<IndicatorConfig>({
     config.stat === 'count' || config.column === null
       ? { op: 'count' }
       : { op: 'stats', column: config.column, stats: [aggregateStat(config.stat)] },
+  readsColumns: (config) =>
+    config.stat === 'count' || config.column === null ? [] : [{ name: config.column, numeric: true }],
   loadRenderer: () => import('./IndicatorRenderer'),
+  loadEditor: () => import('./IndicatorEditor'),
   Fallback: IndicatorFallback,
 });

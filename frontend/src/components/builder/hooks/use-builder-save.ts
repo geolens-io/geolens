@@ -38,6 +38,8 @@ import {
 } from '@/lib/map-image-attribution';
 // Detects fields the builder has no editor for on a given layer type.
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { classifyApiError } from '@/lib/error-map';
+import { dashboardPayload, firstWidgetProblem, type DashboardDraft } from '@/components/builder/dashboard-draft';
 
 /** Center-crop `srcCanvas` to the target dimensions without distortion
  *  (letterbox / pillarbox math), for any aspect ratio.
@@ -932,6 +934,12 @@ interface SaveState {
   /** Custom map-level legend title. Null = no override. */
   legendTitle: string | null;
   dockNotes: string;
+  /** The Builder's dashboard; a save sends it only when `dashboardEdited`. */
+  dashboard: DashboardDraft;
+  savedDashboard: DashboardDraft;
+  dashboardEdited: boolean;
+  /** Told what a save sends, so the saved dashboard coming back isn't taken for another editor's. */
+  onDashboardSent?: (draft: DashboardDraft) => void;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
@@ -953,6 +961,12 @@ interface SaveState {
   pendingLayerAdd?: boolean;
 }
 
+const DASHBOARD_SAVE_ERRORS = new Set([
+  'errors.dashboardTooNew',
+  'errors.dashboardTooManyWidgets',
+  'errors.dashboardWidgetsRefused',
+]);
+
 /** The state fields handleSave snapshots into its payloads. If any changes
  *  identity while the save's network round-trip is in flight, the dirty flag
  *  must survive: clearing it would absorb the mid-save edit into the baseline
@@ -964,6 +978,7 @@ const SAVE_SNAPSHOT_FIELDS = [
   'localDescription',
   'legendTitle',
   'dockNotes',
+  'dashboard',
   'localBasemap',
   'showBasemapLabels',
   'basemapConfig',
@@ -1066,6 +1081,9 @@ export function useBuilderSave(state: SaveState) {
       localDescription,
       legendTitle,
       dockNotes,
+      dashboard,
+      savedDashboard,
+      dashboardEdited: sendDashboard,
       localBasemap,
       localLayers,
       groupMeta = {},
@@ -1094,6 +1112,16 @@ export function useBuilderSave(state: SaveState) {
     if (invalidLayer) {
       const layerName = invalidLayer.display_name ?? t('toasts.layerFallbackName');
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
+      return;
+    }
+    const widgetIssue = sendDashboard ? firstWidgetProblem(dashboard, localLayers) : null;
+    if (widgetIssue) {
+      toast.error(
+        widgetIssue.kind === 'viewWithoutGeometry'
+          ? t('toasts.dashboardViewWithoutGeometry')
+          : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
+        { id: 'dashboard-widget-invalid', duration: 6000 },
+      );
       return;
     }
 
@@ -1152,6 +1180,9 @@ export function useBuilderSave(state: SaveState) {
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
       // Empty/null clears the custom legend title server-side.
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
+      ...(sendDashboard
+        ? { dashboard_config: dashboardPayload(dashboard, localLayers, savedDashboard.panel) }
+        : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {
@@ -1159,6 +1190,7 @@ export function useBuilderSave(state: SaveState) {
       layers: persistableLayers.map(toLayerInput),
     };
 
+    if (sendDashboard) state.onDashboardSent?.(dashboard);
     saveFence.begin(id);
     inFlightRegistrationsRef.current.add(registrations);
     try {
@@ -1271,6 +1303,11 @@ export function useBuilderSave(state: SaveState) {
           toast.error(t('toasts.popupConfigBackendRejected', { field }), {});
           return;
         }
+      }
+      // A dashboard the server refused says why; the error already carries the localized reason.
+      if (err instanceof ApiError && DASHBOARD_SAVE_ERRORS.has(classifyApiError(err.body, err.status).key)) {
+        toast.error(err.message);
+        return;
       }
       toast.error(t('toasts.saveFailed'));
     } finally {

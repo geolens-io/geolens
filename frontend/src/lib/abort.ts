@@ -17,3 +17,20 @@ export function signalWithTimeout(signal: AbortSignal | undefined | null, ms: nu
   }
   return controller.signal;
 }
+
+/** Resolves after `ms`, or rejects with the signal's reason as soon as it aborts. */
+export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}

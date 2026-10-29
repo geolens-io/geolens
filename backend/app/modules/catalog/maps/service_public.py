@@ -60,7 +60,7 @@ from app.modules.catalog.maps.sharing_policy import (
     ShareExpirationPresetDays,
     resolve_share_expiration as _resolve_share_expiration,
 )
-from app.modules.catalog.maps.service_crud import get_map
+from app.modules.catalog.maps.service_crud import get_map, maps_with_dashboards
 from app.modules.catalog.maps.service_layers import (
     lock_map_layers,
     lock_maps_for_admin_write,
@@ -986,7 +986,6 @@ async def get_maps_for_dataset(
 
     is_admin = "admin" in user_roles
 
-    # Subquery for layer count per map
     layer_count_sq = (
         select(
             MapLayer.map_id,
@@ -1019,9 +1018,9 @@ async def get_maps_for_dataset(
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
-    thumbnail_urls = await readable_thumbnail_urls(
-        session, [row[0] for row in rows], user
-    )
+    page = [row[0] for row in rows]
+    thumbnail_urls = await readable_thumbnail_urls(session, page, user)
+    dashboards = await maps_with_dashboards(session, page, user, user_roles)
 
     maps = []
     for row in rows:
@@ -1035,6 +1034,7 @@ async def get_maps_for_dataset(
                 "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": row[1],
+                "has_dashboard": map_obj.id in dashboards,
                 "created_by_username": row[2],
                 "created_at": map_obj.created_at,
                 "updated_at": map_obj.updated_at,

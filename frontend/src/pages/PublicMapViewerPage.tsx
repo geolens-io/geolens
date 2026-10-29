@@ -8,6 +8,7 @@ const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
 import { ViewerChatPanel } from '@/components/viewer/ViewerChatPanel';
+import { ViewerWithDashboard } from '@/components/viewer/ViewerWithDashboard';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import type { DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
@@ -37,7 +38,7 @@ function PublicMapViewer() {
     [data?.layers],
   );
 
-  const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
+  const { visibleLayers, hiddenByReader, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
     useViewerLayers(layers, { mapKey: id });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
@@ -66,52 +67,62 @@ function PublicMapViewer() {
   };
 
   return (
-    // Inside AppLayout's <main id="main-content">, so not a second <main>
-    // landmark. The id stays: MapErrorBoundary and CSS target #map-viewport.
-    <div id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
-      <MapErrorBoundary className="absolute inset-0">
-        <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
-          <ViewerMap
+    <ViewerWithDashboard
+      config={data.dashboard_config}
+      layers={layers}
+      hiddenLayers={hiddenByReader}
+      mapId={id}
+    >
+      {(onMapReady) => (
+        /* Inside AppLayout's <main id="main-content">, so not a second <main>
+           landmark. The id stays: MapErrorBoundary and CSS target #map-viewport. */
+        <div id="map-viewport" className="w-full min-w-0 flex-1 min-h-0 relative overflow-hidden">
+          <MapErrorBoundary className="absolute inset-0">
+            <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
+              <ViewerMap
+                layers={layers}
+                basemapStyle={basemapId ?? data.basemap_style}
+                basemapConfig={data.basemap_config ?? null}
+                showBasemapLabels={data.show_basemap_labels ?? true}
+                terrainConfig={data.terrain_config ?? null}
+                initialViewState={viewState}
+                visibleLayers={visibleLayers}
+                onMapReady={(map) => {
+                  mapInstanceRef.current = map;
+                  onMapReady(map);
+                }}
+                onDrawnChange={setDrawnLayers}
+              />
+            </Suspense>
+          </MapErrorBoundary>
+
+          <MapTitlePill name={data.name} description={data.description} />
+
+          <LayerLegend
             layers={layers}
-            basemapStyle={basemapId ?? data.basemap_style}
-            basemapConfig={data.basemap_config ?? null}
-            showBasemapLabels={data.show_basemap_labels ?? true}
-            terrainConfig={data.terrain_config ?? null}
-            initialViewState={viewState}
             visibleLayers={visibleLayers}
-            onMapReady={(map) => {
-              mapInstanceRef.current = map;
-            }}
-            onDrawnChange={setDrawnLayers}
+            onToggleVisibility={handleToggleVisibility}
+            isOpen={isLegendOpen}
+            onToggle={handleLegendToggle}
+            terrainConfig={data.terrain_config ?? null}
+            legendTitle={data.legend_title ?? null}
+            drawn={drawnLayers}
           />
-        </Suspense>
-      </MapErrorBoundary>
 
-      <MapTitlePill name={data.name} description={data.description} />
+          <BasemapToggle
+            value={basemapId ?? data.basemap_style}
+            onChange={setBasemapId}
+            title={t('viewer.changeBasemap')}
+            className="absolute bottom-8 start-3 z-10"
+          />
 
-      <LayerLegend
-        layers={layers}
-        visibleLayers={visibleLayers}
-        onToggleVisibility={handleToggleVisibility}
-        isOpen={isLegendOpen}
-        onToggle={handleLegendToggle}
-        terrainConfig={data.terrain_config ?? null}
-        legendTitle={data.legend_title ?? null}
-        drawn={drawnLayers}
-      />
-
-      <BasemapToggle
-        value={basemapId ?? data.basemap_style}
-        onChange={setBasemapId}
-        title={t('viewer.changeBasemap')}
-        className="absolute bottom-8 start-3 z-10"
-      />
-
-      {/* Read-only "Ask AI"; self-gates on AI availability + use_ai_chat, so
-          anonymous and unpermitted viewers render nothing. */}
-      {id && (
-        <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
+          {/* Read-only "Ask AI"; self-gates on AI availability + use_ai_chat, so
+              anonymous and unpermitted viewers render nothing. */}
+          {id && (
+            <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
+          )}
+        </div>
       )}
-    </div>
+    </ViewerWithDashboard>
   );
 }

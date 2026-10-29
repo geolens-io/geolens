@@ -15,6 +15,7 @@
  *   during deployment.
  */
 
+import type { AggregateRequest } from '@/api/aggregate';
 import type { DatasetRowsSort } from '@/api/datasets';
 import type { MapBrowseParams } from '@/types/api';
 
@@ -209,6 +210,13 @@ export const queryKeys = {
   apiKeys: {
     mine: ['my-api-keys'] as const,
     dataset: (datasetId: string) => ['dataset-api-keys', datasetId] as const,
+  },
+
+  dashboard: {
+    // `auth` is the embed token, as in tileTokens.viewerBatch, so an aggregate
+    // one token authorized is never served to a viewer without it.
+    aggregate: (datasetId: string, body: AggregateRequest | null, auth: string) =>
+      ['dashboard-aggregate', datasetId, body, auth] as const,
   },
 
   tileTokens: {

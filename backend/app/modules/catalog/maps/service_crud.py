@@ -27,6 +27,7 @@ from app.modules.catalog.maps.dashboard import (
     drop_repointed,
     fork_dashboard,
     merge_dashboard,
+    shows_widgets,
 )
 from app.modules.catalog.maps.service_diff import _replace_layers, _unreadable_layer_ids
 from app.modules.catalog.maps.sharing import readable_thumbnail_urls
@@ -255,29 +256,54 @@ async def get_map_with_layers(
     return map_obj, layer_rows, forked_from_name, owner_username
 
 
-async def _layer_counts_for_maps(
+async def _visible_layer_ids(
     session: AsyncSession,
-    map_ids: list[uuid.UUID],
+    map_ids: Sequence[uuid.UUID],
     user: Identity | None,
     user_roles: set[str],
-) -> dict[uuid.UUID, int]:
-    """Return how many layers map reads show ``user`` on one gallery page's maps.
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """The ids of the layers map reads show ``user``, by map, for one page of maps.
 
     A query keyed by page IDs bounds work at every offset and uses the
-    map_layers.map_id index without aggregating unrelated maps.
+    map_layers.map_id index without reading unrelated maps.
     """
     if not map_ids:
         return {}
     stmt = (
-        select(MapLayer.map_id, func.count(MapLayer.id))
+        select(MapLayer.map_id, MapLayer.id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id.in_(map_ids))
-        .group_by(MapLayer.map_id)
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    result = await session.execute(stmt)
-    return {map_id: count for map_id, count in result.all()}
+    shown: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for map_id, layer_id in (await session.execute(stmt)).all():
+        shown.setdefault(map_id, []).append(layer_id)
+    return shown
+
+
+async def maps_with_dashboards(
+    session: AsyncSession,
+    maps: Sequence[Map],
+    user: Identity | None,
+    user_roles: set[str] | None,
+    shown: dict[uuid.UUID, list[uuid.UUID]] | None = None,
+) -> set[uuid.UUID]:
+    """The ids of the maps that show ``user`` at least one dashboard widget.
+
+    ``shown`` is the layers the caller sees by map, when the caller has read
+    them already; otherwise they are read here for the maps with a dashboard.
+    """
+    with_config = [m for m in maps if m.dashboard_config is not None]
+    if shown is None:
+        shown = await _visible_layer_ids(
+            session, [m.id for m in with_config], user, user_roles or set()
+        )
+    return {
+        m.id
+        for m in with_config
+        if shows_widgets(m.dashboard_config, shown.get(m.id, []))
+    }
 
 
 async def list_maps(
@@ -303,7 +329,8 @@ async def list_maps(
     - sort_dir: asc or desc.
     - visibilities: additional filter on Map.visibility (additive on top of RBAC).
     - owned_only: restrict to the caller's maps; anonymous callers get no maps.
-    - layer_count counts only the layers whose dataset map reads show the caller.
+    - layer_count counts only the layers whose dataset map reads show the caller,
+      and has_dashboard is true when such a read shows a dashboard widget.
 
     Returns (list of dicts with map fields + layer_count + created_by_username, total).
     """
@@ -354,8 +381,8 @@ async def list_maps(
     total_result = await session.execute(count_base)
     total = total_result.scalar_one()
 
-    # Paginated maps with author username. The layer counts are fetched
-    # separately, scoped to this page — see _layer_counts_for_maps.
+    # Paginated maps with author username. The layers the caller sees are
+    # fetched separately, scoped to this page — see _visible_layer_ids.
     stmt = (
         select(
             Map,
@@ -373,12 +400,10 @@ async def list_maps(
 
     result = await session.execute(stmt)
     rows = result.all()
-    layer_counts = await _layer_counts_for_maps(
-        session, [row[0].id for row in rows], user, user_roles
-    )
-    thumbnail_urls = await readable_thumbnail_urls(
-        session, [row[0] for row in rows], user
-    )
+    page = [row[0] for row in rows]
+    shown = await _visible_layer_ids(session, [m.id for m in page], user, user_roles)
+    dashboards = await maps_with_dashboards(session, page, user, user_roles, shown)
+    thumbnail_urls = await readable_thumbnail_urls(session, page, user)
 
     maps = []
     for row in rows:
@@ -391,7 +416,8 @@ async def list_maps(
                 "visibility": map_obj.visibility,
                 "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
-                "layer_count": layer_counts.get(map_obj.id, 0),
+                "layer_count": len(shown.get(map_obj.id, [])),
+                "has_dashboard": map_obj.id in dashboards,
                 "created_by": map_obj.created_by,
                 "created_by_username": row[1],
                 "created_at": map_obj.created_at,

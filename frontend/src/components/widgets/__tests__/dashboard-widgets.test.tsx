@@ -122,6 +122,20 @@ const counts = {
 };
 
 describe('bar chart widget', () => {
+  it('starts a new chart on a text column that is not an identifier', () => {
+    const initial = barChartWidget.initialConfig!;
+    const columns = [
+      { name: 'objectid', type: 'integer' },
+      { name: 'ID', type: 'character varying' },
+      { name: 'GlobalID', type: 'character varying' },
+      { name: 'event_id', type: 'text' },
+      { name: 'magtype', type: 'character varying' },
+    ];
+    expect(initial(columns)).toEqual({ column: 'magtype' });
+    // Only identifiers left: the first text column still beats a number.
+    expect(initial(columns.slice(0, 4))).toEqual({ column: 'ID' });
+  });
+
   it('parses configs as the server does', () => {
     const parse = (config: unknown) => barChartWidget.parseConfig(config, 1);
     expect(parse({ column: 'kind' })).toEqual({ column: 'kind', stat: 'count', stat_column: null, limit: 10 });
