@@ -676,6 +676,7 @@ export type SharedMapResponse = Omit<
 export type ShareTokenResponse = components['schemas']['ShareTokenResponse'];
 
 export type MapAccessResponse = components['schemas']['MapAccessResponse'];
+export type MapStoriesResponse = components['schemas']['MapStoriesResponse'];
 
 // AI Status
 export type AIProbeCheck = components['schemas']['AIProbeCheck'];

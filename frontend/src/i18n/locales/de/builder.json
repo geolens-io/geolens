@@ -1008,7 +1008,11 @@
   "mapDelete": {
     "title": "Karte löschen",
     "description": "Möchten Sie <1>{{mapName}}</1> wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "deleting": "Wird gelöscht..."
+    "deleting": "Wird gelöscht...",
+    "storiesUsing_one": "Diese Karte wird in {{count}} Story verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
+    "storiesUsing_other": "Diese Karte wird in {{count}} Storys verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
+    "hiddenStories_one": "{{count}} Story, die Sie nicht sehen können",
+    "hiddenStories_other": "{{count}} Storys, die Sie nicht sehen können"
   },
   "analysisTools": {
     "title": "Analyse",

@@ -13732,6 +13732,48 @@
         "title": "MapSpriteEntry",
         "type": "object"
       },
+      "MapStoriesResponse": {
+        "properties": {
+          "stories": {
+            "description": "Stories using the map that you can read, by title.",
+            "items": {
+              "$ref": "#/components/schemas/MapStoryReference"
+            },
+            "title": "Stories",
+            "type": "array"
+          },
+          "hidden_count": {
+            "description": "Stories using the map that you can't read; not named.",
+            "title": "Hidden Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stories",
+          "hidden_count"
+        ],
+        "title": "MapStoriesResponse",
+        "type": "object"
+      },
+      "MapStoryReference": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "MapStoryReference",
+        "type": "object"
+      },
       "MapStyleImportRequest": {
         "additionalProperties": true,
         "description": "Typed request body for POST /maps/import.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
@@ -60277,6 +60319,150 @@
           }
         ],
         "summary": "Share Map Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/maps/{map_id}/stories/": {
+      "get": {
+        "description": "List the stories whose scenes use this map (owner or admin).\n\nStories you can't read are only counted, in `hidden_count`. Deleting the\nmap keeps each story's chapters and their text; a chapter whose scene\nused the map loses that scene. 404 when you can't read the map, 403 when\nyou can but don't own it.",
+        "operationId": "list_map_stories_endpoint_maps__map_id__stories__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapStoriesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "List Map Stories Endpoint",
         "tags": [
           "Maps"
         ]

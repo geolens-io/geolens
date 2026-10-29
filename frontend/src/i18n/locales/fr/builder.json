@@ -1008,7 +1008,11 @@
   "mapDelete": {
     "title": "Supprimer la carte",
     "description": "Êtes-vous sûr de vouloir supprimer <1>{{mapName}}</1> ? Cette action est irréversible.",
-    "deleting": "Suppression..."
+    "deleting": "Suppression...",
+    "storiesUsing_one": "Cette carte est utilisée dans {{count}} récit. Ses chapitres gardent leur texte mais perdent les scènes sur cette carte.",
+    "storiesUsing_other": "Cette carte est utilisée dans {{count}} récits. Leurs chapitres gardent leur texte mais perdent les scènes sur cette carte.",
+    "hiddenStories_one": "{{count}} récit que vous ne pouvez pas voir",
+    "hiddenStories_other": "{{count}} récits que vous ne pouvez pas voir"
   },
   "analysisTools": {
     "title": "Analyse",

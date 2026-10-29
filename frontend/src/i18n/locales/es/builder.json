@@ -1008,7 +1008,11 @@
   "mapDelete": {
     "title": "Eliminar mapa",
     "description": "¿Está seguro de que desea eliminar <1>{{mapName}}</1>? Esta acción no se puede deshacer.",
-    "deleting": "Eliminando..."
+    "deleting": "Eliminando...",
+    "storiesUsing_one": "Este mapa se usa en {{count}} historia. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
+    "storiesUsing_other": "Este mapa se usa en {{count}} historias. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
+    "hiddenStories_one": "{{count}} historia que no puede ver",
+    "hiddenStories_other": "{{count}} historias que no puede ver"
   },
   "analysisTools": {
     "title": "Análisis",

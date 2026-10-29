@@ -1008,7 +1008,11 @@
   "mapDelete": {
     "title": "Delete map",
     "description": "Are you sure you want to delete <1>{{mapName}}</1>? This action cannot be undone.",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "storiesUsing_one": "This map is used in {{count}} story. Its chapters keep their text but lose the scenes on this map.",
+    "storiesUsing_other": "This map is used in {{count}} stories. Their chapters keep their text but lose the scenes on this map.",
+    "hiddenStories_one": "{{count}} story you can't see",
+    "hiddenStories_other": "{{count}} stories you can't see"
   },
   "analysisTools": {
     "title": "Analysis",

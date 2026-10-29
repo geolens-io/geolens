@@ -191,3 +191,17 @@ class StoryListResponse(BaseModel):
 class BlockingMap(BaseModel):
     id: uuid.UUID
     name: str
+
+
+class MapStoryReference(BaseModel):
+    id: uuid.UUID
+    title: str
+
+
+class MapStoriesResponse(BaseModel):
+    stories: list[MapStoryReference] = Field(
+        description="Stories using the map that you can read, by title."
+    )
+    hidden_count: int = Field(
+        description="Stories using the map that you can't read; not named."
+    )

@@ -297,6 +297,7 @@ export function MapsPage() {
         <MapDeleteDialog
           open={!!deletingMap}
           onOpenChange={(open) => !open && setDeletingMap(null)}
+          mapId={deletingMap?.id}
           mapName={deletingMap?.name ?? ''}
           onConfirm={handleDeleteConfirm}
           isDeleting={deleteMap.isPending}

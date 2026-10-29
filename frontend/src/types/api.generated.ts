@@ -4734,6 +4734,31 @@ export interface paths {
         patch: operations["update_map_share_token_endpoint_maps__map_id__share__patch"];
         trace?: never;
     };
+    "/maps/{map_id}/stories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Map Stories Endpoint
+         * @description List the stories whose scenes use this map (owner or admin).
+         *
+         *     Stories you can't read are only counted, in `hidden_count`. Deleting the
+         *     map keeps each story's chapters and their text; a chapter whose scene
+         *     used the map loses that scene. 404 when you can't read the map, 403 when
+         *     you can but don't own it.
+         */
+        get: operations["list_map_stories_endpoint_maps__map_id__stories__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/maps/{map_id}/style.json": {
         parameters: {
             query?: never;
@@ -12315,6 +12340,29 @@ export interface components {
             id: string;
             /** Url */
             url: string;
+        };
+        /** MapStoriesResponse */
+        MapStoriesResponse: {
+            /**
+             * Stories
+             * @description Stories using the map that you can read, by title.
+             */
+            stories: components["schemas"]["MapStoryReference"][];
+            /**
+             * Hidden Count
+             * @description Stories using the map that you can't read; not named.
+             */
+            hidden_count: number;
+        };
+        /** MapStoryReference */
+        MapStoryReference: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
         };
         /**
          * MapStyleImportRequest
@@ -40930,6 +40978,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShareTokenResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_map_stories_endpoint_maps__map_id__stories__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                map_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapStoriesResponse"];
                 };
             };
             /** @description Bad request — invalid payload */

@@ -18,6 +18,7 @@ vi.mock('@/hooks/use-maps', () => ({
     isLoading: false,
   }),
   useDeleteMap: () => ({ mutate: state.mutate, isPending: false }),
+  useMapStories: () => ({ data: undefined }),
 }));
 vi.mock('@/components/maps/hooks/use-map-thumbnail', () => ({ useMapThumbnail: () => null }));
 vi.mock('@/components/maps/MapCreateDialog', () => ({ MapCreateDialog: () => null }));

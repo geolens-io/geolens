@@ -660,6 +660,8 @@ from .map_list_response import MapListResponse
 from .map_patch import MapPatch
 from .map_response import MapResponse
 from .map_sprite_entry import MapSpriteEntry
+from .map_stories_response import MapStoriesResponse
+from .map_story_reference import MapStoryReference
 from .map_style_import_request import MapStyleImportRequest
 from .map_style_import_request_layers_type_0_item import (
     MapStyleImportRequestLayersType0Item,
@@ -1516,6 +1518,8 @@ __all__ = (
     "MapPatch",
     "MapResponse",
     "MapSpriteEntry",
+    "MapStoriesResponse",
+    "MapStoryReference",
     "MapStyleImportRequest",
     "MapStyleImportRequestLayersType0Item",
     "MapStyleImportRequestMetadataType0",

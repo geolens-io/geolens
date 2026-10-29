@@ -77,6 +77,7 @@ export const queryKeys = {
     // Under the detail key, so whatever refetches the map refetches its gaps.
     groupGaps: (id: string | undefined) => ['map', id, 'group-gaps'] as const,
     access: (id: string | undefined) => ['map-access', id] as const,
+    stories: (id: string | undefined) => ['map', id, 'stories'] as const,
     history: (mapId: string | undefined, skip: number, limit: number) =>
       ['map-history', mapId, skip, limit] as const,
     historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,
