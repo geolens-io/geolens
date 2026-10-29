@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { IMAGE_DEFAULT_CONFIG, validImageAlt } from '@/components/widgets/image/definition';
 import { deepEqual } from '@/lib/deep-equal';
 import type { StoryCamera, StoryChapter, StoryScene } from '@/types/api';
 
@@ -28,10 +29,23 @@ export type DraftEdit =
   | { type: 'setLayerVisible'; chapterId: string; layerId: string; visible: boolean }
   | { type: 'addTextBlock'; chapterId: string; blockId: string }
   | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
+  | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
+  | { type: 'setImage'; chapterId: string; blockId: string; assetId?: string; alt?: string; caption?: string }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
 
 function textBlock(id: string): Block {
   return { id, type: 'markdown', v: 1, title: null, config: { text: '' } };
+}
+
+function imageBlock(id: string, assetId: string): Block {
+  return { id, type: 'image', v: 1, title: null, asset_id: assetId, config: { ...IMAGE_DEFAULT_CONFIG } };
+}
+
+/** How many image blocks still need alt text; the server refuses a draft with any. */
+export function imagesMissingAlt(chapters: readonly StoryChapter[]): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .filter((block) => block.type === 'image' && !validImageAlt(block.config.alt)).length;
 }
 
 function update(chapters: StoryChapter[], chapterId: string, change: (c: StoryChapter) => StoryChapter) {
@@ -95,6 +109,24 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
               ? { ...block, config: { text: edit.text } }
               : block,
           ),
+        ),
+      );
+    case 'addImageBlock':
+      return update(chapters, edit.chapterId, (c) =>
+        (c.blocks?.length ?? 0) >= MAX_BLOCKS_PER_CHAPTER
+          ? c
+          : updateBlocks(c, (blocks) => [...blocks, imageBlock(edit.blockId, edit.assetId)]),
+      );
+    case 'setImage':
+      return update(chapters, edit.chapterId, (c) =>
+        updateBlocks(c, (blocks) =>
+          blocks.map((block) => {
+            if (block.id !== edit.blockId || block.type !== 'image') return block;
+            const config = { ...block.config };
+            if (edit.alt !== undefined) config.alt = edit.alt;
+            if (edit.caption !== undefined) config.caption = edit.caption || null;
+            return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
+          }),
         ),
       );
     case 'removeBlock':

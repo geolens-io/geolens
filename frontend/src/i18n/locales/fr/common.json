@@ -389,7 +389,14 @@
     "storyVisibilityUnsupported": "Les récits ne peuvent pas encore être publiés avec cette visibilité.",
     "dashboardTooNew": "Ce tableau de bord a été enregistré par une version plus récente de GeoLens et ne peut pas être modifié ici.",
     "dashboardTooManyWidgets": "Un tableau de bord contient au plus 50 widgets. Supprimez-en avant d'enregistrer.",
-    "dashboardWidgetsRefused": "Certains widgets du tableau de bord utilisent des couches de cette carte que vous ne pouvez pas lire. Supprimez-les ou choisissez d'autres couches."
+    "dashboardWidgetsRefused": "Certains widgets du tableau de bord utilisent des couches de cette carte que vous ne pouvez pas lire. Supprimez-les ou choisissez d'autres couches.",
+    "storyImageUnreadable": "Le fichier n’est pas une image lisible.",
+    "storyImageTooLarge": "Cette image est trop grande. Envoyez un fichier de moins de 50 Mo avec moins de pixels.",
+    "storyImageUnsupported": "Seules les images PNG, JPEG et WebP peuvent être envoyées.",
+    "storyImageBusy": "D’autres images sont en cours de traitement. Réessayez dans un instant.",
+    "storyImageMissing": "Aucune image n’a été envoyée. Choisissez un fichier et réessayez.",
+    "storyAssetLimit": "Cette histoire contient déjà le maximum d’images : 200, ou 250 Mo au total.",
+    "storyAssetsNotFound": "Certaines images de cette histoire sont introuvables. Retirez ces blocs d’image et enregistrez de nouveau."
   },
   "settings": {
     "apiKeys": {

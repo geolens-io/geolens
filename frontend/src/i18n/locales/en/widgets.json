@@ -46,6 +46,11 @@
       "summary": "Filter by {{column}}",
       "all": "All",
       "other": "Other values: {{value}}"
+    },
+    "image": {
+      "label": "Image",
+      "description": "Image: {{alt}}",
+      "loading": "Loading image: {{alt}}"
     }
   },
   "dashboard": {

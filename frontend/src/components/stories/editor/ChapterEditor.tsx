@@ -6,11 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
 import type { StoryCamera, StoryChapter } from '@/types/api';
+import { ImageBlockField } from './ImageBlockField';
 import { MarkdownField } from './MarkdownField';
 import { SceneEditor } from './SceneEditor';
 import { CHAPTER_TITLE_MAX_LENGTH, MAX_BLOCKS_PER_CHAPTER, type DraftEdit } from './story-draft';
+import { StoryImagePicker } from './StoryImagePicker';
 
 interface ChapterEditorProps {
+  storyId: string;
   chapter: StoryChapter;
   index: number;
   edit: (change: DraftEdit) => void;
@@ -20,8 +23,16 @@ interface ChapterEditorProps {
   focusTitle: boolean;
 }
 
-/** One chapter's title, scene and text blocks. */
-export function ChapterEditor({ chapter, index, edit, readView, mapMissing, focusTitle }: ChapterEditorProps) {
+/** One chapter's title, scene, and text and image blocks. */
+export function ChapterEditor({
+  storyId,
+  chapter,
+  index,
+  edit,
+  readView,
+  mapMissing,
+  focusTitle,
+}: ChapterEditorProps) {
   const { t } = useTranslation('stories');
   const titleId = useId();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -74,6 +85,14 @@ export function ChapterEditor({ chapter, index, edit, readView, mapMissing, focu
                 value={block.config.text}
                 onChange={(text) => edit({ type: 'setBlockText', chapterId: chapter.id, blockId: block.id, text })}
               />
+            ) : block.type === 'image' ? (
+              <ImageBlockField
+                storyId={storyId}
+                chapterId={chapter.id}
+                block={block}
+                label={t('editor.chapter.imageBlock', { index: i + 1 })}
+                edit={edit}
+              />
             ) : (
               <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                 {t('editor.chapter.blockNotEditable')}
@@ -87,21 +106,33 @@ export function ChapterEditor({ chapter, index, edit, readView, mapMissing, focu
               onClick={() => edit({ type: 'removeBlock', chapterId: chapter.id, blockId: block.id })}
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
-              {t('editor.chapter.removeBlock', { index: i + 1 })}
+              {block.type === 'image'
+                ? t('editor.chapter.removeImage', { index: i + 1 })
+                : t('editor.chapter.removeBlock', { index: i + 1 })}
             </Button>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={blocksFull}
-          aria-describedby={blocksFull ? `${titleId}-blocks-full` : undefined}
-          onClick={() => edit({ type: 'addTextBlock', chapterId: chapter.id, blockId: randomId() })}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {t('editor.chapter.addTextBlock')}
-        </Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={blocksFull}
+            aria-describedby={blocksFull ? `${titleId}-blocks-full` : undefined}
+            onClick={() => edit({ type: 'addTextBlock', chapterId: chapter.id, blockId: randomId() })}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t('editor.chapter.addTextBlock')}
+          </Button>
+          <StoryImagePicker
+            storyId={storyId}
+            label={t('editor.chapter.addImage')}
+            disabled={blocksFull}
+            onUploaded={(asset) =>
+              edit({ type: 'addImageBlock', chapterId: chapter.id, blockId: randomId(), assetId: asset.id })
+            }
+          />
+        </div>
         {blocksFull && (
           <p id={`${titleId}-blocks-full`} className="text-xs text-muted-foreground">
             {t('editor.limits.blocks', { count: MAX_BLOCKS_PER_CHAPTER })}

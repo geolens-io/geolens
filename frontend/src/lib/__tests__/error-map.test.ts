@@ -899,6 +899,13 @@ describe('story write refusals', () => {
     ['Another change to this story is in progress. Retry shortly.', 409, 'Another change to this story is in progress. Try again in a moment.'],
     ["This story was saved by a newer version of GeoLens and can't be changed here.", 409, "This story was saved by a newer version of GeoLens and can't be changed here."],
     ['Story not found', 404, 'Story not found.'],
+    [{ code: 'story_image_too_large', message: 'JPEG images can be at most 15,000 pixels on a side.' }, 413, 'This image is too large. Upload a file under 50 MB with fewer pixels.'],
+    [{ code: 'story_image_unsupported', message: 'x' }, 415, 'Only PNG, JPEG and WebP images can be uploaded.'],
+    [{ code: 'story_image_unreadable', message: 'x' }, 400, "The file isn't a readable image."],
+    [{ code: 'story_image_busy', message: 'x' }, 503, 'Other images are being processed. Try again in a moment.'],
+    [{ code: 'story_image_missing', message: 'x' }, 422, 'No image was sent. Choose a file and try again.'],
+    [{ code: 'story_asset_limit', message: 'x' }, 409, 'This story already holds its most images: 200, or 250 MB of them.'],
+    [{ code: 'story_assets_not_found', message: 'x', asset_ids: [] }, 422, "Some images in this story weren't found. Remove those image blocks and save again."],
   ])('localizes %j', (detail, status, expected) => {
     expect(translateApiErrorDetail(detail, status)).toBe(expected);
   });

@@ -59,7 +59,16 @@
     "save": "Enregistrer les détails",
     "saving": "Enregistrement…",
     "saved": "Détails enregistrés",
-    "saveFailed": "Impossible d'enregistrer les détails"
+    "saveFailed": "Impossible d'enregistrer les détails",
+    "cover": {
+      "heading": "Image de couverture",
+      "hint": "Affichée sur la fiche de l’histoire et au-dessus de son premier chapitre. Elle change quand vous enregistrez ces détails.",
+      "none": "Aucune image de couverture.",
+      "choose": "Choisir une image de couverture",
+      "replace": "Remplacer l’image de couverture",
+      "remove": "Retirer l’image de couverture",
+      "preview": "Aperçu de l’image de couverture"
+    }
   },
   "publish": {
     "unreadableMaps_one": "{{count}} autre carte que vous ne pouvez pas ouvrir",
@@ -124,11 +133,14 @@
     },
     "chapter": {
       "title": "Titre du chapitre",
-      "text": "Texte",
+      "text": "Contenu",
       "textBlock": "Bloc de texte {{index}}",
       "blockNotEditable": "Ce bloc ne peut pas être modifié ici. Il est conservé tel quel.",
       "removeBlock": "Retirer le bloc de texte {{index}}",
-      "addTextBlock": "Ajouter un bloc de texte"
+      "addTextBlock": "Ajouter un bloc de texte",
+      "addImage": "Ajouter une image",
+      "imageBlock": "Image {{index}}",
+      "removeImage": "Retirer l’image {{index}}"
     },
     "scene": {
       "heading": "Scène de carte",
@@ -178,7 +190,20 @@
       "chapters_other": "Un récit peut compter jusqu'à {{count}} chapitres.",
       "blocks_one": "Un chapitre peut compter jusqu'à {{count}} bloc de texte.",
       "blocks_other": "Un chapitre peut compter jusqu'à {{count}} blocs de texte.",
-      "size": "Ce récit dépasse les 2 Mo qu'un brouillon peut contenir. Raccourcissez ou retirez du texte pour l'enregistrer."
+      "size": "Ce récit dépasse les 2 Mo qu'un brouillon peut contenir. Raccourcissez ou retirez du texte pour l'enregistrer.",
+      "altMissing_one": "{{count}} image doit avoir un texte alternatif avant l’enregistrement.",
+      "altMissing_other": "{{count}} images doivent avoir un texte alternatif avant l’enregistrement."
+    },
+    "image": {
+      "alt": "Texte alternatif",
+      "altHint": "Décrivez l’image pour les personnes qui ne peuvent pas la voir.",
+      "altRequired": "Rédigez le texte alternatif avant d’enregistrer.",
+      "caption": "Légende (facultative)",
+      "replace": "Remplacer l’image",
+      "uploading": "Envoi : {{percent}} %",
+      "processing": "Traitement de l’image…",
+      "progress": "Progression de l’envoi",
+      "notShown": "Cette image ne peut pas être affichée. Remplacez-la ou retirez-la."
     }
   }
 }

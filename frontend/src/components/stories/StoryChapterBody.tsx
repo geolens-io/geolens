@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { storyAssetPath } from '@/api/stories';
 import { parseStoredWidget } from '@/components/widgets/registry';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import type { StoryChapter } from '@/types/api';
@@ -13,9 +14,11 @@ export function chapterHeadingId(chapter: StoryChapter) {
  * reader can't open. Memoized so a chapter change doesn't re-render every block.
  */
 export const StoryChapterBody = memo(function StoryChapterBody({
+  storyId,
   chapter,
   index,
 }: {
+  storyId: string;
   chapter: StoryChapter;
   index: number;
 }) {
@@ -32,7 +35,11 @@ export const StoryChapterBody = memo(function StoryChapterBody({
           </p>
         )}
         {(chapter.blocks ?? []).map((block) => (
-          <WidgetView key={block.id} parsed={parseStoredWidget(block, 'story')} />
+          <WidgetView
+            key={block.id}
+            parsed={parseStoredWidget(block, 'story')}
+            assetPath={block.type === 'image' ? storyAssetPath(storyId, block.asset_id) : undefined}
+          />
         ))}
       </div>
     </>

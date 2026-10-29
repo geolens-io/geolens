@@ -43,26 +43,37 @@ function UnavailableWidget() {
 /**
  * Renders one parsed instance: its lazy renderer, with the text fallback while
  * loading or on failure. `selection` and `onSelect` come from a host that
- * links widgets; see `WidgetRenderProps`.
+ * links widgets; see `WidgetRenderProps`. A host that serves uploaded images
+ * passes the path of the one an image instance names.
  */
 export function WidgetView({
   parsed,
   data,
   selection,
   onSelect,
+  assetPath,
 }: {
   parsed: ParsedWidget;
   data?: unknown;
   selection?: WidgetSelection | null;
   onSelect?: (selection: WidgetSelection | null) => void;
+  assetPath?: string;
 }) {
   if (!parsed.ok) return <UnavailableWidget />;
   const { definition, instance } = parsed;
-  const fallback = <definition.Fallback config={instance.config} data={data} selection={selection} />;
+  const fallback = (
+    <definition.Fallback config={instance.config} data={data} selection={selection} assetPath={assetPath} />
+  );
   return (
     <WidgetErrorBoundary type={definition.type} fallback={fallback}>
       <Suspense fallback={fallback}>
-        <definition.Renderer config={instance.config} data={data} selection={selection} onSelect={onSelect} />
+        <definition.Renderer
+          config={instance.config}
+          data={data}
+          selection={selection}
+          onSelect={onSelect}
+          assetPath={assetPath}
+        />
       </Suspense>
     </WidgetErrorBoundary>
   );

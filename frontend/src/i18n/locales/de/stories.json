@@ -59,7 +59,16 @@
     "save": "Details speichern",
     "saving": "Wird gespeichert…",
     "saved": "Details gespeichert",
-    "saveFailed": "Die Details konnten nicht gespeichert werden"
+    "saveFailed": "Die Details konnten nicht gespeichert werden",
+    "cover": {
+      "heading": "Titelbild",
+      "hint": "Wird auf der Karte der Story und über ihrem ersten Kapitel gezeigt. Es ändert sich, wenn Sie diese Details speichern.",
+      "none": "Kein Titelbild.",
+      "choose": "Titelbild auswählen",
+      "replace": "Titelbild ersetzen",
+      "remove": "Titelbild entfernen",
+      "preview": "Vorschau des Titelbilds"
+    }
   },
   "publish": {
     "unreadableMaps_one": "{{count}} weitere Karte, die Sie nicht öffnen können",
@@ -124,11 +133,14 @@
     },
     "chapter": {
       "title": "Kapiteltitel",
-      "text": "Text",
+      "text": "Inhalt",
       "textBlock": "Textblock {{index}}",
       "blockNotEditable": "Dieser Block kann hier nicht bearbeitet werden. Er bleibt unverändert.",
       "removeBlock": "Textblock {{index}} entfernen",
-      "addTextBlock": "Textblock hinzufügen"
+      "addTextBlock": "Textblock hinzufügen",
+      "addImage": "Bild hinzufügen",
+      "imageBlock": "Bild {{index}}",
+      "removeImage": "Bild {{index}} entfernen"
     },
     "scene": {
       "heading": "Kartenszene",
@@ -178,7 +190,20 @@
       "chapters_other": "Eine Story kann bis zu {{count}} Kapitel haben.",
       "blocks_one": "Ein Kapitel kann bis zu {{count}} Textblock haben.",
       "blocks_other": "Ein Kapitel kann bis zu {{count}} Textblöcke haben.",
-      "size": "Diese Story ist größer als die 2 MB, die ein Entwurf fassen kann. Kürzen oder entfernen Sie Text, um sie zu speichern."
+      "size": "Diese Story ist größer als die 2 MB, die ein Entwurf fassen kann. Kürzen oder entfernen Sie Text, um sie zu speichern.",
+      "altMissing_one": "{{count}} Bild braucht vor dem Speichern einen Alternativtext.",
+      "altMissing_other": "{{count}} Bilder brauchen vor dem Speichern einen Alternativtext."
+    },
+    "image": {
+      "alt": "Alternativtext",
+      "altHint": "Beschreiben Sie das Bild für Menschen, die es nicht sehen können.",
+      "altRequired": "Schreiben Sie vor dem Speichern einen Alternativtext.",
+      "caption": "Bildunterschrift (optional)",
+      "replace": "Bild ersetzen",
+      "uploading": "Wird hochgeladen: {{percent}} %",
+      "processing": "Bild wird verarbeitet…",
+      "progress": "Upload-Fortschritt",
+      "notShown": "Dieses Bild kann nicht angezeigt werden. Ersetzen oder entfernen Sie es."
     }
   }
 }

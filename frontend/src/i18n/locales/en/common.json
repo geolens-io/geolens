@@ -520,7 +520,14 @@
     "storyVisibilityUnsupported": "Stories can't be published with this visibility yet.",
     "dashboardTooNew": "This dashboard was saved by a newer version of GeoLens and can't be changed here.",
     "dashboardTooManyWidgets": "A dashboard holds at most 50 widgets. Remove some before saving.",
-    "dashboardWidgetsRefused": "Some dashboard widgets name layers you can't read on this map. Remove them or pick other layers."
+    "dashboardWidgetsRefused": "Some dashboard widgets name layers you can't read on this map. Remove them or pick other layers.",
+    "storyImageUnreadable": "The file isn't a readable image.",
+    "storyImageTooLarge": "This image is too large. Upload a file under 50 MB with fewer pixels.",
+    "storyImageUnsupported": "Only PNG, JPEG and WebP images can be uploaded.",
+    "storyImageBusy": "Other images are being processed. Try again in a moment.",
+    "storyImageMissing": "No image was sent. Choose a file and try again.",
+    "storyAssetLimit": "This story already holds its most images: 200, or 250 MB of them.",
+    "storyAssetsNotFound": "Some images in this story weren't found. Remove those image blocks and save again."
   },
   "settings": {
     "apiKeys": {

@@ -1,6 +1,7 @@
 import {
   applyDraftEdit,
   documentBytes,
+  imagesMissingAlt,
   MAX_BLOCKS_PER_CHAPTER,
   MAX_CHAPTERS,
   sameChapters,
@@ -133,5 +134,53 @@ describe('sameChapters', () => {
   it('compares by content', () => {
     expect(sameChapters([chapter('a')], [chapter('a')])).toBe(true);
     expect(sameChapters([chapter('a')], [chapter('a', { title: 'other' })])).toBe(false);
+  });
+});
+
+
+describe('image block edits', () => {
+  const asset = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
+  const other = '1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b';
+
+  it('adds an image that needs alt text before the draft can be saved', () => {
+    const next = applyDraftEdit([chapter('a')], { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset });
+    expect(next[0].blocks?.[1]).toEqual({
+      id: 'img',
+      type: 'image',
+      v: 1,
+      title: null,
+      asset_id: asset,
+      config: { alt: '', caption: null },
+    });
+    expect(imagesMissingAlt(next)).toBe(1);
+    const described = applyDraftEdit(next, { type: 'setImage', chapterId: 'a', blockId: 'img', alt: 'A river' });
+    expect(imagesMissingAlt(described)).toBe(0);
+    expect(imagesMissingAlt(applyDraftEdit(described, { type: 'setImage', chapterId: 'a', blockId: 'img', alt: '  ' }))).toBe(1);
+  });
+
+  it('replaces the image and sets or clears the caption, leaving other blocks alone', () => {
+    let chapters = applyDraftEdit([chapter('a')], { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset });
+    chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', assetId: other });
+    chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', caption: 'North' });
+    expect(chapters[0].blocks?.[1]).toMatchObject({ asset_id: other, config: { alt: '', caption: 'North' } });
+    chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', caption: '' });
+    expect(chapters[0].blocks?.[1]).toMatchObject({ config: { caption: null } });
+    expect(applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'a-b', assetId: asset })[0].blocks?.[0]).toEqual(
+      chapter('a').blocks?.[0],
+    );
+  });
+
+  it('adds no image past the block cap', () => {
+    const full = chapter('a', {
+      blocks: Array.from({ length: MAX_BLOCKS_PER_CHAPTER }, (_, i) => ({
+        id: `b${i}`,
+        type: 'markdown' as const,
+        v: 1 as const,
+        title: null,
+        config: { text: '' },
+      })),
+    });
+    const chapters = [full];
+    expect(applyDraftEdit(chapters, { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset })[0]).toBe(full);
   });
 });

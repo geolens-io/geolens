@@ -23,13 +23,24 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
   },
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
+  image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
 };
+
+// Defaults the author has to finish before the instance is valid: an image's
+// alt text is theirs to write.
+const INCOMPLETE_DEFAULTS = new Set(['image']);
+
+// An image block names the image it shows.
+const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
 
 // A dashboard widget names the layer it summarizes.
 const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
 
 function instanceFor(surface: WidgetSurface, instance: Record<string, unknown>) {
-  return surface === 'dashboard' ? { layer_id: layerId, ...instance } : instance;
+  const named = getWidgetDefinition(String(instance.type), surface)?.asset
+    ? { asset_id: assetId, ...instance }
+    : instance;
+  return surface === 'dashboard' ? { layer_id: layerId, ...named } : named;
 }
 
 function lookupKey(bundle: unknown, key: string): unknown {
@@ -55,7 +66,8 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
     });
 
     it('validates its default and example configs', () => {
-      for (const config of [definition.defaultConfig, example.config]) {
+      const configs = INCOMPLETE_DEFAULTS.has(type) ? [example.config] : [definition.defaultConfig, example.config];
+      for (const config of configs) {
         const instance = instanceFor(surface, { id, type, v: definition.v, config });
         expect(parseStoredWidget(instance, surface)).toMatchObject({ ok: true, instance });
         expect(checkWidgetWrite(instance, surface)).toEqual({ ok: true });

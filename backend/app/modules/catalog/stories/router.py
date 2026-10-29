@@ -9,7 +9,11 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
-from app.core.public_urls import get_shareable_app_url, join_public_url
+from app.core.public_urls import (
+    get_public_api_url,
+    get_shareable_app_url,
+    join_public_url,
+)
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import get_optional_user, require_permission
@@ -245,8 +249,8 @@ async def story_link_preview_endpoint(
     Only a published public story gets its title and summary. Every other
     story answers 404 with the same body as a missing one, as does a
     deployment without a verified public app origin; nginx serves the SPA
-    shell for any 404. The card image is that of the first scene map anyone
-    may read, or the site image.
+    shell for any 404. The card image is the story's cover, else that of the
+    first scene map anyone may read, else the site image.
     """
     app_url = await get_shareable_app_url(db, request=request)
     if app_url is None:
@@ -254,14 +258,18 @@ async def story_link_preview_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
         )
     story, _ = await _readable_story(db, story_id, None)
-    scene_map = await preview_scene_map(db, story)
+    if story.cover_asset_id is not None:
+        image_url = join_public_url(
+            await get_public_api_url(db, request=request),
+            f"/stories/{story.id}/assets/{story.cover_asset_id}",
+        )
+    elif (scene_map := await preview_scene_map(db, story)) is not None:
+        image_url = await get_share_card_image_url(db, request, scene_map)
+    else:
+        image_url = await site_card_image_url(db, request)
     return link_preview_response(
         page_url=join_public_url(app_url, f"/stories/{story.id}"),
-        image_url=(
-            await get_share_card_image_url(db, request, scene_map)
-            if scene_map is not None
-            else await site_card_image_url(db, request)
-        ),
+        image_url=image_url,
         title=story.title,
         description=preview_description(story.summary, "Read this story on GeoLens"),
     )

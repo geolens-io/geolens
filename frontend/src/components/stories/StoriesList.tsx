@@ -13,6 +13,8 @@ import { ErrorState } from '@/components/layout/ErrorState';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCardSkeleton } from '@/components/maps/MapCardSkeleton';
 import { VisibilityBadge } from '@/components/maps/VisibilityBadge';
+import { storyAssetPath } from '@/api/stories';
+import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { useDeleteStory, useDuplicateStory, useStories } from '@/hooks/use-stories';
 import { usePermissions } from '@/hooks/use-permissions';
 import { canEditStory } from './can-edit-story';
@@ -113,6 +115,20 @@ export function StoriesList() {
   );
 }
 
+/** The cover, decorative beside the title, or the story icon without one. */
+function StoryCardCover({ story }: { story: StorySummary }) {
+  return (
+    <AssetImage
+      path={story.cover_asset_id ? storyAssetPath(story.id, story.cover_asset_id) : null}
+      alt=""
+      lazy
+      className="h-12 w-16 shrink-0 rounded object-cover"
+      placeholderClassName="h-12 w-16 shrink-0"
+      fallback={<BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+    />
+  );
+}
+
 interface StoryCardProps {
   story: StorySummary;
   canEdit: boolean;
@@ -129,7 +145,7 @@ function StoryCard({ story, canEdit, onDuplicate, duplicating, onDelete }: Story
       density="flush"
       className="flex-row items-start gap-4 p-4 transition-[color,background-color,box-shadow,border-color] duration-200 ease-out hover:border-primary/20 hover:bg-accent/50 hover:shadow-md"
     >
-      <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <StoryCardCover story={story} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link

@@ -8,6 +8,15 @@ vi.mock('@/api/stories', () => ({
   listStories: vi.fn(),
   duplicateStory: vi.fn(),
   deleteStory: vi.fn(),
+  storyAssetPath: (story: string, asset: string) => `/stories/${story}/assets/${asset}`,
+}));
+const blob = vi.hoisted(() => ({ paths: [] as string[] }));
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetchBlob: async (path: string) => {
+    blob.paths.push(path);
+    return new Blob(['x'], { type: 'image/webp' });
+  },
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 const perm = vi.hoisted(() => ({ editMetadata: false }));
@@ -24,6 +33,7 @@ function summary(overrides: Partial<StorySummary>): StorySummary {
     visibility: 'public',
     created_by: 'owner',
     published_at: '2026-10-29T00:00:00Z',
+    cover_asset_id: null,
     created_at: '2026-10-29T00:00:00Z',
     updated_at: '2026-10-29T00:00:00Z',
     can_edit: false,
@@ -124,4 +134,17 @@ it('steps back a page after deleting the only story on the last page', async () 
   expect(await screen.findByRole('link', { name: 'Story 0' })).toBeInTheDocument();
   // The emptied page isn't fetched on the way back.
   expect(vi.mocked(listStories).mock.calls.map(([params]) => params?.skip)).toEqual([0]);
+});
+
+
+it('shows a story’s cover on its card, decoratively', async () => {
+  const covered = summary({ id: 'covered', title: 'With cover', cover_asset_id: 'cover-1' });
+  vi.mocked(listStories).mockResolvedValue({ stories: [covered, OTHER], total: 2 });
+  renderList(false);
+  await screen.findByRole('link', { name: 'With cover' });
+  const [card, plain] = screen.getAllByTestId('story-card');
+  await waitFor(() => expect(card.querySelector('img')).not.toBeNull());
+  expect(card.querySelector('img')).toHaveAttribute('alt', '');
+  expect(blob.paths).toContain('/stories/covered/assets/cover-1');
+  expect(plain.querySelector('img')).toBeNull();
 });

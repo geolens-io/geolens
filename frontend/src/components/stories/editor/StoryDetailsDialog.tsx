@@ -2,7 +2,7 @@ import { useId, useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { reportStoryWriteError, updateStory, type MapsBlockingStory } from '@/api/stories';
+import { reportStoryWriteError, storyAssetPath, updateStory, type MapsBlockingStory } from '@/api/stories';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -14,11 +14,13 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { getVisibilityLabel } from '@/i18n/labels';
 import type { StoryDraftResponse, StoryResponse, StoryUpdate, StoryVisibility } from '@/types/api';
 import { StoryTextFields } from '../StoryTextFields';
 import { BlockingMapsList } from './BlockingMapsList';
 import { captureAccount } from './same-account';
+import { StoryImagePicker } from './StoryImagePicker';
 
 const VISIBILITIES: StoryVisibility[] = ['private', 'internal', 'public'];
 
@@ -29,7 +31,7 @@ interface StoryDetailsDialogProps {
   onSaved: (story: StoryResponse) => void;
 }
 
-/** Title, summary and visibility. These apply at once, without Publish. */
+/** Title, summary, visibility and cover. These apply at once, without Publish. */
 export function StoryDetailsDialog({ story, open, onOpenChange, onSaved }: StoryDetailsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,6 +57,7 @@ function StoryDetailsForm({
   const [title, setTitle] = useState(story.title);
   const [summary, setSummary] = useState(story.summary ?? '');
   const [visibility, setVisibility] = useState<string>(story.visibility);
+  const [cover, setCover] = useState<string | null>(story.cover_asset_id ?? null);
   const [blocked, setBlocked] = useState<MapsBlockingStory | null>(null);
   const update = useMutation({ mutationFn: (body: StoryUpdate) => updateStory(story.id, body) });
 
@@ -64,6 +67,7 @@ function StoryDetailsForm({
     if (title.trim() !== story.title) body.title = title.trim();
     if ((summary.trim() || null) !== story.summary) body.summary = summary.trim() || null;
     if (visibility !== story.visibility) body.visibility = visibility as StoryVisibility;
+    if (cover !== (story.cover_asset_id ?? null)) body.cover_asset_id = cover;
     if (Object.keys(body).length === 0) {
       onClose();
       return;
@@ -118,6 +122,7 @@ function StoryDetailsForm({
         </Select>
         <p className="text-xs text-muted-foreground">{t('details.visibilityHint')}</p>
       </div>
+      <CoverField storyId={story.id} cover={cover} onChange={setCover} />
       {blocked && (
         <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3 text-sm">
           <p>{t('details.visibilityBlocked')}</p>
@@ -133,5 +138,45 @@ function StoryDetailsForm({
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+function CoverField({
+  storyId,
+  cover,
+  onChange,
+}: {
+  storyId: string;
+  cover: string | null;
+  onChange: (cover: string | null) => void;
+}) {
+  const { t } = useTranslation('stories');
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="space-y-2">
+      <h3 id={headingId} className="text-sm font-medium">
+        {t('details.cover.heading')}
+      </h3>
+      <AssetImage
+        path={cover ? storyAssetPath(storyId, cover) : null}
+        alt={t('details.cover.preview')}
+        className="aspect-[2/1] w-full rounded-md object-cover"
+        placeholderClassName="aspect-[2/1] w-full"
+        fallback={cover ? null : <p className="text-sm text-muted-foreground">{t('details.cover.none')}</p>}
+      />
+      <div className="flex flex-wrap items-start gap-2">
+        <StoryImagePicker
+          storyId={storyId}
+          label={cover ? t('details.cover.replace') : t('details.cover.choose')}
+          onUploaded={(asset) => onChange(asset.id)}
+        />
+        {cover && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
+            {t('details.cover.remove')}
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">{t('details.cover.hint')}</p>
+    </section>
   );
 }

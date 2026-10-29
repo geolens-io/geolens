@@ -17,6 +17,7 @@ import { ChapterList } from '@/components/stories/editor/ChapterList';
 import { StoryDetailsDialog } from '@/components/stories/editor/StoryDetailsDialog';
 import {
   documentBytes,
+  imagesMissingAlt,
   MAX_CHAPTERS,
   MAX_DOCUMENT_BYTES,
   sameChapters,
@@ -114,6 +115,8 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
     [everPublished, publishedChapters, story.document.chapters],
   );
   const tooLarge = useMemo(() => documentBytes(chapters) > MAX_DOCUMENT_BYTES, [chapters]);
+  const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
+  const unsaveable = tooLarge || missingAlt > 0;
   const missingMapChapterIds = useMemo(() => {
     const missing = new Set(editor.missingMapIds ?? []);
     return new Set(chapters.filter((c) => c.scene && missing.has(c.scene.map_id)).map((c) => c.id));
@@ -200,14 +203,14 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
           variant="outline"
           size="sm"
           onClick={() => void editor.save()}
-          disabled={!dirty || busy !== null || tooLarge}
+          disabled={!dirty || busy !== null || unsaveable}
         >
           {t('editor.save')}
         </Button>
         <Button
           size="sm"
           onClick={() => void editor.publish()}
-          disabled={chapters.length === 0 || busy !== null || tooLarge || (!dirty && !hasUnpublished)}
+          disabled={chapters.length === 0 || busy !== null || unsaveable || (!dirty && !hasUnpublished)}
         >
           {busy === 'publish' ? t('editor.publishing') : t('editor.publish')}
         </Button>
@@ -232,6 +235,11 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       {tooLarge && (
         <div role="alert" className="border-b bg-destructive/10 px-4 py-2 text-sm">
           {t('editor.limits.size')}
+        </div>
+      )}
+      {missingAlt > 0 && (
+        <div role="status" className="border-b bg-warning/10 px-4 py-2 text-sm">
+          {t('editor.limits.altMissing', { count: missingAlt })}
         </div>
       )}
 
@@ -260,6 +268,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
                 // A new generation (the draft replaced from the server) remounts it,
                 // which drops a map choice still loading for the old copy.
                 key={`${editor.generation}:${chapter.id}`}
+                storyId={story.id}
                 chapter={chapter}
                 index={current}
                 edit={edit}

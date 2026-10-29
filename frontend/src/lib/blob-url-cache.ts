@@ -17,7 +17,7 @@ import type { QueryClient } from '@tanstack/react-query';
 const registered = new WeakSet<QueryClient>();
 
 // Query-key roots whose cached value is a blob: object URL we own.
-const BLOB_QUERY_KEYS = new Set(['map-thumbnail', 'quicklook']);
+const BLOB_QUERY_KEYS = new Set(['map-thumbnail', 'quicklook', 'asset-image']);
 
 function isBlobUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('blob:');

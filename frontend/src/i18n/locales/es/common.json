@@ -389,7 +389,14 @@
     "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad.",
     "dashboardTooNew": "Este panel se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
     "dashboardTooManyWidgets": "Un panel admite como máximo 50 widgets. Quita algunos antes de guardar.",
-    "dashboardWidgetsRefused": "Algunos widgets del panel usan capas de este mapa que no puedes leer. Quítalos o elige otras capas."
+    "dashboardWidgetsRefused": "Algunos widgets del panel usan capas de este mapa que no puedes leer. Quítalos o elige otras capas.",
+    "storyImageUnreadable": "El archivo no es una imagen legible.",
+    "storyImageTooLarge": "Esta imagen es demasiado grande. Sube un archivo de menos de 50 MB y con menos píxeles.",
+    "storyImageUnsupported": "Solo se pueden subir imágenes PNG, JPEG y WebP.",
+    "storyImageBusy": "Se están procesando otras imágenes. Inténtalo de nuevo en un momento.",
+    "storyImageMissing": "No se envió ninguna imagen. Elige un archivo e inténtalo de nuevo.",
+    "storyAssetLimit": "Esta historia ya tiene el máximo de imágenes: 200, o 250 MB en total.",
+    "storyAssetsNotFound": "No se encontraron algunas imágenes de esta historia. Quita esos bloques de imagen y vuelve a guardar."
   },
   "settings": {
     "apiKeys": {

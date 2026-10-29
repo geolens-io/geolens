@@ -32,7 +32,7 @@ import type {
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
-type UploadProgress = (fraction: number) => void;
+export type UploadProgress = (fraction: number) => void;
 
 /** No upload progress within this window means a stalled connection while bytes are still being sent. */
 const UPLOAD_INACTIVITY_TIMEOUT_MS = 120_000;
@@ -71,7 +71,7 @@ export function rethrowAsUploadRefusal(err: unknown): never {
  * A 401 retry re-sends the whole body — acceptable, since the proactive refresh
  * makes it rare.
  */
-async function xhrUpload<T>(
+export async function xhrUpload<T>(
   path: string,
   formData: FormData,
   onProgress?: UploadProgress,

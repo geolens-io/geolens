@@ -5,7 +5,7 @@ import { render, screen, waitFor, within } from '@/test/test-utils';
 import { StoryCreateDialog } from '../StoryCreateDialog';
 import { StoryDetailsDialog } from '../editor/StoryDetailsDialog';
 import { MarkdownField } from '../editor/MarkdownField';
-import { createStory, updateStory } from '@/api/stories';
+import { createStory, updateStory, uploadStoryImage } from '@/api/stories';
 import { ApiError } from '@/api/client';
 import type { StoryDraftResponse, StoryResponse } from '@/types/api';
 
@@ -13,6 +13,11 @@ vi.mock('@/api/stories', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/stories')>()),
   createStory: vi.fn(),
   updateStory: vi.fn(),
+  uploadStoryImage: vi.fn(),
+}));
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetchBlob: vi.fn(async () => new Blob(['x'], { type: 'image/webp' })),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -30,6 +35,7 @@ const DRAFT: StoryDraftResponse = {
   visibility: 'private',
   created_by: 'me',
   published_at: null,
+  cover_asset_id: null,
   created_at: '2026-10-29T00:00:00Z',
   updated_at: '2026-10-29T00:00:00Z',
   can_edit: true,
@@ -103,6 +109,42 @@ describe('StoryDetailsDialog', () => {
     expect(updateStory).toHaveBeenCalledWith('s1', { visibility: 'public' });
     expect(within(alert).getByRole('link', { name: 'Internal tracks' })).toHaveAttribute('href', '/maps/m1');
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+});
+
+describe('StoryDetailsDialog cover', () => {
+  const COVER = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
+
+  it('uploads a cover and saves it with the details', async () => {
+    vi.mocked(uploadStoryImage).mockResolvedValue({
+      id: COVER,
+      width: 1200,
+      height: 600,
+      byte_size: 1000,
+      created_at: '2026-10-29T00:00:00Z',
+    });
+    vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, cover_asset_id: COVER, document: null } as StoryResponse);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={onSaved} />);
+    expect(screen.getByText('No cover image.')).toBeInTheDocument();
+    await user.upload(screen.getByTestId('story-image-input'), new File(['png'], 'cover.png', { type: 'image/png' }));
+    expect(await screen.findByRole('img', { name: 'Cover image preview' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    await waitFor(() => expect(updateStory).toHaveBeenCalledWith('s1', { cover_asset_id: COVER }));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ cover_asset_id: COVER }));
+  });
+
+  it('clears the cover', async () => {
+    vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, document: null } as StoryResponse);
+    const user = userEvent.setup();
+    render(
+      <StoryDetailsDialog story={{ ...DRAFT, cover_asset_id: COVER }} open onOpenChange={() => {}} onSaved={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Remove cover image' }));
+    expect(screen.getByText('No cover image.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    await waitFor(() => expect(updateStory).toHaveBeenCalledWith('s1', { cover_asset_id: null }));
   });
 });
 

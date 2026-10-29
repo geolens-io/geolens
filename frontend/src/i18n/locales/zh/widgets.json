@@ -46,6 +46,11 @@
       "summary": "按 {{column}} 筛选",
       "all": "全部",
       "other": "其他值：{{value}}"
+    },
+    "image": {
+      "label": "图片",
+      "description": "图片：{{alt}}",
+      "loading": "正在加载图片：{{alt}}"
     }
   },
   "dashboard": {

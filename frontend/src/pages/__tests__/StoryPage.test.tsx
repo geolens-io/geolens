@@ -33,6 +33,7 @@ const STORY: StoryResponse = {
   visibility: 'public',
   created_by: null,
   published_at: '2026-10-29T00:00:00Z',
+  cover_asset_id: null,
   created_at: '2026-10-29T00:00:00Z',
   updated_at: '2026-10-29T00:00:00Z',
   can_edit: false,
