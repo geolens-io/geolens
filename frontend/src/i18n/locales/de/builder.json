@@ -1012,7 +1012,9 @@
     "storiesUsing_one": "Diese Karte wird in {{count}} Story verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
     "storiesUsing_other": "Diese Karte wird in {{count}} Storys verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
     "hiddenStories_one": "{{count}} Story, die Sie nicht sehen können",
-    "hiddenStories_other": "{{count}} Storys, die Sie nicht sehen können"
+    "hiddenStories_other": "{{count}} Storys, die Sie nicht sehen können",
+    "checkingStories": "Es wird geprüft, welche Storys diese Karte verwenden…",
+    "storiesCheckFailed": "Es konnte nicht geprüft werden, welche Storys diese Karte verwenden. Falls welche sie verwenden, verlieren ihre Kapitel die Szenen auf dieser Karte."
   },
   "analysisTools": {
     "title": "Analyse",

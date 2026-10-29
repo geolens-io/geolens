@@ -151,6 +151,9 @@ export function useMapStories(id: string | undefined, opts?: { enabled?: boolean
     queryKey: queryKeys.maps.stories(id),
     queryFn: () => getMapStories(id!),
     enabled: !!id && (opts?.enabled ?? true),
+    // Each time the delete dialog opens it asks again; a story may have
+    // started using the map since.
+    staleTime: 0,
     retry: false,
   });
 }

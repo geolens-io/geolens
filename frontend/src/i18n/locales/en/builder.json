@@ -1012,7 +1012,9 @@
     "storiesUsing_one": "This map is used in {{count}} story. Its chapters keep their text but lose the scenes on this map.",
     "storiesUsing_other": "This map is used in {{count}} stories. Their chapters keep their text but lose the scenes on this map.",
     "hiddenStories_one": "{{count}} story you can't see",
-    "hiddenStories_other": "{{count}} stories you can't see"
+    "hiddenStories_other": "{{count}} stories you can't see",
+    "checkingStories": "Checking which stories use this map…",
+    "storiesCheckFailed": "Couldn't check which stories use this map. Their chapters lose this map's scenes if any use it."
   },
   "analysisTools": {
     "title": "Analysis",

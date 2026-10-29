@@ -1012,7 +1012,9 @@
     "storiesUsing_one": "Cette carte est utilisée dans {{count}} récit. Ses chapitres gardent leur texte mais perdent les scènes sur cette carte.",
     "storiesUsing_other": "Cette carte est utilisée dans {{count}} récits. Leurs chapitres gardent leur texte mais perdent les scènes sur cette carte.",
     "hiddenStories_one": "{{count}} récit que vous ne pouvez pas voir",
-    "hiddenStories_other": "{{count}} récits que vous ne pouvez pas voir"
+    "hiddenStories_other": "{{count}} récits que vous ne pouvez pas voir",
+    "checkingStories": "Vérification des récits qui utilisent cette carte…",
+    "storiesCheckFailed": "Impossible de vérifier quels récits utilisent cette carte. Si certains l'utilisent, leurs chapitres perdent les scènes sur cette carte."
   },
   "analysisTools": {
     "title": "Analyse",

@@ -1012,7 +1012,9 @@
     "storiesUsing_one": "Este mapa se usa en {{count}} historia. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
     "storiesUsing_other": "Este mapa se usa en {{count}} historias. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
     "hiddenStories_one": "{{count}} historia que no puede ver",
-    "hiddenStories_other": "{{count}} historias que no puede ver"
+    "hiddenStories_other": "{{count}} historias que no puede ver",
+    "checkingStories": "Comprobando qué historias usan este mapa…",
+    "storiesCheckFailed": "No se pudo comprobar qué historias usan este mapa. Si alguna lo usa, sus capítulos pierden las escenas de este mapa."
   },
   "analysisTools": {
     "title": "Análisis",
