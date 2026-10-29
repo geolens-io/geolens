@@ -756,6 +756,8 @@ def write_index(
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1
     if rows:
+        # The folder may be gone while the state still records its bundles.
+        _private_dirs(ctx.export_dir)
         _report.write_private(
             ctx.export_dir / "INDEX.md",
             redact_json("\n".join(lines) + "\n", ctx.redact),

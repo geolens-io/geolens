@@ -67,6 +67,30 @@ def _export(plan_file: Path, *parts: str) -> Path:
     return plan_file.parent.joinpath("export", *parts)
 
 
+def test_the_index_is_written_when_the_export_folder_is_gone(tmp_path):
+    from types import SimpleNamespace
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli.arcgis_portal import Redactor
+
+    item = {
+        "id": C3,
+        "title": "Parcel dashboard",
+        "type": "Dashboard",
+        "owner": "o",
+        "action": "export_only",
+    }
+    record = {"bytes": 1024, "partial": False, "errors": [], "path": "export/d"}
+    state = SimpleNamespace(items={C3: SimpleNamespace(export=record, status="done")})
+    folder = tmp_path / "run" / "export"
+    ctx = SimpleNamespace(export_dir=folder, redact=Redactor())
+
+    export.write_index(ctx, {"items": [item]}, state)
+
+    assert "Parcel dashboard" in (folder / "INDEX.md").read_text()
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+
+
 def test_a_dashboard_is_saved_with_its_data_and_resources(
     runner, tmp_path, geolens, install
 ):
