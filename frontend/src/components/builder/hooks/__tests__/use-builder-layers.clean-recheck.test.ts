@@ -46,7 +46,8 @@ describe('useBuilderLayers — clean-state recheck', () => {
   });
 
   it('is clean again once a dashboard edit is put back', () => {
-    const layer = makeBuilderLayer();
+    // A widget counts only on a layer it can summarize.
+    const layer = makeBuilderLayer({ id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34' });
     const widget = {
       id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
       type: 'indicator' as const,
@@ -68,7 +69,7 @@ describe('useBuilderLayers — clean-state recheck', () => {
   });
 
   it('keeps the flag when a dashboard edit is put back but a layer edit remains', () => {
-    const layer = makeBuilderLayer();
+    const layer = makeBuilderLayer({ id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34' });
     const { result } = render(makeBuilderMap([layer]));
 
     const widget = {

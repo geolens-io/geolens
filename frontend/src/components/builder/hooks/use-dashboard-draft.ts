@@ -17,7 +17,10 @@ import { dashboardChanged, toDashboardDraft, widgetLayerGone, type DashboardDraf
 export function useDashboardDraft(
   saved: DashboardConfig | null | undefined,
   mapId: string | undefined,
-  layers: readonly MapLayerResponse[] | undefined,
+  /** The layers the saved map has, which the saved dashboard was shown against. */
+  savedLayers: readonly MapLayerResponse[] | undefined,
+  /** The Builder's layers, which a save of the draft is stored against. */
+  editorLayers: readonly MapLayerResponse[],
   onConflict: () => void,
 ) {
   const savedDraft = useMemo(() => toDashboardDraft(saved), [saved]);
@@ -30,7 +33,10 @@ export function useDashboardDraft(
   // editor could have put its values back.
   const inFlightRef = useRef<DashboardDraft[]>([]);
   const landedRef = useRef<DashboardDraft | null>(null);
-  /** Records a save of `draft`; call the result with whether the server stored it. */
+  /**
+   * Records a save of `draft`, in the canonical form it was sent in; call the
+   * result with whether the server stored it.
+   */
   const beginSave = useCallback((draft: DashboardDraft) => {
     inFlightRef.current = [...inFlightRef.current, draft];
     return (stored: boolean) => {
@@ -53,37 +59,39 @@ export function useDashboardDraft(
       setEdit(null);
       return;
     }
+    // Both are server responses, so compared as they stand.
     if (!dashboardChanged(before.savedDraft, savedDraft)) return;
     const ours = landedRef.current ? [...inFlightRef.current, landedRef.current] : inFlightRef.current;
     landedRef.current = null;
     const draft = latestEdited.current;
     if (!draft) return;
-    if (!dashboardChanged(draft, savedDraft)) {
+    if (!dashboardChanged(draft, savedDraft, editorLayers)) {
       setEdit(null);
       return;
     }
-    // As the server shows it: without the widgets on layers the map no longer has.
-    const onLayers = (known: DashboardDraft): DashboardDraft => ({
-      ...known,
-      widgets: known.widgets.filter((widget) => !widgetLayerGone(widget, layers ?? [])),
-    });
-    const ourSave = ours.some((sent) => !dashboardChanged(onLayers(sent), savedDraft));
+    // The server shows a sent draft without the widgets on layers it no longer has.
+    const ourSave = ours.some((sent) => !dashboardChanged(sent, savedDraft, savedLayers ?? []));
     // An edit put back to the old saved dashboard is no edit: take the new
     // one, unless it is our own save and the edit was put back after sending.
-    if (!ourSave && !dashboardChanged(draft, before.savedDraft)) {
+    if (!ourSave && !dashboardChanged(draft, before.savedDraft, editorLayers)) {
       setEdit(null);
       return;
     }
-    if (!ourSave && dashboardChanged(onLayers(before.savedDraft), savedDraft)) onConflictRef.current();
-  }, [mapId, savedDraft, layers]);
+    if (!ourSave && dashboardChanged(before.savedDraft, savedDraft, savedLayers ?? [])) {
+      onConflictRef.current();
+    }
+    // The edit stays, without the widgets a save drops, so none is shown stale.
+    const kept = draft.widgets.filter((widget) => !widgetLayerGone(widget, editorLayers));
+    if (kept.length < draft.widgets.length) setEdit({ mapId, draft: { ...draft, widgets: kept } });
+  }, [mapId, savedDraft, savedLayers, editorLayers]);
 
   const setDashboard = useCallback(
     (draft: DashboardDraft) => setEdit({ mapId, draft }),
     [mapId],
   );
   const dashboardEdited = useMemo(
-    () => edited !== null && dashboardChanged(edited, savedDraft),
-    [edited, savedDraft],
+    () => edited !== null && dashboardChanged(edited, savedDraft, editorLayers),
+    [edited, savedDraft, editorLayers],
   );
 
   return {

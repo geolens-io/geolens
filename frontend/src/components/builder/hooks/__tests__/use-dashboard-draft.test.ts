@@ -26,7 +26,7 @@ const onlyA = [layer(layerA)];
 function renderDraft(initial: DashboardConfig, layers = both) {
   const onConflict = vi.fn();
   const hook = renderHook(
-    ({ config, mapId, layerIds }) => useDashboardDraft(config, mapId, layerIds, onConflict),
+    ({ config, mapId, layerIds }) => useDashboardDraft(config, mapId, layerIds, layerIds, onConflict),
     { initialProps: { config: initial, mapId: 'map-1', layerIds: layers } },
   );
   return { ...hook, onConflict };
@@ -134,6 +134,15 @@ describe('useDashboardDraft', () => {
     expect(result.current.dashboard.panel).toBe('right');
     expect(result.current.dashboardEdited).toBe(true);
     expect(onConflict).not.toHaveBeenCalled();
+  });
+
+  it('counts a widget on a layer the Builder removed as no edit, as a save would drop it', () => {
+    const onConflict = vi.fn();
+    const { result } = renderHook(() => useDashboardDraft(saved('right', [first]), 'map-1', both, onlyA, onConflict));
+    act(() => result.current.setDashboard({ panel: 'right', widgets: [first, second] }));
+    expect(result.current.dashboardEdited).toBe(false);
+    act(() => result.current.setDashboard({ panel: 'bottom', widgets: [first, second] }));
+    expect(result.current.dashboardEdited).toBe(true);
   });
 
   it('counts an edit put back to the saved dashboard as unedited', () => {

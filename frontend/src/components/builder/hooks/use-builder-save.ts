@@ -39,7 +39,12 @@ import {
 // Detects fields the builder has no editor for on a given layer type.
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { classifyApiError } from '@/lib/error-map';
-import { dashboardPayload, firstWidgetProblem, type DashboardDraft } from '@/components/builder/dashboard-draft';
+import {
+  canonicalDashboard,
+  dashboardPayload,
+  firstWidgetProblem,
+  type DashboardDraft,
+} from '@/components/builder/dashboard-draft';
 
 /** Center-crop `srcCanvas` to the target dimensions without distortion
  *  (letterbox / pillarbox math), for any aspect ratio.
@@ -1193,7 +1198,9 @@ export function useBuilderSave(state: SaveState) {
       layers: persistableLayers.map(toLayerInput),
     };
 
-    const settleDashboard = sendDashboard ? state.onDashboardSave?.(dashboard) : undefined;
+    const settleDashboard = sendDashboard
+      ? state.onDashboardSave?.(canonicalDashboard(dashboard, localLayers))
+      : undefined;
     // Set once a PUT carrying the dashboard succeeds; every PUT below does.
     let dashboardStored = false;
     const putMap = async (data: MapUpdateRequest) => {

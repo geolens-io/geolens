@@ -33,14 +33,31 @@ function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
   return title?.trim() ? { ...widget, title: title.trim() } : widget;
 }
 
-/** Whether saving `draft` would change the dashboard saved as `saved`. */
-export function dashboardChanged(draft: DashboardDraft, saved: DashboardDraft): boolean {
-  // A dashboard with no widgets saves as none, which reads back as a right panel.
-  if (draft.widgets.length === 0 && saved.widgets.length === 0) return false;
-  return (
-    draft.panel !== saved.panel ||
-    !deepEqual(draft.widgets.map(toSaved), saved.widgets.map(toSaved))
-  );
+/**
+ * The dashboard the server stores for a save of `draft`, in the form a map
+ * response reads back: titles trimmed or left out, and no widgets meaning no
+ * dashboard, which reads as a right panel. With `layers`, the widgets whose
+ * layer is gone from them are dropped, as a save does.
+ */
+export function canonicalDashboard(
+  draft: DashboardDraft,
+  layers?: readonly MapLayerResponse[],
+): DashboardDraft {
+  const kept = layers ? draft.widgets.filter((widget) => !widgetLayerGone(widget, layers)) : draft.widgets;
+  const widgets = kept.map(toSaved);
+  return { panel: widgets.length > 0 ? draft.panel : 'right', widgets };
+}
+
+/**
+ * Whether `a` and `b` store different dashboards: compared in their canonical
+ * forms, and with `layers` as a save to those layers would store them.
+ */
+export function dashboardChanged(
+  a: DashboardDraft,
+  b: DashboardDraft,
+  layers?: readonly MapLayerResponse[],
+): boolean {
+  return !deepEqual(canonicalDashboard(a, layers), canonicalDashboard(b, layers));
 }
 
 /** The layers a dashboard widget can summarize: those with rows to aggregate. */
@@ -106,11 +123,11 @@ export function dashboardPayload(
   layers: readonly MapLayerResponse[],
   savedPanel: PanelPosition,
 ): DashboardConfigInput | null {
-  const widgets = draft.widgets.filter((widget) => !widgetLayerGone(widget, layers)).map(toSaved);
+  const { panel, widgets } = canonicalDashboard(draft, layers);
   if (widgets.length === 0) return null;
   return {
     version: 1,
-    ...(draft.panel === 'bottom' || savedPanel === 'bottom' ? { panel: draft.panel } : {}),
+    ...(panel === 'bottom' || savedPanel === 'bottom' ? { panel } : {}),
     widgets: widgets as DashboardConfigInput['widgets'],
   } as DashboardConfigInput;
 }

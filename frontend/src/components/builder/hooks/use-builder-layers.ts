@@ -182,7 +182,7 @@ export function useBuilderLayers(
     [t],
   );
   const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
-    useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, warnDashboardChanged);
+    useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);

@@ -221,6 +221,67 @@ describe('Builder dashboard edits across a save', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[1][0].data).not.toHaveProperty('dashboard_config');
   });
 
+  it('settles a save that dropped the widget of a layer removed before it', async () => {
+    const { toast } = await import('sonner');
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
+      initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA, onB]) },
+    });
+    act(() =>
+      result.current.handleDashboardChange({
+        ...result.current.dashboard,
+        widgets: [{ ...onA, title: 'Renamed' }, onB],
+      }),
+    );
+    act(() => result.current.handleRemove(layerB.id));
+
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config.widgets.map((w: { id: string }) => w.id)).toEqual([onA.id]);
+    // The refetch: layer B and its widget are gone.
+    rerender({ mapData: mapWith([layerA], 'right', [{ ...onA, title: 'Renamed' }]) });
+
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(result.current.dashboardEdited).toBe(false);
+    expect(result.current.dashboard.widgets.map((w) => w.id)).toEqual([onA.id]);
+
+    act(() => result.current.handlePaintChange(layerA.id, { 'fill-color': '#123456' }));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.calls[1][0].data).not.toHaveProperty('dashboard_config');
+  });
+
+  it('keeps an edit made during a save, without the widget of a layer removed before it', async () => {
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
+      initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA, onB]) },
+    });
+    act(() => result.current.handleDashboardChange({ ...result.current.dashboard, panel: 'bottom' }));
+    act(() => result.current.handleRemove(layerB.id));
+
+    const put = deferred<unknown>();
+    mockUpdateMapMutateAsync.mockReturnValueOnce(put.promise);
+    let saving!: Promise<void>;
+    act(() => {
+      saving = result.current.handleSave();
+    });
+    act(() =>
+      result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [{ ...onA, title: 'Later' }, onB] }),
+    );
+    await act(async () => {
+      put.resolve({ id: 'map-1' });
+      await saving;
+    });
+    rerender({ mapData: mapWith([layerA], 'bottom', [onA]) });
+
+    expect(result.current.dashboardEdited).toBe(true);
+    // Still open, and without the removed layer's widget.
+    expect(result.current.dashboard.widgets.map((w) => w.id)).toEqual([onA.id]);
+    expect(result.current.dashboard.widgets[0].title).toBe('Later');
+  });
+
   it('keeps the dashboard edit when the layers saved and the dashboard did not', async () => {
     const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), {
       initialProps: { mapData: mapWith([layerA, layerB], 'right', [onA, onB]) },
