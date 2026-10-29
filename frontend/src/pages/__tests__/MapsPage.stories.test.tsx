@@ -12,6 +12,7 @@ const useMaps = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-maps', () => ({
   useMaps,
   useDeleteMap: () => ({ mutate: vi.fn(), isPending: false }),
+  useMapStories: () => ({ data: undefined }),
 }));
 vi.mock('@/components/maps/MapCreateDialog', () => ({ MapCreateDialog: () => null }));
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
