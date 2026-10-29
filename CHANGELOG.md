@@ -180,6 +180,10 @@ and releases use semantic versioning.
   still succeeds, the dataset's refresh time moves, and the Source tab and
   re-upload dialog say the data was unchanged. Repeated `geolens arcgis
   migrate` reruns no longer pile up identical versions. (#3462)
+- Choosing a layer in a multi-layer file's re-upload preview keeps the full
+  layer list, and `geolens arcgis migrate` reruns of multi-layer files (such
+  as zipped file geodatabases) check every layer again instead of reporting
+  the item out of date. (#3473)
 - A file geodatabase feature class whose rows hold circular arcs now imports.
   Polygon and polyline classes drawn or edited in ArcGIS Pro often have arc
   segments, and every such class failed with `ogr2ogr failed (exit 1)`. Arcs

@@ -802,8 +802,8 @@ def _extract_common_layer_metadata(
         for f in target_layer.get("fields", [])
     ]
 
-    # all_layers is exposed whenever the source has more than one layer, even
-    # for a targeted preview: the layer select (ReuploadDialog) needs it.
+    # all_layers lists every layer in the report when it holds more than one;
+    # run_ogrinfo_preview asks for them all even when a layer is named.
     all_layers = None
     if len(layers) > 1:
         all_layers = [
@@ -973,10 +973,12 @@ async def run_ogrinfo_preview(
     """Run ogrinfo to get metadata AND sample rows for preview.
 
     Uses -json -features -limit N to get structured output with sample features.
-    Falls back to summary-only run_ogrinfo() if feature extraction fails.
+    Falls back to summary-only run_ogrinfo() if feature extraction fails; that
+    fallback lists no other layers when one is named.
 
     Returns dict with keys: srid, geometry_type, layer_name, feature_count,
-    columns, sample_rows, all_layers.
+    columns, sample_rows, all_layers. With ``layer_name`` the keys describe that
+    layer, and all_layers still lists every layer of a multi-layer source.
     """
     if layer_name:
         validate_layer_name_argv(layer_name)
@@ -997,9 +999,9 @@ async def run_ogrinfo_preview(
     # numeric columns appear as Real/Integer in the preview schema.
     if _is_csv_source(file_path, layer_name):
         cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
+    # No layer argument: ogrinfo would then report only that layer, and
+    # all_layers needs the rest.
     cmd.append(source)
-    if layer_name:
-        cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -1014,21 +1016,26 @@ async def run_ogrinfo_preview(
         try:
             data = json.loads(stdout.decode(errors="replace"))
             target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
-            metadata["sample_rows"] = [
-                feat.get("properties", {}) for feat in target_layer.get("features", [])
-            ]
-            return metadata
+            # A named layer the report lacks goes to the targeted fallback,
+            # which fails as ogrinfo does for a missing layer.
+            if not layer_name or target_layer.get("name") == layer_name:
+                metadata["sample_rows"] = [
+                    feat.get("properties", {})
+                    for feat in target_layer.get("features", [])
+                ]
+                return metadata
         except KeyError:
-            # No layers in JSON output but command succeeded — return empty shell.
-            return {
-                "srid": None,
-                "geometry_type": None,
-                "layer_name": "",
-                "feature_count": None,
-                "columns": [],
-                "sample_rows": [],
-                "all_layers": None,
-            }
+            if not layer_name:
+                # No layers in JSON output but command succeeded — return empty shell.
+                return {
+                    "srid": None,
+                    "geometry_type": None,
+                    "layer_name": "",
+                    "feature_count": None,
+                    "columns": [],
+                    "sample_rows": [],
+                    "all_layers": None,
+                }
         except json.JSONDecodeError:
             pass  # Fall through to fallback
 
