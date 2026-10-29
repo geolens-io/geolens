@@ -818,6 +818,19 @@ export interface SaveBaselineSync {
   remove: (layerIds: Iterable<string>) => void;
 }
 
+type BaselineRegistration = { add: MapLayerResponse } | { remove: ReadonlySet<string> };
+
+function applyBaselineRegistration(
+  baseline: MapLayerResponse[],
+  registration: BaselineRegistration,
+): MapLayerResponse[] {
+  if ('add' in registration) {
+    const layer = registration.add;
+    return baseline.some((l) => l.id === layer.id) ? baseline : [...baseline, { ...layer }];
+  }
+  return baseline.filter((l) => !registration.remove.has(l.id));
+}
+
 export function buildLayerDiff(
   baselineLayers: MapLayerResponse[],
   currentLayers: MapLayerResponse[],
@@ -1016,19 +1029,23 @@ export function useBuilderSave(state: SaveState) {
     return SAVE_SNAPSHOT_FIELDS.some((field) => sent[field] !== latest[field]);
   }
 
+  // A save's sent snapshot predates layers created or deleted while it is in
+  // flight, so each save logs those registrations and replays them when the
+  // baseline advances to its snapshot.
+  const inFlightRegistrationsRef = useRef(new Set<BaselineRegistration[]>());
   const { saveBaselineSyncRef } = state;
   useEffect(() => {
+    const register = (registration: BaselineRegistration) => {
+      baselineLayersRef.current = applyBaselineRegistration(baselineLayersRef.current, registration);
+      for (const log of inFlightRegistrationsRef.current) log.push(registration);
+    };
     // Let layer-create paths register the server-created layer into the
     // save-diff baseline. Otherwise a dirty map inserted with a POST-created
     // layer leaves the baseline unaware of the new server id, buildLayerDiff
     // reports it as added and the PATCH creates a duplicate. The pure server
     // layer is registered (no local grouping/reorder) so those still diff.
     saveBaselineSyncRef.current = {
-      add: (layer: MapLayerResponse) => {
-        if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
-          baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
-        }
-      },
+      add: (layer: MapLayerResponse) => register({ add: layer }),
       // The mirror of `add`. The baseline effect above refreshes only while the
       // map is clean, so a delete on a dirty map would leave the deleted ids
       // in the baseline, the next save would emit them in diff.removed and the
@@ -1036,7 +1053,7 @@ export function useBuilderSave(state: SaveState) {
       remove: (layerIds: Iterable<string>) => {
         const ids = new Set(layerIds);
         if (ids.size === 0) return;
-        baselineLayersRef.current = baselineLayersRef.current.filter((l) => !ids.has(l.id));
+        register({ remove: ids });
       },
     };
   });
@@ -1085,19 +1102,35 @@ export function useBuilderSave(state: SaveState) {
     // check also reads, so a pan that would change the stored view is exactly
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
-    // The save-diff baseline carries the sent collapse state (see the baseline
-    // effect). useUpdateMap only invalidates the detail query, so mapData keeps
-    // the pre-save camera until the refetch lands (and forever if it fails).
-    // The dirty check reads mapData, so publish what the server holds.
+    const registrations: BaselineRegistration[] = [];
+    let sentFullReplacement = false;
+    // A layer PATCH commits even when the metadata PUT after it fails, so the
+    // baseline advances as soon as it lands; otherwise the retry re-sends
+    // removals the server already applied. Layers created or deleted while the
+    // save was in flight are replayed onto the sent layers, except deletions
+    // after a full replacement, which may have recreated them: the next save
+    // removes them again.
+    const commitLayerBaseline = () => {
+      // The hooks stay mounted across a map switch, so the baseline may
+      // belong to another map by now.
+      if (latestStateRef.current.mapId !== id) return;
+      const replayed = sentFullReplacement ? registrations.filter((r) => 'add' in r) : registrations;
+      baselineLayersRef.current = replayed.reduce(
+        applyBaselineRegistration,
+        // The save-diff baseline carries the sent collapse state (see the
+        // baseline effect).
+        stampPersistedFolderGroupExpanded(localLayers, groupMeta),
+      );
+    };
+    // useUpdateMap only invalidates the detail query, so mapData keeps the
+    // pre-save camera until the refetch lands (and forever if it fails). The
+    // dirty check reads mapData, so publish what the server holds.
     const commitSaved = () => {
       queryClient.setQueryData<MapResponse>(
         queryKeys.maps.detail(id),
         (prev) => (prev ? { ...prev, ...camera } : prev),
       );
-      // The hooks stay mounted across a map switch, so the baseline may
-      // belong to another map by now.
-      if (latestStateRef.current.mapId !== id) return;
-      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+      commitLayerBaseline();
     };
 
     // basemap_position is a field of basemapConfig (MapBasemapConfig jsonb), so
@@ -1127,6 +1160,7 @@ export function useBuilderSave(state: SaveState) {
     };
 
     saveFence.begin(id);
+    inFlightRegistrationsRef.current.add(registrations);
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
       // The DEM hillshade overlay (style_config.render_mode) and the 3D terrain
@@ -1137,11 +1171,13 @@ export function useBuilderSave(state: SaveState) {
       // avoids forcing every combined save through the lossy full-replacement
       // PUT (see below). The failed-save toast prompts a retry.
       if (unsupported) {
+        sentFullReplacement = true;
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {
         if (hasDiff(diff)) {
           try {
             await patchMapLayers.mutateAsync({ id, diff });
+            commitLayerBaseline();
           } catch (error) {
             // A stale diff is a conflict, not a missing endpoint. Refetch, drop
             // the ids the server no longer has, and retry the PATCH. A failure
@@ -1160,6 +1196,7 @@ export function useBuilderSave(state: SaveState) {
               } catch {
                 throw new StaleLayerDiffError();
               }
+              commitLayerBaseline();
               await updateMap.mutateAsync({ id, data: metadataPayload });
               commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
@@ -1175,6 +1212,7 @@ export function useBuilderSave(state: SaveState) {
             // style_config/paint round-trip, fresh layer-row UUIDs). It is
             // surfaced to the user rather than reported as a plain "Map saved",
             // so they double-check layer styling.
+            sentFullReplacement = true;
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
             commitSaved();
             toast.warning(t('toasts.mapSavedFullResync', {
@@ -1236,6 +1274,7 @@ export function useBuilderSave(state: SaveState) {
       }
       toast.error(t('toasts.saveFailed'));
     } finally {
+      inFlightRegistrationsRef.current.delete(registrations);
       saveFence.settle(id);
     }
   }

@@ -29,6 +29,7 @@ import { createElement, useRef, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { renderHook } from '@/test/test-utils';
+import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
@@ -70,9 +71,10 @@ vi.mock('sonner', () => ({
 }));
 
 const mockBulkDeleteLayers = vi.fn();
+const mockGetMap = vi.fn();
 vi.mock('@/api/maps', () => ({
   bulkDeleteLayersApi: (...args: unknown[]) => mockBulkDeleteLayers(...args),
-  getMap: vi.fn(),
+  getMap: (...args: unknown[]) => mockGetMap(...args),
   uploadThumbnail: vi.fn(() => Promise.resolve()),
   uploadOgImage: vi.fn(() => Promise.resolve()),
 }));
@@ -615,5 +617,175 @@ describe('clean checks after a save', () => {
     await act(async () => { await second; });
 
     expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+  });
+});
+
+// The layer PATCH and the metadata PUT commit separately. When only the PATCH
+// lands, the retry must diff against what it committed: deleting a folder
+// group removes its children only on Save, so re-sending that diff names ids
+// the server already dropped and gets the stale-diff 400.
+describe('retry after a save whose PATCH landed but whose PUT failed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+  });
+
+  const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+  const child = makeBuilderLayer({
+    id: 'child',
+    dataset_id: 'ds-child',
+    sort_order: 1,
+    style_config: {
+      builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1', folderGroupExpanded: true },
+    } as MapLayerResponse['style_config'],
+  });
+
+  it('does not re-send the removal of a deleted group\'s layers', async () => {
+    const { result } = renderCombined(makeBuilderMap([keep, child]));
+    expect(result.current.localLayers.some((l) => l.id === 'group-1')).toBe(true);
+
+    act(() => { result.current.handleDeleteGroup('group-1'); });
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [keep] });
+    mockUpdateMapMutateAsync.mockRejectedValueOnce(new Error('metadata PUT failed'));
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    expect(mockPatchMapLayersMutateAsync.mock.calls[0][0].diff.removed).toEqual(['child']);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mockUpdateMapMutateAsync.mockImplementation(async (payload: { id: string }) => ({ id: payload.id, layers: [keep] }));
+    await act(async () => { await result.current.handleSave(); });
+
+    const sentRemovals = mockPatchMapLayersMutateAsync.mock.calls.map(([{ diff }]) => diff.removed);
+    expect(sentRemovals).toEqual([['child']]);
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(2);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('does not repeat the stale-diff recovery after its PATCH landed', async () => {
+    const stale = new ApiError(
+      'Layer diff references layer ids outside this map',
+      400,
+      'Layer diff references layer ids outside this map',
+    );
+    // Another session already removed child, so any diff naming it is stale.
+    mockPatchMapLayersMutateAsync.mockImplementation(async ({ diff }: { diff: { removed?: string[] } }) => {
+      if (diff.removed?.includes('child')) throw stale;
+      return { id: 'map-1', layers: [keep] };
+    });
+    mockGetMap.mockResolvedValue({ id: 'map-1', layers: [keep] });
+    const { result } = renderCombined(makeBuilderMap([keep, child]));
+
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    act(() => { result.current.handleDeleteGroup('group-1'); });
+    mockUpdateMapMutateAsync.mockRejectedValueOnce(new Error('metadata PUT failed'));
+    await act(async () => { await result.current.handleSave(); });
+    expect(mockGetMap).toHaveBeenCalledOnce();
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mockUpdateMapMutateAsync.mockImplementation(async (payload: { id: string }) => ({ id: payload.id, layers: [keep] }));
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockGetMap).toHaveBeenCalledOnce();
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(2);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+});
+
+// A layer created or deleted while a save is in flight registers with the
+// save-diff baseline at once, so advancing the baseline to the sent snapshot
+// must keep that registration or the next save re-creates or re-removes it.
+describe('layer creates and deletes during a save', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+    mockUpdateMapMutateAsync.mockImplementation(async (payload: { id: string }) => ({ id: payload.id, layers: [] }));
+  });
+
+  const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+  const doomed = makeBuilderLayer({ id: 'doomed', dataset_id: 'ds-doomed', sort_order: 1 });
+  const created = makeBuilderLayer({ id: 'created-1', dataset_id: 'ds-new', sort_order: 2 });
+
+  // Dirty the map and start a save whose layer PATCH waits for the returned call.
+  function startHeldSave(result: { current: ReturnType<typeof useCombinedBuilder> }) {
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    let release!: () => void;
+    mockPatchMapLayersMutateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ id: 'map-1', layers: [] }); }),
+    );
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    return () => act(async () => { release(); await saving; });
+  }
+
+  async function saveAgain(result: { current: ReturnType<typeof useCombinedBuilder> }) {
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
+    await act(async () => { await result.current.handleSave(); });
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(2);
+    return mockPatchMapLayersMutateAsync.mock.calls.slice(1).map(([{ diff }]) => diff);
+  }
+
+  it('does not create a layer added from the catalog again', async () => {
+    const { result, mutate } = renderCombined(makeBuilderMap([keep]));
+    const finishSave = startHeldSave(result);
+    act(() => { result.current.handleAddDataset('ds-new'); });
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess(created); });
+    await finishSave();
+
+    for (const diff of await saveAgain(result)) expect(diff.added).toBeUndefined();
+  });
+
+  it('does not create a duplicated rendering again', async () => {
+    const { result, mutate } = renderCombined(makeBuilderMap([keep]));
+    const finishSave = startHeldSave(result);
+    act(() => { result.current.handleDuplicateRendering('keep'); });
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ ...created, dataset_id: 'ds-keep' }); });
+    await finishSave();
+
+    for (const diff of await saveAgain(result)) expect(diff.added).toBeUndefined();
+  });
+
+  it('does not remove a layer deleted during the save again', async () => {
+    const { result, removeMutate } = renderCombined(makeBuilderMap([keep, doomed]));
+    const finishSave = startHeldSave(result);
+    act(() => { result.current.handleRemove('doomed'); });
+    const [, handlers] = removeMutate.mock.calls[0];
+    act(() => { handlers.onSuccess(); });
+    await finishSave();
+
+    for (const diff of await saveAgain(result)) expect(diff.removed).toBeUndefined();
+  });
+
+  it('does not remove layers bulk-deleted during the save again', async () => {
+    const { result } = renderCombined(makeBuilderMap([keep, doomed]));
+    const finishSave = startHeldSave(result);
+    mockBulkDeleteLayers.mockResolvedValueOnce({ deleted: ['doomed'], failed: [] });
+    await act(async () => { await result.current.handleBulkDelete(new Set(['doomed'])); });
+    await finishSave();
+
+    for (const diff of await saveAgain(result)) expect(diff.removed).toBeUndefined();
+  });
+
+  it('removes again a layer a full-replacement save may have restored', async () => {
+    const { result, removeMutate } = renderCombined(makeBuilderMap([keep, doomed]));
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(new ApiError('Method Not Allowed', 405, 'Method Not Allowed'));
+    let release!: () => void;
+    mockUpdateMapMutateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ id: 'map-1', layers: [] }); }),
+    );
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    await act(async () => { await Promise.resolve(); });
+    act(() => { result.current.handleRemove('doomed'); });
+    const [, handlers] = removeMutate.mock.calls[0];
+    act(() => { handlers.onSuccess(); });
+    await act(async () => { release(); await saving; });
+
+    const diffs = await saveAgain(result);
+    expect(diffs.map((diff) => diff.removed)).toEqual([['doomed']]);
   });
 });
