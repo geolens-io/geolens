@@ -19,4 +19,8 @@ describe('applyMarkdownFormat', () => {
     expect(applyMarkdownFormat(text, 7, 12, 'numberedList').text).toBe('intro\n1. one\n2. two');
     expect(applyMarkdownFormat(text, 2, 2, 'heading').text).toBe('### intro\none\ntwo');
   });
+
+  it("doesn't prefix the line after a selection that ends on a line break", () => {
+    expect(applyMarkdownFormat('one\ntwo', 0, 4, 'bulletList').text).toBe('- one\ntwo');
+  });
 });

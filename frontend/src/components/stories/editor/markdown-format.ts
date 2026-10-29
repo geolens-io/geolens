@@ -34,6 +34,8 @@ export function applyMarkdownFormat(
       end: end + open.length,
     };
   }
+  // A selection ending just after a line break (a triple-click) doesn't take in the next line.
+  if (end > start && text[end - 1] === '\n') end -= 1;
   const lineStart = text.lastIndexOf('\n', start - 1) + 1;
   const lines = text.slice(lineStart, end).split('\n');
   const prefixed = lines.map((line, i) =>

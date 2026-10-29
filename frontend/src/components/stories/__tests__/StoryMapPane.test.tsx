@@ -3,6 +3,7 @@ import { act, render, screen } from '@/test/test-utils';
 import { StoryMapPane, type StoryMapPaneHandle } from '../StoryMapPane';
 import type { ResolvedScene } from '../story-scenes';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
+import { isViewerTerrainExpected } from '@/components/viewer/hooks/use-viewer-terrain';
 import type { MapResponse, StoryScene } from '@/types/api';
 
 type ViewerMapProps = React.ComponentProps<typeof ViewerMap>;
@@ -51,6 +52,12 @@ const MAPS: Record<string, MapResponse> = {
     layers: [layer('roads', true), layer('rivers', false), layer('towns', true)],
   } as unknown as MapResponse,
   'map-b': { id: 'map-b', basemap_style: 'positron', layers: [] } as unknown as MapResponse,
+  'map-dem': {
+    id: 'map-dem',
+    basemap_style: 'positron',
+    terrain_config: { enabled: true, source_dataset_id: 'ds-dem', exaggeration: 1 },
+    layers: [{ ...layer('dem', false), is_dem: true, dataset_record_type: 'raster_dataset' }],
+  } as unknown as MapResponse,
 };
 
 function resolved(chapterId: string, mapId: string, zoom: number, layerVisibility: StoryScene['layer_visibility'] = {}): ResolvedScene {
@@ -172,4 +179,13 @@ it("moves back to the scene's camera when the editor replaces the scenes", async
   rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 5)} resetKey={1} />);
   expect(fakeMap.flyTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 5 }));
   expect(viewer.mounts).toBe(1);
+});
+
+it('turns on terrain from a DEM the map saved as hidden when the scene shows it', async () => {
+  render(<StoryMapPane resolved={resolved('c1', 'map-dem', 3, { dem: true })} />);
+  await screen.findByTestId('viewer-map');
+  const props = viewer.props!;
+  expect(isViewerTerrainExpected(props.layers, props.terrainConfig)).toBe(true);
+  expect(props.visibleLayers.has('dem')).toBe(true);
+  expect(legend.props!.layers).toBe(props.layers);
 });

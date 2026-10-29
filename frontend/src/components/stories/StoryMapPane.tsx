@@ -127,8 +127,10 @@ function StoryMap({
     <>
       <MapErrorBoundary className="absolute inset-0">
         <Suspense fallback={<LoadingState message={t('reader.mapLoading')} />}>
+          {/* The scene's layers, so saved-visibility checks (terrain from a
+              DEM the map saved as hidden) follow the scene too. */}
           <ViewerMap
-            layers={layers}
+            layers={sceneLayers}
             basemapStyle={data.basemap_style}
             basemapConfig={data.basemap_config ?? null}
             showBasemapLabels={data.show_basemap_labels ?? true}
@@ -141,7 +143,7 @@ function StoryMap({
         </Suspense>
       </MapErrorBoundary>
       <LayerLegend
-        layers={layers}
+        layers={sceneLayers}
         visibleLayers={visibleLayers}
         onToggleVisibility={handleToggleVisibility}
         isOpen={isLegendOpen}
