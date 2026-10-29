@@ -12,6 +12,9 @@ and releases use semantic versioning.
 - Turning a Builder layer, group or several layers off and back on no longer
   leaves the map marked "Unsaved changes" when it matches the saved map, so
   leaving the page no longer asks for confirmation. (#3465)
+- Saving a Builder map again after a save that stored its layers but failed
+  on the map's other settings no longer warns that layers changed in another
+  session when you had deleted a layer group. (#TBD)
 
 ## [1.28.0] - 2026-10-29
 

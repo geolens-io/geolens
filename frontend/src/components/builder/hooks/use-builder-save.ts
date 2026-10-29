@@ -1086,18 +1086,24 @@ export function useBuilderSave(state: SaveState) {
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
     // The save-diff baseline carries the sent collapse state (see the baseline
-    // effect). useUpdateMap only invalidates the detail query, so mapData keeps
-    // the pre-save camera until the refetch lands (and forever if it fails).
-    // The dirty check reads mapData, so publish what the server holds.
+    // effect). A layer PATCH commits even when the metadata PUT after it
+    // fails, so the baseline advances as soon as it lands; otherwise the retry
+    // re-sends removals the server already applied.
+    const commitLayerBaseline = () => {
+      // The hooks stay mounted across a map switch, so the baseline may
+      // belong to another map by now.
+      if (latestStateRef.current.mapId !== id) return;
+      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+    };
+    // useUpdateMap only invalidates the detail query, so mapData keeps the
+    // pre-save camera until the refetch lands (and forever if it fails). The
+    // dirty check reads mapData, so publish what the server holds.
     const commitSaved = () => {
       queryClient.setQueryData<MapResponse>(
         queryKeys.maps.detail(id),
         (prev) => (prev ? { ...prev, ...camera } : prev),
       );
-      // The hooks stay mounted across a map switch, so the baseline may
-      // belong to another map by now.
-      if (latestStateRef.current.mapId !== id) return;
-      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+      commitLayerBaseline();
     };
 
     // basemap_position is a field of basemapConfig (MapBasemapConfig jsonb), so
@@ -1142,6 +1148,7 @@ export function useBuilderSave(state: SaveState) {
         if (hasDiff(diff)) {
           try {
             await patchMapLayers.mutateAsync({ id, diff });
+            commitLayerBaseline();
           } catch (error) {
             // A stale diff is a conflict, not a missing endpoint. Refetch, drop
             // the ids the server no longer has, and retry the PATCH. A failure
@@ -1160,6 +1167,7 @@ export function useBuilderSave(state: SaveState) {
               } catch {
                 throw new StaleLayerDiffError();
               }
+              commitLayerBaseline();
               await updateMap.mutateAsync({ id, data: metadataPayload });
               commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
