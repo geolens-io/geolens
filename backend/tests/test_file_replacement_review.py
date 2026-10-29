@@ -913,6 +913,17 @@ async def test_the_previews_fingerprint_is_the_one_the_worker_computes(
         assert "srid_changed" in preview["review_reasons"]
 
 
+async def test_a_layer_preview_lists_every_layer_of_the_file(harness: _Harness):
+    dataset = await harness.dataset()
+    path = _gpkg(harness.tmp_path, "b.gpkg", _BASE)
+    job_id = await harness.upload_job(dataset, str(path), path.name)
+
+    preview = await harness.preview(dataset, job_id, {"layer_name": "other"})
+
+    assert [c["name"] for c in preview["columns"]] == ["other"]
+    assert sorted(lyr["name"] for lyr in preview["all_layers"]) == ["other", "roads"]
+
+
 # 8: accepting a blocked file run
 
 

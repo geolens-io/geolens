@@ -815,9 +815,6 @@ async def reupload_preview(
     # Thread layer_name from the request body to the ogrinfo helper.
     layer_name = request.layer_name if request else None
 
-    # Validate layer_name against the file's actual layers.
-    # We run ogrinfo without layer_name first to get the full layer list,
-    # then validate — or use the targeted call if no validation needed.
     try:
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
