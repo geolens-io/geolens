@@ -6205,9 +6205,10 @@ export interface paths {
          *     unsupported format, 401 when a request that no capability authorized
          *     carried a credential which did not resolve, 403 when the embed token is
          *     invalid or expired or a multi-tenant request arrives with no tenant
-         *     context, 422 for an out-of-range stretch parameter, and 503 when the
-         *     renderer cannot be reached. A different failure from the renderer is
-         *     passed through with its own status.
+         *     context, 422 for an out-of-range stretch parameter, 429 with
+         *     ``Retry-After`` when the per-process capacity for uncached raster renders
+         *     stays full for a short wait, and 503 when the renderer cannot be reached. A
+         *     different failure from the renderer is passed through with its own status.
          *
          *     404 covers more than a missing dataset. A dataset that is unknown, is not a
          *     raster or has no image answers 404. Where no capability authorized the
@@ -48304,6 +48305,17 @@ export interface operations {
             /** @description Validation error */
             422: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

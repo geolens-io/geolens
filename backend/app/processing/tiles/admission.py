@@ -1,4 +1,4 @@
-"""Bound uncached vector and cluster work in each API process."""
+"""Bound uncached tile renders in each API process."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -11,26 +11,46 @@ from app.processing.tiles.responses import tile_busy_error
 # A cold map view requests dozens of tiles at once. A short queue absorbs that
 # burst; the waiter cap rejects a larger flood instead of parking it.
 _SLOT_WAIT_SECONDS = 2.0
-_MAX_SLOT_WAITERS = 2 * settings.tile_pool_max_size
-
-_render_slots = asyncio.BoundedSemaphore(settings.tile_pool_max_size)
-_slot_waiters = 0
 
 
-async def _acquire_render_slot() -> None:
-    global _slot_waiters
-    if not _render_slots.locked():
-        await _render_slots.acquire()
-        return
-    if _slot_waiters >= _MAX_SLOT_WAITERS:
-        raise tile_busy_error()
-    _slot_waiters += 1
-    try:
-        await asyncio.wait_for(_render_slots.acquire(), _SLOT_WAIT_SECONDS)
-    except TimeoutError:
-        raise tile_busy_error()
-    finally:
-        _slot_waiters -= 1
+class _RenderBudget:
+    """Concurrent render slots behind a short, capped queue."""
+
+    def __init__(self, size: int) -> None:
+        self.slots = asyncio.BoundedSemaphore(size)
+        self.max_waiters = 2 * size
+        self.waiters = 0
+
+    async def acquire(self) -> None:
+        """Take a slot, or raise the 429 once the queue is full or times out."""
+        if not self.slots.locked():
+            await self.slots.acquire()
+            return
+        if self.waiters >= self.max_waiters:
+            raise tile_busy_error()
+        self.waiters += 1
+        try:
+            await asyncio.wait_for(self.slots.acquire(), _SLOT_WAIT_SECONDS)
+        except TimeoutError:
+            raise tile_busy_error()
+        finally:
+            self.waiters -= 1
+
+    @asynccontextmanager
+    async def slot(self) -> AsyncIterator[None]:
+        """Hold one slot for the body; release on every exit."""
+        await self.acquire()
+        try:
+            yield
+        finally:
+            self.slots.release()
+
+
+_vector_renders = _RenderBudget(settings.tile_pool_max_size)
+# Raster renders load Titiler rather than the tile pool, so neither kind can
+# starve the other. No setting describes Titiler's capacity; the vector size
+# already fits a cold map view's burst.
+_raster_renders = _RenderBudget(settings.tile_pool_max_size)
 
 
 @asynccontextmanager
@@ -49,11 +69,15 @@ async def tile_render_slot(tenant_sem: Any = None) -> AsyncIterator[None]:
                 "Tile concurrency limit reached for tenant, please retry"
             )
     try:
-        await _acquire_render_slot()
-        try:
+        async with _vector_renders.slot():
             yield
-        finally:
-            _render_slots.release()
     finally:
         if tenant_sem is not None:
             tenant_sem.release()
+
+
+@asynccontextmanager
+async def raster_render_slot() -> AsyncIterator[None]:
+    """Hold one raster render slot; a full budget queues briefly, then answers 429."""
+    async with _raster_renders.slot():
+        yield

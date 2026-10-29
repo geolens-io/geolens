@@ -37,8 +37,7 @@ async def serving(monkeypatch):
         tile_cache_version=1,
         updated_at=datetime.now(timezone.utc),
     )
-    monkeypatch.setattr(admission, "_render_slots", asyncio.BoundedSemaphore(1))
-    monkeypatch.setattr(admission, "_slot_waiters", 0)
+    monkeypatch.setattr(admission, "_vector_renders", admission._RenderBudget(1))
     monkeypatch.setattr(admission, "_SLOT_WAIT_SECONDS", _HANG_GUARD)
     monkeypatch.setattr(
         tiles, "_resolve_dataset_meta_for_serving", AsyncMock(return_value=meta)
@@ -189,7 +188,7 @@ async def test_misses_beyond_the_waiter_cap_shed_at_once(
 ):
     client, _, _ = serving
     start, entered, release = held_slot
-    monkeypatch.setattr(admission, "_MAX_SLOT_WAITERS", 1)
+    monkeypatch.setattr(admission._vector_renders, "max_waiters", 1)
     holder = await _first_render_holds_the_slot(
         start, entered, "/tiles/data.roads/0/0/0.pbf"
     )
@@ -216,7 +215,7 @@ async def test_a_cancelled_waiter_returns_only_what_it_took(
     quota = asyncio.Semaphore(2)
     monkeypatch.setattr(tiles, "is_multi_tenant", lambda: True)
     monkeypatch.setattr(tiles, "_get_tile_serving_controls", lambda _: (quota, None))
-    monkeypatch.setattr(admission, "_MAX_SLOT_WAITERS", 1)
+    monkeypatch.setattr(admission._vector_renders, "max_waiters", 1)
     holder = await _first_render_holds_the_slot(
         start, entered, "/tiles/data.roads/0/0/0.pbf"
     )
@@ -241,7 +240,7 @@ async def test_a_cancelled_waiter_returns_only_what_it_took(
         release.set()
     assert (await asyncio.wait_for(holder, _HANG_GUARD)).status_code == 204
     assert (await client.get("/tiles/data.roads/0/0/0.pbf")).status_code == 204
-    assert not admission._render_slots.locked()
+    assert not admission._vector_renders.slots.locked()
     assert not quota.locked()
 
 
@@ -361,16 +360,15 @@ async def test_shared_capacity_rejection_returns_the_tenant_permit(
     monkeypatch, max_waiters
 ):
     quota = asyncio.Semaphore(1)
-    slots = asyncio.BoundedSemaphore(1)
-    await slots.acquire()
-    monkeypatch.setattr(admission, "_render_slots", slots)
-    monkeypatch.setattr(admission, "_slot_waiters", 0)
-    monkeypatch.setattr(admission, "_MAX_SLOT_WAITERS", max_waiters)
+    budget = admission._RenderBudget(1)
+    budget.max_waiters = max_waiters
+    await budget.slots.acquire()
+    monkeypatch.setattr(admission, "_vector_renders", budget)
     monkeypatch.setattr(admission, "_SLOT_WAIT_SECONDS", 0.01)
     with pytest.raises(tiles.HTTPException) as raised:
         async with admission.tile_render_slot(quota):
             pytest.fail("render entered a full budget")
     assert raised.value.status_code == 429
     assert not quota.locked()
-    assert admission._slot_waiters == 0
-    slots.release()
+    assert budget.waiters == 0
+    budget.slots.release()

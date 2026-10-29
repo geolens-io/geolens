@@ -70972,7 +70972,7 @@
     },
     "/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}": {
       "get": {
-        "description": "Render one raster tile and return the image.\n\nReturns the image itself rather than a redirect: the dataset is\nauthorized, then the rendered tile comes back in the response body. Used by\nthe development proxy and by deployments that run without nginx in front.\n\n``colormap_name`` applies a colormap to a single-band raster. Passing\n``gray`` leaves the rendering unchanged, and a digital elevation model\nignores the parameter, because its terrain encoding cannot be recoloured.\n\n``stretch`` chooses how pixel values map to the output range. ``minmax``\nkeeps the range the dataset already implies: the recorded per-band minimum\nand maximum for a raster imported from a remote source that published\nstatistics, the data range read from band statistics for floating-point and\nsingle-band signed integer data, a range derived from the data type for\nother integer data, and no rescale parameter for 8-bit data, which needs\nnone. ``percentile`` and\n``stddev`` instead derive a range from band statistics read at request\ntime, for up to three bands. A digital elevation model ignores the\nparameter, and so does a request whose band statistics cannot be read,\nwhich falls back to ``minmax`` rather than failing.\n\n``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is\n``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A\nparameter that does not apply to the selected stretch is ignored, and its\ndefault is used in place of the value sent.\n\nResponds 204 when the tile falls outside the raster, 400 for an\nunsupported format, 401 when a request that no capability authorized\ncarried a credential which did not resolve, 403 when the embed token is\ninvalid or expired or a multi-tenant request arrives with no tenant\ncontext, 422 for an out-of-range stretch parameter, and 503 when the\nrenderer cannot be reached. A different failure from the renderer is\npassed through with its own status.\n\n404 covers more than a missing dataset. A dataset that is unknown, is not a\nraster or has no image answers 404. Where no capability authorized the\nrequest, so does a dataset the caller may not read: a non-public raster\nasked for anonymously or by a caller without access, and an unpublished\nraster asked for by a caller who is neither its owner nor an admin. An\nanonymous request whose signature parameters did not authorize gets 403\ninstead, for a missing dataset as for one it cannot see. Either way a\nrefusal never discloses that the dataset exists.",
+        "description": "Render one raster tile and return the image.\n\nReturns the image itself rather than a redirect: the dataset is\nauthorized, then the rendered tile comes back in the response body. Used by\nthe development proxy and by deployments that run without nginx in front.\n\n``colormap_name`` applies a colormap to a single-band raster. Passing\n``gray`` leaves the rendering unchanged, and a digital elevation model\nignores the parameter, because its terrain encoding cannot be recoloured.\n\n``stretch`` chooses how pixel values map to the output range. ``minmax``\nkeeps the range the dataset already implies: the recorded per-band minimum\nand maximum for a raster imported from a remote source that published\nstatistics, the data range read from band statistics for floating-point and\nsingle-band signed integer data, a range derived from the data type for\nother integer data, and no rescale parameter for 8-bit data, which needs\nnone. ``percentile`` and\n``stddev`` instead derive a range from band statistics read at request\ntime, for up to three bands. A digital elevation model ignores the\nparameter, and so does a request whose band statistics cannot be read,\nwhich falls back to ``minmax`` rather than failing.\n\n``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is\n``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A\nparameter that does not apply to the selected stretch is ignored, and its\ndefault is used in place of the value sent.\n\nResponds 204 when the tile falls outside the raster, 400 for an\nunsupported format, 401 when a request that no capability authorized\ncarried a credential which did not resolve, 403 when the embed token is\ninvalid or expired or a multi-tenant request arrives with no tenant\ncontext, 422 for an out-of-range stretch parameter, 429 with\n``Retry-After`` when the per-process capacity for uncached raster renders\nstays full for a short wait, and 503 when the renderer cannot be reached. A\ndifferent failure from the renderer is passed through with its own status.\n\n404 covers more than a missing dataset. A dataset that is unknown, is not a\nraster or has no image answers 404. Where no capability authorized the\nrequest, so does a dataset the caller may not read: a non-public raster\nasked for anonymously or by a caller without access, and an unpublished\nraster asked for by a caller who is neither its owner nor an admin. An\nanonymous request whose signature parameters did not authorize gets 403\ninstead, for a missing dataset as for one it cannot see. Either way a\nrefusal never discloses that the dataset exists.",
         "operationId": "raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get",
         "parameters": [
           {
@@ -71206,6 +71206,25 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {

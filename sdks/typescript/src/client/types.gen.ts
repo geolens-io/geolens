@@ -33879,6 +33879,10 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;

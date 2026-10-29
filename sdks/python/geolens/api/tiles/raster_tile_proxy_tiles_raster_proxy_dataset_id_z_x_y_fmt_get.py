@@ -130,6 +130,11 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
     if response.status_code == 500:
         response_500 = ProblemDetail.from_dict(response.json())
 
@@ -208,9 +213,10 @@ def sync_detailed(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
@@ -320,9 +326,10 @@ def sync(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
@@ -427,9 +434,10 @@ async def asyncio_detailed(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
@@ -537,9 +545,10 @@ async def asyncio(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
