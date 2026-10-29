@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { act, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { StoryReader } from '../StoryReader';
 import type { ResolvedScene } from '../story-scenes';
 import type { StoryChapter, StoryScene } from '@/types/api';
@@ -119,85 +119,68 @@ describe('chapter announcements', () => {
 });
 
 describe('wide scrolling panel', () => {
-  type Observed = { callback: IntersectionObserverCallback; options?: IntersectionObserverInit; targets: Element[] };
-  let observers: Observed[];
-
-  beforeEach(() => {
-    observers = [];
-    vi.stubGlobal(
-      'IntersectionObserver',
-      class {
-        record: Observed;
-        constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
-          this.record = { callback, options, targets: [] };
-          observers.push(this.record);
-        }
-        observe(target: Element) {
-          this.record.targets.push(target);
-        }
-        disconnect() {}
-      },
-    );
-  });
-
-  afterEach(() => vi.unstubAllGlobals());
-
-  // A 1000 px panel at y = 100, so the 40% line sits at y = 500.
-  function report(observer: Observed, tops: number[], reported: number[] = tops.map((_, i) => i)) {
+  // A panel at y = 100, 416 px wide and 1000 px high unless a test says
+  // otherwise, so the 40% line sits at y = 500.
+  async function scrollTo(tops: number[], size = { width: 416, height: 1000 }) {
     const panel = screen.getByRole('region', { name: 'Story chapters' });
-    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: size.height });
+    Object.defineProperty(panel, 'clientWidth', { configurable: true, value: size.width });
     panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
-    observer.targets.forEach((target, i) => {
-      target.getBoundingClientRect = () => ({ top: tops[i] }) as DOMRect;
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: tops[i] }) as DOMRect;
     });
-    const entries = reported.map((i) => ({ target: observer.targets[i] }));
-    act(() => observer.callback(entries as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   }
 
-  it('makes the chapter whose top has crossed 40% of the panel active', () => {
+  it('makes the chapter whose top has crossed 40% of the panel active', async () => {
     layout.narrow = false;
     renderReader();
-    const panel = screen.getByRole('region', { name: 'Story chapters' });
-    const observer = observers.at(-1)!;
-    expect(observer.options?.root).toBe(panel);
-    expect(observer.options?.rootMargin).toBe('0px 0px -60% 0px');
-    expect(observer.targets).toHaveLength(4);
     expect(pane.resolved?.chapterId).toBe('c1');
 
-    report(observer, [-500, 300, 1400, 2400]);
+    await scrollTo([-500, 300, 1400, 2400]);
     expect(pane.resolved?.chapterId).toBe('c2');
     expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
 
-    report(observer, [-500, 550, 1650, 2650]);
+    await scrollTo([-500, 550, 1650, 2650]);
     expect(pane.resolved?.chapterId).toBe('c1');
   });
 
-  it('measures every chapter again when a jump reports only one of them', () => {
+  it("puts the line at 40% of the panel's height, not its width", async () => {
     layout.narrow = false;
     renderReader();
-    const observer = observers.at(-1)!;
-    report(observer, [-3000, -2000, -1000, 200]);
+    // 800 px high: the line is at 100 + 320 = 420; 40% of the 416 px width would put it at 266.
+    await scrollTo([-500, 400, 1400, 2400], { width: 416, height: 800 });
+    expect(pane.resolved?.chapterId).toBe('c2');
+
+    await scrollTo([-500, 440, 1440, 2440], { width: 416, height: 800 });
+    expect(pane.resolved?.chapterId).toBe('c1');
+  });
+
+  it('measures every chapter again after a jump', async () => {
+    layout.narrow = false;
+    renderReader();
+    await scrollTo([-3000, -2000, -1000, 200]);
     expect(screen.getByRole('region', { name: 'Gone' })).toHaveAttribute('aria-current', 'step');
 
-    // Home: only the first chapter's intersection changed, but all moved below the line.
-    report(observer, [150, 900, 1800, 2700], [0]);
+    // Home: every chapter moves below the line in one scroll.
+    await scrollTo([150, 900, 1800, 2700]);
     expect(screen.getByRole('region', { name: 'The tracks' })).toHaveAttribute('aria-current', 'step');
     expect(pane.resolved?.chapterId).toBe('c1');
   });
 
-  it("doesn't announce the opening chapter when the observer first reports", async () => {
+  it("doesn't announce the opening chapter when the reader scrolls within it", async () => {
     layout.narrow = false;
     renderReader();
-    report(observers.at(-1)!, [140, 900, 1800, 2700]);
+    await scrollTo([140, 900, 1800, 2700]);
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
-  it('stays on the open chapter, or the nearest one, when a refetch changes the chapters', () => {
+  it('stays on the open chapter, or the nearest one, when a refetch changes the chapters', async () => {
     layout.narrow = false;
     const { rerender } = renderReader();
-    const observer = observers.at(-1)!;
-    report(observer, [-500, 300, 1400, 2400]);
+    await scrollTo([-500, 300, 1400, 2400]);
     rerender(<StoryReader title="Hurricanes" summary={null} chapters={[CHAPTERS[1], CHAPTERS[0]]} />);
     expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
   });

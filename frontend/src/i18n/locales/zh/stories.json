@@ -140,7 +140,7 @@
       "viewCaptured": "已为本章保留视图",
       "mapNotReady": "地图尚未就绪",
       "layers": "显示的图层",
-      "hidden": "本章的场景位于你无法打开的地图上。除非你移除它，否则会被保留。",
+      "hidden": "本章的地图不可用或已被删除。除非你移除，否则其场景会被保留。",
       "remove": "移除场景",
       "mapLoadFailed": "无法加载该地图",
       "searchMaps": "搜索地图",

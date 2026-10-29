@@ -13,10 +13,7 @@ import { StoryMapPane } from './StoryMapPane';
 import { activeChapterFrom, nearestSceneChapter, nextSceneMapId } from './story-scenes';
 
 // A chapter becomes active once its top passes 40% of the panel's height.
-// The observer's root is the panel's top 40%, so it fires whenever a chapter
-// enters or leaves that band.
 const ACTIVE_LINE = 0.4;
-const ACTIVE_LINE_MARGIN = `0px 0px -${Math.round((1 - ACTIVE_LINE) * 100)}% 0px`;
 
 type Position = { id: string; index: number } | null;
 
@@ -63,9 +60,7 @@ export function StoryReader({ title, summary, chapters, editHref }: StoryReaderP
     [scene, sceneChapterId],
   );
 
-  // Changes only when the chapters do, so the scroll panel's observer isn't
-  // rebuilt on every chapter change. Moving to the chapter already open
-  // changes nothing, so it isn't announced.
+  // Moving to the chapter already open changes nothing, so it isn't announced.
   const changeChapter = useCallback(
     (index: number) => {
       if (index < 0 || index >= chapters.length) return;
@@ -129,31 +124,31 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+  const frame = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+  }, []);
 
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    // Every section is measured again on each callback: a jump (Home, a
-    // scrollbar drag) can move a section across the line without an entry for it.
-    const observer = new IntersectionObserver(
-      () => {
-        const line = panel.getBoundingClientRect().top + panel.clientHeight * ACTIVE_LINE;
-        const crossed = sectionRefs.current
-          .slice(0, chapters.length)
-          .map((section) => !!section && section.getBoundingClientRect().top < line);
-        onActiveChange(activeChapterFrom(crossed));
-      },
-      { root: panel, rootMargin: ACTIVE_LINE_MARGIN },
-    );
-    for (const section of sectionRefs.current.slice(0, chapters.length)) {
-      if (section) observer.observe(section);
-    }
-    return () => observer.disconnect();
+  // Measures every chapter against the line once per frame while scrolling,
+  // so a jump (Home, a scrollbar drag) lands on the right chapter too.
+  const handleScroll = useCallback(() => {
+    if (frame.current !== null) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const line = panel.getBoundingClientRect().top + panel.clientHeight * ACTIVE_LINE;
+      const crossed = sectionRefs.current
+        .slice(0, chapters.length)
+        .map((section) => !!section && section.getBoundingClientRect().top < line);
+      onActiveChange(activeChapterFrom(crossed));
+    });
   }, [chapters, onActiveChange]);
 
   return (
     <div
       ref={panelRef}
+      onScroll={handleScroll}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable
       tabIndex={0}
       role="region"

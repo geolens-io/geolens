@@ -15,9 +15,10 @@ and releases use semantic versioning.
   with arrow-key controls. Each chapter change is announced to screen
   readers, and camera moves jump instead of flying under reduced motion.
   Anyone who can read a story can open it, signed in or not; a chapter whose
-  map the reader can't open shows its text with a notice.
+  map the reader can't open shows its text with a notice. (#3483)
 - The Maps page has a Stories tab that lists the stories you can read, with
   New story, Edit, Duplicate and Delete where you're allowed to use them.
+  (#3483)
 - The story editor at `/stories/:id/edit` works on a draft that readers don't
   see until you publish it. Chapters hold Markdown text, written with a
   formatting toolbar and a preview, and an optional scene: a saved map, a
@@ -28,6 +29,7 @@ and releases use semantic versioning.
   published version. If the draft was saved somewhere else since you opened
   it, you can load that version or keep yours with "Overwrite with my
   version". Chapters hold text only for now; image blocks come later.
+  (#3483)
 
 ### Fixed
 

@@ -140,7 +140,7 @@
       "viewCaptured": "Vista conservada para este capítulo",
       "mapNotReady": "El mapa aún no está listo",
       "layers": "Capas visibles",
-      "hidden": "La escena de este capítulo está en un mapa que no puedes abrir. Se conserva salvo que la quites.",
+      "hidden": "El mapa de este capítulo no está disponible o se eliminó. Su escena se conserva salvo que la quites.",
       "remove": "Quitar escena",
       "mapLoadFailed": "No se pudo cargar ese mapa",
       "searchMaps": "Buscar mapas",

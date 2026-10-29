@@ -158,3 +158,18 @@ it('passes what the map draws to the legend, as the map viewer does', async () =
   act(() => viewer.props!.onDrawnChange!(drawn as never));
   expect(legend.props!.drawn).toBe(drawn);
 });
+
+it("keeps a reader's pan when a refetch brings the same chapter with another camera", async () => {
+  const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
+  rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 8)} />);
+  expect(fakeMap.flyTo).not.toHaveBeenCalled();
+});
+
+it("moves back to the scene's camera when the editor replaces the scenes", async () => {
+  const { rerender } = render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} resetKey={0} />);
+  await screen.findByTestId('viewer-map');
+  viewer.props!.onMapReady!(fakeMap as never);
+  rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 5)} resetKey={1} />);
+  expect(fakeMap.flyTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 5 }));
+  expect(viewer.mounts).toBe(1);
+});

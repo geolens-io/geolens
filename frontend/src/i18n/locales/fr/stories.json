@@ -140,7 +140,7 @@
       "viewCaptured": "Vue gardée pour ce chapitre",
       "mapNotReady": "La carte n'est pas encore prête",
       "layers": "Couches affichées",
-      "hidden": "La scène de ce chapitre est sur une carte que vous ne pouvez pas ouvrir. Elle est conservée sauf si vous la retirez.",
+      "hidden": "La carte de ce chapitre est indisponible ou a été supprimée. Sa scène est conservée sauf si vous la retirez.",
       "remove": "Retirer la scène",
       "mapLoadFailed": "Impossible de charger cette carte",
       "searchMaps": "Rechercher des cartes",

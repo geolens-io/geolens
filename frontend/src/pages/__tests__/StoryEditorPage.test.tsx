@@ -33,19 +33,26 @@ vi.mock('@/api/maps', () => ({
 vi.mock('sonner', () => ({ toast }));
 
 const VIEW = { center: [-80.123457, 26.987654] as [number, number], zoom: 6.789, bearing: 10, pitch: 20 };
-const pane = vi.hoisted(() => ({ resolved: null as ResolvedScene | null, seen: [] as (ResolvedScene | null)[] }));
+const pane = vi.hoisted(() => ({
+  resolved: null as ResolvedScene | null,
+  seen: [] as (ResolvedScene | null)[],
+  resetKey: undefined as number | undefined,
+}));
 vi.mock('@/components/stories/StoryMapPane', () => ({
   StoryMapPane: ({
     resolved,
     emptyHint,
+    resetKey,
     ref,
   }: {
     resolved: ResolvedScene | null;
     emptyHint?: string;
+    resetKey?: number;
     ref?: Ref<{ getView: () => typeof VIEW }>;
   }) => {
     pane.resolved = resolved;
     pane.seen.push(resolved);
+    pane.resetKey = resetKey;
     useImperativeHandle(ref, () => ({ getView: () => VIEW }));
     return resolved ? <div data-testid="story-map" /> : <p>{emptyHint}</p>;
   },
@@ -176,6 +183,7 @@ beforeEach(() => {
   toast.error.mockReset();
   pane.resolved = null;
   pane.seen = [];
+  pane.resetKey = undefined;
   perm.editMetadata = true;
   mapFetch.next = null;
 });
@@ -336,6 +344,28 @@ it('saves over a draft changed elsewhere at the revision the conflict reported, 
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
 
+it('tells the map to return to the scene camera after a discard or a reload, not after a save', async () => {
+  vi.mocked(getStory).mockResolvedValue(published([CHAPTERS[0]]));
+  vi.mocked(discardStoryDraft).mockResolvedValue(draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }));
+  vi.mocked(saveStoryDraft).mockRejectedValueOnce(new ApiError('Conflict', 409, { code: 'stale_revision', revision: 9 }));
+  const user = userEvent.setup();
+  renderEditor();
+  await screen.findByText('Draft saved. Readers still see the last published version.');
+  const start = pane.resetKey;
+
+  await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
+  await waitFor(() => expect(pane.resetKey).toBe(start! + 1));
+
+  await user.type(screen.getByLabelText('Chapter title'), '!');
+  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  const alert = await screen.findByRole('alert');
+  expect(pane.resetKey).toBe(start! + 1);
+  await user.click(within(alert).getByRole('button', { name: 'Load latest' }));
+  await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Load latest' }));
+  await waitFor(() => expect(pane.resetKey).toBe(start! + 2));
+});
+
 it('discards the draft back to the published story after the confirm', async () => {
   vi.mocked(getStory).mockResolvedValue(published([CHAPTERS[0]]));
   vi.mocked(discardStoryDraft).mockResolvedValue(
@@ -377,7 +407,7 @@ it("keeps a scene on a map the editor can't open until it's removed", async () =
   const user = userEvent.setup();
   renderEditor();
   await ready();
-  expect(screen.getByText(/on a map you can't open/)).toBeInTheDocument();
+  expect(screen.getByText(/map is unavailable or has been deleted/)).toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Remove scene' }));
   await user.click(screen.getByRole('button', { name: 'Save draft' }));

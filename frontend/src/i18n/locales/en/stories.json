@@ -140,7 +140,7 @@
       "viewCaptured": "View kept for this chapter",
       "mapNotReady": "The map isn't ready yet",
       "layers": "Layers shown",
-      "hidden": "This chapter's scene is on a map you can't open. It's kept unless you remove it.",
+      "hidden": "This chapter's map is unavailable or has been deleted. Its scene is kept unless you remove it.",
       "remove": "Remove scene",
       "mapLoadFailed": "Couldn't load that map",
       "searchMaps": "Search maps",

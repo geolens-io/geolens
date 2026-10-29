@@ -140,7 +140,7 @@
       "viewCaptured": "Ansicht für dieses Kapitel übernommen",
       "mapNotReady": "Die Karte ist noch nicht bereit",
       "layers": "Angezeigte Ebenen",
-      "hidden": "Die Szene dieses Kapitels liegt auf einer Karte, die Sie nicht öffnen können. Sie bleibt erhalten, bis Sie sie entfernen.",
+      "hidden": "Die Karte dieses Kapitels ist nicht verfügbar oder wurde gelöscht. Ihre Szene bleibt erhalten, bis Sie sie entfernen.",
       "remove": "Szene entfernen",
       "mapLoadFailed": "Diese Karte konnte nicht geladen werden",
       "searchMaps": "Karten suchen",

@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page, getAuthToken } from './helpers/session';
+import { test, expect, type APIRequestContext, type Page } from './helpers/session';
+import { authHeaders, createMap, deleteMap } from './helpers/maps';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const RUN = Date.now().toString(36);
@@ -12,24 +13,10 @@ const MAPS = {
 const mapIds: Record<keyof typeof MAPS, string> = { first: '', second: '', private: '' };
 let storyId = '';
 
-function apiHeaders() {
-  return { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
-}
-
-async function createMap(request: APIRequestContext, name: string): Promise<string> {
-  const response = await request.post(`${BASE_URL}/api/maps/`, { headers: apiHeaders(), data: { name } });
-  expect(response.ok(), `Create map failed: ${response.status()}`).toBe(true);
-  return ((await response.json()) as { id: string }).id;
-}
-
-async function deleteMap(request: APIRequestContext, mapId: string) {
-  await request.delete(`${BASE_URL}/api/maps/${mapId}`, { headers: apiHeaders() });
-}
-
 async function createPublicMap(request: APIRequestContext, name: string): Promise<string> {
   const id = await createMap(request, name);
   const updated = await request.put(`${BASE_URL}/api/maps/${id}`, {
-    headers: apiHeaders(),
+    headers: authHeaders(),
     data: { visibility: 'public' },
   });
   expect(updated.ok(), `Publish map failed: ${updated.status()}`).toBe(true);
@@ -60,7 +47,7 @@ test.describe.serial('Stories', () => {
   test.afterAll(async ({ playwright }) => {
     const request = await playwright.request.newContext();
     try {
-      if (storyId) await request.delete(`${BASE_URL}/api/stories/${storyId}`, { headers: apiHeaders() });
+      if (storyId) await request.delete(`${BASE_URL}/api/stories/${storyId}`, { headers: authHeaders() });
       for (const id of Object.values(mapIds)) if (id) await deleteMap(request, id);
     } finally {
       await request.dispose();

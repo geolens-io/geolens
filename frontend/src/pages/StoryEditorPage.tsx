@@ -273,7 +273,12 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
           )}
         </div>
         <div className="relative h-[40vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">
-          <StoryMapPane ref={paneRef} resolved={resolved} emptyHint={t('editor.mapHint')} />
+          <StoryMapPane
+            ref={paneRef}
+            resolved={resolved}
+            emptyHint={t('editor.mapHint')}
+            resetKey={editor.generation}
+          />
         </div>
       </div>
 

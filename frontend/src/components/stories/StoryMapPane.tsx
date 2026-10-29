@@ -30,16 +30,22 @@ interface StoryMapPaneProps {
   resolved: ResolvedScene | null;
   /** Shown in place of the map while no chapter has a scene. */
   emptyHint?: string;
+  /**
+   * Changes when the scenes were replaced on purpose (the editor's discard or
+   * reload), so the map moves back to the scene's camera even on the same
+   * chapter and map.
+   */
+  resetKey?: number;
   ref?: Ref<StoryMapPaneHandle>;
 }
 
 /** The story's map. A scene on another map remounts it; one on the same map flies there. */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, resetKey, ref }: StoryMapPaneProps) {
   return (
     // Not a landmark: the page's <main> holds it. MapErrorBoundary targets the id.
     <div id="map-viewport" className="absolute inset-0 overflow-hidden bg-muted">
       {resolved ? (
-        <StoryMap key={resolved.scene.map_id} resolved={resolved} handleRef={ref} />
+        <StoryMap key={resolved.scene.map_id} resolved={resolved} resetKey={resetKey} handleRef={ref} />
       ) : (
         emptyHint && (
           <p className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
@@ -51,7 +57,15 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, re
   );
 });
 
-function StoryMap({ resolved, handleRef }: { resolved: ResolvedScene; handleRef?: Ref<StoryMapPaneHandle> }) {
+function StoryMap({
+  resolved,
+  resetKey,
+  handleRef,
+}: {
+  resolved: ResolvedScene;
+  resetKey?: number;
+  handleRef?: Ref<StoryMapPaneHandle>;
+}) {
   const { t } = useTranslation('stories');
   const { scene, chapterId } = resolved;
   const { data, isLoading, isError } = useMap(scene.map_id);
@@ -74,11 +88,11 @@ function StoryMap({ resolved, handleRef }: { resolved: ResolvedScene; handleRef?
     cameraRef.current = scene.camera;
   }, [scene.camera]);
 
-  // Keyed on the chapter rather than the camera object, so a background
-  // refetch of the story doesn't pull a reader back from where they panned.
+  // Keyed on the chapter and the reset key rather than the camera object, so a
+  // background refetch of the story doesn't pull a reader back from where they panned.
   useEffect(() => {
     mapRef.current?.flyTo({ ...cameraRef.current, duration: motionDuration(FLY_DURATION_MS) });
-  }, [chapterId]);
+  }, [chapterId, resetKey]);
 
   // Unmounting with the map clears the handle, so a remount never reads the old map.
   useImperativeHandle(
