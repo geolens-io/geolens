@@ -1,4 +1,4 @@
-"""Shapefiles that declare a code page, and ones zipped inside a single folder."""
+"""Shapefiles that declare a code page, and zips opened through a folder inside them."""
 
 import json
 import shutil
@@ -23,6 +23,7 @@ pytestmark = [
 ]
 
 NAME = "Café"
+FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
 
 
 def _shapefile(tmp_path: Path, *, encoding: str | None) -> Path:
@@ -129,10 +130,53 @@ def test_zip_with_root_files_or_several_folders_is_not_descended(tmp_path):
         archive.writestr("a/x.txt", "x")
         archive.writestr("b/y.txt", "y")
     assert ogr._resolve_source_path(str(many)) == f"/vsizip/{many}"
-    gdb = tmp_path / "gdb.zip"
-    with zipfile.ZipFile(gdb, "w") as archive:
-        archive.writestr("d.gdb/a00000001.gdbtable", "x")
-    assert ogr._resolve_source_path(str(gdb)) == f"/vsizip/{gdb}"
+
+
+@pytest.mark.parametrize(
+    ("members", "folder"),
+    [
+        (["d.gdb/", "d.gdb/a00000001.gdbtable"], "d.gdb"),
+        (["export/d.gdb/a00000001.gdbtable"], "export/d.gdb"),
+        (["d.gdb/a00000001.gdbtable", "readme.txt"], "d.gdb"),
+        (["./d.gdb/", "./d.gdb/a00000001.gdbtable"], "d.gdb"),
+        (["./shape/a.shp", "./shape/a.dbf", "./__MACOSX/shape/._a.shp"], "shape"),
+    ],
+)
+def test_a_zip_resolves_to_the_folder_gdal_opens(tmp_path, members, folder):
+    source = tmp_path / "data.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        for member in members:
+            archive.writestr(member, "x")
+    assert ogr._resolve_source_path(str(source)) == f"/vsizip/{source}/{folder}"
+
+
+async def test_a_geodatabase_zip_named_without_gdb_previews_and_loads(
+    test_db_session, tmp_path
+):
+    source = tmp_path / "Seed_Pro_geodatabase.zip"
+    shutil.copy(FIXTURES / "tier1_points_gdb.zip", source)
+    preview = await ogr.run_ogrinfo_preview(str(source))
+    assert len(preview["sample_rows"]) == 3
+    table = await _load(str(source))
+    try:
+        count = await test_db_session.scalar(
+            text(f'SELECT count(*) FROM "data"."{table}"')
+        )
+        assert count == 3
+    finally:
+        await _drop(test_db_session, table)
+
+
+async def test_a_geodatabase_zip_with_dot_slash_members_previews(tmp_path):
+    source = tmp_path / "export.zip"
+    with (
+        zipfile.ZipFile(FIXTURES / "tier1_points_gdb.zip") as src,
+        zipfile.ZipFile(source, "w") as out,
+    ):
+        for info in src.infolist():
+            out.writestr(f"./{info.filename}", src.read(info))
+    preview = await ogr.run_ogrinfo_preview(str(source))
+    assert len(preview["sample_rows"]) == 3
 
 
 async def test_macos_metadata_does_not_count_as_a_declared_encoding(
@@ -167,3 +211,13 @@ async def test_a_csv_in_a_single_folder_zip_keeps_its_z_values(
         assert ndims == 3
     finally:
         await _drop(test_db_session, table)
+
+
+def test_a_csv_beside_a_geodatabase_is_not_the_source(tmp_path):
+    archive = tmp_path / "export.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("roads.csv", "x,y\n1,2\n")
+        zf.writestr("data/d.gdb/a00000001.gdbtable", b"")
+
+    assert ogr._is_csv_source(str(archive), "roads") is False
+    assert ogr._is_csv_source(str(archive)) is False

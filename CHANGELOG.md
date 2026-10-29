@@ -59,6 +59,11 @@ and releases use semantic versioning.
   before you leave the page. Save stays enabled and still stores the new view.
   Any other unsaved edit, with or without a pan, still asks.
 - A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2.
+- A zipped file geodatabase now imports whatever the zip is called. Only zips
+  named `*.gdb.zip` or `*_gdb.zip` opened before; any other name, such as an
+  ArcGIS Online export or `geolens arcgis migrate` naming the upload after the
+  item title, failed with "Unable to preview file". The `.gdb` folder may also
+  sit inside another folder or beside other files in the zip.
 
 ### Changed
 
