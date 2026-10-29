@@ -21,6 +21,16 @@ def _image_data_uri(fmt: str) -> str:
     return f"data:image/{fmt.lower()};base64,{encoded}"
 
 
+async def _store_images(client: AsyncClient, headers: dict, map_id: str) -> None:
+    for path, fmt in (("thumbnail", "PNG"), ("og-image", "JPEG")):
+        stored = await client.put(
+            f"/maps/{map_id}/{path}/",
+            json={"data_uri": _image_data_uri(fmt)},
+            headers=headers,
+        )
+        assert stored.status_code == 204, stored.text
+
+
 async def _public_map_with_layer(
     client: AsyncClient, headers: dict, dataset_id: uuid.UUID
 ) -> str:
@@ -124,13 +134,7 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
         test_db_session, created_by=admin_id, visibility="private"
     )
     map_id = await _public_map_with_layer(client, admin_auth_header, public_ds.id)
-    for path, fmt in (("thumbnail", "PNG"), ("og-image", "JPEG")):
-        stored = await client.put(
-            f"/maps/{map_id}/{path}/",
-            json={"data_uri": _image_data_uri(fmt)},
-            headers=admin_auth_header,
-        )
-        assert stored.status_code == 204, stored.text
+    await _store_images(client, admin_auth_header, map_id)
     shared = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
     assert shared.status_code == 200, shared.text
     card_path = f"/maps/shared/{shared.json()['token']}/card"
@@ -216,3 +220,116 @@ async def test_publishing_while_replacing_layers_checks_the_new_layers(
     assert refused.status_code == 400, refused.text
     after = await client.get(f"/maps/{kept}", headers=admin_auth_header)
     assert after.json()["visibility"] != "public"
+
+
+async def _map_with_images(
+    client: AsyncClient, headers: dict, name: str, dataset_ids: list[uuid.UUID]
+) -> str:
+    created = await client.post("/maps/", json={"name": name}, headers=headers)
+    assert created.status_code == 201, created.text
+    map_id = created.json()["id"]
+    for dataset_id in dataset_ids:
+        added = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(dataset_id)},
+            headers=headers,
+        )
+        assert added.status_code == 201, added.text
+    shared = await client.put(
+        f"/maps/{map_id}", json={"visibility": "internal"}, headers=headers
+    )
+    assert shared.status_code == 200, shared.text
+    await _store_images(client, headers, map_id)
+    return map_id
+
+
+async def test_map_responses_advertise_only_images_the_reader_can_fetch(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A reader who can open a map but not every dataset it draws gets no
+    image URLs, since the image routes would answer 404."""
+    owner_header, owner_id = await create_user(client, admin_auth_header, "editor")
+    reader_header, _ = await create_user(client, admin_auth_header, "editor")
+    public_ds = await create_dataset(test_db_session, created_by=uuid.UUID(owner_id))
+    private_ds = await create_dataset(
+        test_db_session, created_by=uuid.UUID(owner_id), visibility="private"
+    )
+    await test_db_session.commit()
+    name = f"Images {uuid.uuid4().hex[:8]}"
+    map_id = await _map_with_images(
+        client, owner_header, name, [public_ds.id, private_ds.id]
+    )
+
+    async def advertised(headers: dict) -> dict[str, object]:
+        listed = await client.get("/maps/", params={"search": name}, headers=headers)
+        by_dataset = await client.get(
+            f"/datasets/{public_ds.id}/maps/", headers=headers
+        )
+        detail = await client.get(f"/maps/{map_id}", headers=headers)
+        for resp in (listed, by_dataset, detail):
+            assert resp.status_code == 200, resp.text
+        [listed_map] = listed.json()["maps"]
+        [dataset_map] = [m for m in by_dataset.json()["maps"] if m["id"] == map_id]
+        return {
+            "list": listed_map["thumbnail_url"],
+            "dataset maps": dataset_map["thumbnail_url"],
+            "detail": detail.json()["thumbnail_url"],
+            "detail og": detail.json()["og_image_url"],
+        }
+
+    assert await advertised(owner_header) == {
+        "list": f"/maps/{map_id}/thumbnail/",
+        "dataset maps": f"/maps/{map_id}/thumbnail/",
+        "detail": f"/maps/{map_id}/thumbnail/",
+        "detail og": f"/maps/{map_id}/og-image/",
+    }
+    assert await advertised(reader_header) == {
+        "list": None,
+        "dataset maps": None,
+        "detail": None,
+        "detail og": None,
+    }
+    for path in ("thumbnail", "og-image"):
+        owner = await client.get(f"/maps/{map_id}/{path}/", headers=owner_header)
+        assert owner.status_code == 200
+        reader = await client.get(f"/maps/{map_id}/{path}/", headers=reader_header)
+        assert reader.status_code == 404
+
+
+async def test_map_list_checks_thumbnails_for_the_page_at_once(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    owner_header, owner_id = await create_user(client, admin_auth_header, "editor")
+    reader_header, _ = await create_user(client, admin_auth_header, "editor")
+    dataset = await create_dataset(test_db_session, created_by=uuid.UUID(owner_id))
+    await test_db_session.commit()
+    tag = f"Batch {uuid.uuid4().hex[:8]}"
+
+    async def list_statements() -> int:
+        count = 0
+
+        def tick(*_args) -> None:
+            nonlocal count
+            count += 1
+
+        event.listen(Engine, "before_cursor_execute", tick)
+        try:
+            resp = await client.get(
+                "/maps/", params={"search": tag}, headers=reader_header
+            )
+        finally:
+            event.remove(Engine, "before_cursor_execute", tick)
+        assert resp.status_code == 200, resp.text
+        assert all(m["thumbnail_url"] for m in resp.json()["maps"])
+        return count
+
+    await _map_with_images(client, owner_header, f"{tag} 1", [dataset.id])
+    # The first request also fills per-process caches.
+    await list_statements()
+    one_map = await list_statements()
+    for n in (2, 3, 4):
+        await _map_with_images(client, owner_header, f"{tag} {n}", [dataset.id])
+    assert await list_statements() == one_map

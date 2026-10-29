@@ -8,6 +8,7 @@ prevents a maps-sharing/embed-token import cycle.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
 from sqlalchemy import func, select
@@ -39,18 +40,36 @@ async def can_read_every_map_dataset(
     session: AsyncSession, map_obj: Map, user: Identity | None
 ) -> bool:
     """Whether ``user`` can read every dataset the map draws, terrain included."""
-    dataset_ids = set(
-        (
-            await session.execute(
-                select(MapLayer.dataset_id).where(MapLayer.map_id == map_obj.id)
-            )
-        ).scalars()
+    return map_obj.id in await maps_with_every_dataset_readable(
+        session, [map_obj], user
     )
-    terrain = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else {}
-    if terrain.get("enabled") and terrain.get("source_dataset_id"):
-        dataset_ids.add(uuid.UUID(str(terrain["source_dataset_id"])))
+
+
+async def maps_with_every_dataset_readable(
+    session: AsyncSession, maps: Sequence[Map], user: Identity | None
+) -> set[uuid.UUID]:
+    """Ids of the ``maps`` whose every dataset, terrain included, ``user`` can read.
+
+    A map's stored images go only to such a reader. A fixed number of queries
+    answers a whole page of maps.
+    """
+    if not maps:
+        return set()
+    needed: dict[uuid.UUID, set[uuid.UUID]] = {map_obj.id: set() for map_obj in maps}
+    layer_rows = await session.execute(
+        select(MapLayer.map_id, MapLayer.dataset_id).where(MapLayer.map_id.in_(needed))
+    )
+    for map_id, dataset_id in layer_rows.all():
+        needed[map_id].add(dataset_id)
+    for map_obj in maps:
+        terrain = (
+            map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else {}
+        )
+        if terrain.get("enabled") and terrain.get("source_dataset_id"):
+            needed[map_obj.id].add(uuid.UUID(str(terrain["source_dataset_id"])))
+    dataset_ids = set().union(*needed.values())
     if not dataset_ids:
-        return True
+        return set(needed)
     user_roles = await get_user_roles(session, user) if user is not None else set()
     stmt = (
         select(Dataset.id)
@@ -58,7 +77,17 @@ async def can_read_every_map_dataset(
         .where(Dataset.id.in_(dataset_ids))
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    return dataset_ids <= set((await session.execute(stmt)).scalars())
+    readable = set((await session.execute(stmt)).scalars())
+    return {map_id for map_id, ids in needed.items() if ids <= readable}
+
+
+async def readable_thumbnail_urls(
+    session: AsyncSession, maps: Sequence[Map], user: Identity | None
+) -> dict[uuid.UUID, str]:
+    """Thumbnail URLs, by map id, for the ``maps`` whose thumbnail ``user`` can fetch."""
+    with_thumbnail = [map_obj for map_obj in maps if map_obj.thumbnail_uri]
+    readable = await maps_with_every_dataset_readable(session, with_thumbnail, user)
+    return {map_id: f"/maps/{map_id}/thumbnail/" for map_id in readable}
 
 
 async def get_share_card_image_url(

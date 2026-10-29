@@ -282,6 +282,15 @@ async def _stored_image_cache_control(
     return "private, no-cache"
 
 
+async def _stored_images_readable(
+    db: AsyncSession, map_obj: Map, user: Identity | None
+) -> bool:
+    """Whether the image routes would serve ``user`` the map's stored images."""
+    if not (map_obj.thumbnail_uri or map_obj.og_image_uri):
+        return False
+    return await can_read_every_map_dataset(db, map_obj, user)
+
+
 def _stored_image_response(
     request: Request, data: bytes, media_type: str, cache_control: str
 ) -> Response:
@@ -320,11 +329,15 @@ def _build_map_response(
     *,
     include_notes: bool,
     terrain_dataset_ids: set[str] | None = None,
+    stored_images_readable: bool = False,
 ) -> MapResponse:
     """Build the map response.
 
     Notes are private to the map's owner and administrators, so pass
     ``include_notes`` only for one of them.
+
+    The thumbnail and OG image URLs are set only with
+    ``stored_images_readable`` (see ``_stored_images_readable``).
 
     ``terrain_dataset_ids`` is for reads filtered by what the caller may see:
     the stored terrain binding then survives only when its DEM is one of those
@@ -334,8 +347,12 @@ def _build_map_response(
     terrain_config = map_obj.terrain_config
     if terrain_dataset_ids is not None:
         terrain_config = project_terrain_config(terrain_config, terrain_dataset_ids)
-    thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
-    og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
+    thumbnail_url = og_image_url = None
+    if stored_images_readable:
+        if map_obj.thumbnail_uri:
+            thumbnail_url = f"/maps/{map_obj.id}/thumbnail/"
+        if map_obj.og_image_uri:
+            og_image_url = f"/maps/{map_obj.id}/og-image/"
     return MapResponse(
         id=map_obj.id,
         name=map_obj.name,
@@ -405,6 +422,7 @@ async def _visible_map_response(
         terrain_dataset_ids=await terrain_dataset_ids_visible_to(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),
+        stored_images_readable=await _stored_images_readable(db, map_obj, user),
     )
 
 
