@@ -387,6 +387,49 @@ async def test_stored_unknown_block_survives_a_save(
     assert stored["chapters"][0]["blocks"] == as_stored
 
 
+async def test_stored_image_block_survives_a_save(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    chapter_id = str(uuid.uuid4())
+    text = _block("text")
+    story = await _saved(
+        client, owner, story, [_chapter(blocks=[text], chapter_id=chapter_id)]
+    )
+    image = {
+        "id": str(uuid.uuid4()),
+        "type": "image",
+        "v": 1,
+        "asset_id": str(uuid.uuid4()),
+        "config": {"alt": "A river"},
+    }
+    stored = await test_db_session.scalar(
+        select(Story.draft).where(Story.id == uuid.UUID(story["id"]))
+    )
+    stored["chapters"][0]["blocks"].append(image)
+    await test_db_session.execute(
+        update(Story).where(Story.id == uuid.UUID(story["id"])).values(draft=stored)
+    )
+    await test_db_session.commit()
+
+    draft = (await client.get(f"/stories/{story['id']}/draft", headers=owner)).json()
+    assert [b["type"] for b in draft["document"]["chapters"][0]["blocks"]] == [
+        "markdown"
+    ]
+
+    edited = {**text, "config": {"text": "edited"}}
+    await _saved(
+        client, owner, draft, [_chapter(blocks=[edited], chapter_id=chapter_id)]
+    )
+
+    test_db_session.expire_all()
+    stored = await test_db_session.scalar(
+        select(Story.draft).where(Story.id == uuid.UUID(story["id"]))
+    )
+    assert stored["chapters"][0]["blocks"][-1] == image
+
+
 async def test_scene_on_a_map_the_editor_cannot_read_is_refused(
     client: AsyncClient, people
 ):
