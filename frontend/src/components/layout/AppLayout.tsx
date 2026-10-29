@@ -9,7 +9,9 @@ import { SkipToContent } from './SkipToContent';
 import { cn } from '@/lib/utils';
 
 export function AppLayout() {
-  const isMapRoute = Boolean(useMatch('/maps/:id'));
+  // The story reader and editor lay out like a map page: full height, no footer.
+  const isStoryRoute = Boolean(useMatch('/stories/:id/*'));
+  const isMapRoute = Boolean(useMatch('/maps/:id')) || isStoryRoute;
   const { pathname } = useLocation();
   const navType = useNavigationType();
 

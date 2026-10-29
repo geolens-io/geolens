@@ -7,6 +7,28 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Story maps in the web app, on the stories API from 1.28.0. A story reads at
+  `/stories/:id`: on a wide screen the chapters scroll beside a fixed map and
+  the chapter in view sets the scene, and on a phone they become a stepper
+  with arrow-key controls. Each chapter change is announced to screen
+  readers, and camera moves jump instead of flying under reduced motion.
+  Anyone who can read a story can open it, signed in or not; a chapter whose
+  map the reader can't open shows its text with a notice.
+- The Maps page has a Stories tab that lists the stories you can read, with
+  New story, Edit, Duplicate and Delete where you're allowed to use them.
+- The story editor at `/stories/:id/edit` works on a draft that readers don't
+  see until you publish it. Chapters hold Markdown text, written with a
+  formatting toolbar and a preview, and an optional scene: a saved map, a
+  camera taken from the map with "Use current view", and which of its layers
+  show. "Edit map in Builder" opens a scene's map in a new tab, and layers
+  added there appear when you come back. Publish names any map that keeps
+  the story from reaching its audience, and Discard draft goes back to the
+  published version. If the draft was saved somewhere else since you opened
+  it, you can load that version or keep yours with "Overwrite with my
+  version". Chapters hold text only for now; image blocks come later.
+
 ### Fixed
 
 - Turning a Builder layer, group or several layers off and back on no longer

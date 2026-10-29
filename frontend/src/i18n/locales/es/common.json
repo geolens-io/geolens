@@ -381,7 +381,12 @@
     "mapChangeInProgress": "Hay otro cambio en curso en este mapa. Inténtalo de nuevo en breve.",
     "groupMemberNotFound": "Esa persona no es miembro de este grupo",
     "groupNameTaken": "Ya existe un grupo llamado \"{{name}}\"",
-    "vrtAudienceExceedsSources": "Un conjunto de datos VRT llegaría a personas que no pueden ver todos sus conjuntos de datos de origen. Restrinja la visibilidad del VRT o use orígenes que su audiencia pueda ver."
+    "vrtAudienceExceedsSources": "Un conjunto de datos VRT llegaría a personas que no pueden ver todos sus conjuntos de datos de origen. Restrinja la visibilidad del VRT o use orígenes que su audiencia pueda ver.",
+    "storyNotFound": "No se encontró la historia.",
+    "storyLocked": "Hay otro cambio en curso en esta historia. Vuelve a intentarlo en un momento.",
+    "storyNewerVersion": "Esta historia se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
+    "storyScenesUnreadable": "Algunas escenas se guardaron con una versión más reciente de GeoLens y no se pueden publicar aquí.",
+    "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad."
   },
   "settings": {
     "apiKeys": {

@@ -23,6 +23,8 @@ interface ConfirmDialogProps {
   children?: ReactNode;
   /** Rendered between Cancel and the confirm action. */
   footerExtra?: ReactNode;
+  /** Where focus goes on close; call `preventDefault()` on the event to place it yourself. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Omit when the action cannot proceed; Cancel is then the only way out. */
   confirm?: {
     label: string;
@@ -43,6 +45,7 @@ export function ConfirmDialog({
   children,
   footerExtra,
   confirm,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
   return (
@@ -50,7 +53,7 @@ export function ConfirmDialog({
       {/* Bounded independently of the body: a short viewport (phone landscape,
           high zoom) can otherwise push Cancel past the screen while the modal
           blocks page scroll. */}
-      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

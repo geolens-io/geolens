@@ -13,8 +13,13 @@ function renderMarkdown(text: string) {
 describe('Markdown text widget', () => {
   it('renders Markdown formatting', () => {
     renderMarkdown('## Heading\n\n- one\n- **two**');
-    expect(screen.getByRole('heading', { level: 2, name: 'Heading' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: 'Heading' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('nests headings under the chapter heading, h1 as h3 down to h6', () => {
+    renderMarkdown('# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six');
+    expect(screen.getAllByRole('heading').map((h) => h.tagName)).toEqual(['H3', 'H4', 'H5', 'H6', 'H6', 'H6']);
   });
 
   it('never renders raw HTML', () => {

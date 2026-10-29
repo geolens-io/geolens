@@ -169,6 +169,12 @@ describe('AppLayout', () => {
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
+  it.each(['/stories/story-1', '/stories/story-1/edit'])('lays out %s full height, without the footer', (path) => {
+    const { container } = renderAppLayout([path]);
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass('h-dvh');
+  });
+
   it('hides footer on editor map builder pages', () => {
     useAuthStore.setState({
       token: 'token',

@@ -59,6 +59,12 @@ const loadMapViewerGate = () =>
     ([m]) => ({ default: m.MapViewerGate }),
   );
 const MapViewerGate = lazy(loadMapViewerGate);
+const loadStoryPage = () =>
+  import('./pages/StoryPage').then(m => ({ default: m.StoryPage }));
+const StoryPage = lazy(loadStoryPage);
+const loadStoryEditorPage = () =>
+  import('./pages/StoryEditorPage').then(m => ({ default: m.StoryEditorPage }));
+const StoryEditorPage = lazy(loadStoryEditorPage);
 const loadAdminOverviewPage = () =>
   import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage }));
 const AdminOverviewPage = lazy(loadAdminOverviewPage);
@@ -154,10 +160,12 @@ export const appRoutes = (
       <Route path="maps" element={<MapsPage />} handle={preload(loadMapsPage)} errorElement={<RouteErrorBoundary />} />
       <Route path="maps/new" element={<Navigate to="/maps" replace />} />
       <Route path="maps/:id" element={<MapViewerGate />} handle={preload(loadMapViewerGate)} errorElement={<RouteErrorBoundary />} />
+      <Route path="stories/:id" element={<StoryPage />} handle={preload(loadStoryPage)} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
       <Route element={<ProtectedRoute />} handle={requires('user')} errorElement={<RouteErrorBoundary />}>
         <Route path="settings" element={<SettingsPage />} handle={preload(loadSettingsPage)} errorElement={<RouteErrorBoundary />} />
+        <Route path="stories/:id/edit" element={<StoryEditorPage />} handle={preload(loadStoryEditorPage)} errorElement={<RouteErrorBoundary />} />
         <Route element={<EditorRoute />} handle={requires('editor')} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} handle={preload(loadImportPage)} errorElement={<RouteErrorBoundary />} />
         </Route>

@@ -381,7 +381,12 @@
     "mapChangeInProgress": "Une autre modification de cette carte est en cours. Réessayez dans un instant.",
     "groupMemberNotFound": "Cette personne n’est pas membre de ce groupe",
     "groupNameTaken": "Un groupe nommé « {{name}} » existe déjà",
-    "vrtAudienceExceedsSources": "Un jeu de données VRT serait accessible à des personnes qui ne voient pas tous ses jeux de données sources. Restreignez la visibilité du VRT ou utilisez des sources que son public peut voir."
+    "vrtAudienceExceedsSources": "Un jeu de données VRT serait accessible à des personnes qui ne voient pas tous ses jeux de données sources. Restreignez la visibilité du VRT ou utilisez des sources que son public peut voir.",
+    "storyNotFound": "Récit introuvable.",
+    "storyLocked": "Une autre modification de ce récit est en cours. Réessayez dans un instant.",
+    "storyNewerVersion": "Ce récit a été enregistré par une version plus récente de GeoLens et ne peut pas être modifié ici.",
+    "storyScenesUnreadable": "Certaines scènes ont été enregistrées par une version plus récente de GeoLens et ne peuvent pas être publiées ici.",
+    "storyVisibilityUnsupported": "Les récits ne peuvent pas encore être publiés avec cette visibilité."
   },
   "settings": {
     "apiKeys": {

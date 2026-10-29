@@ -381,7 +381,12 @@
     "mapChangeInProgress": "Eine andere Änderung an dieser Karte läuft gerade. Versuchen Sie es gleich noch einmal.",
     "groupMemberNotFound": "Diese Person ist kein Mitglied dieser Gruppe",
     "groupNameTaken": "Eine Gruppe mit dem Namen „{{name}}“ existiert bereits",
-    "vrtAudienceExceedsSources": "Ein VRT-Datensatz wäre für Personen sichtbar, die nicht alle seine Quelldatensätze sehen können. Schränken Sie die Sichtbarkeit des VRT ein oder verwenden Sie Quellen, die seine Zielgruppe sehen kann."
+    "vrtAudienceExceedsSources": "Ein VRT-Datensatz wäre für Personen sichtbar, die nicht alle seine Quelldatensätze sehen können. Schränken Sie die Sichtbarkeit des VRT ein oder verwenden Sie Quellen, die seine Zielgruppe sehen kann.",
+    "storyNotFound": "Story nicht gefunden.",
+    "storyLocked": "Eine andere Änderung an dieser Story läuft gerade. Versuchen Sie es gleich noch einmal.",
+    "storyNewerVersion": "Diese Story wurde von einer neueren GeoLens-Version gespeichert und kann hier nicht geändert werden.",
+    "storyScenesUnreadable": "Einige Szenen wurden von einer neueren GeoLens-Version gespeichert und können hier nicht veröffentlicht werden.",
+    "storyVisibilityUnsupported": "Storys können mit dieser Sichtbarkeit noch nicht veröffentlicht werden."
   },
   "settings": {
     "apiKeys": {

@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useState, useEffect, useCallback } from 'react';
 import { Map as MapIcon, Plus, Search, LayoutList, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { FieldLabel } from '@/components/ui/field-label';
 import { MapCard } from '@/components/maps/MapCard';
@@ -25,6 +26,8 @@ import { MapCardGrid } from '@/components/maps/MapCardGrid';
 import { MapCardSkeleton } from '@/components/maps/MapCardSkeleton';
 import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { MapDeleteDialog } from '@/components/maps/MapDeleteDialog';
+import { StoriesList } from '@/components/stories/StoriesList';
+import { StoryCreateDialog } from '@/components/stories/StoryCreateDialog';
 import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -54,8 +57,12 @@ export function MapsPage() {
   const [visibility, setVisibility] = useState('all');
   const [viewMode, setViewMode] = useState(getStoredView);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
   const [deletingMap, setDeletingMap] = useState<{ id: string; name: string } | null>(null);
   const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
+  // In the URL, so a link or a reload keeps the stories list open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode = searchParams.get('type') === 'stories' ? 'stories' : 'maps';
   useDocumentTitle(t('common:pageTitle.maps'));
 
   // Reset pagination when filters change
@@ -70,12 +77,16 @@ export function MapsPage() {
     sort_by: sortBy,
     sort_dir: sortDir,
     visibility: visibility === 'all' ? undefined : visibility,
-  });
+  }, { enabled: mode === 'maps' });
   const deleteMap = useDeleteMap();
 
   function handleSortChange(value: string) {
     setSortBy(value);
     setSortDir(value === 'name' ? 'asc' : 'desc');
+  }
+
+  function handleModeChange(value: string) {
+    setSearchParams(value === 'stories' ? { type: 'stories' } : {}, { replace: true });
   }
 
   function handleViewChange(value: string) {
@@ -111,155 +122,177 @@ export function MapsPage() {
         title={t('maps.title')}
         actions={
           <div className="flex items-center gap-2">
-            {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
+            {mode === 'maps' && data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
             {/* Hidden while the empty state (no maps, no search/filter) shows
                 its own primary CTA. */}
-            {canEditMaps && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
+            {mode === 'maps' && canEditMaps && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
+              </Button>
+            )}
+            {mode === 'stories' && canEditMaps && (
+              <Button size="sm" onClick={() => setCreateStoryOpen(true)}>
+                <Plus className="h-4 w-4 me-1" />
+                {t('stories:create.button')}
               </Button>
             )}
           </div>
         }
       />
 
-      {/* Browse toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-64">
-          <FieldLabel htmlFor="maps-search">{t('maps.searchPlaceholder')}</FieldLabel>
-          <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            id="maps-search"
-            placeholder={t('maps.searchPlaceholder')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="ps-9"
-          />
-        </div>
+      <Tabs value={mode} onValueChange={handleModeChange}>
+        {/* Hug the list: the scroll fade sits at the wrapper's end, which on a
+            full-width wrapper is an empty box past the last tab. */}
+        <TabsList aria-label={t('stories:list.modeLabel')} wrapperClassName="self-start max-w-full">
+          <TabsTrigger value="maps">{t('stories:list.mapsTab')}</TabsTrigger>
+          <TabsTrigger value="stories">{t('stories:list.storiesTab')}</TabsTrigger>
+        </TabsList>
 
-        <Select value={sortBy} onValueChange={handleSortChange}>
-          <SelectTrigger
-            className="w-[160px]"
-            aria-label={t('maps.sortBy')}
-          >
-            <SelectValue placeholder={t('maps.sortBy')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="updated_at">{t('maps.lastUpdated')}</SelectItem>
-            <SelectItem value="created_at">{t('maps.dateCreated')}</SelectItem>
-            <SelectItem value="name">{t('maps.name')}</SelectItem>
-          </SelectContent>
-        </Select>
+        <TabsContent value="maps" className="space-y-4">
+        {/* Browse toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-64">
+            <FieldLabel htmlFor="maps-search">{t('maps.searchPlaceholder')}</FieldLabel>
+            <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              id="maps-search"
+              placeholder={t('maps.searchPlaceholder')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="ps-9"
+            />
+          </div>
 
-        {user && (
-          <Select value={visibility} onValueChange={setVisibility}>
+          <Select value={sortBy} onValueChange={handleSortChange}>
             <SelectTrigger
-              className="w-[140px]"
-              aria-label={t('maps.visibility')}
+              className="w-[160px]"
+              aria-label={t('maps.sortBy')}
             >
-              <SelectValue placeholder={t('maps.visibility')} />
+              <SelectValue placeholder={t('maps.sortBy')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t('maps.allMaps')}</SelectItem>
-              <SelectItem value="private">{t('maps.private')}</SelectItem>
-              <SelectItem value="internal">{t('maps.internal')}</SelectItem>
-              <SelectItem value="public">{t('maps.public')}</SelectItem>
-              <SelectItem value="restricted">{t('maps.restricted')}</SelectItem>
+              <SelectItem value="updated_at">{t('maps.lastUpdated')}</SelectItem>
+              <SelectItem value="created_at">{t('maps.dateCreated')}</SelectItem>
+              <SelectItem value="name">{t('maps.name')}</SelectItem>
             </SelectContent>
           </Select>
+
+          {user && (
+            <Select value={visibility} onValueChange={setVisibility}>
+              <SelectTrigger
+                className="w-[140px]"
+                aria-label={t('maps.visibility')}
+              >
+                <SelectValue placeholder={t('maps.visibility')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('maps.allMaps')}</SelectItem>
+                <SelectItem value="private">{t('maps.private')}</SelectItem>
+                <SelectItem value="internal">{t('maps.internal')}</SelectItem>
+                <SelectItem value="public">{t('maps.public')}</SelectItem>
+                <SelectItem value="restricted">{t('maps.restricted')}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+
+          <ToggleGroup
+            type="single"
+            value={viewMode}
+            onValueChange={handleViewChange}
+            className="ms-auto"
+          >
+            <ToggleGroupItem value="list" aria-label={t('maps.listView')}>
+              <LayoutList className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="grid" aria-label={t('maps.gridView')}>
+              <LayoutGrid className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+
+        {isLoading && (
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <MapCardSkeleton key={i} />
+            ))}
+          </div>
         )}
 
-        <ToggleGroup
-          type="single"
-          value={viewMode}
-          onValueChange={handleViewChange}
-          className="ms-auto"
-        >
-          <ToggleGroupItem value="list" aria-label={t('maps.listView')}>
-            <LayoutList className="h-4 w-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="grid" aria-label={t('maps.gridView')}>
-            <LayoutGrid className="h-4 w-4" />
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
+        {error && (
+          <ErrorState message={t('maps.loadFailed', { message: error.message })} onRetry={() => refetch()} />
+        )}
 
-      {isLoading && (
-        <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <MapCardSkeleton key={i} />
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <ErrorState message={t('maps.loadFailed', { message: error.message })} onRetry={() => refetch()} />
-      )}
-
-      {data && data.total === 0 && (
-        <EmptyState
-          icon={MapIcon}
-          title={
-            debouncedSearch || visibility !== 'all'
-              ? t('maps.noMatchingMaps')
-              : t('maps.noMapsYet')
-          }
-          // keepPreviousData holds the old empty page while a new query loads.
-          announce={!isFetching}
-          announceTrigger={`${debouncedSearch}|${visibility}`}
-          description={
-            debouncedSearch || visibility !== 'all'
-              ? t('maps.noMapsMatch')
-              : canEditMaps
-                ? t('maps.noMapsDescription')
-                : token
-                  ? t('maps.noMapsDescriptionViewer')
-                  : t('maps.noMapsDescriptionAnonymous')
-          }
-          action={
-            !debouncedSearch && visibility === 'all' ? (
-              canEditMaps ? (
-                <Button onClick={() => setCreateOpen(true)}>
-                  <Plus className="h-4 w-4 me-1" />
-                  {t('maps.createFirstMap')}
-                </Button>
-              ) : !token ? (
-                <Button asChild variant="outline">
-                  <Link to="/login" state={{ from: '/maps' }}>{t('maps.signIn')}</Link>
-                </Button>
+        {data && data.total === 0 && (
+          <EmptyState
+            icon={MapIcon}
+            title={
+              debouncedSearch || visibility !== 'all'
+                ? t('maps.noMatchingMaps')
+                : t('maps.noMapsYet')
+            }
+            // keepPreviousData holds the old empty page while a new query loads.
+            announce={!isFetching}
+            announceTrigger={`${debouncedSearch}|${visibility}`}
+            description={
+              debouncedSearch || visibility !== 'all'
+                ? t('maps.noMapsMatch')
+                : canEditMaps
+                  ? t('maps.noMapsDescription')
+                  : token
+                    ? t('maps.noMapsDescriptionViewer')
+                    : t('maps.noMapsDescriptionAnonymous')
+            }
+            action={
+              !debouncedSearch && visibility === 'all' ? (
+                canEditMaps ? (
+                  <Button onClick={() => setCreateOpen(true)}>
+                    <Plus className="h-4 w-4 me-1" />
+                    {t('maps.createFirstMap')}
+                  </Button>
+                ) : !token ? (
+                  <Button asChild variant="outline">
+                    <Link to="/login" state={{ from: '/maps' }}>{t('maps.signIn')}</Link>
+                  </Button>
+                ) : undefined
               ) : undefined
-            ) : undefined
-          }
-        />
-      )}
+            }
+          />
+        )}
 
-      {data && data.maps.length > 0 && viewMode === 'list' && (
-        <div className="space-y-4">
-          {data.maps.map((map) => (
-            <MapCard key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
-          ))}
-        </div>
-      )}
+        {data && data.maps.length > 0 && viewMode === 'list' && (
+          <div className="space-y-4">
+            {data.maps.map((map) => (
+              <MapCard key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
+            ))}
+          </div>
+        )}
 
-      {data && data.maps.length > 0 && viewMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.maps.map((map) => (
-            <MapCardGrid key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
-          ))}
-        </div>
-      )}
+        {data && data.maps.length > 0 && viewMode === 'grid' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.maps.map((map) => (
+              <MapCardGrid key={map.id} map={map} onDelete={canDeleteMap(map) ? handleDeleteClick : undefined} />
+            ))}
+          </div>
+        )}
 
-      {data && data.total > 0 && (
-        <Pagination
-          total={data.total}
-          offset={skip}
-          limit={PAGE_SIZE}
-          onPageChange={handlePageChange}
-        />
-      )}
+        {data && data.total > 0 && (
+          <Pagination
+            total={data.total}
+            offset={skip}
+            limit={PAGE_SIZE}
+            onPageChange={handlePageChange}
+          />
+        )}
+        </TabsContent>
+
+        <TabsContent value="stories">
+          <StoriesList />
+        </TabsContent>
+      </Tabs>
 
       {canEditMaps && <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canEditMaps && <StoryCreateDialog open={createStoryOpen} onOpenChange={setCreateStoryOpen} />}
       {canEditMaps && (
         <MapDeleteDialog
           open={!!deletingMap}

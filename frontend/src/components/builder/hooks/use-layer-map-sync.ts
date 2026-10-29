@@ -11,7 +11,7 @@ import {
 import { setDynamicLayoutProperty } from '@/components/builder/layer-adapters/shared';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import { reconcileColorClassification } from '@/lib/color-ramps';
-import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
+import { deepEqual } from '@/lib/deep-equal';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
