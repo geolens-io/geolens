@@ -12,13 +12,14 @@ passes through the redactor. The only host contacted is the plan's portal.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
@@ -444,11 +445,19 @@ def _web_app(ctx: MigrationContext) -> str:
     return ctx.web_app
 
 
-def _map_link(ctx: MigrationContext, item_id: str) -> str:
+def _map_link(
+    ctx: MigrationContext, item_id: str, web_app: Callable[[], str] | None = None
+) -> str:
     migrated = ctx.items.get(item_id)
     if migrated is not None and migrated.map_id:
-        return f"{_web_app(ctx)}/maps/{migrated.map_id}"
+        return f"{(web_app or (lambda: _web_app(ctx)))()}/maps/{migrated.map_id}"
     return f"{ctx.portal_root}/home/item.html?id={item_id}"
+
+
+def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
+    """Map links for one story, which asks for the app URL at most once."""
+    web_app = functools.cache(lambda: _web_app(ctx))
+    return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
 def _story(
@@ -461,8 +470,7 @@ def _story(
     if not isinstance(data, dict):
         return False
 
-    def link(item_id: str) -> str:
-        return _map_link(ctx, item_id)
+    link = _story_links(ctx)
 
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:

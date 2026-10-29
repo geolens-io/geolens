@@ -267,6 +267,42 @@ def test_a_lookup_lost_on_the_network_is_asked_again_for_the_next_story():
     ]
 
 
+def test_a_story_asks_for_the_app_url_once_even_when_it_is_lost():
+    from types import SimpleNamespace
+
+    import typer
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli._sdk_helpers import EXIT_NETWORK
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    calls: list[object] = []
+
+    class GeoLens:
+        def call(self, fn):
+            calls.append(fn)
+            raise typer.Exit(EXIT_NETWORK)
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    link = export._story_links(ctx)
+    assert [link(i) for i in ("a", "b", "a")] == [
+        "https://geolens.example.org/maps/m-1",
+        "https://geolens.example.org/maps/m-2",
+        "https://geolens.example.org/maps/m-1",
+    ]
+    assert len(calls) == 1
+    export._story_links(ctx)("a")
+    assert len(calls) == 2
+
+
 def test_the_web_app_url_is_read_once_for_every_story_link():
     from types import SimpleNamespace
 
