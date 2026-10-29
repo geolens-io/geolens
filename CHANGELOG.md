@@ -266,6 +266,10 @@ and releases use semantic versioning.
   login` included, instead of a traceback. `plan` and the inventory name
   groups whose members couldn't be read and say how many ids a cut list
   leaves out. (#3466)
+- A `geolens arcgis migrate` run whose state recorded export bundles ended
+  with `unexpected error: FileNotFoundError` when the `export/` folder next to
+  the state file had been removed, after its items had already run. The
+  folder is now created again before `export/INDEX.md` is written. (#3472)
 - `geolens arcgis migrate --dry-run --username` signs in once, as the run
   does. A dry run shows an item set to `skip` as skipped instead of failed.
   "Brought N up to date" counts only the items it brought up to date, a state
