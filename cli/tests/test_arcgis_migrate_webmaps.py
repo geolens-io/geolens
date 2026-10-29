@@ -1178,6 +1178,27 @@ def test_a_refused_thumbnail_upload_is_reported_and_the_map_kept(
     assert "uploading it failed" in note
 
 
+def test_a_rerun_drops_a_thumbnail_note_once_the_map_has_a_thumbnail(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    geolens.routes[THUMBNAIL_PUT] = (400, _problem(400, "not an image"))
+    _thumbnail(portal)
+    _run(runner, plan_file)
+    assert _thumbnail_notes(plan_file)
+    shown = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **shown(seen),
+        "thumbnail_url": f"/maps/{MAP_ID}/thumbnail/",
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _thumbnail_notes(plan_file) == []
+
+
 @pytest.mark.parametrize(
     "failure", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")]
 )
@@ -1218,6 +1239,20 @@ def test_a_thumbnail_download_lost_on_the_network_is_reported(
     [note] = _thumbnail_notes(plan_file)
     assert "reading it failed" in note
     assert _uploads(geolens) == []
+
+
+def test_a_dry_run_promises_no_thumbnail_whose_path_it_cant_read(
+    runner, tmp_path, geolens, portal
+):
+    path = "thumbnail/../../community/self"
+    plan_file = _write_plan(tmp_path, rows={B1: {"thumbnail": path}})
+    _services(geolens)
+
+    result, payload = _migrate(runner, plan_file, "--only", B1, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    [row] = [row for row in payload["items"] if row["id"] == B1]
+    assert not any("thumbnail" in note for note in row["notes"])
 
 
 def test_a_dry_run_says_it_would_upload_the_thumbnail(

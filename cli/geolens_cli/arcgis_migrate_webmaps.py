@@ -352,7 +352,8 @@ def thumbnail_dry_run_notes(
         for item in to_run
         if item["action"] == IMPORT_MAP
         and not (item["id"] in states and states[item["id"]].map_id)
-        and inventory.get(item["id"], {}).get("thumbnail")
+        and isinstance(path := inventory.get(item["id"], {}).get("thumbnail"), str)
+        and _safe_relative(path) is not None
     }
 
 
@@ -427,10 +428,14 @@ def refresh_map(
     except PortalError as exc:
         _stop_if_token_refused(exc)
         return [f"reading the web map to check it for changes failed, {exc}"]
-    if isinstance(info, dict) and not found.thumbnail_url:
+    if found.thumbnail_url or isinstance(info, dict):
         entry.notes = [
             *(note for note in entry.notes if not note.startswith(_THUMBNAIL_NOTE)),
-            *carry_thumbnail(ctx, item["id"], info, entry.map_id),
+            *(
+                []
+                if found.thumbnail_url
+                else carry_thumbnail(ctx, item["id"], info, entry.map_id)
+            ),
         ]
     modified = _modified(info)
     if modified is None:
