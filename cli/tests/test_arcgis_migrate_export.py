@@ -8,6 +8,7 @@ import shutil
 import stat
 from pathlib import Path
 
+import httpx
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
@@ -185,6 +186,10 @@ def test_a_storymap_gets_story_text_images_and_map_links(
 _TILE_CONFIG = "GET /settings/tile-config/"
 
 
+def _lost_on_the_network(seen):
+    raise httpx.ReadTimeout("slow")
+
+
 @pytest.mark.parametrize(
     ("reply", "origin"),
     [
@@ -194,6 +199,7 @@ _TILE_CONFIG = "GET /settings/tile-config/"
             (500, {"detail": "boom", "status": 500, "title": "Error"}),
             "https://geolens.example.org",
         ),
+        (_lost_on_the_network, "https://geolens.example.org"),
     ],
 )
 def test_a_story_links_to_the_geolens_map_made_from_its_web_map(

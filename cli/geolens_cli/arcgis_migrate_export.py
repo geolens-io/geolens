@@ -23,7 +23,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
+import typer
+
 from . import arcgis_report as _report
+from ._sdk_helpers import EXIT_NETWORK
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -425,6 +428,11 @@ def _web_app(ctx: MigrationContext) -> str:
         try:
             configured = ctx.geolens.call(tiles.sync_detailed).public_app_url
         except GeoLensError:
+            configured = None
+        except typer.Exit as exc:
+            # How the SDK call reports a timeout or network failure.
+            if exc.exit_code != EXIT_NETWORK:
+                raise
             configured = None
         if isinstance(configured, str) and configured.startswith(
             ("https://", "http://")
