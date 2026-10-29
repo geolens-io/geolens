@@ -9,7 +9,7 @@ import type {
 import type { TileToken, UnsignedRasterTileTemplate } from '@/api/tiles';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import { isCql2LiteralCompatible, maplibreFilterToCql2, parseCanonicalFilter, sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { filterConditions, isCql2LiteralCompatible, maplibreFilterToCql2, sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -269,11 +269,10 @@ function countValues(node: unknown): number {
 function serverClusterFilter(layer: SyncLayerInput): string | undefined {
   const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
   if (!cql2 || cql2 === 'unsupported') return undefined;
-  const canonical = parseCanonicalFilter(layer.filter);
   const types = new Map(
     (layer.dataset_column_info ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
   );
-  if (canonical.kind === 'editable' && canonical.conditions.some((condition) => {
+  if ((filterConditions(layer.filter) ?? []).some((condition) => {
     if (layer.dataset_tile_columns != null && !layer.dataset_tile_columns.includes(condition.field)) return true;
     const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
     return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));

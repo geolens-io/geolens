@@ -355,6 +355,35 @@ class TestOperations:
         assert {v["value"]: v["count"] for v in values if v["value"]} == expected
         assert {g["key"]: g["value"] for g in groups if g["key"]} == expected
 
+    async def test_nested_and_or_groups_filter_the_rows(
+        self, client: AsyncClient, points
+    ):
+        def pop(value: int) -> dict:
+            return {"op": "=", "args": [{"property": "pop"}, value]}
+
+        nested = {
+            "op": "or",
+            "args": [
+                {
+                    "op": "and",
+                    "args": [KEEP, {"op": ">=", "args": [{"property": "pop"}, 50]}],
+                },
+                {
+                    "op": "and",
+                    "args": [
+                        {"op": "or", "args": [pop(70), pop(80)]},
+                        {"op": "not", "args": [KEEP]},
+                    ],
+                },
+            ],
+        }
+
+        resp = await _aggregate(client, points.id, {"op": "count", "filter": nested})
+
+        # Points 5 and 6 are kept with pop 50 and 60; 7 and 8 are dropped with pop 70 and 80.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"] == {"count": 4}
+
     async def test_a_deeply_nested_filter_is_an_invalid_filter(
         self, client: AsyncClient, points
     ):

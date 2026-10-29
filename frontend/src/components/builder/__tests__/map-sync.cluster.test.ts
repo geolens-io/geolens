@@ -3,6 +3,8 @@ import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
+import { linkMapLayers } from '@/components/viewer/linked-filters';
+import type { SharedLayerResponse } from '@/types/api';
 
 vi.mock('@/lib/tile-utils', () => ({
   getMvtSourceLayerName: (table: string) => `data.${table}`,
@@ -205,6 +207,45 @@ describe('syncLayersToMap cluster rendering', () => {
       expect.objectContaining({ filter: JSON.stringify({ op: '=', args: [{ property: 'kind' }, 'a'] }) }),
       ['kind'],
     );
+  });
+
+  it('keeps the saved filter and a dashboard pick of a value and no value in the server-cluster filter', () => {
+    const map = makeMockMap();
+    const saved = ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']];
+    const [linked] = linkMapLayers(
+      [{ id: 'cluster-1', filter: saved, column_info: [{ name: 'zone', type: 'text' }, { name: 'kind', type: 'text' }] } as SharedLayerResponse],
+      [{
+        widgetId: 'w1',
+        layerId: 'cluster-1',
+        selection: { column: 'kind', label: 'park, (no value)', values: ['park', null] },
+        cql2: { op: 'in', args: [] },
+      }],
+    );
+    const layer = makeLayer({ feature_count: 20_000, filter: linked.filter as SyncLayerInput['filter'] });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    const property = (name: string) => ({ property: name });
+    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.calls[0][4]!.filter!)).toEqual({
+      op: 'and',
+      args: [
+        { op: 'or', args: [{ op: '=', args: [property('zone'), 'A'] }, { op: '=', args: [property('zone'), 'B'] }] },
+        { op: 'or', args: [{ op: 'in', args: [property('kind'), ['park']] }, { op: 'isNull', args: [property('kind')] }] },
+      ],
+    });
+  });
+
+  it('leaves a nested filter off the server-cluster URL when a nested property is outside the tile allowlist', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['all', ['==', ['get', 'pop'], 5], ['any', ['has', 'other'], ['has', 'pop']]] as unknown as SyncLayerInput['filter'],
+      dataset_tile_columns: ['pop'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
   });
 
   describe.each([

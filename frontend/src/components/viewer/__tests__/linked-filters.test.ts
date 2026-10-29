@@ -110,12 +110,47 @@ describe('linkMapLayers', () => {
       'all',
       saved,
       ['in', ['get', 'land_use'], ['literal', ['Residential']]],
-      // The range's conditions join the outer `all`, so the result stays editable.
-      expect.arrayContaining(['all']),
-      expect.arrayContaining(['all']),
+      selectionFilter(range('height', 1, 2), 'double precision'),
     ]);
     // Still a filter the CQL2 converter reads, as server-clustered layers need.
-    expect(cql2(linked[0].filter!)).toMatchObject({ op: 'and' });
+    expect(cql2(linked[0].filter!)).toEqual({
+      op: 'and',
+      args: [
+        { op: '=', args: [{ property: 'zone' }, 'A'] },
+        { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
+        {
+          op: 'and',
+          args: [
+            { op: '>=', args: [{ property: 'height' }, 1] },
+            { op: '<', args: [{ property: 'height' }, 2] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('keeps a saved `any` filter and a pick of a value and no value both readable as CQL2', () => {
+    const anyZone: FilterSpecification = ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']];
+    const [linked] = linkMapLayers([layer('a', anyZone)], [linkedPick('w1', 'a', pick(['Residential', null]))]);
+    expect(cql2(linked.filter!)).toEqual({
+      op: 'and',
+      args: [
+        {
+          op: 'or',
+          args: [
+            { op: '=', args: [{ property: 'zone' }, 'A'] },
+            { op: '=', args: [{ property: 'zone' }, 'B'] },
+          ],
+        },
+        {
+          op: 'or',
+          args: [
+            { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
+            { op: 'isNull', args: [{ property: 'land_use' }] },
+          ],
+        },
+      ],
+    });
   });
 
   it('keeps a saved filter the converter cannot read, alongside the pick', () => {
@@ -142,6 +177,15 @@ describe('linkMapLayers', () => {
       expect(matches(linked.filter, zoneB)).toBe(false);
       expect(matches(linked.filter, { zone: 'A', land_use: 'Commercial' })).toBe(false);
     }
+  });
+});
+
+describe('layerFilterToServerCql2', () => {
+  it('refuses a literal its column cannot hold at any depth', () => {
+    // 'two' can't be compared with an integer column, so the server would refuse the whole filter.
+    const nested: FilterSpecification = ['all', ['==', ['get', 'zone'], 'A'], ['any', ['==', ['get', 'floors'], 'two'], ['has', 'zone']]];
+    expect(cql2(nested)).toBe('unsupported');
+    expect(cql2(['all', ['==', ['get', 'zone'], 'A'], ['any', ['==', ['get', 'floors'], 2], ['has', 'zone']]])).toMatchObject({ op: 'and' });
   });
 });
 

@@ -5,7 +5,6 @@ import { isIntegerColumn } from '@/lib/column-utils';
 import {
   buildNullSafeNumericComparison,
   layerFilterToServerCql2,
-  parseCanonicalFilter,
   type Cql2Expression,
 } from '@/lib/maplibre-filter-utils';
 import type { SharedLayerResponse } from '@/types/api';
@@ -60,25 +59,6 @@ export function selectionFilter(selection: WidgetSelection, type?: string): Filt
 }
 
 /**
- * `filters` joined with `all`. One that is itself an `all` of the editor's
- * conditions joins as those conditions, so a saved filter and a pick together
- * stay in the subset the CQL2 converter reads, which server-clustered layers
- * need for their counts.
- */
-function allOf(filters: readonly FilterSpecification[]): FilterSpecification {
-  const parts = filters.flatMap((filter): unknown[] => {
-    const canonical = parseCanonicalFilter(filter);
-    return Array.isArray(filter) &&
-      filter[0] === 'all' &&
-      canonical.kind === 'editable' &&
-      canonical.conditions.length === filter.length - 1
-      ? filter.slice(1)
-      : [filter];
-  });
-  return (parts.length === 1 ? parts[0] : ['all', ...parts]) as FilterSpecification;
-}
-
-/**
  * `filter` in expression syntax. MapLibre reads a filter wholly as expressions
  * or wholly as the legacy syntax, so a legacy saved filter must be converted
  * before picks join it. One the converter refuses comes back unchanged.
@@ -106,7 +86,8 @@ export function linkMapLayers(
     if (own.length === 0) return layer;
     const saved = Array.isArray(layer.filter) && layer.filter.length > 0 ? [expressionFilter(layer.filter)] : [];
     const picked = own.map(({ selection }) => selectionFilter(selection, columnType(layer, selection.column)));
-    return { ...layer, filter: allOf([...saved, ...picked]) };
+    const parts = [...saved, ...picked];
+    return { ...layer, filter: (parts.length === 1 ? parts[0] : ['all', ...parts]) as FilterSpecification };
   });
 }
 
