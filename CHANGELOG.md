@@ -71,6 +71,9 @@ and releases use semantic versioning.
 - `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
   `category_selector` widgets, whose schemas already existed. A 1.28.0 server
   refuses them on save and keeps stored ones out of its responses. Additive.
+- The MCP server returns compact JSON. `search_datasets` returns a fixed set of
+  fields per dataset, and `get_map` returns a summary of the map and its layers
+  without styling, column info or sample values.
 - `DashboardConfig` gains `panel`, `right` or `bottom` (default `right`). A
   save may send it; leaving it out keeps the stored panel. GeoLens sends it
   only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0

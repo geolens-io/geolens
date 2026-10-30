@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 from typing import Annotated, Any, Callable, Optional, TypeVar
 
 from mcp.server.mcpserver import MCPServer
@@ -33,8 +34,9 @@ def _tool(fn: _F) -> _F:
     The tool bodies make blocking HTTP calls. The SDK runs sync tools in a
     worker thread that a cancelled request still waits for, so the registered
     wrapper runs them through ``asyncio.to_thread`` instead: a cancelled
-    request stops awaiting the thread and sends no result. Arguments outside
-    the advertised schema are rejected instead of dropped. The client's
+    request stops awaiting the thread and sends no result. Results go out as
+    compact JSON text. Arguments outside the advertised schema are rejected
+    instead of dropped. The client's
     errors are written for the agent (API status and detail, unreachable
     instance, bad id or config), and the SDK only relays a ``ToolError``'s
     message, so they are re-raised as one.
@@ -43,9 +45,13 @@ def _tool(fn: _F) -> _F:
     @functools.wraps(fn)
     async def run_off_loop(*args: Any, **kwargs: Any) -> Any:
         try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
+            result = await asyncio.to_thread(fn, *args, **kwargs)
         except (RuntimeError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
+        # The SDK indents non-string results; a string passes through as is.
+        return json.dumps(
+            result, separators=(",", ":"), default=str, ensure_ascii=False
+        )
 
     mcp.tool(name=fn.__name__)(run_off_loop)
     registered = mcp._tool_manager.get_tool(fn.__name__)
@@ -74,11 +80,15 @@ def search_datasets(
     """Search the GeoLens catalog for datasets by free text.
 
     Matches title, description, and keywords (semantic ranking is used
-    automatically when the instance has it enabled). Returns a GeoJSON
-    FeatureCollection where each feature is a dataset record; use the feature
-    `id` as the dataset_id for the other tools. Each feature's properties include
-    `source_origin` (upload, postgis, service, stac, created, or null) and
-    `source_freshness` (fresh, due, overdue, or unknown). Freshness is advisory:
+    automatically when the instance has it enabled). Returns a compact
+    FeatureCollection (`numberMatched`, `numberReturned`, `features`) where each
+    feature is a trimmed dataset record: `id`, `bbox`, and properties `title`,
+    `description` (cut at 300 characters), `record_type`, `geometry_type`,
+    `feature_count`, `crs`, `keywords` and `updated`. Use the feature `id` as the
+    dataset_id for the other tools; `get_dataset_schema` has the full detail.
+    Each feature's properties also include `source_origin` (upload, postgis,
+    service, stac, created, or null) and `source_freshness` (fresh, due,
+    overdue, or unknown). Freshness is advisory:
     `due` means one declared update interval has elapsed, while `overdue` means
     two have elapsed; neither proves that the content is wrong.
 
@@ -158,8 +168,15 @@ def list_maps(
 
 @_tool
 def get_map(map_id: str) -> Any:
-    """Get one saved map's full metadata, including its layers, view state,
-    basemap, and terrain configuration.
+    """Get a summary of one saved map: name, description, visibility, view
+    state (center, zoom, bearing, pitch), basemap, terrain configuration and
+    layer list.
+
+    Each layer has `id`, `dataset_id`, `dataset_name`, `dataset_table_name`,
+    `dataset_geometry_type`, `display_name`, `visible`, `layer_type` and
+    `filter`. Styling, popups, labels, column info and sample values are not
+    included. `dashboard_widget_count` is the number of dashboard widgets
+    (0 for none).
 
     Args:
         map_id: Map id (e.g. from list_maps).
