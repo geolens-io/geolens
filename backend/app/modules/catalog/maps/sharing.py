@@ -140,6 +140,14 @@ async def map_contains_dataset(
     return result.scalar_one_or_none() is not None
 
 
+async def map_shows_attribute_table(session: AsyncSession, map_id: uuid.UUID) -> bool:
+    """Return whether a map's viewers offer its layers' attribute tables."""
+    result = await session.execute(
+        select(Map.show_attribute_table).where(Map.id == map_id)
+    )
+    return bool(result.scalar_one_or_none())
+
+
 async def find_map_ids_by_name(session: AsyncSession, search: str) -> set[uuid.UUID]:
     """Resolve map ids matching a literal, case-insensitive name fragment."""
     pattern = f"%{escape_ilike(search)}%".lower()

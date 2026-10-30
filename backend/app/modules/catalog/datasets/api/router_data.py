@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -15,6 +16,7 @@ from fastapi import (
 from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.db.sqlstate import BAD_QUERY_INPUT, sqlstate
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -23,6 +25,8 @@ from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.modules.auth.dependencies import (
     get_optional_user,
+    get_optional_user_fail_open,
+    reject_unresolvable_credentials,
     require_permission,
 )
 from app.modules.catalog.authorization import (
@@ -30,6 +34,8 @@ from app.modules.catalog.authorization import (
     check_dataset_write_access,
     check_vrt_audiences_after_change,
     lock_dataset_rows_for_write,
+    may_read_dataset,
+    readable_columns,
 )
 from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
@@ -51,6 +57,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
     get_dataset_rows,
     get_related_datasets,
+    get_row_bboxes,
     refuse_stranding_shared_maps,
     sortable_columns,
 )
@@ -68,6 +75,10 @@ from app.modules.catalog.validation.schemas import (
     ValidationResultResponse,
 )
 from app.modules.catalog.validation.service import validate_record as run_validation
+from app.modules.embed_tokens.service import (
+    embed_token_map_shows_attribute_table,
+    validate_embed_token_access,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
@@ -108,6 +119,43 @@ async def list_related_datasets(
     return RelatedDatasetsResponse(items=items, total=len(items))
 
 
+async def _compile_rows_filter(
+    db: AsyncSession, dataset: DatasetModel, raw: str | None, readable: set[str] | None
+) -> tuple[str, list] | None:
+    """Compile the rows route's CQL2-JSON ``filter`` over the readable columns.
+
+    The helpers are the OGC items route's: a parse/compile failure is the
+    caller's bug and 400s before any row query runs. A column outside
+    ``readable`` (None means all) fails as one the table lacks.
+    """
+    if raw is None:
+        return None
+    live_columns = None
+    if readable is not None:
+        live_columns = [
+            c
+            for c in await get_catalog_port().get_column_info(db, dataset.table_name)
+            if c["name"] in readable
+        ]
+    try:
+        parsed = json.loads(raw)
+        # A present-but-null body is a malformed expression, not an
+        # absent one: None is compile_layer_filter's "no filter" input.
+        if parsed is None:
+            raise ValueError("filter must be a CQL2-JSON expression, not null")
+        return await compile_layer_filter(
+            db, dataset, parsed, bind_prefix="cql2_rows", live_columns=live_columns
+        )
+    except (ValueError, RecursionError) as exc:
+        # RecursionError is no ValueError: a body nested past the JSON
+        # parser's own depth limit is the caller's bug all the same, and
+        # must not surface as a 500.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid filter parameters: {exc}",
+        ) from exc
+
+
 @router.get(
     "/{dataset_id}/rows/",
     response_model=DatasetRowsResponse,
@@ -137,7 +185,28 @@ async def get_dataset_rows_endpoint(
             " return 400."
         ),
     ),
-    user: Identity | None = Depends(get_optional_user),
+    gid: int | None = Query(
+        None,
+        ge=1,
+        le=INT8_MAX,
+        description=(
+            "Return at most the row with this gid, ANDed with `filter` and the"
+            " `filter[column]` filters. The total counts it like a filter."
+        ),
+    ),
+    with_bbox: bool = Query(
+        False,
+        description=("Also return `bboxes`, each row's bounding box in EPSG:4326."),
+    ),
+    user: Identity | None = Depends(get_optional_user_fail_open),
+    embed_token: str | None = Header(
+        default=None,
+        alias="X-Embed-Token",
+        description=(
+            "Optional embed token. Datasets in the token's scope are "
+            "authorized when the token's map has `show_attribute_table` on."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
     """Get keyset-paginated rows from a dataset's data table.
@@ -146,44 +215,49 @@ async def get_dataset_rows_endpoint(
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets. ``X-Embed-Token``
+    authorizes datasets in the token's scope while the token's map has
+    ``show_attribute_table`` on. Other datasets return 404. A request only the
+    embed token authorizes reads only the columns in the dataset's tile column
+    allowlist, when it has one: any other column is treated as one the table
+    lacks, in the returned columns, ``sort``, ``filter`` and
+    ``filter[column]``.
     """
+    # The embed capability is checked first; a supplied credential that does
+    # not resolve gets 401 only when the capability did not authorize.
+    embed_ok = bool(
+        embed_token
+        and await validate_embed_token_access(embed_token, dataset_id, db, request)
+        and await embed_token_map_shows_attribute_table(db, embed_token)
+    )
+    if not embed_ok:
+        reject_unresolvable_credentials(request, user)
+
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+    if not embed_ok:
+        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    embed_only = embed_ok and not await may_read_dataset(db, dataset, dataset_id, user)
+    allowed = readable_columns(dataset, embed_authorized=embed_only)
+    readable = None if allowed is None else {*allowed, "gid"}
 
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This dataset has no data table",
         )
 
+    column_info = dataset.column_info or []
+    if readable is not None:
+        column_info = [c for c in column_info if c.get("name") in readable]
     # Compiled after the access guard, so a filter's validity never leaks a
-    # dataset's existence or column set to a caller who cannot read it. The
-    # helpers are the OGC items route's: a parse/compile failure is the
-    # caller's bug and 400s before any row query runs.
-    cql2_filter: tuple[str, list] | None = None
-    if filter is not None:
-        try:
-            parsed = json.loads(filter)
-            # A present-but-null body is a malformed expression, not an
-            # absent one: None is compile_layer_filter's "no filter" input.
-            if parsed is None:
-                raise ValueError("filter must be a CQL2-JSON expression, not null")
-            cql2_filter = await compile_layer_filter(
-                db, dataset, parsed, bind_prefix="cql2_rows"
-            )
-        except (ValueError, RecursionError) as exc:
-            # RecursionError is no ValueError: a body nested past the JSON
-            # parser's own depth limit is the caller's bug all the same, and
-            # must not surface as a 500.
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid filter parameters: {exc}",
-            ) from exc
+    # dataset's existence or column set to a caller who cannot read it.
+    cql2_filter = await _compile_rows_filter(db, dataset, filter, readable)
 
     filters: dict[str, str] = {}
     for key, value in request.query_params.items():
@@ -192,6 +266,8 @@ async def get_dataset_rows_endpoint(
             filters[col_name] = value
 
     table_name = dataset.table_name
+    # Read now: an absent data table rolls the session back and expires `dataset`.
+    has_geometry = bool(dataset.geometry_type)
     # Read before the rows: each statement takes its own snapshot, so a table
     # swapped in between can only make a later write's table_id check refuse,
     # never label old rows with the new table's id.
@@ -202,12 +278,13 @@ async def get_dataset_rows_endpoint(
             table_name,
             limit=limit,
             after_gid=after,
-            column_info=dataset.column_info,
+            column_info=column_info,
             filters=filters if filters else None,
             dataset_id=dataset_id,
             sort=sort,
             descending=order == "desc",
             cql2_filter=cql2_filter,
+            gid=gid,
         )
     except InvalidSortColumn:
         raise HTTPException(
@@ -225,6 +302,15 @@ async def get_dataset_rows_endpoint(
             )
         raise
 
+    bboxes = None
+    if with_bbox:
+        by_gid = (
+            await get_row_bboxes(db, table_name, [row["gid"] for row in rows])
+            if has_geometry
+            else {}
+        )
+        bboxes = [by_gid.get(row["gid"]) for row in rows]
+
     return DatasetRowsResponse(
         rows=rows,
         approximate_total=total,
@@ -234,6 +320,7 @@ async def get_dataset_rows_endpoint(
         # `columns`, not `dataset`: an absent data table rolls the session back,
         # which expires the ORM object, and a lazy load here has no greenlet.
         sortable_columns=sortable_columns(columns),
+        bboxes=bboxes,
         table_id=None if table_oid is None else str(table_oid),
     )
 

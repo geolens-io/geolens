@@ -4788,6 +4788,12 @@ export type DatasetRowsResponse = {
      */
     sortable_columns?: Array<string>;
     /**
+     * Bboxes
+     *
+     * With `with_bbox=true`, one entry per row in `rows` order: the row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row without geometry. Null otherwise.
+     */
+    bboxes?: Array<Array<number> | null> | null;
+    /**
      * Table Id
      *
      * Opaque id of the data table these rows were read from. Send it as the `table_id` query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the table since.
@@ -5255,6 +5261,12 @@ export type DuplicateMapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
+    /**
+     * Show Attribute Table
+     *
+     * Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+     */
+    show_attribute_table?: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
@@ -8036,6 +8048,12 @@ export type MapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
+    /**
+     * Show Attribute Table
+     *
+     * Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+     */
+    show_attribute_table?: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
@@ -8408,6 +8426,12 @@ export type MapUpdate = {
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean | null;
+    /**
+     * Show Attribute Table
+     *
+     * Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+     */
+    show_attribute_table?: boolean | null;
     /**
      * Curated map-level basemap appearance preferences
      */
@@ -11739,6 +11763,12 @@ export type SharedMapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean;
+    /**
+     * Show Attribute Table
+     *
+     * Whether the viewer offers each layer's attribute table. The columns an embed may read come from each dataset's tile column allowlist.
+     */
+    show_attribute_table?: boolean;
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
@@ -25063,6 +25093,14 @@ export type ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostResponse = R
 
 export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Embed-Token
+         *
+         * Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on.
+         */
+        'X-Embed-Token'?: string | null;
+    };
     path: {
         /**
          * Dataset Id
@@ -25096,6 +25134,18 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
          * Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.
          */
         filter?: string | null;
+        /**
+         * Gid
+         *
+         * Return at most the row with this gid, ANDed with `filter` and the `filter[column]` filters. The total counts it like a filter.
+         */
+        gid?: number | null;
+        /**
+         * With Bbox
+         *
+         * Also return `bboxes`, each row's bounding box in EPSG:4326.
+         */
+        with_bbox?: boolean;
     };
     url: '/datasets/{dataset_id}/rows/';
 };
@@ -25106,7 +25156,7 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors = {
      */
     400: ProblemDetail;
     /**
-     * Unauthorized — missing or invalid credentials
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored.
      */
     401: ProblemDetail;
     /**

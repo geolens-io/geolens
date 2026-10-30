@@ -36,6 +36,8 @@ class SharedMapResponse:
         basemap_style (str):
         layers (list[SharedLayerResponse]):
         show_basemap_labels (bool | Unset):  Default: True.
+        show_attribute_table (bool | Unset): Whether the viewer offers each layer's attribute table. The columns an
+            embed may read come from each dataset's tile column allowlist. Default: True.
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
         dashboard_config (DashboardConfig | None | Unset):
@@ -54,6 +56,7 @@ class SharedMapResponse:
     basemap_style: str
     layers: list[SharedLayerResponse]
     show_basemap_labels: bool | Unset = True
+    show_attribute_table: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfig | None | Unset = UNSET
@@ -91,6 +94,8 @@ class SharedMapResponse:
             layers.append(layers_item)
 
         show_basemap_labels = self.show_basemap_labels
+
+        show_attribute_table = self.show_attribute_table
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -142,6 +147,8 @@ class SharedMapResponse:
         )
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
@@ -194,6 +201,8 @@ class SharedMapResponse:
             layers.append(layers_item)
 
         show_basemap_labels = d.pop("show_basemap_labels", UNSET)
+
+        show_attribute_table = d.pop("show_attribute_table", UNSET)
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
@@ -269,6 +278,7 @@ class SharedMapResponse:
             basemap_style=basemap_style,
             layers=layers,
             show_basemap_labels=show_basemap_labels,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,

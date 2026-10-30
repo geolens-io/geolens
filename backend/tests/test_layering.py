@@ -1177,7 +1177,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 128,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 130,
+        "backend/app/modules/catalog/datasets/domain/service.py": 132,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1192,7 +1192,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members included.
-        "backend/app/modules/catalog/maps/service_public.py": 1117,
+        "backend/app/modules/catalog/maps/service_public.py": 1119,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1204,10 +1204,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A metadata edit judges its visibility and status change as one move.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
         # Internal pointer reads sit beside the detail query that shares them, and
-        # the row browser's sort, keyset, label-filter and match SQL — the page
-        # query and the filtered count, which ANDs the same CQL2 fragment —
-        # share its column projection.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 713,
+        # the row browser's sort, keyset, label-filter, single-row and match SQL —
+        # the page query and the filtered count, which ANDs the same CQL2
+        # fragment — share its column projection; the row boxes read its table.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 767,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
@@ -1313,10 +1313,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1640,
+    "backend/app/api/main.py": 1642,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1539,
+    "backend/app/modules/catalog/maps/schemas.py": 1564,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1395,7 +1395,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 696,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 2017,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 2025,
     # Records, datasets and their grant, translation and attribute children map
     # one catalog schema.
     "backend/app/modules/catalog/datasets/domain/models.py": 1003,
@@ -1428,8 +1428,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 616,
-    # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
-    "backend/app/modules/embed_tokens/service.py": 988,
+    # Embed tokens share origin/scope checks, revocation, cached-denial behavior
+    # and the token map's reader settings.
+    "backend/app/modules/embed_tokens/service.py": 1011,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

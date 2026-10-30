@@ -37,6 +37,7 @@ from app.modules.catalog.maps.sharing import (
     get_map_embed_scope,
     get_map_names,
     map_contains_dataset,
+    map_shows_attribute_table,
 )
 from app.platform.extensions import get_processing_port
 
@@ -848,6 +849,28 @@ async def validate_embed_token_access(
         task.add_done_callback(_usage_bump_tasks.discard)
 
     return True
+
+
+async def embed_token_map_shows_attribute_table(
+    db: AsyncSession, raw_token: str
+) -> bool:
+    """Whether the active token's map offers its layers' attribute tables.
+
+    Decides nothing else: callers validate the token with
+    ``validate_embed_token_access`` too. An unknown, inactive or expired token
+    returns False.
+    """
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    map_id = (
+        await db.execute(
+            select(EmbedToken.map_id).where(
+                EmbedToken.token_hash == token_hash,
+                EmbedToken.is_active.is_(True),
+                EmbedToken.expires_at > datetime.now(timezone.utc),
+            )
+        )
+    ).scalar_one_or_none()
+    return map_id is not None and await map_shows_attribute_table(db, map_id)
 
 
 # Strong refs for detached usage-bump tasks -- see

@@ -66,6 +66,7 @@ EMBED_MODULES = {
     "api/middleware/cors.py",
     "modules/admin/service.py",
     "modules/catalog/datasets/api/router_aggregate.py",
+    "modules/catalog/datasets/api/router_data.py",
     "modules/catalog/features/router.py",
     "modules/catalog/maps/router_sharing.py",
     "modules/catalog/maps/schemas.py",

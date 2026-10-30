@@ -3505,6 +3505,14 @@ export const reuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPost = <ThrowOn
  * fetch the next page, with or without ``sort``.
  * Supports column filtering via query params: ``filter[column_name]=value``.
  * An optional CQL2-JSON ``filter`` expression ANDs with them.
+ *
+ * Anonymous callers can read public, published datasets. ``X-Embed-Token``
+ * authorizes datasets in the token's scope while the token's map has
+ * ``show_attribute_table`` on. Other datasets return 404. A request only the
+ * embed token authorizes reads only the columns in the dataset's tile column
+ * allowlist, when it has one: any other column is treated as one the table
+ * lacks, in the returned columns, ``sort``, ``filter`` and
+ * ``filter[column]``.
  */
 export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError extends boolean = false>(options: Options<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData, ThrowOnError>): RequestResult<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError> => (options.client ?? client).get<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError>({
     security: [

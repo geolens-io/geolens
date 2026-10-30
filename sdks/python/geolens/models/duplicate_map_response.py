@@ -49,6 +49,9 @@ class DuplicateMapResponse:
         layers (list[MapLayerResponse]):
         layer_count (int):
         notes (None | str | Unset):
+        show_attribute_table (bool | Unset): Whether viewers offer each layer's attribute table. Embed tokens for the
+            map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column
+            allowlist. Default: True.
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
         dashboard_config (DashboardConfig | None | Unset):
@@ -81,6 +84,7 @@ class DuplicateMapResponse:
     layers: list[MapLayerResponse]
     layer_count: int
     notes: None | str | Unset = UNSET
+    show_attribute_table: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfig | None | Unset = UNSET
@@ -148,6 +152,8 @@ class DuplicateMapResponse:
             notes = UNSET
         else:
             notes = self.notes
+
+        show_attribute_table = self.show_attribute_table
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -258,6 +264,8 @@ class DuplicateMapResponse:
         )
         if notes is not UNSET:
             field_dict["notes"] = notes
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
@@ -372,6 +380,8 @@ class DuplicateMapResponse:
             return cast(None | str | Unset, data)
 
         notes = _parse_notes(d.pop("notes", UNSET))
+
+        show_attribute_table = d.pop("show_attribute_table", UNSET)
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
@@ -547,6 +557,7 @@ class DuplicateMapResponse:
             layers=layers,
             layer_count=layer_count,
             notes=notes,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,

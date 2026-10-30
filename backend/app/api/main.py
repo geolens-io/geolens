@@ -1300,6 +1300,7 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_no_security_schema,
     )
     from app.modules.catalog.datasets.api.router_aggregate import aggregate_endpoint
+    from app.modules.catalog.datasets.api.router_data import get_dataset_rows_endpoint
     from app.modules.catalog.features.router import get_features_geojson_z_endpoint
     from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
     from app.processing.tiles.router import (
@@ -1316,10 +1317,11 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_no_security_schema,
     }
     # Vector/raster tile serving verifies both X-Embed-Token and a signed
-    # template (sig, exp, scope); the batch token mint and the other two
+    # template (sig, exp, scope); the batch token mint and the other
     # capability handlers check X-Embed-Token only.
     capability_responses = {
         aggregate_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_dataset_rows_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,

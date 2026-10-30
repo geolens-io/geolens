@@ -35,6 +35,8 @@ class DatasetRowsResponse:
             'estimate'.
         next_cursor (int | None | Unset): Cursor value for the next page, null if last
         sortable_columns (list[str] | Unset): Columns the rows endpoint accepts as `sort`.
+        bboxes (list[list[float] | None] | None | Unset): With `with_bbox=true`, one entry per row in `rows` order: the
+            row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row without geometry. Null otherwise.
         table_id (None | str | Unset): Opaque id of the data table these rows were read from. Send it as the `table_id`
             query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the
             table since.
@@ -46,6 +48,7 @@ class DatasetRowsResponse:
     total_kind: DatasetRowsResponseTotalKind | Unset = "estimate"
     next_cursor: int | None | Unset = UNSET
     sortable_columns: list[str] | Unset = UNSET
+    bboxes: list[list[float] | None] | None | Unset = UNSET
     table_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -76,6 +79,23 @@ class DatasetRowsResponse:
         if not isinstance(self.sortable_columns, Unset):
             sortable_columns = self.sortable_columns
 
+        bboxes: list[list[float] | None] | None | Unset
+        if isinstance(self.bboxes, Unset):
+            bboxes = UNSET
+        elif isinstance(self.bboxes, list):
+            bboxes = []
+            for bboxes_type_0_item_data in self.bboxes:
+                bboxes_type_0_item: list[float] | None
+                if isinstance(bboxes_type_0_item_data, list):
+                    bboxes_type_0_item = bboxes_type_0_item_data
+
+                else:
+                    bboxes_type_0_item = bboxes_type_0_item_data
+                bboxes.append(bboxes_type_0_item)
+
+        else:
+            bboxes = self.bboxes
+
         table_id: None | str | Unset
         if isinstance(self.table_id, Unset):
             table_id = UNSET
@@ -97,6 +117,8 @@ class DatasetRowsResponse:
             field_dict["next_cursor"] = next_cursor
         if sortable_columns is not UNSET:
             field_dict["sortable_columns"] = sortable_columns
+        if bboxes is not UNSET:
+            field_dict["bboxes"] = bboxes
         if table_id is not UNSET:
             field_dict["table_id"] = table_id
 
@@ -142,6 +164,44 @@ class DatasetRowsResponse:
 
         sortable_columns = cast(list[str], d.pop("sortable_columns", UNSET))
 
+        def _parse_bboxes(data: object) -> list[list[float] | None] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bboxes_type_0 = []
+                _bboxes_type_0 = data
+                for bboxes_type_0_item_data in _bboxes_type_0:
+
+                    def _parse_bboxes_type_0_item(data: object) -> list[float] | None:
+                        if data is None:
+                            return data
+                        try:
+                            if not isinstance(data, list):
+                                raise TypeError()
+                            bboxes_type_0_item_type_0 = cast(list[float], data)
+
+                            return bboxes_type_0_item_type_0
+                        except (TypeError, ValueError, AttributeError, KeyError):
+                            pass
+                        return cast(list[float] | None, data)
+
+                    bboxes_type_0_item = _parse_bboxes_type_0_item(
+                        bboxes_type_0_item_data
+                    )
+
+                    bboxes_type_0.append(bboxes_type_0_item)
+
+                return bboxes_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[list[float] | None] | None | Unset, data)
+
+        bboxes = _parse_bboxes(d.pop("bboxes", UNSET))
+
         def _parse_table_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -158,6 +218,7 @@ class DatasetRowsResponse:
             total_kind=total_kind,
             next_cursor=next_cursor,
             sortable_columns=sortable_columns,
+            bboxes=bboxes,
             table_id=table_id,
         )
 

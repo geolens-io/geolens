@@ -8118,6 +8118,31 @@
             "title": "Sortable Columns",
             "type": "array"
           },
+          "bboxes": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `with_bbox=true`, one entry per row in `rows` order: the row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row without geometry. Null otherwise.",
+            "title": "Bboxes"
+          },
           "table_id": {
             "anyOf": [
               {
@@ -8922,6 +8947,12 @@
           },
           "show_basemap_labels": {
             "title": "Show Basemap Labels",
+            "type": "boolean"
+          },
+          "show_attribute_table": {
+            "default": true,
+            "description": "Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.",
+            "title": "Show Attribute Table",
             "type": "boolean"
           },
           "basemap_config": {
@@ -13734,6 +13765,12 @@
             "title": "Show Basemap Labels",
             "type": "boolean"
           },
+          "show_attribute_table": {
+            "default": true,
+            "description": "Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.",
+            "title": "Show Attribute Table",
+            "type": "boolean"
+          },
           "basemap_config": {
             "anyOf": [
               {
@@ -14483,6 +14520,18 @@
               }
             ],
             "title": "Show Basemap Labels"
+          },
+          "show_attribute_table": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.",
+            "title": "Show Attribute Table"
           },
           "basemap_config": {
             "anyOf": [
@@ -20108,6 +20157,12 @@
           "show_basemap_labels": {
             "default": true,
             "title": "Show Basemap Labels",
+            "type": "boolean"
+          },
+          "show_attribute_table": {
+            "default": true,
+            "description": "Whether the viewer offers each layer's attribute table. The columns an embed may read come from each dataset's tile column allowlist.",
+            "title": "Show Attribute Table",
             "type": "boolean"
           },
           "basemap_config": {
@@ -49949,7 +50004,7 @@
     },
     "/datasets/{dataset_id}/rows/": {
       "get": {
-        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.\nAn optional CQL2-JSON ``filter`` expression ANDs with them.",
+        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.\nAn optional CQL2-JSON ``filter`` expression ANDs with them.\n\nAnonymous callers can read public, published datasets. ``X-Embed-Token``\nauthorizes datasets in the token's scope while the token's map has\n``show_attribute_table`` on. Other datasets return 404. A request only the\nembed token authorizes reads only the columns in the dataset's tile column\nallowlist, when it has one: any other column is treated as one the table\nlacks, in the returned columns, ``sort``, ``filter`` and\n``filter[column]``.",
         "operationId": "get_dataset_rows_endpoint_datasets__dataset_id__rows__get",
         "parameters": [
           {
@@ -50036,6 +50091,56 @@
               "description": "Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400.",
               "title": "Filter"
             }
+          },
+          {
+            "description": "Return at most the row with this gid, ANDed with `filter` and the `filter[column]` filters. The total counts it like a filter.",
+            "in": "query",
+            "name": "gid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Return at most the row with this gid, ANDed with `filter` and the `filter[column]` filters. The total counts it like a filter.",
+              "title": "Gid"
+            }
+          },
+          {
+            "description": "Also return `bboxes`, each row's bounding box in EPSG:4326.",
+            "in": "query",
+            "name": "with_bbox",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also return `bboxes`, each row's bounding box in EPSG:4326.",
+              "title": "With Bbox",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on.",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on.",
+              "title": "X-Embed-Token"
+            }
           }
         ],
         "responses": {
@@ -50067,7 +50172,7 @@
                 }
               }
             },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored."
           },
           "403": {
             "content": {

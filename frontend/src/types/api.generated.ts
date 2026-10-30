@@ -3235,6 +3235,14 @@ export interface paths {
          *     fetch the next page, with or without ``sort``.
          *     Supports column filtering via query params: ``filter[column_name]=value``.
          *     An optional CQL2-JSON ``filter`` expression ANDs with them.
+         *
+         *     Anonymous callers can read public, published datasets. ``X-Embed-Token``
+         *     authorizes datasets in the token's scope while the token's map has
+         *     ``show_attribute_table`` on. Other datasets return 404. A request only the
+         *     embed token authorizes reads only the columns in the dataset's tile column
+         *     allowlist, when it has one: any other column is treated as one the table
+         *     lacks, in the returned columns, ``sort``, ``filter`` and
+         *     ``filter[column]``.
          */
         get: operations["get_dataset_rows_endpoint_datasets__dataset_id__rows__get"];
         put?: never;
@@ -10089,6 +10097,11 @@ export interface components {
              */
             sortable_columns?: string[];
             /**
+             * Bboxes
+             * @description With `with_bbox=true`, one entry per row in `rows` order: the row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row without geometry. Null otherwise.
+             */
+            bboxes?: (number[] | null)[] | null;
+            /**
              * Table Id
              * @description Opaque id of the data table these rows were read from. Send it as the `table_id` query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the table since.
              */
@@ -10415,6 +10428,12 @@ export interface components {
             basemap_style: string;
             /** Show Basemap Labels */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
@@ -12483,6 +12502,12 @@ export interface components {
             basemap_style: string;
             /** Show Basemap Labels */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
@@ -12759,6 +12784,11 @@ export interface components {
             basemap_style?: string | null;
             /** Show Basemap Labels */
             show_basemap_labels?: boolean | null;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             */
+            show_attribute_table?: boolean | null;
             /** @description Curated map-level basemap appearance preferences */
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             /** @description Map-level terrain source and exaggeration preferences */
@@ -15277,6 +15307,12 @@ export interface components {
              * @default true
              */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether the viewer offers each layer's attribute table. The columns an embed may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
@@ -33733,8 +33769,15 @@ export interface operations {
                 order?: "asc" | "desc";
                 /** @description Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400. */
                 filter?: string | null;
+                /** @description Return at most the row with this gid, ANDed with `filter` and the `filter[column]` filters. The total counts it like a filter. */
+                gid?: number | null;
+                /** @description Also return `bboxes`, each row's bounding box in EPSG:4326. */
+                with_bbox?: boolean;
             };
-            header?: never;
+            header?: {
+                /** @description Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on. */
+                "X-Embed-Token"?: string | null;
+            };
             path: {
                 dataset_id: string;
             };
@@ -33760,7 +33803,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Unauthorized — missing or invalid credentials */
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored. */
             401: {
                 headers: {
                     [name: string]: unknown;

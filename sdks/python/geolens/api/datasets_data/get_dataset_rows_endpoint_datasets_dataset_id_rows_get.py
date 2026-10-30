@@ -25,7 +25,13 @@ def _get_kwargs(
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
     filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_embed_token, Unset):
+        headers["X-Embed-Token"] = x_embed_token
 
     params: dict[str, Any] = {}
 
@@ -53,6 +59,15 @@ def _get_kwargs(
         json_filter_ = filter_
     params["filter"] = json_filter_
 
+    json_gid: int | None | Unset
+    if isinstance(gid, Unset):
+        json_gid = UNSET
+    else:
+        json_gid = gid
+    params["gid"] = json_gid
+
+    params["with_bbox"] = with_bbox
+
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
@@ -63,6 +78,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -145,6 +161,9 @@ def sync_detailed(
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
     filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
@@ -154,6 +173,14 @@ def sync_detailed(
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets. ``X-Embed-Token``
+    authorizes datasets in the token's scope while the token's map has
+    ``show_attribute_table`` on. Other datasets return 404. A request only the
+    embed token authorizes reads only the columns in the dataset's tile column
+    allowlist, when it has one: any other column is treated as one the table
+    lacks, in the returned columns, ``sort``, ``filter`` and
+    ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -166,6 +193,12 @@ def sync_detailed(
         filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
             route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
             malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized when the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -182,6 +215,9 @@ def sync_detailed(
         sort=sort,
         order=order,
         filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     )
 
     response = client.get_httpx_client().request(
@@ -200,6 +236,9 @@ def sync(
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
     filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
@@ -209,6 +248,14 @@ def sync(
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets. ``X-Embed-Token``
+    authorizes datasets in the token's scope while the token's map has
+    ``show_attribute_table`` on. Other datasets return 404. A request only the
+    embed token authorizes reads only the columns in the dataset's tile column
+    allowlist, when it has one: any other column is treated as one the table
+    lacks, in the returned columns, ``sort``, ``filter`` and
+    ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -221,6 +268,12 @@ def sync(
         filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
             route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
             malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized when the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -238,6 +291,9 @@ def sync(
         sort=sort,
         order=order,
         filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     ).parsed
 
 
@@ -250,6 +306,9 @@ async def asyncio_detailed(
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
     filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
     """Get Dataset Rows Endpoint
 
@@ -259,6 +318,14 @@ async def asyncio_detailed(
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets. ``X-Embed-Token``
+    authorizes datasets in the token's scope while the token's map has
+    ``show_attribute_table`` on. Other datasets return 404. A request only the
+    embed token authorizes reads only the columns in the dataset's tile column
+    allowlist, when it has one: any other column is treated as one the table
+    lacks, in the returned columns, ``sort``, ``filter`` and
+    ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -271,6 +338,12 @@ async def asyncio_detailed(
         filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
             route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
             malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized when the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -287,6 +360,9 @@ async def asyncio_detailed(
         sort=sort,
         order=order,
         filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -303,6 +379,9 @@ async def asyncio(
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
     filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
     """Get Dataset Rows Endpoint
 
@@ -312,6 +391,14 @@ async def asyncio(
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets. ``X-Embed-Token``
+    authorizes datasets in the token's scope while the token's map has
+    ``show_attribute_table`` on. Other datasets return 404. A request only the
+    embed token authorizes reads only the columns in the dataset's tile column
+    allowlist, when it has one: any other column is treated as one the table
+    lacks, in the returned columns, ``sort``, ``filter`` and
+    ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -324,6 +411,12 @@ async def asyncio(
         filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
             route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
             malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized when the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -342,5 +435,8 @@ async def asyncio(
             sort=sort,
             order=order,
             filter_=filter_,
+            gid=gid,
+            with_bbox=with_bbox,
+            x_embed_token=x_embed_token,
         )
     ).parsed
