@@ -121,6 +121,7 @@ describe('StoryDetailsDialog', () => {
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
     renderDetails({ story: { ...DRAFT, groups: [{ id: 'g1', name: 'Field team' }] }, onOpenChange });
+    vi.mocked(updateStory).mockClear();
     await user.click(screen.getByRole('button', { name: 'Remove Field team' }));
 
     expect(screen.queryByRole('button', { name: 'Remove Field team' })).not.toBeInTheDocument();
