@@ -761,7 +761,9 @@ async def _compile_narrowed(
 
 def _too_wide() -> AggregateError:
     return AggregateError(
-        "too_wide", "This view holds too many features to summarize exactly. Zoom in."
+        "too_wide",
+        "This view holds too many features to summarize exactly, or counting "
+        "them took too long. Zoom in, or try again later.",
     )
 
 

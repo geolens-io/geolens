@@ -28,7 +28,7 @@ def tile_unavailable_error() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="Tile service unavailable",
-        headers={"Cache-Control": "no-store"},
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
     )
 
 

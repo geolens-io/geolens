@@ -2405,6 +2405,8 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
+    # Releasing the connection can itself time out and replace the 503 below.
+    query_timed_out = False
     # SET LOCAL role and schema bindings must share the query transaction to
     # survive PgBouncer transaction pooling.
     try:
@@ -2420,6 +2422,7 @@ async def _acquire_and_serve_tile(
             except asyncio.TimeoutError:
                 # A query that outruns the command timeout will again, so a
                 # retry hint would only repeat the work.
+                query_timed_out = True
                 logger.warning(
                     "Tile query timeout",
                     table_name=table_name,
@@ -2432,6 +2435,8 @@ async def _acquire_and_serve_tile(
     except HTTPException:
         raise
     except asyncio.TimeoutError:
+        if query_timed_out:
+            raise tile_unavailable_error()
         logger.warning(
             "Tile pool acquire timeout",
             table_name=table_name,

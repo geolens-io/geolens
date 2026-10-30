@@ -348,7 +348,7 @@ async def unknown_property_detail(
     if not registered:
         return detail
     live = {name for name, _ in await _table_columns(db, table_name)}
-    present = [c for c in error.columns if c in live]
+    present = [c for c in error.columns if c in live and is_writable_feature_column(c)]
     if not present:
         return detail
     return (

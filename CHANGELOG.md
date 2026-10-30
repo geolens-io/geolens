@@ -123,7 +123,9 @@ and releases use semantic versioning.
 - A `bbox` query past the exact-count cap now reports the planner's estimate in
   `numberMatched` instead of the cap. A vector tile whose query times out answers
   503 without `Retry-After` instead of a retryable 429. A view-scope aggregate
-  whose row count runs out of time answers `too_wide`, and the verdict is cached.
+  whose limited count probe runs out of time answers `too_wide` (the aggregate
+  query itself timing out still answers `query_timeout`), and the verdict is
+  cached.
   Writing to a column added to a registered table after registration says to
   refresh the dataset.
 - A layer added or duplicated in the Builder while a save was still running

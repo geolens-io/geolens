@@ -2156,6 +2156,26 @@ class TestColumnAddedAfterRegistration:
         assert resp.status_code == 400, resp.text
         assert "refresh" not in resp.json()["detail"]
 
+    async def test_a_column_a_refresh_cannot_make_writable_gets_no_hint(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+    ):
+        await test_db_session.execute(
+            text(
+                f'ALTER TABLE data.{test_layer.table_name} ADD COLUMN "OwnerNote" TEXT'
+            )
+        )
+        test_layer.source_format = None
+        await test_db_session.commit()
+
+        resp = await self._post(client, admin_auth_header, test_layer, "OwnerNote")
+
+        assert resp.status_code == 400, resp.text
+        assert "refresh" not in resp.json()["detail"]
+
     async def test_a_created_dataset_gets_no_hint(
         self,
         client: AsyncClient,
