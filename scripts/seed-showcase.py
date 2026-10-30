@@ -6,6 +6,11 @@ collections, and a private embed demo. ``--showcase-121`` also builds City in
 Shade, a real COPC sample, and a real 3D Tiles sample. GeoLens serves the 3D
 assets to external clients; its map viewer does not render them natively.
 
+A published story over the two hurricane maps and a dashboard map over the USGS
+earthquake layer are seeded too, found by title and updated in place on a rerun.
+``--story-and-dashboard`` runs just those two on an instance that already has
+the maps and datasets.
+
 Existing showcase maps are updated in place through the metadata and styling
 passes. Pinned maps, dataset titles, and share links must survive updates.
 Run ``showcase-121-state.py snapshot`` first and pass ``--expected-state`` when
@@ -39,6 +44,7 @@ import shlex
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 try:
@@ -266,6 +272,22 @@ QUAKES_HEAT_TITLE = "Recent Earthquakes - Heatmap source"
 
 HURRICANE_MAP = "Hurricane Alley - Major Atlantic Storms Since 1950"
 HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
+
+STORY_TITLE = "Where the Atlantic's Major Hurricanes Go"
+DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
+DASHBOARD_MAP_DESCRIPTION = (
+    "A dashboard over the USGS M2.5+ earthquake service: how many quakes are "
+    "in view, the strongest one, how their magnitudes spread, and which "
+    "magnitude types and networks report them. Pick a bar or a network to "
+    "filter the map. The dashboard follows the map view, so pan and zoom to "
+    "ask about a region. "
+    "The earthquake layer is a refreshed snapshot of the 30-day USGS service, "
+    "not a streaming layer; check the dataset's Source panel for its actual "
+    "refresh time before treating it as current."
+)
+# Widget, chapter and block ids are derived rather than random so a rerun
+# writes the same document instead of replacing every id.
+_SEED_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://getgeolens.com/showcase-seed")
 
 # The two HURDAT2 track datasets. Titles are stable (neither carries a year
 # count), but --refresh-hurdat2 resolves both by title, so they are named once.
@@ -886,6 +908,69 @@ class Api:
             json={"keyword": keyword, "keyword_type": "theme"},
         )
         r.raise_for_status()
+
+    def list_stories(self) -> dict[str, str]:
+        """This account's OWN stories, title -> id, PAGINATED like list_maps."""
+        out: dict[str, str] = {}
+        seen = 0
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/stories/?owned_only=true&limit=200&skip={seen}",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d["stories"]
+            for story in page:
+                out.setdefault(story["title"], story["id"])
+            seen += len(page)
+            if not page or seen >= d["total"]:
+                return out
+
+    def create_story(self, title: str, summary: str) -> str:
+        r = self.client.post(
+            f"{self.base}/api/stories/",
+            headers=self.h,
+            json={"title": title, "summary": summary},
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+
+    def publish_story(
+        self, story_id: str, title: str, summary: str, document: dict
+    ) -> None:
+        """Replace the draft with *document*, make the story public, publish it."""
+        r = self.client.get(f"{self.base}/api/stories/{story_id}/draft", headers=self.h)
+        r.raise_for_status()
+        r = self.client.put(
+            f"{self.base}/api/stories/{story_id}/draft",
+            headers=self.h,
+            json={"revision": r.json()["revision"], "document": document},
+        )
+        r.raise_for_status()
+        revision = r.json()["revision"]
+        r = self.client.patch(
+            f"{self.base}/api/stories/{story_id}",
+            headers=self.h,
+            json={"title": title, "summary": summary, "visibility": "public"},
+        )
+        r.raise_for_status()
+        r = self.client.post(
+            f"{self.base}/api/stories/{story_id}/publish",
+            headers=self.h,
+            json={"revision": revision},
+        )
+        r.raise_for_status()
+
+    def aggregate(self, dataset_id: str, **body) -> dict:
+        """One exact aggregate over a dataset - the call the widgets make."""
+        r = self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/aggregate/",
+            headers=self.h,
+            json=body,
+        )
+        r.raise_for_status()
+        return r.json()["result"]
 
     def delete_map(self, map_id: str) -> None:
         r = self.client.delete(f"{self.base}/api/maps/{map_id}", headers=self.h)
@@ -2395,6 +2480,7 @@ def _showcase_map_names() -> set[str]:
         HURRICANE_MAP,
         HURRICANE_MAP_LEGACY,
         EXPOSURE_MAP,
+        DASHBOARD_MAP,
         "Everything That Fell From the Sky",
         "The Matterhorn in 3D",
         "New York From Orbit - Sentinel-2, by Reference",
@@ -4439,6 +4525,292 @@ def build_hurricane_exposure(
     warn_if_hidden_layers(api, map_id, name)
     print(f"  -> map {map_id}")
     return map_id
+
+
+def _seed_id(*parts: str) -> str:
+    return str(uuid.uuid5(_SEED_NAMESPACE, "/".join(parts)))
+
+
+def _story_scene(
+    map_doc: dict, layer_visibility: dict[str, bool] | None = None
+) -> dict:
+    return {
+        "map_id": map_doc["id"],
+        "camera": {
+            "center": [map_doc["center_lng"], map_doc["center_lat"]],
+            "zoom": map_doc["zoom"],
+            "bearing": map_doc.get("bearing") or 0,
+            "pitch": map_doc.get("pitch") or 0,
+        },
+        "layer_visibility": layer_visibility or {},
+    }
+
+
+def _story_chapter(key: str, title: str, scene: dict, text: str) -> dict:
+    return {
+        "id": _seed_id("story", key),
+        "title": title,
+        "scene": scene,
+        "blocks": [
+            {
+                "id": _seed_id("story", key, "text"),
+                "type": "markdown",
+                "v": 1,
+                "config": {"text": text},
+            }
+        ],
+    }
+
+
+def seed_hurricane_story(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """The published story over the two hurricane maps, found by title.
+
+    Updated in place on a rerun. Every figure in the text is read from the
+    datasets behind the maps when this runs, so a refreshed HURDAT2 release
+    changes the words with the data. The maps are not touched.
+    """
+    maps = api.list_maps()
+    by_title = api.datasets_by_title()
+    legs_ds = by_title.get(HURDAT2_LEGS_TITLE)
+    exposure_ds = by_title.get(EXPOSURE_CHAIN_TITLES[2])
+    if (
+        HURRICANE_MAP not in maps
+        or EXPOSURE_MAP not in maps
+        or not (legs_ds and exposure_ds)
+    ):
+        raise RuntimeError(
+            "the hurricane maps and their datasets are not seeded yet - run "
+            "--only hurricanes and --only hurricane-exposure first"
+        )
+    print("\n[story] " + STORY_TITLE)
+    tracks_map = api.get_map(maps[HURRICANE_MAP])
+    exposure_map = api.get_map(maps[EXPOSURE_MAP])
+
+    storms = api.aggregate(legs_ds, op="count")["count"]
+    seasons = api.aggregate(legs_ds, op="stats", column="season", stats=["min", "max"])
+    peaks = {
+        row["value"]: row["count"]
+        for row in api.aggregate(
+            legs_ds, op="value_counts", column="peak_category", limit=10
+        )["values"]
+    }
+    regions = api.aggregate(exposure_ds, op="count")["count"]
+    top = api.aggregate(
+        exposure_ds,
+        op="group_by",
+        group_column="region",
+        stat="max",
+        column="source_count",
+        limit=3,
+    )["groups"]
+
+    by_peak = ", ".join(
+        f"{peaks[c]} at {c.replace('Cat ', 'Category ')}"
+        for c in sorted(peaks, reverse=True)
+    )
+    tracks_text = (
+        f"From {seasons['min']} to {seasons['max']}, {storms} Atlantic storms "
+        f"reached Category 3 or stronger in NOAA's HURDAT2 best tracks. Their "
+        f"peak intensity: {by_peak}.\n\n"
+        "Each track is drawn in six-hour segments. The colour warms from blue "
+        "tropical storm to magenta Category 5 as a storm intensifies, the "
+        "width follows wind speed, and arrows mark direction of motion on "
+        "Category 5 legs."
+    )
+    ranked = ", ".join(f"{g['key']} ({g['value']})" for g in top)
+    coasts_text = (
+        "To see which coasts these storms reach, GeoLens buffered every "
+        "Category 3+ leg by 100 km, intersected the corridors with Natural "
+        "Earth regions and dissolved by region. The fill counts distinct "
+        "major storms whose corridor touched a region; darker means more.\n\n"
+        f"{regions} regions lie inside at least one corridor. The most "
+        f"reached, with their storm counts: {ranked}.\n\n"
+        "The corridor is a screening measure, not a damage or future-risk "
+        "forecast."
+    )
+    legs_layer = next(
+        (lay["id"] for lay in exposure_map["layers"] if lay["dataset_id"] == legs_ds),
+        None,
+    )
+    if legs_layer is None:
+        raise RuntimeError(
+            f"{EXPOSURE_MAP!r} has no storm legs layer to show in the method chapter"
+        )
+    data_text = (
+        "- **Tracks:** NOAA National Hurricane Center, HURDAT2 Atlantic "
+        "best-track database (public domain).\n"
+        "- **Regions:** Natural Earth.\n"
+        "- **Method:** the Category 3+ storm legs, shown here, were buffered "
+        "by 100 km, intersected with the regions and dissolved by region. Each "
+        "derived dataset's provenance panel records the operation and its "
+        "parameters."
+    )
+    document = {
+        "version": 1,
+        "chapters": [
+            _story_chapter(
+                "tracks", "The tracks", _story_scene(tracks_map), tracks_text
+            ),
+            _story_chapter(
+                "coasts",
+                "The coasts they reach",
+                _story_scene(exposure_map),
+                coasts_text,
+            ),
+            _story_chapter(
+                "data",
+                "Where the data comes from",
+                _story_scene(exposure_map, {legs_layer: True}),
+                data_text,
+            ),
+        ],
+    }
+    summary = (
+        "Every Atlantic storm since 1950 that reached Category 3, and the "
+        "coasts that lie within 100 km of their tracks."
+    )
+    story_id = api.list_stories().get(STORY_TITLE)
+    verb = "updated"
+    if story_id is None:
+        story_id = api.create_story(STORY_TITLE, summary)
+        verb = "created"
+    api.publish_story(story_id, STORY_TITLE, summary, document)
+    print(f"  -> story {story_id} ({verb}, published, public)")
+    return story_id
+
+
+def seed_quake_dashboard(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """A public map whose dashboard summarizes the USGS earthquake layer.
+
+    Its own map, found by name, so the pinned Restless Earth map stays as it
+    is. A dashboard has no text widget, so the snapshot note lives in the map
+    description.
+    """
+    quakes_ds = api.datasets_by_title().get(QUAKES_TITLE)
+    if not quakes_ds:
+        raise RuntimeError(
+            f"{QUAKES_TITLE!r} is not seeded yet - run --only restless first"
+        )
+    print("\n[dashboard] " + DASHBOARD_MAP)
+    map_id = api.list_maps().get(DASHBOARD_MAP)
+    created = map_id is None
+    if created:
+        map_id = api.create_map(DASHBOARD_MAP, DASHBOARD_MAP_DESCRIPTION)
+    layer = next(
+        (
+            lay
+            for lay in api.get_map(map_id)["layers"]
+            if lay["dataset_id"] == quakes_ds
+        ),
+        None,
+    )
+    if layer is None:
+        edges = [5.0, 6.0, 7.0]
+        layer = api.add_layer(
+            map_id,
+            {
+                "dataset_id": quakes_ds,
+                "sort_order": 0,
+                "opacity": 1.0,
+                "display_name": "Earthquakes (last 30 days, by magnitude)",
+                "paint": {
+                    "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
+                    "circle-color": step_expr(
+                        "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
+                    ),
+                    "circle-opacity": 0.85,
+                    "circle-stroke-color": "#7f1d1d",
+                    "circle-stroke-width": 0.5,
+                },
+                "popup_config": QUAKE_POPUP_CONFIG,
+            },
+        )
+    layer_id = layer["id"]
+
+    def widget(key: str, kind: str, title: str, config: dict) -> dict:
+        return {
+            "id": _seed_id("dashboard", key),
+            "type": kind,
+            "v": 1,
+            "title": title,
+            "layer_id": layer_id,
+            "scope": "view",
+            "config": config,
+        }
+
+    camera = (
+        {
+            "center_lng": 0,
+            "center_lat": 20,
+            "zoom": 1.4,
+            "pitch": 0,
+            "bearing": 0,
+            "basemap_style": "openfreemap-positron",
+            "show_basemap_labels": True,
+        }
+        if created
+        else {}
+    )
+    api.set_view(
+        map_id,
+        **camera,
+        description=DASHBOARD_MAP_DESCRIPTION,
+        visibility="public",
+        dashboard_config={
+            "version": 1,
+            "widgets": [
+                widget("count", "indicator", "Earthquakes in view", {"stat": "count"}),
+                widget(
+                    "strongest",
+                    "indicator",
+                    "Strongest earthquake in view (magnitude)",
+                    {"stat": "max", "column": "mag"},
+                ),
+                widget(
+                    "magnitudes",
+                    "histogram",
+                    "Earthquakes by magnitude",
+                    {"column": "mag", "bins": 20},
+                ),
+                widget(
+                    "magtype",
+                    "bar_chart",
+                    "Reports by magnitude type",
+                    {"column": "magtype", "stat": "count", "limit": 8},
+                ),
+                widget(
+                    "network",
+                    "category_selector",
+                    "Reporting network",
+                    {"column": "net"},
+                ),
+            ],
+        },
+    )
+    print(f"  -> map {map_id} ({'created' if created else 'updated'}, public)")
+    return map_id
+
+
+def run_story_and_dashboard(api: Api) -> int:
+    """Seed only the story and the dashboard map, then exit.
+
+    For an instance that already has the showcase maps and datasets; unlike a
+    full seed it runs none of the metadata, styling or thumbnail passes.
+    """
+    failed = False
+    for seed in (seed_hurricane_story, seed_quake_dashboard):
+        try:
+            seed(api)
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
+            print(f"\nERROR in [{seed.__name__}]: {e}", file=sys.stderr)
+            if isinstance(e, httpx.HTTPStatusError):
+                print(e.response.text[:500], file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
 
 
 def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) -> str:
@@ -6618,6 +6990,8 @@ def run_maintenance_mode(api: Api, args) -> int | None:
         return refresh_hurdat2(api)
     if args.prune_userdata:
         return prune_userdata(api, execute=args.execute)
+    if args.story_and_dashboard:
+        return run_story_and_dashboard(api)
     return None
 
 
@@ -6902,6 +7276,8 @@ def main() -> int:
             "sentinel2",
             "collections",
             "embed",
+            "story",
+            "dashboard",
         ],
         help="build only one showcase item",
     )
@@ -6948,6 +7324,13 @@ def main() -> int:
         "exit. DRY RUN unless --execute is also passed",
     )
     ap.add_argument(
+        "--story-and-dashboard",
+        action="store_true",
+        help="seed (or update in place) the hurricane story and the earthquake "
+        "dashboard map on an instance that already has the showcase maps, then "
+        "exit. A full seed does this too",
+    )
+    ap.add_argument(
         "--execute",
         action="store_true",
         help="with --prune-userdata, actually perform the deletions",
@@ -6981,11 +7364,12 @@ def main() -> int:
         or args.prune_userdata
         or args.refresh_quakes
         or args.refresh_hurdat2
+        or args.story_and_dashboard
         or args.only == "embed"
     ):
         ap.error(
-            "--expected-state cannot be combined with force, prune, refresh or "
-            "embed runs"
+            "--expected-state cannot be combined with force, prune, refresh, "
+            "story or embed runs"
         )
 
     print(f"Logging in to {args.base_url} as {args.username}...")
@@ -7059,6 +7443,8 @@ def main() -> int:
         "sentinel2": build_sentinel2,
         "collections": build_collections,
         "embed": build_embed_demo,
+        "story": seed_hurricane_story,
+        "dashboard": seed_quake_dashboard,
     }
 
     built = {}
@@ -7085,6 +7471,13 @@ def main() -> int:
                     ("copc", fns["copc"]),
                     ("tiles3d", fns["tiles3d"]),
                 ]
+            )
+        # The story reads the hurricane maps and the dashboard the quake layer.
+        # A guarded update skips both: a new story and map are outside the
+        # snapshot, so a rollback could not withdraw them.
+        if not args.expected_state:
+            builders.extend(
+                [("story", fns["story"]), ("dashboard", fns["dashboard"])]
             )
         # collections + embed LAST: they reference the datasets above.
         builders.append(("collections", fns["collections"]))
@@ -7158,6 +7551,8 @@ def main() -> int:
         path = (
             "collections"
             if bname == "collections"
+            else "api/stories"
+            if bname == "story"
             else "datasets"
             if bname in ("copc", "tiles3d")
             else "maps"
