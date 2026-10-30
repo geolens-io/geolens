@@ -11,6 +11,7 @@ import {
   getStoryDraft,
   publishStory,
   saveStoryDraft,
+  uploadStoryImage,
 } from '@/api/stories';
 import { ApiError } from '@/api/client';
 import { listMaps } from '@/api/maps';
@@ -25,6 +26,11 @@ vi.mock('@/api/stories', async (importOriginal) => ({
   saveStoryDraft: vi.fn(),
   publishStory: vi.fn(),
   discardStoryDraft: vi.fn(),
+  uploadStoryImage: vi.fn(),
+}));
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetchBlob: vi.fn(async () => new Blob(['x'], { type: 'image/webp' })),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('@/api/maps', () => ({
@@ -103,6 +109,7 @@ function draft(overrides: Partial<StoryDraftResponse> = {}): StoryDraftResponse 
     visibility: 'public',
     created_by: 'me',
     published_at: '2026-10-29T00:00:00Z',
+    cover_asset_id: null,
     created_at: '2026-10-29T00:00:00Z',
     updated_at: '2026-10-29T00:00:00Z',
     can_edit: true,
@@ -939,4 +946,71 @@ it('refreshes the stories list after a save', async () => {
   await user.type(screen.getByLabelText('Chapter title'), '!');
   await user.click(screen.getByRole('button', { name: 'Save draft' }));
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stories'] }));
+});
+
+
+describe('image blocks', () => {
+  const ASSET = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
+  const png = () => new File(['png'], 'river.png', { type: 'image/png' });
+
+  function chapterSection() {
+    return screen.getByRole('region', { name: 'Chapter 1 of 2' });
+  }
+
+  it('uploads an image into the chapter and saves it once it has alt text', async () => {
+    const user = userEvent.setup();
+    vi.mocked(uploadStoryImage).mockImplementation(async (_story, _file, onProgress) => {
+      onProgress?.(0.5);
+      return { id: ASSET, width: 800, height: 400, byte_size: 1000, created_at: '2026-10-29T00:00:00Z' };
+    });
+    renderEditor();
+    await ready();
+    const section = chapterSection();
+    await user.upload(within(section).getByTestId('story-image-input'), png());
+
+    expect(vi.mocked(uploadStoryImage).mock.lastCall?.[0]).toBe('s1');
+    const alt = await within(section).findByRole('textbox', { name: 'Alt text' });
+    expect(alt).toBeRequired();
+    expect(alt).toHaveAttribute('aria-invalid', 'true');
+    expect(
+      screen.getAllByRole('status').some((el) => el.textContent === '1 image needs alt text before you can save.'),
+    ).toBe(true);
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+
+    await user.type(alt, 'A river at dusk');
+    await user.type(within(section).getByRole('textbox', { name: 'Caption (optional)' }), 'North');
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
+    expect(lastSavedChapters()[0].blocks?.at(-1)).toEqual({
+      id: expect.any(String),
+      type: 'image',
+      v: 1,
+      title: null,
+      asset_id: ASSET,
+      config: { alt: 'A river at dusk', caption: 'North' },
+    });
+  });
+
+  it('refuses a file the server would refuse without sending it, and shows a server refusal', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    renderEditor();
+    await ready();
+    const input = within(chapterSection()).getByTestId('story-image-input');
+
+    await user.upload(input, new File(['gif'], 'a.gif', { type: 'image/gif' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG and WebP images can be uploaded.');
+    const huge = png();
+    Object.defineProperty(huge, 'size', { value: 50 * 1024 * 1024 + 1 });
+    await user.upload(input, huge);
+    expect(await screen.findByRole('alert')).toHaveTextContent('This image is too large.');
+    expect(uploadStoryImage).not.toHaveBeenCalled();
+
+    vi.mocked(uploadStoryImage).mockImplementation(async () => {
+      throw new ApiError('Other images are being processed. Try again in a moment.', 503);
+    });
+    await user.upload(input, png());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Other images are being processed.');
+    expect(within(chapterSection()).queryByRole('textbox', { name: 'Alt text' })).not.toBeInTheDocument();
+  });
 });

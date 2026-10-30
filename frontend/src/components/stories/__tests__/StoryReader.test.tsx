@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { StoryReader } from '../StoryReader';
 import type { ResolvedScene } from '../story-scenes';
 import type { StoryChapter, StoryScene } from '@/types/api';
@@ -10,6 +10,10 @@ const pane = vi.hoisted(() => ({ resolved: null as ResolvedScene | null, hint: u
 const prefetch = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => layout.narrow }));
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetchBlob: async () => new Blob(['x'], { type: 'image/webp' }),
+}));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
   StoryMapPane: ({ resolved, emptyHint }: { resolved: ResolvedScene | null; emptyHint?: string }) => {
@@ -35,7 +39,7 @@ const CHAPTERS: StoryChapter[] = [
 ];
 
 function renderReader() {
-  return render(<StoryReader title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
+  return render(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
 }
 
 beforeEach(() => {
@@ -181,7 +185,7 @@ describe('wide scrolling panel', () => {
     layout.narrow = false;
     const { rerender } = renderReader();
     await scrollTo([-500, 300, 1400, 2400]);
-    rerender(<StoryReader title="Hurricanes" summary={null} chapters={[CHAPTERS[1], CHAPTERS[0]]} />);
+    rerender(<StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={[CHAPTERS[1], CHAPTERS[0]]} />);
     expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
   });
 });
@@ -204,7 +208,7 @@ describe('switching layouts', () => {
     await user.click(screen.getByRole('button', { name: /Next/ }));
 
     layout.narrow = false;
-    rerender(<StoryReader title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
+    rerender(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
     const third = screen.getByRole('region', { name: 'Chapter 3' });
     expect(scrolled).toEqual([third]);
     expect(third).toHaveAttribute('aria-current', 'step');
@@ -241,7 +245,7 @@ describe('switching layouts', () => {
     await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 
     layout.narrow = true;
-    rerender(<StoryReader title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
+    rerender(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
     expect(screen.getByRole('heading', { level: 2, name: 'The coasts' })).toBeInTheDocument();
     expect(pane.resolved?.chapterId).toBe('c2');
   });
@@ -252,11 +256,37 @@ describe('chapters shrinking under the reader', () => {
     const user = userEvent.setup();
     const { rerender } = renderReader();
     for (let i = 0; i < 3; i++) await user.click(screen.getByRole('button', { name: /Next/ }));
-    rerender(<StoryReader title="Hurricanes" summary={null} chapters={CHAPTERS.slice(0, 2)} />);
+    rerender(<StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={CHAPTERS.slice(0, 2)} />);
     expect(screen.getByRole('heading', { level: 2, name: 'The coasts' })).toBeInTheDocument();
     expect(screen.getByText('2 / 2')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Previous/ }));
     expect(screen.getByRole('heading', { level: 2, name: 'The tracks' })).toBeInTheDocument();
   });
+});
+
+
+it('shows the cover above the title and serves image blocks from the story', async () => {
+  layout.narrow = false;
+  const image = {
+    id: '00000000-0000-4000-8000-0000000000aa',
+    type: 'image' as const,
+    v: 1 as const,
+    title: null,
+    asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60',
+    config: { alt: 'Storm surge on the coast', caption: null },
+  };
+  const { container } = render(
+    <StoryReader
+      storyId="s1"
+      coverAssetId="cover-1"
+      title="Hurricanes"
+      summary={null}
+      chapters={[{ ...CHAPTERS[0], blocks: [image] }]}
+    />,
+  );
+  const block = await screen.findByRole('img', { name: 'Storm surge on the coast' });
+  expect(block.getAttribute('src')).toMatch(/^blob:/);
+  const header = container.querySelector('header')!;
+  await waitFor(() => expect(header.querySelector('img[alt=""]')).not.toBeNull());
 });

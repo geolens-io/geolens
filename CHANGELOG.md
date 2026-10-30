@@ -28,8 +28,18 @@ and releases use semantic versioning.
   the story from reaching its audience, and Discard draft goes back to the
   published version. If the draft was saved somewhere else since you opened
   it, you can load that version or keep yours with "Overwrite with my
-  version". Chapters hold text only for now; image blocks come later.
-  (#3483)
+  version". (#3483)
+- Stories take images. Authors upload a PNG, JPEG or WebP into a chapter as an
+  image block with alt text and an optional caption, or as the story's cover,
+  which shows on its card, above its title and in its link preview. Save and
+  Publish wait until every chapter image has alt text. The server re-encodes
+  each upload as WebP at most 2400 px a side without its metadata, and readers
+  get only the images the published story uses. Duplicating a story copies its
+  images. The API adds `POST /stories/{id}/assets`, `GET
+  /stories/{id}/assets/{asset_id}` and `cover_asset_id` on story summaries and
+  updates, and chapters now accept `image` blocks. Additive, but a 1.28.0 API
+  process refuses image blocks and `cover_asset_id`, so during a rolling
+  upgrade they work once every process runs this release. (#3489)
 - Map dashboards in the viewer. A map with a dashboard shows its widgets in a
   panel to the right of the map or below it, as the author chose, and always
   below on narrow screens. The panel appears on the map page, share links and

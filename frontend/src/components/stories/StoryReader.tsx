@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
+import { storyAssetPath } from '@/api/stories';
+import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { prefetchMap } from '@/hooks/use-maps';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { StoryChapter } from '@/types/api';
@@ -29,6 +31,8 @@ function activeIndex(chapters: readonly StoryChapter[], position: Position): num
 }
 
 interface StoryReaderProps {
+  storyId: string;
+  coverAssetId?: string | null;
   title: string;
   summary: string | null;
   chapters: StoryChapter[];
@@ -46,7 +50,7 @@ interface PanelProps extends StoryReaderProps {
  * map, and the chapter in view sets the scene; narrow screens step through
  * one chapter at a time.
  */
-export function StoryReader({ title, summary, chapters, editHref }: StoryReaderProps) {
+export function StoryReader({ storyId, coverAssetId, title, summary, chapters, editHref }: StoryReaderProps) {
   const { t } = useTranslation('stories');
   const queryClient = useQueryClient();
   const isNarrow = useIsMobile();
@@ -83,7 +87,16 @@ export function StoryReader({ title, summary, chapters, editHref }: StoryReaderP
       })
     : '';
 
-  const panelProps = { title, summary, chapters, editHref, active, onActiveChange: changeChapter };
+  const panelProps = {
+    storyId,
+    coverAssetId,
+    title,
+    summary,
+    chapters,
+    editHref,
+    active,
+    onActiveChange: changeChapter,
+  };
   return (
     // The map stays the second child in both layouts, so a resize across the
     // breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow.
@@ -100,10 +113,32 @@ export function StoryReader({ title, summary, chapters, editHref }: StoryReaderP
   );
 }
 
-function StoryHeader({ title, summary, editHref }: { title: string; summary: string | null; editHref?: string }) {
+function StoryHeader({
+  storyId,
+  coverAssetId,
+  title,
+  summary,
+  editHref,
+}: {
+  storyId: string;
+  coverAssetId?: string | null;
+  title: string;
+  summary: string | null;
+  editHref?: string;
+}) {
   const { t } = useTranslation('stories');
   return (
     <header className="space-y-2">
+      {coverAssetId && (
+        // Decorative beside the title.
+        <AssetImage
+          path={storyAssetPath(storyId, coverAssetId)}
+          alt=""
+          className="aspect-[2/1] w-full rounded-md object-cover"
+          placeholderClassName="aspect-[2/1] w-full"
+          fallback={null}
+        />
+      )}
       <div className="flex items-start justify-between gap-2">
         <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
         {editHref && (
@@ -120,7 +155,16 @@ function StoryHeader({ title, summary, editHref }: { title: string; summary: str
   );
 }
 
-function StoryScrollPanel({ title, summary, chapters, editHref, active, onActiveChange }: PanelProps) {
+function StoryScrollPanel({
+  storyId,
+  coverAssetId,
+  title,
+  summary,
+  chapters,
+  editHref,
+  active,
+  onActiveChange,
+}: PanelProps) {
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
@@ -172,7 +216,13 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
       className="min-h-0 w-[26rem] shrink-0 overflow-y-auto border-e bg-background focus-visible:outline-2 focus-visible:outline-ring lg:w-[30rem]"
     >
       <div className="space-y-10 p-6">
-        <StoryHeader title={title} summary={summary} editHref={editHref} />
+        <StoryHeader
+          storyId={storyId}
+          coverAssetId={coverAssetId}
+          title={title}
+          summary={summary}
+          editHref={editHref}
+        />
         {chapters.map((chapter, i) => (
           <section
             key={chapter.id}
@@ -183,7 +233,7 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
             aria-current={i === active ? 'step' : undefined}
             className={`space-y-3 border-s-2 ps-4 transition-colors ${i === active ? 'border-primary' : 'border-transparent'}`}
           >
-            <StoryChapterBody chapter={chapter} index={i} />
+            <StoryChapterBody storyId={storyId} chapter={chapter} index={i} />
           </section>
         ))}
         {/* Lets the last chapter scroll up to the line that makes it active. */}
@@ -193,7 +243,16 @@ function StoryScrollPanel({ title, summary, chapters, editHref, active, onActive
   );
 }
 
-function StoryStepper({ title, summary, chapters, editHref, active, onActiveChange }: PanelProps) {
+function StoryStepper({
+  storyId,
+  coverAssetId,
+  title,
+  summary,
+  chapters,
+  editHref,
+  active,
+  onActiveChange,
+}: PanelProps) {
   const { t } = useTranslation('stories');
   const contentRef = useRef<HTMLDivElement>(null);
   const isFirst = active === 0;
@@ -227,12 +286,18 @@ function StoryStepper({ title, summary, chapters, editHref, active, onActiveChan
         aria-labelledby={chapterHeadingId(chapter)}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <StoryHeader title={title} summary={isFirst ? summary : null} editHref={editHref} />
+        <StoryHeader
+          storyId={storyId}
+          coverAssetId={isFirst ? coverAssetId : null}
+          title={title}
+          summary={isFirst ? summary : null}
+          editHref={editHref}
+        />
         <div className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t('reader.chapterOf', { index: active + 1, total: chapters.length })}
           </p>
-          <StoryChapterBody chapter={chapter} index={active} />
+          <StoryChapterBody storyId={storyId} chapter={chapter} index={active} />
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 border-t p-2">

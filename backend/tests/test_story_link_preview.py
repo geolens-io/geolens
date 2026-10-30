@@ -170,3 +170,36 @@ async def test_story_preview_never_uses_the_request_host(
 
     assert resp.status_code == 404
     assert "attacker.example" not in resp.text
+
+
+async def test_a_story_cover_is_its_card_image(
+    client: AsyncClient, admin_auth_header: dict
+) -> None:
+    from tests.test_story_assets import _png
+
+    scene_map = await _create_map(client, admin_auth_header, visibility="public")
+    await _upload_og_image(client, admin_auth_header, scene_map)
+    story_id = await _published_story(
+        client, admin_auth_header, chapters=[_chapter(scene_map)]
+    )
+    uploaded = await client.post(
+        f"/stories/{story_id}/assets",
+        files={"file": ("cover.png", _png(), "image/png")},
+        headers=admin_auth_header,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    cover = uploaded.json()["id"]
+    patched = await client.patch(
+        f"/stories/{story_id}",
+        json={"cover_asset_id": cover},
+        headers=admin_auth_header,
+    )
+    assert patched.status_code == 200, patched.text
+
+    resp = await client.get(f"/stories/{story_id}/link-preview")
+
+    assert resp.status_code == 200, resp.text
+    image = _meta(resp.text, "property", "og:image")
+    assert image == f"{APP_URL}/api/stories/{story_id}/assets/{cover}"
+    served = await client.get(f"/stories/{story_id}/assets/{cover}")
+    assert served.status_code == 200

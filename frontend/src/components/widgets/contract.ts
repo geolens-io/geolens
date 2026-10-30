@@ -21,6 +21,8 @@ export interface WidgetInstance<C = unknown> {
   title?: string;
   layer_id?: string;
   scope?: 'layer' | 'view';
+  /** The uploaded image a story image block shows. */
+  asset_id?: string;
   config: C;
 }
 
@@ -59,6 +61,8 @@ export interface WidgetRenderProps<C> {
    * widget is read-only.
    */
   onSelect?: (selection: WidgetSelection | null) => void;
+  /** Where the host serves the image the instance names in `asset_id`. */
+  assetPath?: string;
 }
 
 /** A column of the layer a dashboard widget summarizes. */
@@ -90,6 +94,8 @@ export interface WidgetDefinition<C> {
   /** Newest config version this build writes and reads. */
   v: number;
   surfaces: readonly WidgetSurface[];
+  /** Each instance names an image uploaded to its host in `asset_id`. */
+  asset?: true;
   /** i18n key in the `widgets` namespace naming the type in editor menus. */
   labelKey: string;
   /** Every other `widgets` key the renderer and fallback use. */

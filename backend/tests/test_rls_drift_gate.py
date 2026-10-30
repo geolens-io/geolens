@@ -61,6 +61,7 @@ _RLS_TABLES = [
     "map_group_grants",
     "stories",
     "story_maps",
+    "story_assets",
 ]
 
 _POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
@@ -131,7 +132,8 @@ async def _reflect_rls_flags(db_url: str) -> dict[str, dict[str, bool]]:
                             'catalog.dataset_group_grants'::regclass,
                             'catalog.map_group_grants'::regclass,
                             'catalog.stories'::regclass,
-                            'catalog.story_maps'::regclass
+                            'catalog.story_maps'::regclass,
+                            'catalog.story_assets'::regclass
                         ]
                     )
                     ORDER BY relname

@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 from ..models.story_visibility import check_story_visibility
 from ..models.story_visibility import StoryVisibility
 from typing import cast
+from uuid import UUID
 
 
 T = TypeVar("T", bound="StoryUpdate")
@@ -23,11 +24,14 @@ class StoryUpdate:
         summary (None | str | Unset):
         visibility (None | StoryVisibility | Unset): Refused with 409 when a map the published story uses is narrower
             than the new visibility.
+        cover_asset_id (None | Unset | UUID): An image uploaded to this story to use as its cover, or null for none. 422
+            `story_assets_not_found` for an image this story doesn't have.
     """
 
     title: None | str | Unset = UNSET
     summary: None | str | Unset = UNSET
     visibility: None | StoryVisibility | Unset = UNSET
+    cover_asset_id: None | Unset | UUID = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         title: None | str | Unset
@@ -50,6 +54,14 @@ class StoryUpdate:
         else:
             visibility = self.visibility
 
+        cover_asset_id: None | str | Unset
+        if isinstance(self.cover_asset_id, Unset):
+            cover_asset_id = UNSET
+        elif isinstance(self.cover_asset_id, UUID):
+            cover_asset_id = str(self.cover_asset_id)
+        else:
+            cover_asset_id = self.cover_asset_id
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
@@ -59,6 +71,8 @@ class StoryUpdate:
             field_dict["summary"] = summary
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
+        if cover_asset_id is not UNSET:
+            field_dict["cover_asset_id"] = cover_asset_id
 
         return field_dict
 
@@ -101,10 +115,28 @@ class StoryUpdate:
 
         visibility = _parse_visibility(d.pop("visibility", UNSET))
 
+        def _parse_cover_asset_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                cover_asset_id_type_0 = UUID(data)
+
+                return cover_asset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        cover_asset_id = _parse_cover_asset_id(d.pop("cover_asset_id", UNSET))
+
         story_update = cls(
             title=title,
             summary=summary,
             visibility=visibility,
+            cover_asset_id=cover_asset_id,
         )
 
         return story_update

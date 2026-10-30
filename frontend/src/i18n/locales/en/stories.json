@@ -59,7 +59,16 @@
     "save": "Save details",
     "saving": "Saving…",
     "saved": "Details saved",
-    "saveFailed": "Couldn't save the details"
+    "saveFailed": "Couldn't save the details",
+    "cover": {
+      "heading": "Cover image",
+      "hint": "Shown on the story's card and above its first chapter. It changes when you save these details.",
+      "none": "No cover image.",
+      "choose": "Choose a cover image",
+      "replace": "Replace cover image",
+      "remove": "Remove cover image",
+      "preview": "Cover image preview"
+    }
   },
   "publish": {
     "unreadableMaps_one": "{{count}} more map you can't open",
@@ -124,11 +133,14 @@
     },
     "chapter": {
       "title": "Chapter title",
-      "text": "Text",
+      "text": "Content",
       "textBlock": "Text block {{index}}",
       "blockNotEditable": "This block can't be edited here. It's kept as it is.",
       "removeBlock": "Remove text block {{index}}",
-      "addTextBlock": "Add text block"
+      "addTextBlock": "Add text block",
+      "addImage": "Add image",
+      "imageBlock": "Image {{index}}",
+      "removeImage": "Remove image {{index}}"
     },
     "scene": {
       "heading": "Map scene",
@@ -178,7 +190,20 @@
       "chapters_other": "A story can have up to {{count}} chapters.",
       "blocks_one": "A chapter can have up to {{count}} text block.",
       "blocks_other": "A chapter can have up to {{count}} text blocks.",
-      "size": "This story is larger than the 2 MB a draft can hold. Shorten or remove some text to save it."
+      "size": "This story is larger than the 2 MB a draft can hold. Shorten or remove some text to save it.",
+      "altMissing_one": "{{count}} image needs alt text before you can save.",
+      "altMissing_other": "{{count}} images need alt text before you can save."
+    },
+    "image": {
+      "alt": "Alt text",
+      "altHint": "Describe the image for people who can't see it.",
+      "altRequired": "Write alt text before saving.",
+      "caption": "Caption (optional)",
+      "replace": "Replace image",
+      "uploading": "Uploading {{percent}}%",
+      "processing": "Processing the image…",
+      "progress": "Upload progress",
+      "notShown": "This image can't be shown. Replace or remove it."
     }
   }
 }

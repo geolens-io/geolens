@@ -320,6 +320,13 @@ function formatInteger(raw: string): string {
 const STORY_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   scenes_unreadable: 'errors.storyScenesUnreadable',
   visibility_unsupported: 'errors.storyVisibilityUnsupported',
+  story_image_unreadable: 'errors.storyImageUnreadable',
+  story_image_too_large: 'errors.storyImageTooLarge',
+  story_image_unsupported: 'errors.storyImageUnsupported',
+  story_image_busy: 'errors.storyImageBusy',
+  story_image_missing: 'errors.storyImageMissing',
+  story_asset_limit: 'errors.storyAssetLimit',
+  story_assets_not_found: 'errors.storyAssetsNotFound',
 };
 
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {

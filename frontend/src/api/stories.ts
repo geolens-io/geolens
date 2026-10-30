@@ -1,7 +1,9 @@
 import { toast } from 'sonner';
 import { formatMutationError } from '@/lib/error-map';
 import { apiFetch, ApiError } from './client';
+import { xhrUpload, type UploadProgress } from './ingest';
 import type {
+  StoryAssetResponse,
   StoryChapter,
   StoryCreate,
   StoryDraftResponse,
@@ -43,6 +45,28 @@ export async function updateStory(id: string, body: StoryUpdate): Promise<StoryR
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+/** Where a story image is served; fetch it with `apiFetchBlob`, since a private story's needs the reader's token. */
+export function storyAssetPath(storyId: string, assetId: string): string {
+  return `/stories/${encodeURIComponent(storyId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
+/** Uploads an image to a story, reporting the share of bytes sent. */
+export async function uploadStoryImage(
+  storyId: string,
+  file: File,
+  onProgress?: UploadProgress,
+  signal?: AbortSignal,
+): Promise<StoryAssetResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return xhrUpload<StoryAssetResponse>(
+    `/stories/${encodeURIComponent(storyId)}/assets`,
+    form,
+    onProgress,
+    signal,
+  );
 }
 
 export async function getStoryDraft(id: string): Promise<StoryDraftResponse> {

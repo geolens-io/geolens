@@ -136,6 +136,13 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
         [
             pytest.param(_widget("histogram"), id="a dashboard widget in a story"),
             pytest.param(_without("image", "asset_id"), id="an image with no asset"),
+            pytest.param(
+                _widget("image", config={"alt": "  "}), id="an image with no alt text"
+            ),
+            pytest.param(
+                _widget("image", config={"caption": "River"}),
+                id="an image without alt",
+            ),
         ],
     )
     def test_story_block_is_refused(self, item: dict[str, Any]) -> None:

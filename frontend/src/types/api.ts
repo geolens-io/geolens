@@ -574,6 +574,7 @@ export type StoryDraftResponse = components['schemas']['StoryDraftResponse'];
 export type StoryCreate = components['schemas']['StoryCreate'];
 export type StoryUpdate = components['schemas']['StoryUpdate'];
 export type StoryVisibility = components['schemas']['StoryVisibility'];
+export type StoryAssetResponse = components['schemas']['StoryAssetResponse'];
 
 export interface MapBrowseParams {
   skip?: number;

@@ -153,6 +153,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
         title: story.title,
         summary: story.summary,
         visibility: story.visibility,
+        cover_asset_id: story.cover_asset_id,
         published_at: story.published_at,
         updated_at: story.updated_at,
       }));

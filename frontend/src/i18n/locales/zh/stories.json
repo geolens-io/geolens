@@ -59,7 +59,16 @@
     "save": "保存详情",
     "saving": "正在保存…",
     "saved": "详情已保存",
-    "saveFailed": "无法保存详情"
+    "saveFailed": "无法保存详情",
+    "cover": {
+      "heading": "封面图片",
+      "hint": "显示在故事卡片上及第一章上方。保存这些详情后生效。",
+      "none": "没有封面图片。",
+      "choose": "选择封面图片",
+      "replace": "替换封面图片",
+      "remove": "移除封面图片",
+      "preview": "封面图片预览"
+    }
   },
   "publish": {
     "unreadableMaps_one": "另有 {{count}} 个你无法打开的地图",
@@ -124,11 +133,14 @@
     },
     "chapter": {
       "title": "章节标题",
-      "text": "文字",
+      "text": "内容",
       "textBlock": "文字块 {{index}}",
       "blockNotEditable": "此块无法在这里编辑，将保持原样。",
       "removeBlock": "移除文字块 {{index}}",
-      "addTextBlock": "添加文字块"
+      "addTextBlock": "添加文字块",
+      "addImage": "添加图片",
+      "imageBlock": "图片 {{index}}",
+      "removeImage": "移除图片 {{index}}"
     },
     "scene": {
       "heading": "地图场景",
@@ -178,7 +190,20 @@
       "chapters_other": "一个故事最多可有 {{count}} 个章节。",
       "blocks_one": "一个章节最多可有 {{count}} 个文字块。",
       "blocks_other": "一个章节最多可有 {{count}} 个文字块。",
-      "size": "此故事超过了草稿可容纳的 2 MB。请缩短或删除部分文字后再保存。"
+      "size": "此故事超过了草稿可容纳的 2 MB。请缩短或删除部分文字后再保存。",
+      "altMissing_one": "{{count}} 张图片需要替代文本才能保存。",
+      "altMissing_other": "{{count}} 张图片需要替代文本才能保存。"
+    },
+    "image": {
+      "alt": "替代文本",
+      "altHint": "为看不到图片的人描述这张图片。",
+      "altRequired": "保存前请填写替代文本。",
+      "caption": "说明文字（可选）",
+      "replace": "替换图片",
+      "uploading": "正在上传 {{percent}}%",
+      "processing": "正在处理图片…",
+      "progress": "上传进度",
+      "notShown": "无法显示此图片。请替换或移除它。"
     }
   }
 }

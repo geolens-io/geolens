@@ -31,6 +31,7 @@ class Story(Base):
             name="chk_stories_visibility",
         ),
         Index("ix_stories_created_by", "created_by"),
+        Index("ix_stories_cover_asset_id", "cover_asset_id"),
         {"schema": "catalog"},
     )
 
@@ -50,6 +51,16 @@ class Story(Base):
     published: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # Applies at once like the title, outside draft and publish.
+    cover_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "catalog.story_assets.id",
+            ondelete="SET NULL",
+            name="fk_stories_cover_asset_id",
+            use_alter=True,
+        ),
+        nullable=True,
     )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
@@ -84,4 +95,45 @@ class StoryMap(Base):
     # Derived from the story by trigger, which also refuses another tenant's map.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
+    )
+
+
+class StoryAsset(Base):
+    """An image uploaded to a story, stored re-encoded as WebP.
+
+    Its blocks and the story's cover name it by id. Its stored object is
+    written once under a key no other asset uses.
+    """
+
+    __tablename__ = "story_assets"
+    __table_args__ = (
+        Index("ix_story_assets_story_id", "story_id"),
+        Index("ix_story_assets_created_by", "created_by"),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    story_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.stories.id", ondelete="CASCADE"), nullable=False
+    )
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Derived from the story by trigger, which refuses a mismatched tenant.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Upload time, refreshed when a change stops using the asset; cleanup
+    # counts its grace period from here.
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

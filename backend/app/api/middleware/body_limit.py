@@ -7,8 +7,8 @@ The limit is resolved PER-REQUEST from cached PersistentConfig, not the
 boot-time env value, so a raised UPLOAD_MAX_SIZE_MB takes effect without
 a restart. The cap is per route: only POST /ingest/upload and
 POST /datasets/{id}/reupload get UPLOAD_MAX_SIZE_MB (500 MB); GeoJSON
-feature mutations get a 1 MB pre-decode cap; everything else gets
-DEFAULT_BODY_LIMIT_BYTES (10 MB). Deployments strip the app's `/api` prefix
+feature mutations get a 1 MB pre-decode cap; story image uploads get 51 MB;
+everything else gets DEFAULT_BODY_LIMIT_BYTES (10 MB). Deployments strip the app's `/api` prefix
 before this middleware sees the path, so `_is_upload_route` normalises it
 rather than matching a literal prefix.
 """
@@ -42,6 +42,9 @@ DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
 # again by PostGIS. Keep their pre-JSON-decode ceiling substantially below the
 # general API limit; coordinate cardinality is enforced by the feature schema.
 FEATURE_WRITE_BODY_LIMIT_BYTES = 1 * 1024 * 1024  # 1 MB
+
+# A story image upload: the route's own 50 MB file cap plus multipart framing.
+STORY_ASSET_BODY_LIMIT_BYTES = 51 * 1024 * 1024
 
 
 def _too_large_response(max_bytes: int) -> JSONResponse:
@@ -159,6 +162,29 @@ def _is_feature_write_route(path: str, method: str) -> bool:
     return False
 
 
+def _is_story_asset_upload_route(path: str, method: str) -> bool:
+    """Return True for POST /stories/{story_id}/assets, matched as routing does."""
+    segments = _strip_api_prefix(path).split("/")
+    return (
+        method.upper() == "POST"
+        and len(segments) == 4
+        and segments[1] == "stories"
+        and _is_uuid(segments[2])
+        and segments[3] == "assets"
+    )
+
+
+def _route_limit(path: str, method: str) -> int:
+    """The body cap for one request's route."""
+    if _is_upload_route(path, method):
+        return _get_upload_limit()
+    if _is_feature_write_route(path, method):
+        return FEATURE_WRITE_BODY_LIMIT_BYTES
+    if _is_story_asset_upload_route(path, method):
+        return STORY_ASSET_BODY_LIMIT_BYTES
+    return _get_upload_limit(route_override=DEFAULT_BODY_LIMIT_BYTES)
+
+
 def _get_upload_limit(route_override: int | None = None) -> int:
     """Return the effective upload limit in bytes.
 
@@ -249,14 +275,7 @@ class RequestBodyLimitMiddleware:
         if not is_liveness_request(scope):
             await _refresh_limit_cache()
 
-        path = scope.get("path", "")
-        method = scope.get("method", "")
-        if _is_upload_route(path, method):
-            max_bytes = _get_upload_limit()
-        elif _is_feature_write_route(path, method):
-            max_bytes = FEATURE_WRITE_BODY_LIMIT_BYTES
-        else:
-            max_bytes = _get_upload_limit(route_override=DEFAULT_BODY_LIMIT_BYTES)
+        max_bytes = _route_limit(scope.get("path", ""), scope.get("method", ""))
 
         # Fast path: Content-Length header present — reject before reading the body
         headers = dict(scope.get("headers", []))

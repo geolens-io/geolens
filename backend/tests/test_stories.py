@@ -395,49 +395,6 @@ async def test_stored_unknown_block_survives_a_save(
     assert stored["chapters"][0]["blocks"] == as_stored
 
 
-async def test_stored_image_block_survives_a_save(
-    client: AsyncClient, people, test_db_session
-):
-    owner = people["owner"]
-    story = await _story(client, owner)
-    chapter_id = str(uuid.uuid4())
-    text = _block("text")
-    story = await _saved(
-        client, owner, story, [_chapter(blocks=[text], chapter_id=chapter_id)]
-    )
-    image = {
-        "id": str(uuid.uuid4()),
-        "type": "image",
-        "v": 1,
-        "asset_id": str(uuid.uuid4()),
-        "config": {"alt": "A river"},
-    }
-    stored = await test_db_session.scalar(
-        select(Story.draft).where(Story.id == uuid.UUID(story["id"]))
-    )
-    stored["chapters"][0]["blocks"].append(image)
-    await test_db_session.execute(
-        update(Story).where(Story.id == uuid.UUID(story["id"])).values(draft=stored)
-    )
-    await test_db_session.commit()
-
-    draft = (await client.get(f"/stories/{story['id']}/draft", headers=owner)).json()
-    assert [b["type"] for b in draft["document"]["chapters"][0]["blocks"]] == [
-        "markdown"
-    ]
-
-    edited = {**text, "config": {"text": "edited"}}
-    await _saved(
-        client, owner, draft, [_chapter(blocks=[edited], chapter_id=chapter_id)]
-    )
-
-    test_db_session.expire_all()
-    stored = await test_db_session.scalar(
-        select(Story.draft).where(Story.id == uuid.UUID(story["id"]))
-    )
-    assert stored["chapters"][0]["blocks"][-1] == image
-
-
 async def test_scene_on_a_map_the_editor_cannot_read_is_refused(
     client: AsyncClient, people
 ):
@@ -686,19 +643,22 @@ async def test_document_size_is_capped(client: AsyncClient, people):
     assert "too large" in resp.text
 
 
-async def test_image_blocks_and_repeated_chapter_ids_are_refused(
+async def test_unknown_images_and_repeated_chapter_ids_are_refused(
     client: AsyncClient, people
 ):
     story = await _story(client, people["owner"])
+    unknown = str(uuid.uuid4())
     image = {
         "id": str(uuid.uuid4()),
         "type": "image",
         "v": 1,
-        "asset_id": str(uuid.uuid4()),
-        "config": {"alt": ""},
+        "asset_id": unknown,
+        "config": {"alt": "A river"},
     }
     resp = await _save(client, people["owner"], story, [_chapter(blocks=[image])])
-    assert resp.status_code == 422 and "image blocks" in resp.text
+    assert resp.status_code == 422, resp.text
+    assert _detail(resp)["code"] == "story_assets_not_found"
+    assert _detail(resp)["asset_ids"] == [unknown]
     twice = str(uuid.uuid4())
     resp = await _save(
         client,

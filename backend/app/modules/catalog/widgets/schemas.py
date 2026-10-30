@@ -65,7 +65,9 @@ class MarkdownConfig(_Strict):
 
 
 class ImageConfig(_Strict):
-    alt: str = Field(default="", max_length=500, description="Empty for decorative.")
+    alt: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ] = Field(description="Text that stands in for the image.")
     caption: str | None = Field(default=None, max_length=500)
 
 
@@ -213,11 +215,6 @@ _HOST_ADAPTERS: dict[WidgetHost, TypeAdapter[Any]] = {
 }
 
 
-# Types a host's schema lists that its client can't edit yet. Reads set them
-# aside like unparseable items, so a save from that client keeps them.
-_UNEDITABLE: dict[WidgetHost, frozenset[str]] = {"story": frozenset({"image"})}
-
-
 class KeptWidget(NamedTuple):
     """A stored item the client never sees, and where it goes back on a save."""
 
@@ -244,13 +241,10 @@ def read_stored(stored: Sequence[Any] | None, host: WidgetHost) -> StoredWidgets
     unreadable: list[KeptWidget] = []
     for index, raw in enumerate(stored or ()):
         parsed = None
-        kind = raw.get("type") if isinstance(raw, dict) else None
-        uneditable = isinstance(kind, str) and kind in _UNEDITABLE.get(host, ())
-        if not uneditable:
-            try:
-                parsed = adapter.validate_python(raw)
-            except ValidationError:
-                pass
+        try:
+            parsed = adapter.validate_python(raw)
+        except ValidationError:
+            pass
         if parsed is not None:
             widgets.append(parsed)
         else:

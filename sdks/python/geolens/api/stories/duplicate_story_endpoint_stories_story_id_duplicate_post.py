@@ -75,6 +75,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 502:
+        response_502 = ProblemDetail.from_dict(response.json())
+
+        return response_502
+
     if response.status_code == 503:
         response_503 = ProblemDetail.from_dict(response.json())
 
@@ -107,7 +112,8 @@ def sync_detailed(
      Copy a story you can read into a new private draft you own.
 
     Its owner or an admin copies the draft; anyone else the published
-    document. Scenes on maps you can't read are left out of the copy.
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
 
     Args:
         story_id (UUID):
@@ -141,7 +147,8 @@ def sync(
      Copy a story you can read into a new private draft you own.
 
     Its owner or an admin copies the draft; anyone else the published
-    document. Scenes on maps you can't read are left out of the copy.
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
 
     Args:
         story_id (UUID):
@@ -170,7 +177,8 @@ async def asyncio_detailed(
      Copy a story you can read into a new private draft you own.
 
     Its owner or an admin copies the draft; anyone else the published
-    document. Scenes on maps you can't read are left out of the copy.
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
 
     Args:
         story_id (UUID):
@@ -202,7 +210,8 @@ async def asyncio(
      Copy a story you can read into a new private draft you own.
 
     Its owner or an admin copies the draft; anyone else the published
-    document. Scenes on maps you can't read are left out of the copy.
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
 
     Args:
         story_id (UUID):

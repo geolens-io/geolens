@@ -59,7 +59,16 @@
     "save": "Guardar detalles",
     "saving": "Guardando…",
     "saved": "Detalles guardados",
-    "saveFailed": "No se pudieron guardar los detalles"
+    "saveFailed": "No se pudieron guardar los detalles",
+    "cover": {
+      "heading": "Imagen de portada",
+      "hint": "Se muestra en la tarjeta de la historia y sobre su primer capítulo. Cambia al guardar estos detalles.",
+      "none": "Sin imagen de portada.",
+      "choose": "Elegir una imagen de portada",
+      "replace": "Reemplazar la imagen de portada",
+      "remove": "Quitar la imagen de portada",
+      "preview": "Vista previa de la imagen de portada"
+    }
   },
   "publish": {
     "unreadableMaps_one": "{{count}} mapa más que no puedes abrir",
@@ -124,11 +133,14 @@
     },
     "chapter": {
       "title": "Título del capítulo",
-      "text": "Texto",
+      "text": "Contenido",
       "textBlock": "Bloque de texto {{index}}",
       "blockNotEditable": "Este bloque no se puede editar aquí. Se conserva tal cual.",
       "removeBlock": "Quitar el bloque de texto {{index}}",
-      "addTextBlock": "Añadir bloque de texto"
+      "addTextBlock": "Añadir bloque de texto",
+      "addImage": "Añadir imagen",
+      "imageBlock": "Imagen {{index}}",
+      "removeImage": "Quitar imagen {{index}}"
     },
     "scene": {
       "heading": "Escena de mapa",
@@ -178,7 +190,20 @@
       "chapters_other": "Una historia puede tener hasta {{count}} capítulos.",
       "blocks_one": "Un capítulo puede tener hasta {{count}} bloque de texto.",
       "blocks_other": "Un capítulo puede tener hasta {{count}} bloques de texto.",
-      "size": "Esta historia supera los 2 MB que admite un borrador. Acorta o quita texto para guardarla."
+      "size": "Esta historia supera los 2 MB que admite un borrador. Acorta o quita texto para guardarla.",
+      "altMissing_one": "{{count}} imagen necesita texto alternativo antes de guardar.",
+      "altMissing_other": "{{count}} imágenes necesitan texto alternativo antes de guardar."
+    },
+    "image": {
+      "alt": "Texto alternativo",
+      "altHint": "Describe la imagen para quienes no pueden verla.",
+      "altRequired": "Escribe el texto alternativo antes de guardar.",
+      "caption": "Pie de imagen (opcional)",
+      "replace": "Reemplazar imagen",
+      "uploading": "Subiendo {{percent}} %",
+      "processing": "Procesando la imagen…",
+      "progress": "Progreso de la subida",
+      "notShown": "Esta imagen no se puede mostrar. Reemplázala o quítala."
     }
   }
 }

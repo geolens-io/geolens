@@ -1096,8 +1096,6 @@ async def get_thumbnail(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve map thumbnail image from storage (visibility-checked)."""
-    from app.platform.storage.provider import get_storage
-
     map_obj = await get_map(db, map_id)
     if map_obj is None or not map_obj.thumbnail_uri:
         raise HTTPException(
@@ -1113,16 +1111,9 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
-    storage = get_storage()
-    try:
-        data = await storage.get(_map_asset_storage_key(map_obj.thumbnail_uri))
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Thumbnail not found",
-        )
-    media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
-    return _stored_image_response(request, data, media_type, cache_control)
+    return await _stored_image_response(
+        request, map_obj.thumbnail_uri, cache_control, "Thumbnail not found"
+    )
 
 
 @router.put(
@@ -1256,8 +1247,6 @@ async def get_og_image(
     Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
     ``maps/og-images/`` key space.
     """
-    from app.platform.storage.provider import get_storage
-
     map_obj = await get_map(db, map_id)
     if map_obj is None or not map_obj.og_image_uri:
         raise HTTPException(
@@ -1273,16 +1262,9 @@ async def get_og_image(
             detail="OG image not found",
         )
 
-    storage = get_storage()
-    try:
-        data = await storage.get(_map_asset_storage_key(map_obj.og_image_uri))
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="OG image not found",
-        )
-    media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
-    return _stored_image_response(request, data, media_type, cache_control)
+    return await _stored_image_response(
+        request, map_obj.og_image_uri, cache_control, "OG image not found"
+    )
 
 
 @router.post(

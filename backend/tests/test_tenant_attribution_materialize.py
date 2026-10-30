@@ -168,6 +168,7 @@ _TENANT_SCOPED_CATALOG_TABLES = (
     "map_group_grants",
     "stories",
     "story_maps",
+    "story_assets",
     "groups",
 )
 

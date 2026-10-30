@@ -10,6 +10,17 @@ const MAPS = {
   private: `E2E Story Map Private ${RUN}`,
 };
 
+// A 96x64 PNG, inline because the repository ignores *.png outside asset folders.
+const IMAGE_FIXTURE = {
+  name: 'story-image.png',
+  mimeType: 'image/png',
+  buffer: Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAiElEQVR42u3bMRHAIAxA0aRXIZWApI5IqAQkMFZSJaGAoSPc+3sG3iUjed1vaN6BABAgQIAAAQIESIAAAQIECNBenX8HvtpWf3Ppjw1yYoAAAQIESIAAAQIECBAgQIAECBAgQIAAAQIkQIAAAQIECBAgRaQPdTYIECBAgAABAiRAgAABAgRorwYZuQXBxP0bQwAAAABJRU5ErkJggg==',
+    'base64',
+  ),
+};
+const IMAGE_ALT = 'A blue field with a yellow band';
+
 const mapIds: Record<keyof typeof MAPS, string> = { first: '', second: '', private: '' };
 let storyId = '';
 
@@ -75,8 +86,38 @@ test.describe.serial('Stories', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Published. Readers see this version.' })).toBeVisible();
   });
 
+  test('an author adds an image and a cover, then publishes them', async ({ page }) => {
+    await page.goto(`/stories/${storyId}/edit`);
+    await expect(page.getByRole('heading', { level: 1, name: STORY_TITLE })).toBeVisible();
+    const chapter = page.getByRole('region', { name: /^Chapter 1 of/ });
+    await chapter.getByTestId('story-image-input').setInputFiles(IMAGE_FIXTURE);
+    const alt = chapter.getByRole('textbox', { name: 'Alt text' });
+    await expect(alt).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    await alt.fill(IMAGE_ALT);
+    await expect(chapter.getByRole('img', { name: IMAGE_ALT })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Details' }).click();
+    const details = page.getByRole('dialog');
+    await details.getByTestId('story-image-input').setInputFiles(IMAGE_FIXTURE);
+    await expect(details.getByRole('img', { name: 'Cover image preview' })).toBeVisible();
+    await details.getByRole('button', { name: 'Save details' }).click();
+    await expect(details).toBeHidden();
+
+    await page.getByRole('button', { name: 'Publish' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Published. Readers see this version.' })).toBeVisible();
+  });
+
   test.describe('signed out', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
+
+    test('an anonymous reader sees the story image and the cover', async ({ page }) => {
+      await page.goto(`/stories/${storyId}`);
+      const image = page.getByRole('img', { name: IMAGE_ALT });
+      await expect(image).toBeVisible();
+      await expect.poll(() => image.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      await expect(page.locator('header img[alt=""]').first()).toBeVisible();
+    });
 
     test('an anonymous reader opens the published story', async ({ page }) => {
       await page.goto(`/stories/${storyId}`);

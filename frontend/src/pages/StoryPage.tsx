@@ -60,6 +60,8 @@ export function StoryPage() {
   return (
     <StoryReader
       key={data.id}
+      storyId={data.id}
+      coverAssetId={data.cover_asset_id}
       title={data.title}
       summary={data.summary}
       chapters={chapters}

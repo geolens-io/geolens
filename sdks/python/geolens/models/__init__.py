@@ -981,6 +981,7 @@ from .stats_result import StatsResult
 from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
 from .stored_story_visibility import StoredStoryVisibility
+from .story_asset_response import StoryAssetResponse
 from .story_camera import StoryCamera
 from .story_chapter import StoryChapter
 from .story_chapter_input import StoryChapterInput
@@ -1023,6 +1024,9 @@ from .translation_upsert import TranslationUpsert
 from .type_change import TypeChange
 from .upload_config_response import UploadConfigResponse
 from .upload_response import UploadResponse
+from .upload_story_asset_endpoint_stories_story_id_assets_post_body import (
+    UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
+)
 from .url_upload_request import UrlUploadRequest
 from .user_create import UserCreate
 from .user_list_response import UserListResponse
@@ -1751,6 +1755,7 @@ __all__ = (
     "StatusUpdate",
     "StatusUpdateResponse",
     "StoredStoryVisibility",
+    "StoryAssetResponse",
     "StoryCamera",
     "StoryChapter",
     "StoryChapterInput",
@@ -1789,6 +1794,7 @@ __all__ = (
     "TypeChange",
     "UploadConfigResponse",
     "UploadResponse",
+    "UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody",
     "UrlUploadRequest",
     "UserCreate",
     "UserListResponse",

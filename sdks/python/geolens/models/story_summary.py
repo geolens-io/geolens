@@ -29,6 +29,8 @@ class StorySummary:
             group sharing, which no route sets yet.
         created_by (None | UUID):
         published_at (datetime.datetime | None): When the story was last published; null if never.
+        cover_asset_id (None | UUID): The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without
+            one.
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         can_edit (bool):
@@ -40,6 +42,7 @@ class StorySummary:
     visibility: StoredStoryVisibility
     created_by: None | UUID
     published_at: datetime.datetime | None
+    cover_asset_id: None | UUID
     created_at: datetime.datetime
     updated_at: datetime.datetime
     can_edit: bool
@@ -67,6 +70,12 @@ class StorySummary:
         else:
             published_at = self.published_at
 
+        cover_asset_id: None | str
+        if isinstance(self.cover_asset_id, UUID):
+            cover_asset_id = str(self.cover_asset_id)
+        else:
+            cover_asset_id = self.cover_asset_id
+
         created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
@@ -83,6 +92,7 @@ class StorySummary:
                 "visibility": visibility,
                 "created_by": created_by,
                 "published_at": published_at,
+                "cover_asset_id": cover_asset_id,
                 "created_at": created_at,
                 "updated_at": updated_at,
                 "can_edit": can_edit,
@@ -137,6 +147,21 @@ class StorySummary:
 
         published_at = _parse_published_at(d.pop("published_at"))
 
+        def _parse_cover_asset_id(data: object) -> None | UUID:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                cover_asset_id_type_0 = UUID(data)
+
+                return cover_asset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        cover_asset_id = _parse_cover_asset_id(d.pop("cover_asset_id"))
+
         created_at = isoparse(d.pop("created_at"))
 
         updated_at = isoparse(d.pop("updated_at"))
@@ -150,6 +175,7 @@ class StorySummary:
             visibility=visibility,
             created_by=created_by,
             published_at=published_at,
+            cover_asset_id=cover_asset_id,
             created_at=created_at,
             updated_at=updated_at,
             can_edit=can_edit,
