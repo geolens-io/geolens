@@ -117,6 +117,16 @@ describe('StoryDetailsDialog', () => {
     expect(within(alert).getByRole('link', { name: 'Internal tracks' })).toHaveAttribute('href', '/maps/m1');
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
+  it('removes a group without submitting the details form', async () => {
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    renderDetails({ story: { ...DRAFT, groups: [{ id: 'g1', name: 'Field team' }] }, onOpenChange });
+    await user.click(screen.getByRole('button', { name: 'Remove Field team' }));
+
+    expect(screen.queryByRole('button', { name: 'Remove Field team' })).not.toBeInTheDocument();
+    expect(updateStory).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
 });
 
 describe('StoryDetailsDialog cover', () => {
