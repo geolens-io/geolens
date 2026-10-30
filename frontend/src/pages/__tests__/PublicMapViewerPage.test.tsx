@@ -31,7 +31,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 vi.mock('@/components/viewer/ViewerMap', () => ({
   ViewerMap: (props: React.ComponentProps<typeof ViewerMap>) => {
     viewerMapMock.props = props;
-    return <div data-testid="viewer-map">viewer map</div>;
+    return <div data-testid="viewer-map">viewer map{props.overlays}</div>;
   },
 }));
 

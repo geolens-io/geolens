@@ -217,13 +217,16 @@ test.describe('Accessibility - WCAG 2AA', () => {
           await page.goto(`/m/${shareToken}`);
           await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
           await page.getByRole('button', { name: 'Map data' }).click();
-          const dataDialog = page.getByRole('dialog', { name: 'Map data' });
-          await expect(dataDialog).toBeVisible();
-          await expect(dataDialog.getByText(datasetTitle).first()).toBeVisible();
+          const dataPanel = page.getByRole('region', { name: 'Map data' });
+          await expect(dataPanel).toBeVisible();
+          // The panel opens on its Table view when the map offers one; the cards are the List view.
+          const listView = dataPanel.getByRole('radio', { name: 'List' });
+          if (await listView.count()) await listView.click();
+          await expect(dataPanel.getByText(datasetTitle).first()).toBeVisible();
           await expect(
-            dataDialog.getByRole('region', { name: 'Map layer and feature data' }),
+            dataPanel.getByRole('region', { name: 'Map layer and feature data' }),
           ).toBeVisible();
-          await expect(dataDialog.getByText('E2E Test Point', { exact: true })).toBeVisible({
+          await expect(dataPanel.getByText('E2E Test Point', { exact: true })).toBeVisible({
             timeout: 15_000,
           });
           await page.waitForLoadState('networkidle').catch(() => {

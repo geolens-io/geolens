@@ -45,6 +45,24 @@ function PublicMapViewer() {
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
+  // Memoized so the memoized ViewerMap doesn't re-render with the page.
+  const savedBasemap = data?.basemap_style;
+  const savedLayers = data?.layers;
+  const mapOverlays = useMemo(() => (savedBasemap === undefined ? null : (
+    <>
+      <BasemapToggle
+        value={basemapId ?? savedBasemap}
+        onChange={setBasemapId}
+        title={t('viewer.changeBasemap')}
+        className="absolute bottom-8 start-3 z-10"
+      />
+      {/* Read-only "Ask AI"; self-gates on AI availability + use_ai_chat, so
+          anonymous and unpermitted viewers render nothing. */}
+      {id && savedLayers && (
+        <ViewerChatPanel mapId={id} layers={savedLayers} mapInstanceRef={mapInstanceRef} />
+      )}
+    </>
+  )), [savedBasemap, savedLayers, basemapId, id, t]);
 
   if (isLoading) {
     return (
@@ -92,6 +110,8 @@ function PublicMapViewer() {
                   onMapReady(map);
                 }}
                 onDrawnChange={setDrawnLayers}
+                showAttributeTable={data.show_attribute_table}
+                overlays={mapOverlays}
               />
             </Suspense>
           </MapErrorBoundary>
@@ -109,18 +129,6 @@ function PublicMapViewer() {
             drawn={drawnLayers}
           />
 
-          <BasemapToggle
-            value={basemapId ?? data.basemap_style}
-            onChange={setBasemapId}
-            title={t('viewer.changeBasemap')}
-            className="absolute bottom-8 start-3 z-10"
-          />
-
-          {/* Read-only "Ask AI"; self-gates on AI availability + use_ai_chat, so
-              anonymous and unpermitted viewers render nothing. */}
-          {id && (
-            <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
-          )}
         </div>
       )}
     </ViewerWithDashboard>

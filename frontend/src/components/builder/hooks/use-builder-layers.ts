@@ -177,6 +177,8 @@ export function useBuilderLayers(
   const [localDescription, setLocalDescription] = useState('');
   // Map-level custom legend title. Null means no override.
   const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
+  // Whether readers can open the Map data table.
+  const [localShowAttributeTable, setLocalShowAttributeTable] = useState(true);
   const warnDashboardChanged = useCallback(
     () => toast.warning(t('toasts.dashboardChangedElsewhere'), { id: 'dashboard-changed-elsewhere' }),
     [t],
@@ -385,6 +387,7 @@ export function useBuilderLayers(
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
       setLocalLegendTitle(mapData.legend_title ?? null);
+      setLocalShowAttributeTable(mapData.show_attribute_table ?? true);
       initializedRef.current = true;
     }
   }, [mapData]);
@@ -592,6 +595,11 @@ export function useBuilderLayers(
       setHasUnsavedChanges(true);
       return next;
     });
+  }, [setHasUnsavedChanges]);
+
+  const handleShowAttributeTableChange = useCallback((next: boolean) => {
+    setLocalShowAttributeTable(next);
+    setHasUnsavedChanges(true);
   }, [setHasUnsavedChanges]);
 
   // Set a per-entry legend label override on style_config.legendLabel; an empty
@@ -1027,6 +1035,7 @@ export function useBuilderLayers(
     // value": identical text is clean, as is any pair that both persist as null.
     if (!sameSavedText(localDescription, mapData.description)) return false;
     if (!sameSavedText(localLegendTitle, mapData.legend_title)) return false;
+    if (localShowAttributeTable !== (mapData.show_attribute_table ?? true)) return false;
     if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
@@ -1046,7 +1055,7 @@ export function useBuilderLayers(
 
     return true;
   }, [
-    mapData, localName, localDescription, localLegendTitle, localBasemap,
+    mapData, localName, localDescription, localLegendTitle, localShowAttributeTable, localBasemap,
     showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, dashboardEdited,
   ]);
 
@@ -1253,6 +1262,8 @@ export function useBuilderLayers(
     localLegendTitle, setLocalLegendTitle,
     handleLegendTitleChange,
     handleLegendLabelChange,
+    localShowAttributeTable,
+    handleShowAttributeTableChange,
     dashboard,
     savedDashboard,
     dashboardEdited,

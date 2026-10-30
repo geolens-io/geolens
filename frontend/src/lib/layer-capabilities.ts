@@ -105,7 +105,9 @@ const NO_DATA_TABLE_RECORD_TYPES = new Set([
  * datasets, folder-group rows, basemaps (own rows, no kebab) and unsaved
  * previews (own row type).
  */
-export function canOpenAttributeTable(layer: MapLayerResponse): boolean {
+export function canOpenAttributeTable(
+  layer: Pick<MapLayerResponse, 'dataset_id' | 'is_dem' | 'layer_type' | 'dataset_record_type'>,
+): boolean {
   return (
     !isFolderGroupLayer(layer) &&
     !!layer.dataset_id &&

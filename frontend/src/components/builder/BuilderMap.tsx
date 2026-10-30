@@ -12,7 +12,8 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { buildTileTransformRequest, featureGid, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
@@ -93,8 +94,6 @@ interface BuilderMapProps {
   basemapConfig?: MapBasemapConfig | null;
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
-  /** Called when the user clicks a map feature. `null` when clicking empty space. */
-  onFeatureSelect?: (feature: FeatureInfo | null) => void;
 }
 
 // The five statuses that leave a cluster layer rendering as points, mapped to
@@ -207,7 +206,6 @@ export const BuilderMap = memo(function BuilderMap({
   basemapConfig = null,
   onMapRef,
   showBasemapLabels = true,
-  onFeatureSelect,
 }: BuilderMapProps) {
   const { t } = useTranslation('builder');
   const mapLocale = useMapLocale();
@@ -234,6 +232,8 @@ export const BuilderMap = memo(function BuilderMap({
   const sawTileErrorSinceLoadingRef = useRef(false);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // The selection belongs to this map; the next one starts with none.
+  useEffect(() => () => useMapSelectionStore.getState().clear(), []);
   // State mirror of mapRef.current so MapCoordReadout consumes the map via
   // state rather than reading a ref during render.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
@@ -953,10 +953,8 @@ export const BuilderMap = memo(function BuilderMap({
           latitude: coordinates?.[1] ?? fallbackLngLat?.lat ?? 0,
           features: [info],
         });
-        onFeatureSelect?.(info);
       } else {
         setPopupInfo(null);
-        onFeatureSelect?.(null);
       }
       void activateClusterFeature(map, feature, hit.sourceId);
     };
@@ -988,9 +986,17 @@ export const BuilderMap = memo(function BuilderMap({
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),
+          layerId: layer.id,
+          featureId: featureGid(feature),
         });
       }
       return mapped;
+    };
+
+    // A cluster or a feature without a tile id selects no table row.
+    const selectFirst = (features: FeatureInfo[]) => {
+      const { layerId, featureId } = features[0];
+      if (layerId && featureId !== undefined) useMapSelectionStore.getState().select(layerId, featureId);
     };
 
     const handleClick = (e: MapMouseEvent) => {
@@ -1018,10 +1024,9 @@ export const BuilderMap = memo(function BuilderMap({
           latitude: e.lngLat.lat,
           features: mapped,
         });
-        onFeatureSelect?.(mapped[0]);
+        selectFirst(mapped);
       } else {
         setPopupInfo(null);
-        onFeatureSelect?.(null);
       }
     };
 
@@ -1093,7 +1098,7 @@ export const BuilderMap = memo(function BuilderMap({
         latitude: lngLat.lat,
         features: mapped,
       });
-      onFeatureSelect?.(mapped[0]);
+      selectFirst(mapped);
     };
 
     map.on('click', handleClick);
@@ -1117,7 +1122,7 @@ export const BuilderMap = memo(function BuilderMap({
         // Map already torn down — nothing to reset.
       }
     };
-  }, [mapReady, t, lookupHitLayer, onFeatureSelect]);
+  }, [mapReady, t, lookupHitLayer]);
 
   // Popup invalidation key: changes whenever any structural property of the
   // layers list shifts (add/remove/reorder/visibility toggle, dataset rename,

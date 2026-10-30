@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SharedLayerResponse } from '@/types/api';
 import { AccessibleMapDataPanel } from '../AccessibleMapDataPanel';
@@ -46,44 +45,28 @@ function Harness({
   onRefresh = vi.fn(),
   featureResult = RESULT,
 }: { onRefresh?: () => void; featureResult?: AccessibleMapFeatureResult }) {
-  const [open, setOpen] = useState(false);
   return (
     <AccessibleMapDataPanel
       layers={[LAYER]}
       visibleLayers={new Set(['layer-1'])}
       featureResult={featureResult}
-      open={open}
-      onOpenChange={setOpen}
       onRefresh={onRefresh}
     />
   );
 }
 
 describe('AccessibleMapDataPanel', () => {
-  it('sits as a tab centered on the bottom edge', () => {
-    render(<Harness />);
-
-    const trigger = screen.getByRole('button', { name: 'Map data' });
-    expect(trigger).toHaveClass('bottom-0', 'left-1/2', '-translate-x-1/2', 'rounded-b-none');
-    // The label stays in the DOM (visually hidden when narrow) and doubles as a tooltip.
-    expect(trigger).toHaveAccessibleName('Map data');
-    expect(trigger).toHaveAttribute('title', 'Map data');
-  });
-
   it('offers a keyboard-operable structured alternative to the map canvas', () => {
     render(<Harness />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Map data' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Map data' });
-    expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByRole('heading', { name: 'Layers', level: 3 })).toBeInTheDocument();
-    expect(within(dialog).getAllByText('Public roads')).toHaveLength(2);
-    expect(within(dialog).getByText('Visible')).toBeInTheDocument();
-    expect(within(dialog).getByRole('heading', { name: 'City Hall', level: 4 })).toBeInTheDocument();
-    expect(within(dialog).getByText('Street Name')).toBeInTheDocument();
-    expect(within(dialog).getByText('Fayette Street')).toBeInTheDocument();
-    expect(within(dialog).getByRole('region', { name: 'Map layer and feature data' })).toHaveAttribute('tabindex', '0');
+    const region = screen.getByRole('region', { name: 'Map layer and feature data' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('heading', { name: 'Layers', level: 3 })).toBeInTheDocument();
+    expect(screen.getAllByText('Public roads')).toHaveLength(2);
+    expect(screen.getByText('Visible')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'City Hall', level: 4 })).toBeInTheDocument();
+    expect(screen.getByText('Street Name')).toBeInTheDocument();
+    expect(screen.getByText('Fayette Street')).toBeInTheDocument();
   });
 
   it('shows a year without digit grouping and a measure with it', () => {
@@ -101,18 +84,14 @@ describe('AccessibleMapDataPanel', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Map data' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Map data' });
-    expect(within(dialog).getByText('1952')).toBeInTheDocument();
-    expect(within(dialog).getByText('1,952')).toBeInTheDocument();
+    expect(screen.getByText('1952')).toBeInTheDocument();
+    expect(screen.getByText('1,952')).toBeInTheDocument();
   });
 
   it('refreshes the viewport-derived feature list on demand', () => {
     const onRefresh = vi.fn();
     render(<Harness onRefresh={onRefresh} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Map data' }));
     fireEvent.click(screen.getByRole('button', { name: 'Refresh view' }));
 
     expect(onRefresh).toHaveBeenCalledTimes(1);
@@ -124,8 +103,6 @@ describe('AccessibleMapDataPanel', () => {
         layers={[LAYER]}
         visibleLayers={new Set()}
         featureResult={{ features: [], total: 0, truncated: false }}
-        open
-        onOpenChange={vi.fn()}
         onRefresh={vi.fn()}
       />,
     );
@@ -149,8 +126,6 @@ describe('AccessibleMapDataPanel', () => {
           total: 1,
           truncated: false,
         }}
-        open
-        onOpenChange={vi.fn()}
         onRefresh={vi.fn()}
       />,
     );
@@ -167,8 +142,6 @@ describe('AccessibleMapDataPanel', () => {
           layers={[LAYER]}
           visibleLayers={new Set(['layer-1'])}
           featureResult={{ ...RESULT, total }}
-          open
-          onOpenChange={vi.fn()}
           onRefresh={vi.fn()}
         />
       );
@@ -214,16 +187,20 @@ describe('AccessibleMapDataPanel', () => {
     };
     const CAPPED: AccessibleMapFeatureResult = { ...RESULT, total: 250, truncated: true };
 
-    function renderCapped(datasetLinksAllowed?: boolean, featureResult = CAPPED) {
+    function renderCapped(
+      datasetLinksAllowed?: boolean,
+      featureResult = CAPPED,
+      table?: { keys: ReadonlySet<string>; onOpen: (key: string) => void },
+    ) {
       render(
         <AccessibleMapDataPanel
           layers={[LAYER, RASTER, HIDDEN]}
           visibleLayers={new Set(['layer-1', 'layer-2'])}
           featureResult={featureResult}
-          open
-          onOpenChange={vi.fn()}
           onRefresh={vi.fn()}
           datasetLinksAllowed={datasetLinksAllowed}
+          tableLayerKeys={table?.keys}
+          onOpenTable={table?.onOpen}
         />,
       );
     }
@@ -242,6 +219,17 @@ describe('AccessibleMapDataPanel', () => {
       expect(link).toHaveAttribute('href', '/datasets/dataset-1#data');
       expect(link).toHaveAttribute('target', '_blank');
       expect(screen.getAllByRole('link')).toHaveLength(1);
+    });
+
+    it('offers each visible table layer in the table instead of dataset links', () => {
+      const onOpen = vi.fn();
+      renderCapped(true, CAPPED, { keys: new Set(['layer-1', 'layer-3']), onOpen });
+
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+      // The hidden layer is offered nowhere, even though it has a table.
+      expect(screen.getAllByRole('button', { name: /in the table/ })).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Open Public roads in the table' }));
+      expect(onOpen).toHaveBeenCalledWith('layer-1');
     });
 
     it('shows no hint or links while every visible feature is listed', () => {

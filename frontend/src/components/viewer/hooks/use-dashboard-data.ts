@@ -16,7 +16,7 @@ export const VIEW_REFETCH_DEBOUNCE_MS = 400;
 // About a metre; a sub-pixel move keeps the same bbox, and so the cached aggregate.
 const round = (value: number) => Math.round(value * 1e5) / 1e5;
 
-function mapViewBbox(map: MaplibreMap): Bbox {
+export function mapViewBbox(map: MaplibreMap): Bbox {
   const bounds = map.getBounds();
   // getBounds() runs past +/-180 on world copies.
   return wrapBboxLongitudes([

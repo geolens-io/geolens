@@ -1472,7 +1472,12 @@
     "layerPicker": "Capa de la tabla de atributos",
     "filterUnsupported": "No se pudo aplicar el filtro de la capa; se muestran todas las filas.",
     "resizeHandle": "Redimensionar la tabla de atributos",
-    "close": "Cerrar la tabla de atributos"
+    "close": "Cerrar la tabla de atributos",
+    "selectionMissing": "El elemento seleccionado no está en esta página.",
+    "selectionShow": "Mostrar selección",
+    "selectionShowing": "Mostrando solo el elemento seleccionado.",
+    "selectionShowAll": "Mostrar todas las filas",
+    "selectionHiddenByFilters": "Los filtros de la tabla ocultan el elemento seleccionado."
   },
   "layerEditor": {
     "close": "Cerrar editor de capa",
@@ -1558,7 +1563,11 @@
     "projectionAria": "Proyección del mapa",
     "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente.",
     "terrainSmallDemTip": "Consejo: un mapa tiene una sola fuente de terreno. Para un DEM pequeño de alta resolución, acérquese a su extensión o use un DEM que cubra toda el área del mapa.",
-    "openTerrainLayer": "Abrir capa de terreno"
+    "openTerrainLayer": "Abrir capa de terreno",
+    "readersLabel": "LECTORES",
+    "attributeTable": "Los lectores pueden abrir la tabla de atributos",
+    "attributeTableOn": "Tabla activada",
+    "attributeTableOff": "Tabla desactivada"
   },
   "common": {
     "reload": "Recargar"

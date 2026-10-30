@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { eyebrowClassName } from './EmptyStackState';
 import { Switch } from '@/components/ui/switch';
@@ -38,6 +38,10 @@ export interface SettingsEditorSceneProps {
   // Projection (persisted on basemap_config.projection)
   projection: 'mercator' | 'globe';
   onSetProjection: (projection: 'mercator' | 'globe') => void;
+  // Readers
+  /** Whether the viewer's Map data panel offers each layer's attribute table. */
+  showAttributeTable: boolean;
+  onShowAttributeTableChange: (show: boolean) => void;
 }
 
 export const SettingsEditorScene = memo(function SettingsEditorScene({
@@ -53,12 +57,16 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   onBackgroundColorReset,
   projection,
   onSetProjection,
+  showAttributeTable,
+  onShowAttributeTableChange,
 }: SettingsEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [appearanceOpen, setAppearanceOpen] = useState(true);
   const [terrainOpen, setTerrainOpen] = useState(true);
   const [pluginsOpen, setPluginsOpen] = useState(true);
   const [projectionOpen, setProjectionOpen] = useState(true);
+  const [readersOpen, setReadersOpen] = useState(true);
+  const attributeTableSwitchId = useId();
 
   // Only surface plugins the admin allows. getEnabledPluginDefinitions(null)
   // returns all registered plugins (no restriction), so default deployments are
@@ -314,6 +322,43 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                 })}
               </p>
             )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Section 5: READERS */}
+      <Collapsible open={readersOpen} onOpenChange={setReadersOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+          >
+            <ChevronRight
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', readersOpen ? 'rotate-90' : 'rtl-mirror')}
+              aria-hidden="true"
+            />
+            <span className={eyebrowClassName}>
+              {t('settings.readersLabel', { defaultValue: 'READERS' })}
+            </span>
+            {!readersOpen && (
+              <span className="ms-auto text-xs text-muted-foreground">
+                {showAttributeTable
+                  ? t('settings.attributeTableOn', { defaultValue: 'Table on' })
+                  : t('settings.attributeTableOff', { defaultValue: 'Table off' })}
+              </span>
+            )}
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="flex min-h-9 items-center gap-2 px-4 py-2 border-b">
+            <label htmlFor={attributeTableSwitchId} className="flex-1 text-xs text-foreground">
+              {t('settings.attributeTable', { defaultValue: 'Readers can open the attribute table' })}
+            </label>
+            <Switch
+              id={attributeTableSwitchId}
+              checked={showAttributeTable}
+              onCheckedChange={onShowAttributeTableChange}
+            />
           </div>
         </CollapsibleContent>
       </Collapsible>

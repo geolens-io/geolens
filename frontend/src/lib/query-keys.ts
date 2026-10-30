@@ -42,7 +42,16 @@ export const queryKeys = {
       filters?: Record<string, string>,
       sort?: DatasetRowsSort,
       cql2Filter?: string,
-    ) => ['dataset-rows', id, limit, cursor, filters, sort, cql2Filter] as const,
+      gid?: number,
+      // An embed token reads a narrower column set than the reader's own identity.
+      request?: { withBbox?: boolean; embedToken?: string },
+    ) => [
+      'dataset-rows', id, limit, cursor, filters, sort, cql2Filter,
+      ...(gid === undefined ? [] : [gid]),
+      ...(request?.withBbox || request?.embedToken
+        ? [{ withBbox: !!request.withBbox, embed: request.embedToken ?? null }]
+        : []),
+    ] as const,
     rowsPrefix: (id: string) => ['dataset-rows', id] as const,
     history: (id: string, skip: number, limit: number) =>
       ['dataset-history', id, skip, limit] as const,

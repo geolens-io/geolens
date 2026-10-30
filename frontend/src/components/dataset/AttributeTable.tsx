@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import {
@@ -42,6 +43,7 @@ import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { valueLabelFor, type ValueLabels } from '@/lib/value-labels';
+import type { Bbox } from '@/lib/bbox';
 import { cn } from '@/lib/utils';
 import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
@@ -90,14 +92,44 @@ interface EditingCell {
   column: string;
 }
 
-interface AttributeTableProps {
+/** One entry of AttributeTable's `columns` prop. */
+interface AttributeTableColumn {
+  name: string;
+  /** Header text; defaults to the column name. */
+  title?: string;
+  valueLabels?: ValueLabels;
+  /** Starts out of view; the Columns menu can add it. */
+  hidden?: boolean;
+}
+
+export interface AttributeTableProps {
   datasetId: string;
   canEdit?: boolean;
   compact?: boolean;
   /** CQL2-JSON filter expression sent as the rows request's `filter` param. */
   cql2Filter?: string;
-  /** Row activation (Enter/click), e.g. the builder drawer finding a row on the map. */
-  onRowClick?: (gid: number) => void;
+  /** Narrows the rows to this one feature, on top of every other filter. */
+  onlyGid?: number;
+  /**
+   * Row activation (Enter/click), e.g. the builder drawer finding a row on the
+   * map. With `rowsRequest.withBbox`, it also receives the row's EPSG:4326
+   * bounding box, null for a row without geometry.
+   */
+  onRowClick?: (gid: number, bbox?: Bbox | null) => void;
+  /** Rows request options: each row's bbox for `onRowClick`, and an embed token sent as `X-Embed-Token`. */
+  rowsRequest?: { withBbox?: boolean; embedToken?: string };
+  /** Replace the text of an empty filtered page, the load failure, and the first-load spinner. */
+  slots?: {
+    empty?: string;
+    error?: (error: unknown) => ReactNode;
+    loading?: ReactNode;
+  };
+  /** Reader-facing presentation: no SQL types in headers, no per-column filters, the count announced. */
+  display?: {
+    hideColumnTypes?: boolean;
+    hideColumnFilters?: boolean;
+    announceCount?: boolean;
+  };
   /**
    * The highlighted row's gid (the builder drawer's map highlight). Set, every
    * rendered row carries aria-selected — the match "true" with the inset
@@ -116,9 +148,32 @@ interface AttributeTableProps {
    * caller's header owns the table's combobox — the builder drawer's layer
    * picker). Unset, the toolbar and pagination bar render exactly as before.
    */
-  renderHeader?: (parts: { count: ReactNode; columns: ReactNode }) => ReactNode;
+  renderHeader?: (parts: {
+    count: ReactNode;
+    columns: ReactNode;
+    /** `selectedGid` is set but its row is not among the loaded rows. */
+    selectedMissing: boolean;
+  }) => ReactNode;
   /** Code labels per column; a labelled cell shows its label and keeps the code reachable. */
   valueLabels?: ReadonlyMap<string, ValueLabels>;
+  /**
+   * The columns the table offers, in order, with display titles and value
+   * labels; `hidden` ones wait in the Columns menu. Response columns not
+   * listed are never shown. Omitted, every column shows as the API returns
+   * them. Pass a stable array: a new one rebuilds the column definitions and
+   * remounts the cells.
+   */
+  columns?: readonly AttributeTableColumn[];
+}
+
+/** The listed columns the response carries, in the listed order; every column when no list is given. */
+function orderColumns<T extends { name: string }>(
+  columns: readonly T[],
+  spec: readonly AttributeTableColumn[] | undefined,
+): readonly T[] {
+  if (!spec) return columns;
+  const byName = new Map(columns.map((col) => [col.name, col]));
+  return spec.flatMap((col) => byName.get(col.name) ?? []);
 }
 
 /** Postgres numeric types get a decimal input mode on touch keyboards. */
@@ -214,12 +269,17 @@ export function AttributeTable({
   canEdit = false,
   compact = false,
   cql2Filter,
+  onlyGid,
   onRowClick,
   selectedGid,
   heading,
   actions,
   renderHeader,
-  valueLabels,
+  valueLabels: valueLabelsProp,
+  columns: columnSpec,
+  rowsRequest,
+  slots,
+  display,
 }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
@@ -231,6 +291,8 @@ export function AttributeTable({
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
+  // The user's Columns-menu choices only; columns the `columns` prop leaves
+  // out start hidden underneath them.
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const updateFeature = useUpdateFeature();
   const deleteFeatures = useDeleteFeatures();
@@ -267,7 +329,7 @@ export function AttributeTable({
   // A cursor is a position within one filter + sort order. Reset paging during
   // render, not in an effect, so no request goes out with the new order and
   // the old cursor.
-  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null, cql2Filter ?? null]);
+  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null, cql2Filter ?? null, onlyGid ?? null]);
   const [pagedScope, setPagedScope] = useState(pagingScope);
   if (pagedScope !== pagingScope) {
     setPagedScope(pagingScope);
@@ -282,7 +344,7 @@ export function AttributeTable({
     setEditingCell(null);
     setEditError(null);
     if (parentRef.current) parentRef.current.scrollTop = 0;
-  }, [datasetId, cursor, activeFilters, sort, pageSize, cql2Filter]);
+  }, [datasetId, cursor, activeFilters, sort, pageSize, cql2Filter, onlyGid]);
 
   const { data, error, isLoading, isFetching, isError, isPlaceholderData } = useDatasetRows(
     datasetId,
@@ -291,6 +353,8 @@ export function AttributeTable({
     activeFilters,
     sort,
     cql2Filter,
+    onlyGid,
+    rowsRequest,
   );
   // A schema edit, in GeoLens or on a live table, can drop or retype the sorted
   // column, and the server reports that as a 400 whose text depends on where it
@@ -412,10 +476,10 @@ export function AttributeTable({
   }, [datasetId, updateFeature, t]);
 
   // Everything the cell renderer needs that changes render to render, read
-  // through one ref so `columns` below never has to list it.
+  // through one ref so `columnDefs` below never has to list it.
   //
   // TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as
-  // the React component TYPE, so a new `columns` array is a new element type at
+  // the React component TYPE, so a new `columnDefs` array is a new element type at
   // every cell position and React remounts the cell subtree, resetting
   // InlineCellEditor's `value` to the stored value. Depending on
   // `handleCellSave` would do exactly that: its deps carry the object
@@ -426,13 +490,26 @@ export function AttributeTable({
   //
   // The ref is written in this render pass, before FlexRender renders the
   // cells that read it, as for `editingCell`.
+  // What the `columns` prop adds: header titles, and its value labels merged
+  // over the `valueLabels` prop.
+  const { titleByName, valueLabels: effectiveValueLabels } = useMemo(() => {
+    const titles = new Map<string, string>();
+    let labels = valueLabelsProp;
+    for (const col of columnSpec ?? []) {
+      if (col.title) titles.set(col.name, col.title);
+      if (col.valueLabels) {
+        labels = new Map(labels).set(col.name, col.valueLabels);
+      }
+    }
+    return { titleByName: titles, valueLabels: labels };
+  }, [valueLabelsProp, columnSpec]);
   const cellRenderState = {
     editingCell,
     editError,
     isSaving: updateFeature.isPending,
     canEdit,
     compact,
-    valueLabels,
+    valueLabels: effectiveValueLabels,
     onSave: handleCellSave,
   };
   const cellRenderRef = useRef(cellRenderState);
@@ -448,18 +525,26 @@ export function AttributeTable({
     setCursorHistory((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)));
   }, []);
 
-  const columns = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
-    if (!data?.columns) return [];
+  const dataColumns = useMemo(
+    () => (data?.columns ? orderColumns(data.columns, columnSpec) : undefined),
+    [data?.columns, columnSpec],
+  );
+  const hideColumnTypes = !!display?.hideColumnTypes;
+
+  const columnDefs = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
+    if (!dataColumns) return [];
     // An API without the field offers no sorting rather than a failing one.
-    const sortable = new Set(data.sortable_columns ?? []);
-    return data.columns.map((col) => ({
+    const sortable = new Set(data?.sortable_columns ?? []);
+    return dataColumns.map((col) => ({
       accessorKey: col.name,
       header: () => (
         <>
-          {col.name}
-          <span className="font-normal text-muted-foreground" title={col.type}>
-            {shortType(col.type)}
-          </span>
+          {titleByName.get(col.name) ?? col.name}
+          {!hideColumnTypes && (
+            <span className="font-normal text-muted-foreground" title={col.type}>
+              {shortType(col.type)}
+            </span>
+          )}
         </>
       ),
       enableSorting: sortable.has(col.name),
@@ -560,14 +645,24 @@ export function AttributeTable({
     // cell, and with it any open editor, whenever it changes. `t` is safe
     // because react-i18next caches its useSyncExternalStore snapshot and hands
     // back a new `t` only on a language change, a legitimate reason to rebuild.
-  }, [data?.columns, data?.sortable_columns, t]);
+  }, [dataColumns, data?.sortable_columns, titleByName, hideColumnTypes, t]);
+
+  const defaultHidden = useMemo<ColumnVisibilityState>(
+    () => Object.fromEntries((columnSpec ?? []).filter((col) => col.hidden).map((col) => [col.name, false])),
+    [columnSpec],
+  );
+
+  const visibility = useMemo(
+    () => ({ ...defaultHidden, ...columnVisibility }),
+    [defaultHidden, columnVisibility],
+  );
 
   const table = useTable(
     {
       features,
       data: data?.rows ?? [],
-      columns,
-      state: { sorting, columnVisibility },
+      columns: columnDefs,
+      state: { sorting, columnVisibility: visibility },
       onSortingChange: setSorting,
       onColumnVisibilityChange: setColumnVisibility,
       manualSorting: true,
@@ -603,6 +698,24 @@ export function AttributeTable({
   });
   const virtualItems = virtualizer.getVirtualItems();
 
+  // A selection made elsewhere (a map click) may sit outside the scrolled
+  // view. Rows have a fixed pitch below the sticky header, which the
+  // virtualizer's own offsets leave out, so the row is placed from those.
+  const selectedIndex = selectedGid == null
+    ? -1
+    : rows.findIndex((row) => row.original.gid === selectedGid);
+  useEffect(() => {
+    const scroller = parentRef.current;
+    if (selectedIndex < 0 || !scroller) return;
+    const headerHeight = scroller.querySelector('thead')?.offsetHeight ?? 0;
+    const top = headerHeight + selectedIndex * rowHeight;
+    if (top - headerHeight < scroller.scrollTop) {
+      scroller.scrollTop = top - headerHeight;
+    } else if (top + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = top + rowHeight - scroller.clientHeight;
+    }
+  }, [selectedIndex, rowHeight]);
+
   // TanStack Virtual (virtual-core 3.17.x) leaves estimateSize out of its
   // measurement-cache deps (getMeasurementOptions covers count/padding/
   // scrollMargin/getItemKey/enabled/lanes/gap only), so when the density toggle
@@ -617,6 +730,13 @@ export function AttributeTable({
     }
   }, [compact, virtualizer]);
 
+  // `bboxes` runs parallel to `rows`; absent unless `withBbox` asked for it.
+  const rowBbox = (index: number): Bbox | null | undefined => {
+    if (!rowsRequest?.withBbox) return undefined;
+    const bbox = data?.bboxes?.[index];
+    return bbox && bbox.length === 4 && bbox.every(Number.isFinite) ? (bbox as Bbox) : null;
+  };
+
   const approximateTotal = data?.approximate_total ?? 0;
   const totalKind = data?.total_kind ?? 'estimate';
   const rowCount = data?.rows?.length ?? 0;
@@ -629,28 +749,29 @@ export function AttributeTable({
 
   // The row count text: the pagination bar renders it by default, a
   // renderHeader caller embeds it in its own header instead.
+  const countText = t(
+    totalKind === 'at_least'
+      ? 'attributes.showingAtLeast'
+      : isExact
+        ? 'attributes.showingExact'
+        : 'attributes.showing',
+    { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
+  );
   const countNode = (
     <span className="whitespace-nowrap text-muted-foreground">
-      {t(
-        totalKind === 'at_least'
-          ? 'attributes.showingAtLeast'
-          : isExact
-            ? 'attributes.showingExact'
-            : 'attributes.showing',
-        { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
-      )}
+      {countText}
       {isFetching && (
         <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
       )}
     </span>
   );
 
-  const columnsMenu = columns.length > 0 ? (
+  const columnsMenu = columnDefs.length > 0 ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
-          <Settings2 className="h-3.5 w-3.5" />
-          {t('attributes.columns')}
+        <Button variant="outline" size="sm" className="h-7 pointer-coarse:min-h-11 text-xs gap-1.5" title={t('attributes.columns')}>
+          <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="max-[399px]:sr-only">{t('attributes.columns')}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
@@ -663,7 +784,7 @@ export function AttributeTable({
               checked={col.getIsVisible()}
               onCheckedChange={(value) => col.toggleVisibility(!!value)}
             >
-              {col.id}
+              {titleByName.get(col.id) ?? col.id}
             </DropdownMenuCheckboxItem>
           ))}
       </DropdownMenuContent>
@@ -694,7 +815,11 @@ export function AttributeTable({
   const shell = (body: ReactNode) => (
     <div className={cn('flex min-h-0 flex-1 flex-col', !renderHeader && 'gap-3')}>
       {renderHeader ? (
-        renderHeader({ count: countNode, columns: columnsMenu })
+        renderHeader({
+          count: countNode,
+          columns: columnsMenu,
+          selectedMissing: data !== undefined && !isPlaceholderData && selectedIndex < 0 && selectedGid != null,
+        })
       ) : (
         heading || actions || columnsMenu ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -707,19 +832,29 @@ export function AttributeTable({
           </div>
         ) : null
       )}
+      {/* Paging, filters and a moving map refetch; the delay announces only where the count settles. */}
+      {display?.announceCount && data && <LiveAnnouncement text={countText} delayMs={1000} />}
       {body}
     </div>
   );
 
   if (isLoading) {
     return shell(
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>,
+      slots?.loading ?? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ),
     );
   }
 
-  if (isError) return shell(<div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>);
+  if (isError) {
+    return shell(
+      slots?.error?.(error) ?? (
+        <div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>
+      ),
+    );
+  }
 
   // A CQL2 filter that matched nothing is a filter result, not an empty
   // dataset: it flows through the normal path (header, toolbar, noResults).
@@ -769,7 +904,7 @@ export function AttributeTable({
         tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable
         className="relative min-h-0 overflow-auto rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
-        <table data-slot="table" className="w-max caption-bottom text-sm">
+        <table data-slot="table" className="w-max min-w-full caption-bottom text-sm">
           <TableHeader className="sticky top-0 z-10 bg-muted">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -822,6 +957,7 @@ export function AttributeTable({
               </TableRow>
             ))}
             {/* Filter row: input cells, so none of the header's mono caps. */}
+            {!display?.hideColumnFilters && (
             <TableRow className="[&_th]:h-8 [&_th]:py-1 [&_th]:font-sans [&_th]:normal-case [&_th]:tracking-normal">
               {selectable ? <TableHead /> : null}
               {table.getHeaderGroups()[0]?.headers.map((header) => (
@@ -841,12 +977,13 @@ export function AttributeTable({
                 </TableHead>
               ))}
             </TableRow>
+            )}
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={visibleColumnCount} className="text-center text-muted-foreground py-8">
-                  {t('attributes.noResults')}
+                  {slots?.empty ?? t('attributes.noResults')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -873,11 +1010,11 @@ export function AttributeTable({
                       )}
                       tabIndex={activatable ? 0 : undefined}
                       aria-label={activatable ? t('attributes.rowActionLabel', { gid, defaultValue: 'Show row {{gid}} on the map' }) : undefined}
-                      onClick={activatable ? () => onRowClick(gid) : undefined}
+                      onClick={activatable ? () => onRowClick(gid, rowBbox(row.index)) : undefined}
                       onKeyDown={activatable ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          onRowClick(gid);
+                          onRowClick(gid, rowBbox(row.index));
                         }
                       } : undefined}
                     >

@@ -124,6 +124,7 @@ function useCombinedBuilder(
     localName: layers.localName,
     localDescription: layers.localDescription,
     legendTitle: layers.localLegendTitle,
+    showAttributeTable: layers.localShowAttributeTable,
     dockNotes: '',
     dashboard: layers.dashboard,
     savedDashboard: layers.savedDashboard,
@@ -263,6 +264,36 @@ describe('duplicate-layer-on-save: Save-diff baseline sync', () => {
  * Counterfactual: with the `remove` half of the bridge taken out, both tests
  * below see `diff.removed` carry the deleted id.
  */
+describe('reader attribute table setting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+    mockUpdateMapMutateAsync.mockImplementation(async (payload: { id: string }) => ({ id: payload.id, layers: [] }));
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
+  });
+
+  it('starts from the saved map, dirties it on a change and saves the new value', async () => {
+    const mapData = makeBuilderMap([makeBuilderLayer({ id: 'layer-1' })], { show_attribute_table: true });
+    const { result } = renderCombined(mapData);
+    expect(result.current.localShowAttributeTable).toBe(true);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => result.current.handleShowAttributeTableChange(false));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    const sent = mockUpdateMapMutateAsync.mock.calls.map(([call]) => call.data);
+    expect(sent.at(-1)).toMatchObject({ show_attribute_table: false });
+  });
+
+  it('reads a map saved with the table off', () => {
+    const { result } = renderCombined(makeBuilderMap([], { show_attribute_table: false }));
+    expect(result.current.localShowAttributeTable).toBe(false);
+  });
+});
+
 describe('delete prunes the Save-diff baseline on an already-dirty map', () => {
   beforeEach(() => {
     vi.clearAllMocks();

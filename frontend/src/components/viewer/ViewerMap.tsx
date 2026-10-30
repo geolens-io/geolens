@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
+import { useEffect, useId, useRef, useCallback, useState, useMemo, memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
@@ -13,7 +13,10 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildTileTransformRequest, featureGid, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
+import { TableProperties } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { keepCompactAttributionFolded } from '@/lib/compact-attribution';
@@ -52,7 +55,8 @@ import {
   isTerrainBackingLiveVisible,
 } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
-import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
+import { MapDataPanel } from '@/components/viewer/MapDataPanel';
+import { offersTable } from '@/components/viewer/map-data-table';
 import {
   toAccessibleMapFeatures,
   type AccessibleMapFeatureResult,
@@ -99,6 +103,10 @@ interface ViewerMapProps {
   onDrawnChange?: (drawn: ReadonlyMap<string, DrawnLayer>) => void;
   /** True when every layer's dataset is public; lets the data panel link to dataset pages. */
   datasetLinksAllowed?: boolean;
+  /** The map's `show_attribute_table`: the Map data panel offers a Table view. */
+  showAttributeTable?: boolean;
+  /** Page controls laid over the map area, which the Map data panel pushes up rather than covers. */
+  overlays?: ReactNode;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -153,6 +161,8 @@ export const ViewerMap = memo(function ViewerMap({
   terrainConfig = null,
   onDrawnChange,
   datasetLinksAllowed = false,
+  showAttributeTable = false,
+  overlays,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -162,6 +172,8 @@ export const ViewerMap = memo(function ViewerMap({
   // can opt out, so Enterprise also waits for branding to avoid flashing the credit.
   const showBranding = isResolved && (!isEnterprise || (branding !== undefined && branding.show_badge !== false));
   const mapRef = useRef<MaplibreMap | null>(null);
+  // The selection belongs to this map; the next one starts with none.
+  useEffect(() => () => useMapSelectionStore.getState().clear(), []);
   // Watched from mount: the attribution control is keyed on its credits, and
   // each remount opens it again.
   const shellRef = useRef<HTMLDivElement>(null);
@@ -289,6 +301,13 @@ export const ViewerMap = memo(function ViewerMap({
     features: FeatureInfo[];
   } | null>(null);
   const [dataPanelOpen, setDataPanelOpen] = useState(false);
+  const [dataListShown, setDataListShown] = useState(false);
+  const dataPanelId = useId();
+  const dataLauncherRef = useRef<HTMLButtonElement | null>(null);
+  const closeDataPanel = useCallback(() => {
+    setDataPanelOpen(false);
+    dataLauncherRef.current?.focus();
+  }, []);
   const [accessibleFeatures, setAccessibleFeatures] = useState<AccessibleMapFeatureResult>({
     features: [],
     total: 0,
@@ -549,6 +568,13 @@ export const ViewerMap = memo(function ViewerMap({
     [onMapReady, embedToken, t, recoverTileAuth, markMapLoading, initialBounds],
   );
 
+  const tableEntries = useMemo(
+    () => (showAttributeTable
+      ? layerEntries.filter(({ layer, key }) => visibleLayers.has(key) && offersTable(layer))
+      : []),
+    [showAttributeTable, layerEntries, visibleLayers],
+  );
+
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
   const interactiveLayers = useMemo(
     () => viewerQueryLayerIds(layerEntries, visibleLayers, { includeHeatmaps: false }),
@@ -582,13 +608,13 @@ export const ViewerMap = memo(function ViewerMap({
   );
 
   // O(1) lookup: feature.layer.id (with `viewer-layer-` prefix) → layer/source metadata.
-  const layerByMapIdRef = useRef<Map<string, { layer: SharedLayerResponse; sourceId: string }>>(new Map());
+  const layerByMapIdRef = useRef<Map<string, { layer: SharedLayerResponse; sourceId: string; key: string }>>(new Map());
   useEffect(() => {
-    const m = new Map<string, { layer: SharedLayerResponse; sourceId: string }>();
+    const m = new Map<string, { layer: SharedLayerResponse; sourceId: string; key: string }>();
     for (const { layer, key } of layerEntries) {
       const sourceId = prefixed('source', key, VIEWER_PREFIX);
       const ids = viewerManagedLayerIds(layer, key);
-      for (const id of ids) m.set(id, { layer, sourceId });
+      for (const id of ids) m.set(id, { layer, sourceId, key });
     }
     layerByMapIdRef.current = m;
   }, [layerEntries]);
@@ -634,7 +660,7 @@ export const ViewerMap = memo(function ViewerMap({
   }, [lookupHitLayer]);
 
   useEffect(() => {
-    if (!dataPanelOpen) return;
+    if (!dataPanelOpen || !dataListShown) return;
     const map = mapRef.current;
     if (!map) return;
 
@@ -643,7 +669,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       map.off('idle', refreshAccessibleFeatures);
     };
-  }, [dataPanelOpen, mapReady, visibleLayers, refreshAccessibleFeatures]);
+  }, [dataPanelOpen, dataListShown, mapReady, visibleLayers, refreshAccessibleFeatures]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -704,9 +730,17 @@ export const ViewerMap = memo(function ViewerMap({
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),
+          layerId: hit.key,
+          featureId: featureGid(feature),
         });
       }
       return mapped;
+    };
+
+    // The Map data table selects the first hit's row; a cluster selects none.
+    const selectFirst = (features: FeatureInfo[]) => {
+      const { layerId, featureId } = features[0];
+      if (layerId && featureId !== undefined) useMapSelectionStore.getState().select(layerId, featureId);
     };
 
     const handleClick = (e: MapMouseEvent) => {
@@ -730,6 +764,7 @@ export const ViewerMap = memo(function ViewerMap({
           latitude: e.lngLat.lat,
           features: mapped,
         });
+        selectFirst(mapped);
       } else {
         setPopupInfo(null);
       }
@@ -767,6 +802,7 @@ export const ViewerMap = memo(function ViewerMap({
         latitude: lngLat.lat,
         features: mapped,
       });
+      selectFirst(mapped);
     };
 
     let canvasForKeyboard: HTMLCanvasElement | null = null;
@@ -1071,7 +1107,7 @@ export const ViewerMap = memo(function ViewerMap({
   return (
     <div
       ref={shellRef}
-      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      className={`relative flex h-full w-full flex-col [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // aria-label on <MapGL> is silently dropped (react-maplibre v8 forwards
       // only id/ref/style; MapLibre labels its canvas "Map"), so the wrapper
       // region is labelled instead, as in DatasetMap's shell.
@@ -1081,83 +1117,107 @@ export const ViewerMap = memo(function ViewerMap({
       data-map-ready={viewerReady ? 'true' : 'false'}
       data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
-      <MapGL
-        initialViewState={defaultView}
-        mapStyle={mapStyle}
-        styleDiffing={false}
-        locale={mapLocale}
-        // Covers the cold-mount window: react-maplibre applies it on the initial
-        // style.load, before our onLoad-captured appearance sync can run. Frozen
-        // at mount because a CHANGED projection prop goes through
-        // react-maplibre's unguarded _updateSettings setter, which throws
-        // mid style-swap. Runtime changes and basemap switches go through
-        // applyMapBasemapAppearance instead.
-        projection={initialProjection}
-        style={{ width: '100%', height: '100%' }}
-        attributionControl={false}
-        minZoom={1}
-        onLoad={handleLoad}
-        // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
-        // (re-mint / embed-expired toast in handleLoad) doesn't double-log a
-        // red AJAXError console row.
-        onError={logUnhandledMapError}
-      >
-        <NavigationControl position="top-right" />
-        <FullscreenControl position="top-right" />
-        {terrainReady && (
-          <TerrainControl source="terrain-dem" position="top-right" />
-        )}
-        <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
-        {/* The `key` is load-bearing, not cosmetic. react-maplibre's
-            useControl builds the control once with `useMemo(…, [])`, so a
-            changed `customAttribution` prop never reaches MapLibre. Keying on
-            the credit set remounts the control (removeControl + addControl)
-            exactly when that set changes, and not on any other render.
-            attributionControlKey owns the derivation so its injectivity can be
-            tested directly — see the note there. */}
-        <AttributionControl
-          key={attributionControlKey(attributionCredits)}
-          position="bottom-right"
-          compact={true}
-          customAttribution={
-            attributionCredits.length > 0 ? attributionCredits : undefined
-          }
-        />
-        {popupInfo && (
-          <FeaturePopup
-            longitude={popupInfo.longitude}
-            latitude={popupInfo.latitude}
-            features={popupInfo.features}
-            onClose={() => setPopupInfo(null)}
+      <div className="relative min-h-0 flex-1">
+        <MapGL
+          initialViewState={defaultView}
+          mapStyle={mapStyle}
+          styleDiffing={false}
+          locale={mapLocale}
+          // Covers the cold-mount window: react-maplibre applies it on the initial
+          // style.load, before our onLoad-captured appearance sync can run. Frozen
+          // at mount because a CHANGED projection prop goes through
+          // react-maplibre's unguarded _updateSettings setter, which throws
+          // mid style-swap. Runtime changes and basemap switches go through
+          // applyMapBasemapAppearance instead.
+          projection={initialProjection}
+          style={{ width: '100%', height: '100%' }}
+          attributionControl={false}
+          minZoom={1}
+          onLoad={handleLoad}
+          // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
+          // (re-mint / embed-expired toast in handleLoad) doesn't double-log a
+          // red AJAXError console row.
+          onError={logUnhandledMapError}
+        >
+          <NavigationControl position="top-right" />
+          <FullscreenControl position="top-right" />
+          {terrainReady && (
+            <TerrainControl source="terrain-dem" position="top-right" />
+          )}
+          <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
+          {/* The `key` is load-bearing, not cosmetic. react-maplibre's
+              useControl builds the control once with `useMemo(…, [])`, so a
+              changed `customAttribution` prop never reaches MapLibre. Keying on
+              the credit set remounts the control (removeControl + addControl)
+              exactly when that set changes, and not on any other render.
+              attributionControlKey owns the derivation so its injectivity can be
+              tested directly — see the note there. */}
+          <AttributionControl
+            key={attributionControlKey(attributionCredits)}
+            position="bottom-right"
+            compact={true}
+            customAttribution={
+              attributionCredits.length > 0 ? attributionCredits : undefined
+            }
           />
-        )}
-      </MapGL>
-      <MapCoordReadout map={mapRef.current} />
-      <AccessibleMapDataPanel
-        layers={layers}
-        visibleLayers={visibleLayers}
-        featureResult={accessibleFeatures}
-        open={dataPanelOpen}
-        onOpenChange={setDataPanelOpen}
-        onRefresh={refreshAccessibleFeatures}
-        disabled={!mapReady}
-        datasetLinksAllowed={datasetLinksAllowed}
-      />
-      {/* Loading veil over the pre-terrain flat-DEM frame — fades
-          out once the saved-camera 3D view is ready to show (or immediately
-          for non-terrain maps). */}
-      <div
-        aria-hidden="true"
-        data-testid="viewer-entry-veil"
-        className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
-      />
-      {contextLost && (
-        <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
-          <div className="text-center space-y-2">
-            <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
-            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>
+          {popupInfo && (
+            <FeaturePopup
+              longitude={popupInfo.longitude}
+              latitude={popupInfo.latitude}
+              features={popupInfo.features}
+              onClose={() => setPopupInfo(null)}
+            />
+          )}
+        </MapGL>
+        <MapCoordReadout map={mapRef.current} />
+        {overlays}
+        <Button
+          ref={dataLauncherRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!mapReady}
+          title={t('viewer.data.launch')}
+          aria-expanded={dataPanelOpen}
+          aria-controls={dataPanelOpen ? dataPanelId : undefined}
+          onClick={() => setDataPanelOpen((open) => !open)}
+          className="absolute bottom-0 left-1/2 z-30 h-[calc(2rem+env(safe-area-inset-bottom))] max-w-[calc(100%-13rem)] -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 pb-[env(safe-area-inset-bottom)] shadow-md backdrop-blur-sm focus-visible:ring-inset"
+        >
+          <TableProperties aria-hidden="true" />
+          <span className="truncate max-[399px]:sr-only">{t('viewer.data.launch')}</span>
+        </Button>
+        {/* Loading veil over the pre-terrain flat-DEM frame — fades
+            out once the saved-camera 3D view is ready to show (or immediately
+            for non-terrain maps). */}
+        <div
+          aria-hidden="true"
+          data-testid="viewer-entry-veil"
+          className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
+        />
+        {contextLost && (
+          <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+            <div className="text-center space-y-2">
+              <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
+              <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+      {dataPanelOpen && (
+        <MapDataPanel
+          id={dataPanelId}
+          layers={layers}
+          visibleLayers={visibleLayers}
+          mapRef={mapRef}
+          paneRef={shellRef}
+          featureResult={accessibleFeatures}
+          onRefresh={refreshAccessibleFeatures}
+          datasetLinksAllowed={datasetLinksAllowed}
+          tableEntries={tableEntries}
+          embedToken={embedToken}
+          onClose={closeDataPanel}
+          onListShownChange={setDataListShown}
+        />
       )}
     </div>
   );

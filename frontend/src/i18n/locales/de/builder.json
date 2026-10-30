@@ -1472,7 +1472,12 @@
     "layerPicker": "Layer der Attributtabelle",
     "filterUnsupported": "Der Filter der Ebene konnte nicht angewendet werden – alle Zeilen werden angezeigt.",
     "resizeHandle": "Attributtabelle in der Größe ändern",
-    "close": "Attributtabelle schließen"
+    "close": "Attributtabelle schließen",
+    "selectionMissing": "Das ausgewählte Objekt befindet sich nicht auf dieser Seite.",
+    "selectionShow": "Auswahl anzeigen",
+    "selectionShowing": "Nur das ausgewählte Objekt wird angezeigt.",
+    "selectionShowAll": "Alle Zeilen anzeigen",
+    "selectionHiddenByFilters": "Die Filter der Tabelle blenden das ausgewählte Objekt aus."
   },
   "layerEditor": {
     "close": "Layer-Editor schließen",
@@ -1558,7 +1563,11 @@
     "projectionAria": "Kartenprojektion",
     "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt.",
     "terrainSmallDemTip": "Tipp: Eine Karte hat nur eine Geländequelle. Bei einem kleinen hochauflösenden DEM zoomen Sie in dessen Ausdehnung hinein oder verwenden ein DEM, das den gesamten Kartenbereich abdeckt.",
-    "openTerrainLayer": "Terrain-Ebene öffnen"
+    "openTerrainLayer": "Terrain-Ebene öffnen",
+    "readersLabel": "LESER",
+    "attributeTable": "Leser können die Attributtabelle öffnen",
+    "attributeTableOn": "Tabelle an",
+    "attributeTableOff": "Tabelle aus"
   },
   "common": {
     "reload": "Neu laden"

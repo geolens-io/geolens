@@ -11,6 +11,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
 import type { MapLayerResponse } from '@/types/api';
 import {
   ANALYSIS_JOB_STORAGE_KEY,
@@ -104,6 +105,7 @@ vi.mock('@tanstack/react-virtual', () => ({
       })),
     getTotalSize: () => count * estimateSize(),
     measure: () => {},
+    scrollToIndex: () => {},
   }),
 }));
 
@@ -986,6 +988,26 @@ describe('MapBuilderPage docked attribute table (round 4)', () => {
     // A close after a switch returns focus to the ORIGINAL opener.
     fireEvent.click(screen.getByRole('button', { name: 'attributeTableDrawer.close' }));
     expect(document.activeElement).toBe(kebabTrigger('l-trails'));
+  });
+
+  it('a map selection on the open layer selects its row without moving the camera', () => {
+    mockLocalLayers = [
+      makeLayer({ id: 'l-trails', display_name: 'Trails', dataset_id: 'ds-trails' }),
+      makeLayer({ id: 'l-parcels', display_name: 'Parcels', dataset_id: 'ds-parcels' }),
+    ];
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+    openTableViaKebab('l-trails');
+    const table = screen.getByRole('region', { name: 'Trails' });
+    const selectedRows = () =>
+      dataRowsIn(table).filter((row) => row.getAttribute('aria-selected') === 'true');
+    expect(selectedRows()).toHaveLength(0);
+
+    act(() => useMapSelectionStore.getState().select('l-parcels', 1));
+    expect(selectedRows()).toHaveLength(0);
+
+    act(() => useMapSelectionStore.getState().select('l-trails', 2));
+    expect(selectedRows()).toEqual([dataRowsIn(table)[1]]);
+    expect(mockPageMap!.fitBounds).not.toHaveBeenCalled();
   });
 });
 
