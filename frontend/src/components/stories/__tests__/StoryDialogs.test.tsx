@@ -135,6 +135,29 @@ describe('StoryDetailsDialog cover', () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ cover_asset_id: COVER }));
   });
 
+  it('keeps Save details disabled while the cover is still uploading', async () => {
+    let finish!: () => void;
+    vi.mocked(uploadStoryImage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({ id: COVER, width: 1200, height: 600, byte_size: 1000, created_at: '2026-10-29T00:00:00Z' });
+        }),
+    );
+    vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, cover_asset_id: COVER, document: null } as StoryResponse);
+    const user = userEvent.setup();
+    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={vi.fn()} />);
+    const save = screen.getByRole('button', { name: 'Save details' });
+    expect(save).toBeEnabled();
+
+    await user.upload(screen.getByTestId('story-image-input'), new File(['png'], 'cover.png', { type: 'image/png' }));
+    await waitFor(() => expect(save).toBeDisabled());
+    finish();
+    await waitFor(() => expect(save).toBeEnabled());
+    await user.click(save);
+    await waitFor(() => expect(updateStory).toHaveBeenCalledWith('s1', { cover_asset_id: COVER }));
+  });
+
   it('clears the cover', async () => {
     vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, document: null } as StoryResponse);
     const user = userEvent.setup();

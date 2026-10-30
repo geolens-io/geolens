@@ -58,6 +58,8 @@ function StoryDetailsForm({
   const [summary, setSummary] = useState(story.summary ?? '');
   const [visibility, setVisibility] = useState<string>(story.visibility);
   const [cover, setCover] = useState<string | null>(story.cover_asset_id ?? null);
+  // Saving mid-upload would keep the old cover and close the dialog, cancelling the upload.
+  const [coverUploading, setCoverUploading] = useState(false);
   const [blocked, setBlocked] = useState<MapsBlockingStory | null>(null);
   const update = useMutation({ mutationFn: (body: StoryUpdate) => updateStory(story.id, body) });
 
@@ -122,7 +124,7 @@ function StoryDetailsForm({
         </Select>
         <p className="text-xs text-muted-foreground">{t('details.visibilityHint')}</p>
       </div>
-      <CoverField storyId={story.id} cover={cover} onChange={setCover} />
+      <CoverField storyId={story.id} cover={cover} onChange={setCover} onUploadingChange={setCoverUploading} />
       {blocked && (
         <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3 text-sm">
           <p>{t('details.visibilityBlocked')}</p>
@@ -133,7 +135,7 @@ function StoryDetailsForm({
         <Button type="button" variant="outline" onClick={onClose}>
           {t('common:cancel')}
         </Button>
-        <Button type="submit" disabled={!title.trim() || update.isPending}>
+        <Button type="submit" disabled={!title.trim() || update.isPending || coverUploading}>
           {update.isPending ? t('details.saving') : t('details.save')}
         </Button>
       </DialogFooter>
@@ -145,10 +147,12 @@ function CoverField({
   storyId,
   cover,
   onChange,
+  onUploadingChange,
 }: {
   storyId: string;
   cover: string | null;
   onChange: (cover: string | null) => void;
+  onUploadingChange: (uploading: boolean) => void;
 }) {
   const { t } = useTranslation('stories');
   const headingId = useId();
@@ -169,6 +173,7 @@ function CoverField({
           storyId={storyId}
           label={cover ? t('details.cover.replace') : t('details.cover.choose')}
           onUploaded={(asset) => onChange(asset.id)}
+          onUploadingChange={onUploadingChange}
         />
         {cover && (
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>

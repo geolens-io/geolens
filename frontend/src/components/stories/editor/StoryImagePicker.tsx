@@ -12,13 +12,21 @@ interface StoryImagePickerProps {
   label: string;
   disabled?: boolean;
   onUploaded: (asset: StoryAssetResponse) => void;
+  /** Told when an upload starts and when it ends. */
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 /**
  * A button that uploads a chosen image to the story, with its progress and
  * any refusal shown beside it. The upload is cancelled if the picker unmounts.
  */
-export function StoryImagePicker({ storyId, label, disabled = false, onUploaded }: StoryImagePickerProps) {
+export function StoryImagePicker({
+  storyId,
+  label,
+  disabled = false,
+  onUploaded,
+  onUploadingChange,
+}: StoryImagePickerProps) {
   const { t } = useTranslation('stories');
   const inputRef = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
@@ -51,6 +59,7 @@ export function StoryImagePicker({ storyId, label, disabled = false, onUploaded 
   }
 
   const uploading = progress !== null;
+  useEffect(() => onUploadingChange?.(uploading), [onUploadingChange, uploading]);
   const percent = uploading ? Math.round(progress * 100) : 0;
   return (
     <div className="space-y-1">
