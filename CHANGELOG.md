@@ -29,6 +29,8 @@ and releases use semantic versioning.
   published version. If the draft was saved somewhere else since you opened
   it, you can load that version or keep yours with "Overwrite with my
   version". (#3483)
+- `geolens apply` manifests accept GeoParquet (`.parquet`) vector sources, as
+  upload and `geolens publish` already do, and `geolens scan` lists them.
 - Stories take images. Authors upload a PNG, JPEG or WebP into a chapter as an
   image block with alt text and an optional caption, or as the story's cover,
   which shows on its card, above its title and in its link preview. Save and
