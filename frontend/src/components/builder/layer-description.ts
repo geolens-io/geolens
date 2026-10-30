@@ -13,7 +13,7 @@ import { filterConditions, isCql2LiteralCompatible, maplibreFilterToCql2, saniti
 import { extractPlaceholders } from '@/lib/popup-template';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
-import { getClusterSourceStrategy } from './cluster-source';
+import { fitsClusterFilterLimits, getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { resolveHeightColumn } from './layer-adapters/fill-adapter';
@@ -248,18 +248,6 @@ function clusterOptions(layer: SyncLayerInput) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
-// The route's limits on a filter: its length and its bind parameters.
-const MAX_CLUSTER_FILTER_CHARS = 4096;
-const MAX_CLUSTER_FILTER_VALUES = 1000;
-
-function countValues(node: unknown): number {
-  if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
-  if (node && typeof node === 'object') {
-    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' || key === 'op' ? 0 : countValues(child)), 0);
-  }
-  return 1;
-}
-
 /**
  * The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is
  * none, it has no CQL2 form, a literal mismatches a known column type, a property is outside
@@ -277,10 +265,7 @@ function serverClusterFilter(layer: SyncLayerInput): string | undefined {
     const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
     return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
   })) return undefined;
-  const json = JSON.stringify(cql2);
-  return json.length <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_CLUSTER_FILTER_VALUES
-    ? json
-    : undefined;
+  return fitsClusterFilterLimits(cql2) ? JSON.stringify(cql2) : undefined;
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.

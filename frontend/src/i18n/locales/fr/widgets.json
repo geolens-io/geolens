@@ -68,7 +68,8 @@
     "removeFilter": "Retirer le filtre {{filter}} sur {{layer}}",
     "filterApplied": "{{layer}} filtrée sur {{filter}}.",
     "filterCleared": "Filtre {{filter}} retiré de {{layer}}.",
-    "cantFilter": "« {{value}} » ne peut pas servir de filtre."
+    "cantFilter": "« {{value}} » ne peut pas servir de filtre.",
+    "tooManyForClusters": "Trop de valeurs pour filtrer les regroupements de cette couche. Choisissez-en moins."
   },
   "editor": {
     "panelPosition": "Position du panneau",

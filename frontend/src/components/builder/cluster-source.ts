@@ -1,6 +1,23 @@
 import type { MapLayerType, RecordType, StyleConfig } from '@/types/api';
+import type { Cql2Expression } from '@/lib/maplibre-filter-utils';
 
 const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
+// The cluster tile route's limits on a filter: its length and its bind parameters.
+const MAX_CLUSTER_FILTER_CHARS = 4096;
+const MAX_CLUSTER_FILTER_VALUES = 1000;
+
+function countValues(node: unknown): number {
+  if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
+  if (node && typeof node === 'object') {
+    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' || key === 'op' ? 0 : countValues(child)), 0);
+  }
+  return 1;
+}
+
+/** Whether the cluster tile route takes `cql2` as a filter; past its limits the request leaves the filter off. */
+export function fitsClusterFilterLimits(cql2: Cql2Expression): boolean {
+  return JSON.stringify(cql2).length <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_CLUSTER_FILTER_VALUES;
+}
 
 export type ClusterSourceStatus =
   | 'eligible'

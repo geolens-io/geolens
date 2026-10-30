@@ -68,7 +68,8 @@
     "removeFilter": "Filter {{filter}} auf {{layer}} entfernen",
     "filterApplied": "{{layer}} nach {{filter}} gefiltert.",
     "filterCleared": "Filter {{filter}} auf {{layer}} entfernt.",
-    "cantFilter": "„{{value}}“ kann nicht als Filter verwendet werden."
+    "cantFilter": "„{{value}}“ kann nicht als Filter verwendet werden.",
+    "tooManyForClusters": "Zu viele Werte, um die Cluster dieser Ebene zu filtern. Wählen Sie weniger aus."
   },
   "editor": {
     "panelPosition": "Position des Bereichs",

@@ -186,6 +186,44 @@ describe('dashboard linking', () => {
     expect(latest()).toBe(parcels);
   });
 
+  it('refuses a pick that would push a server-clustered layer\'s filter past the cluster route\'s limits', async () => {
+    const user = userEvent.setup();
+    const long = (letter: string) => letter.repeat(1500);
+    fetchMock.mockImplementation(async () => ({
+      op: 'value_counts',
+      approximate: false,
+      cached: false,
+      result: { values: ['a', 'b', 'c'].map((letter) => ({ value: long(letter), count: 1 })), other_count: 0 },
+    }) as never);
+    const clustered = {
+      ...layer(parcelsId, 'Parcels'),
+      geometry_type: 'POINT',
+      feature_count: 20_000,
+      style_config: { render_mode: 'cluster' },
+    } as SharedLayerResponse;
+    const selector = {
+      version: 1,
+      widgets: [
+        { id: chartId, type: 'category_selector', v: 1, title: 'Land use', layer_id: parcelsId, config: { column: 'land_use', multiple: true } },
+      ],
+    } as DashboardConfig;
+    const { latestMapLayers } = renderViewer([clustered, layer(roadsId, 'Roads')], selector);
+    const boxes = await screen.findAllByRole('checkbox');
+
+    await user.click(boxes[0]);
+    await user.click(boxes[1]);
+    const filtered = latestMapLayers()[0].filter;
+    expect(filtered).toEqual(['in', ['get', 'land_use'], ['literal', [long('a'), long('b')]]]);
+
+    // A third value takes the filter past 4096 characters.
+    await user.click(boxes[2]);
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent("Too many values to filter this layer's clusters. Pick fewer."),
+    );
+    expect(latestMapLayers()[0].filter).toEqual(filtered);
+    expect(boxes[2]).not.toBeChecked();
+  });
+
   it('applies a pick with Enter on the focused bar', async () => {
     renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')]);
     const chart = await screen.findByRole('group', { name: 'Count by land_use' });

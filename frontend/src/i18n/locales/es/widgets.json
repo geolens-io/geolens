@@ -68,7 +68,8 @@
     "removeFilter": "Quitar el filtro {{filter}} de {{layer}}",
     "filterApplied": "{{layer}} filtrada por {{filter}}.",
     "filterCleared": "Filtro {{filter}} quitado de {{layer}}.",
-    "cantFilter": "«{{value}}» no se puede usar como filtro."
+    "cantFilter": "«{{value}}» no se puede usar como filtro.",
+    "tooManyForClusters": "Hay demasiados valores para filtrar los grupos de esta capa. Elige menos."
   },
   "editor": {
     "panelPosition": "Posición del panel",

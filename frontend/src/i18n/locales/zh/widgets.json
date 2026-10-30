@@ -68,7 +68,8 @@
     "removeFilter": "移除 {{layer}} 上的筛选 {{filter}}",
     "filterApplied": "已按 {{filter}} 筛选 {{layer}}。",
     "filterCleared": "已移除 {{layer}} 上的筛选 {{filter}}。",
-    "cantFilter": "“{{value}}”无法用作筛选条件。"
+    "cantFilter": "“{{value}}”无法用作筛选条件。",
+    "tooManyForClusters": "值太多，无法筛选此图层的聚合点。请少选一些。"
   },
   "editor": {
     "panelPosition": "面板位置",
