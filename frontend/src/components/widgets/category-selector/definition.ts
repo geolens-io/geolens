@@ -41,6 +41,8 @@ export const categorySelectorWidget = defineWidget<CategorySelectorConfig>({
   defaultConfig: { column: 'name', multiple: true },
   initialConfig: categoryColumn,
   parseConfig: parseCategorySelectorConfig,
+  heading: (config, t, columnLabel) =>
+    t('types.category_selector.summary', { column: columnLabel(config.column) }),
   dataRequest: (config) => ({ op: 'value_counts', column: config.column, limit: SELECTOR_OPTIONS }),
   picksColumn: (config) => config.column,
   readsColumns: (config) => [{ name: config.column, numeric: false }],

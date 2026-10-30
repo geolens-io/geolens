@@ -129,7 +129,7 @@ describe('DashboardPanel', () => {
 
     const panel = screen.getByRole('region', { name: 'Dashboard' });
     const headings = within(panel).getAllByRole('heading', { level: 3 });
-    expect(headings.map((h) => h.textContent)).toEqual(['Parcels counted', 'City parcels']);
+    expect(headings.map((h) => h.textContent)).toEqual(['Parcels counted', 'Count by land_use']);
     expect(await within(panel).findByText('1,234')).toBeInTheDocument();
 
     const filter = { op: '=', args: [{ property: 'land_use' }, 'Residential'] };
@@ -144,6 +144,53 @@ describe('DashboardPanel', () => {
       expect.objectContaining({ embedToken: 'embed-abc' }),
     );
     expect(screen.queryByText(/layer's filter can't be applied/)).not.toBeInTheDocument();
+  });
+
+  it('names an untitled widget from its config, with the layer as the subline', () => {
+    const widget = (id: string, type: string, config: unknown) => ({
+      id,
+      type,
+      v: 1,
+      layer_id: layerId,
+      scope: 'layer',
+      config,
+    });
+    const ids = [
+      '1a1a1a1a-1111-4111-8111-111111111111',
+      '2b2b2b2b-2222-4222-8222-222222222222',
+      '3c3c3c3c-3333-4333-8333-333333333333',
+      '4d4d4d4d-4444-4444-8444-444444444444',
+    ];
+    render(
+      <DashboardPanel
+        config={dashboard([
+          widget(ids[0], 'indicator', { stat: 'sum', column: 'score' }),
+          widget(ids[1], 'histogram', { column: 'score', bins: 10 }),
+          widget(ids[2], 'category_selector', { column: 'land_use', multiple: true }),
+          { ...chartWidget, id: ids[3], config: { ...chartWidget.config, column: 'land_use' } },
+        ])}
+        layers={[
+          layer({
+            column_info: [
+              { name: 'land_use', type: 'text', title: 'Land use' },
+              { name: 'score', type: 'integer' },
+            ],
+          }),
+        ]}
+        map={null}
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    const headings = within(panel).getAllByRole('heading', { level: 3 });
+    expect(headings.map((h) => h.textContent)).toEqual([
+      'Sum of score',
+      'Distribution of score',
+      'Filter by Land use',
+      'Count by Land use',
+    ]);
+    expect(within(panel).getAllByText('City parcels')).toHaveLength(4);
+    expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
   });
 
   it('collapses and reopens, remembering the choice for the map', async () => {

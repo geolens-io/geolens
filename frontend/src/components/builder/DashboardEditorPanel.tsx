@@ -6,7 +6,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DashboardWidget, type PanelPosition } from '@/components/viewer/DashboardPanel';
+import { DashboardWidget, widgetName, type PanelPosition } from '@/components/viewer/DashboardPanel';
 import { useMapViewBbox } from '@/components/viewer/hooks/use-dashboard-data';
 import { toSharedLayer } from '@/components/viewer/shared-layer';
 import { WIDGET_TITLE_MAX_LENGTH, type AnyWidgetDefinition, type WidgetInstance } from '@/components/widgets/contract';
@@ -85,7 +85,7 @@ const WidgetCard = memo(function WidgetCard({
   const { t } = useTranslation('widgets');
   const idPrefix = useId();
   const typeName = String(t(definition.labelKey));
-  const name = widget.title?.trim() || typeName;
+  const name = widgetName(definition, widget, layer?.dataset_column_info, t) || typeName;
   const problem = layer ? widgetProblem(widget, layer) : null;
   const previewConfig = useDebouncedValue(widget.config, PREVIEW_DEBOUNCE_MS);
   const preview = { ...widget, config: previewConfig };
