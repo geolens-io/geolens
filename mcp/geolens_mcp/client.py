@@ -33,7 +33,8 @@ _MAX_REMEMBERED_QUERIES = 64
 # Kept local because catalog search currently exposes ``source_format`` but not
 # the backend's computed ``origin`` field. These values mirror the public source
 # formats accepted by GeoLens; the MCP response exposes only the coarse origin
-# kind, never the provider pointer used to refresh it.
+# kind, never the provider pointer used to refresh it. Search keeps a fixed
+# field list, so only the detail path needs the pointer field names.
 _SERVICE_SOURCE_FORMATS = frozenset({"wfs", "arcgis_featureserver", "ogcapi_features"})
 _ORIGINLESS_RECORD_TYPES = frozenset({"collection", "vrt_dataset"})
 _RAW_SOURCE_POINTER_FIELDS = frozenset({"source_url", "origin_uri", "origin_ref"})
@@ -43,6 +44,45 @@ _SOURCE_STATE_FIELDS = (
     "source_health_detail",
     "last_checked_at",
     "last_refreshed_at",
+)
+# A search hit carries what an agent needs to pick a dataset before calling
+# get_dataset_schema. A keep-list, so new backend fields never reach the agent.
+_SEARCH_PROPERTY_FIELDS = (
+    "title",
+    "record_type",
+    "geometry_type",
+    "feature_count",
+    "crs",
+    "keywords",
+    "updated",
+)
+_SEARCH_DESCRIPTION_CHARS = 300
+_MAP_FIELDS = (
+    "id",
+    "name",
+    "description",
+    "visibility",
+    "center_lng",
+    "center_lat",
+    "zoom",
+    "bearing",
+    "pitch",
+    "basemap_style",
+    "show_basemap_labels",
+    "terrain_config",
+    "layer_count",
+    "updated_at",
+)
+_MAP_LAYER_FIELDS = (
+    "id",
+    "dataset_id",
+    "dataset_name",
+    "dataset_table_name",
+    "dataset_geometry_type",
+    "display_name",
+    "visible",
+    "layer_type",
+    "filter",
 )
 
 
@@ -171,7 +211,7 @@ def _source_origin(properties: dict[str, Any]) -> str | None:
 
 
 def _with_search_source_state(fc: Any) -> Any:
-    """Add a stable, provider-safe source-state shape to search features.
+    """Trim search features to the kept fields and add a stable source-state shape.
 
     Catalog search currently supplies source origin inputs and freshness, but
     not health/check/refresh state. Null placeholders distinguish "not present
@@ -191,15 +231,43 @@ def _with_search_source_state(fc: Any) -> Any:
             features.append(feature)
             continue
         safe_properties = {
-            key: value
-            for key, value in properties.items()
-            if key not in _RAW_SOURCE_POINTER_FIELDS
+            key: properties[key] for key in _SEARCH_PROPERTY_FIELDS if key in properties
         }
+        description = properties.get("description")
+        if isinstance(description, str):
+            if len(description) > _SEARCH_DESCRIPTION_CHARS:
+                description = description[:_SEARCH_DESCRIPTION_CHARS].rstrip() + "…"
+            safe_properties["description"] = description
         safe_properties["source_origin"] = _source_origin(properties)
         for field in _SOURCE_STATE_FIELDS:
-            safe_properties.setdefault(field, None)
-        features.append({**feature, "properties": safe_properties})
-    return {**fc, "features": features}
+            safe_properties[field] = properties.get(field)
+        slim: dict[str, Any] = {"id": feature.get("id"), "properties": safe_properties}
+        if "bbox" in feature:
+            slim["bbox"] = feature["bbox"]
+        features.append(slim)
+    return {
+        key: fc[key] for key in ("type", "numberMatched", "numberReturned") if key in fc
+    } | {"features": features}
+
+
+def _map_summary(detail: Any) -> Any:
+    """Reduce a MapResponse to what identifies a map and its layers.
+
+    Styling, popups, labels, column info and sample data values are left out;
+    they dominate the payload and carry real dataset content.
+    """
+    if not isinstance(detail, dict):
+        return detail
+    out = {key: detail[key] for key in _MAP_FIELDS if key in detail}
+    out["layers"] = [
+        {key: layer[key] for key in _MAP_LAYER_FIELDS if key in layer}
+        for layer in detail.get("layers") or []
+        if isinstance(layer, dict)
+    ]
+    dashboard = detail.get("dashboard_config")
+    widgets = dashboard.get("widgets") if isinstance(dashboard, dict) else None
+    out["dashboard_widget_count"] = len(widgets) if isinstance(widgets, list) else 0
+    return out
 
 
 def _with_detail_source_state(detail: Any) -> Any:
@@ -354,7 +422,7 @@ class GeoLensReadOnlyAPI:
 
     def get_map(self, map_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/maps/{_id_segment(map_id)}")
+        return _map_summary(self._get(f"/maps/{_id_segment(map_id)}"))
 
     def query(self, sql: str, restrict_tables: list[str], row_limit: int = 100) -> Any:
         # Raw read-only SQL through the backend sandbox. The

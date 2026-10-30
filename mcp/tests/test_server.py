@@ -184,3 +184,22 @@ def test_client_error_reaches_the_agent(monkeypatch):
     result = asyncio.run(scenario())
     assert result.is_error
     assert "GeoLens API 404 for /maps/m: Map not found" in result.content[0].text
+
+
+class _Pretty:
+    def get_map(self, map_id):
+        return {"id": map_id, "layers": [{"name": "é"}], "when": object}
+
+
+def test_tool_results_are_compact_json_text(monkeypatch):
+    monkeypatch.setattr(server, "_api", _Pretty())
+
+    async def scenario():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("get_map", {"map_id": "m"})
+
+    text = asyncio.run(scenario()).content[0].text
+
+    assert "\n" not in text
+    assert ": " not in text.replace("<class 'object'>", "")
+    assert '"name":"é"' in text

@@ -424,3 +424,148 @@ def test_remembered_page_zero_counts_stay_bounded():
         api.search_datasets(f"r{i}", offset=0)
 
     assert len(api._collections_by_query) <= 64
+
+
+# --- compact results ---
+
+_MAP_ID = "11111111-1111-1111-1111-111111111111"
+_DATASET_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def test_search_results_keep_only_the_listed_fields():
+    payload = {
+        "type": "FeatureCollection",
+        "numberMatched": 1,
+        "numberReturned": 1,
+        "links": [{"rel": "next", "href": "http://test/next"}],
+        "features": [
+            {
+                "type": "Feature",
+                "id": "d1",
+                "bbox": [1, 2, 3, 4],
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0]] * 4]},
+                "conformsTo": ["http://example.test/conf"],
+                "properties": {
+                    "title": "Roads",
+                    "description": "x" * 1000,
+                    "keywords": ["roads"],
+                    "updated": "2026-01-01T00:00:00Z",
+                    "crs": "EPSG:4326",
+                    "record_type": "vector_dataset",
+                    "geometry_type": "LineString",
+                    "feature_count": 7,
+                    "source_freshness": "fresh",
+                    "contacts": [{"name": "someone"}],
+                    "themes": [{"scheme": "x"}],
+                    "quality_detail": {"score": 1},
+                    "source_url": "https://provider.example/?token=secret",
+                    "origin_uri": "https://provider.example/layer",
+                    "origin_ref": {"url": "https://provider.example/wfs"},
+                    "some_new_backend_field": "leaks unless listed",
+                },
+            }
+        ],
+    }
+    api, _ = _api(_ok(payload))
+
+    out = api.search_datasets("roads")
+
+    assert set(out) == {"type", "numberMatched", "numberReturned", "features"}
+    feature = out["features"][0]
+    assert set(feature) == {"id", "bbox", "properties"}
+    props = feature["properties"]
+    assert set(props) == {
+        "title",
+        "description",
+        "keywords",
+        "updated",
+        "crs",
+        "record_type",
+        "geometry_type",
+        "feature_count",
+        "source_origin",
+        "source_freshness",
+        "source_health",
+        "source_health_detail",
+        "last_checked_at",
+        "last_refreshed_at",
+    }
+    assert len(props["description"]) <= 301
+    assert props["description"].endswith("…")
+
+
+def _map_payload():
+    layer = {
+        "id": "l1",
+        "dataset_id": _DATASET_ID,
+        "dataset_name": "Roads",
+        "dataset_table_name": "roads_1",
+        "dataset_geometry_type": "LineString",
+        "display_name": "Main roads",
+        "visible": True,
+        "layer_type": "vector_geolens",
+        "filter": ["==", "kind", "main"],
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"line-color": "#ff0000"},
+        "layout": {"line-cap": "round"},
+        "style_config": {"mode": "single"},
+        "popup_config": {"fields": ["name"]},
+        "label_config": {"field": "name"},
+        "dataset_column_info": [{"name": "name", "type": "text"}],
+        "dataset_sample_values": {"name": ["Elm Street", "Oak Avenue"]},
+    }
+    return {
+        "id": _MAP_ID,
+        "name": "Atlas",
+        "description": "d",
+        "visibility": "private",
+        "center_lng": 1.0,
+        "center_lat": 2.0,
+        "zoom": 3.0,
+        "bearing": 0.0,
+        "pitch": 0.0,
+        "basemap_style": "light",
+        "show_basemap_labels": True,
+        "terrain_config": None,
+        "layer_count": 1,
+        "updated_at": "2026-01-01T00:00:00Z",
+        "created_by_username": "someone",
+        "layers": [layer],
+        "dashboard_config": {"version": 1, "panel": "right", "widgets": [{}, {}]},
+    }
+
+
+def test_get_map_is_a_summary_without_styling_or_sample_values():
+    api, _ = _api(_ok(_map_payload()))
+
+    out = api.get_map(_MAP_ID)
+
+    assert out["name"] == "Atlas"
+    assert out["dashboard_widget_count"] == 2
+    assert "dashboard_config" not in out
+    assert "created_by_username" not in out
+    assert set(out["layers"][0]) == {
+        "id",
+        "dataset_id",
+        "dataset_name",
+        "dataset_table_name",
+        "dataset_geometry_type",
+        "display_name",
+        "visible",
+        "layer_type",
+        "filter",
+    }
+    text = str(out)
+    assert "Elm Street" not in text
+    assert "line-color" not in text
+
+
+def test_get_map_without_dashboard_reports_none():
+    payload = _map_payload()
+    payload["dashboard_config"] = None
+    api, _ = _api(_ok(payload))
+
+    out = api.get_map(_MAP_ID)
+
+    assert out["dashboard_widget_count"] == 0
