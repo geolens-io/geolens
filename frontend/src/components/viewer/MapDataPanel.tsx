@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -304,15 +305,27 @@ export function MapDataPanel({
     );
   };
 
+  // One content instance stays mounted and its DOM moves between the dock and
+  // the full-screen dialog, so the table keeps its filters, sort and paging.
+  const [contentHost] = useState(() => {
+    const host = document.createElement('div');
+    host.className = 'contents';
+    return host;
+  });
+  const attachContent = useCallback((el: HTMLElement | null) => {
+    if (el && contentHost.parentNode !== el) el.appendChild(contentHost);
+  }, [contentHost]);
+
   return (
     <>
+      {createPortal(renderContent(isExpanded), contentHost)}
       <section
+        ref={isExpanded ? undefined : attachContent}
         id={id}
         aria-label={t('viewer.data.title')}
         className="flex shrink-0 flex-col overflow-hidden border-t bg-background"
         style={{ height: size.height }}
       >
-        {!isExpanded && renderContent(false)}
       </section>
       {isExpanded && (
         <Dialog open onOpenChange={(open) => { if (!open) setExpanded(false); }}>
@@ -327,7 +340,7 @@ export function MapDataPanel({
             }}
           >
             <DialogTitle className="sr-only">{t('viewer.data.title')}</DialogTitle>
-            {renderContent(true)}
+            <div ref={attachContent} className="contents" />
           </DialogContent>
         </Dialog>
       )}

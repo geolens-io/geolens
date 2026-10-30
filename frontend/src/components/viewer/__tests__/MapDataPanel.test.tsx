@@ -423,6 +423,29 @@ describe('MapDataPanel', () => {
     expect(await within(dialog).findAllByRole('textbox', { name: /^Filter / })).not.toHaveLength(0);
   });
 
+  it('keeps the table state across expand, collapse and a row click on a phone', async () => {
+    window.innerWidth = 375;
+    render(<Harness map={fakeMap()} />);
+    await screen.findByText('Main St');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand map data' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Map data' });
+    fireEvent.change((await within(dialog).findAllByRole('textbox', { name: /^Filter / }))[0], { target: { value: 'Oak' } });
+    await waitFor(() => expect(JSON.stringify(lastRowsRequest()[1])).toContain('Oak'));
+    const filtered = JSON.stringify(lastRowsRequest()[1]);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Collapse map data' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(JSON.stringify(lastRowsRequest()[1])).toBe(filtered);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand map data' }));
+    dialog = await screen.findByRole('dialog', { name: 'Map data' });
+    expect(within(dialog).getAllByRole('textbox', { name: /^Filter / })[0]).toHaveValue('Oak');
+    fireEvent.click(await within(dialog).findByText('Main St').catch(() => within(dialog).getAllByRole('row')[1]));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(JSON.stringify(lastRowsRequest()[1])).toBe(filtered);
+  });
+
   it('keeps the rows on screen as In view turns on and asks for the view at once', async () => {
     render(<Harness map={fakeMap()} />);
     await screen.findByText('Main St');
