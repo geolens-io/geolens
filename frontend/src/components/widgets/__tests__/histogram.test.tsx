@@ -251,6 +251,22 @@ describe('histogram widget', () => {
       expect(selectionCql2(layer, onSelect.mock.lastCall![0])).not.toBeNull();
     });
 
+    it('keeps a bin past the safe integers half-open', () => {
+      const onSelect = vi.fn();
+      const big = [{ name: 'visits', type: 'bigint' }];
+      const edge = 2 ** 53;
+      const wide = { ...data, result: { bins: [{ lower: edge - 2, upper: edge, count: 1 }, { lower: edge, upper: edge + 4, count: 1 }] } };
+      render(<HistogramRenderer config={visits} data={wide} columns={big} onSelect={onSelect} />);
+      const chart = screen.getByRole('group', { name: 'Distribution of visits' });
+      fireEvent.focus(chart);
+      fireEvent.keyDown(chart, { key: 'End' });
+      fireEvent.keyDown(chart, { key: 'Home' });
+      fireEvent.keyDown(chart, { key: 'Enter' });
+      expect(onSelect).toHaveBeenLastCalledWith(
+        expect.objectContaining({ range: { lower: edge - 2, upper: edge, includeUpper: false } }),
+      );
+    });
+
     it('keeps the range of a column that can hold fractions', () => {
       const real = [{ name: 'visits', type: 'double precision' }];
       render(<HistogramFallback config={visits} data={bins(50, 2)} columns={real} />);

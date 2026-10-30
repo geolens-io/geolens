@@ -60,7 +60,8 @@ export function useHistogramText(
     ...headings,
     bins: result.bins.map((bin, index, all) => {
       // The server bins an integer column in whole numbers, so [a, a + w) holds a to a + w - 1.
-      const whole = integer && Number.isInteger(bin.lower) && Number.isInteger(bin.upper);
+      // Past 2^53, upper - 1 can round back to upper, so the bin stays half-open.
+      const whole = integer && Number.isSafeInteger(bin.lower) && Number.isSafeInteger(bin.upper);
       const upper = whole ? Math.max(bin.lower, bin.upper - 1) : bin.upper;
       const lowerText = edge(bin.lower);
       const upperText = edge(upper);
