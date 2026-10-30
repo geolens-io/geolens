@@ -170,8 +170,20 @@ type CanonicalFilter =
   | { kind: 'editable'; combinator: 'all' | 'any'; conditions: CanonicalFilterCondition[] }
   | { kind: 'opaque'; raw: FilterSpecification };
 
+/** `["all", <scalar check>, ["in", ["get", f], ...]]` as its `in`, else the node itself. */
+function withoutScalarGuard(node: unknown): unknown {
+  if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return node;
+  const test = node[2];
+  const field = Array.isArray(test) && test[0] === 'in' && isGetExpression(test[1]) ? test[1][1] : null;
+  return field !== null && JSON.stringify(node[1]) === JSON.stringify(scalarTypeGuard(field)) ? test : node;
+}
+
 /** Recognize a single (non-combinator) filter node. Returns null if unsupported. */
-function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
+function parseSingleCondition(node: unknown): CanonicalFilterCondition | null {
+  const e =
+    Array.isArray(node) && node[0] === '!' && node.length === 2
+      ? ['!', withoutScalarGuard(node[1])]
+      : withoutScalarGuard(node);
   if (!Array.isArray(e) || e.length === 0) return null;
 
   // is_null full pattern: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
@@ -620,41 +632,58 @@ const cql2OrNull = (field: string, expr: Cql2Expression): Cql2Expression => ({
 const LEGACY_ORDER_OPERATORS = new Set(['<', '>', '<=', '>=']);
 const LEGACY_NEGATIONS: Record<string, string> = { '!in': 'in', '!=': '==', '!has': 'has' };
 
-function legacyNode(node: unknown): unknown {
+const scalarTypeGuard = (field: string) => [
+  'any',
+  ...['null', 'boolean', 'number', 'string'].map((type) => ['==', ['typeof', ['get', field]], type]),
+];
+
+function legacyNode(node: unknown, scalarSafe: boolean): unknown {
   if (!Array.isArray(node)) return 'unsupported';
   const [op, key, ...values] = node;
   if (op === 'all' || op === 'any') {
-    const children = node.slice(1).map(legacyNode);
+    const children = node.slice(1).map((child) => legacyNode(child, scalarSafe));
     return children.includes('unsupported') ? 'unsupported' : [op, ...children];
   }
   if (typeof op === 'string' && Object.hasOwn(LEGACY_NEGATIONS, op)) {
-    const positive = legacyNode([LEGACY_NEGATIONS[op], key, ...values]);
+    const positive = legacyNode([LEGACY_NEGATIONS[op], key, ...values], scalarSafe);
     return positive === 'unsupported' ? positive : ['!', positive];
   }
   if (typeof key !== 'string' || key === '$type' || key === '$id') return 'unsupported';
-  if (op === 'in') return ['in', ['get', key], ['literal', values]];
+  // `in` throws on an array or object, which would turn a negated match into a miss.
+  const membership = (list: unknown[]) => {
+    const test = ['in', ['get', key], ['literal', list]];
+    return scalarSafe ? ['all', scalarTypeGuard(key), test] : test;
+  };
+  if (op === 'in') return membership(values);
   if (op === 'has') return values.length === 0 ? ['has', key] : 'unsupported';
   // A legacy null comparison tests for a present null, which expressions can't tell from a missing value.
   if (values.length !== 1 || !isCql2Scalar(values[0])) return 'unsupported';
   const [value] = values;
-  if (op === '==') return ['in', ['get', key], ['literal', [value]]];
+  if (op === '==') return membership([value]);
   if (!LEGACY_ORDER_OPERATORS.has(op) || typeof value !== 'number') return 'unsupported';
   // A legacy order comparison never matches a non-number, numeric strings included.
   return ['all', numberTypeGuard(key), buildNullSafeNumericComparison(key, op, value)];
 }
 
+function translateLegacy(
+  filter: FilterSpecification | null | undefined,
+  scalarSafe: boolean,
+): FilterSpecification | null | undefined | 'unsupported' {
+  if (!Array.isArray(filter) || filter.length === 0 || styleExpression.isExpressionFilter(filter)) return filter;
+  return legacyNode(filter, scalarSafe) as FilterSpecification | 'unsupported';
+}
+
 /**
  * A filter in MapLibre's legacy syntax (`["in", key, ...values]`, `!in`,
- * `!has`, `["==", key, value]`, ...) rewritten in the editor's expression
- * forms, which keep the same features, or 'unsupported' when part of it has
- * no such form, such as `none`, `$type`, a null or a text order comparison.
- * Any other filter comes back unchanged.
+ * `!has`, `["==", key, value]`, ...) rewritten as an expression that draws the
+ * same features, or 'unsupported' when part of it has no such form, such as
+ * `none`, `$type`, a null or a text order comparison. Any other filter comes
+ * back unchanged.
  */
 export function legacyFilterToExpression(
   filter: FilterSpecification | null | undefined,
 ): FilterSpecification | null | undefined | 'unsupported' {
-  if (!Array.isArray(filter) || filter.length === 0 || styleExpression.isExpressionFilter(filter)) return filter;
-  return legacyNode(filter) as FilterSpecification | 'unsupported';
+  return translateLegacy(filter, true);
 }
 
 function compareNumbers(a: number, operator: string, b: number): boolean {
@@ -755,7 +784,7 @@ function treeConditions(tree: FilterTree): CanonicalFilterCondition[] {
 export function filterConditions(
   filter: FilterSpecification | null | undefined,
 ): CanonicalFilterCondition[] | null {
-  const expression = legacyFilterToExpression(filter ?? null);
+  const expression = translateLegacy(filter ?? null, false);
   const tree = expression === 'unsupported' ? null : parseFilterTree(expression);
   return tree ? treeConditions(tree) : null;
 }
@@ -800,7 +829,7 @@ export function maplibreFilterToCql2(
   columns?: readonly FilterColumn[] | null,
   opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
-  const expression = legacyFilterToExpression(filter);
+  const expression = translateLegacy(filter, false);
   if (expression === 'unsupported') return 'unsupported';
   // The map draws the sanitized filter, so the table and analysis must read the same one.
   const tree = parseFilterTree(sanitizeNullableNumericFilter(expression));

@@ -482,6 +482,64 @@ describe('legacy saved filters', () => {
     expect(drawn(translated, { pop: '5' })).toBe(false);
   });
 
+  const valueMatrix: Array<[string, Record<string, unknown>]> = [
+    ['a missing key', {}],
+    ['null', { k: null }],
+    ['true', { k: true }],
+    ['false', { k: false }],
+    ['0', { k: 0 }],
+    ['12', { k: 12 }],
+    ['-5', { k: -5 }],
+    ["'12'", { k: '12' }],
+    ["'b'", { k: 'b' }],
+    ["''", { k: '' }],
+    ["['a']", { k: ['a'] }],
+    ["['b']", { k: ['b'] }],
+    ['an object', { k: { k: 1 } }],
+  ];
+
+  it.each([
+    ['==', ['==', 'k', 'b']],
+    ['== number', ['==', 'k', 12]],
+    ['== boolean', ['==', 'k', true]],
+    ['!=', ['!=', 'k', 'b']],
+    ['!= number', ['!=', 'k', 12]],
+    ['<', ['<', 'k', 6]],
+    ['<=', ['<=', 'k', 12]],
+    ['>', ['>', 'k', 6]],
+    ['>=', ['>=', 'k', 12]],
+    ['in', ['in', 'k', 'b', 12, true]],
+    ['!in', ['!in', 'k', 'b', 12, true]],
+    ['has', ['has', 'k']],
+    ['!has', ['!has', 'k']],
+    ['all', ['all', ['!=', 'k', 'b'], ['>', 'k', -9]]],
+    ['any', ['any', ['==', 'k', 'b'], ['<', 'k', 6]]],
+    ['has under any', ['any', ['==', 'k', 'b'], ['has', 'k']]],
+    ['!= under any', ['any', ['!=', 'k', 'b'], ['<', 'k', 6]]],
+    ['nested', ['all', ['any', ['!in', 'k', 'b'], ['has', 'k']], ['!=', 'k', 12]]],
+  ])('draws a translated legacy %s as the legacy filter does on every value type', (_label, legacy) => {
+    const filter = legacy as unknown as FilterSpecification;
+    const translated = legacyFilterToExpression(filter);
+    if (translated === 'unsupported') return;
+    for (const [label, props] of valueMatrix) {
+      expect(drawn(translated as FilterSpecification, props), label).toBe(drawn(filter, props));
+    }
+  });
+
+  it('sends the drawn translation of a legacy filter as the same CQL2 the filter gives', () => {
+    for (const legacy of [
+      ['!=', 'kind', 'b'],
+      ['!in', 'kind', 'a', 'b'],
+      ['==', 'kind', 'a'],
+      ['in', 'pop', 5, 12],
+      ['all', ['!=', 'kind', 'b'], ['>', 'pop', 6]],
+    ]) {
+      const filter = legacy as unknown as FilterSpecification;
+      const drawnForm = legacyFilterToExpression(filter) as FilterSpecification;
+      expect(maplibreFilterToCql2(drawnForm, columns)).toEqual(maplibreFilterToCql2(filter, columns));
+    }
+  });
+
   it('types the values as the expression forms do', () => {
     // Text values can't be compared with an integer column, so the server would refuse them.
     const textOnInteger = ['in', 'pop', '5', '12'] as unknown as FilterSpecification;
