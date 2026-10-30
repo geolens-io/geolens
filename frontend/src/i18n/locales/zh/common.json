@@ -205,6 +205,7 @@
       "viewSwitch": "地图数据视图",
       "layerPicker": "表格图层",
       "inView": "视图内",
+      "inViewNoGeometry": "此图层没有可按地图视图筛选的几何",
       "filteredByMap": "已按地图筛选",
       "filterUnsupported": "无法应用图层过滤器——显示所有行。",
       "close": "关闭地图数据",

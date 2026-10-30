@@ -205,6 +205,7 @@
       "viewSwitch": "Map data view",
       "layerPicker": "Table layer",
       "inView": "In view",
+      "inViewNoGeometry": "This layer has no geometry to filter by the map view",
       "filteredByMap": "Filtered by map",
       "filterUnsupported": "The layer's filter could not be applied. Showing every row.",
       "close": "Close map data",

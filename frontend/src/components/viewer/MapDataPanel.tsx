@@ -120,12 +120,15 @@ export function MapDataPanel({
 
   // The first view is read at once, so turning In view on keeps the table
   // mounted; later views arrive once the map rests.
-  const [inView, setInView] = useState(false);
+  const [inViewRequested, setInViewRequested] = useState(false);
+  // A layer without geometry has nothing to bound, and its rows endpoint rejects the spatial predicate.
+  const spatial = !!layer?.geometry_type;
+  const inView = inViewRequested && spatial;
   const [firstView, setFirstView] = useState<Bbox | null>(null);
   const restedView = useMapViewBbox(mapRef.current, activeView === 'table' && inView);
   const viewBbox = inView ? restedView ?? firstView : null;
   const toggleInView = (on: boolean) => {
-    setInView(on);
+    setInViewRequested(on);
     setFirstView(on && mapRef.current ? mapViewBbox(mapRef.current) : null);
   };
 
@@ -266,8 +269,8 @@ export function MapDataPanel({
                 {t('viewer.data.filteredByMap')}
               </span>
             )}
-            <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs pointer-coarse:min-h-11" title={t('viewer.data.inView')}>
-              <Switch checked={inView} onCheckedChange={toggleInView} />
+            <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs pointer-coarse:min-h-11" title={spatial ? t('viewer.data.inView') : t('viewer.data.inViewNoGeometry')}>
+              <Switch checked={inView} onCheckedChange={toggleInView} disabled={!spatial} />
               <ScanSearch className="h-3.5 w-3.5 text-muted-foreground md:hidden" aria-hidden="true" />
               <span className="max-md:sr-only">{t('viewer.data.inView')}</span>
             </label>

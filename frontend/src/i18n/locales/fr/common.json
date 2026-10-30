@@ -506,6 +506,7 @@
       "viewSwitch": "Vue des données de la carte",
       "layerPicker": "Couche du tableau",
       "inView": "Dans la vue",
+      "inViewNoGeometry": "Cette couche n'a pas de géométrie à filtrer selon la vue de la carte",
       "filteredByMap": "Filtré par la carte",
       "filterUnsupported": "Le filtre de la couche n'a pas pu être appliqué ; toutes les lignes sont affichées.",
       "close": "Fermer les données de la carte",

@@ -248,6 +248,35 @@ describe('MapDataPanel', () => {
     });
   });
 
+  it('never sends the view predicate for a layer without geometry', async () => {
+    const table = { ...LAYER, id: 'layer-2', dataset_id: 'dataset-2', display_name: 'Permits', geometry_type: null } as SharedLayerResponse;
+    render(<Harness map={fakeMap()} layers={[table]} />);
+    await screen.findByText('Main St');
+
+    const toggle = screen.getByRole('switch', { name: 'In view' });
+    expect(toggle).toBeDisabled();
+    fireEvent.click(toggle);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    for (const [, params] of vi.mocked(getDatasetRows).mock.calls) {
+      expect(params?.cql2Filter ?? '').not.toContain('s_intersects');
+    }
+  });
+
+  it('drops the view predicate when the picked layer has no geometry', async () => {
+    const table = { ...LAYER, id: 'layer-2', dataset_id: 'dataset-2', display_name: 'Permits', geometry_type: null } as SharedLayerResponse;
+    render(<Harness map={fakeMap()} layers={[LAYER, table]} />);
+    await screen.findByText('Main St');
+    fireEvent.click(screen.getByRole('switch', { name: 'In view' }));
+    await waitFor(() => expect(lastRowsRequest()[1]!.cql2Filter).toContain('s_intersects'));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Table layer' }), { target: { value: 'layer-2' } });
+
+    await waitFor(() => expect(lastRowsRequest()[0]).toBe('dataset-2'));
+    expect(lastRowsRequest()[1]!.cql2Filter ?? '').not.toContain('s_intersects');
+    expect(screen.getByRole('switch', { name: 'In view' })).toBeDisabled();
+  });
+
   it('says why a view with In view on has no rows', async () => {
     vi.mocked(getDatasetRows).mockImplementation(async (_id, params) => (
       params?.cql2Filter?.includes('s_intersects') ? { ...ROWS, rows: [], bboxes: [], approximate_total: 0 } : ROWS

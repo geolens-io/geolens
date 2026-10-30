@@ -506,6 +506,7 @@
       "viewSwitch": "Vista de los datos del mapa",
       "layerPicker": "Capa de la tabla",
       "inView": "En la vista",
+      "inViewNoGeometry": "Esta capa no tiene geometría que filtrar por la vista del mapa",
       "filteredByMap": "Filtrado por el mapa",
       "filterUnsupported": "No se pudo aplicar el filtro de la capa; se muestran todas las filas.",
       "close": "Cerrar los datos del mapa",

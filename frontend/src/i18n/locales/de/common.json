@@ -506,6 +506,7 @@
       "viewSwitch": "Ansicht der Kartendaten",
       "layerPicker": "Ebene der Tabelle",
       "inView": "Im Ausschnitt",
+      "inViewNoGeometry": "Diese Ebene hat keine Geometrie, die sich nach dem Kartenausschnitt filtern lässt",
       "filteredByMap": "Nach Karte gefiltert",
       "filterUnsupported": "Der Filter der Ebene konnte nicht angewendet werden – alle Zeilen werden angezeigt.",
       "close": "Kartendaten schließen",
