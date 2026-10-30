@@ -4700,12 +4700,9 @@ def seed_quake_dashboard(
     created = map_id is None
     if created:
         map_id = api.create_map(DASHBOARD_MAP, DASHBOARD_MAP_DESCRIPTION)
+    current = api.get_map(map_id)
     layer = next(
-        (
-            lay
-            for lay in api.get_map(map_id)["layers"]
-            if lay["dataset_id"] == quakes_ds
-        ),
+        (lay for lay in current["layers"] if lay["dataset_id"] == quakes_ds),
         None,
     )
     if layer is None:
@@ -4752,7 +4749,8 @@ def seed_quake_dashboard(
             "basemap_style": "openfreemap-positron",
             "show_basemap_labels": True,
         }
-        if created
+        # Keyed on the stored view, so a rerun after a failed save still sets it.
+        if current.get("center_lng") is None
         else {}
     )
     api.set_view(
@@ -7365,11 +7363,11 @@ def main() -> int:
         or args.refresh_quakes
         or args.refresh_hurdat2
         or args.story_and_dashboard
-        or args.only == "embed"
+        or args.only in ("embed", "story", "dashboard")
     ):
         ap.error(
             "--expected-state cannot be combined with force, prune, refresh, "
-            "story or embed runs"
+            "story, dashboard or embed runs"
         )
 
     print(f"Logging in to {args.base_url} as {args.username}...")

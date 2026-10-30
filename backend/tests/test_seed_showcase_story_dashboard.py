@@ -38,6 +38,9 @@ class FakeApi:
         self.stories: dict[str, str] = {}
         self.published: list[dict] = []
         self.dashboards: list[dict] = []
+        self.views: list[dict] = []
+        self.centers: dict[str, float | None] = {}
+        self.fail_set_view = False
         self.layers_added = 0
         self.stories_created = 0
         self.maps_created = 0
@@ -65,7 +68,7 @@ class FakeApi:
             ]
         return {
             "id": "00000000-0000-4000-8000-00000000000" + str(len(map_id) % 10),
-            "center_lng": -72.0,
+            "center_lng": self.centers.get(map_id, -72.0),
             "center_lat": 25.0,
             "zoom": 3.2,
             "bearing": None,
@@ -102,6 +105,7 @@ class FakeApi:
     def create_map(self, name, description):
         self.maps_created += 1
         self.maps[name] = "map-dashboard"
+        self.centers["map-dashboard"] = None
         return "map-dashboard"
 
     def add_layer(self, map_id, body):
@@ -109,6 +113,11 @@ class FakeApi:
         return {"id": "22222222-2222-4222-8222-222222222222"}
 
     def set_view(self, map_id, **fields):
+        if self.fail_set_view:
+            raise RuntimeError("422 from an older server")
+        self.views.append(fields)
+        if "center_lng" in fields:
+            self.centers[map_id] = fields["center_lng"]
         if "dashboard_config" in fields:
             self.dashboards.append(fields["dashboard_config"])
 
@@ -142,6 +151,18 @@ def test_dashboard_config_is_valid_and_reruns_reuse_map_and_layer():
     for config in api.dashboards:
         DashboardConfigInput.model_validate(config)
     assert api.dashboards[0] == api.dashboards[1]
+
+
+def test_dashboard_camera_is_set_once_even_after_a_failed_first_save():
+    api = FakeApi()
+    api.fail_set_view = True
+    with pytest.raises(RuntimeError):
+        seeder.seed_quake_dashboard(api)
+    api.fail_set_view = False
+    seeder.seed_quake_dashboard(api)
+    seeder.seed_quake_dashboard(api)
+    assert api.maps_created == 1
+    assert [view.get("center_lng") for view in api.views] == [0, None]
 
 
 @pytest.mark.parametrize("seed", ["seed_hurricane_story", "seed_quake_dashboard"])
