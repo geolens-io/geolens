@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@/test/test-utils';
 import { apiFetchBlob, ApiError } from '@/api/client';
 import { imageWidget } from '../image/definition';
 import { parseStoredWidget, checkWidgetWrite } from '../registry';
+import { AssetImage } from '../image/AssetImage';
 import { WidgetView } from '../WidgetView';
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -120,5 +121,38 @@ describe('image block loading', () => {
     );
     expect(await screen.findByRole('img', { name: 'A river at dusk' })).toBeInTheDocument();
     expect(paths).toEqual([`/stories/s1/assets/${assetId}`]);
+  });
+
+  it('observes a placeholder that appears after the first render', async () => {
+    const paths: string[] = [];
+    vi.mocked(apiFetchBlob).mockImplementation(async (path: string) => {
+      paths.push(path);
+      return new Blob(['x'], { type: 'image/webp' });
+    });
+    const cover = (path: string | null) => (
+      <AssetImage
+        path={path}
+        alt="Cover"
+        lazy
+        className="cover"
+        placeholderClassName="placeholder"
+        loadingLabel="Loading cover"
+        fallback={<p>No cover</p>}
+      />
+    );
+    // A card whose cover arrives on a later read of the list.
+    const { rerender } = render(cover(null));
+    expect(screen.getByText('No cover')).toBeInTheDocument();
+    rerender(cover('/stories/s1/assets/cover'));
+    expect(await screen.findByRole('img', { name: 'Loading cover' })).toBeInTheDocument();
+
+    const placeholder = screen.getByRole('img', { name: 'Loading cover' });
+    await waitFor(() => expect(observers.some((o) => o.targets.includes(placeholder))).toBe(true));
+    const { callback } = observers.find((o) => o.targets.includes(placeholder))!;
+    act(() =>
+      callback([{ isIntersecting: true, target: placeholder } as unknown as IntersectionObserverEntry], {} as IntersectionObserver),
+    );
+    expect(await screen.findByRole('img', { name: 'Cover' })).toBeInTheDocument();
+    expect(paths).toEqual(['/stories/s1/assets/cover']);
   });
 });

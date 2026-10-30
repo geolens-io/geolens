@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useAssetImage } from '@/hooks/use-asset-image';
 import { useNearViewport } from '@/hooks/use-near-viewport';
 import { cn } from '@/lib/utils';
@@ -28,8 +28,7 @@ export function AssetImage({
   lazy = false,
   loadingLabel,
 }: AssetImageProps) {
-  const placeholder = useRef<HTMLDivElement>(null);
-  const near = useNearViewport(placeholder);
+  const [placeholder, near] = useNearViewport();
   const { src, failed } = useAssetImage(path, !lazy || near);
   if (!path || failed) return <>{fallback}</>;
   if (src) return <img src={src} alt={alt} decoding="async" className={className} />;
