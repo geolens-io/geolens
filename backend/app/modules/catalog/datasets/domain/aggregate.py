@@ -489,14 +489,15 @@ def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     if not rows:
         return HistogramResult(bins=[])
+    # An integer column's rows carry the bin width as a fifth value. They're
+    # binned before any float conversion, which can merge two large integers.
+    if len(rows[0]) == 5:
+        return _whole_number_histogram(rows)
     low, high = float(rows[0][0]), float(rows[0][1])
     if low == high:
         return HistogramResult(
             bins=[HistogramBin(lower=low, upper=high, count=int(rows[0][3]))]
         )
-    # An integer column's rows carry the bin width as a fifth value.
-    if len(rows[0]) == 5:
-        return _whole_number_histogram(rows)
     counts = {int(row[2]): int(row[3]) for row in rows}
     # A weighted mean of the ends stays finite where high - low would overflow.
     edges = [low * (1 - i / bins) + high * (i / bins) for i in range(bins + 1)]

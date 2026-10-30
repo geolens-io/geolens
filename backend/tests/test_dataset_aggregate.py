@@ -289,6 +289,28 @@ class TestOperations:
             "count": 1,
         }
 
+    async def test_a_bigint_histogram_keeps_neighbours_past_two_to_the_53(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
+                " WHEN 1 THEN 9007199254740992 WHEN 2 THEN 9007199254740993 END"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert sum(b["count"] for b in resp.json()["result"]["bins"]) == 2
+
     def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
         low, high = 0.3, 0.30000000000000004
 
