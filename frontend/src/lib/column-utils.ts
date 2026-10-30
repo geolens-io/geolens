@@ -8,13 +8,7 @@ const NUMERIC_TYPES = new Set([
 
 /** Check if a column type string represents a numeric Postgres type. */
 export function isNumericColumn(type: string): boolean {
-  const t = type.toLowerCase();
-  if (NUMERIC_TYPES.has(t)) return true;
-  // Fall back to substring match for compound types (e.g. "double precision")
-  for (const nt of NUMERIC_TYPES) {
-    if (t.includes(nt)) return true;
-  }
-  return false;
+  return NUMERIC_TYPES.has(type.toLowerCase());
 }
 
 // The column types the aggregate endpoint reads as numbers (column_stats._NUMERIC_TYPES),
@@ -32,8 +26,8 @@ const AGGREGATE_NUMERIC_TYPES = new Set([
 
 /**
  * True for a column type the aggregate endpoint sums, averages and compares.
- * Exact, unlike `isNumericColumn`, whose substring match also takes
- * "interval" and "point".
+ * Unlike `isNumericColumn` it takes `money` and none of the aliases
+ * information_schema never reports.
  */
 export function isAggregateNumeric(type: string): boolean {
   return AGGREGATE_NUMERIC_TYPES.has(type.toLowerCase());

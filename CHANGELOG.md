@@ -57,6 +57,8 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- The Builder and the legend no longer treat interval and point columns as
+  numeric, so data-driven styles and heatmap weights no longer offer them.
 - Turning a Builder layer, group or several layers off and back on no longer
   leaves the map marked "Unsaved changes" when it matches the saved map, so
   leaving the page no longer asks for confirmation. (#3465)
