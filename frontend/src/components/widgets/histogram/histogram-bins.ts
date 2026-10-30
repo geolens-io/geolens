@@ -9,7 +9,11 @@ import type { HistogramConfig } from './definition';
 export interface HistogramBinRow {
   lower: number;
   upper: number;
-  /** The last bin holds its upper edge, the column's maximum; whole-number bins are half-open. */
+  /**
+   * The last bin holds its upper edge, the column's maximum. A whole-number
+   * bin is closed at its last whole number, so a pick never names a value past
+   * the column type's maximum.
+   */
   includeUpper: boolean;
   count: number;
   /** The bin's edges and range in the reader's locale. */
@@ -57,12 +61,13 @@ export function useHistogramText(
     bins: result.bins.map((bin, index, all) => {
       // The server bins an integer column in whole numbers, so [a, a + w) holds a to a + w - 1.
       const whole = integer && Number.isInteger(bin.lower) && Number.isInteger(bin.upper);
+      const upper = whole ? Math.max(bin.lower, bin.upper - 1) : bin.upper;
       const lowerText = edge(bin.lower);
-      const upperText = whole ? edge(Math.max(bin.lower, bin.upper - 1)) : edge(bin.upper);
+      const upperText = edge(upper);
       return {
         lower: bin.lower,
-        upper: bin.upper,
-        includeUpper: bin.lower === bin.upper || (index === all.length - 1 && !whole),
+        upper,
+        includeUpper: whole || bin.lower === bin.upper || index === all.length - 1,
         count: bin.count,
         lowerText,
         upperText,

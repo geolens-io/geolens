@@ -4,6 +4,8 @@ import { histogramWidget, type HistogramConfig } from '../histogram/definition';
 import HistogramEditor from '../histogram/HistogramEditor';
 import { HistogramFallback } from '../histogram/HistogramFallback';
 import HistogramRenderer from '../histogram/HistogramRenderer';
+import { selectionCql2 } from '@/components/viewer/linked-filters';
+import type { SharedLayerResponse } from '@/types/api';
 
 // Radix Select reads these, and jsdom doesn't implement them.
 Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -201,7 +203,7 @@ describe('histogram widget', () => {
       expect(axis).toEqual(['0', '99']);
     });
 
-    it('picks the bin with the server\'s edges', () => {
+    it('picks the whole numbers the bin holds', () => {
       const onSelect = vi.fn();
       render(<HistogramRenderer config={visits} data={bins(50, 2)} columns={integer} onSelect={onSelect} />);
       const chart = screen.getByRole('group', { name: 'Distribution of visits' });
@@ -210,11 +212,11 @@ describe('histogram widget', () => {
       expect(onSelect).toHaveBeenLastCalledWith({
         column: 'visits',
         label: '0 – 49',
-        range: { lower: 0, upper: 50, includeUpper: false },
+        range: { lower: 0, upper: 49, includeUpper: true },
       });
     });
 
-    it('leaves the last whole-number bin open above, and a single-value bin closed', () => {
+    it('closes the last whole-number bin at its last value, and a single-value bin at its value', () => {
       const onSelect = vi.fn();
       const { unmount } = render(<HistogramRenderer config={visits} data={bins(50, 2)} columns={integer} onSelect={onSelect} />);
       const chart = screen.getByRole('group', { name: 'Distribution of visits' });
@@ -222,7 +224,7 @@ describe('histogram widget', () => {
       fireEvent.keyDown(chart, { key: 'End' });
       fireEvent.keyDown(chart, { key: 'Enter' });
       expect(onSelect).toHaveBeenLastCalledWith(
-        expect.objectContaining({ range: { lower: 50, upper: 100, includeUpper: false } }),
+        expect.objectContaining({ range: { lower: 50, upper: 99, includeUpper: true } }),
       );
       unmount();
 
@@ -234,6 +236,19 @@ describe('histogram widget', () => {
       expect(onSelect).toHaveBeenLastCalledWith(
         expect.objectContaining({ range: { lower: 7, upper: 7, includeUpper: true } }),
       );
+    });
+
+    it('still filters when the last bin reaches the column type\'s maximum', () => {
+      const onSelect = vi.fn();
+      const small = [{ name: 'visits', type: 'smallint' }];
+      const top = { ...data, result: { bins: [{ lower: 32700, upper: 32768, count: 2 }] } };
+      render(<HistogramRenderer config={visits} data={top} columns={small} onSelect={onSelect} />);
+      const chart = screen.getByRole('group', { name: 'Distribution of visits' });
+      fireEvent.focus(chart);
+      fireEvent.keyDown(chart, { key: 'Enter' });
+
+      const layer = { id: 'a', dataset_id: 'ds', filter: null, column_info: small } as unknown as SharedLayerResponse;
+      expect(selectionCql2(layer, onSelect.mock.lastCall![0])).not.toBeNull();
     });
 
     it('keeps the range of a column that can hold fractions', () => {
