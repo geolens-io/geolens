@@ -16,6 +16,7 @@ import {
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { keepCompactAttributionFolded } from '@/lib/compact-attribution';
 import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
@@ -161,6 +162,10 @@ export const ViewerMap = memo(function ViewerMap({
   // can opt out, so Enterprise also waits for branding to avoid flashing the credit.
   const showBranding = isResolved && (!isEnterprise || (branding !== undefined && branding.show_badge !== false));
   const mapRef = useRef<MaplibreMap | null>(null);
+  // Watched from mount: the attribution control is keyed on its credits, and
+  // each remount opens it again.
+  const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
@@ -1065,6 +1070,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   return (
     <div
+      ref={shellRef}
       className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // aria-label on <MapGL> is silently dropped (react-maplibre v8 forwards
       // only id/ref/style; MapLibre labels its canvas "Map"), so the wrapper

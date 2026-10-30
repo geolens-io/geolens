@@ -290,3 +290,24 @@ it('shows the cover above the title and serves image blocks from the story', asy
   const header = container.querySelector('header')!;
   await waitFor(() => expect(header.querySelector('img[alt=""]')).not.toBeNull());
 });
+
+describe('a story with no scenes', () => {
+  const TEXT_ONLY = CHAPTERS.map((chapter) => ({ ...chapter, scene: null, scene_hidden: false }));
+
+  it.each([
+    ['narrow', true],
+    ['wide', false],
+  ])('reads as text alone, with no map pane (%s)', (_layout, narrow) => {
+    layout.narrow = narrow;
+    render(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={TEXT_ONLY} />);
+    expect(screen.getByRole('heading', { level: 2, name: 'The tracks' })).toBeInTheDocument();
+    expect(screen.queryByTestId('story-map')).not.toBeInTheDocument();
+  });
+
+  it("keeps the map pane when the only scene is on a map the reader can't open", () => {
+    const hidden = TEXT_ONLY.map((chapter, i) => (i === 1 ? { ...chapter, scene_hidden: true } : chapter));
+    render(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={hidden} />);
+    expect(screen.getByTestId('story-map')).toBeInTheDocument();
+    expect(pane.hint).toBe("This chapter's map is unavailable or has been deleted.");
+  });
+});

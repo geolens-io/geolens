@@ -24,7 +24,7 @@
     "storiesTab": "Stories",
     "loadFailed": "Failed to load stories: {{message}}",
     "empty": "No stories yet",
-    "emptyDescription": "A story pairs chapters of text with scenes on saved maps.",
+    "emptyDescription": "A story pairs chapters of text and images with scenes on saved maps.",
     "unpublished": "Not published",
     "updated": "Updated {{date}}",
     "duplicate": "Duplicate",

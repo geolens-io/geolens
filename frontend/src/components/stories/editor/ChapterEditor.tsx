@@ -38,6 +38,12 @@ export function ChapterEditor({
   const titleRef = useRef<HTMLInputElement>(null);
   const blocks = chapter.blocks ?? [];
   const blocksFull = blocks.length >= MAX_BLOCKS_PER_CHAPTER;
+  const kindCounts = new Map<string, number>();
+  const kindNumbers = blocks.map((block) => {
+    const n = (kindCounts.get(block.type) ?? 0) + 1;
+    kindCounts.set(block.type, n);
+    return n;
+  });
 
   useEffect(() => {
     if (focusTitle) titleRef.current?.focus();
@@ -81,7 +87,7 @@ export function ChapterEditor({
             {block.type === 'markdown' ? (
               <MarkdownField
                 blockId={block.id}
-                label={t('editor.chapter.textBlock', { index: i + 1 })}
+                label={t('editor.chapter.textBlock', { index: kindNumbers[i] })}
                 value={block.config.text}
                 onChange={(text) => edit({ type: 'setBlockText', chapterId: chapter.id, blockId: block.id, text })}
               />
@@ -90,7 +96,7 @@ export function ChapterEditor({
                 storyId={storyId}
                 chapterId={chapter.id}
                 block={block}
-                label={t('editor.chapter.imageBlock', { index: i + 1 })}
+                label={t('editor.chapter.imageBlock', { index: kindNumbers[i] })}
                 edit={edit}
               />
             ) : (
@@ -107,8 +113,8 @@ export function ChapterEditor({
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
               {block.type === 'image'
-                ? t('editor.chapter.removeImage', { index: i + 1 })
-                : t('editor.chapter.removeBlock', { index: i + 1 })}
+                ? t('editor.chapter.removeImage', { index: kindNumbers[i] })
+                : t('editor.chapter.removeBlock', { index: kindNumbers[i] })}
             </Button>
           </div>
         ))}

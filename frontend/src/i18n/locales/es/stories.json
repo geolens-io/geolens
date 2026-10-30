@@ -24,7 +24,7 @@
     "storiesTab": "Historias",
     "loadFailed": "No se pudieron cargar las historias: {{message}}",
     "empty": "Aún no hay historias",
-    "emptyDescription": "Una historia combina capítulos de texto con escenas en mapas guardados.",
+    "emptyDescription": "Una historia combina capítulos de texto e imágenes con escenas en mapas guardados.",
     "unpublished": "Sin publicar",
     "updated": "Actualizada {{date}}",
     "duplicate": "Duplicar",

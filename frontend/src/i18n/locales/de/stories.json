@@ -24,7 +24,7 @@
     "storiesTab": "Storys",
     "loadFailed": "Storys konnten nicht geladen werden: {{message}}",
     "empty": "Noch keine Storys",
-    "emptyDescription": "Eine Story verbindet Textkapitel mit Szenen auf gespeicherten Karten.",
+    "emptyDescription": "Eine Story verbindet Kapitel aus Text und Bildern mit Szenen auf gespeicherten Karten.",
     "unpublished": "Nicht veröffentlicht",
     "updated": "Aktualisiert {{date}}",
     "duplicate": "Duplizieren",

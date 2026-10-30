@@ -24,7 +24,7 @@
     "storiesTab": "Récits",
     "loadFailed": "Impossible de charger les récits : {{message}}",
     "empty": "Aucun récit pour l'instant",
-    "emptyDescription": "Un récit associe des chapitres de texte à des scènes sur des cartes enregistrées.",
+    "emptyDescription": "Un récit associe des chapitres de texte et d'images à des scènes sur des cartes enregistrées.",
     "unpublished": "Non publié",
     "updated": "Mis à jour le {{date}}",
     "duplicate": "Dupliquer",

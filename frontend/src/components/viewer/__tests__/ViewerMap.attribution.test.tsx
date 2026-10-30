@@ -8,7 +8,7 @@
  * builds the control once and a changed `customAttribution` never lands.
  */
 import type { ReactNode } from 'react';
-import { render, screen } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import type { SharedLayerResponse } from '@/types/api';
 import { attributionControlKey, collectLayerAttributions } from '../layer-identity';
@@ -23,8 +23,11 @@ vi.mock('@vis.gl/react-maplibre', () => ({
   NavigationControl: () => null,
   ScaleControl: () => null,
   FullscreenControl: () => null,
+  // Starts expanded, as MapLibre's compact control does when it's added.
   AttributionControl: ({ customAttribution }: { customAttribution?: string | string[] }) => (
-    <div
+    <details
+      open
+      className="maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show"
       data-testid="attribution-control"
       data-custom-attribution={
         customAttribution === undefined
@@ -240,5 +243,21 @@ describe('ViewerMap — attribution control', () => {
     expect(
       screen.getByTestId('attribution-control').dataset.customAttribution,
     ).toBe(JSON.stringify([SWISSTOPO]));
+  });
+
+  it('folds the attribution on a narrow map, again when changed credits remount it', async () => {
+    const layers = [layer('a', SWISSTOPO, 0), layer('b', NOAA, 1)];
+    const { rerender } = render(
+      <ViewerMap {...baseProps} layers={layers} visibleLayers={new Set(['a', 'b'])} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('attribution-control')).not.toHaveAttribute('open'));
+    expect(screen.getByTestId('attribution-control')).not.toHaveClass('maplibregl-compact-show');
+    const first = screen.getByTestId('attribution-control');
+
+    rerender(<ViewerMap {...baseProps} layers={layers} visibleLayers={new Set(['a'])} />);
+    expect(screen.getByTestId('attribution-control')).not.toBe(first);
+    await waitFor(() => expect(screen.getByTestId('attribution-control')).not.toHaveAttribute('open'));
+    expect(screen.getByTestId('attribution-control')).toHaveClass('maplibregl-compact');
+    expect(screen.getByTestId('attribution-control')).not.toHaveClass('maplibregl-compact-show');
   });
 });

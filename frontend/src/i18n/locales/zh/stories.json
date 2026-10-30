@@ -24,7 +24,7 @@
     "storiesTab": "故事",
     "loadFailed": "无法加载故事：{{message}}",
     "empty": "还没有故事",
-    "emptyDescription": "故事将文字章节与已保存地图上的场景结合在一起。",
+    "emptyDescription": "故事将图文章节与已保存地图上的场景结合在一起。",
     "unpublished": "未发布",
     "updated": "更新于 {{date}}",
     "duplicate": "复制",
