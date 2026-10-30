@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from starlette.datastructures import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_io import await_draining
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
@@ -17,9 +20,11 @@ from app.modules.catalog.stories.assets import (
     get_story_asset,
     new_story_asset_key,
     reaches_readers,
+    variant_key,
 )
 from app.modules.catalog.stories.images import (
     MAX_UPLOAD_BYTES,
+    STORY_ASSET_VARIANTS,
     prepare_story_image,
     upload_slot,
 )
@@ -86,8 +91,9 @@ def _not_found(detail: str) -> HTTPException:
             **CONFLICT_RESPONSE,
             "description": (
                 "The story already holds its most images or bytes "
-                "(`detail.code` `story_asset_limit`), or another change holds "
-                "its lock."
+                "(`detail.code` `story_asset_limit`), its owner's stories hold "
+                "the most image bytes the admin allows (`story_asset_owner_limit`), "
+                "or another change holds its lock."
             ),
         },
         413: PAYLOAD_TOO_LARGE_RESPONSE,
@@ -114,8 +120,8 @@ async def upload_story_asset_endpoint(
     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
     without its metadata. 400 `story_image_unreadable`, 413
     `story_image_too_large`, 415 `story_image_unsupported`, 409
-    `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-    published block or the cover uses it.
+    `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+    Readers get it once a published block or the cover uses it.
     """
     story = await get_story(db, story_id)
     if story is None:
@@ -143,11 +149,24 @@ async def upload_story_asset_endpoint(
         image = await prepare_story_image(await upload.read(MAX_UPLOAD_BYTES + 1))
 
         storage_key = new_story_asset_key(story_id)
+        physical = {
+            resolve_current_storage_key(variant_key(storage_key, name)): data
+            for name, data in image.variants.items()
+        }
+        storage = get_storage()
         async with asset_publication() as publication:
-            physical_key = resolve_current_storage_key(storage_key)
-            publication.record(physical_key)
+            for key in physical:
+                publication.record(key)
             try:
-                await get_storage().put(physical_key, image.data)
+                results = await await_draining(
+                    asyncio.gather(
+                        *(storage.put(key, data) for key, data in physical.items()),
+                        return_exceptions=True,
+                    )
+                )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        raise result
             except Exception as exc:  # broad: varied storage SDK/I/O errors; 502
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
@@ -170,7 +189,7 @@ async def upload_story_asset_endpoint(
     "/{story_id}/assets/{asset_id}",
     response_class=Response,
     responses={
-        200: binary_response("The image", "image/webp"),
+        200: binary_response("The image", "image/webp", "image/jpeg"),
         304: {"description": "Your copy, named by `If-None-Match`, is current."},
     },
 )
@@ -178,10 +197,18 @@ async def get_story_asset_endpoint(
     story_id: uuid.UUID,
     asset_id: uuid.UUID,
     request: Request,
+    variant: Literal["card", "social"] | None = Query(
+        default=None,
+        description=(
+            "`card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, "
+            "cropped to fill, as JPEG. An image uploaded before these sizes "
+            "existed answers with the original."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Serve one of the story's images as WebP.
+    """Serve one of the story's images, as WebP unless `variant` says otherwise.
 
     Its owner and admins get any of them. Anyone else who can read the story
     gets the cover and the images its published document uses. 404 otherwise.
@@ -202,14 +229,19 @@ async def get_story_asset_endpoint(
 
     # Revalidated on every use, since narrowing the story withholds it.
     anonymous = readable and story.visibility in ANONYMOUS_STORY_VISIBILITIES
-    try:
-        return await stored_object_response(
-            request,
-            lambda: get_storage().get(resolve_current_storage_key(asset.storage_key)),
-            # The object under an asset's key never changes.
-            etag=f'"{asset.id}"',
-            media_type="image/webp",
-            cache_control="public, no-cache" if anonymous else "private, no-cache",
-        )
-    except FileNotFoundError as exc:
-        raise _not_found(_IMAGE_NOT_FOUND) from exc
+    cache_control = "public, no-cache" if anonymous else "private, no-cache"
+    storage = get_storage()
+    for name in [variant, "original"] if variant else ["original"]:
+        key = resolve_current_storage_key(variant_key(asset.storage_key, name))
+        try:
+            return await stored_object_response(
+                request,
+                lambda key=key: storage.get(key),
+                # The object under an asset's key never changes.
+                etag=f'"{asset.id}"' if name == "original" else f'"{asset.id}-{name}"',
+                media_type=STORY_ASSET_VARIANTS[name][1],
+                cache_control=cache_control,
+            )
+        except FileNotFoundError:
+            continue
+    raise _not_found(_IMAGE_NOT_FOUND)

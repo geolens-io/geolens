@@ -135,8 +135,8 @@ def sync_detailed(
     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
     without its metadata. 400 `story_image_unreadable`, 413
     `story_image_too_large`, 415 `story_image_unsupported`, 409
-    `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-    published block or the cover uses it.
+    `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+    Readers get it once a published block or the cover uses it.
 
     Args:
         story_id (UUID):
@@ -176,8 +176,8 @@ def sync(
     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
     without its metadata. 400 `story_image_unreadable`, 413
     `story_image_too_large`, 415 `story_image_unsupported`, 409
-    `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-    published block or the cover uses it.
+    `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+    Readers get it once a published block or the cover uses it.
 
     Args:
         story_id (UUID):
@@ -212,8 +212,8 @@ async def asyncio_detailed(
     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
     without its metadata. 400 `story_image_unreadable`, 413
     `story_image_too_large`, 415 `story_image_unsupported`, 409
-    `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-    published block or the cover uses it.
+    `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+    Readers get it once a published block or the cover uses it.
 
     Args:
         story_id (UUID):
@@ -251,8 +251,8 @@ async def asyncio(
     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
     without its metadata. 400 `story_image_unreadable`, 413
     `story_image_too_large`, 415 `story_image_unsupported`, 409
-    `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-    published block or the cover uses it.
+    `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+    Readers get it once a published block or the cover uses it.
 
     Args:
         story_id (UUID):

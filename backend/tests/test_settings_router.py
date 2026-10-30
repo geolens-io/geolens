@@ -382,7 +382,14 @@ async def test_get_tile_config_fails_closed_without_tenant_context():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("key", ["max_storage_bytes_per_user", "max_datasets_per_user"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "max_storage_bytes_per_user",
+        "max_datasets_per_user",
+        "max_story_image_mb_per_user",
+    ],
+)
 async def test_put_settings_rejects_negative_quota(
     client: AsyncClient, admin_auth_header: dict, key: str
 ):
@@ -398,7 +405,14 @@ async def test_put_settings_rejects_negative_quota(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("key", ["max_storage_bytes_per_user", "max_datasets_per_user"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "max_storage_bytes_per_user",
+        "max_datasets_per_user",
+        "max_story_image_mb_per_user",
+    ],
+)
 async def test_put_settings_rejects_fractional_quota(
     client: AsyncClient, admin_auth_header: dict, key: str
 ):

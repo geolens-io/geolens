@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Introduzca una cantidad equivalente a un número entero de bytes.",
       "maxDatasetsPerUser": "Conjuntos de datos máx. por usuario",
       "maxDatasetsPerUserDescription": "Número máximo de conjuntos de datos que cada usuario puede crear (0 = ilimitado).",
+      "maxStoryImageMbPerUser": "Almacenamiento máximo de imágenes de historias por usuario (MB)",
+      "maxStoryImageMbPerUserDescription": "El tamaño total de las imágenes que pueden contener las historias de un usuario, en megabytes (0 = ilimitado). Las imágenes ya guardadas se conservan; solo se rechazan las nuevas subidas y copias.",
       "saved": "Configuración de subida guardada"
     },
     "oauth": {

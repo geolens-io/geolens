@@ -109,13 +109,16 @@ class LocalStorageProvider:
         return await asyncio.to_thread(path.read_bytes)
 
     async def copy(self, src_key: str, dst_key: str) -> None:
-        """Copy within the staging root, creating the destination's parents."""
+        """Copy within the staging root, creating the destination's parents.
+
+        The copy is a new object, modified now, as on S3 and Azure.
+        """
         src = self._resolve_contained(src_key)
         dst = self._resolve_contained(dst_key)
 
         def _copy() -> None:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            shutil.copy(src, dst)
 
         await asyncio.to_thread(_copy)
 

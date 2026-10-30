@@ -527,6 +527,7 @@
     "storyImageBusy": "Other images are being processed. Try again in a moment.",
     "storyImageMissing": "No image was sent. Choose a file and try again.",
     "storyAssetLimit": "This story already holds its most images: 200, or 250 MB of them.",
+    "storyAssetOwnerLimit": "Your stories already hold the most image storage an admin allows. Remove images from your stories, or ask an admin to raise the limit.",
     "storyAssetsNotFound": "Some images in this story weren't found. Remove those image blocks and save again."
   },
   "settings": {

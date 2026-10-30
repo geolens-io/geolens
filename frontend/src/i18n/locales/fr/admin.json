@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Saisissez une quantité correspondant à un nombre entier d’octets.",
       "maxDatasetsPerUser": "Jeux de données max. par utilisateur",
       "maxDatasetsPerUserDescription": "Nombre maximal de jeux de données que chaque utilisateur peut créer (0 = illimité).",
+      "maxStoryImageMbPerUser": "Stockage maximal d’images d’histoires par utilisateur (Mo)",
+      "maxStoryImageMbPerUserDescription": "La taille totale des images que les histoires d’un utilisateur peuvent contenir, en mégaoctets (0 = illimité). Les images déjà stockées restent ; seuls les nouveaux envois et les copies sont refusés.",
       "saved": "Paramètres de téléchargement enregistrés"
     },
     "oauth": {

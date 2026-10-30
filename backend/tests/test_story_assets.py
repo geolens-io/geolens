@@ -316,7 +316,8 @@ async def test_the_per_story_caps_refuse_and_leave_nothing_stored(
     assert refused.status_code == 409, refused.text
     assert _detail(refused)["code"] == "story_asset_limit"
     listed = await get_storage().list("stories/assets/")
-    assert len([k for k in listed if story["id"] in k]) == 2
+    # Two images, each with its card and link-preview sizes.
+    assert len([k for k in listed if story["id"] in k]) == 2 * 3
 
     other = await _story(client, owner)
     first = await _uploaded(client, owner, other["id"])
@@ -491,6 +492,22 @@ async def test_an_image_block_names_an_image_of_its_own_story(
     block = _image_block(own["id"])
     saved = await _saved(client, owner, story, [_chapter(blocks=[block])])
     assert saved["document"]["chapters"][0]["blocks"] == [{**block, "title": None}]
+
+
+async def test_a_decorative_image_saves_and_publishes_without_alt(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    image = (await _uploaded(client, owner, story["id"]))["id"]
+    block = {**_image_block(image), "config": {"decorative": True}}
+
+    saved = await _saved(client, owner, story, [_chapter(blocks=[block])])
+    published = await _publish(client, owner, story["id"])
+
+    assert published.status_code == 200, published.text
+    stored = saved["document"]["chapters"][0]["blocks"][0]
+    assert stored["config"] == {"decorative": True, "caption": None}
 
 
 async def test_the_cover_is_an_image_of_the_story(client: AsyncClient, people):
@@ -910,7 +927,8 @@ async def test_the_upload_slot_is_held_through_storage_and_the_commit(
     monkeypatch.setattr(router_assets, "discard_story_asset_objects", discard)
     story = await _story(client, people["owner"])
     await _uploaded(client, people["owner"], story["id"])
-    assert held == ["put True", "after commit True"]
+    # The image and its card and link-preview sizes.
+    assert held == ["put True"] * 3 + ["after commit True"]
     assert not slots.locked()
 
 
@@ -1023,14 +1041,14 @@ async def test_a_cancelled_copy_leaves_no_object_behind(
     before = set(await get_storage().list("stories/assets/"))
 
     copying = threading.Event()
-    real_copy2 = shutil.copy2
+    real_copy = shutil.copy
 
-    def slow_copy2(src, dst, **kwargs):
+    def slow_copy(src, dst, **kwargs):
         copying.set()
         time.sleep(0.3)
-        return real_copy2(src, dst, **kwargs)
+        return real_copy(src, dst, **kwargs)
 
-    monkeypatch.setattr(shutil, "copy2", slow_copy2)
+    monkeypatch.setattr(shutil, "copy", slow_copy)
     task = asyncio.ensure_future(
         client.post(f"/stories/{story['id']}/duplicate", headers=owner)
     )
@@ -1261,14 +1279,14 @@ async def test_a_copy_whose_source_vanishes_mid_write_leaves_nothing_behind(
     story = await _story(client, owner)
     image = (await _uploaded(client, owner, story["id"]))["id"]
     await _saved(client, owner, story, [_chapter(blocks=[_image_block(image)])])
-    real_copystat = shutil.copystat
+    real_copymode = shutil.copymode
 
     def source_deleted_after_the_bytes(src, dst, **kwargs):
-        # copy2 has written the bytes; a concurrent delete takes the source.
+        # copy has written the bytes; a concurrent delete takes the source.
         os.remove(src)
-        return real_copystat(src, dst, **kwargs)
+        return real_copymode(src, dst, **kwargs)
 
-    monkeypatch.setattr(shutil, "copystat", source_deleted_after_the_bytes)
+    monkeypatch.setattr(shutil, "copymode", source_deleted_after_the_bytes)
     resp = await client.post(f"/stories/{story['id']}/duplicate", headers=owner)
     assert resp.status_code == 201, resp.text
     copy_id = resp.json()["id"]

@@ -143,11 +143,29 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
                 _widget("image", config={"caption": "River"}),
                 id="an image without alt",
             ),
+            pytest.param(
+                _widget("image", config={"decorative": False}),
+                id="an image that isn't decorative, without alt",
+            ),
         ],
     )
     def test_story_block_is_refused(self, item: dict[str, Any]) -> None:
         with pytest.raises(ValidationError):
             _story([item])
+
+    def test_a_decorative_image_needs_no_alt_and_stores_without_one(self) -> None:
+        item = _widget("image", config={"decorative": True})
+
+        stored = to_store(_story([item]), [])
+
+        assert stored[0]["config"] == {"decorative": True, "caption": None}
+
+    def test_an_image_that_isnt_decorative_stores_the_shape_older_servers_read(
+        self,
+    ) -> None:
+        stored = to_store(_story([_widget("image")]), [])
+
+        assert stored[0]["config"] == {"alt": "A river", "caption": None}
 
     def test_duplicate_ids_are_refused(self) -> None:
         first = _widget("histogram")

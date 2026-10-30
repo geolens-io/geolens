@@ -5,11 +5,15 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
+from ...models.get_story_asset_endpoint_stories_story_id_assets_asset_id_get_variant_type_0 import (
+    GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import File
+from ...types import Unset
 from io import BytesIO
 from uuid import UUID
 
@@ -17,7 +21,24 @@ from uuid import UUID
 def _get_kwargs(
     story_id: UUID,
     asset_id: UUID,
+    *,
+    variant: GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0
+    | None
+    | Unset = UNSET,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_variant: None | str | Unset
+    if isinstance(variant, Unset):
+        json_variant = UNSET
+    elif isinstance(variant, str):
+        json_variant = variant
+    else:
+        json_variant = variant
+    params["variant"] = json_variant
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -25,6 +46,7 @@ def _get_kwargs(
             story_id=quote(str(story_id), safe=""),
             asset_id=quote(str(asset_id), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -109,10 +131,13 @@ def sync_detailed(
     asset_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    variant: GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0
+    | None
+    | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
     """Get Story Asset Endpoint
 
-     Serve one of the story's images as WebP.
+     Serve one of the story's images, as WebP unless `variant` says otherwise.
 
     Its owner and admins get any of them. Anyone else who can read the story
     gets the cover and the images its published document uses. 404 otherwise.
@@ -120,6 +145,9 @@ def sync_detailed(
     Args:
         story_id (UUID):
         asset_id (UUID):
+        variant (GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0 | None | Unset):
+            `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG.
+            An image uploaded before these sizes existed answers with the original.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -132,6 +160,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         story_id=story_id,
         asset_id=asset_id,
+        variant=variant,
     )
 
     response = client.get_httpx_client().request(
@@ -146,10 +175,13 @@ def sync(
     asset_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    variant: GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0
+    | None
+    | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
     """Get Story Asset Endpoint
 
-     Serve one of the story's images as WebP.
+     Serve one of the story's images, as WebP unless `variant` says otherwise.
 
     Its owner and admins get any of them. Anyone else who can read the story
     gets the cover and the images its published document uses. 404 otherwise.
@@ -157,6 +189,9 @@ def sync(
     Args:
         story_id (UUID):
         asset_id (UUID):
+        variant (GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0 | None | Unset):
+            `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG.
+            An image uploaded before these sizes existed answers with the original.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -170,6 +205,7 @@ def sync(
         story_id=story_id,
         asset_id=asset_id,
         client=client,
+        variant=variant,
     ).parsed
 
 
@@ -178,10 +214,13 @@ async def asyncio_detailed(
     asset_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    variant: GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0
+    | None
+    | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
     """Get Story Asset Endpoint
 
-     Serve one of the story's images as WebP.
+     Serve one of the story's images, as WebP unless `variant` says otherwise.
 
     Its owner and admins get any of them. Anyone else who can read the story
     gets the cover and the images its published document uses. 404 otherwise.
@@ -189,6 +228,9 @@ async def asyncio_detailed(
     Args:
         story_id (UUID):
         asset_id (UUID):
+        variant (GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0 | None | Unset):
+            `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG.
+            An image uploaded before these sizes existed answers with the original.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -201,6 +243,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         story_id=story_id,
         asset_id=asset_id,
+        variant=variant,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -213,10 +256,13 @@ async def asyncio(
     asset_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    variant: GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0
+    | None
+    | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
     """Get Story Asset Endpoint
 
-     Serve one of the story's images as WebP.
+     Serve one of the story's images, as WebP unless `variant` says otherwise.
 
     Its owner and admins get any of them. Anyone else who can read the story
     gets the cover and the images its published document uses. 404 otherwise.
@@ -224,6 +270,9 @@ async def asyncio(
     Args:
         story_id (UUID):
         asset_id (UUID):
+        variant (GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0 | None | Unset):
+            `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG.
+            An image uploaded before these sizes existed answers with the original.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -238,5 +287,6 @@ async def asyncio(
             story_id=story_id,
             asset_id=asset_id,
             client=client,
+            variant=variant,
         )
     ).parsed

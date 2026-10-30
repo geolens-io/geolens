@@ -205,6 +205,8 @@
       "alt": "Alt text",
       "altHint": "Describe the image for people who can't see it.",
       "altRequired": "Write alt text before saving.",
+      "decorative": "Decorative image",
+      "decorativeHint": "Readers skip an image that adds nothing to the story, so it needs no alt text.",
       "caption": "Caption (optional)",
       "replace": "Replace image",
       "uploading": "Uploading {{percent}}%",

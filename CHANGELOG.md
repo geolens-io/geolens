@@ -42,6 +42,11 @@ and releases use semantic versioning.
   updates, and chapters now accept `image` blocks. Additive, but a 1.28.0 API
   process refuses image blocks and `cover_asset_id`, so during a rolling
   upgrade they work once every process runs this release. (#3489)
+- An image in a chapter can be marked decorative. Uploads keep a card size and
+  a link-preview JPEG, which story cards and link previews use. Admins can cap
+  story image storage per owner (`max_story_image_mb_per_user`, off by
+  default), and a worker job removes image objects no story names.
+  (Closes #3487, #3488)
 - Map dashboards in the viewer. A map with a dashboard shows its widgets in a
   panel to the right of the map or below it, as the author chose, and always
   below on narrow screens. The panel appears on the map page, share links and

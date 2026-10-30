@@ -205,6 +205,8 @@
       "alt": "替代文本",
       "altHint": "为看不到图片的人描述这张图片。",
       "altRequired": "保存前请填写替代文本。",
+      "decorative": "装饰性图片",
+      "decorativeHint": "读者会跳过对故事没有补充内容的图片，因此它不需要替代文本。",
       "caption": "说明文字（可选）",
       "replace": "替换图片",
       "uploading": "正在上传 {{percent}}%",

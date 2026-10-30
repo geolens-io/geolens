@@ -249,8 +249,8 @@ async def story_link_preview_endpoint(
     Only a published public story gets its title and summary. Every other
     story answers 404 with the same body as a missing one, as does a
     deployment without a verified public app origin; nginx serves the SPA
-    shell for any 404. The card image is the story's cover, else that of the
-    first scene map anyone may read, else the site image.
+    shell for any 404. The card image is the story's cover in its JPEG size,
+    else that of the first scene map anyone may read, else the site image.
     """
     app_url = await get_shareable_app_url(db, request=request)
     if app_url is None:
@@ -261,7 +261,7 @@ async def story_link_preview_endpoint(
     if story.cover_asset_id is not None:
         image_url = join_public_url(
             await get_public_api_url(db, request=request),
-            f"/stories/{story.id}/assets/{story.cover_asset_id}",
+            f"/stories/{story.id}/assets/{story.cover_asset_id}?variant=social",
         )
     elif (scene_map := await preview_scene_map(db, story)) is not None:
         image_url = await get_share_card_image_url(db, request, scene_map)
@@ -510,7 +510,16 @@ async def delete_story_endpoint(
     "/{story_id}/duplicate",
     response_model=StoryDraftResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={502: BAD_GATEWAY_RESPONSE},
+    responses={
+        409: {
+            **CONFLICT_RESPONSE,
+            "description": (
+                "The copied images would take your stories past the most image "
+                "bytes the admin allows (`detail.code` `story_asset_owner_limit`)."
+            ),
+        },
+        502: BAD_GATEWAY_RESPONSE,
+    },
 )
 async def duplicate_story_endpoint(
     story_id: uuid.UUID,

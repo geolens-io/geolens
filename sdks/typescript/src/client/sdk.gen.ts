@@ -6650,8 +6650,8 @@ export const updateStoryEndpointStoriesStoryIdPatch = <ThrowOnError extends bool
  * PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
  * without its metadata. 400 `story_image_unreadable`, 413
  * `story_image_too_large`, 415 `story_image_unsupported`, 409
- * `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
- * published block or the cover uses it.
+ * `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+ * Readers get it once a published block or the cover uses it.
  */
 export const uploadStoryAssetEndpointStoriesStoryIdAssetsPost = <ThrowOnError extends boolean = false>(options: Options<UploadStoryAssetEndpointStoriesStoryIdAssetsPostData, ThrowOnError>): RequestResult<UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponses, UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors, ThrowOnError> => (options.client ?? client).post<UploadStoryAssetEndpointStoriesStoryIdAssetsPostResponses, UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors, ThrowOnError>({
     ...formDataBodySerializer,
@@ -6675,7 +6675,7 @@ export const uploadStoryAssetEndpointStoriesStoryIdAssetsPost = <ThrowOnError ex
 /**
  * Get Story Asset Endpoint
  *
- * Serve one of the story's images as WebP.
+ * Serve one of the story's images, as WebP unless `variant` says otherwise.
  *
  * Its owner and admins get any of them. Anyone else who can read the story
  * gets the cover and the images its published document uses. 404 otherwise.

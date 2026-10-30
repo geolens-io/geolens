@@ -10676,11 +10676,30 @@
         "additionalProperties": false,
         "properties": {
           "alt": {
-            "description": "Text that stands in for the image.",
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Alt",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text that stands in for the image; required unless it is decorative.",
+            "title": "Alt"
+          },
+          "decorative": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.",
+            "title": "Decorative"
           },
           "caption": {
             "anyOf": [
@@ -10695,9 +10714,6 @@
             "title": "Caption"
           }
         },
-        "required": [
-          "alt"
-        ],
         "title": "ImageConfig",
         "type": "object"
       },
@@ -70484,7 +70500,7 @@
     },
     "/stories/{story_id}/assets": {
       "post": {
-        "description": "Upload an image, the multipart part `file`, for the story's blocks or\ncover (owner or admin).\n\nPNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP\nwithout its metadata. 400 `story_image_unreadable`, 413\n`story_image_too_large`, 415 `story_image_unsupported`, 409\n`story_asset_limit`, 503 `story_image_busy`. Readers get it once a\npublished block or the cover uses it.",
+        "description": "Upload an image, the multipart part `file`, for the story's blocks or\ncover (owner or admin).\n\nPNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP\nwithout its metadata. 400 `story_image_unreadable`, 413\n`story_image_too_large`, 415 `story_image_unsupported`, 409\n`story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.\nReaders get it once a published block or the cover uses it.",
         "operationId": "upload_story_asset_endpoint_stories__story_id__assets_post",
         "parameters": [
           {
@@ -70576,7 +70592,7 @@
                 }
               }
             },
-            "description": "The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock."
+            "description": "The story already holds its most images or bytes (`detail.code` `story_asset_limit`), its owner's stories hold the most image bytes the admin allows (`story_asset_owner_limit`), or another change holds its lock."
           },
           "413": {
             "content": {
@@ -70677,7 +70693,7 @@
     },
     "/stories/{story_id}/assets/{asset_id}": {
       "get": {
-        "description": "Serve one of the story's images as WebP.\n\nIts owner and admins get any of them. Anyone else who can read the story\ngets the cover and the images its published document uses. 404 otherwise.",
+        "description": "Serve one of the story's images, as WebP unless `variant` says otherwise.\n\nIts owner and admins get any of them. Anyone else who can read the story\ngets the cover and the images its published document uses. 404 otherwise.",
         "operationId": "get_story_asset_endpoint_stories__story_id__assets__asset_id__get",
         "parameters": [
           {
@@ -70699,11 +70715,39 @@
               "title": "Asset Id",
               "type": "string"
             }
+          },
+          {
+            "description": "`card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG. An image uploaded before these sizes existed answers with the original.",
+            "in": "query",
+            "name": "variant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "card",
+                    "social"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG. An image uploaded before these sizes existed answers with the original.",
+              "title": "Variant"
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "image/webp": {
                 "schema": {
                   "format": "binary",
@@ -71359,7 +71403,7 @@
                 }
               }
             },
-            "description": "Conflict \u2014 resource state prevents the operation"
+            "description": "The copied images would take your stories past the most image bytes the admin allows (`detail.code` `story_asset_owner_limit`)."
           },
           "422": {
             "content": {

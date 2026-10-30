@@ -527,6 +527,7 @@
     "storyImageBusy": "其他图片正在处理中。请稍后重试。",
     "storyImageMissing": "未发送图片。请选择文件后重试。",
     "storyAssetLimit": "此故事的图片已达上限：200 张或共 250 MB。",
+    "storyAssetOwnerLimit": "你的故事已达到管理员允许的图片存储上限。请从故事中移除图片，或请管理员提高上限。",
     "storyAssetsNotFound": "未找到此故事中的部分图片。请移除这些图片块后再次保存。"
   },
   "settings": {

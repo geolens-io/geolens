@@ -22,8 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
 from app.core.async_io import await_draining
+from app.core.persistent_config import MAX_STORY_IMAGE_MB_PER_USER
 from app.modules.catalog.maps.service import new_map_asset_key
-from app.modules.catalog.stories.images import StoryImage
+from app.modules.catalog.stories.images import STORY_ASSET_VARIANTS, StoryImage
 from app.modules.catalog.stories.models import Story, StoryAsset
 from app.modules.catalog.widgets.schemas import (
     ImageWidget,
@@ -31,6 +32,7 @@ from app.modules.catalog.widgets.schemas import (
     read_stored,
     to_store,
 )
+from app.platform.catalog_locks import lock_request_key
 from app.platform.storage.publication import AssetPublication
 from app.platform.storage.reap import MAX_DELETES_IN_FLIGHT, delete_objects_best_effort
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -42,11 +44,45 @@ MAX_STORY_ASSET_BYTES = 250 * 1024 * 1024
 # How long an image stays after nothing uses it: an upload until the save
 # that places it, and a removed image long enough to undo the removal.
 UNREFERENCED_GRACE = timedelta(days=7)
-_KEY_PREFIX = "stories/assets"
+STORY_ASSET_KEY_PREFIX = "stories/assets"
 
 
 def new_story_asset_key(story_id: uuid.UUID) -> str:
-    return new_map_asset_key(_KEY_PREFIX, story_id, "webp")
+    return new_map_asset_key(STORY_ASSET_KEY_PREFIX, story_id, "webp")
+
+
+def variant_key(storage_key: str, variant: str) -> str:
+    """Where a size of the asset whose original is at ``storage_key`` sits.
+
+    An asset stored before a size existed has no object there.
+    """
+    return storage_key.removesuffix(".webp") + STORY_ASSET_VARIANTS[variant][0]
+
+
+def object_keys(storage_key: str) -> dict[str, str]:
+    """The keys of every size of the asset, by variant name."""
+    return {name: variant_key(storage_key, name) for name in STORY_ASSET_VARIANTS}
+
+
+async def copy_story_asset_objects(storage, src_key: str, dst_key: str) -> None:
+    """Copy every size of an asset; raises FileNotFoundError only when the
+    original is gone. Logical keys."""
+    names = list(STORY_ASSET_VARIANTS)
+    results = await asyncio.gather(
+        *(
+            storage.copy(
+                resolve_current_storage_key(variant_key(src_key, name)),
+                resolve_current_storage_key(variant_key(dst_key, name)),
+            )
+            for name in names
+        ),
+        return_exceptions=True,
+    )
+    for name, result in zip(names, results):
+        if isinstance(result, FileNotFoundError) and name != "original":
+            continue
+        if isinstance(result, BaseException):
+            raise result
 
 
 def chapters_of(document: Any) -> list[dict[str, Any]]:
@@ -232,9 +268,14 @@ async def prune_story_assets(
 
 
 async def discard_story_asset_objects(storage_keys: Iterable[str]) -> None:
-    """Delete objects whose rows are committed gone, best effort."""
+    """Delete the objects, other sizes included, of assets whose rows are
+    committed gone, best effort."""
     await delete_objects_best_effort(
-        [resolve_current_storage_key(key) for key in storage_keys],
+        [
+            resolve_current_storage_key(key)
+            for storage_key in storage_keys
+            for key in object_keys(storage_key).values()
+        ],
         "story_asset_object_delete_failed",
     )
 
@@ -268,6 +309,39 @@ def _over_caps(usage: tuple[int, int], adding: int) -> bool:
     return count >= MAX_STORY_ASSETS or stored + adding > MAX_STORY_ASSET_BYTES
 
 
+async def _owner_bytes(db: AsyncSession, owner_id: uuid.UUID) -> int:
+    return await db.scalar(
+        select(func.coalesce(func.sum(StoryAsset.byte_size), 0))
+        .join(Story, Story.id == StoryAsset.story_id)
+        .where(Story.created_by == owner_id)
+    )
+
+
+def _limit(code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": code, "message": message},
+    )
+
+
+async def _check_owner_cap(db: AsyncSession, owner_id: uuid.UUID, adding: int) -> None:
+    """409 ``story_asset_owner_limit`` when ``adding`` bytes would take the
+    owner's images across their stories past the admin's cap.
+
+    The owner's uploads and copies wait for each other from here to their
+    commit, so two can't both pass it; call after any storage I/O.
+    """
+    cap = await MAX_STORY_IMAGE_MB_PER_USER.get(db) * 2**20
+    if not cap:
+        return
+    await lock_request_key(db, scope=f"story-assets-owner:{owner_id}")
+    if await _owner_bytes(db, owner_id) + adding > cap:
+        raise _limit(
+            "story_asset_owner_limit",
+            f"One owner's stories hold at most {cap // 2**20} MB of images.",
+        )
+
+
 async def add_story_asset(
     db: AsyncSession,
     story: Story,
@@ -278,23 +352,24 @@ async def add_story_asset(
     """Record a stored image, and the storage keys of assets pruned to make
     room for it.
 
-    Call holding ``lock_story``, which keeps two uploads from both passing
-    the caps; 409 ``story_asset_limit`` past them.
+    Call holding ``lock_story``, which keeps two uploads to the story from
+    both passing its caps; 409 ``story_asset_limit`` past them. The story's
+    owner's images across their stories are capped too, by an admin setting;
+    409 ``story_asset_owner_limit`` past it. An ownerless story has no owner
+    cap.
     """
+    adding = len(image.data)
     unused: list[str] = []
-    if _over_caps(await _usage(db, story.id), len(image.data)):
+    if _over_caps(await _usage(db, story.id), adding):
         unused = await prune_story_assets(db, story)
-        if _over_caps(await _usage(db, story.id), len(image.data)):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "story_asset_limit",
-                    "message": (
-                        f"A story holds at most {MAX_STORY_ASSETS} images or "
-                        f"{MAX_STORY_ASSET_BYTES // 2**20} MB of them."
-                    ),
-                },
+        if _over_caps(await _usage(db, story.id), adding):
+            raise _limit(
+                "story_asset_limit",
+                f"A story holds at most {MAX_STORY_ASSETS} images or "
+                f"{MAX_STORY_ASSET_BYTES // 2**20} MB of them.",
             )
+    if story.created_by is not None:
+        await _check_owner_cap(db, story.created_by, adding)
     asset = StoryAsset(
         id=uuid.uuid4(),
         story_id=story.id,
@@ -373,7 +448,8 @@ async def copy_story_assets(
     while this runs; a block whose image wasn't copied is left out. Each new
     object is recorded on ``publication`` before any is written, so a failure
     before the commit removes them, and a cancelled copy finishes first, so
-    the removal can't run ahead of the writes.
+    the removal can't run ahead of the writes. 409 ``story_asset_owner_limit``
+    when the copies would take ``target``'s owner past their cap.
     """
     from app.platform.storage.provider import get_storage
 
@@ -392,17 +468,15 @@ async def copy_story_assets(
     uncopied = {row.id for row in rows} - {row.id for row in allowed}
     keys = [new_story_asset_key(target.id) for _ in allowed]
     for key in keys:
-        publication.record(resolve_current_storage_key(key))
+        for each in object_keys(key).values():
+            publication.record(resolve_current_storage_key(each))
 
     storage = get_storage()
     gate = asyncio.Semaphore(MAX_DELETES_IN_FLIGHT)
 
     async def copy_one(row: StoryAsset, key: str) -> None:
         async with gate:
-            await storage.copy(
-                resolve_current_storage_key(row.storage_key),
-                resolve_current_storage_key(key),
-            )
+            await copy_story_asset_objects(storage, row.storage_key, key)
 
     results = await await_draining(
         asyncio.gather(
@@ -439,6 +513,11 @@ async def copy_story_assets(
     # A source deleted mid-copy can leave part of a copy behind, and no row
     # will name it once the publication settles.
     await discard_story_asset_objects(skipped)
+    copied = sum(row.byte_size for row in allowed if row.id in names)
+    if copied and target.created_by is not None:
+        # Unflushed, so the copies aren't counted twice.
+        with db.no_autoflush:
+            await _check_owner_cap(db, target.created_by, copied)
     # The rows exist before the story names one as its cover.
     await db.flush()
     target.draft = _copied_document(document, names, uncopied)

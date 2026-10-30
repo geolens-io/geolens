@@ -205,6 +205,8 @@
       "alt": "Texto alternativo",
       "altHint": "Describe la imagen para quienes no pueden verla.",
       "altRequired": "Escribe el texto alternativo antes de guardar.",
+      "decorative": "Imagen decorativa",
+      "decorativeHint": "Los lectores omiten una imagen que no aporta nada a la historia, así que no necesita texto alternativo.",
       "caption": "Pie de imagen (opcional)",
       "replace": "Reemplazar imagen",
       "uploading": "Subiendo {{percent}} %",

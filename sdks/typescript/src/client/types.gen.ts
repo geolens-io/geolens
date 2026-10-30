@@ -6353,9 +6353,15 @@ export type ImageConfig = {
     /**
      * Alt
      *
-     * Text that stands in for the image.
+     * Text that stands in for the image; required unless it is decorative.
      */
-    alt: string;
+    alt?: string | null;
+    /**
+     * Decorative
+     *
+     * True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+     */
+    decorative?: boolean | null;
     /**
      * Caption
      */
@@ -33707,7 +33713,7 @@ export type UploadStoryAssetEndpointStoriesStoryIdAssetsPostErrors = {
      */
     404: ProblemDetail;
     /**
-     * The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock.
+     * The story already holds its most images or bytes (`detail.code` `story_asset_limit`), its owner's stories hold the most image bytes the admin allows (`story_asset_owner_limit`), or another change holds its lock.
      */
     409: ProblemDetail;
     /**
@@ -33763,7 +33769,14 @@ export type GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetData = {
          */
         asset_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Variant
+         *
+         * `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG. An image uploaded before these sizes existed answers with the original.
+         */
+        variant?: 'card' | 'social' | null;
+    };
     url: '/stories/{story_id}/assets/{asset_id}';
 };
 
@@ -34033,7 +34046,7 @@ export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostErrors = {
      */
     404: ProblemDetail;
     /**
-     * Conflict — resource state prevents the operation
+     * The copied images would take your stories past the most image bytes the admin allows (`detail.code` `story_asset_owner_limit`).
      */
     409: ProblemDetail;
     /**

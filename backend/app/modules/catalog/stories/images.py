@@ -41,6 +41,18 @@ UPLOAD_SLOTS = 2
 DECODE_BUDGET_BYTES = 256 * 1024 * 1024
 RETRY_AFTER_SECONDS = 5
 _WEBP_QUALITY = 85
+# A story card's cover, and the link-preview image social sites crop to 1.91:1
+# and don't reliably take as WebP.
+CARD_WIDTH = 640
+SOCIAL_SIZE = (1200, 630)
+_JPEG_QUALITY = 85
+
+# Each size an upload is stored in: the ending of its key and its media type.
+STORY_ASSET_VARIANTS = {
+    "original": (".webp", "image/webp"),
+    "card": (".card.webp", "image/webp"),
+    "social": (".social.jpg", "image/jpeg"),
+}
 
 # Peak resident bytes per decoded pixel through decode_story_image, the worst
 # measured case of each plus a margin: WebP holds the decoder's canvases
@@ -67,9 +79,15 @@ _SOF = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
 
 @dataclass(frozen=True)
 class StoryImage:
-    data: bytes
     width: int
     height: int
+    # By STORY_ASSET_VARIANTS name. The card is at most CARD_WIDTH wide; the
+    # social size is SOCIAL_SIZE, cropped to fill it.
+    variants: dict[str, bytes]
+
+    @property
+    def data(self) -> bytes:
+        return self.variants["original"]
 
 
 @dataclass(frozen=True)
@@ -280,15 +298,44 @@ def _to_webp(image: Image.Image) -> StoryImage:
         image = _to_srgb(image, profile)
     if image.mode == "CMYK":
         image = image.convert("RGB")
-    out = BytesIO()
     # Nothing from the source's info (EXIF, XMP, ICC) is passed on.
-    image.save(out, "WEBP", quality=_WEBP_QUALITY)
-    return StoryImage(out.getvalue(), image.width, image.height)
+    return StoryImage(
+        image.width,
+        image.height,
+        {
+            "original": _encoded(image, "WEBP", quality=_WEBP_QUALITY),
+            "card": _encoded(_card(image), "WEBP", quality=_WEBP_QUALITY),
+            "social": _encoded(_social(image), "JPEG", quality=_JPEG_QUALITY),
+        },
+    )
+
+
+def _encoded(image: Image.Image, fmt: str, **options) -> bytes:
+    out = BytesIO()
+    image.save(out, fmt, **options)
+    return out.getvalue()
+
+
+def _card(image: Image.Image) -> Image.Image:
+    if image.width <= CARD_WIDTH:
+        return image
+    height = max(1, round(image.height * CARD_WIDTH / image.width))
+    return image.resize((CARD_WIDTH, height), Image.Resampling.LANCZOS)
+
+
+def _social(image: Image.Image) -> Image.Image:
+    fitted = ImageOps.fit(image, SOCIAL_SIZE, Image.Resampling.LANCZOS)
+    if fitted.mode != "RGBA":
+        return fitted
+    flat = Image.new("RGB", SOCIAL_SIZE, "white")
+    flat.paste(fitted, mask=fitted.getchannel("A"))
+    return flat
 
 
 def decode_story_image(data: bytes, plan: DecodePlan) -> StoryImage:
     """Re-encode an upload as sRGB WebP at most MAX_OUTPUT_SIDE a side,
-    without its metadata and turned upright by its EXIF orientation.
+    without its metadata and turned upright by its EXIF orientation, with
+    its card and link-preview sizes.
 
     Blocking. Raises ``HTTPException``.
     """

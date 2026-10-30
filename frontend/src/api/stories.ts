@@ -47,9 +47,13 @@ export async function updateStory(id: string, body: StoryUpdate): Promise<StoryR
   });
 }
 
-/** Where a story image is served; fetch it with `apiFetchBlob`, since a private story's needs the reader's token. */
-export function storyAssetPath(storyId: string, assetId: string): string {
-  return `/stories/${encodeURIComponent(storyId)}/assets/${encodeURIComponent(assetId)}`;
+/**
+ * Where a story image is served; fetch it with `apiFetchBlob`, since a private
+ * story's needs the reader's token. `card` is a copy at most 640 pixels wide.
+ */
+export function storyAssetPath(storyId: string, assetId: string, size?: 'card'): string {
+  const path = `/stories/${encodeURIComponent(storyId)}/assets/${encodeURIComponent(assetId)}`;
+  return size ? `${path}?variant=${size}` : path;
 }
 
 /** Uploads an image to a story, reporting the share of bytes sent. */

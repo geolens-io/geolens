@@ -65,10 +65,32 @@ class MarkdownConfig(_Strict):
 
 
 class ImageConfig(_Strict):
-    alt: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
-    ] = Field(description="Text that stands in for the image.")
+    # Left out of the stored block unless set, so a block that doesn't use
+    # them keeps the shape older servers read.
+    alt: (
+        Annotated[
+            str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+        ]
+        | None
+    ) = Field(
+        default=None,
+        exclude_if=lambda alt: alt is None,
+        description="Text that stands in for the image; required unless it is "
+        "decorative.",
+    )
+    decorative: bool | None = Field(
+        default=None,
+        exclude_if=lambda decorative: not decorative,
+        description="True when the image adds nothing a reader needs: readers get "
+        "an empty alt, and `alt` may be left out.",
+    )
     caption: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _alt_unless_decorative(self) -> "ImageConfig":
+        if self.alt is None and not self.decorative:
+            raise ValueError("alt is required unless the image is decorative")
+        return self
 
 
 class IndicatorConfig(_Strict):

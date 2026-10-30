@@ -729,6 +729,8 @@
       "invalidStorageQuantity": "请输入可换算为整数个字节的数量。",
       "maxDatasetsPerUser": "每用户最大数据集数",
       "maxDatasetsPerUserDescription": "每个用户可创建的最大数据集数（0 = 不限）。",
+      "maxStoryImageMbPerUser": "每用户最大故事图片存储量（MB）",
+      "maxStoryImageMbPerUserDescription": "一个用户的所有故事可容纳的图片总大小，以兆字节计（0 = 不限）。已存储的图片保留；仅拒绝新的上传和复制。",
       "saved": "上传设置已保存"
     },
     "oauth": {
