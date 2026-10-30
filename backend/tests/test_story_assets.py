@@ -1288,3 +1288,40 @@ async def test_an_upload_without_a_file_part_names_the_problem(
     )
     assert resp.status_code == 422, resp.text
     assert _detail(resp)["code"] == "story_image_missing"
+
+
+async def test_an_upload_holds_no_database_transaction_while_it_processes(
+    client: AsyncClient, people, monkeypatch
+):
+    from app.api.main import app
+    from app.core.dependencies import get_db
+    from app.modules.catalog.stories import router_assets
+    from app.platform.storage.provider import get_storage
+
+    sessions = []
+    request_session = app.dependency_overrides[get_db]
+
+    async def recording_session():
+        async for session in request_session():
+            sessions.append(session)
+            yield session
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, recording_session)
+    seen: dict[str, bool] = {}
+    real_prepare = router_assets.prepare_story_image
+    storage = get_storage()
+    real_put = storage.put
+
+    async def prepare(data):
+        seen["decode"] = sessions[-1].in_transaction()
+        return await real_prepare(data)
+
+    async def put(key, data):
+        seen["store"] = sessions[-1].in_transaction()
+        return await real_put(key, data)
+
+    monkeypatch.setattr(router_assets, "prepare_story_image", prepare)
+    monkeypatch.setattr(storage, "put", put)
+    story = await _story(client, people["owner"])
+    await _uploaded(client, people["owner"], story["id"])
+    assert seen == {"decode": False, "store": False}

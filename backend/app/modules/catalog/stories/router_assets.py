@@ -121,6 +121,9 @@ async def upload_story_asset_endpoint(
     if story is None:
         raise _not_found(STORY_NOT_FOUND)
     await check_story_ownership(db, story, user)
+    user_id = user.id
+    # Frees the pooled connection during the upload; lock_story re-reads the story.
+    await db.rollback()
 
     from app.platform.storage.provider import get_storage
 
@@ -153,7 +156,7 @@ async def upload_story_asset_endpoint(
             # Taken after the PUT, so a stalled backend can't hold the story lock.
             story, _ = await lock_story(db, story_id, user)
             asset, unused = await add_story_asset(
-                db, story, storage_key, image, user.id
+                db, story, storage_key, image, user_id
             )
             publication.committing()
             await db.commit()
