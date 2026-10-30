@@ -884,7 +884,8 @@ class DatasetMeta(BaseModel):
         max_length=100,
         description=(
             "Ordered vector-tile property allowlist; null restores zoom defaults, "
-            "[] emits geometry-only tiles, list emits those properties at any zoom."
+            "[] emits geometry-only tiles, list emits those properties at any zoom. "
+            "Reads authorized only by an embed token are limited to these columns too."
         ),
     )
     owner_id: uuid.UUID | None = Field(

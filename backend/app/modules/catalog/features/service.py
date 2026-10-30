@@ -272,7 +272,9 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
     return values
 
 
-async def live_property_columns(db: AsyncSession, table_name: str) -> str:
+async def live_property_columns(
+    db: AsyncSession, table_name: str, *, only: list[str] | None = None
+) -> str:
     """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
 
     `to_jsonb` serializes EVERY column first, and the
@@ -281,6 +283,7 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     `Dataset.column_info`, which can drift on re-upload. Colons
     are backslash-escaped too (`text()` parses `:name` as a bind param even
     quoted; Socrata ships columns named `:id`). Valid only inside `text()`.
+    ``only`` keeps just the named columns; an empty list keeps none.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -297,9 +300,12 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
             "AND a.attname NOT IN ('gid', 'geom', 'geom_4326') ORDER BY a.attnum"
         ).bindparams(schema=schema, tn=table_name)
     )
+    names = [name for (name,) in result.all()]
+    if only is not None:
+        allowed = set(only)
+        names = [name for name in names if name in allowed]
     return ", ".join(
-        '"' + name.replace('"', '""').replace(":", "\\:") + '"'
-        for (name,) in result.all()
+        '"' + name.replace('"', '""').replace(":", "\\:") + '"' for name in names
     )
 
 
@@ -337,16 +343,20 @@ async def get_feature_queryable_columns(
 
 
 async def _projected_row_source(
-    db: AsyncSession, table_name: str, *, with_geometry: bool
+    db: AsyncSession,
+    table_name: str,
+    *,
+    with_geometry: bool,
+    only: list[str] | None = None,
 ) -> str:
     """Render the projected FROM source feature readers serialize from.
 
     See ``live_property_columns`` for why the row is projected before
-    ``to_jsonb``. ``geom_4326`` rides along when the table is spatial so
-    bbox predicates and the geometry select keep working; the planner
-    flattens the subquery, so index use is unchanged.
+    ``to_jsonb``, and for ``only``. ``geom_4326`` rides along when the table
+    is spatial so bbox predicates and the geometry select keep working; the
+    planner flattens the subquery, so index use is unchanged.
     """
-    prop_cols = await live_property_columns(db, table_name)
+    prop_cols = await live_property_columns(db, table_name, only=only)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     geom_sel = ", geom_4326" if with_geometry else ""
     return (
@@ -646,6 +656,7 @@ async def get_features_geojson_z(
     *,
     cap: int = 5000,
     cached_feature_count: int | None = None,
+    property_columns: list[str] | None = None,
 ) -> tuple[list[dict], bool, int]:
     """Fetch up to `cap` features with Z coordinates preserved.
 
@@ -655,12 +666,15 @@ async def get_features_geojson_z(
     ST_AsGeoJSON natively preserves Z when the geometry has Z.
     total_count: actual row count when not truncated, COUNT(*) when truncated.
     cached_feature_count is ignored — always uses authoritative count.
+    ``property_columns``, when given, limits ``properties`` to those columns.
     """
     select_cols = (
         "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
         "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
     )
-    row_source = await _projected_row_source(db, table_name, with_geometry=True)
+    row_source = await _projected_row_source(
+        db, table_name, with_geometry=True, only=property_columns
+    )
     data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]

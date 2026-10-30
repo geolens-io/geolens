@@ -51,7 +51,8 @@ class DatasetMeta:
             language (None | str | Unset): BCP 47 primary language tag, e.g. en, fr, or pt-BR
             is_dem (bool | None | Unset): Flag raster as a Digital Elevation Model for terrain rendering
             tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
-                emits geometry-only tiles, list emits those properties at any zoom.
+                emits geometry-only tiles, list emits those properties at any zoom. Reads authorized only by an embed token are
+                limited to these columns too.
             owner_id (None | Unset | UUID): Admin only: transfer the dataset to this active user.
             expected_updated_at (datetime.datetime | None | Unset): The dataset's `updated_at` the caller read. When set and
                 the dataset has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit

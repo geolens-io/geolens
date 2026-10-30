@@ -124,7 +124,9 @@ def sync_detailed(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize
@@ -173,7 +175,9 @@ def sync(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize
@@ -216,7 +220,9 @@ async def asyncio_detailed(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize
@@ -263,7 +269,9 @@ async def asyncio(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize

@@ -6692,7 +6692,7 @@
                 "type": "null"
               }
             ],
-            "description": "Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.",
+            "description": "Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom. Reads authorized only by an embed token are limited to these columns too.",
             "title": "Tile Columns"
           },
           "owner_id": {
@@ -40447,7 +40447,7 @@
     },
     "/datasets/{dataset_id}/aggregate/": {
       "post": {
-        "description": "Compute one exact aggregate over a dataset's rows, for a widget.\n\nAnonymous callers can read public, published datasets; ``X-Embed-Token``\nauthorizes datasets in the token's scope. Other datasets return 404.\n\nWith ``bbox``, a view the planner expects to hold more than 500,000 rows\nis refused with 422 and the code ``too_wide`` rather than approximated. A\n``bbox`` that contains the whole dataset is answered as the whole layer.\nRefusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,\n``invalid_filter``, ``no_geometry``, ``query_timeout``,\n``query_data_error``, ``result_too_large``, and with 429 ``query_busy``\n(this caller already has two aggregates running) or ``query_at_capacity``.\n\nClients should keep at most two requests in flight per caller and retry a\n429 after 200-400 ms with jitter.",
+        "description": "Compute one exact aggregate over a dataset's rows, for a widget.\n\nAnonymous callers can read public, published datasets; ``X-Embed-Token``\nauthorizes datasets in the token's scope. Other datasets return 404. A\nrequest only the embed token authorizes may read only the columns in the\ndataset's tile column allowlist, when it has one; any other column is\nrefused as an unknown one.\n\nWith ``bbox``, a view the planner expects to hold more than 500,000 rows\nis refused with 422 and the code ``too_wide`` rather than approximated. A\n``bbox`` that contains the whole dataset is answered as the whole layer.\nRefusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,\n``invalid_filter``, ``no_geometry``, ``query_timeout``,\n``query_data_error``, ``result_too_large``, and with 429 ``query_busy``\n(this caller already has two aggregates running) or ``query_at_capacity``.\n\nClients should keep at most two requests in flight per caller and retry a\n429 after 200-400 ms with jitter.",
         "operationId": "aggregate_endpoint_datasets__dataset_id__aggregate__post",
         "parameters": [
           {
@@ -43464,7 +43464,7 @@
     },
     "/datasets/{dataset_id}/features.geojson": {
       "get": {
-        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\n``X-Embed-Token`` authorizes private datasets in the token's scope through\nthe same capability check used for tile requests.\n\nAnonymous callers can read public, published datasets. Private or\nrestricted datasets return 404 unless user or embed credentials authorize\naccess.\n\nSupplied credentials that are expired or revoked receive 401 so clients can\nrefresh them. Requests without credentials use the anonymous access path.",
+        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\n``X-Embed-Token`` authorizes private datasets in the token's scope through\nthe same capability check used for tile requests. A request only the embed\ntoken authorizes gets only the properties in the dataset's tile column\nallowlist, when it has one.\n\nAnonymous callers can read public, published datasets. Private or\nrestricted datasets return 404 unless user or embed credentials authorize\naccess.\n\nSupplied credentials that are expired or revoked receive 401 so clients can\nrefresh them. Requests without credentials use the anonymous access path.",
         "operationId": "get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get",
         "parameters": [
           {

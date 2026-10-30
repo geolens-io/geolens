@@ -49,6 +49,8 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    may_read_dataset,
+    readable_columns,
     require_dataset_editing_enabled,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
@@ -692,7 +694,9 @@ async def get_features_geojson_z_endpoint(
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize
@@ -726,6 +730,7 @@ async def get_features_geojson_z_endpoint(
 
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    embed_only = embed_ok and not await may_read_dataset(db, dataset, dataset_id, user)
 
     # Raster/VRT datasets have no feature table: a query would raise
     # UndefinedTableError -> 500 and hold a DB connection.
@@ -746,7 +751,11 @@ async def get_features_geojson_z_endpoint(
 
     try:
         rows, truncated, total_count = await get_features_geojson_z(
-            db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
+            db,
+            dataset.table_name,
+            cap=5000,
+            cached_feature_count=dataset.feature_count,
+            property_columns=readable_columns(dataset, embed_authorized=embed_only),
         )
     except (ProgrammingError, OperationalError):
         raise HTTPException(

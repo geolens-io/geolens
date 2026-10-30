@@ -254,8 +254,8 @@ def _select_tile_columns(
             # Unioning past `tile_columns` would make the per-dataset
             # attribute-exposure control advisory: any client appending `cols=`
             # would get every other column, including an anonymous holder of a
-            # signed tile template for a non-public dataset, who has no REST
-            # route to those attributes.
+            # signed tile template or embed token for a non-public dataset. The
+            # REST reads an embed token authorizes keep to the same allowlist.
             valid_extra &= allowlist
         if valid_extra:
             already = {c.get("name") for c in base}

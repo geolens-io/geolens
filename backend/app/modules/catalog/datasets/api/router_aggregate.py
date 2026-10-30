@@ -14,7 +14,11 @@ from app.modules.auth.dependencies import (
     get_optional_user_fail_open,
     reject_unresolvable_credentials,
 )
-from app.modules.catalog.authorization import check_dataset_access_or_anonymous
+from app.modules.catalog.authorization import (
+    check_dataset_access_or_anonymous,
+    may_read_dataset,
+    readable_columns,
+)
 from app.modules.catalog.datasets.api.router_analysis import SANDBOX_STATUS
 from app.modules.catalog.datasets.domain.aggregate import (
     AggregateError,
@@ -60,7 +64,10 @@ async def aggregate_endpoint(
     """Compute one exact aggregate over a dataset's rows, for a widget.
 
     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-    authorizes datasets in the token's scope. Other datasets return 404.
+    authorizes datasets in the token's scope. Other datasets return 404. A
+    request only the embed token authorizes may read only the columns in the
+    dataset's tile column allowlist, when it has one; any other column is
+    refused as an unknown one.
 
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
@@ -89,6 +96,7 @@ async def aggregate_endpoint(
         )
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    embed_only = embed_ok and not await may_read_dataset(db, dataset, dataset_id, user)
 
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
@@ -98,7 +106,13 @@ async def aggregate_endpoint(
 
     caller_key = str(user.id) if user is not None else get_remote_address(request)
     try:
-        return await run_aggregate(db, dataset, body, caller_key=caller_key)
+        return await run_aggregate(
+            db,
+            dataset,
+            body,
+            caller_key=caller_key,
+            allowed_columns=readable_columns(dataset, embed_authorized=embed_only),
+        )
     except AggregateError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

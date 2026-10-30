@@ -42,6 +42,7 @@ from app.modules.catalog.authorization import (
     apply_map_visibility_filter,
     apply_visibility_filter,
     audience_admits,
+    readable_columns,
     visible_extent_column,
 )
 from app.modules.catalog.datasets.domain.models import (
@@ -662,6 +663,7 @@ async def get_shared_map(
     layer_result = await session.execute(stmt)
     layer_rows = list(layer_result.all())
 
+    embed_only_layer_ids: set[uuid.UUID] = set()
     if embed_scope:
         # Union in embed-scoped layers the visibility filter excluded. The
         # join above still requires current map membership/publicity, so this
@@ -670,6 +672,7 @@ async def get_shared_map(
         embed_stmt = base_stmt.where(Dataset.id.in_(embed_scope))
         embed_rows = (await session.execute(embed_stmt)).all()
         extra_rows = [row for row in embed_rows if row[1].id not in seen_layer_ids]
+        embed_only_layer_ids = {row[1].id for row in extra_rows}
         if extra_rows:
             layer_rows = sorted(
                 [*layer_rows, *extra_rows], key=lambda row: row[1].sort_order
@@ -702,11 +705,24 @@ async def get_shared_map(
     has_non_public = False
     layers = []
     visible_dataset_ids: set[str] = set()
+    column_info_by_layer: dict[uuid.UUID, list | None] = {}
     exposed: dict[uuid.UUID, set[str]] = {}
     for row in layer_rows:
+        columns = row[5]
+        allowed = readable_columns(
+            row, embed_authorized=row[1].id in embed_only_layer_ids
+        )
+        if allowed is not None:
+            names = set(allowed)
+            columns = [
+                c
+                for c in columns or []
+                if isinstance(c, dict) and c.get("name") in names
+            ]
+        column_info_by_layer[row[1].id] = columns
         exposed.setdefault(row[1].dataset_id, set()).update(
             col["name"]
-            for col in row[5] or []
+            for col in columns or []
             if isinstance(col, dict) and isinstance(col.get("name"), str)
         )
     attribute_display = await _attribute_display_by_dataset(session, exposed)
@@ -716,7 +732,7 @@ async def get_shared_map(
         ds_name,
         ds_geom_type,
         ds_table_name,
-        ds_column_info,
+        _ds_column_info,
         ds_visibility,
         ds_record_type,
         ds_is_3d,
@@ -735,7 +751,8 @@ async def get_shared_map(
             ds_geom_type,
             ds_table_name,
             _column_info_with_display(
-                ds_column_info, attribute_display.get(layer.dataset_id)
+                column_info_by_layer[layer.id],
+                attribute_display.get(layer.dataset_id),
             ),
             ds_visibility,
             ds_record_type,

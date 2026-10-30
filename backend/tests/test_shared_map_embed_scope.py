@@ -28,7 +28,7 @@ from app.modules.embed_tokens.service import (
     resolve_embed_scope_for_map,
 )
 
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, get_user_id, set_tile_columns
 
 
 async def _downgrade_to_private(session, dataset: Dataset) -> None:
@@ -538,7 +538,15 @@ class TestSharedMapColumnTitles:
 
 
 class TestSharedMapValueLabels:
-    async def _embed_map(self, client, admin_auth_header, session, labels):
+    async def _embed_map(
+        self,
+        client,
+        admin_auth_header,
+        session,
+        labels,
+        tile_columns=None,
+        private=True,
+    ):
         admin_id = await get_user_id(session, "admin")
         ds = await create_dataset(
             session,
@@ -575,7 +583,9 @@ class TestSharedMapValueLabels:
             session, uuid.UUID(map_id), admin_id
         )
         await session.commit()
-        await _downgrade_to_private(session, ds)
+        if private:
+            await _downgrade_to_private(session, ds)
+        await set_tile_columns(session, ds.id, tile_columns)
         return share_token, raw_token
 
     async def test_an_embed_viewer_gets_labels_for_exposed_columns_only(
@@ -596,6 +606,89 @@ class TestSharedMapValueLabels:
         ]
         assert "Internal" not in resp.text
         assert "Removed" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("allowlist", "expected"),
+        [
+            (["plain"], [{"name": "plain", "type": "text"}]),
+            (
+                ["status"],
+                [
+                    {
+                        "name": "status",
+                        "type": "integer",
+                        "value_labels": {"1": "Active"},
+                    }
+                ],
+            ),
+            ([], []),
+            (
+                None,
+                [
+                    {
+                        "name": "status",
+                        "type": "integer",
+                        "value_labels": {"1": "Active"},
+                    },
+                    {"name": "plain", "type": "text"},
+                ],
+            ),
+        ],
+        ids=["listed", "listed_labelled", "empty", "unset"],
+    )
+    async def test_an_embed_viewer_sees_only_the_allowlisted_columns(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        allowlist,
+        expected,
+    ):
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}, allowlist
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == expected
+        if not any(col["name"] == "status" for col in expected):
+            assert "Active" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("caller", "private"),
+        [("signed_in", True), ("embed", False)],
+        ids=["signed_in", "embed_on_a_public_dataset"],
+    )
+    async def test_these_viewers_still_see_every_column(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        caller,
+        private,
+    ):
+        share_token, raw_token = await self._embed_map(
+            client,
+            admin_auth_header,
+            test_db_session,
+            {"1": "Active"},
+            ["plain"],
+            private=private,
+        )
+        headers = (
+            admin_auth_header if caller == "signed_in" else {"X-Embed-Token": raw_token}
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}", headers=headers)
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == [
+            {"name": "status", "type": "integer", "value_labels": {"1": "Active"}},
+            {"name": "plain", "type": "text"},
+        ]
 
     async def test_a_viewer_without_access_to_the_dataset_gets_no_labels(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
