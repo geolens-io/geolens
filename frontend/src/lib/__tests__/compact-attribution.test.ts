@@ -18,6 +18,7 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 afterEach(() => {
   document.body.innerHTML = '';
+  vi.unstubAllGlobals();
 });
 
 it('folds a compact attribution added open on a narrow map', async () => {
@@ -65,5 +66,32 @@ it('leaves the attribution open on a wide map', async () => {
   await flush();
   expect(el).toHaveAttribute('open');
   expect(el).toHaveClass('maplibregl-compact-show');
+  stop();
+});
+
+it('folds the attribution when a wide map narrows', () => {
+  let width = 1200;
+  const root = document.createElement('div');
+  Object.defineProperty(root, 'clientWidth', { get: () => width });
+  document.body.append(root);
+  let onResize = () => {};
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        onResize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const el = attribution('maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show');
+  root.append(el);
+  const stop = keepCompactAttributionFolded(root);
+  expect(el).toHaveClass('maplibregl-compact-show');
+  width = 390;
+  onResize();
+  expect(el).not.toHaveAttribute('open');
+  expect(el).not.toHaveClass('maplibregl-compact-show');
   stop();
 });

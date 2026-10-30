@@ -9,8 +9,9 @@ const SHOWN = 'maplibregl-compact-show';
  * Folds MapLibre's compact attribution inside `root` whenever it opens by
  * itself on a map at most 640 px wide. MapLibre expands it when the control is
  * added or first gets credits, and folds it only on the first drag, so on a
- * phone it covers a small map. The "i" button still expands it. Returns a
- * function that stops watching.
+ * phone it covers a small map; it also folds it when a wider map narrows past
+ * that width. The "i" button still expands it. Returns a function that stops
+ * watching.
  */
 export function keepCompactAttributionFolded(root: HTMLElement): () => void {
   const foldIfNarrow = (el: Element) => {
@@ -42,5 +43,19 @@ export function keepCompactAttributionFolded(root: HTMLElement): () => void {
     attributeFilter: ['class'],
     attributeOldValue: true,
   });
-  return () => observer.disconnect();
+  // MapLibre leaves an open attribution open when its map narrows, so fold it on the way down.
+  let narrow = root.clientWidth <= NARROW_MAP_PX;
+  const resize =
+    typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          const nowNarrow = root.clientWidth <= NARROW_MAP_PX;
+          if (nowNarrow && !narrow) root.querySelectorAll(`.${ATTRIB}`).forEach(foldIfNarrow);
+          narrow = nowNarrow;
+        });
+  resize?.observe(root);
+  return () => {
+    observer.disconnect();
+    resize?.disconnect();
+  };
 }
