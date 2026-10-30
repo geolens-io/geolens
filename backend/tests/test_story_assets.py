@@ -143,7 +143,7 @@ async def test_an_upload_is_stored_as_upright_webp_without_metadata(
     assert (asset["width"], asset["height"]) == (20, 40)
 
     stored = await _stored_object(test_db_session, asset["id"])
-    assert asset["byte_size"] == len(stored)
+    assert asset["byte_size"] > len(stored)
     with Image.open(BytesIO(stored)) as image:
         assert image.format == "WEBP"
         assert image.size == (20, 40)

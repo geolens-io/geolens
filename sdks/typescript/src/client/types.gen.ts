@@ -13068,7 +13068,7 @@ export type StoryAssetResponse = {
     /**
      * Byte Size
      *
-     * Size of the stored WebP.
+     * Size of the stored image in all its sizes.
      */
     byte_size: number;
     /**

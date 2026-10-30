@@ -22357,7 +22357,7 @@
             "type": "integer"
           },
           "byte_size": {
-            "description": "Size of the stored WebP.",
+            "description": "Size of the stored image in all its sizes.",
             "title": "Byte Size",
             "type": "integer"
           },

@@ -16307,7 +16307,7 @@ export interface components {
             height: number;
             /**
              * Byte Size
-             * @description Size of the stored WebP.
+             * @description Size of the stored image in all its sizes.
              */
             byte_size: number;
             /**

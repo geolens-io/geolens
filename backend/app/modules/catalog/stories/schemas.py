@@ -206,7 +206,7 @@ class StoryAssetResponse(BaseModel):
     )
     width: int
     height: int
-    byte_size: int = Field(description="Size of the stored WebP.")
+    byte_size: int = Field(description="Size of the stored image in all its sizes.")
     created_at: datetime
 
 

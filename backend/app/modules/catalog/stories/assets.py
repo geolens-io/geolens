@@ -358,7 +358,7 @@ async def add_story_asset(
     409 ``story_asset_owner_limit`` past it. An ownerless story has no owner
     cap.
     """
-    adding = len(image.data)
+    adding = sum(len(data) for data in image.variants.values())
     unused: list[str] = []
     if _over_caps(await _usage(db, story.id), adding):
         unused = await prune_story_assets(db, story)
@@ -374,7 +374,7 @@ async def add_story_asset(
         id=uuid.uuid4(),
         story_id=story.id,
         storage_key=storage_key,
-        byte_size=len(image.data),
+        byte_size=adding,
         width=image.width,
         height=image.height,
         created_by=user_id,
