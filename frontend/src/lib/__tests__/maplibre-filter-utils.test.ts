@@ -472,6 +472,16 @@ describe('legacy saved filters', () => {
     }
   });
 
+  it.each(['<', '<=', '>', '>='])('keeps a legacy %s order comparison strict about number values', (op) => {
+    const filter = [op, 'pop', 6] as unknown as FilterSpecification;
+    const translated = legacyFilterToExpression(filter) as FilterSpecification;
+    for (const pop of [12, 6, 5, '12', '5', null, true]) {
+      expect(drawn(translated, { pop })).toBe(drawn(filter, { pop }));
+    }
+    expect(drawn(translated, { pop: '12' })).toBe(false);
+    expect(drawn(translated, { pop: '5' })).toBe(false);
+  });
+
   it('types the values as the expression forms do', () => {
     // Text values can't be compared with an integer column, so the server would refuse them.
     const textOnInteger = ['in', 'pop', '5', '12'] as unknown as FilterSpecification;

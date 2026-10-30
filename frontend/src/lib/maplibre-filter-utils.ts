@@ -119,9 +119,17 @@ export function nullGuardField(node: unknown): string | null {
     : null;
 }
 
-/** The comparison of a `buildNullSafeNumericComparison` pair, else null. */
+const numberTypeGuard = (field: string) => ['==', ['typeof', ['get', field]], 'number'];
+
+/**
+ * The comparison of a `buildNullSafeNumericComparison` pair, else null. A
+ * leading number-type check, which a legacy filter's comparison carries, is
+ * read through.
+ */
 function guardedComparison(node: unknown): NumericComparison | null {
   if (!Array.isArray(node) || node.length !== 3 || node[0] !== 'all') return null;
+  const inner = guardedComparison(node[2]);
+  if (inner && JSON.stringify(node[1]) === JSON.stringify(numberTypeGuard(inner.field))) return inner;
   const field = nullGuardField(node[1]);
   const parts = numericComparisonParts(node[2]);
   return field !== null &&
@@ -630,9 +638,9 @@ function legacyNode(node: unknown): unknown {
   if (values.length !== 1 || !isCql2Scalar(values[0])) return 'unsupported';
   const [value] = values;
   if (op === '==') return ['in', ['get', key], ['literal', [value]]];
-  return LEGACY_ORDER_OPERATORS.has(op) && typeof value === 'number'
-    ? buildNullSafeNumericComparison(key, op, value)
-    : 'unsupported';
+  if (!LEGACY_ORDER_OPERATORS.has(op) || typeof value !== 'number') return 'unsupported';
+  // A legacy order comparison never matches a non-number, numeric strings included.
+  return ['all', numberTypeGuard(key), buildNullSafeNumericComparison(key, op, value)];
 }
 
 /**
