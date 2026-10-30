@@ -33,16 +33,40 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
  */
 type WidgetDataRequest = DistributiveOmit<AggregateRequest, 'filter' | 'bbox'>;
 
+/** A value of a column; null stands for rows with no value. */
+export type SelectionValue = string | number | boolean | null;
+
+/**
+ * What a reader picked on a dashboard widget: the rows whose `column` holds
+ * one of `values`, or lies in `range`. A range includes its lower bound, and
+ * its upper bound only when `includeUpper`, as the last bin of a histogram
+ * does. `label` is the pick as the widget shows it, for the filter chip.
+ */
+export type WidgetSelection = { column: string; label: string } & (
+  | { values: readonly SelectionValue[] }
+  | { range: { lower: number; upper: number; includeUpper: boolean } }
+);
+
 export interface WidgetRenderProps<C> {
   config: C;
   /** The aggregate result for `dataRequest`, once the host has fetched it. */
   data?: unknown;
+  /** The reader's current pick on this widget. Its data still covers every value, so the pick shows in context. */
+  selection?: WidgetSelection | null;
+  /**
+   * Set where the host links widgets: a pick filters the widget's layer on
+   * the map and the other widgets on it, and null clears it. Without it the
+   * widget is read-only.
+   */
+  onSelect?: (selection: WidgetSelection | null) => void;
 }
 
 /** A column of the layer a dashboard widget summarizes. */
 export interface WidgetColumn {
   name: string;
   type: string;
+  /** Up to ten distinct values, sampled when the dataset was loaded, where the host has them. */
+  samples?: readonly unknown[];
 }
 
 /** A column a config reads; a `numeric` one must hold numbers. */
@@ -81,6 +105,8 @@ export interface WidgetDefinition<C> {
    */
   parseConfig: (config: unknown, v: number) => C | null;
   dataRequest?: (config: C) => WidgetDataRequest | null;
+  /** The column a reader's pick on this widget filters; a type without it takes no picks. */
+  picksColumn?: (config: C) => string;
   /** The columns `config` reads, so an editor can check them against the layer before saving. */
   readsColumns?: (config: C) => readonly WidgetColumnUse[];
   /** Dynamic import of the config editor, for hosts that edit this type. */

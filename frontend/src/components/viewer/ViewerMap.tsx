@@ -134,6 +134,8 @@ export function toViewerSyncInput(
     // `_v=` cache-buster as the builder.
     tile_version: layer.tile_version,
     bounds: layer.dataset_extent_bbox ?? null,
+    // The cluster tile route refuses a filter on a column outside the allowlist, so such a filter stays off its URL.
+    dataset_tile_columns: layer.dataset_tile_columns,
   };
 }
 
@@ -250,10 +252,18 @@ export const ViewerMap = memo(function ViewerMap({
     () => layerEntries.filter(({ layer }) => shouldFetchClusterGeoJson(layer)),
     [layerEntries],
   );
+  const boundedGeoJsonLayersRef = useRef(boundedGeoJsonLayers);
+  boundedGeoJsonLayersRef.current = boundedGeoJsonLayers;
+  // What the fetch reads: which layers, their datasets and their data
+  // versions. A filter change, such as a dashboard pick, makes new layer
+  // objects but fetches nothing new; the source filters the fetched points itself.
+  const boundedGeoJsonKey = boundedGeoJsonLayers
+    .map(({ layer, key }) => `${key}|${layer.dataset_id}|${layer.tile_version ?? ''}`)
+    .join(',');
   const boundedGeoJsonRequest = useMemo(() => ({
-    layers: boundedGeoJsonLayers,
+    boundedGeoJsonKey,
     embedToken,
-  }), [boundedGeoJsonLayers, embedToken]);
+  }), [boundedGeoJsonKey, embedToken]);
   const completedBoundedGeoJsonRequestRef = useRef<object | null>(null);
   const [geojsonVersion, setGeojsonVersion] = useState(0);
 
@@ -354,6 +364,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
   useEffect(() => {
+    const boundedGeoJsonLayers = boundedGeoJsonLayersRef.current;
     if (boundedGeoJsonLayers.length === 0) {
       if (geojsonDataRef.current.size > 0) {
         geojsonDataRef.current = new Map();
@@ -392,7 +403,8 @@ export const ViewerMap = memo(function ViewerMap({
       cancelled = true;
       controller.abort();
     };
-  }, [boundedGeoJsonLayers, boundedGeoJsonRequest, embedToken, t]);
+    // The layers are read through boundedGeoJsonLayersRef; boundedGeoJsonKey covers what changes the fetch.
+  }, [boundedGeoJsonRequest, embedToken, t]);
 
   useEffect(() => {
     if (geojsonVersion === 0) return;

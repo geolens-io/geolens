@@ -1,10 +1,13 @@
-import { useId, useState, type KeyboardEvent } from 'react';
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { useChartMarks } from '../chart-marks';
 import type { WidgetRenderProps } from '../contract';
+import { PICKED_GLYPH } from '../PickedMark';
+import { selectedValues, togglePick } from '../selection';
+import { ValueTable } from '../ValueTable';
 import type { BarChartConfig } from './definition';
-import { useBarChartText } from './bar-chart-rows';
-import { BarChartTable } from './BarChartTable';
+import { barTableProps, useBarChartText } from './bar-chart-rows';
 
 // Drawn in viewBox units; the SVG scales to the panel's width.
 const WIDTH = 320;
@@ -13,7 +16,7 @@ const VALUE_WIDTH = 56;
 const ROW_HEIGHT = 22;
 const BAR_HEIGHT = 14;
 const BAR_SPACE = WIDTH - LABEL_WIDTH - VALUE_WIDTH - 8;
-const MAX_LABEL_CHARS = 18;
+const MAX_LABEL_CHARS = 16;
 
 function clip(text: string, max: number): string {
   const chars = [...text];
@@ -25,17 +28,38 @@ function clip(text: string, max: number): string {
  * whose bars are hidden from assistive technology: arrow keys, Home and End
  * move between bars, the active bar gets an outline, and a live readout below
  * the chart names it. The data table is one click away.
+ *
+ * Where the host links widgets, a click on a bar, or Enter or Space on the
+ * active one, picks its category; picking it again clears the pick. Picked
+ * bars keep full strength and a check mark, and the others fade.
  */
-export default function BarChartRenderer({ config, data }: WidgetRenderProps<BarChartConfig>) {
+export default function BarChartRenderer({
+  config,
+  data,
+  selection,
+  onSelect,
+}: WidgetRenderProps<BarChartConfig>) {
   const { t } = useTranslation('widgets');
   const text = useBarChartText(config, data);
-  const [active, setActive] = useState<number | null>(null);
   const hintId = useId();
-  const rows = text.rows;
+  const rows = text.rows ?? [];
+  const picked = selectedValues(selection, config.column);
+  const { current, chartProps, markProps } = useChartMarks(
+    rows.length,
+    onSelect
+      ? (index) =>
+          onSelect(
+            togglePick(picked.length === 1 && picked[0] === rows[index].key, {
+              column: config.column,
+              label: rows[index].label,
+              values: [rows[index].key],
+            }),
+          )
+      : undefined,
+  );
+  const table = <ValueTable {...barTableProps(config, text, selection)} />;
 
-  if (!rows || rows.length === 0) {
-    return <BarChartTable config={config} text={text} />;
-  }
+  if (rows.length === 0) return table;
 
   // A signed domain that always holds zero, so negative bars run left of the baseline.
   const amounts = rows.map((row) => (Number.isFinite(row.amount) ? row.amount : 0));
@@ -43,52 +67,37 @@ export default function BarChartRenderer({ config, data }: WidgetRenderProps<Bar
   const span = Math.max(0, ...amounts) - low;
   const scale = span > 0 ? BAR_SPACE / span : 0;
   const zeroX = LABEL_WIDTH - low * scale;
-  const current = active === null ? null : Math.min(active, rows.length - 1);
-
-  const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
-    const last = rows.length - 1;
-    const from = current ?? -1;
-    const next: Record<string, number> = {
-      ArrowDown: Math.min(from + 1, last),
-      ArrowRight: Math.min(from + 1, last),
-      ArrowUp: Math.max(from - 1, 0),
-      ArrowLeft: Math.max(from - 1, 0),
-      Home: 0,
-      End: last,
-    };
-    if (event.key in next) {
-      event.preventDefault();
-      setActive(next[event.key]);
-    }
-  };
 
   return (
     <figure className="space-y-2">
       <svg
         viewBox={`0 0 ${WIDTH} ${rows.length * ROW_HEIGHT}`}
-        className="h-auto w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         role="group"
         aria-roledescription={t('types.bar_chart.roleDescription')}
         aria-label={text.summary}
         aria-describedby={hintId}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        onFocus={() => setActive((value) => value ?? 0)}
+        {...chartProps}
       >
         {rows.map((row, index) => {
           const y = index * ROW_HEIGHT;
           const end = zeroX + amounts[index] * scale;
           const width = Math.abs(end - zeroX);
           const isActive = index === current;
+          const isPicked = picked.includes(row.key);
           return (
-            <g key={index} aria-hidden="true">
+            <g key={index} aria-hidden="true" data-picked={isPicked || undefined} {...markProps(index)}>
+              {isPicked && (
+                <text x={0} y={y + ROW_HEIGHT / 2} dominantBaseline="middle" fontSize={11} className="fill-foreground">
+                  {PICKED_GLYPH}
+                </text>
+              )}
               <text
                 x={LABEL_WIDTH - 6}
                 y={y + ROW_HEIGHT / 2}
                 textAnchor="end"
                 dominantBaseline="middle"
                 fontSize={11}
-                className={cn('fill-foreground', isActive && 'font-semibold')}
+                className={cn('fill-foreground', (isActive || isPicked) && 'font-semibold')}
               >
                 {clip(row.label, MAX_LABEL_CHARS)}
               </text>
@@ -98,7 +107,11 @@ export default function BarChartRenderer({ config, data }: WidgetRenderProps<Bar
                 width={Math.max(width, 1)}
                 height={BAR_HEIGHT}
                 rx={2}
-                className={cn('fill-primary', isActive && 'stroke-foreground')}
+                className={cn(
+                  'fill-primary',
+                  picked.length > 0 && !isPicked && 'opacity-35',
+                  isActive && 'stroke-foreground',
+                )}
                 strokeWidth={isActive ? 2 : 0}
               />
               <text
@@ -126,7 +139,7 @@ export default function BarChartRenderer({ config, data }: WidgetRenderProps<Bar
         )}
       </svg>
       <p id={hintId} className="sr-only">
-        {t('types.bar_chart.keyboardHint')}
+        {t(onSelect ? 'types.bar_chart.keyboardHintPick' : 'types.bar_chart.keyboardHint')}
       </p>
       <figcaption className="text-sm" aria-live="polite">
         {current !== null && (
@@ -135,7 +148,7 @@ export default function BarChartRenderer({ config, data }: WidgetRenderProps<Bar
       </figcaption>
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">{t('showTable')}</summary>
-        <BarChartTable config={config} text={text} />
+        {table}
       </details>
     </figure>
   );

@@ -21,6 +21,8 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
     config: { column: 'land_use', stat: 'mean', stat_column: 'area', limit: 5 },
     fallbackText: /No data yet/,
   },
+  histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
+  category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
 };
 
 // A dashboard widget names the layer it summarizes.

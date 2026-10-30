@@ -1,6 +1,6 @@
 import type { APIRequestContext, Browser, Page } from '@playwright/test';
 import { test, expect } from './helpers/session';
-import { seedDataset, deleteDataset } from './helpers/catalog';
+import { seedCategoryDataset, seedDataset, deleteDataset } from './helpers/catalog';
 import { authHeaders, createMap, deleteMap, isMapUpdateResponse, waitForBuilder } from './helpers/maps';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
@@ -29,6 +29,16 @@ async function publicMapWithShareLink(request: APIRequestContext, datasetId: str
   return { mapId, shareToken: ((await share.json()) as { token: string }).token };
 }
 
+/** Public maps show anonymous readers only public datasets. */
+async function publishDataset(datasetId: string) {
+  const publish = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
+  });
+  expect(publish.ok).toBe(true);
+}
+
 test.describe('Map dashboards', () => {
   let datasetId = '';
   let datasetTitle = '';
@@ -39,14 +49,7 @@ test.describe('Map dashboards', () => {
     const seeded = await seedDataset('Dashboard E2E Dataset');
     datasetId = seeded.id;
     datasetTitle = seeded.title;
-
-    // Public maps show anonymous readers only public datasets.
-    const publish = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
-    });
-    expect(publish.ok).toBe(true);
+    await publishDataset(datasetId);
   });
 
   test.afterAll(async () => {
@@ -97,6 +100,82 @@ test.describe('Map dashboards', () => {
         // An embed can open with the dashboard collapsed.
         await reader.goto(`/m/${shareToken}?embed=true&dashboard=collapsed`);
         await expect(reader.getByRole('button', { name: 'Open dashboard' })).toBeVisible({ timeout: 20_000 });
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+});
+
+test.describe('Map dashboard linking', () => {
+  let datasetId = '';
+  let datasetTitle = '';
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    const seeded = await seedCategoryDataset('Dashboard Linking E2E');
+    datasetId = seeded.id;
+    datasetTitle = seeded.title;
+    await publishDataset(datasetId);
+  });
+
+  test.afterAll(async () => {
+    if (datasetId) await deleteDataset(datasetId, datasetTitle);
+  });
+
+  test('a reader clicks a bar and the other widgets on the layer follow until the chip clears it', async ({
+    page,
+    browser,
+    request,
+  }) => {
+    const { mapId, shareToken } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await page.goto(`/maps/${mapId}`);
+      await waitForBuilder(page);
+      await page.locator('[data-rail-button="dashboard"]').click();
+      for (const type of ['Bar chart', 'Indicator', 'Histogram', 'Category selector']) {
+        await page.getByRole('button', { name: `Add ${type}` }).click();
+      }
+      await expect(page.getByRole('region', { name: 'Preview' })).toHaveCount(4, { timeout: 15_000 });
+      // New widgets start on the fixture's text and numeric columns.
+      await expect(page.getByRole('combobox', { name: 'Group by' })).toHaveText('kind');
+      await expect(page.getByRole('combobox', { name: 'Column' }).nth(0)).toHaveText('height');
+
+      const saved = page.waitForResponse((response) => isMapUpdateResponse(response, mapId));
+      await page.getByRole('button', { name: /save/i }).first().click();
+      expect((await saved).status()).toBe(200);
+
+      const reader = await anonymousPage(browser);
+      try {
+        for (const path of [`/maps/${mapId}`, `/m/${shareToken}`]) {
+          await reader.goto(path);
+          const panel = reader.getByRole('region', { name: 'Dashboard' });
+          await expect(panel.getByRole('article')).toHaveCount(4, { timeout: 20_000 });
+          const [chart, indicator, histogram, selector] = await panel.getByRole('article').all();
+          await expect(indicator.getByText('6', { exact: true })).toBeVisible({ timeout: 15_000 });
+          await expect(selector.getByRole('checkbox')).toHaveCount(3);
+
+          await chart.locator('svg[aria-roledescription="bar chart"] g', { hasText: 'park' }).click();
+
+          await expect(indicator.getByText('3', { exact: true })).toBeVisible({ timeout: 15_000 });
+          await expect(selector.getByRole('checkbox')).toHaveCount(1);
+          // The histogram re-bins the parks' heights, 1 to 3.
+          await histogram.getByText('Show data table').click();
+          await expect(histogram.getByRole('rowheader').last()).toHaveText('2.9 – 3');
+          // The chart keeps every bar and marks the pick.
+          await expect(chart.locator('svg g[data-picked]')).toHaveText('✓park3');
+          await expect(chart.locator('svg rect.fill-primary')).toHaveCount(3);
+
+          const chip = panel.getByRole('button', { name: /^Remove filter kind: park/ });
+          await expect(chip).toBeVisible();
+          await chip.click();
+          await expect(chip).toHaveCount(0);
+          await expect(indicator.getByText('6', { exact: true })).toBeVisible({ timeout: 15_000 });
+          await expect(selector.getByRole('checkbox')).toHaveCount(3);
+          await expect(histogram.getByRole('rowheader').last()).toHaveText('5.75 – 6');
+        }
       } finally {
         await reader.context().close();
       }

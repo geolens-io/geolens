@@ -20,7 +20,25 @@ instances, a story or a map's `dashboard_config`, has its own `version`.
 
 A chart is SVG drawn by its renderer, with no chart library: one tab stop,
 arrow keys to move between its marks, colours from theme tokens, and its data
-table as the fallback (see `bar-chart/`).
+table as the fallback (see `bar-chart/` and `histogram/`). `chart-marks.ts`
+handles the keys and clicks, and `ValueTable.tsx` draws the table.
+
+### Picks
+
+In the viewer, dashboard widgets are linked. A renderer that receives
+`onSelect` lets the reader pick: a bar's value, a histogram bin's range, or
+selector values, as a `WidgetSelection` with the label its filter chip shows.
+The viewer passes `onSelect` only when the type names a `picksColumn` the
+server can filter on. Enter or Space picks the active mark, and picking a
+picked mark passes null. The
+viewer (`viewer/linked-filters.ts`) turns each pick into a temporary filter on
+the widget's layer: the map draws the layer with its saved filter and the
+picks, and every other widget on the layer adds them to its request. The
+widget that made a pick doesn't filter its own numbers by it, so it keeps
+showing every value, with the pick marked by a check mark and the other marks
+faded. Picks are never saved; their chips stay in the panel's header while
+it is collapsed. Without `onSelect`, as in the Builder's preview, a widget is
+read-only.
 
 A type is a `WidgetDefinition` (`contract.ts`) with:
 
@@ -32,12 +50,19 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
   or `null`. It rejects keys it doesn't know and caps strings and lists, the
   same as the type's server model (`extra="forbid"`).
 - `defaultConfig`: what a newly added instance starts with.
+- `initialConfig(columns)` (optional): changes to `defaultConfig` for an
+  instance added to a layer, such as which column it reads.
+  `initial-columns.ts` picks a category or numeric column. A column's
+  `samples` holds up to ten sampled values, so a column with fewer has few
+  categories.
 - `dataRequest(config)` (optional): the aggregate endpoint request body
   (`WidgetDataRequest`, from the generated API types) without `filter` and
   `bbox`, which the host adds.
 - `loadRenderer`: `() => import('./my-widget/MyWidgetRenderer')`. Anything
   heavy, including a new dependency, is imported only from the renderer so it
   stays out of the main bundle.
+- `picksColumn(config)` (optional): the column a reader's pick on the widget
+  filters. A type without it takes no picks.
 - `readsColumns(config)` (dashboard types): the columns the config reads, each
   marked `numeric` when it must hold numbers. The Builder checks them against
   the layer and holds the save until they match.

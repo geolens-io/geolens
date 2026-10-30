@@ -23,6 +23,8 @@ from pydantic import (
 
 from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
+    CategorySelectorWidget,
+    HistogramWidget,
     IndicatorWidget,
     KeptWidget,
     read_stored,
@@ -35,7 +37,9 @@ MAX_DASHBOARD_WIDGETS = 50
 # The dashboard types clients register. A stored widget of another type is set
 # aside and put back on save, like one this server can't parse, so a client
 # that can't show it never drops it by leaving it out.
-_Registered = IndicatorWidget | BarChartWidget
+_Registered = (
+    IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget
+)
 _ACCEPTED = get_args(_Registered)
 AcceptedWidget = Annotated[
     _Registered,

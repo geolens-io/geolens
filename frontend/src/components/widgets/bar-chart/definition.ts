@@ -1,10 +1,7 @@
 import { aggregateStat, configKeys, isColumnName, isStatistic, type Statistic } from '../aggregate';
-import { isTextColumn } from '@/lib/column-utils';
 import { defineWidget } from '../contract';
+import { categoryColumn } from '../initial-columns';
 import { BarChartFallback } from './BarChartFallback';
-
-// A unique identifier makes every bar 1, so a new chart avoids one when it can.
-const IDENTIFIER = /^(id|gid|fid|uuid|globalid|objectid)$|_id$/i;
 
 export interface BarChartConfig {
   /** The column whose values become bars. */
@@ -39,6 +36,9 @@ export const barChartWidget = defineWidget<BarChartConfig>({
     'noData',
     'noRows',
     'showTable',
+    'picked',
+    'noValue',
+    'other',
     'stats.count',
     'stats.sum',
     'stats.mean',
@@ -47,18 +47,13 @@ export const barChartWidget = defineWidget<BarChartConfig>({
     'types.bar_chart.summary',
     'types.bar_chart.roleDescription',
     'types.bar_chart.keyboardHint',
+    'types.bar_chart.keyboardHintPick',
     'types.bar_chart.bar',
-    'types.bar_chart.noValue',
-    'types.bar_chart.other',
   ],
   // `name` is a placeholder: a chart added in the Builder takes its column from
   // initialConfig, and the Builder holds a save naming a column the layer lacks.
   defaultConfig: { column: 'name', stat: 'count', stat_column: null, limit: 10 },
-  initialConfig: (columns) => {
-    const text = columns.filter((column) => isTextColumn(column.type));
-    const category = text.find((column) => !IDENTIFIER.test(column.name)) ?? text[0] ?? columns[0];
-    return category ? { column: category.name } : {};
-  },
+  initialConfig: categoryColumn,
   parseConfig: parseBarChartConfig,
   dataRequest: (config) =>
     config.stat === 'count' || config.stat_column === null
@@ -70,6 +65,7 @@ export const barChartWidget = defineWidget<BarChartConfig>({
           column: config.stat_column,
           limit: config.limit,
         },
+  picksColumn: (config) => config.column,
   readsColumns: (config) => [
     { name: config.column, numeric: false },
     ...(config.stat === 'count' || config.stat_column === null

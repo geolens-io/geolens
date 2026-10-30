@@ -1336,6 +1336,13 @@ class SharedLayerResponse(BaseModel):
     # As on MapLayerResponse.dataset_extent_bbox: an RFC 7946 bbox, with
     # west > east on an antimeridian crossing.
     dataset_extent_bbox: list[float] | None = None
+    dataset_tile_columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Dataset tile attribute allowlist, as on MapLayerResponse: null "
+            "allows all queryable columns, [] exposes none."
+        ),
+    )
 
 
 class SharedMapResponse(BaseModel):

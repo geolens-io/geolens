@@ -470,6 +470,12 @@ const CQL2_QUERYABLE_TYPES = new Set([
   'timestamp with time zone',
   'uuid',
 ]);
+/** Whether a server-side CQL2 filter can read `column`: one `columns` lists, of a type CQL2 compares. */
+export function isCql2QueryableColumn(column: string, columns: readonly FilterColumn[] | null | undefined): boolean {
+  const type = columns?.find((candidate) => candidate.name === column)?.type;
+  return CQL2_COLUMN_NAME_RE.test(column) && !!type && CQL2_QUERYABLE_TYPES.has(type.toLowerCase());
+}
+
 // The map compares a date or timestamp as the text PostgreSQL wrote into the
 // tile, so only a value in that exact form compares the same way in SQL.
 const DATE_TEXT_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -666,11 +672,76 @@ function conditionToCql2(
 }
 
 /**
+ * A filter as the editor's conditions under `all` and `any` groups, which may
+ * nest; a group whose children are all conditions is one editable level.
+ */
+type FilterTree =
+  | { kind: 'conditions'; combinator: 'all' | 'any'; conditions: CanonicalFilterCondition[] }
+  | { kind: 'group'; combinator: 'all' | 'any'; children: FilterTree[] };
+
+function parseFilterTree(expr: unknown): FilterTree | null {
+  const canonical = parseCanonicalFilter(expr as FilterSpecification);
+  if (canonical.kind === 'editable') {
+    return { kind: 'conditions', combinator: canonical.combinator, conditions: canonical.conditions };
+  }
+  if (!Array.isArray(expr) || expr.length < 2 || (expr[0] !== 'all' && expr[0] !== 'any')) return null;
+  const children: FilterTree[] = [];
+  for (const child of expr.slice(1)) {
+    const tree = parseFilterTree(child);
+    if (!tree) return null;
+    children.push(tree);
+  }
+  return { kind: 'group', combinator: expr[0], children };
+}
+
+function treeConditions(tree: FilterTree): CanonicalFilterCondition[] {
+  return tree.kind === 'conditions' ? tree.conditions : tree.children.flatMap(treeConditions);
+}
+
+/**
+ * Every condition of `filter` at any depth of `all`/`any`, or null when part
+ * of it is outside the editor's subset.
+ */
+export function filterConditions(
+  filter: FilterSpecification | null | undefined,
+): CanonicalFilterCondition[] | null {
+  const tree = parseFilterTree(filter ?? null);
+  return tree ? treeConditions(tree) : null;
+}
+
+function treeToCql2(tree: FilterTree, types: ReadonlyMap<string, string>): Cql2Expression | null | 'unsupported' {
+  const parts: Cql2Expression[] = [];
+  if (tree.kind === 'conditions') {
+    for (const condition of tree.conditions) {
+      const part = conditionToCql2(condition, types.get(condition.field));
+      if (part === null) return 'unsupported';
+      parts.push(part);
+    }
+  } else {
+    for (const child of tree.children) {
+      const part = treeToCql2(child, types);
+      if (part === 'unsupported') return 'unsupported';
+      // A child with no conditions matches everything, and so does an `any` holding it.
+      if (part === null) {
+        if (tree.combinator === 'any') return null;
+        continue;
+      }
+      parts.push(part);
+    }
+  }
+  // An empty `any` matches nothing on the map, and CQL2 here has no false literal.
+  if (parts.length === 0) return tree.combinator === 'any' ? 'unsupported' : null;
+  if (parts.length === 1) return parts[0];
+  return { op: tree.combinator === 'all' ? 'and' : 'or', args: parts };
+}
+
+/**
  * Translate a layer's MapLibre filter into CQL2-JSON that keeps the same
  * features. Returns null when the layer has no filter, and 'unsupported' when
- * the filter uses a form outside the structured editor's subset or reads a
- * column CQL2 cannot filter. `columns` types the literals; a filter on a
- * column it does not list is sent untyped.
+ * the filter uses a form outside the structured editor's subset, nested
+ * `all`/`any` groups of it included, or reads a column CQL2 cannot filter.
+ * `columns` types the literals; a filter on a column it does not list is sent
+ * untyped.
  */
 export function maplibreFilterToCql2(
   filter: FilterSpecification | null | undefined,
@@ -678,8 +749,8 @@ export function maplibreFilterToCql2(
   opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
   // The map draws the sanitized filter, so the table and analysis must read the same one.
-  const canonical = parseCanonicalFilter(sanitizeNullableNumericFilter(filter));
-  if (canonical.kind === 'opaque') return 'unsupported';
+  const tree = parseFilterTree(sanitizeNullableNumericFilter(filter));
+  if (!tree) return 'unsupported';
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
   );
@@ -689,20 +760,11 @@ export function maplibreFilterToCql2(
   // the all-rows notice instead of a table that cannot load.
   if (opts?.requireKnownFields && columns) {
     const known = new Set(columns.map((col) => col.name));
-    for (const condition of canonical.conditions) {
+    for (const condition of treeConditions(tree)) {
       if (!known.has(condition.field)) return 'unsupported';
     }
   }
-  const parts: Cql2Expression[] = [];
-  for (const condition of canonical.conditions) {
-    const part = conditionToCql2(condition, types.get(condition.field));
-    if (part === null) return 'unsupported';
-    parts.push(part);
-  }
-  // An empty `any` matches nothing on the map, and CQL2 here has no false literal.
-  if (parts.length === 0) return canonical.combinator === 'any' ? 'unsupported' : null;
-  if (parts.length === 1) return parts[0];
-  return { op: canonical.combinator === 'all' ? 'and' : 'or', args: parts };
+  return treeToCql2(tree, types);
 }
 
 /**
@@ -718,15 +780,12 @@ export function layerFilterToServerCql2(
 ): Cql2Expression | null | 'unsupported' {
   const converted = maplibreFilterToCql2(filter ?? null, columns, { requireKnownFields: true });
   if (!converted || converted === 'unsupported') return converted;
-  const canonical = parseCanonicalFilter(filter ?? null);
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
   );
-  const incompatibleLiteral =
-    canonical.kind === 'editable' &&
-    canonical.conditions.some((condition) => {
-      const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
-      return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
-    });
+  const incompatibleLiteral = (filterConditions(filter) ?? []).some((condition) => {
+    const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
+    return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
+  });
   return incompatibleLiteral ? 'unsupported' : converted;
 }

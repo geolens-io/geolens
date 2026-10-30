@@ -3,6 +3,8 @@ import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
+import { linkMapLayers } from '@/components/viewer/linked-filters';
+import type { SharedLayerResponse } from '@/types/api';
 
 vi.mock('@/lib/tile-utils', () => ({
   getMvtSourceLayerName: (table: string) => `data.${table}`,
@@ -51,6 +53,12 @@ function makeMockMap(initial?: {
     moveLayer: vi.fn(),
   } as unknown as import('maplibre-gl').Map;
 }
+
+/**
+ * The cluster tile URLs a source was built with. The filter decision also
+ * builds one with a stand-in token to measure it, which this leaves out.
+ */
+const sourceBuilds = () => vi.mocked(buildClusterTileUrl).mock.calls.filter(([, token]) => token === VECTOR_TOKEN);
 
 function makeLayer(overrides: Partial<SyncLayerInput> = {}): SyncLayerInput {
   return {
@@ -207,6 +215,45 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  it('keeps the saved filter and a dashboard pick of a value and no value in the server-cluster filter', () => {
+    const map = makeMockMap();
+    const saved = ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']];
+    const [linked] = linkMapLayers(
+      [{ id: 'cluster-1', filter: saved, column_info: [{ name: 'zone', type: 'text' }, { name: 'kind', type: 'text' }] } as SharedLayerResponse],
+      [{
+        widgetId: 'w1',
+        layerId: 'cluster-1',
+        selection: { column: 'kind', label: 'park, (no value)', values: ['park', null] },
+        cql2: { op: 'in', args: [] },
+      }],
+    );
+    const layer = makeLayer({ feature_count: 20_000, filter: linked.filter as SyncLayerInput['filter'] });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    const property = (name: string) => ({ property: name });
+    expect(JSON.parse(sourceBuilds()[0][4]!.filter!)).toEqual({
+      op: 'and',
+      args: [
+        { op: 'or', args: [{ op: '=', args: [property('zone'), 'A'] }, { op: '=', args: [property('zone'), 'B'] }] },
+        { op: 'or', args: [{ op: 'in', args: [property('kind'), ['park']] }, { op: 'isNull', args: [property('kind')] }] },
+      ],
+    });
+  });
+
+  it('leaves a nested filter off the server-cluster URL when a nested property is outside the tile allowlist', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['all', ['==', ['get', 'pop'], 5], ['any', ['has', 'other'], ['has', 'pop']]] as unknown as SyncLayerInput['filter'],
+      dataset_tile_columns: ['pop'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
+  });
+
   describe.each([
     ['absent allowlist', undefined, true],
     ['null allowlist', null, true],
@@ -230,8 +277,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
         exposed && compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
       );
       expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
@@ -277,8 +324,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
         compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
       );
       expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
@@ -304,8 +351,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-      const filter = vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter;
+      expect(sourceBuilds()).toHaveLength(1);
+      const filter = sourceBuilds()[0][4]?.filter;
       if (compatible) expect(filter).toBeDefined();
       else expect(filter).toBeUndefined();
       expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
@@ -338,8 +385,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    const filter = vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter;
+    expect(sourceBuilds()).toHaveLength(1);
+    const filter = sourceBuilds()[0][4]?.filter;
     if (compatible) expect(filter).toBeDefined();
     else expect(filter).toBeUndefined();
   });
@@ -367,8 +414,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
       syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-      expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBe(
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
         exposed && compatible ? JSON.stringify({ op: '>=', args: [{ property: 'score' }, 5] }) : undefined,
       );
     });
@@ -384,8 +431,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
     expect(map.setFilter).toHaveBeenCalledWith(
       'layer-cluster-1',
       ['all', ['!', ['has', 'point_count']], layer.filter],
@@ -409,8 +456,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeDefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeDefined();
   });
 
   it.each(['in', 'not-in'] as const)('omits the whole server filter for a mismatched %s list entry', (operator) => {
@@ -424,8 +471,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
   });
 
   it.each([
@@ -439,8 +486,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
   });
 
   it('types temporal literals in the server-cluster filter from the layer column types', () => {
@@ -453,8 +500,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    const options = vi.mocked(buildClusterTileUrl).mock.calls[0][4];
+    expect(sourceBuilds()).toHaveLength(1);
+    const options = sourceBuilds()[0][4];
     expect(JSON.parse(options?.filter ?? 'null')).toEqual({
       op: '>=',
       args: [{ property: 'seen' }, { date: '2004-01-01' }],
@@ -471,8 +518,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
   });
 
   it('drops points with a missing value for a less-than comparison, as the layer filter does', () => {
@@ -485,8 +532,8 @@ describe('syncLayersToMap cluster rendering', () => {
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
     // The layer's sanitized filter gives a missing value a high fallback, so it fails `<`.
-    expect(buildClusterTileUrl).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter ?? 'null')).toEqual({
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(JSON.parse(sourceBuilds()[0][4]?.filter ?? 'null')).toEqual({
       op: '<',
       args: [{ property: 'score' }, 5],
     });

@@ -3,6 +3,9 @@
   "noData": "Pas encore de données",
   "noRows": "Aucune donnée",
   "showTable": "Afficher le tableau de données",
+  "picked": "sélectionné",
+  "noValue": "(sans valeur)",
+  "other": "Autres",
   "stats": {
     "count": "Nombre",
     "sum": "Somme de {{column}}",
@@ -24,23 +27,51 @@
       "label": "Diagramme en barres",
       "summary": "{{stat}} par {{column}}",
       "keyboardHint": "Utilisez les flèches pour passer d’une barre à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer la carte selon une barre, puis de nouveau pour retirer le filtre.",
       "bar": "{{label}} : {{value}}",
-      "noValue": "(sans valeur)",
-      "other": "Autres",
       "roleDescription": "diagramme en barres"
+    },
+    "histogram": {
+      "label": "Histogramme",
+      "summary": "Distribution de {{column}}",
+      "keyboardHint": "Utilisez les flèches pour passer d’une classe à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’une classe à l’autre. Appuyez sur Entrée pour filtrer la carte selon une classe, puis de nouveau pour retirer le filtre.",
+      "bin": "{{range}} : {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Intervalle",
+      "roleDescription": "histogramme"
+    },
+    "category_selector": {
+      "label": "Sélecteur de catégories",
+      "summary": "Filtrer par {{column}}",
+      "all": "Tout",
+      "other": "Autres valeurs : {{value}}"
     }
   },
   "dashboard": {
     "title": "Tableau de bord",
     "open": "Ouvrir le tableau de bord",
+    "openWithFilters_one": "Ouvrir le tableau de bord, {{count}} filtre appliqué",
+    "openWithFilters_many": "Ouvrir le tableau de bord, {{count}} filtres appliqués",
+    "openWithFilters_other": "Ouvrir le tableau de bord, {{count}} filtres appliqués",
     "hide": "Masquer le tableau de bord",
     "followsView": "Suit la vue de la carte",
     "filterIgnored": "Affiche toutes les entités : le filtre de la couche ne peut pas s'appliquer à ces chiffres.",
+    "filterIgnoredWithPicks": "Applique vos filtres, mais pas le filtre propre à la couche, qui ne peut pas s’appliquer à ces chiffres.",
     "tooWide": "Trop d'entités dans la vue. Zoomez pour voir ces chiffres.",
     "loadFailed": "Impossible de charger ces chiffres.",
     "allHidden": "Les couches que résument ces widgets sont masquées. Affichez-en une dans la légende pour voir ses widgets.",
     "retry": "Réessayer",
-    "someFailed": "Certains widgets n'ont pas pu charger leurs chiffres."
+    "someFailed": "Certains widgets n'ont pas pu charger leurs chiffres.",
+    "filters": "Filtres",
+    "filterChip": "{{column}} : {{value}}",
+    "removeFilter": "Retirer le filtre {{filter}} sur {{layer}}",
+    "filterApplied": "{{layer}} filtrée sur {{filter}}.",
+    "filterCleared": "Filtre {{filter}} retiré de {{layer}}.",
+    "cantFilter": "« {{value}} » ne peut pas servir de filtre.",
+    "tooManyForClusters": "Trop de valeurs pour filtrer les regroupements de cette couche. Choisissez-en moins.",
+    "clustersCantFilter": "Ce filtre ne peut pas s’appliquer aux regroupements de cette couche sur la carte.",
+    "tooManyValues": "Trop de valeurs pour filtrer. Choisissez-en moins."
   },
   "editor": {
     "panelPosition": "Position du panneau",
@@ -71,6 +102,9 @@
     "column": "Colonne",
     "groupBy": "Regrouper par",
     "limit": "Barres",
+    "bins": "Classes",
+    "multiple": "Les lecteurs peuvent choisir plusieurs valeurs",
+    "histogramNeedsNumbers": "Cette couche n’a pas de colonne numérique à répartir en classes.",
     "pickColumn": "Choisissez une colonne",
     "problem": {
       "layerRemoved": "Sa couche n'est plus sur la carte : l'enregistrement supprimera ce widget.",

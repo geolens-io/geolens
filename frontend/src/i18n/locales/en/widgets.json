@@ -3,6 +3,9 @@
   "noData": "No data yet",
   "noRows": "No data",
   "showTable": "Show data table",
+  "picked": "picked",
+  "noValue": "(no value)",
+  "other": "Other",
   "stats": {
     "count": "Count",
     "sum": "Sum of {{column}}",
@@ -24,23 +27,51 @@
       "label": "Bar chart",
       "summary": "{{stat}} by {{column}}",
       "keyboardHint": "Use the arrow keys to move between bars.",
+      "keyboardHintPick": "Use the arrow keys to move between bars. Press Enter to filter the map by a bar, and press it again to clear the filter.",
       "bar": "{{label}}: {{value}}",
-      "noValue": "(no value)",
-      "other": "Other",
       "roleDescription": "bar chart"
+    },
+    "histogram": {
+      "label": "Histogram",
+      "summary": "Distribution of {{column}}",
+      "keyboardHint": "Use the arrow keys to move between bins.",
+      "keyboardHintPick": "Use the arrow keys to move between bins. Press Enter to filter the map to a bin, and press it again to clear the filter.",
+      "bin": "{{range}}: {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Range",
+      "roleDescription": "histogram"
+    },
+    "category_selector": {
+      "label": "Category selector",
+      "summary": "Filter by {{column}}",
+      "all": "All",
+      "other": "Other values: {{value}}"
     }
   },
   "dashboard": {
     "title": "Dashboard",
     "open": "Open dashboard",
+    "openWithFilters_one": "Open dashboard, {{count}} filter applied",
+    "openWithFilters_many": "Open dashboard, {{count}} filters applied",
+    "openWithFilters_other": "Open dashboard, {{count}} filters applied",
     "hide": "Hide dashboard",
     "followsView": "Follows the map view",
     "filterIgnored": "Shows all features: the layer's filter can't be applied to these numbers.",
+    "filterIgnoredWithPicks": "Applies your filters, but not the layer's own filter, which can't be applied to these numbers.",
     "tooWide": "Too many features in view. Zoom in to see these numbers.",
     "loadFailed": "These numbers couldn't be loaded.",
     "allHidden": "The layers these widgets summarize are hidden. Show one in the legend to see its widgets.",
     "retry": "Retry",
-    "someFailed": "Some widgets couldn't load their numbers."
+    "someFailed": "Some widgets couldn't load their numbers.",
+    "filters": "Filters",
+    "filterChip": "{{column}}: {{value}}",
+    "removeFilter": "Remove filter {{filter}} on {{layer}}",
+    "filterApplied": "Filtered {{layer}} to {{filter}}.",
+    "filterCleared": "Removed filter {{filter}} on {{layer}}.",
+    "cantFilter": "“{{value}}” can't be used as a filter.",
+    "tooManyForClusters": "Too many values to filter this layer's clusters. Pick fewer.",
+    "clustersCantFilter": "This filter can't be applied to this layer's clusters on the map.",
+    "tooManyValues": "Too many values to filter by. Pick fewer."
   },
   "editor": {
     "panelPosition": "Panel position",
@@ -71,6 +102,9 @@
     "column": "Column",
     "groupBy": "Group by",
     "limit": "Bars",
+    "bins": "Bins",
+    "multiple": "Readers can pick more than one value",
+    "histogramNeedsNumbers": "This layer has no numeric columns to bin.",
     "pickColumn": "Pick a column",
     "problem": {
       "layerRemoved": "Its layer is no longer on the map, so saving removes this widget.",

@@ -155,6 +155,9 @@ from .catalog_stats_response_datasets_by_visibility import (
     CatalogStatsResponseDatasetsByVisibility,
 )
 from .catalog_stats_response_users_by_status import CatalogStatsResponseUsersByStatus
+from .category_selector_config import CategorySelectorConfig
+from .category_selector_widget import CategorySelectorWidget
+from .category_selector_widget_scope import CategorySelectorWidgetScope
 from .change_password_request import ChangePasswordRequest
 from .chat_action import ChatAction
 from .chat_action_label_config_type_0 import ChatActionLabelConfigType0
@@ -519,10 +522,13 @@ from .group_write import GroupWrite
 from .health_response import HealthResponse
 from .health_response_providers import HealthResponseProviders
 from .histogram_bin import HistogramBin
+from .histogram_config import HistogramConfig
 from .histogram_request import HistogramRequest
 from .histogram_request_filter_type_0 import HistogramRequestFilterType0
 from .histogram_response import HistogramResponse
 from .histogram_result import HistogramResult
+from .histogram_widget import HistogramWidget
+from .histogram_widget_scope import HistogramWidgetScope
 from .image_config import ImageConfig
 from .image_widget import ImageWidget
 from .import_configuration_config_ops_import_post_mode import (
@@ -1177,6 +1183,9 @@ __all__ = (
     "CatalogStatsResponseDatasetsByGeometryType",
     "CatalogStatsResponseDatasetsByVisibility",
     "CatalogStatsResponseUsersByStatus",
+    "CategorySelectorConfig",
+    "CategorySelectorWidget",
+    "CategorySelectorWidgetScope",
     "ChangePasswordRequest",
     "ChatAction",
     "ChatActionLabelConfigType0",
@@ -1413,10 +1422,13 @@ __all__ = (
     "HealthResponse",
     "HealthResponseProviders",
     "HistogramBin",
+    "HistogramConfig",
     "HistogramRequest",
     "HistogramRequestFilterType0",
     "HistogramResponse",
     "HistogramResult",
+    "HistogramWidget",
+    "HistogramWidgetScope",
     "ImageConfig",
     "ImageWidget",
     "ImportConfigurationConfigOpsImportPostMode",

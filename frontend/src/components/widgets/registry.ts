@@ -1,6 +1,8 @@
 import { WIDGET_TITLE_MAX_LENGTH } from './contract';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSurface } from './contract';
 import { barChartWidget } from './bar-chart/definition';
+import { categorySelectorWidget } from './category-selector/definition';
+import { histogramWidget } from './histogram/definition';
 import { indicatorWidget } from './indicator/definition';
 import { markdownTextWidget } from './markdown/definition';
 
@@ -9,6 +11,8 @@ export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   markdownTextWidget,
   indicatorWidget,
   barChartWidget,
+  histogramWidget,
+  categorySelectorWidget,
 ];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));

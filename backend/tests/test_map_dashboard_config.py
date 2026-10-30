@@ -2,14 +2,17 @@
 
 import json
 import uuid
+from typing import Annotated, get_args
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from pydantic import Field, TypeAdapter
 from sqlalchemy import text
 
 import app.core.db as db_module
 from app.modules.auth.models import User
+from app.modules.catalog.maps import dashboard
 from app.modules.catalog.maps.dashboard import (
     DashboardConfigInput,
     drop_repointed,
@@ -19,6 +22,11 @@ from app.modules.catalog.maps.dashboard import (
     shows_widgets,
 )
 from app.modules.catalog.maps.service_crud import get_map, update_map
+from app.modules.catalog.widgets.schemas import (
+    BarChartWidget,
+    CategorySelectorWidget,
+    IndicatorWidget,
+)
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_embed_token_creator_access import _embed
 
@@ -29,9 +37,22 @@ _WIDGET_DEFAULTS = {
         "scope": "view",
         "config": {"column": "kind", "stat": "sum", "stat_column": "area"},
     },
-    "histogram": {"config": {"column": "height"}},
+    "histogram": {"config": {"column": "height", "bins": 12}},
+    "category_selector": {"config": {"column": "kind", "multiple": False}},
     "gauge": {},
 }
+
+
+@pytest.fixture
+def histogram_unregistered(monkeypatch):
+    """Clients register every dashboard type the schema has; this one plays a type they don't yet."""
+    registered = IndicatorWidget | BarChartWidget | CategorySelectorWidget
+    monkeypatch.setattr(dashboard, "_ACCEPTED", get_args(registered))
+    monkeypatch.setattr(
+        dashboard,
+        "_ACCEPTED_ADAPTER",
+        TypeAdapter(Annotated[registered, Field(discriminator="type")]),
+    )
 
 
 def _widget(type, layer_id=None, widget_id=None, **extra) -> dict:
@@ -172,25 +193,41 @@ class TestMergeDashboard:
         newer = {"version": 2, "widgets": [_widget("indicator", moved)]}
         assert drop_repointed(newer, {moved}) is newer
 
-    def test_types_clients_cannot_show_yet_are_kept_and_refused_on_write(self):
+    def test_every_dashboard_type_round_trips(self):
+        shown = uuid.uuid4()
+        widgets = [
+            _widget(kind, shown)
+            for kind in ("indicator", "bar_chart", "histogram", "category_selector")
+        ]
+        stored = {"version": 1, "widgets": widgets}
+
+        rendered = render_dashboard(stored, [shown]).model_dump(mode="json")
+        assert _shape(rendered["widgets"]) == _shape(widgets)
+        assert rendered["widgets"][2]["config"] == {"column": "height", "bins": 12}
+        assert rendered["widgets"][3]["config"] == {"column": "kind", "multiple": False}
+        assert shows_widgets({"version": 1, "widgets": widgets[2:]}, [shown])
+        merged = _merge({"widgets": widgets}, None, readable={shown})
+        assert _ids(merged["widgets"]) == _ids(widgets)
+
+    def test_types_clients_cannot_show_yet_are_kept(self, histogram_unregistered):
         shown = uuid.uuid4()
         histogram = _widget("histogram", shown)
         stored = {"version": 1, "widgets": [histogram]}
 
         assert render_dashboard(stored, [shown]) is None
+        assert shows_widgets(stored, [shown]) is False
         merged = _merge({"widgets": []}, stored, readable={shown})
         assert merged["widgets"] == [histogram]
-        with pytest.raises(ValueError):
-            DashboardConfigInput.model_validate(
-                {"widgets": [_widget("histogram", shown)]}
-            )
 
     @pytest.mark.parametrize("kind", ["unparseable", "unshown_type"])
-    def test_a_widget_that_goes_back_unseen_cannot_be_replaced_by_id(self, kind):
+    def test_a_widget_that_goes_back_unseen_cannot_be_replaced_by_id(
+        self, kind, request
+    ):
         shown = uuid.uuid4()
         if kind == "unparseable":
             unseen = _widget("indicator", shown, v=2)
         else:
+            request.getfixturevalue("histogram_unregistered")
             unseen = _widget("histogram", shown)
         stored = {"version": 1, "widgets": [unseen]}
 
@@ -243,8 +280,9 @@ def test_the_list_flag_agrees_with_what_a_read_renders():
         {"version": 1, "widgets": [_widget("indicator", other)]},
         {"version": 1, "widgets": [_widget("indicator", shown)]},
         {"version": 1, "widgets": [upper]},
-        # Types this server reads but doesn't show, unknown types, broken rows.
         {"version": 1, "widgets": [_widget("histogram", shown)]},
+        {"version": 1, "widgets": [_widget("category_selector", shown)]},
+        # Unknown types and broken rows.
         {"version": 1, "widgets": [_widget("gauge", shown)]},
         {
             "version": 1,
@@ -338,6 +376,8 @@ class TestDashboardConfigApi:
         widgets = [
             _widget("indicator", layer_id, title="Parcels"),
             _widget("bar_chart", layer_id),
+            _widget("histogram", layer_id),
+            _widget("category_selector", layer_id),
         ]
 
         resp = await client.put(
@@ -360,6 +400,9 @@ class TestDashboardConfigApi:
         ).json()
         assert reloaded["dashboard_config"]["widgets"][0]["title"] == "Parcels"
         assert reloaded["dashboard_config"]["widgets"][1]["scope"] == "view"
+        assert [w["config"] for w in reloaded["dashboard_config"]["widgets"][2:]] == [
+            w["config"] for w in widgets[2:]
+        ]
 
         history = (
             await client.get(f"/maps/{map_id}/history", headers=admin_auth_header)
@@ -391,7 +434,8 @@ class TestDashboardConfigApi:
 
         for widgets in (
             [{**_widget("indicator", layer_id), "type": "gauge"}],
-            [_widget("histogram", layer_id)],
+            [{**_widget("histogram", layer_id), "config": {"column": "h", "bins": 51}}],
+            [{**_widget("category_selector", layer_id), "config": {"multiple": True}}],
             [{**_widget("indicator", layer_id), "extra": True}],
             [
                 {
@@ -572,13 +616,14 @@ class TestDashboardConfigApi:
         map_id, (public_layer, private_layer) = await _map_with_layers(
             client, admin_auth_header, public_ds, private_ds, visibility="internal"
         )
-        shown, hidden = (
+        shown, selector, hidden = (
             _widget("bar_chart", public_layer),
-            _widget("indicator", private_layer),
+            _widget("category_selector", public_layer),
+            _widget("histogram", private_layer),
         )
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"dashboard_config": {"widgets": [shown, hidden]}},
+            json={"dashboard_config": {"widgets": [shown, selector, hidden]}},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
@@ -592,10 +637,11 @@ class TestDashboardConfigApi:
         (copied_layer,) = [layer["id"] for layer in fork["layers"]]
         assert copied_layer != public_layer
         assert _shape(fork["dashboard_config"]["widgets"]) == [
-            (shown["id"], "bar_chart", copied_layer)
+            (shown["id"], "bar_chart", copied_layer),
+            (selector["id"], "category_selector", copied_layer),
         ]
         stored = await _stored(test_db_session, fork["id"])
-        assert [w["layer_id"] for w in stored["widgets"]] == [copied_layer]
+        assert [w["layer_id"] for w in stored["widgets"]] == [copied_layer] * 2
 
     async def test_versions_newer_than_this_server_are_refused(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

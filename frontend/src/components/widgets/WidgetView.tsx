@@ -2,6 +2,7 @@ import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logger } from '@/lib/logger';
 import { pushReportEntry } from '@/lib/report';
+import type { WidgetSelection } from './contract';
 import type { ParsedWidget } from './registry';
 
 /** Shows the widget's fallback when its renderer fails to load or crashes. */
@@ -39,15 +40,29 @@ function UnavailableWidget() {
   );
 }
 
-/** Renders one parsed instance: its lazy renderer, with the text fallback while loading or on failure. */
-export function WidgetView({ parsed, data }: { parsed: ParsedWidget; data?: unknown }) {
+/**
+ * Renders one parsed instance: its lazy renderer, with the text fallback while
+ * loading or on failure. `selection` and `onSelect` come from a host that
+ * links widgets; see `WidgetRenderProps`.
+ */
+export function WidgetView({
+  parsed,
+  data,
+  selection,
+  onSelect,
+}: {
+  parsed: ParsedWidget;
+  data?: unknown;
+  selection?: WidgetSelection | null;
+  onSelect?: (selection: WidgetSelection | null) => void;
+}) {
   if (!parsed.ok) return <UnavailableWidget />;
   const { definition, instance } = parsed;
-  const fallback = <definition.Fallback config={instance.config} data={data} />;
+  const fallback = <definition.Fallback config={instance.config} data={data} selection={selection} />;
   return (
     <WidgetErrorBoundary type={definition.type} fallback={fallback}>
       <Suspense fallback={fallback}>
-        <definition.Renderer config={instance.config} data={data} />
+        <definition.Renderer config={instance.config} data={data} selection={selection} onSelect={onSelect} />
       </Suspense>
     </WidgetErrorBoundary>
   );

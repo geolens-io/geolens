@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isAggregateNumeric } from '@/lib/column-utils';
@@ -137,5 +139,58 @@ export function StatColumnFields({
         />
       )}
     </>
+  );
+}
+
+/**
+ * A labelled whole number from `min` to `max`. The field keeps what was typed,
+ * so it can be empty or mid-number while the config keeps its last valid
+ * value; a value set from outside (a reset draft) replaces it.
+ */
+export function IntegerField({
+  id,
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const [shown, setShown] = useState(value);
+  if (value !== shown) {
+    setShown(value);
+    setText(String(value));
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs" htmlFor={id}>
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        className="h-8"
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value);
+          const next = Number(event.target.value);
+          if (Number.isInteger(next) && next >= min && next <= max) {
+            setShown(next);
+            onChange(next);
+          }
+        }}
+        onBlur={() => setText(String(value))}
+      />
+    </div>
   );
 }

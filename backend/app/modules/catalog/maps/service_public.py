@@ -519,6 +519,7 @@ def _build_shared_layer_dict(
     ds_publication_version: int | None,
     ds_attribution: str | None,
     ds_extent: object | None,
+    ds_tile_columns: list[str] | None = None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -573,6 +574,7 @@ def _build_shared_layer_dict(
         "dataset_attribution": ds_attribution,
         # Not gated on `is_public`, for the same reason as dataset_attribution.
         "dataset_extent_bbox": extent_to_bbox(ds_extent),
+        "dataset_tile_columns": ds_tile_columns,
     }, not is_public
 
 
@@ -646,6 +648,7 @@ async def get_shared_map(
             Dataset.publication_version,
             Record.attribution,
             visible_extent_column(user, user_roles),
+            Dataset.tile_columns,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
@@ -724,6 +727,7 @@ async def get_shared_map(
         ds_publication_version,
         ds_attribution,
         ds_extent,
+        ds_tile_columns,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
@@ -743,6 +747,7 @@ async def get_shared_map(
             ds_publication_version,
             ds_attribution,
             ds_extent,
+            ds_tile_columns,
         )
         if is_non_public:
             has_non_public = True

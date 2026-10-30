@@ -290,9 +290,31 @@ describe('maplibreFilterToCql2', () => {
     });
   });
 
+  it('nests and/or for nested all/any groups, as a saved filter and a dashboard pick make', () => {
+    const notNull = (field: string) => ({ op: 'not', args: [isNull(field)] });
+    expect(
+      maplibreFilterToCql2([
+        'all',
+        ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']],
+        ['any', ['in', ['get', 'kind'], ['literal', ['park']]], ['any', ['!', ['has', 'kind']], ['==', ['get', 'kind'], null]]],
+        ['all', ['has', 'a'], ['any', ['has', 'b'], ['has', 'c']]],
+      ] as unknown as FilterSpecification),
+    ).toEqual({
+      op: 'and',
+      args: [
+        { op: 'or', args: [{ op: '=', args: [p('zone'), 'A'] }, { op: '=', args: [p('zone'), 'B'] }] },
+        { op: 'or', args: [{ op: 'in', args: [p('kind'), ['park']] }, isNull('kind')] },
+        { op: 'and', args: [notNull('a'), { op: 'or', args: [notNull('b'), notNull('c')] }] },
+      ],
+    });
+    // A group with no conditions matches everything: dropped from an `all`, and it makes an `any` match everything.
+    expect(maplibreFilterToCql2(['all', ['all'], ['has', 'a']] as unknown as FilterSpecification)).toEqual(notNull('a'));
+    expect(maplibreFilterToCql2(['any', ['all'], ['has', 'a']] as unknown as FilterSpecification)).toBeNull();
+  });
+
   it.each([
     ['an expression outside the editor subset', ['match', ['get', 'k'], 'a', true, false]],
-    ['a nested combinator', ['all', ['any', ['has', 'a'], ['has', 'b']]]],
+    ['a nested combinator holding an unsupported member', ['all', ['any', ['has', 'a'], ['match', ['get', 'k'], 'a', true, false]]]],
     ['a legacy pseudo-field', ['has', '$id']],
     ['a non-scalar comparison value', ['==', ['get', 'a'], ['get', 'b']]],
     // MapLibre shows no features for it, so dropping it would analyse them all.

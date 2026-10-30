@@ -5,9 +5,10 @@ import { fetchAggregate, type AggregateRequest } from '@/api/aggregate';
 import type { AnyWidgetDefinition, WidgetInstance } from '@/components/widgets/contract';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { wrapBboxLongitudes, type Bbox } from '@/lib/bbox';
-import { layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import { queryKeys } from '@/lib/query-keys';
 import type { SharedLayerResponse } from '@/types/api';
+import type { Cql2Expression } from '@/lib/maplibre-filter-utils';
+import { NO_PICKS, widgetFilter } from '../linked-filters';
 
 /** How long the map must rest before view-scoped widgets refetch. */
 export const VIEW_REFETCH_DEBOUNCE_MS = 400;
@@ -57,8 +58,9 @@ export function useMapViewBbox(map: MaplibreMap | null, enabled: boolean): Bbox 
 }
 
 /**
- * Fetches one dashboard widget's aggregate with its layer's saved filter and,
- * for a view-scoped widget, the map view. A filter the endpoint can't take is
+ * Fetches one dashboard widget's aggregate with its layer's saved filter, the
+ * reader's picks on the layer's other widgets (`linked`) and, for a
+ * view-scoped widget, the map view. A saved filter the endpoint can't take is
  * left out and reported as `filterIgnored`, so the widget can say so.
  */
 export function useWidgetAggregate({
@@ -67,17 +69,16 @@ export function useWidgetAggregate({
   layer,
   viewBbox,
   embedToken,
+  linked = NO_PICKS,
 }: {
   instance: WidgetInstance;
   definition: AnyWidgetDefinition;
   layer: SharedLayerResponse;
   viewBbox: Bbox | null;
   embedToken?: string;
+  linked?: readonly Cql2Expression[];
 }) {
-  const filter = useMemo(
-    () => layerFilterToServerCql2(layer.filter, layer.column_info),
-    [layer.filter, layer.column_info],
-  );
+  const { filter, savedIgnored } = useMemo(() => widgetFilter(layer, linked), [layer, linked]);
   // A table has no geometry to bound, so its widgets cover the whole layer.
   const followsView = instance.scope === 'view' && !!layer.geometry_type;
   const body = useMemo(() => {
@@ -85,7 +86,7 @@ export function useWidgetAggregate({
     if (!request) return null;
     return {
       ...request,
-      ...(filter && filter !== 'unsupported' ? { filter } : {}),
+      ...(filter ? { filter } : {}),
       ...(followsView && viewBbox ? { bbox: viewBbox } : {}),
     } as AggregateRequest;
   }, [definition, instance.config, filter, followsView, viewBbox]);
@@ -103,7 +104,7 @@ export function useWidgetAggregate({
 
   return {
     query,
-    filterIgnored: filter === 'unsupported',
+    filterIgnored: savedIgnored,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,
   };

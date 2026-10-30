@@ -1,17 +1,27 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LayoutDashboard, Loader2, PanelBottomClose, PanelRightClose } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { WidgetSelection } from '@/components/widgets/contract';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
+import { getClusterSourceStrategy } from '@/components/builder/cluster-source';
+import { useTileConfig } from '@/hooks/use-settings';
+import { isCql2QueryableColumn, type Cql2Expression } from '@/lib/maplibre-filter-utils';
+import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { readStorage, removeStorage, storageKeys, writeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
+import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
+import { usePicks } from './hooks/use-picks';
+import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
+import { layerDisplayName } from './shared-layer';
 
 type ReadyWidget = Extract<ParsedWidget, { ok: true }>;
 
@@ -31,6 +41,9 @@ export function DashboardWidget({
   embedToken,
   headingLevel = 3,
   onFailedChange,
+  linked,
+  selection,
+  onSelect,
 }: {
   parsed: ReadyWidget;
   layer: SharedLayerResponse;
@@ -40,6 +53,12 @@ export function DashboardWidget({
   headingLevel?: 3 | 4;
   /** Told when the widget's data fails or recovers, so the panel can announce it once for all widgets. */
   onFailedChange?: (id: string, failed: boolean) => void;
+  /** The reader's picks on the layer's other widgets, which filter this widget's numbers. */
+  linked?: readonly Cql2Expression[];
+  /** This widget's own pick, which it shows without filtering its own numbers by it. */
+  selection?: WidgetSelection | null;
+  /** Set where picks link widgets, as in the viewer; see `WidgetRenderProps`. */
+  onSelect?: (selection: WidgetSelection | null) => void;
 }) {
   const { t } = useTranslation('widgets');
   const headingId = useId();
@@ -51,8 +70,9 @@ export function DashboardWidget({
     layer,
     viewBbox,
     embedToken,
+    linked,
   });
-  const layerName = layer.display_name || layer.dataset_name;
+  const layerName = layerDisplayName(layer);
   const heading = instance.title || layerName;
   const followsView = instance.scope === 'view' && !!layer.geometry_type;
   // Numbers kept on screen while a pan's new ones load.
@@ -87,7 +107,9 @@ export function DashboardWidget({
         )}
       </header>
       {filterIgnored && (
-        <p className="text-xs text-muted-foreground">{t('dashboard.filterIgnored')}</p>
+        <p className="text-xs text-muted-foreground">
+          {t(linked?.length ? 'dashboard.filterIgnoredWithPicks' : 'dashboard.filterIgnored')}
+        </p>
       )}
       {failed && (
         <div className="flex flex-wrap items-center gap-2">
@@ -103,7 +125,7 @@ export function DashboardWidget({
         </Skeleton>
       ) : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
-          <WidgetView parsed={parsed} data={query.data} />
+          <WidgetView parsed={parsed} data={query.data} selection={selection} onSelect={onSelect} />
         </div>
       )}
     </article>
@@ -127,6 +149,9 @@ function DashboardWidgetList({
   map,
   embedToken,
   panel,
+  picks,
+  onChoose,
+  onFailedChange,
 }: {
   id: string;
   widgets: readonly PanelWidget[];
@@ -135,8 +160,12 @@ function DashboardWidgetList({
   map: MaplibreMap | null;
   embedToken?: string;
   panel: PanelPosition;
+  picks: readonly LinkedPick[];
+  onChoose?: (widgetId: string, layer: SharedLayerResponse, selection: WidgetSelection | null) => void;
+  onFailedChange: (id: string, failed: boolean) => void;
 }) {
   const { t } = useTranslation('widgets');
+  const { data: tileConfig } = useTileConfig();
   const layersById = useMemo(() => new Map(layers.map((layer) => [layer.id, layer])), [layers]);
   // A widget leaves the panel only when the reader turns its layer off; a
   // layer saved hidden can still drive numbers, as a reference layer does.
@@ -145,17 +174,17 @@ function DashboardWidgetList({
     : widgets;
   const followsView = shown.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view');
   const viewBbox = useMapViewBbox(map, followsView);
-  // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
-  const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const onFailedChange = useCallback((widgetId: string, failed: boolean) => {
-    setFailedIds((current) => {
-      if (current.has(widgetId) === failed) return current;
-      const next = new Set(current);
-      if (failed) next.add(widgetId);
-      else next.delete(widgetId);
-      return next;
-    });
-  }, []);
+  // Built once per change of picks, so each widget's request memo holds between them.
+  const linkedByWidget = useMemo(() => {
+    const linked = new Map<string, readonly Cql2Expression[]>();
+    for (const { parsed } of widgets) {
+      if (!parsed.ok) continue;
+      const { id: widgetId, layer_id: layerId } = parsed.instance;
+      const others = picks.filter((pick) => pick.layerId === layerId && pick.widgetId !== widgetId);
+      linked.set(widgetId, others.length > 0 ? others.map((pick) => pick.cql2) : NO_PICKS);
+    }
+    return linked;
+  }, [widgets, picks]);
 
   if (shown.length === 0) {
     return (
@@ -165,10 +194,6 @@ function DashboardWidgetList({
     );
   }
   return (
-    <>
-    <p role="status" className="sr-only">
-      {failedIds.size > 0 ? t('dashboard.someFailed') : ''}
-    </p>
     <ul
       id={id}
       className={cn(
@@ -181,6 +206,17 @@ function DashboardWidgetList({
       {shown.map(({ key, parsed }) => {
         const layer = parsed.ok ? layersById.get(parsed.instance.layer_id ?? '') : undefined;
         if (parsed.ok && layer) {
+          const { id: widgetId, config } = parsed.instance;
+          // A pick must filter both the numbers and the map, so the server has to
+          // filter on its column and the map's features have to carry it.
+          const column = parsed.definition.picksColumn?.(config);
+          // A server-clustered pick is measured against the map's tile URL, which needs the tile config.
+          const pickable =
+            !!onChoose &&
+            column !== undefined &&
+            isCql2QueryableColumn(column, layer.column_info) &&
+            mapCarriesColumn(layer, column) &&
+            (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig));
           return (
             <li key={key}>
               <DashboardWidget
@@ -189,6 +225,9 @@ function DashboardWidgetList({
                 viewBbox={parsed.instance.scope === 'view' ? viewBbox : null}
                 embedToken={embedToken}
                 onFailedChange={onFailedChange}
+                linked={linkedByWidget.get(widgetId)}
+                selection={picks.find((pick) => pick.widgetId === widgetId)?.selection ?? null}
+                onSelect={pickable ? (selection) => onChoose(widgetId, layer, selection) : undefined}
               />
             </li>
           );
@@ -203,7 +242,6 @@ function DashboardWidgetList({
         );
       })}
     </ul>
-    </>
   );
 }
 
@@ -223,13 +261,18 @@ interface DashboardPanelProps {
   mapId?: string;
   /** Start collapsed whatever the remembered choice, as an embed's `dashboard=collapsed` asks. */
   startCollapsed?: boolean;
+  /** The reader's picks, which filter their layers. They stay while the panel is collapsed. */
+  picks?: readonly LinkedPick[];
+  /** Given, a pick on a bar, bin or value filters its layer and the layer's other widgets. */
+  onPicksChange?: (picks: readonly LinkedPick[]) => void;
 }
 
 /**
  * The map's dashboard to the right of the map or below it, as its author
  * chose; on narrow screens always below. Readers
  * can collapse and reopen it; the choice is remembered per map where storage
- * allows and a map id is given. Collapsed, its widgets unmount and stop fetching.
+ * allows and a map id is given. Collapsed, its widgets unmount and stop fetching,
+ * and the chips of the reader's picks stay in its header.
  */
 export function DashboardPanel({
   config,
@@ -239,6 +282,8 @@ export function DashboardPanel({
   embedToken,
   mapId,
   startCollapsed = false,
+  picks = NO_PICKS,
+  onPicksChange,
 }: DashboardPanelProps) {
   const { t } = useTranslation('widgets');
   const contentId = useId();
@@ -246,6 +291,19 @@ export function DashboardPanel({
   const [collapsed, setCollapsed] = useState(
     () => startCollapsed || (storageKey !== null && readStorage(storageKey) === '1'),
   );
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const { choose, remove, announcement, layerName } = usePicks(picks, onPicksChange, layers);
+  // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
+  const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const onFailedChange = useCallback((widgetId: string, failed: boolean) => {
+    setFailedIds((current) => {
+      if (current.has(widgetId) === failed) return current;
+      const next = new Set(current);
+      if (failed) next.add(widgetId);
+      else next.delete(widgetId);
+      return next;
+    });
+  }, []);
 
   const widgets: PanelWidget[] = useMemo(
     () =>
@@ -266,7 +324,22 @@ export function DashboardPanel({
     if (next) writeStorage(storageKey, '1');
     else removeStorage(storageKey);
   };
-  const toggleLabel = collapsed ? t('dashboard.open') : t('dashboard.hide');
+  // The collapsed right rail stays narrow, so its toggle counts the filters instead of showing their chips.
+  const countOnToggle = collapsed && right && picks.length > 0;
+  const toggleLabel = countOnToggle
+    ? t('dashboard.openWithFilters', { count: picks.length })
+    : collapsed
+      ? t('dashboard.open')
+      : t('dashboard.hide');
+  const chips = (className?: string) => (
+    <FilterChips
+      picks={picks}
+      layerName={layerName}
+      onRemove={remove}
+      fallbackFocus={toggleRef}
+      className={className}
+    />
+  );
 
   return (
     <section
@@ -280,9 +353,14 @@ export function DashboardPanel({
         !collapsed && right && 'md:max-h-none md:w-80 lg:w-96',
       )}
     >
+      <LiveAnnouncement
+        text={[failedIds.size > 0 ? t('dashboard.someFailed') : '', announcement.text].filter(Boolean).join(' ')}
+        trigger={String(announcement.count)}
+      />
       <div className={cn('flex items-center gap-2 px-3 py-2', !collapsed && 'border-b')}>
         {!collapsed && <h2 className="flex-1 text-sm font-semibold">{t('dashboard.title')}</h2>}
         <Button
+          ref={toggleRef}
           type="button"
           variant="ghost"
           size={collapsed ? 'sm' : 'icon-sm'}
@@ -292,7 +370,17 @@ export function DashboardPanel({
           onClick={toggle}
         >
           {collapsed ? (
-            <LayoutDashboard aria-hidden="true" />
+            <>
+              <LayoutDashboard aria-hidden="true" />
+              {countOnToggle && (
+                <span
+                  aria-hidden="true"
+                  className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground tabular-nums"
+                >
+                  {picks.length}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <PanelBottomClose aria-hidden="true" className={cn(right && 'md:hidden')} />
@@ -304,7 +392,9 @@ export function DashboardPanel({
             {toggleLabel}
           </span>
         </Button>
+        {collapsed && !right && chips('min-w-0 flex-1')}
       </div>
+      {!collapsed && chips('border-b px-3 py-2')}
       {!collapsed && (
         <DashboardWidgetList
           id={contentId}
@@ -314,6 +404,9 @@ export function DashboardPanel({
           map={map}
           embedToken={embedToken}
           panel={panel}
+          picks={picks}
+          onChoose={onPicksChange ? choose : undefined}
+          onFailedChange={onFailedChange}
         />
       )}
     </section>

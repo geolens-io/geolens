@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@/test/test-utils';
 import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { fetchBoundedGeoJson, type BoundedGeoJsonResponse } from '@/api/geojson-z';
 import type { DrawnLayer } from '@/components/map/legend-facts';
+import type { SharedLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, toSharedLayer } from '@/test/fixtures/saved-layers';
 import { LayerLegend } from '../LayerLegend';
 import { ViewerMap } from '../ViewerMap';
@@ -128,6 +129,27 @@ describe('ViewerMap drawn layers', () => {
       [polygon.id, { drawsAs: 'fill' }],
       [cluster.id, { drawsAs: 'cluster' }],
     ]));
+  });
+
+  it('refetches a bounded cluster\'s GeoJSON for a new data version, not for a filter change', async () => {
+    vi.mocked(fetchBoundedGeoJson).mockResolvedValue(EMPTY_GEOJSON);
+    const view = { center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 };
+    const withCluster = (changes: Partial<SharedLayerResponse>) =>
+      SHARED_LAYERS.map((layer) => (layer.id === cluster.id ? { ...layer, ...changes } : layer));
+    const viewer = (layers: SharedLayerResponse[]) => (
+      <ViewerMap layers={layers} basemapStyle={BLANK_BASEMAP_ID} initialViewState={view} visibleLayers={VISIBLE} />
+    );
+    const { rerender } = render(viewer(withCluster({ filter: null, tile_version: 1 })));
+    await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalledTimes(1));
+
+    // A dashboard pick hands the map new layer objects with a new filter.
+    rerender(viewer(withCluster({ filter: ['==', ['get', 'kind'], 'park'], tile_version: 1 })));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchBoundedGeoJson).toHaveBeenCalledTimes(1);
+
+    // The dataset changed while the viewer stayed open.
+    rerender(viewer(withCluster({ filter: ['==', ['get', 'kind'], 'park'], tile_version: 2 })));
+    await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalledTimes(2));
   });
 
   it('reports a bounded cluster whose GeoJSON fetch failed as single points', async () => {

@@ -136,6 +136,22 @@ describe('bar chart widget', () => {
     expect(initial(columns.slice(0, 4))).toEqual({ column: 'ID' });
   });
 
+  it('prefers a text column whose sample shows few categories', () => {
+    const initial = barChartWidget.initialConfig!;
+    const tenPlaces = Array.from({ length: 10 }, (_, index) => `${index} km N of Somewhere`);
+    const columns = [
+      { name: 'place', type: 'text', samples: tenPlaces },
+      // One value makes no chart.
+      { name: 'status', type: 'text', samples: ['reviewed'] },
+      { name: 'magType', type: 'text', samples: ['md', 'ml', 'mb'] },
+    ];
+    // The sample holds at most ten values, so ten tells nothing.
+    expect(initial(columns)).toEqual({ column: 'magType' });
+    // Without samples, the first text column that isn't an identifier.
+    expect(initial(columns.map(({ samples: _samples, ...column }) => column))).toEqual({ column: 'place' });
+    expect(initial(columns.slice(0, 1))).toEqual({ column: 'place' });
+  });
+
   it('parses configs as the server does', () => {
     const parse = (config: unknown) => barChartWidget.parseConfig(config, 1);
     expect(parse({ column: 'kind' })).toEqual({ column: 'kind', stat: 'count', stat_column: null, limit: 10 });
@@ -267,6 +283,41 @@ describe('bar chart widget', () => {
 
     render(<BarChartRenderer config={chart} />);
     expect(screen.getByText('No data yet')).toBeInTheDocument();
+  });
+
+  it('picks a bar with Enter or a click, marks it, and clears it when picked again', () => {
+    const onSelect = vi.fn();
+    const { container, rerender } = render(<BarChartRenderer config={chart} data={counts} onSelect={onSelect} />);
+    const svg = screen.getByRole('group', { name: 'Count by land_use' });
+    expect(svg).toHaveAccessibleDescription(/Press Enter to filter the map by a bar/);
+
+    fireEvent.focus(svg);
+    fireEvent.keyDown(svg, { key: 'ArrowDown' });
+    fireEvent.keyDown(svg, { key: 'Enter' });
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'Commercial', values: ['Commercial'] });
+    fireEvent.click(container.querySelectorAll('svg g[aria-hidden="true"]')[2]);
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: '(no value)', values: [null] });
+
+    const picked = { column: 'land_use', label: 'Commercial', values: ['Commercial'] };
+    rerender(<BarChartRenderer config={chart} data={counts} selection={picked} onSelect={onSelect} />);
+    const bars = [...container.querySelectorAll('svg rect')];
+    expect(bars[1].getAttribute('class')).not.toContain('opacity-35');
+    expect(bars[0].getAttribute('class')).toContain('opacity-35');
+    expect(container.querySelector('[data-picked]')).toHaveTextContent(/^✓Commercial/);
+    expect(screen.getByRole('rowheader', { name: /Commercial/ })).toHaveTextContent('Commercial✓ (picked)');
+    fireEvent.keyDown(svg, { key: 'Home' });
+    fireEvent.keyDown(svg, { key: 'ArrowDown' });
+    fireEvent.keyDown(svg, { key: ' ' });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it('ignores Enter where the host does not link widgets', () => {
+    const { container } = render(<BarChartRenderer config={chart} data={counts} />);
+    const svg = screen.getByRole('group', { name: 'Count by land_use' });
+    fireEvent.focus(svg);
+    fireEvent.keyDown(svg, { key: 'Enter' });
+    expect(container.querySelector('[data-picked]')).toBeNull();
+    expect(container.querySelector('svg g.cursor-pointer')).toBeNull();
   });
 
   it('says there is no data when the result has no rows', () => {

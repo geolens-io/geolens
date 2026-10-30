@@ -1,6 +1,88 @@
+import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerType, RecordType, StyleConfig } from '@/types/api';
+import {
+  filterConditions,
+  isCql2LiteralCompatible,
+  maplibreFilterToCql2,
+  type Cql2Expression,
+} from '@/lib/maplibre-filter-utils';
 
 const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
+// The server's limits on a CQL2 filter, as compact JSON counted in characters.
+// The cluster tile route caps its `filter` query parameter (max_length in
+// processing/tiles/router.py).
+const MAX_CLUSTER_FILTER_CHARS = 4096;
+// nginx reads a request line into one `large_client_header_buffers` buffer, 8k
+// by its default of `4 8k`, which frontend/nginx.conf leaves unset. The margin
+// holds the method, the HTTP version and the tile numbers for {z}/{x}/{y}.
+const MAX_TILE_URL_CHARS = 8 * 1024 - 128;
+// Every route that compiles a filter: MAX_FEATURE_FILTER_LENGTH and
+// MAX_FEATURE_FILTER_BINDS (one bind per value) in standards/ogc/filtering.py.
+const MAX_FEATURE_FILTER_CHARS = 10_000;
+const MAX_FILTER_VALUES = 1000;
+// _MAX_FILTER_DEPTH in datasets/domain/aggregate.py, counting each object, list and value.
+const MAX_AGGREGATE_FILTER_DEPTH = 64;
+
+function countValues(node: unknown): number {
+  if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
+  if (node && typeof node === 'object') {
+    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' || key === 'op' ? 0 : countValues(child)), 0);
+  }
+  return 1;
+}
+
+function depth(node: unknown): number {
+  const children = Array.isArray(node) ? node : node && typeof node === 'object' ? Object.values(node) : null;
+  return children ? 1 + Math.max(0, ...children.map(depth)) : 1;
+}
+
+const jsonChars = (cql2: Cql2Expression) => [...JSON.stringify(cql2)].length;
+
+function fitsClusterFilterLimits(cql2: Cql2Expression): boolean {
+  return jsonChars(cql2) <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_FILTER_VALUES;
+}
+
+/** Whether a tile URL fits the request line nginx accepts. */
+export function fitsTileRequestLine(url: string): boolean {
+  return url.length <= MAX_TILE_URL_CHARS;
+}
+
+/**
+ * A layer filter as the cluster tile route's CQL2-JSON `filter`, or why it is
+ * left off: there is none, it has no CQL2 form, a literal mismatches a known
+ * column type, it reads a property outside an explicit tile allowlist
+ * (`unsupported`), or it exceeds the route's limits (`too-large`). Unlisted
+ * column types are left to the server. Left off, the bubbles count every
+ * point while loose points keep the filter.
+ */
+export function serverClusterFilter(
+  filter: FilterSpecification | null | undefined,
+  columns: readonly { name: string; type?: string | null }[] | null | undefined,
+  tileColumns: readonly string[] | null | undefined,
+): { json: string } | { omitted: 'none' | 'unsupported' | 'too-large' } {
+  const cql2 = maplibreFilterToCql2(filter, columns);
+  if (!cql2) return { omitted: 'none' };
+  if (cql2 === 'unsupported') return { omitted: 'unsupported' };
+  const types = new Map(
+    (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
+  );
+  const unreadable = (filterConditions(filter) ?? []).some((condition) => {
+    if (tileColumns != null && !tileColumns.includes(condition.field)) return true;
+    const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
+    return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
+  });
+  if (unreadable) return { omitted: 'unsupported' };
+  return fitsClusterFilterLimits(cql2) ? { json: JSON.stringify(cql2) } : { omitted: 'too-large' };
+}
+
+/** Whether the aggregate endpoint takes `cql2` as a filter; past its limits it refuses the request. */
+export function fitsAggregateFilterLimits(cql2: Cql2Expression): boolean {
+  return (
+    jsonChars(cql2) <= MAX_FEATURE_FILTER_CHARS &&
+    countValues(cql2) <= MAX_FILTER_VALUES &&
+    depth(cql2) <= MAX_AGGREGATE_FILTER_DEPTH
+  );
+}
 
 export type ClusterSourceStatus =
   | 'eligible'

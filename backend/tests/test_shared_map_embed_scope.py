@@ -208,6 +208,34 @@ class TestSharedMapEmbedScope:
         assert scope_a == {ds_a.id}
 
 
+class TestDatasetTileColumnsField:
+    async def test_the_shared_layer_carries_the_tile_column_allowlist(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        listed = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        unlisted = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        await test_db_session.execute(
+            update(Dataset)
+            .where(Dataset.id == listed.id)
+            .values(tile_columns=["kind", "height"])
+        )
+        await test_db_session.commit()
+        _map_id, share_token, layer_ids = await _make_public_shared_map(
+            client, admin_auth_header, [str(listed.id), str(unlisted.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200
+        by_id = {layer["id"]: layer for layer in resp.json()["layers"]}
+        assert by_id[layer_ids[0]]["dataset_tile_columns"] == ["kind", "height"]
+        assert by_id[layer_ids[1]]["dataset_tile_columns"] is None
+
+
 class TestDatasetExtentBboxField:
     async def test_the_shared_layer_carries_the_records_extent_as_a_bbox(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

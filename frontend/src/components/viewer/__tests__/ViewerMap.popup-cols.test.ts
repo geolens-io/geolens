@@ -46,3 +46,10 @@ describe('toViewerSyncInput popup_config preservation (#350)', () => {
     expect(getDataDrivenColumnsForLayer(input)).toEqual([]);
   });
 });
+
+describe('toViewerSyncInput tile allowlist', () => {
+  it('carries the dataset tile allowlist, which keeps a filter the cluster route refuses off its URL', () => {
+    const layer = { table_name: 'cities', dataset_id: 'ds-1', dataset_tile_columns: ['kind'] } as unknown as SharedLayerResponse;
+    expect(toViewerSyncInput(layer, 'l1', new Set(['l1'])).dataset_tile_columns).toEqual(['kind']);
+  });
+});
