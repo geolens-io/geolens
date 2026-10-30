@@ -95,6 +95,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     } else {
       // An upload still running would land its image in the replacement.
       uploads.cancelAll();
+      setFailed(false);
       setChapters(draft.document.chapters);
       setGeneration((g) => g + 1);
     }
@@ -130,16 +131,13 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     return ok;
   };
 
-  /** Saves before the page is left, refusing edits until the save fails; resolves true when it went through. */
+  /** Saves before the page is left, refusing edits from now until the save fails. */
   const saveToLeave = async () => {
     refuseEdits.current = true;
     setLeaving(true);
-    const ok = await save();
-    if (!ok) {
-      refuseEdits.current = false;
-      setLeaving(false);
-    }
-    return ok;
+    if (await save()) return;
+    refuseEdits.current = false;
+    setLeaving(false);
   };
 
   const autosave = useEffectEvent(() => void save());

@@ -404,6 +404,20 @@ async function typeUnsavedEdit(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText("Couldn't save");
 }
 
+it('drops the Retry for a failed save once the draft is discarded', async () => {
+  vi.mocked(discardStoryDraft).mockResolvedValue(draft({ revision: 5 }));
+  const user = userEvent.setup();
+  renderEditor();
+  await ready();
+  await typeUnsavedEdit(user);
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
+  expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+});
+
 it('asks before leaving with unsaved changes', async () => {
   const user = userEvent.setup();
   const router = renderEditor();
@@ -1214,6 +1228,45 @@ describe('autosave', () => {
     gate.resolve(draft({ revision: 5, document: { version: 1, chapters: lastSavedChapters() } }));
     await advance(0);
     expect(router.state.location.pathname).toBe('/stories/s1');
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits out a save already running when the author leaves, then saves what was typed meanwhile', async () => {
+    const gate = deferred<StoryDraftResponse>();
+    vi.mocked(saveStoryDraft).mockReturnValueOnce(gate.promise);
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await advance(2000);
+    await act(() => router.navigate('/stories/s1'));
+    await advance(0);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/stories/s1/edit');
+    await editTitle('Landfall 2');
+
+    gate.resolve(draft({ revision: 5, document: { version: 1, chapters: lastSavedChapters() } }));
+    await advance(0);
+    await advance(0);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(2);
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array));
+    expect(lastSavedChapters()[0].title).toBe('Landfall 2');
+    expect(router.state.location.pathname).toBe('/stories/s1');
+  });
+
+  it('stays when a save already running as the author leaves fails, and shows it', async () => {
+    const gate = deferred<StoryDraftResponse>();
+    vi.mocked(saveStoryDraft).mockReturnValueOnce(gate.promise.then(() => Promise.reject(new ApiError('Boom', 500))));
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await advance(2000);
+    await act(() => router.navigate('/stories/s1'));
+    await advance(0);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    gate.resolve(draft());
+    await advance(0);
+    expect(router.state.location.pathname).toBe('/stories/s1/edit');
+    expect(screen.getByText("Couldn't save")).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(saveStoryDraft).toHaveBeenCalledTimes(1);
   });
 

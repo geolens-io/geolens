@@ -115,19 +115,37 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const focusAfterRemove = useRef<{ id: string | null } | null>(null);
   const paneRef = useRef<StoryMapPaneHandle>(null);
   const blocker = useUnsavedGuard(dirty);
-  // Leaving saves pending edits first and asks only when they can't be saved.
-  // A failed save keeps the author here, where its error or conflict shows.
+  // Leaving waits out a running operation, then saves pending edits and asks
+  // only when they can't be saved. A save that fails on the way keeps the
+  // author here, where its error or conflict shows.
   const [askToLeave, setAskToLeave] = useState(false);
+  const waitedToLeave = useRef(false);
+  // The router applies blocker changes in a transition, and a second
+  // proceed or reset of the same block throws.
+  const leaveSettled = useRef(false);
+  const settleLeave = (go: boolean) => {
+    if (leaveSettled.current) return;
+    leaveSettled.current = true;
+    if (go) blocker.proceed?.();
+    else blocker.reset?.();
+  };
   const onLeave = useEffectEvent(() => {
-    if (!editor.canAutosave) {
-      setAskToLeave(true);
+    if (askToLeave || leaveSettled.current) return;
+    if (busy !== null) {
+      waitedToLeave.current = true;
       return;
     }
-    void editor.saveToLeave().then((saved) => (saved ? blocker.proceed?.() : blocker.reset?.()));
+    const waited = waitedToLeave.current;
+    waitedToLeave.current = false;
+    if (!dirty) settleLeave(true);
+    else if (editor.canAutosave) void editor.saveToLeave();
+    else if (waited && (failed || stale)) settleLeave(false);
+    else setAskToLeave(true);
   });
   useEffect(() => {
     if (blocker.state === 'blocked') onLeave();
-  }, [blocker.state]);
+    else leaveSettled.current = false;
+  }, [blocker.state, busy]);
   useDocumentTitle(t('editor.pageTitle', { title: story.title }));
 
   // A selection that's gone (a discard or reload replaced the chapters) falls back to the first chapter.
@@ -384,12 +402,12 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         onOpenChange={(open) => {
           if (open) return;
           setAskToLeave(false);
-          blocker.reset?.();
+          settleLeave(false);
         }}
         title={t('editor.leaveTitle')}
         description={t('editor.leaveDescription')}
         cancelLabel={t('editor.stay')}
-        confirm={{ label: t('editor.leave'), variant: 'destructive', onClick: () => blocker.proceed?.() }}
+        confirm={{ label: t('editor.leave'), variant: 'destructive', onClick: () => settleLeave(true) }}
       />
     </div>
   );
