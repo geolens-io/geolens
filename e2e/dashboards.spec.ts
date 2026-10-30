@@ -161,9 +161,9 @@ test.describe('Map dashboard linking', () => {
 
           await expect(indicator.getByText('3', { exact: true })).toBeVisible({ timeout: 15_000 });
           await expect(selector.getByRole('checkbox')).toHaveCount(1);
-          // The histogram re-bins the parks' heights, 1 to 3.
+          // The histogram re-bins the parks' whole-number heights, one bin per value.
           await histogram.getByText('Show data table').click();
-          await expect(histogram.getByRole('rowheader').last()).toHaveText('2.9 – 3');
+          await expect(histogram.getByRole('rowheader')).toHaveText(['1', '2', '3']);
           // The chart keeps every bar and marks the pick.
           await expect(chart.locator('svg g[data-picked]')).toHaveText('✓park3');
           await expect(chart.locator('svg rect.fill-primary')).toHaveCount(3);
@@ -174,7 +174,7 @@ test.describe('Map dashboard linking', () => {
           await expect(chip).toHaveCount(0);
           await expect(indicator.getByText('6', { exact: true })).toBeVisible({ timeout: 15_000 });
           await expect(selector.getByRole('checkbox')).toHaveCount(3);
-          await expect(histogram.getByRole('rowheader').last()).toHaveText('5.75 – 6');
+          await expect(histogram.getByRole('rowheader')).toHaveText(['1', '2', '3', '4', '5', '6']);
         }
       } finally {
         await reader.context().close();
