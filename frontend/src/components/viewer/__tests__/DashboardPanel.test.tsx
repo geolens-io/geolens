@@ -336,6 +336,14 @@ describe('DashboardPanel', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
+  it('says a refused filter cannot be applied, with no retry', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(new ApiError('refused', 422, { code: 'invalid_filter', message: 'Filter too deep' }));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("This widget's filter can't be applied here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
   it('leaves out widgets whose layer the reader turns off, and keeps those on layers saved hidden', async () => {
     // A reference layer saved hidden can still drive the numbers.
     const otherLayer = layer({ id: '2d9f4a6b-5e3c-4a0d-9b8f-7c4e9a3d1f56', display_name: 'Roads', visible: false });

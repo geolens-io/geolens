@@ -39,7 +39,7 @@ export function widgetName(
   );
 }
 
-/** The server refuses a column a reader can't see the way it refuses one that doesn't exist, so retrying can't help. */
+/** A refused column or filter is refused again on a retry; a column the reader can't see is refused like a missing one. */
 const REFUSED_CODES: ReadonlySet<unknown> = new Set(['invalid_column', 'invalid_filter']);
 
 function errorCode(error: unknown): unknown {
@@ -48,9 +48,12 @@ function errorCode(error: unknown): unknown {
     : undefined;
 }
 
-function errorKey(code: unknown): 'dashboard.tooWide' | 'dashboard.columnUnavailable' | 'dashboard.loadFailed' {
+function errorKey(
+  code: unknown,
+): 'dashboard.tooWide' | 'dashboard.columnUnavailable' | 'dashboard.filterRefused' | 'dashboard.loadFailed' {
   if (code === 'too_wide') return 'dashboard.tooWide';
-  return REFUSED_CODES.has(code) ? 'dashboard.columnUnavailable' : 'dashboard.loadFailed';
+  if (code === 'invalid_filter') return 'dashboard.filterRefused';
+  return code === 'invalid_column' ? 'dashboard.columnUnavailable' : 'dashboard.loadFailed';
 }
 
 /** One widget with its heading, notices and data; the Builder's editor previews widgets with it. */

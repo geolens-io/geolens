@@ -652,6 +652,13 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin, dashboardCollapse
   // opened by this browser and names the host this browser reached. Path,
   // params and sandbox stay identical.
   const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin, dashboardCollapsed });
+  // A new URL navigates the iframe again, so it waits on a fresh load and timeout.
+  const [shownSrc, setShownSrc] = useState(src);
+  if (shownSrc !== src) {
+    setShownSrc(src);
+    setLoaded(false);
+    setErrored(false);
+  }
 
   return (
     <div className="space-y-2 border-t pt-3">

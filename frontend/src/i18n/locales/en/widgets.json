@@ -66,6 +66,7 @@
     "tooWide": "Too many features in view. Zoom in to see these numbers.",
     "loadFailed": "These numbers couldn't be loaded.",
     "columnUnavailable": "This widget's column isn't available here.",
+    "filterRefused": "This widget's filter can't be applied here.",
     "allHidden": "The layers these widgets summarize are hidden. Show one in the legend to see its widgets.",
     "retry": "Retry",
     "someFailed": "Some widgets couldn't load their numbers.",

@@ -66,6 +66,7 @@
     "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
     "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
     "columnUnavailable": "Die Spalte dieses Widgets ist hier nicht verfügbar.",
+    "filterRefused": "Der Filter dieses Widgets kann hier nicht angewendet werden.",
     "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
     "retry": "Erneut versuchen",
     "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden.",

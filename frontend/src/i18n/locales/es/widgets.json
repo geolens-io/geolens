@@ -66,6 +66,7 @@
     "tooWide": "Hay demasiados elementos en la vista. Acerca el zoom para ver estas cifras.",
     "loadFailed": "No se pudieron cargar estas cifras.",
     "columnUnavailable": "La columna de este widget no está disponible aquí.",
+    "filterRefused": "El filtro de este widget no se puede aplicar aquí.",
     "allHidden": "Las capas que resumen estos widgets están ocultas. Muestra una en la leyenda para ver sus widgets.",
     "retry": "Reintentar",
     "someFailed": "Algunos widgets no pudieron cargar sus cifras.",

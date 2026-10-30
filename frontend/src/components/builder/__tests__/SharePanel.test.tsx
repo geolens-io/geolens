@@ -1156,6 +1156,20 @@ describe('SHARE-03 embed-preview iframe', () => {
     expect(snippet).toContain(`sandbox="${iframe.getAttribute('sandbox')}"`);
   });
 
+  it('waits on a fresh load when the collapsed switch changes the preview URL', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true, hasDashboard: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    fireEvent.load(iframe);
+    expect(iframe).toHaveClass('opacity-100');
+
+    await user.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
+    expect(screen.getByTestId('share-preview-iframe')).toHaveClass('opacity-0');
+  });
+
   it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {
     const user = userEvent.setup();
     setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
