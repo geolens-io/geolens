@@ -108,6 +108,7 @@ class StoryAsset(Base):
     __tablename__ = "story_assets"
     __table_args__ = (
         Index("ix_story_assets_story_id", "story_id"),
+        Index("ix_story_assets_created_by", "created_by"),
         {"schema": "catalog"},
     )
 

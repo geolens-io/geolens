@@ -29,7 +29,17 @@ from PIL import Image
 from app.modules.catalog.stories.images import decode_story_image, plan_story_image
 
 def peak():
+    # Linux keeps ru_maxrss across exec, so a child of a large pytest worker
+    # reports the worker's peak; VmHWM belongs to this process alone.
+    try:
+        with open("/proc/self/status") as status:
+            for line in status:
+                if line.startswith("VmHWM:"):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        pass
     used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Bytes on macOS, KiB elsewhere.
     return used if sys.platform == "darwin" else used * 1024
 
 warm = BytesIO()

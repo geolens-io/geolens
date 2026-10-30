@@ -76,6 +76,9 @@ def upgrade() -> None:
     op.create_index(
         "ix_story_assets_story_id", "story_assets", ["story_id"], schema="catalog"
     )
+    op.create_index(
+        "ix_story_assets_created_by", "story_assets", ["created_by"], schema="catalog"
+    )
     op.execute(
         "CREATE POLICY tenant_isolation_story_assets ON catalog.story_assets "
         "USING (tenant_id = current_setting('app.current_tenant')::uuid) "
@@ -153,6 +156,9 @@ def downgrade() -> None:
     op.drop_column("stories", "cover_asset_id", schema="catalog")
     op.execute(f"DROP TRIGGER IF EXISTS {_ASSET_TRIGGER} ON catalog.story_assets")
     op.execute(f"DROP FUNCTION IF EXISTS {_ASSET_FUNCTION}()")
+    op.drop_index(
+        "ix_story_assets_created_by", table_name="story_assets", schema="catalog"
+    )
     op.drop_index(
         "ix_story_assets_story_id", table_name="story_assets", schema="catalog"
     )
