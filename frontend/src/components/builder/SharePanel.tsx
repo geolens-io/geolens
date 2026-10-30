@@ -637,14 +637,6 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin, dashboardCollapse
   const [errored, setErrored] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
-  // (e.g. viewer error page), transition to error state with Reload affordance.
-  useEffect(() => {
-    if (!expanded || loaded || errored) return;
-    const timer = setTimeout(() => setErrored(true), 8000);
-    return () => clearTimeout(timer);
-  }, [expanded, loaded, errored, reloadKey]);
-
   // Share URL construction with generateEmbedCode via buildEmbedSrc so the
   // preview and the copyable snippet can't diverge on path or query params. The
   // ORIGIN is the one thing they may differ on, and the caller decides: the
@@ -659,6 +651,14 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin, dashboardCollapse
     setLoaded(false);
     setErrored(false);
   }
+
+  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
+  // (e.g. viewer error page), transition to error state with Reload affordance.
+  useEffect(() => {
+    if (!expanded || loaded || errored) return;
+    const timer = setTimeout(() => setErrored(true), 8000);
+    return () => clearTimeout(timer);
+  }, [expanded, loaded, errored, reloadKey, src]);
 
   return (
     <div className="space-y-2 border-t pt-3">

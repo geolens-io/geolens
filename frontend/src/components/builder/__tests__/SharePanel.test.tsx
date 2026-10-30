@@ -1105,6 +1105,10 @@ describe('SHARE-03 embed-preview iframe', () => {
     vi.useRealTimers();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('test_preview_pane_collapsed_by_default: Preview toggle visible but iframe NOT in DOM after generating link', async () => {
     const user = userEvent.setup();
     // hasNonPublic:true so embedTokenRaw is created (preview pane requires embedTokenRaw)
@@ -1168,6 +1172,24 @@ describe('SHARE-03 embed-preview iframe', () => {
 
     await user.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
     expect(screen.getByTestId('share-preview-iframe')).toHaveClass('opacity-0');
+  });
+
+  it('gives the replacement URL a full 8 seconds to load when the switch changes it mid-load', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true, hasDashboard: true });
+    await generateShareLinkAndWait(user);
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(7000));
+    fireEvent.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
+
+    act(() => vi.advanceTimersByTime(7999));
+    expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+    expect(screen.getByText('Preview unavailable')).toBeInTheDocument();
   });
 
   it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {

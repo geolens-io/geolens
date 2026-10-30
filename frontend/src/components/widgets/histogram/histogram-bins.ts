@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { isIntegerColumn } from '@/lib/column-utils';
 import { formatNumber } from '@/lib/format';
 import { aggregateResult, formatAggregateValue } from '../aggregate';
-import type { WidgetColumn, WidgetSelection } from '../contract';
+import type { WidgetSelection } from '../contract';
 import { togglePick } from '../selection';
 import type { HistogramConfig } from './definition';
 
@@ -39,11 +38,7 @@ function edgeDigits(width: number): number {
 }
 
 /** The bins of a histogram's aggregate result, labelled in the reader's locale. */
-export function useHistogramText(
-  config: HistogramConfig,
-  data: unknown,
-  columns?: readonly WidgetColumn[],
-): HistogramText {
+export function useHistogramText(config: HistogramConfig, data: unknown): HistogramText {
   const { t } = useTranslation('widgets');
   const headings = {
     summary: t('types.histogram.summary', { column: config.column }),
@@ -52,27 +47,26 @@ export function useHistogramText(
   };
   const result = aggregateResult(data, 'histogram');
   if (!result) return headings;
-  const integer = isIntegerColumn(columns?.find((column) => column.name === config.column)?.type ?? '');
+  // A server that predates the flag sends half-open bins whatever the column.
+  const whole = result.whole_numbers === true;
   const first = result.bins[0];
   const digits = first ? edgeDigits(first.upper - first.lower) : 2;
   const edge = (value: number) => formatNumber(value, { maximumFractionDigits: digits });
   return {
     ...headings,
     bins: result.bins.map((bin, index, all) => {
-      // The server bins an integer column in whole numbers, so [a, a + w) holds a to a + w - 1.
-      // Past 2^53, upper - 1 can round back to upper, so the bin stays half-open.
-      const whole = integer && Number.isSafeInteger(bin.lower) && Number.isSafeInteger(bin.upper);
-      const upper = whole ? Math.max(bin.lower, bin.upper - 1) : bin.upper;
+      // A whole-number bin [a, a + w) holds a to a + w - 1.
+      const upper = whole ? bin.upper - 1 : bin.upper;
       const lowerText = edge(bin.lower);
       const upperText = edge(upper);
       return {
         lower: bin.lower,
         upper,
-        includeUpper: whole || bin.lower === bin.upper || index === all.length - 1,
+        includeUpper: whole || index === all.length - 1,
         count: bin.count,
         lowerText,
         upperText,
-        // One value fills a single bin with no width.
+        // A bin of one value is labelled by that value.
         label:
           bin.lower === bin.upper || (whole && bin.upper - bin.lower <= 1)
             ? lowerText

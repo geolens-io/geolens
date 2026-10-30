@@ -193,6 +193,27 @@ describe('DashboardPanel', () => {
     expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
   });
 
+  it('keeps an integer column\'s histogram bins half-open when the server doesn\'t say they are whole numbers', async () => {
+    const histogram = { ...chartWidget, type: 'histogram', config: { column: 'score', bins: 2 } };
+    const bins = [
+      { lower: 10, upper: 45, count: 4 },
+      { lower: 45, upper: 80, count: 4 },
+    ];
+    // A server from before the flag bins integers as floats, the last bin holding the maximum.
+    fetchMock.mockImplementation(async () => ({ op: 'histogram', approximate: false, cached: false, result: { bins } }) as never);
+    render(
+      <DashboardPanel
+        config={dashboard([histogram])}
+        layers={[layer({ column_info: [{ name: 'score', type: 'integer' }] })]}
+        map={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['10 – 45', '45 – 80']);
+    });
+  });
+
   it('collapses and reopens, remembering the choice for the map', async () => {
     const user = userEvent.setup();
     const props = {

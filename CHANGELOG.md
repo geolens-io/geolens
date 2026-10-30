@@ -83,9 +83,10 @@ and releases use semantic versioning.
 - `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
   least one dashboard widget. Additive.
 - A histogram widget on a whole-number column bins in whole numbers;
-  `POST /datasets/{id}/aggregate` returns integer bin edges for integer columns,
-  may return fewer bins than asked for a short range, and its last bin can be
-  narrower. A widget whose column isn't available to the reader says so instead
+  `POST /datasets/{id}/aggregate` returns integer bin edges for integer columns
+  whose values are within JavaScript's safe range, marks them with
+  `whole_numbers: true`, may return fewer bins than asked for a short range,
+  and its last bin can be narrower. A widget whose column isn't available to the reader says so instead
   of offering Retry, and a bar chart shows a clipped label in full on hover.
   (Closes #3491)
 - `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile

@@ -62,8 +62,6 @@ export interface WidgetRenderProps<C> {
    * widget is read-only.
    */
   onSelect?: (selection: WidgetSelection | null) => void;
-  /** The columns of the widget's layer, where the host has them. */
-  columns?: readonly WidgetColumn[];
   /** Where the host serves the image the instance names in `asset_id`. */
   assetPath?: string;
 }

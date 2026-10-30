@@ -129,7 +129,8 @@ OPERATIONS = [
             "bins": [
                 {"lower": 10.0, "upper": 46.0, "count": 4},
                 {"lower": 46.0, "upper": 81.0, "count": 4},
-            ]
+            ],
+            "whole_numbers": True,
         },
     ),
     (
@@ -236,11 +237,14 @@ class TestOperations:
 
         assert resp.status_code == 200, resp.text
         # 10 .. 80 is 71 whole numbers; 24 to a bin keeps every edge whole.
-        assert resp.json()["result"]["bins"] == [
-            {"lower": 10.0, "upper": 34.0, "count": 3},
-            {"lower": 34.0, "upper": 58.0, "count": 2},
-            {"lower": 58.0, "upper": 81.0, "count": 3},
-        ]
+        assert resp.json()["result"] == {
+            "bins": [
+                {"lower": 10.0, "upper": 34.0, "count": 3},
+                {"lower": 34.0, "upper": 58.0, "count": 2},
+                {"lower": 58.0, "upper": 81.0, "count": 3},
+            ],
+            "whole_numbers": True,
+        }
 
     async def test_an_integer_histogram_has_no_empty_bins_between_whole_numbers(
         self, client: AsyncClient, test_db_session, points
@@ -271,7 +275,7 @@ class TestOperations:
             text(
                 f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
                 " WHEN 1 THEN -9007199254740991 WHEN 2 THEN 4503599627370496"
-                " WHEN 3 THEN 9007199254740991 END"
+                " WHEN 3 THEN 9007199254740990 END"
             )
         )
         await test_db_session.commit()
@@ -280,17 +284,52 @@ class TestOperations:
             client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
         )
 
-        # The middle value sits just below the last bin's lower edge.
+        # The middle value sits just below the last bin's lower edge, and the
+        # last upper edge is 2^53 - 1, the largest safe integer.
         assert resp.status_code == 200, resp.text
-        assert [b["count"] for b in resp.json()["result"]["bins"]] == [1, 0, 1, 1]
-        assert resp.json()["result"]["bins"][2] == {
+        result = resp.json()["result"]
+        assert result["whole_numbers"] is True
+        assert [b["count"] for b in result["bins"]] == [1, 0, 1, 1]
+        assert result["bins"][2] == {
             "lower": 1.0,
             "upper": 4503599627370497.0,
             "count": 1,
         }
+        assert result["bins"][3]["upper"] == 9007199254740991.0
 
-    async def test_a_bigint_histogram_keeps_neighbours_past_two_to_the_53(
+    async def test_a_bigint_histogram_ending_at_the_largest_safe_integer_has_float_bins(
         self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(f"UPDATE {table} SET pop = 9007199254740991 WHERE gid = 8")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        # Whole-number bins would end at 2^53, past the safe integers.
+        assert resp.status_code == 200, resp.text
+        result = resp.json()["result"]
+        assert result["whole_numbers"] is False
+        assert result["bins"][-1]["upper"] == 9007199254740991.0
+        assert [b["count"] for b in result["bins"]] == [7, 0, 0, 1]
+
+    @pytest.mark.parametrize(
+        ("values", "counts"),
+        [
+            ([2**53, 2**53 + 1, 2**53 + 1000], [2, 0, 0, 1]),
+            ([-(2**53) - 1000, -(2**53) - 1, -(2**53)], [1, 0, 0, 2]),
+        ],
+        ids=["positive", "negative"],
+    )
+    async def test_a_bigint_histogram_past_the_safe_integers_has_float_bins(
+        self, client: AsyncClient, test_db_session, points, values, counts
     ):
         table = f"data.{points.table_name}"
         await test_db_session.execute(
@@ -299,7 +338,8 @@ class TestOperations:
         await test_db_session.execute(
             text(
                 f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
-                " WHEN 1 THEN 9007199254740992 WHEN 2 THEN 9007199254740993 END"
+                f" WHEN 1 THEN {values[0]} WHEN 2 THEN {values[1]}"
+                f" WHEN 3 THEN {values[2]} END"
             )
         )
         await test_db_session.commit()
@@ -308,8 +348,21 @@ class TestOperations:
             client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
         )
 
+        # Edges 250 apart are exact doubles, and the neighbours share the bin
+        # holding both of them.
         assert resp.status_code == 200, resp.text
-        assert sum(b["count"] for b in resp.json()["result"]["bins"]) == 2
+        low = min(values)
+        assert resp.json()["result"] == {
+            "bins": [
+                {
+                    "lower": float(low + 250 * i),
+                    "upper": float(low + 250 * (i + 1)),
+                    "count": count,
+                }
+                for i, count in enumerate(counts)
+            ],
+            "whole_numbers": False,
+        }
 
     def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
         low, high = 0.3, 0.30000000000000004

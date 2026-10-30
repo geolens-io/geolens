@@ -155,13 +155,7 @@ export function DashboardWidget({
         </Skeleton>
       ) : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
-          <WidgetView
-            parsed={parsed}
-            data={query.data}
-            selection={selection}
-            onSelect={onSelect}
-            columns={layer.column_info ?? undefined}
-          />
+          <WidgetView parsed={parsed} data={query.data} selection={selection} onSelect={onSelect} />
         </div>
       )}
     </article>

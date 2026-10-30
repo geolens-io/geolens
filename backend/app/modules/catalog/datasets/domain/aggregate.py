@@ -211,10 +211,19 @@ class HistogramBin(BaseModel):
 class HistogramResult(BaseModel):
     bins: list[HistogramBin] = Field(
         description=(
-            "Equal-width bins over the finite values, empty with none; an integer"
-            " column's bins hold whole numbers, may number fewer than requested,"
-            " and the last may be narrower."
+            "Equal-width bins over the finite values, empty with none. Unless"
+            " whole_numbers is true, a bin holds its lower edge but not its upper"
+            " one, and the last bin holds both."
         )
+    )
+    whole_numbers: bool = Field(
+        False,
+        description=(
+            "Whether each bin holds the whole numbers from its lower edge to one"
+            " below its upper edge. Only an integer column has whole-number bins,"
+            " and only while every edge is a safe JavaScript integer; they may"
+            " then number fewer than requested, and the last may be narrower."
+        ),
     )
 
 
@@ -428,17 +437,22 @@ def build_aggregate_sql(
         quoted = _sql_quote_ident(request.column)
         bins = request.bins
         if data_type in _INTEGER_TYPES:
-            # Bins of whole numbers: [a, a + w) holds exactly a .. a + w - 1.
-            # Integer division on numeric keeps a bigint's bin exact, where
-            # float8 would round it.
+            # [a, a + w) holds a .. a + w - 1, by integer division on numeric
+            # since float8 rounds a bigint. Edges lie in [lo, hi + 1]; when JSON
+            # can't hold them exactly, w is NULL and the values take float bins.
+            safe = _JS_SAFE_INTEGER - 1
             return (
                 f"WITH _f AS (SELECT {number} AS x"
                 f"{from_where(f'{quoted} IS NOT NULL')}),"
-                " _r AS (SELECT min(x) AS lo, max(x) AS hi,"
-                f" greatest(1, div(max(x) - min(x) + {bins}, {bins})) AS w FROM _f)"
-                " SELECT _r.lo AS _lo, _r.hi AS _hi,"
-                " div(_f.x - _r.lo, _r.w)::int AS _b, count(*) AS _n,"
-                " _r.w AS _w FROM _f CROSS JOIN _r GROUP BY 1, 2, 3, 5 ORDER BY 3"
+                " _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f),"
+                f" _s AS (SELECT lo, hi, CASE WHEN lo >= -{safe} AND hi < {safe}"
+                f" THEN greatest(1, div(hi - lo + {bins}, {bins})) END AS w FROM _r)"
+                " SELECT _s.lo AS _lo, _s.hi AS _hi, CASE"
+                " WHEN _s.w IS NOT NULL THEN div(_f.x - _s.lo, _s.w)::int"
+                " WHEN _s.hi::float8 = _s.lo::float8 THEN 1 ELSE least(width_bucket("
+                f"_f.x::float8, _s.lo::float8, _s.hi::float8, {bins}), {bins}) END AS _b,"
+                " count(*) AS _n, _s.w AS _w"
+                " FROM _f CROSS JOIN _s GROUP BY 1, 2, 3, 5 ORDER BY 3"
             )
         head = (
             f"WITH _v AS (SELECT {number}::float8 AS x"
@@ -482,16 +496,17 @@ def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
                 count=counts.get(i, 0),
             )
             for i in range(count)
-        ]
+        ],
+        whole_numbers=True,
     )
 
 
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     if not rows:
         return HistogramResult(bins=[])
-    # An integer column's rows carry the bin width as a fifth value. They're
-    # binned before any float conversion, which can merge two large integers.
-    if len(rows[0]) == 5:
+    # An integer column's rows carry a fifth value, the width of its
+    # whole-number bins, or NULL when it was binned as floats.
+    if len(rows[0]) == 5 and rows[0][4] is not None:
         return _whole_number_histogram(rows)
     low, high = float(rows[0][0]), float(rows[0][1])
     if low == high:
@@ -659,8 +674,8 @@ def _check_filter_depth(cql2: Any) -> None:
 
 
 # Part of each result's cache key, so a server never reads an answer cached in
-# another result format; at 2, integer histogram edges are whole-number bins.
-_RESULT_FORMAT = 2
+# another result format; at 3, a histogram says whether its bins are whole numbers.
+_RESULT_FORMAT = 3
 
 
 def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
