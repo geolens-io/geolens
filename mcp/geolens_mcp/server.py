@@ -198,7 +198,9 @@ def query(
     repetition cap on self-joins, and `row_limit` rows, at most 1000).
     Returns `{columns, rows, row_count, truncated}` with rows as lists in
     column order. Geometry columns come back as hex EWKB; select
-    `ST_AsGeoJSON(geom, 6)` or `ST_AsText(geom)` for readable geometry.
+    `ST_AsText(geom)` or `ST_AsGeoJSON(geom)` for readable geometry.
+    `ST_AsGeoJSON(geom, 6)` rounds coordinates to six decimals, which suits
+    display but can make a small polygon invalid.
 
     PostGIS functions allowed: ST_Area, ST_AsGeoJSON, ST_AsText, ST_Buffer,
     ST_Centroid, ST_Collect, ST_Contains, ST_Distance, ST_DWithin,

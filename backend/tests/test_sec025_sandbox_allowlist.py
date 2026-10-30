@@ -786,6 +786,12 @@ class TestRefusalNamesTheFunction:
             expected_message="Query uses a disallowed function",
         )
 
+    def test_does_not_echo_a_quoted_name(self):
+        _assert_rejects(
+            'SELECT "WeirdName"(1)',
+            expected_message="Query uses a disallowed function",
+        )
+
 
 class TestResourceAmplificationRejected:
     """One-row SELECTs must not create attacker-sized intermediate values."""

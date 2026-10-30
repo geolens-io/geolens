@@ -340,8 +340,14 @@ def _refused_function(message: str, func: exp.Func, fn_name: str, sql: str) -> s
     sqlglot renames some functions (LPAD is ``pad``, STRING_AGG is
     ``group_concat``), so the name comes from the source span when the parser
     kept one, then from the PostgreSQL rendering, then the canonical name.
-    Only a plain identifier is echoed back.
+    Only a plain, unquoted identifier is echoed back.
     """
+    if (
+        isinstance(func, exp.Anonymous)
+        and isinstance(func.this, exp.Identifier)
+        and func.this.quoted
+    ):
+        return message
     start, end = func.meta.get("start"), func.meta.get("end")
     if isinstance(start, int) and isinstance(end, int):
         written = sql[start : end + 1].strip('"')
