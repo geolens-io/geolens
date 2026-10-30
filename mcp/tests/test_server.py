@@ -9,8 +9,11 @@ test_live_contract.py invokes them as normal functions).
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import re
 import threading
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -203,3 +206,32 @@ def test_tool_results_are_compact_json_text(monkeypatch):
     assert "\n" not in text
     assert ": " not in text.replace("<class 'object'>", "")
     assert '"name":"é"' in text
+
+
+_VALIDATOR = (
+    Path(__file__).resolve().parents[2] / "backend/app/platform/sandbox/validator.py"
+)
+# Spellings the description gives for one sandbox name.
+_SPATIAL_ALIASES = {"st_makepoint": "st_point"}
+
+
+def _sandbox_postgis_allowlist() -> set[str]:
+    # The MCP package depends only on the SDK, so the backend is read as source.
+    tree = ast.parse(_VALIDATOR.read_text())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "_ALLOWED_POSTGIS_FUNCTIONS"
+        ):
+            return set(ast.literal_eval(node.value.args[0]))
+    raise AssertionError(f"_ALLOWED_POSTGIS_FUNCTIONS not found in {_VALIDATOR}")
+
+
+def test_query_description_lists_the_sandbox_postgis_allowlist():
+    description = {tool.name: tool.description for tool in _tools()}["query"]
+    advertised = {
+        _SPATIAL_ALIASES.get(name.lower(), name.lower())
+        for name in re.findall(r"\bST_\w+", description)
+    }
+    assert advertised == _sandbox_postgis_allowlist()
