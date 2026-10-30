@@ -148,3 +148,12 @@ it('shows a story’s cover on its card, decoratively', async () => {
   expect(blob.paths).toContain('/stories/covered/assets/cover-1');
   expect(plain.querySelector('img')).toBeNull();
 });
+
+it('describes stories as text and images when there are none yet', async () => {
+  vi.mocked(listStories).mockResolvedValue({ stories: [], total: 0 });
+  renderList(false);
+  expect(await screen.findByText('No stories yet')).toBeInTheDocument();
+  expect(
+    screen.getByText('A story pairs chapters of text and images with scenes on saved maps.'),
+  ).toBeInTheDocument();
+});

@@ -9,6 +9,7 @@ import { storyAssetPath } from '@/api/stories';
 import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { prefetchMap } from '@/hooks/use-maps';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 import type { StoryChapter } from '@/types/api';
 import { chapterHeadingId, StoryChapterBody } from './StoryChapterBody';
 import { StoryMapPane } from './StoryMapPane';
@@ -43,6 +44,8 @@ interface StoryReaderProps {
 interface PanelProps extends StoryReaderProps {
   active: number;
   onActiveChange: (index: number) => void;
+  /** No chapter has a scene, so the text has the page to itself. */
+  textOnly: boolean;
 }
 
 /**
@@ -57,6 +60,8 @@ export function StoryReader({ storyId, coverAssetId, title, summary, chapters, e
   const [position, setPosition] = useState<Position>(null);
   const active = activeIndex(chapters, position);
   const sceneChapter = useMemo(() => nearestSceneChapter(chapters, active), [chapters, active]);
+  // nearestSceneChapter looks both ways, so null means no chapter has a scene.
+  const textOnly = sceneChapter === null;
   const scene = sceneChapter?.scene;
   const sceneChapterId = sceneChapter?.id;
   const resolved = useMemo(
@@ -96,18 +101,21 @@ export function StoryReader({ storyId, coverAssetId, title, summary, chapters, e
     editHref,
     active,
     onActiveChange: changeChapter,
+    textOnly,
   };
   return (
     // The map stays the second child in both layouts, so a resize across the
     // breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow.
     <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row">
       {isNarrow ? <StoryStepper {...panelProps} /> : <StoryScrollPanel {...panelProps} />}
-      <div className="relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">
-        <StoryMapPane
-          resolved={resolved}
-          emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
-        />
-      </div>
+      {!textOnly && (
+        <div className="relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">
+          <StoryMapPane
+            resolved={resolved}
+            emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
+          />
+        </div>
+      )}
       <LiveAnnouncement text={announcement} />
     </div>
   );
@@ -164,6 +172,7 @@ function StoryScrollPanel({
   editHref,
   active,
   onActiveChange,
+  textOnly,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
@@ -213,9 +222,12 @@ function StoryScrollPanel({
       tabIndex={0}
       role="region"
       aria-label={t('reader.chaptersLabel')}
-      className="min-h-0 w-[26rem] shrink-0 overflow-y-auto border-e bg-background focus-visible:outline-2 focus-visible:outline-ring lg:w-[30rem]"
+      className={cn(
+        'min-h-0 overflow-y-auto bg-background focus-visible:outline-2 focus-visible:outline-ring',
+        textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]',
+      )}
     >
-      <div className="space-y-10 p-6">
+      <div className={cn('space-y-10 p-6', textOnly && 'mx-auto max-w-2xl')}>
         <StoryHeader
           storyId={storyId}
           coverAssetId={coverAssetId}
@@ -252,6 +264,7 @@ function StoryStepper({
   editHref,
   active,
   onActiveChange,
+  textOnly,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const contentRef = useRef<HTMLDivElement>(null);
@@ -276,7 +289,7 @@ function StoryStepper({
       role="group"
       aria-label={t('reader.stepperLabel')}
       onKeyDown={handleKeyDown}
-      className="flex min-h-0 flex-1 flex-col border-t bg-background"
+      className={cn('flex min-h-0 flex-1 flex-col bg-background', !textOnly && 'border-t')}
     >
       <div
         ref={contentRef}
