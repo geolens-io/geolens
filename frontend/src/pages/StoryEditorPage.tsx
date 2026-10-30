@@ -123,7 +123,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       setAskToLeave(true);
       return;
     }
-    void editor.save().then((saved) => (saved ? blocker.proceed?.() : blocker.reset?.()));
+    void editor.saveToLeave().then((saved) => (saved ? blocker.proceed?.() : blocker.reset?.()));
   });
   useEffect(() => {
     if (blocker.state === 'blocked') onLeave();
@@ -271,9 +271,9 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col-reverse md:flex-row">
-        {/* inert while a discard or reload replaces the draft: edits made then would be lost. */}
+        {/* inert while the draft is replaced, or saved before leaving: edits made then would be lost. */}
         <div
-          inert={replacing}
+          inert={replacing || editor.leaving}
           className="min-h-0 flex-1 space-y-6 overflow-y-auto border-e bg-background p-4 md:w-[28rem] md:flex-none lg:w-[32rem]"
         >
           <ChapterList

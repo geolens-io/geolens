@@ -1191,6 +1191,30 @@ describe('autosave', () => {
     expect(screen.getByText(/changed somewhere else/)).toBeInTheDocument();
     expect(screen.getByLabelText('Chapter title')).toHaveValue('Landfall');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Chapter title').closest('[inert]')).toBeNull();
+    await editTitle('Landfall again');
+    expect(screen.getByLabelText('Chapter title')).toHaveValue('Landfall again');
+  });
+
+  it('takes no edits while the save on leaving runs, then leaves once it lands', async () => {
+    const gate = deferred<StoryDraftResponse>();
+    vi.mocked(saveStoryDraft).mockReturnValueOnce(gate.promise);
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await act(() => router.navigate('/stories/s1'));
+    await advance(0);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Saving…')).toBeInTheDocument();
+
+    const title = screen.getByLabelText('Chapter title');
+    expect(title.closest('[inert]')).not.toBeNull();
+    await editTitle('Landfall, then more');
+    expect(title).toHaveValue('Landfall');
+
+    gate.resolve(draft({ revision: 5, document: { version: 1, chapters: lastSavedChapters() } }));
+    await advance(0);
+    expect(router.state.location.pathname).toBe('/stories/s1');
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
   });
 
   it('still warns on a tab close while edits wait to save', async () => {

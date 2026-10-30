@@ -46,6 +46,10 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   // Set when a save fails; the next edit clears it and so lets autosave try again.
   const [failed, setFailed] = useState(false);
   const running = useRef(false);
+  // Set from the start of a save before leaving the page until it fails. The
+  // page goes once the save succeeds, so an edit made meanwhile would be lost.
+  const [leaving, setLeaving] = useState(false);
+  const refuseEdits = useRef(false);
   const uploads = useStoryUploads(initial.id);
   // Bumped when the working copy is replaced from the server; the page keys
   // the chapter editor on it, which drops a map choice still loading.
@@ -60,6 +64,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   const stale = conflict?.code === 'stale_revision';
 
   const edit = useCallback((change: DraftEdit) => {
+    if (refuseEdits.current) return;
     setFailed(false);
     setChapters((c) => applyDraftEdit(c, change));
   }, []);
@@ -122,6 +127,18 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     await run('save', async (same) => {
       ok = (await persist(saved.revision, same)) !== null;
     });
+    return ok;
+  };
+
+  /** Saves before the page is left, refusing edits until the save fails; resolves true when it went through. */
+  const saveToLeave = async () => {
+    refuseEdits.current = true;
+    setLeaving(true);
+    const ok = await save();
+    if (!ok) {
+      refuseEdits.current = false;
+      setLeaving(false);
+    }
     return ok;
   };
 
@@ -236,6 +253,8 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     canAutosave,
     edit,
     save,
+    saveToLeave,
+    leaving,
     overwrite,
     publish,
     discard,
