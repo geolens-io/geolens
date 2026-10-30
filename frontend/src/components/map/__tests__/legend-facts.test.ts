@@ -179,6 +179,16 @@ const swatchRows: Row[] = [
     fillFacts({ fill: '#3b82f6', fillOpacity: 0.5, stroke: { color: '#ec4b7f', width: 2 } }),
   ],
   [
+    'outline from the native fill-outline-color',
+    polygon({ 'fill-color': '#3b82f6', 'fill-outline-color': '#14532d' }),
+    fillFacts({ fill: '#3b82f6', stroke: { color: '#14532d', width: 1 } }),
+  ],
+  [
+    'builder outline over the native fill-outline-color',
+    polygon({ 'fill-color': '#3b82f6', 'fill-outline-color': '#14532d' }, { outlineColor: '#ec4b7f' }),
+    fillFacts({ fill: '#3b82f6', stroke: { color: '#ec4b7f', width: 1 } }),
+  ],
+  [
     'builder outline width over the paint mirror',
     polygon({ 'fill-color': '#3b82f6', '_outline-color': '#ec4b7f', '_outline-width': 2 }, { outlineWidth: 3 }),
     fillFacts({ fill: '#3b82f6', stroke: { color: '#ec4b7f', width: 3 } }),

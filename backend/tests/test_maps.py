@@ -3118,6 +3118,37 @@ class TestMapLayers:
             "builder": {"outline_color": "#1d4ed8", "outline_width": 1}
         }
 
+    async def test_a_sent_paint_gets_no_default_builder_outline(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {
+                        "dataset_id": str(ds.id),
+                        "paint": {
+                            "fill-color": "#22c55e",
+                            "fill-outline-color": "#14532d",
+                        },
+                    }
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        (layer,) = resp.json()["layers"]
+        builder = (layer["style_config"] or {}).get("builder") or {}
+        assert "outline_color" not in builder
+        assert layer["paint"]["fill-outline-color"] == "#14532d"
+
     async def test_update_map_layers_moves_legacy_builder_paint_to_style_config(
         self,
         client: AsyncClient,

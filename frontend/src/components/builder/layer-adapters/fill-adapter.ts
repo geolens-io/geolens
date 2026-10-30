@@ -153,7 +153,12 @@ export function resolvePolygonStroke(
   paint: Record<string, unknown>,
   builder: NonNullable<StyleConfig['builder']>,
 ): PolygonStroke {
-  const color = builder.outlineColor ?? paint['_outline-color'] ?? paint['outline-color'];
+  const nativeOutline = paint['fill-outline-color'];
+  const color =
+    builder.outlineColor ??
+    paint['_outline-color'] ??
+    paint['outline-color'] ??
+    (typeof nativeOutline === 'string' ? nativeOutline : undefined);
   const width = builder.outlineWidth ?? paint['_outline-width'] ?? paint['outline-width'];
   const authoredColor = typeof color === 'string' ? color : undefined;
   return {

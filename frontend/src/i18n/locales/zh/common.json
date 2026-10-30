@@ -520,7 +520,7 @@
     "storyVisibilityUnsupported": "故事暂时无法以此可见范围发布。",
     "dashboardTooNew": "此仪表板由较新版本的 GeoLens 保存，无法在此更改。",
     "dashboardTooManyWidgets": "一个仪表板最多包含 50 个小组件。保存前请移除一些。",
-    "dashboardWidgetsRefused": "部分仪表板小组件使用了此地图上您无法读取的图层。请移除它们或选择其他图层。",
+    "dashboardWidgetsRefused": "部分仪表板小组件使用了不在此地图上或您无法读取的图层。请移除它们或选择其他图层。",
     "storyImageUnreadable": "该文件不是可读取的图片。",
     "storyImageTooLarge": "图片过大。请上传小于 50 MB 且像素更少的文件。",
     "storyImageUnsupported": "只能上传 PNG、JPEG 和 WebP 图片。",

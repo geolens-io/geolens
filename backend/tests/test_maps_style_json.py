@@ -206,6 +206,20 @@ def test_build_maplibre_style_exports_line_dasharray_as_paint_property():
     assert "line-dasharray" not in line["layout"]
 
 
+def test_fill_outline_color_in_paint_colors_the_outline_companion():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#94a3b8", "fill-outline-color": "#14532d"},
+        label_config=None,
+        style_config=None,
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    outline = next(e for e in style["layers"] if e["type"] == "line")
+    assert outline["paint"]["line-color"] == "#14532d"
+
+
 def test_build_maplibre_style_exports_fill_companion_layers():
     layer = _layer(
         dataset_geometry_type="POLYGON",

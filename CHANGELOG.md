@@ -117,6 +117,14 @@ and releases use semantic versioning.
 - Turning a Builder layer, group or several layers off and back on no longer
   leaves the map marked "Unsaved changes" when it matches the saved map, so
   leaving the page no longer asks for confirmation. (#3465)
+- A `PUT /maps/{id}` that adds layers and saves a dashboard naming them in the
+  same request now saves instead of refusing the widgets, and a refusal says
+  why for each widget (`widgets: [{id, layer_id, reason}]`). A layer saved with
+  its own paint no longer gets the default builder outline, and a fill outline
+  follows a string `fill-outline-color` when no builder outline is set, in the
+  app and in the exported style alike. The layer `layout` and `style_config`
+  descriptions document the `_minzoom`/`_maxzoom` zoom range and the
+  `legendLabel`, `colorLabel` and `sizeLabel` keys.
 - Saving a Builder map again after a save that stored its layers but failed
   on the map's other settings no longer warns that layers changed in another
   session when you had deleted a layer group. (#3474)

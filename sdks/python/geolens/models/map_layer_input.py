@@ -36,7 +36,8 @@ class MapLayerInput:
         visible (bool | Unset):  Default: True.
         opacity (float | Unset): Layer opacity 0.0-1.0 Default: 1.0.
         paint (MapLayerInputPaintType0 | None | Unset): MapLibre paint properties override
-        layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override
+        layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override. `_minzoom` and `_maxzoom`
+            set the zoom range where the layer is visible; the exported style writes them as `minzoom` and `maxzoom`.
         display_name (None | str | Unset): Label shown in the layer list
         filter_ (list[Any] | None | Unset): MapLibre filter expression
         label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration. Accepted keys:
@@ -54,8 +55,9 @@ class MapLayerInput:
             fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed,
             heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient,
             outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Other
-            builder keys are stored and exported unchanged but have no effect. See
-            https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+            builder keys are stored and exported unchanged but have no effect. legendLabel replaces the layer's name in the
+            legend and layer list; colorLabel and sizeLabel replace the column name in the title of the color and size
+            legend sections. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
         layer_type (None | str | Unset): Auto-detected from record_type if omitted
         show_in_legend (bool | Unset): Whether to include in the map legend Default: True.
     """
