@@ -1407,14 +1407,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1734,
+    "backend/app/modules/catalog/features/router.py": 1757,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1419,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2877,
+    "backend/app/processing/tiles/router.py": 2892,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1436,7 +1436,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1678,
+    "backend/app/modules/catalog/features/service.py": 1711,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads share the one map guard beside it.

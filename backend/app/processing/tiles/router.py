@@ -86,6 +86,7 @@ from app.processing.tiles.responses import (
     _tile_headers as _tile_headers,
     _tile_response,
     tile_busy_error,
+    tile_unavailable_error,
 )
 from app.processing.tiles.service import (
     _TABLE_NAME_RE,
@@ -2384,8 +2385,9 @@ async def _acquire_and_serve_tile(
     ``(pool, conn) -> bytes | None``) plus a cache key; this owns the
     shared scaffold: bounded tile-pool acquire, a single-connection
     transaction with per-tenant role/search_path bind, error mapping
-    (timeout -> 429, broad Exception -> 503), empty-tile caching (-> 204),
-    gzip offload, cache write, usage event, and the ETag/304 response.
+    (pool acquire timeout -> 429, query timeout or broad Exception -> 503),
+    empty-tile caching (-> 204), gzip offload, cache write, usage event, and
+    the ETag/304 response.
 
     Callers own cache hits, tenant/global admission and cold rehydration.
     """
@@ -2409,11 +2411,24 @@ async def _acquire_and_serve_tile(
         # Bounded, so an exhausted pool sheds through the 429 below rather
         # than parking the request until the client gives up.
         async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
-            async with tile_conn.transaction():
-                # Bound before the tile query; a no-op in single_tenant or when
-                # tid is None.
-                await set_tenant_role_for_tile_request(tile_conn, tid)
-                tile_data = await query_callable(pool, tile_conn)
+            try:
+                async with tile_conn.transaction():
+                    # Bound before the tile query; a no-op in single_tenant or
+                    # when tid is None.
+                    await set_tenant_role_for_tile_request(tile_conn, tid)
+                    tile_data = await query_callable(pool, tile_conn)
+            except asyncio.TimeoutError:
+                # A query that outruns the command timeout will again, so a
+                # retry hint would only repeat the work.
+                logger.warning(
+                    "Tile query timeout",
+                    table_name=table_name,
+                    mode=mode,
+                    z=z,
+                    x=x,
+                    y=y,
+                )
+                raise tile_unavailable_error()
     except HTTPException:
         raise
     except asyncio.TimeoutError:
@@ -2533,10 +2548,10 @@ async def cluster_tile_endpoint(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2740,10 +2755,10 @@ async def tile_endpoint(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)

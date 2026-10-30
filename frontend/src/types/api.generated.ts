@@ -6234,10 +6234,10 @@ export interface paths {
          *     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
          *     a dataset still being restored answers 202 with a job id to poll. Requests
          *     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-         *     renders stays full for a short wait, tile-pool acquisition times out, a
-         *     tile query exceeds the pool's per-command timeout, or the configured
-         *     per-tenant concurrency limit is exceeded. Any other failure serving the
-         *     tile answers 503.
+         *     renders stays full for a short wait, tile-pool acquisition times out, or the
+         *     configured per-tenant concurrency limit is exceeded. A tile query that
+         *     exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+         *     and is not cached, as does any other failure serving the tile.
          */
         get: operations["cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get"];
         put?: never;
@@ -6424,10 +6424,10 @@ export interface paths {
          *     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
          *     a dataset still being restored answers 202 with a job id to poll. Requests
          *     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-         *     renders stays full for a short wait, tile-pool acquisition times out, a
-         *     tile query exceeds the pool's per-command timeout, or the configured
-         *     per-tenant concurrency limit is exceeded. Any other failure serving the
-         *     tile answers 503.
+         *     renders stays full for a short wait, tile-pool acquisition times out, or the
+         *     configured per-tenant concurrency limit is exceeded. A tile query that
+         *     exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+         *     and is not cached, as does any other failure serving the tile.
          */
         get: operations["tile_endpoint_tiles__table_path___z___x___y__pbf_get"];
         put?: never;

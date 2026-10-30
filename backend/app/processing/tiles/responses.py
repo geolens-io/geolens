@@ -23,6 +23,15 @@ def tile_busy_error(detail: str = "Tile service busy, please retry") -> HTTPExce
     )
 
 
+def tile_unavailable_error() -> HTTPException:
+    """A non-cacheable 503 with no cooldown, for a failure a retry would repeat."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Tile service unavailable",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
     return {
         "Content-Encoding": "gzip",

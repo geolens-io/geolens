@@ -163,6 +163,14 @@ class UnwritablePropertyError(ValueError):
     """
 
 
+class UnknownPropertyError(ValueError):
+    """A property key that is not in the dataset's stored column list."""
+
+    def __init__(self, columns: list[str]) -> None:
+        super().__init__(f"Unknown property columns: {', '.join(columns)}")
+        self.columns = columns
+
+
 class FeatureNotFoundError(ValueError):
     """The addressed feature row does not exist."""
 
@@ -195,7 +203,7 @@ def _reject_unknown_properties(
     if properties:
         unknown = sorted(k for k in properties if k not in allowed)
         if unknown:
-            raise ValueError(f"Unknown property columns: {', '.join(unknown)}")
+            raise UnknownPropertyError(unknown)
     named = allowed if replaces_all else {k for k in (properties or {}) if k in allowed}
     unwritable = sorted(n for n in named if not is_writable_feature_column(n))
     if unwritable:
@@ -292,26 +300,12 @@ async def live_property_columns(
     ``utc_timestamptz``, a timestamptz column is projected as the UTC text
     vector tiles carry, under its own name.
     """
-    from app.core.db.tenant_schema import tenant_data_schema
-    from app.core.db.tenant_session import current_tenant_var
-
-    schema = tenant_data_schema(current_tenant_var.get())
-    result = await db.execute(
-        text(
-            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype "
-            "FROM pg_attribute a "
-            "JOIN pg_class c ON c.oid = a.attrelid "
-            "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = :schema AND c.relname = :tn "
-            "AND c.relkind IN ('r', 'p', 'v', 'm', 'f') "
-            "AND a.attnum > 0 AND NOT a.attisdropped "
-            "AND a.attname NOT IN ('gid', 'geom', 'geom_4326') ORDER BY a.attnum"
-        ).bindparams(schema=schema, tn=table_name)
-    )
     allowed = None if only is None else set(only)
     columns = []
-    for name, is_timestamptz in result.all():
-        if allowed is not None and name not in allowed:
+    for name, is_timestamptz in await _table_columns(db, table_name):
+        if name in ("gid", "geom", "geom_4326") or (
+            allowed is not None and name not in allowed
+        ):
             continue
         quoted = '"' + name.replace('"', '""').replace(":", "\\:") + '"'
         columns.append(
@@ -320,6 +314,47 @@ async def live_property_columns(
             else quoted
         )
     return ", ".join(columns)
+
+
+async def _table_columns(db: AsyncSession, table_name: str) -> list[tuple[str, bool]]:
+    """The tenant-schema table's live columns in column order, each with whether it is a timestamptz."""
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    result = await db.execute(
+        text(
+            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype "
+            "FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :schema AND c.relname = :tn "
+            "AND c.relkind IN ('r', 'p', 'v', 'm', 'f') "
+            "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
+        ).bindparams(schema=tenant_data_schema(current_tenant_var.get()), tn=table_name)
+    )
+    return [(name, bool(is_timestamptz)) for name, is_timestamptz in result.all()]
+
+
+async def unknown_property_detail(
+    db: AsyncSession, error: UnknownPropertyError, table_name: str, *, registered: bool
+) -> str:
+    """The refusal text, plus the way out when the column was added after registration.
+
+    Reads use the live table while writes check the stored column list, so a
+    column added in SQL to a registered table is readable but not yet writable
+    until a refresh re-reads the table.
+    """
+    detail = str(error)
+    if not registered:
+        return detail
+    live = {name for name, _ in await _table_columns(db, table_name)}
+    present = [c for c in error.columns if c in live]
+    if not present:
+        return detail
+    return (
+        f"{detail}. {', '.join(present)} exists in the table but not in "
+        "GeoLens's column list; refresh the dataset to pick it up."
+    )
 
 
 async def feature_table_exists(db: AsyncSession, table_name: str) -> bool:
@@ -569,17 +604,15 @@ async def get_features(
 
     if bbox is not None and has_geometry:
         if bbox[0] > bbox[2]:
-            # Antimeridian-crossing: split into two envelopes (each with && pre-filter for index)
+            # Antimeridian-crossing: split into two envelopes. ST_Intersects supplies
+            # the index condition itself; a separate && would count its selectivity twice.
             where_clauses.append(
-                "((geom_4326 && ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)))"
-                " OR (geom_4326 && ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326))))"
+                "(ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326))"
+                " OR ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)))"
             )
         else:
             where_clauses.append(
-                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
+                "ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
             )
         bind_values["minx"] = bbox[0]
         bind_values["miny"] = bbox[1]
