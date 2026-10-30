@@ -190,7 +190,7 @@ describe('DashboardPanel', () => {
       'Count by Land use',
     ]);
     expect(within(panel).getAllByText('City parcels')).toHaveLength(4);
-    expect(within(panel).getByRole('article', { name: 'Sum of score' })).toBeInTheDocument();
+    expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
   });
 
   it('collapses and reopens, remembering the choice for the map', async () => {

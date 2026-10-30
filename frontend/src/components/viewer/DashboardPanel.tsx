@@ -76,6 +76,7 @@ export function DashboardWidget({
 }) {
   const { t } = useTranslation('widgets');
   const headingId = useId();
+  const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
   const { query, filterIgnored, loading } = useWidgetAggregate({
@@ -101,7 +102,8 @@ export function DashboardWidget({
 
   return (
     <article
-      aria-labelledby={headingId}
+      // A derived name like "Count" repeats across layers, so the layer joins it.
+      aria-labelledby={layerBelow && !instance.title?.trim() ? `${headingId} ${layerLineId}` : headingId}
       aria-busy={query.isFetching}
       className="space-y-2 rounded-md border bg-card p-3 text-card-foreground"
     >
@@ -116,7 +118,7 @@ export function DashboardWidget({
         </div>
         {(layerBelow || followsView) && (
           <p className="text-xs text-muted-foreground break-words">
-            {layerBelow && layerName}
+            {layerBelow && <span id={layerLineId}>{layerName}</span>}
             {layerBelow && followsView && ' · '}
             {followsView && t('dashboard.followsView')}
           </p>
